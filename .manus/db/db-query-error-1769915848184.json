@@ -1,0 +1,8 @@
+{
+  "query": "\n-- users 테이블에 tenant_id 컬럼 추가\nALTER TABLE users ADD COLUMN tenant_id INT NOT NULL DEFAULT 1 AFTER id;\n\n-- tenants 테이블에 외래 키 추가\nALTER TABLE users ADD CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id);\n\n-- 기본 테넌트 확인\nSELECT * FROM tenants LIMIT 5;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute \n-- users 테이블에 tenant_id 컬럼 추가\nALTER TABLE users ADD COLUMN tenant_id INT NOT NULL DEFAULT 1 AFTER id;\n\n-- tenants 테이블에 외래 키 추가\nALTER TABLE users ADD CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id);\n\n-- 기본 테넌트 확인\nSELECT * FROM tenants LIMIT 5;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1824 (HY000) at line 6: Failed to open the referenced table 'tenants'"
+  ]
+}

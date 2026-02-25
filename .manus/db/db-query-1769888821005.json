@@ -1,0 +1,146 @@
+{
+  "query": "SHOW COLUMNS FROM h_inventory_transactions;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute SHOW COLUMNS FROM h_inventory_transactions;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "lot_id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "transaction_type",
+      "Type": "enum('receipt','outbound','usage','adjustment','transfer','disposal','return')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "quantity",
+      "Type": "decimal(10,3)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "unit",
+      "Type": "varchar(20)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "reference_type",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "reference_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "notes",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "created_by",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "created_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "inventory_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "unit_cost",
+      "Type": "decimal(10,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "amount",
+      "Type": "decimal(15,2)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "transaction_date",
+      "Type": "date",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "source_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "source_line_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "action_type",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tbigint(20)\tNO\tPRI\tNULL\tauto_increment\nlot_id\tbigint(20)\tNO\t\tNULL\t\ntransaction_type\tenum('receipt','outbound','usage','adjustment','transfer','disposal','return')\tNO\t\tNULL\t\nquantity\tdecimal(10,3)\tNO\t\tNULL\t\nunit\tvarchar(20)\tNO\t\tNULL\t\nreference_type\tvarchar(50)\tYES\t\tNULL\t\nreference_id\tbigint(20)\tYES\t\tNULL\t\nnotes\ttext\tYES\t\tNULL\t\ncreated_by\tbigint(20)\tNO\t\tNULL\t\ncreated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\ninventory_id\tbigint(20)\tYES\t\tNULL\t\nunit_cost\tdecimal(10,2)\tYES\t\tNULL\t\namount\tdecimal(15,2)\tYES\t\tNULL\t\ntransaction_date\tdate\tYES\t\tNULL\t\nsource_id\tbigint(20)\tYES\t\tNULL\t\nsource_line_id\tbigint(20)\tYES\t\tNULL\t\naction_type\tvarchar(50)\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 1563
+}

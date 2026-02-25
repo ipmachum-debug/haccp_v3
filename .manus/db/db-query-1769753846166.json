@@ -1,0 +1,15 @@
+{
+  "query": "SELECT CONSTRAINT_NAME, TABLE_NAME, REFERENCED_TABLE_NAME \nFROM information_schema.KEY_COLUMN_USAGE \nWHERE TABLE_SCHEMA = DATABASE() \nAND REFERENCED_TABLE_NAME = 'accounting_monthly_close';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute SELECT CONSTRAINT_NAME, TABLE_NAME, REFERENCED_TABLE_NAME \nFROM information_schema.KEY_COLUMN_USAGE \nWHERE TABLE_SCHEMA = DATABASE() \nAND REFERENCED_TABLE_NAME = 'accounting_monthly_close';",
+  "rows": [
+    {
+      "CONSTRAINT_NAME": "fk_1",
+      "TABLE_NAME": "accounting_monthly_close_audit",
+      "REFERENCED_TABLE_NAME": "accounting_monthly_close"
+    }
+  ],
+  "messages": [],
+  "stdout": "CONSTRAINT_NAME\tTABLE_NAME\tREFERENCED_TABLE_NAME\nfk_1\taccounting_monthly_close_audit\taccounting_monthly_close\n",
+  "stderr": "",
+  "execution_time_ms": 1542
+}

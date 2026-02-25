@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `accounting_accounts` (\n\t`id` bigint AUTO_INCREMENT NOT NULL,\n\t`category` enum('assets','liabilities','equity','revenue','expenses') NOT NULL,\n\t`code` varchar(20) NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`parent_id` bigint,\n\t`description` text,\n\t`is_active` enum('Y','N') NOT NULL DEFAULT 'Y',\n\t`created_by` bigint,\n\t`created_at` timestamp NOT NULL DEFAULT (now()),\n\t`updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `accounting_accounts_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `accounting_accounts_code_unique` UNIQUE(`code`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS `accounting_accounts` (\n\t`id` bigint AUTO_INCREMENT NOT NULL,\n\t`category` enum('assets','liabilities','equity','revenue','expenses') NOT NULL,\n\t`code` varchar(20) NOT NULL,\n\t`name` varchar(100) NOT NULL,\n\t`parent_id` bigint,\n\t`description` text,\n\t`is_active` enum('Y','N') NOT NULL DEFAULT 'Y',\n\t`created_by` bigint,\n\t`created_at` timestamp NOT NULL DEFAULT (now()),\n\t`updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n\tCONSTRAINT `accounting_accounts_id` PRIMARY KEY(`id`),\n\tCONSTRAINT `accounting_accounts_code_unique` UNIQUE(`code`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1734
+}

@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `matching_rules` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `partner_id` bigint NOT NULL,\n  `keyword` varchar(100) NOT NULL,\n  `priority` int DEFAULT 0 NOT NULL,\n  `is_active` tinyint DEFAULT 1 NOT NULL,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS `matching_rules` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `partner_id` bigint NOT NULL,\n  `keyword` varchar(100) NOT NULL,\n  `priority` int DEFAULT 0 NOT NULL,\n  `is_active` tinyint DEFAULT 1 NOT NULL,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1695
+}

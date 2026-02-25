@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE h_inventory_transactions \nADD COLUMN IF NOT EXISTS inventory_id BIGINT COMMENT '재고 마스터 ID',\nADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2) COMMENT '단가',\nADD COLUMN IF NOT EXISTS amount DECIMAL(15,2) COMMENT '금액',\nADD COLUMN IF NOT EXISTS transaction_date DATE COMMENT '거래 일자',\nADD COLUMN IF NOT EXISTS source_id BIGINT COMMENT '원천 문서 ID',\nADD COLUMN IF NOT EXISTS source_line_id BIGINT COMMENT '원천 문서 라인 ID',\nADD COLUMN IF NOT EXISTS action_type VARCHAR(50) COMMENT '액션 타입';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute ALTER TABLE h_inventory_transactions \nADD COLUMN IF NOT EXISTS inventory_id BIGINT COMMENT '재고 마스터 ID',\nADD COLUMN IF NOT EXISTS unit_cost DECIMAL(10,2) COMMENT '단가',\nADD COLUMN IF NOT EXISTS amount DECIMAL(15,2) COMMENT '금액',\nADD COLUMN IF NOT EXISTS transaction_date DATE COMMENT '거래 일자',\nADD COLUMN IF NOT EXISTS source_id BIGINT COMMENT '원천 문서 ID',\nADD COLUMN IF NOT EXISTS source_line_id BIGINT COMMENT '원천 문서 라인 ID',\nADD COLUMN IF NOT EXISTS action_type VARCHAR(50) COMMENT '액션 타입';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 3593
+}

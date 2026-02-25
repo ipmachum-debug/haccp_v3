@@ -1,0 +1,8 @@
+{
+  "query": "ALTER TABLE material_inspection_records \nADD COLUMN appearance VARCHAR(200) AFTER supplier_name,\nADD COLUMN odor VARCHAR(200) AFTER appearance,\nADD COLUMN color VARCHAR(100) AFTER odor,\nADD COLUMN temperature DECIMAL(5,2) AFTER color,\nADD COLUMN result ENUM('pass', 'fail', 'conditional') AFTER temperature;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute ALTER TABLE material_inspection_records \nADD COLUMN appearance VARCHAR(200) AFTER supplier_name,\nADD COLUMN odor VARCHAR(200) AFTER appearance,\nADD COLUMN color VARCHAR(100) AFTER odor,\nADD COLUMN temperature DECIMAL(5,2) AFTER color,\nADD COLUMN result ENUM('pass', 'fail', 'conditional') AFTER temperature;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'eprx25nq5secz3f72okxeb.material_inspection_records' doesn't exist"
+  ]
+}

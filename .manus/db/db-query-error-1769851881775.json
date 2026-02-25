@@ -1,0 +1,8 @@
+{
+  "query": "ALTER TABLE `bank_transactions` ADD `matched_partner_id` bigint;\nALTER TABLE `bank_transactions` ADD `matched_at` timestamp;\nALTER TABLE `bank_transactions` ADD CONSTRAINT `bank_transactions_matched_partner_id_partners_id_fk` FOREIGN KEY (`matched_partner_id`) REFERENCES `partners`(`id`) ON DELETE no action ON UPDATE no action;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute ALTER TABLE `bank_transactions` ADD `matched_partner_id` bigint;\nALTER TABLE `bank_transactions` ADD `matched_at` timestamp;\nALTER TABLE `bank_transactions` ADD CONSTRAINT `bank_transactions_matched_partner_id_partners_id_fk` FOREIGN KEY (`matched_partner_id`) REFERENCES `partners`(`id`) ON DELETE no action ON UPDATE no action;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1060 (42S21) at line 1: Duplicate column name 'matched_partner_id'"
+  ]
+}

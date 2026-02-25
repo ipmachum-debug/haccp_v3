@@ -1,0 +1,8 @@
+{
+  "query": "INSERT INTO categories (name, code, description, color, type, dateManagementType, alertDays, createdAt, updatedAt) VALUES \n('육류', 'MAT-MEAT', '육류 원재료', '#3882F6', 'material', 'expiry', 7, NOW(), NOW()),\n('냉동식품', 'MAT-FROZEN', '냉동식품 원재료', '#8B5CF6', 'material', 'both', 30, NOW(), NOW()),\n('소모품', 'MAT-SUPPLY', '소모품 (날짜 관리 불필요)', '#64748B', 'material', 'none', 0, NOW(), NOW());",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute INSERT INTO categories (name, code, description, color, type, dateManagementType, alertDays, createdAt, updatedAt) VALUES \n('육류', 'MAT-MEAT', '육류 원재료', '#3882F6', 'material', 'expiry', 7, NOW(), NOW()),\n('냉동식품', 'MAT-FROZEN', '냉동식품 원재료', '#8B5CF6', 'material', 'both', 30, NOW(), NOW()),\n('소모품', 'MAT-SUPPLY', '소모품 (날짜 관리 불필요)', '#64748B', 'material', 'none', 0, NOW(), NOW());",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'dateManagementType' in 'field list'"
+  ]
+}

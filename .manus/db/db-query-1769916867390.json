@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS partners (\n  id BIGINT AUTO_INCREMENT PRIMARY KEY,\n  partner_type ENUM('supplier', 'customer', 'subcontractor') NOT NULL,\n  biz_no VARCHAR(20) NOT NULL UNIQUE,\n  company_name VARCHAR(255) NOT NULL,\n  ceo_name VARCHAR(100),\n  biz_type VARCHAR(255),\n  biz_item VARCHAR(255),\n  address VARCHAR(500),\n  phone VARCHAR(50),\n  fax VARCHAR(50),\n  email VARCHAR(320),\n  bank_name VARCHAR(50),\n  bank_account VARCHAR(50),\n  is_active TINYINT DEFAULT 1 NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS partners (\n  id BIGINT AUTO_INCREMENT PRIMARY KEY,\n  partner_type ENUM('supplier', 'customer', 'subcontractor') NOT NULL,\n  biz_no VARCHAR(20) NOT NULL UNIQUE,\n  company_name VARCHAR(255) NOT NULL,\n  ceo_name VARCHAR(100),\n  biz_type VARCHAR(255),\n  biz_item VARCHAR(255),\n  address VARCHAR(500),\n  phone VARCHAR(50),\n  fax VARCHAR(50),\n  email VARCHAR(320),\n  bank_name VARCHAR(50),\n  bank_account VARCHAR(50),\n  is_active TINYINT DEFAULT 1 NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1677
+}

@@ -1,0 +1,8 @@
+{
+  "query": "INSERT INTO categories (id, name, code, type, description, color, isActive, createdAt, updatedAt) VALUES\n('cat_material_frozen', '냉동식품', 'FROZEN', 'material', '냉동 보관이 필요한 식품', '#3b82f6', 1, NOW(), NOW()),\n('cat_material_fresh', '신선식품', 'FRESH', 'material', '신선 보관이 필요한 식품', '#10b981', 1, NOW(), NOW()),\n('cat_product_beverage', '음료', 'BEVERAGE', 'product', '음료 제품', '#f59e0b', 1, NOW(), NOW()),\n('cat_product_snack', '스낵', 'SNACK', 'product', '스낵 제품', '#ef4444', 1, NOW(), NOW());",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute INSERT INTO categories (id, name, code, type, description, color, isActive, createdAt, updatedAt) VALUES\n('cat_material_frozen', '냉동식품', 'FROZEN', 'material', '냉동 보관이 필요한 식품', '#3b82f6', 1, NOW(), NOW()),\n('cat_material_fresh', '신선식품', 'FRESH', 'material', '신선 보관이 필요한 식품', '#10b981', 1, NOW(), NOW()),\n('cat_product_beverage', '음료', 'BEVERAGE', 'product', '음료 제품', '#f59e0b', 1, NOW(), NOW()),\n('cat_product_snack', '스낵', 'SNACK', 'product', '스낵 제품', '#ef4444', 1, NOW(), NOW());",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'eprx25nq5secz3f72okxeb.categories' doesn't exist"
+  ]
+}

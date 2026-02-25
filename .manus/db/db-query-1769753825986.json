@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS accounting_daily_close (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  close_date DATE NOT NULL UNIQUE,\n  total_purchases DECIMAL(15, 2) DEFAULT 0,\n  total_sales DECIMAL(15, 2) DEFAULT 0,\n  net_cash_flow DECIMAL(15, 2) DEFAULT 0,\n  transaction_count INT DEFAULT 0,\n  is_locked BOOLEAN DEFAULT FALSE,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  INDEX idx_close_date (close_date),\n  INDEX idx_is_locked (is_locked)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS accounting_daily_close (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  close_date DATE NOT NULL UNIQUE,\n  total_purchases DECIMAL(15, 2) DEFAULT 0,\n  total_sales DECIMAL(15, 2) DEFAULT 0,\n  net_cash_flow DECIMAL(15, 2) DEFAULT 0,\n  transaction_count INT DEFAULT 0,\n  is_locked BOOLEAN DEFAULT FALSE,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  INDEX idx_close_date (close_date),\n  INDEX idx_is_locked (is_locked)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1545
+}

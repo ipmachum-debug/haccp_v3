@@ -1,0 +1,32 @@
+import {mysqlTable,  varchar, text, timestamp, decimal, boolean, int} from "drizzle-orm/mysql-core";
+import { tenants } from '../schema_main';
+import { relations } from "drizzle-orm";
+
+// 설비 마스터 (간소화)
+export const equipments = mysqlTable("equipments", {
+  id: int("id").primaryKey().autoincrement(),
+  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  type: varchar("type", { length: 100 }).notNull(), // 증숙기, 냉각기, 금속검출기 등
+  ccpType: varchar("ccp_type", { length: 50 }), // CCP-1B, CCP-2B, CCP-3B, CCP-4P
+  
+  // 기본 운전값 (설비별 기본값)
+  defaultTemperature: decimal("default_temperature", { precision: 5, scale: 2 }),
+  defaultPressure: decimal("default_pressure", { precision: 5, scale: 2 }),
+  defaultTime: int("default_time"), // 분 단위
+  
+  // 기록 주기
+  monitoringInterval: int("monitoring_interval").default(10), // 분 단위
+  rowsPerBatch: int("rows_per_batch").default(4), // 배치당 자동 생성할 CCP 행 수
+  
+  status: varchar("status", { length: 50 }).notNull().default("active"), // active, inactive
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
+
+// Relations
+export const equipmentsRelations = relations(equipments, ({ many }) => ({
+  // CCP 모니터링 기록과 연결
+}));

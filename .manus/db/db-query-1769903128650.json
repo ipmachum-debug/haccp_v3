@@ -1,0 +1,66 @@
+{
+  "query": "DESCRIBE h_material_inspections;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute DESCRIBE h_material_inspections;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "receiving_id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "inspection_date",
+      "Type": "date",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "inspector_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "status",
+      "Type": "enum('pending','passed','failed','conditional')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "pending",
+      "Extra": ""
+    },
+    {
+      "Field": "notes",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "created_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tbigint(20)\tNO\tPRI\tNULL\tauto_increment\nreceiving_id\tbigint(20)\tNO\t\tNULL\t\ninspection_date\tdate\tNO\t\tNULL\t\ninspector_id\tbigint(20)\tYES\t\tNULL\t\nstatus\tenum('pending','passed','failed','conditional')\tNO\t\tpending\t\nnotes\ttext\tYES\t\tNULL\t\ncreated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\n",
+  "stderr": "",
+  "execution_time_ms": 1511
+}

@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE users SET role = 'worker' WHERE role IN ('user', 'inspector');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute UPDATE users SET role = 'worker' WHERE role IN ('user', 'inspector');",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1546
+}

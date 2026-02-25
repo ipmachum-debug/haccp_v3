@@ -1,0 +1,122 @@
+{
+  "query": "DESCRIBE categories;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute DESCRIBE categories;",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "type",
+      "Type": "enum('material','product','purchase','sale')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "name",
+      "Type": "varchar(100)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "code",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "description",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "color",
+      "Type": "varchar(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "icon",
+      "Type": "varchar(50)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "sort_order",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "is_active",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "is_default",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "date_management_type",
+      "Type": "enum('none','expiry','production','both')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "none",
+      "Extra": ""
+    },
+    {
+      "Field": "alert_days",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "created_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updated_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tbigint(20)\tNO\tPRI\tNULL\tauto_increment\ntype\tenum('material','product','purchase','sale')\tNO\t\tNULL\t\nname\tvarchar(100)\tNO\t\tNULL\t\ncode\tvarchar(50)\tYES\t\tNULL\t\ndescription\ttext\tYES\t\tNULL\t\ncolor\tvarchar(20)\tYES\t\tNULL\t\nicon\tvarchar(50)\tYES\t\tNULL\t\nsort_order\tint(11)\tNO\t\t0\t\nis_active\tint(11)\tNO\t\t1\t\nis_default\tint(11)\tNO\t\t0\t\ndate_management_type\tenum('none','expiry','production','both')\tNO\t\tnone\t\nalert_days\tint(11)\tNO\t\t0\t\ncreated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\n",
+  "stderr": "",
+  "execution_time_ms": 1513
+}

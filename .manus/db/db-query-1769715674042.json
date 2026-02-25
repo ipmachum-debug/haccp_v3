@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE users \nADD COLUMN invited_by BIGINT NULL,\nADD COLUMN invited_at TIMESTAMP NULL;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute ALTER TABLE users \nADD COLUMN invited_by BIGINT NULL,\nADD COLUMN invited_at TIMESTAMP NULL;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2223
+}

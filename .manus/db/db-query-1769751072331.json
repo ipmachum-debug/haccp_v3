@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `bank_transactions` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `bank_account_id` bigint NOT NULL,\n  `occurred_at` timestamp NOT NULL,\n  `bank_direction` enum('in', 'out') NOT NULL,\n  `amount` decimal(18, 2) NOT NULL,\n  `counterparty_text` varchar(255),\n  `memo` varchar(255),\n  `hash_key` varchar(64) UNIQUE,\n  `matched_partner_id` bigint,\n  `matched_ledger_type` enum('ap', 'ar'),\n  `matched_ledger_id` bigint,\n  `matched_at` timestamp,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts`(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS `bank_transactions` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `bank_account_id` bigint NOT NULL,\n  `occurred_at` timestamp NOT NULL,\n  `bank_direction` enum('in', 'out') NOT NULL,\n  `amount` decimal(18, 2) NOT NULL,\n  `counterparty_text` varchar(255),\n  `memo` varchar(255),\n  `hash_key` varchar(64) UNIQUE,\n  `matched_partner_id` bigint,\n  `matched_ledger_type` enum('ap', 'ar'),\n  `matched_ledger_id` bigint,\n  `matched_at` timestamp,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  FOREIGN KEY (`bank_account_id`) REFERENCES `bank_accounts`(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1768
+}

@@ -1,0 +1,154 @@
+{
+  "query": "\n-- users 테이블 구조 확인\nDESCRIBE users;\n\n-- 외래 키 추가 (tenant_id 컬럼은 이미 존재)\nALTER TABLE users ADD CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id);\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute \n-- users 테이블 구조 확인\nDESCRIBE users;\n\n-- 외래 키 추가 (tenant_id 컬럼은 이미 존재)\nALTER TABLE users ADD CONSTRAINT fk_users_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id);\n",
+  "rows": [
+    {
+      "Field": "id",
+      "Type": "bigint(20)",
+      "Null": "NO",
+      "Key": "PRI",
+      "Default": "NULL",
+      "Extra": "auto_increment"
+    },
+    {
+      "Field": "tenant_id",
+      "Type": "int(11)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "email",
+      "Type": "varchar(255)",
+      "Null": "NO",
+      "Key": "UNI",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "password_hash",
+      "Type": "varchar(255)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "name",
+      "Type": "varchar(100)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "role",
+      "Type": "enum('admin','worker','monitor')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "worker",
+      "Extra": ""
+    },
+    {
+      "Field": "user_type",
+      "Type": "enum('b2b_partner','general_user','company_staff','other')",
+      "Null": "YES",
+      "Key": "",
+      "Default": "general_user",
+      "Extra": ""
+    },
+    {
+      "Field": "user_memo",
+      "Type": "text",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "company_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "site_id",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "is_active",
+      "Type": "tinyint(4)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "1",
+      "Extra": ""
+    },
+    {
+      "Field": "last_login_at",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "created_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": ""
+    },
+    {
+      "Field": "updated_at",
+      "Type": "timestamp",
+      "Null": "NO",
+      "Key": "",
+      "Default": "CURRENT_TIMESTAMP",
+      "Extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
+    },
+    {
+      "Field": "email_verified",
+      "Type": "tinyint(4)",
+      "Null": "NO",
+      "Key": "",
+      "Default": "0",
+      "Extra": ""
+    },
+    {
+      "Field": "approval_status",
+      "Type": "enum('pending','approved','rejected')",
+      "Null": "NO",
+      "Key": "",
+      "Default": "pending",
+      "Extra": ""
+    },
+    {
+      "Field": "invited_by",
+      "Type": "bigint(20)",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    },
+    {
+      "Field": "invited_at",
+      "Type": "timestamp",
+      "Null": "YES",
+      "Key": "",
+      "Default": "NULL",
+      "Extra": ""
+    }
+  ],
+  "messages": [],
+  "stdout": "Field\tType\tNull\tKey\tDefault\tExtra\nid\tbigint(20)\tNO\tPRI\tNULL\tauto_increment\ntenant_id\tint(11)\tNO\t\t1\t\nemail\tvarchar(255)\tNO\tUNI\tNULL\t\npassword_hash\tvarchar(255)\tNO\t\tNULL\t\nname\tvarchar(100)\tNO\t\tNULL\t\nrole\tenum('admin','worker','monitor')\tNO\t\tworker\t\nuser_type\tenum('b2b_partner','general_user','company_staff','other')\tYES\t\tgeneral_user\t\nuser_memo\ttext\tYES\t\tNULL\t\ncompany_id\tbigint(20)\tYES\t\tNULL\t\nsite_id\tbigint(20)\tYES\t\tNULL\t\nis_active\ttinyint(4)\tNO\t\t1\t\nlast_login_at\ttimestamp\tYES\t\tNULL\t\ncreated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\t\nupdated_at\ttimestamp\tNO\t\tCURRENT_TIMESTAMP\tDEFAULT_GENERATED on update CURRENT_TIMESTAMP\nemail_verified\ttinyint(4)\tNO\t\t0\t\napproval_status\tenum('pending','approved','rejected')\tNO\t\tpending\t\ninvited_by\tbigint(20)\tYES\t\tNULL\t\ninvited_at\ttimestamp\tYES\t\tNULL\t\n",
+  "stderr": "",
+  "execution_time_ms": 2640
+}

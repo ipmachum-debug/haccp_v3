@@ -1,0 +1,8 @@
+{
+  "query": "SELECT * FROM partners WHERE biz_no = '123-45-67890' LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute SELECT * FROM partners WHERE biz_no = '123-45-67890' LIMIT 5;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'eprx25nq5secz3f72okxeb.partners' doesn't exist"
+  ]
+}

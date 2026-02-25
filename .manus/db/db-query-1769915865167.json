@@ -1,0 +1,18 @@
+{
+  "query": "\n-- tenants 테이블 생성\nCREATE TABLE IF NOT EXISTS tenants (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  slug VARCHAR(100) NOT NULL UNIQUE,\n  status ENUM('active', 'suspended', 'trial', 'expired') DEFAULT 'trial' NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);\n\n-- 기본 테넌트 삽입 (우리 회사)\nINSERT INTO tenants (id, name, slug, status) VALUES (1, '본사', 'headquarters', 'active');\n\n-- 테넌트 확인\nSELECT * FROM tenants;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute \n-- tenants 테이블 생성\nCREATE TABLE IF NOT EXISTS tenants (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  slug VARCHAR(100) NOT NULL UNIQUE,\n  status ENUM('active', 'suspended', 'trial', 'expired') DEFAULT 'trial' NOT NULL,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);\n\n-- 기본 테넌트 삽입 (우리 회사)\nINSERT INTO tenants (id, name, slug, status) VALUES (1, '본사', 'headquarters', 'active');\n\n-- 테넌트 확인\nSELECT * FROM tenants;\n",
+  "rows": [
+    {
+      "id": "1",
+      "name": "본사",
+      "slug": "headquarters",
+      "status": "active",
+      "created_at": "2026-02-01 03:17:44",
+      "updated_at": "2026-02-01 03:17:44"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tslug\tstatus\tcreated_at\tupdated_at\n1\t본사\theadquarters\tactive\t2026-02-01 03:17:44\t2026-02-01 03:17:44\n",
+  "stderr": "",
+  "execution_time_ms": 2099
+}

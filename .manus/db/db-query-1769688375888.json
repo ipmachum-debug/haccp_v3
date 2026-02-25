@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, email, name, role, approval_status, is_active FROM users WHERE email = 'dduckdanji@naver.com';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute SELECT id, email, name, role, approval_status, is_active FROM users WHERE email = 'dduckdanji@naver.com';",
+  "rows": [
+    {
+      "id": "2",
+      "email": "dduckdanji@naver.com",
+      "name": "한상갑",
+      "role": "admin",
+      "approval_status": "approved",
+      "is_active": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\temail\tname\trole\tapproval_status\tis_active\n2\tdduckdanji@naver.com\t한상갑\tadmin\tapproved\t1\n",
+  "stderr": "",
+  "execution_time_ms": 1868
+}

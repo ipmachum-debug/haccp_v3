@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `categories` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `type` enum('material', 'product', 'purchase', 'sale') NOT NULL,\n  `name` varchar(100) NOT NULL,\n  `code` varchar(50),\n  `description` text,\n  `color` varchar(20),\n  `icon` varchar(50),\n  `sort_order` int DEFAULT 0 NOT NULL,\n  `is_active` int DEFAULT 1 NOT NULL,\n  `is_default` int DEFAULT 0 NOT NULL,\n  `date_management_type` enum('none', 'expiry', 'production', 'both') DEFAULT 'none' NOT NULL,\n  `alert_days` int DEFAULT 0 NOT NULL,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute CREATE TABLE IF NOT EXISTS `categories` (\n  `id` bigint AUTO_INCREMENT PRIMARY KEY,\n  `type` enum('material', 'product', 'purchase', 'sale') NOT NULL,\n  `name` varchar(100) NOT NULL,\n  `code` varchar(50),\n  `description` text,\n  `color` varchar(20),\n  `icon` varchar(50),\n  `sort_order` int DEFAULT 0 NOT NULL,\n  `is_active` int DEFAULT 1 NOT NULL,\n  `is_default` int DEFAULT 0 NOT NULL,\n  `date_management_type` enum('none', 'expiry', 'production', 'both') DEFAULT 'none' NOT NULL,\n  `alert_days` int DEFAULT 0 NOT NULL,\n  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,\n  `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1678
+}

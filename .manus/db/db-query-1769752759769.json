@@ -1,0 +1,9 @@
+{
+  "query": "\nCREATE TABLE IF NOT EXISTS account_categories (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  code VARCHAR(20) NOT NULL UNIQUE COMMENT '계정 코드 (예: 1001, 2001)',\n  name VARCHAR(100) NOT NULL COMMENT '계정명 (예: 원재료 매입)',\n  major_category ENUM('매입비', '인건비', '운영비', '판매비', '관리비', '금융·기타') NOT NULL COMMENT '대분류',\n  minor_category VARCHAR(100) NULL COMMENT '중분류 (선택)',\n  description TEXT NULL COMMENT '설명',\n  is_active TINYINT(1) DEFAULT 1 COMMENT '활성화 여부',\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  INDEX idx_major_category (major_category),\n  INDEX idx_is_active (is_active)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='계정 과목 관리';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 45KYJfAwvASo98o.bfca2b77e1a0 --database ePrX25nq5sECZ3f72okXeB --execute \nCREATE TABLE IF NOT EXISTS account_categories (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n  code VARCHAR(20) NOT NULL UNIQUE COMMENT '계정 코드 (예: 1001, 2001)',\n  name VARCHAR(100) NOT NULL COMMENT '계정명 (예: 원재료 매입)',\n  major_category ENUM('매입비', '인건비', '운영비', '판매비', '관리비', '금융·기타') NOT NULL COMMENT '대분류',\n  minor_category VARCHAR(100) NULL COMMENT '중분류 (선택)',\n  description TEXT NULL COMMENT '설명',\n  is_active TINYINT(1) DEFAULT 1 COMMENT '활성화 여부',\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  INDEX idx_major_category (major_category),\n  INDEX idx_is_active (is_active)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='계정 과목 관리';\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1767
+}

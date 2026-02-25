@@ -1,0 +1,1176 @@
+/**
+ * 통합 인쇄 프리뷰 페이지
+ * - daily_log: 5페이지 분할 렌더링
+ * - 직인: formData.approval 우선, 바로승인 시 검토자 직인도 표시
+ * - employee_health_check 전용 렌더러
+ */
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { ApprovalSeal } from "@/components/SealGenerator";
+
+const FORM_TYPE_LABELS: Record<string, string> = {
+  air_compressor_filter: "에어컴프레서 필터 점검표",
+  air_compressor_maintenance: "에어컴프레서 유지보수 기록",
+  airborne_bacteria_test: "부유균 검사 기록",
+  consumer_complaint: "소비자 불만 처리 기록",
+  daily_disposal_record: "일일 폐기물 처리 기록",
+  daily_log: "일일일지",
+  employee_health_check: "종사자 건강상태 확인 일지",
+  equipment_history: "설비 이력 관리",
+  equipment_inspection: "설비 점검 기록",
+  finished_product_check: "완제품 검사 기록",
+  food_recall_notice: "식품 회수 통보서",
+  handover_document: "인수인계서",
+  hygiene_facility_check: "위생시설 점검표",
+  illumination_check: "조도 점검표",
+  product_test_log: "제품 시험 기록",
+  product_test_report: "제품 시험 보고서",
+  sanitation_record: "위생관리 기록",
+  self_quality_inspection: "자체 품질 검사",
+  supplier_inspection: "공급업체 점검 기록",
+  surface_contamination_test: "표면오염 검사 기록",
+  temperature_humidity_check: "온·습도 점검표",
+  training_log: "교육훈련 기록",
+  vehicle_temperature_check: "차량 온도 점검표",
+  waste_management: "폐기물 관리 기록",
+  water_management_check: "용수관리 점검표",
+  weight_quality_check: "중량 품질 검사",
+  workplace_hygiene_check: "작업장 위생 점검표",
+  personal_hygiene_check: "개인위생 점검표",
+  cleaning_disinfection: "세척소독 관리대장",
+  pest_control_checklist: "방충·방서 점검표",
+};
+
+// ============================================================================
+// 상단 결재란 컴포넌트
+// ============================================================================
+function ApprovalHeader({
+  authorName, reviewerName, approverName,
+  requestedAt, reviewedAt, approvedAt,
+}: {
+  authorName: string; reviewerName: string; approverName: string;
+  requestedAt?: string; reviewedAt?: string; approvedAt?: string;
+}) {
+  return (
+    <table className="border-collapse border border-gray-600 text-xs" style={{ minWidth: "210px" }}>
+      <thead>
+        <tr>
+          <th colSpan={3} className="border border-gray-600 px-2 py-1 bg-gray-100 text-center font-bold text-sm">결 재</th>
+        </tr>
+        <tr className="bg-gray-50">
+          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">작 성</th>
+          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">검 토</th>
+          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">승 인</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
+            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={55} /> : <div className="text-gray-300 text-[10px]">미작성</div>}
+          </td>
+          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
+            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={55} /> : <div className="text-gray-300 text-[10px]">미검토</div>}
+          </td>
+          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
+            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={55} /> : <div className="text-gray-300 text-[10px]">미승인</div>}
+          </td>
+        </tr>
+        <tr className="bg-gray-50">
+          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{authorName || "-"}</td>
+          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{reviewerName || "-"}</td>
+          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{approverName || "-"}</td>
+        </tr>
+        <tr>
+          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">작성자</td>
+          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">검토자</td>
+          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">승인자</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+// ============================================================================
+// daily_log 5페이지 전용 렌더러
+// ============================================================================
+function renderDailyLogPages(data: any): React.ReactNode[] {
+  const d = data || {};
+  const hc = d.hygieneChecks || {};
+  const fc = d.foreignMaterialChecks || {};
+  const th = d.temperatureHumidity || {};
+  const ft = d.freezerTemperature || {};
+  const rt = d.refrigeratorTemperature || {};
+  const date = d.date || "";
+  const inspector = d.inspector || d.approval?.writerName || "";
+  const confirmer = d.confirmer || "";
+  const actionContent = d.actionContent || "";
+  const actionTaker = d.actionTaker || "";
+
+  const check = (v: any) => v === true ? "✓ 적합" : "부적합";
+  const cellCls = "border border-gray-400 px-2 py-1 text-sm";
+  const headCls = "border border-gray-400 px-2 py-1 text-sm font-medium bg-gray-50";
+  const secCls = "border border-gray-400 px-2 py-1 text-sm font-bold bg-blue-50";
+
+  // 페이지 1: 일반위생관리 및 공정점검표
+  const page1 = (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">일반위생관리 및 공정점검표</h2>
+        <p className="text-sm text-gray-500">(매일 작성)</p>
+      </div>
+      <div className="flex gap-8 mb-3 text-sm">
+        <div><span className="font-medium">점검일자:</span> {date}</div>
+        <div><span className="font-medium">점검자:</span> {inspector}</div>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className={headCls} style={{width:"80px"}}>구분</th>
+            <th className={headCls} style={{width:"100px"}}>분류</th>
+            <th className={headCls}>점검 내용</th>
+            <th className={headCls} style={{width:"80px"}}>기록</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className={secCls} rowSpan={10}>일일{"\n"}(작업전)</td><td className={cellCls} rowSpan={3}>개인위생</td><td className={cellCls}>위생복장과 이물 복장이 구분하여 보관되고 있는가?</td><td className={cellCls + " text-center"}>{check(hc.hygiene1)}</td></tr>
+          <tr><td className={cellCls}>종사자의 건강상태가 양호하고 개인 장신구 등을 소지하지 않으며, 청결한 위생복장을 착용하고 있는가?</td><td className={cellCls + " text-center"}>{check(hc.hygiene2)}</td></tr>
+          <tr><td className={cellCls}>위생설비(손 세척기 등) 중 이상이 있는 것이 없으며, 종사자는 위생처리를 하고 입실하는가?</td><td className={cellCls + " text-center"}>{check(hc.hygiene3)}</td></tr>
+          <tr><td className={cellCls}>방충방서</td><td className={cellCls}>작업장 입구전등은 밀폐가 잘 이루어져 있으며, 방충시설(방충망 파손 등)에는 이상이 없는가?</td><td className={cellCls + " text-center"}>{check(hc.pest1)}</td></tr>
+          <tr><td className={cellCls}>설비</td><td className={cellCls}>작업장 벽, 제조설비(제품과 직접 닿지 않는 부분)에 대한 청소·소독 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.facility1)}</td></tr>
+          <tr><td className={cellCls}>입고보관</td><td className={cellCls}>냉장/냉동창고의 온도는 적절히 관리되고 있는가?{hc.storageTemp ? ` (${hc.storageTemp}℃)` : ""}</td><td className={cellCls + " text-center"}>{check(hc.storage1)}</td></tr>
+          <tr><td className={cellCls} rowSpan={4}>공정관리</td><td className={cellCls}>위생복 세탁은 실시하였는가?</td><td className={cellCls + " text-center"}>{check(hc.process1)}</td></tr>
+          <tr><td className={cellCls}>냉장창고 내부 청소 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.process2)}</td></tr>
+          <tr><td className={cellCls}>작업장 내부 청소 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.process3)}</td></tr>
+          <tr><td className={cellCls}>제조설비 세척·소독 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.process4)}</td></tr>
+
+          <tr><td className={secCls} rowSpan={6}>일일{"\n"}(작업중)</td><td className={cellCls}>방충방서</td><td className={cellCls}>작업 중 해충 발견 시 즉시 조치하였는가?</td><td className={cellCls + " text-center"}>{check(hc.pest2)}</td></tr>
+          <tr><td className={cellCls}>청소소독</td><td className={cellCls}>작업 중 청소·소독을 실시하고 있는가?</td><td className={cellCls + " text-center"}>{check(hc.cleaning1)}</td></tr>
+          <tr><td className={cellCls}>설비</td><td className={cellCls}>제조설비의 작동 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.facility2)}</td></tr>
+          <tr><td className={cellCls}>CCP점검</td><td className={cellCls}>CCP 점검을 실시하였는가?</td><td className={cellCls + " text-center"}>{check(hc.ccp1)}</td></tr>
+          <tr><td className={cellCls}>보관</td><td className={cellCls}>완제품 보관 상태는 양호한가?</td><td className={cellCls + " text-center"}>{check(hc.storage2)}</td></tr>
+          <tr><td className={cellCls}>입고검수</td><td className={cellCls}>원재료 입고 시 검수를 실시하였는가?</td><td className={cellCls + " text-center"}>{check(hc.inspection1)}</td></tr>
+        </tbody>
+      </table>
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-3">
+        <tbody>
+          <tr><td className={headCls} style={{width:"120px"}}>특이사항</td><td className={cellCls}>{d.specialNotes || "-"}</td></tr>
+          <tr><td className={headCls}>개선조치 및 결과</td><td className={cellCls}>{actionContent || "-"}</td></tr>
+          <tr><td className={headCls}>조치자</td><td className={cellCls}>{actionTaker || "-"}</td></tr>
+          <tr><td className={headCls}>확인</td><td className={cellCls}>{confirmer || "-"}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // 페이지 2: 이물관리 점검표
+  const page2 = (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">이물관리 점검표</h2>
+      </div>
+      <div className="flex gap-8 mb-2 text-sm">
+        <div><span className="font-medium">점검일자:</span> {date}</div>
+        <div><span className="font-medium">점검자:</span> {inspector}</div>
+      </div>
+      <div className="flex gap-8 mb-3 text-sm text-gray-600">
+        <div>검사방법: 육안검사</div>
+        <div>점검주기: 1회/일</div>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className={headCls} style={{width:"150px"}}>구분</th>
+            <th className={headCls}>점검 내용</th>
+            <th className={headCls} style={{width:"90px"}}>점검결과</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className={secCls} rowSpan={3}>원료 입고중{"\n"}이물관리</td><td className={cellCls}>원·부재료 입고시 외부의 이물을 제거한 후 입고하는가?</td><td className={cellCls + " text-center"}>{check(fc.material1)}</td></tr>
+          <tr><td className={cellCls}>원·부재료 선별시 적절하게 이루어지고 있는가?</td><td className={cellCls + " text-center"}>{check(fc.material2)}</td></tr>
+          <tr><td className={cellCls}>원·부재료 전처리시 먼지·결절이물이 혼입되지 않게 배기하는가?</td><td className={cellCls + " text-center"}>{check(fc.material3)}</td></tr>
+
+          <tr><td className={secCls} rowSpan={3}>공정중{"\n"}혼입관리</td><td className={cellCls}>공정중 이용하는 작업도구 중 재질이 낡거나 자재를 사용하지 않는가?</td><td className={cellCls + " text-center"}>{check(fc.process1)}</td></tr>
+          <tr><td className={cellCls}>작업장에 개인소지품들을 소지하지 않았으며 지정된 위생복 및 위생화를 착용하였는가?</td><td className={cellCls + " text-center"}>{check(fc.process2)}</td></tr>
+          <tr><td className={cellCls}>장갑 등 작업상태가 올바르며 파손 부위는 없는가?</td><td className={cellCls + " text-center"}>{check(fc.process3)}</td></tr>
+
+          <tr><td className={secCls} rowSpan={3}>작업자에 의한{"\n"}이물혼입 관리</td><td className={cellCls}>작업도구, 공구, 필기도구 등은 지정된 위치에 보관되어 있는가?</td><td className={cellCls + " text-center"}>{check(fc.worker1)}</td></tr>
+          <tr><td className={cellCls}>작업에 클립, 핀 칼날등 이물혼입 우려가 있는 불필요한 물품이 없는가?</td><td className={cellCls + " text-center"}>{check(fc.worker2)}</td></tr>
+          <tr><td className={cellCls}>작업장에 출입하기전 끈끈이 클리너 이용제거 후 입실하는가?</td><td className={cellCls + " text-center"}>{check(fc.worker3)}</td></tr>
+
+          <tr><td className={secCls} rowSpan={3}>제조설비에 의한{"\n"}이물혼입 관리</td><td className={cellCls}>탈락의 우려가 있는 나사류 및 파손 우려가 있는 설비는 없는가?</td><td className={cellCls + " text-center"}>{check(fc.equipment1)}</td></tr>
+          <tr><td className={cellCls}>설비등은 주기적으로 세척소독하여 오염물질이 혼입되지 않게 관리하는가?</td><td className={cellCls + " text-center"}>{check(fc.equipment2)}</td></tr>
+          <tr><td className={cellCls}>세척소독 및 정비후 나사, 볼트 등의 누락된 곳은 없는가?</td><td className={cellCls + " text-center"}>{check(fc.equipment3)}</td></tr>
+
+          <tr><td className={secCls} rowSpan={2}>해충등{"\n"}혼입관리</td><td className={cellCls}>작업장 출입문, 외부의 벽 등은 틈이나 구멍이 없이 밀폐되어있는가?</td><td className={cellCls + " text-center"}>{check(fc.pest1)}</td></tr>
+          <tr><td className={cellCls}>포충등 및 포획장비는 정상작동되며 지정된 위치가 있는가?</td><td className={cellCls + " text-center"}>{check(fc.pest2)}</td></tr>
+        </tbody>
+      </table>
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-3">
+        <tbody>
+          <tr><td className={headCls} style={{width:"120px"}}>특이사항</td><td className={cellCls}>{d.specialNotes || "-"}</td></tr>
+          <tr><td className={headCls}>개선조치 및 결과</td><td className={cellCls}>{actionContent || "-"}</td></tr>
+          <tr><td className={headCls}>조치자</td><td className={cellCls}>{actionTaker || "-"}</td></tr>
+          <tr><td className={headCls}>확인</td><td className={cellCls}>{confirmer || "-"}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // 페이지 3: 원재료실 온/습도 점검기록지
+  const r1m = th.room1Morning || {};
+  const r1a = th.room1Afternoon || {};
+  const r2m = th.room2Morning || {};
+  const r2a = th.room2Afternoon || {};
+  const page3 = (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">원재료실 온/습도 점검기록지</h2>
+      </div>
+      <div className="flex gap-8 mb-2 text-sm">
+        <div><span className="font-medium">일자:</span> {date}</div>
+        <div><span className="font-medium">작성자:</span> {inspector}</div>
+      </div>
+      <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
+        <p><span className="font-bold">관리기준:</span> 온도: 1℃~35℃, 습도: 65%이하</p>
+        <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
+        <p className="font-bold mt-2">개선조치사항:</p>
+        <p>① 관리기준 이탈 시 즉시 원인 파악 및 조치</p>
+        <p>② 설비 이상 시 수리 후 재가동</p>
+        <p>③ 이상 발생 시 관리자에게 보고</p>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className={headCls}>구분</th>
+            <th className={headCls}>감시시각</th>
+            <th className={headCls}>온도 (℃)</th>
+            <th className={headCls}>습도 (%)</th>
+            <th className={headCls}>평가</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className={cellCls + " font-medium"}>원재료실1 오전</td><td className={cellCls + " text-center"}>{r1m.time || "-"}</td><td className={cellCls + " text-center"}>{r1m.temp || "-"}</td><td className={cellCls + " text-center"}>{r1m.humidity || "-"}</td><td className={cellCls + " text-center"}>{r1m.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실1 오후</td><td className={cellCls + " text-center"}>{r1a.time || "-"}</td><td className={cellCls + " text-center"}>{r1a.temp || "-"}</td><td className={cellCls + " text-center"}>{r1a.humidity || "-"}</td><td className={cellCls + " text-center"}>{r1a.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실2 오전</td><td className={cellCls + " text-center"}>{r2m.time || "-"}</td><td className={cellCls + " text-center"}>{r2m.temp || "-"}</td><td className={cellCls + " text-center"}>{r2m.humidity || "-"}</td><td className={cellCls + " text-center"}>{r2m.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실2 오후</td><td className={cellCls + " text-center"}>{r2a.time || "-"}</td><td className={cellCls + " text-center"}>{r2a.temp || "-"}</td><td className={cellCls + " text-center"}>{r2a.humidity || "-"}</td><td className={cellCls + " text-center"}>{r2a.pass ? "적합" : "부적합"}</td></tr>
+        </tbody>
+      </table>
+      <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-1">
+        <thead><tr className="bg-gray-50"><th className={headCls}>발생내용</th><th className={headCls}>조치내용 및 결과</th><th className={headCls}>완료일자</th><th className={headCls}>조치자</th><th className={headCls}>확인자</th></tr></thead>
+        <tbody><tr><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{date}</td><td className={cellCls}>{actionTaker || "-"}</td><td className={cellCls}>{confirmer || "-"}</td></tr></tbody>
+      </table>
+    </div>
+  );
+
+  // 페이지 4: 급속냉동고/냉동고 온도 점검기록지
+  const fm = ft.morning || {};
+  const fa = ft.afternoon || {};
+  const page4 = (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">급속냉동고 / 냉동고 온도 점검기록지</h2>
+      </div>
+      <div className="flex gap-8 mb-2 text-sm">
+        <div><span className="font-medium">일자:</span> {date}</div>
+        <div><span className="font-medium">작성자:</span> {inspector}</div>
+      </div>
+      <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
+        <p><span className="font-bold">관리기준:</span> 급속냉동고: -27℃ 이하, 냉동고: -18℃ 이하</p>
+        <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
+        <p className="font-bold mt-2">개선조치사항:</p>
+        <p>① 관리기준 이탈 시 즉시 원인 파악 및 조치</p>
+        <p>② 설비 이상 시 수리 후 재가동</p>
+        <p>③ 이상 발생 시 관리자에게 보고</p>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className={headCls}>구분</th>
+            <th className={headCls}>감시시각</th>
+            <th className={headCls}>급속냉동고 (℃)</th>
+            <th className={headCls}>냉동고 (℃)</th>
+            <th className={headCls}>평가</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{fm.time || "-"}</td><td className={cellCls + " text-center"}>{fm.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fm.freezer || "-"}</td><td className={cellCls + " text-center"}>{fm.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{fa.time || "-"}</td><td className={cellCls + " text-center"}>{fa.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fa.freezer || "-"}</td><td className={cellCls + " text-center"}>{fa.pass ? "적합" : "부적합"}</td></tr>
+        </tbody>
+      </table>
+      <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-1">
+        <thead><tr className="bg-gray-50"><th className={headCls}>발생내용</th><th className={headCls}>조치내용 및 결과</th><th className={headCls}>완료일자</th><th className={headCls}>조치자</th><th className={headCls}>확인자</th></tr></thead>
+        <tbody><tr><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{date}</td><td className={cellCls}>{actionTaker || "-"}</td><td className={cellCls}>{confirmer || "-"}</td></tr></tbody>
+      </table>
+    </div>
+  );
+
+  // 페이지 5: 원재료 냉장고 온도 점검 기록지
+  const rm = rt.morning || {};
+  const ra = rt.afternoon || {};
+  const page5 = (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">원재료 냉장고 온도 점검 기록지</h2>
+      </div>
+      <div className="flex gap-8 mb-2 text-sm">
+        <div><span className="font-medium">일자:</span> {date}</div>
+        <div><span className="font-medium">작성자:</span> {inspector}</div>
+      </div>
+      <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
+        <p><span className="font-bold">관리기준:</span> 0℃~10℃</p>
+        <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
+        <p className="font-bold mt-2">개선조치사항:</p>
+        <p>① 관리기준 이탈 시 즉시 원인 파악 및 조치</p>
+        <p>② 설비 이상 시 수리 후 재가동</p>
+        <p>③ 이상 발생 시 관리자에게 보고</p>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-100">
+            <th className={headCls}>구분</th>
+            <th className={headCls}>감시시각</th>
+            <th className={headCls}>온도 (℃)</th>
+            <th className={headCls}>평가</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{rm.time || "-"}</td><td className={cellCls + " text-center"}>{rm.temp || "-"}</td><td className={cellCls + " text-center"}>{rm.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{ra.time || "-"}</td><td className={cellCls + " text-center"}>{ra.temp || "-"}</td><td className={cellCls + " text-center"}>{ra.pass ? "적합" : "부적합"}</td></tr>
+        </tbody>
+      </table>
+      <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-1">
+        <thead><tr className="bg-gray-50"><th className={headCls}>일시</th><th className={headCls}>발생내용</th><th className={headCls}>조치내용 및 결과</th><th className={headCls}>완료일자</th><th className={headCls}>조치자</th><th className={headCls}>확인자</th></tr></thead>
+        <tbody><tr><td className={cellCls}>{date}</td><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{actionContent || "-"}</td><td className={cellCls}>{date}</td><td className={cellCls}>{actionTaker || "-"}</td><td className={cellCls}>{confirmer || "-"}</td></tr></tbody>
+      </table>
+    </div>
+  );
+
+  return [page1, page2, page3, page4, page5];
+}
+
+const DAILY_LOG_PAGE_TITLES = [
+  "일반위생관리 및 공정점검표",
+  "이물관리 점검표",
+  "원재료실 온/습도 점검기록지",
+  "급속냉동고 / 냉동고 온도 점검기록지",
+  "원재료 냉장고 온도 점검 기록지",
+];
+
+// ============================================================================
+// 종사자 건강상태 확인 일지 전용 렌더러
+// ============================================================================
+function renderEmployeeHealthCheck(data: any) {
+  const questions = data?.questions || [];
+  const employeeRows = data?.employeeRows || [];
+  const checkDate = data?.checkDate || "";
+  const specialNotes = data?.specialNotes || "";
+  const writerName = data?.approval?.writerName || "";
+
+  return (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">작업장 출입 전 종사자 건강상태 확인 일지</h2>
+      </div>
+      <div className="text-sm mb-3 space-y-0.5">
+        <p>★ 작업 시작 전 종사자 본인이 직접 아래 질문(1~5번)에 대한 답변 작성</p>
+        <p className="ml-4">→ 해당하는 경우 "O" / 해당하지 않는 경우 "X" 기재</p>
+        <p>★ 작업 시작 전 팀장은 종사자가 작성한 내용 확인</p>
+        <p className="ml-4">→ "O" 표시한 항목이 있는 경우, 팀장 확인 후 당일 작업 여부 결정</p>
+      </div>
+      <div className="flex items-center gap-8 mb-3 text-sm border border-gray-400 p-2">
+        <div><span className="font-medium bg-gray-100 px-2 py-0.5">작성일자</span> {checkDate}</div>
+        <div><span className="font-medium bg-gray-100 px-2 py-0.5">작성자</span> {writerName || "-"}</div>
+      </div>
+      <div className="text-center font-bold text-sm mb-1">질문내용</div>
+      <table className="w-full border-collapse border border-gray-400 text-[10px]">
+        <thead>
+          <tr className="bg-gray-50">
+            <th rowSpan={2} className="border border-gray-400 px-1 py-1 w-20">종사자명</th>
+            {questions.map((q: any, idx: number) => (
+              <th key={idx} colSpan={2} className="border border-gray-400 px-1 py-1 text-center">{q.text || `질문 ${idx + 1}`}</th>
+            ))}
+          </tr>
+          <tr className="bg-gray-50">
+            {questions.map((_: any, idx: number) => (
+              <React.Fragment key={idx}>
+                <th className="border border-gray-400 px-1 py-0.5 text-center w-6">O</th>
+                <th className="border border-gray-400 px-1 py-0.5 text-center w-6">X</th>
+              </React.Fragment>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {employeeRows.length > 0 ? employeeRows.map((row: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-1 py-0.5 text-center">{row.name || `종사자 ${idx + 1}`}</td>
+              {questions.map((q: any, qIdx: number) => {
+                const answer = row.answers?.[q.id] || "X";
+                return (
+                  <React.Fragment key={qIdx}>
+                    <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "O" ? "✓" : ""}</td>
+                    <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "X" ? "✓" : ""}</td>
+                  </React.Fragment>
+                );
+              })}
+            </tr>
+          )) : (
+            <tr><td colSpan={1 + questions.length * 2} className="border border-gray-400 px-2 py-3 text-center text-gray-400">기록 없음</td></tr>
+          )}
+        </tbody>
+      </table>
+      {specialNotes && <div className="mt-3 border border-gray-400 p-2 text-sm"><span className="font-bold">특이사항: </span>{specialNotes}</div>}
+    </div>
+  );
+}
+
+// ============================================================================
+// 기타 전용 렌더러들
+// ============================================================================
+function renderAirCompressorMaintenance(data: any) {
+  const rows = data?.rows || [];
+  return (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">에어 콤프레샤</h2>
+        <h3 className="text-base mt-1">윤활유(식품오일, H1급) 및 에어 크리너 세척, 소독 점검표</h3>
+      </div>
+      <div className="border border-gray-400 rounded p-3 mb-4 bg-gray-50 text-xs">
+        <p className="font-bold mb-1">관리 기준</p>
+        <ul className="list-disc list-inside space-y-0.5">
+          <li>에어 콤프레샤 윤활유는 식품오일(H1급)으로 한다.</li>
+          <li>식품용 윤활유는 매년 2회. 6월, 12월 첫째주 월요일에 정기적으로 교환한다.</li>
+          <li>에어 크리너는 매월 3개월 마다. 첫째주 월요일에 정기적으로 세척, 소독한다.</li>
+        </ul>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead>
+          <tr className="bg-blue-50">
+            <th className="border border-gray-400 px-2 py-1">월 일</th>
+            <th className="border border-gray-400 px-2 py-1">식품오일 교환</th>
+            <th className="border border-gray-400 px-2 py-1">에어크리너 세척</th>
+            <th className="border border-gray-400 px-2 py-1">작업자</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length > 0 ? rows.map((row: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{row.date || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{row.oilChange ? "✓" : "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{row.cleanerWash ? "✓" : "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{row.worker || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={4} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderEquipmentInspection(data: any) {
+  const items = data?.data || data?.items || [];
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">설비 점검 기록</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1">No.</th>
+          <th className="border border-gray-400 px-2 py-1">설비명</th>
+          <th className="border border-gray-400 px-2 py-1">외관</th>
+          <th className="border border-gray-400 px-2 py-1">작동</th>
+          <th className="border border-gray-400 px-2 py-1">청결</th>
+          <th className="border border-gray-400 px-2 py-1">안전</th>
+          <th className="border border-gray-400 px-2 py-1">판정</th>
+        </tr></thead>
+        <tbody>
+          {items.length > 0 ? items.map((item: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1">{item.equipmentName || item["설비명"] || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.appearance || item["외관상태"] || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.operation || item["작동상태"] || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.cleanliness || item["청결상태"] || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.safety || item["안전장치"] || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.result || item["판정"] || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={7} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderTemperatureHumidityCheck(data: any) {
+  const records = data?.spaceRows || data?.records || data?.rows || data?.data || [];
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">온·습도 점검표</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1">No.</th>
+          <th className="border border-gray-400 px-2 py-1">구역</th>
+          <th className="border border-gray-400 px-2 py-1">위치</th>
+          <th className="border border-gray-400 px-2 py-1">온도(℃)</th>
+          <th className="border border-gray-400 px-2 py-1">기준</th>
+          <th className="border border-gray-400 px-2 py-1">판정</th>
+        </tr></thead>
+        <tbody>
+          {records.length > 0 ? records.map((r: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1">{r.area || r.location || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.location || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.tempResult ?? r.temperature ?? "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.tempStandard || r.standard || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.judgment || r.result || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={6} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderAirborneBacteriaTest(data: any) {
+  const rows = data?.rows || data?.data || [];
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">공중낙하세균 검사 성적서</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1">No.</th>
+          <th className="border border-gray-400 px-2 py-1">검사장소</th>
+          <th className="border border-gray-400 px-2 py-1">검사일</th>
+          <th className="border border-gray-400 px-2 py-1">노출시간</th>
+          <th className="border border-gray-400 px-2 py-1">세균수(CFU)</th>
+          <th className="border border-gray-400 px-2 py-1">기준</th>
+          <th className="border border-gray-400 px-2 py-1">판정</th>
+        </tr></thead>
+        <tbody>
+          {rows.length > 0 ? rows.map((r: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1">{r.location || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.inspectionDate || r.date || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.exposureTime || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.bacteriaCount || r.result || r.cfu || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.criteria || r.standard || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{r.result || r.judgment || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={7} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function renderTrainingLog(data: any) {
+  const formData = data || {};
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">교육훈련 기록</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+        <tbody>
+          {formData.date && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/4">교육일</td><td className="border border-gray-400 px-3 py-2">{formData.date}</td></tr>}
+          {formData.title && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육명</td><td className="border border-gray-400 px-3 py-2">{formData.title}</td></tr>}
+          {formData.instructor && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육자</td><td className="border border-gray-400 px-3 py-2">{formData.instructor}</td></tr>}
+          {formData.content && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육내용</td><td className="border border-gray-400 px-3 py-2 whitespace-pre-wrap">{formData.content}</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 위생시설/작업장 위생 점검표의 checklist 객체 키→라벨 매핑
+const CHECKLIST_LABEL_MAP: Record<string, string> = {
+  location: '점검장소', toilet: '화장실청결', handwash: '손세척시설',
+  locker: '탈의실', ventilation: '환기시설', screen: '방충망', drainage: '배수시설',
+};
+
+function renderChecklistItems(data: any, title: string) {
+  const rawChecklist = data?.checklist || data?.checklistItems || data?.checkItems || data?.items || data?.data || [];
+  const sections = data?.sections || [];
+
+  // checklist가 객체(key-value)인 경우 배열로 변환 (위생시설/작업장 위생 점검표 패턴)
+  if (rawChecklist && typeof rawChecklist === 'object' && !Array.isArray(rawChecklist)) {
+    const entries = Object.entries(rawChecklist);
+    if (entries.length > 0) {
+      return (
+        <div>
+          <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+          <table className="w-full border-collapse border border-gray-400 text-sm">
+            <thead><tr className="bg-blue-50">
+              <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
+              <th className="border border-gray-400 px-2 py-1">점검항목</th>
+              <th className="border border-gray-400 px-2 py-1 w-16">결과</th>
+              <th className="border border-gray-400 px-2 py-1 w-24">비고</th>
+            </tr></thead>
+            <tbody>
+              {entries.map(([key, value], idx) => (
+                <tr key={idx}>
+                  <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                  <td className="border border-gray-400 px-2 py-1">{CHECKLIST_LABEL_MAP[key] || key}</td>
+                  <td className="border border-gray-400 px-2 py-1 text-center">{value === '적합' ? '✓ 적합' : value === '부적합' ? '✗ 부적합' : String(value || '-')}</td>
+                  <td className="border border-gray-400 px-2 py-1">-</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {(data.notes || data.actions) && (
+            <div className="mt-2 text-sm">
+              {data.notes && <p><strong>특이사항:</strong> {data.notes}</p>}
+              {data.actions && <p><strong>개선조치:</strong> {data.actions}</p>}
+            </div>
+          )}
+        </div>
+      );
+    }
+  }
+
+  const checklist = Array.isArray(rawChecklist) ? rawChecklist : [];
+
+  // checkItems 배열 패턴 (용수관리 점검표: {category, subCategory, question, result})
+  if (checklist.length > 0 && checklist[0]?.question) {
+    return renderWaterManagementCheck(data, title, checklist);
+  }
+
+  if (sections.length > 0) {
+    return (
+      <div>
+        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        {sections.map((s: any, sIdx: number) => (
+          <div key={sIdx} className="mb-3">
+            <h3 className="font-bold text-sm mb-1 bg-gray-100 px-2 py-1">{s.title || s.name}</h3>
+            <table className="w-full border-collapse border border-gray-400 text-sm">
+              <thead><tr className="bg-blue-50">
+                <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
+                <th className="border border-gray-400 px-2 py-1">점검항목</th>
+                <th className="border border-gray-400 px-2 py-1 w-16">결과</th>
+                <th className="border border-gray-400 px-2 py-1 w-24">비고</th>
+              </tr></thead>
+              <tbody>
+                {(s.items || []).map((item: any, idx: number) => (
+                  <tr key={idx}>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                    <td className="border border-gray-400 px-2 py-1">{item.text || item.label || item.name || "-"}</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{item.checked ? "✓ 적합" : (item.result || "-")}</td>
+                    <td className="border border-gray-400 px-2 py-1">{item.note || "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
+          <th className="border border-gray-400 px-2 py-1">점검항목</th>
+          <th className="border border-gray-400 px-2 py-1 w-16">결과</th>
+          <th className="border border-gray-400 px-2 py-1 w-24">비고</th>
+        </tr></thead>
+        <tbody>
+          {checklist.length > 0 ? checklist.map((item: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1">{typeof item === "string" ? item : (item.text || item.label || item.name || item.item || "-")}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.checked !== undefined ? (item.checked ? "✓ 적합" : "✗ 부적합") : (item.value || item.result || "-")}</td>
+              <td className="border border-gray-400 px-2 py-1">{item.note || item.remarks || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={4} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 용수관리 점검표 전용 렌더러 (checkItems: {category, subCategory, question, result})
+function renderWaterManagementCheck(data: any, title: string, checkItems: any[]) {
+  // 카테고리별 그룹핑
+  const groups: Record<string, any[]> = {};
+  checkItems.forEach((item: any) => {
+    const key = item.category || '기타';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
+  });
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+      {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검주기: {data.checkCycle || '-'} | 점검자: {data.inspector || '-'}</p>}
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
+          <th className="border border-gray-400 px-2 py-1 w-24">구분</th>
+          <th className="border border-gray-400 px-2 py-1 w-20">세부</th>
+          <th className="border border-gray-400 px-2 py-1">점검항목</th>
+          <th className="border border-gray-400 px-2 py-1 w-16">결과</th>
+        </tr></thead>
+        <tbody>
+          {checkItems.map((item: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.category || '-'}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.subCategory || '-'}</td>
+              <td className="border border-gray-400 px-2 py-1">{item.question || item.text || '-'}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.result === 'good' ? '✓ 적합' : item.result === 'bad' ? '✗ 부적합' : (item.result || '-')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {data.deviations && Array.isArray(data.deviations) && data.deviations.length > 0 && (
+        <div className="mt-3">
+          <h3 className="font-bold text-sm mb-1">일탈/부적합 사항</h3>
+          <table className="w-full border-collapse border border-gray-400 text-sm">
+            <thead><tr className="bg-yellow-50">
+              <th className="border border-gray-400 px-2 py-1">일자</th>
+              <th className="border border-gray-400 px-2 py-1">장소</th>
+              <th className="border border-gray-400 px-2 py-1">내용</th>
+              <th className="border border-gray-400 px-2 py-1">조치</th>
+              <th className="border border-gray-400 px-2 py-1">조치자</th>
+            </tr></thead>
+            <tbody>
+              {data.deviations.map((d: any, idx: number) => (
+                <tr key={idx}>
+                  <td className="border border-gray-400 px-2 py-1">{d.date || '-'}</td>
+                  <td className="border border-gray-400 px-2 py-1">{d.location || '-'}</td>
+                  <td className="border border-gray-400 px-2 py-1">{d.detail || '-'}</td>
+                  <td className="border border-gray-400 px-2 py-1">{d.action || '-'}</td>
+                  <td className="border border-gray-400 px-2 py-1">{d.actionBy || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderRowsTable(data: any, title: string, columns: {key: string; label: string}[]) {
+  const rows = data?.rows || data?.data || data?.items || [];
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1">No.</th>
+          {columns.map((c, i) => <th key={i} className="border border-gray-400 px-2 py-1">{c.label}</th>)}
+        </tr></thead>
+        <tbody>
+          {rows.length > 0 ? rows.map((row: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              {columns.map((c, i) => (
+                <td key={i} className="border border-gray-400 px-2 py-1 text-center">
+                  {typeof row[c.key] === "boolean" ? (row[c.key] ? "✓" : "-") : (row[c.key] ?? "-")}
+                </td>
+              ))}
+            </tr>
+          )) : (<tr><td colSpan={columns.length + 1} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 개인위생 점검표 전용 렌더러 (employeeRows + checkColumns 구조)
+function renderPersonalHygieneCheck(data: any) {
+  const employeeRows = data?.employeeRows || [];
+  const checkColumns = data?.checkColumns || [
+    { id: 'health', label: '건강상태' },
+    { id: 'uniform', label: '위생복,위생모,위생화' },
+    { id: 'belongings', label: '개인 소지품' },
+    { id: 'workerHygiene', label: '작업자 위생상태' },
+    { id: 'hygieneRoom', label: '위생전실 절차' },
+    { id: 'handWash', label: '손세척, 소독' },
+  ];
+  const filledRows = employeeRows.filter((r: any) => r.name && r.name.trim() !== '');
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">개인 위생관리 점검표</h2></div>
+      {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검자: {data.inspector || '-'}</p>}
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
+          <th className="border border-gray-400 px-2 py-1 w-20">성명</th>
+          {checkColumns.map((col: any, i: number) => (
+            <th key={i} className="border border-gray-400 px-1 py-1 text-xs">
+              {col.label}{col.subLabel ? <br/> : null}{col.subLabel || ''}
+            </th>
+          ))}
+        </tr></thead>
+        <tbody>
+          {filledRows.length > 0 ? filledRows.map((row: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{row.name}</td>
+              {checkColumns.map((col: any, i: number) => (
+                <td key={i} className="border border-gray-400 px-1 py-1 text-center text-xs">
+                  {row.checks?.[col.id] === '적합' ? '✓' : row.checks?.[col.id] === '부적합' ? '✗' : (row.checks?.[col.id] || '-')}
+                </td>
+              ))}
+            </tr>
+          )) : (<tr><td colSpan={2 + checkColumns.length} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+      {(data.specialNotes || data.improvementAction) && (
+        <div className="mt-2 text-sm">
+          {data.specialNotes && <p><strong>특이사항:</strong> {data.specialNotes}</p>}
+          {data.improvementAction && <p><strong>개선조치:</strong> {data.improvementAction}</p>}
+          {data.actionBy && <p><strong>조치자:</strong> {data.actionBy}</p>}
+          {data.confirmedBy && <p><strong>확인자:</strong> {data.confirmedBy}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderProductTestReport(data: any) {
+  const items = data?.items || data?.rows || data?.data || [];
+  const productName = data?.productName || "";
+  const lotNo = data?.lotNo || "";
+  const formDate = data?.formDate || "";
+  const confirmer = data?.confirmer || "";
+  const notes = data?.notes || "";
+  const correctiveAction = data?.correctiveAction || "";
+  return (
+    <div>
+      <div className="text-center mb-4"><h2 className="text-xl font-bold">제품검사 성적서</h2></div>
+      {(productName || lotNo || formDate) && (
+        <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+          <tbody>
+            {productName && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/4">제품명</td><td className="border border-gray-400 px-3 py-2">{productName}</td></tr>}
+            {lotNo && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">LOT No.</td><td className="border border-gray-400 px-3 py-2">{lotNo}</td></tr>}
+            {formDate && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">검사일</td><td className="border border-gray-400 px-3 py-2">{formDate}</td></tr>}
+            {confirmer && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">확인자</td><td className="border border-gray-400 px-3 py-2">{confirmer}</td></tr>}
+          </tbody>
+        </table>
+      )}
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <thead><tr className="bg-blue-50">
+          <th className="border border-gray-400 px-2 py-1">No.</th>
+          <th className="border border-gray-400 px-2 py-1">검사항목</th>
+          <th className="border border-gray-400 px-2 py-1">기준</th>
+          <th className="border border-gray-400 px-2 py-1">결과</th>
+        </tr></thead>
+        <tbody>
+          {items.length > 0 ? items.map((item: any, idx: number) => (
+            <tr key={idx}>
+              <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+              <td className="border border-gray-400 px-2 py-1">{item.item || item.name || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.standard || item.criteria || "-"}</td>
+              <td className="border border-gray-400 px-2 py-1 text-center">{item.result || item.judgment || "-"}</td>
+            </tr>
+          )) : (<tr><td colSpan={4} className="border border-gray-400 px-2 py-4 text-center text-gray-400">기록 없음</td></tr>)}
+        </tbody>
+      </table>
+      {(notes || correctiveAction) && (
+        <div className="mt-4 text-sm">
+          {notes && <div className="mb-2"><span className="font-medium">비고: </span>{notes}</div>}
+          {correctiveAction && <div><span className="font-medium">시정조치: </span>{correctiveAction}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderGenericData(data: any, formType: string) {
+  if (!data) return <p className="text-gray-500">데이터 없음</p>;
+  const title = FORM_TYPE_LABELS[formType] || formType;
+
+  // spaceRows, employeeRows 등 특수 키도 rows로 통합 처리
+  const genericRows = data.rows || data.spaceRows || data.employeeRows;
+  if (genericRows && Array.isArray(genericRows) && genericRows.length > 0) {
+    const keys = Object.keys(genericRows[0]).filter(k => k !== "id" && k !== "signature");
+    return (
+      <div>
+        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <table className="w-full border-collapse border border-gray-400 text-sm">
+          <thead><tr className="bg-blue-50">
+            <th className="border border-gray-400 px-2 py-1">No.</th>
+            {keys.map((k, i) => <th key={i} className="border border-gray-400 px-2 py-1">{k}</th>)}
+          </tr></thead>
+          <tbody>
+            {genericRows.map((row: any, idx: number) => (
+              <tr key={idx}>
+                <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                {keys.map((k, i) => (
+                  <td key={i} className="border border-gray-400 px-2 py-1 text-center">
+                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  if (data.checklist || data.checklistItems || data.checkItems || data.items) return renderChecklistItems(data, title);
+  if (data.employeeRows) return renderPersonalHygieneCheck(data);
+
+  if (data.data && Array.isArray(data.data) && data.data.length > 0) {
+    const keys = Object.keys(data.data[0]);
+    return (
+      <div>
+        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <table className="w-full border-collapse border border-gray-400 text-sm">
+          <thead><tr className="bg-blue-50">
+            <th className="border border-gray-400 px-2 py-1">No.</th>
+            {keys.map((k, i) => <th key={i} className="border border-gray-400 px-2 py-1">{k}</th>)}
+          </tr></thead>
+          <tbody>
+            {data.data.map((item: any, idx: number) => (
+              <tr key={idx}>
+                <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                {keys.map((k, i) => (
+                  <td key={i} className="border border-gray-400 px-2 py-1 text-center">
+                    {typeof item[k] === "object" ? JSON.stringify(item[k]) : (item[k] ?? "-")}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  const skipKeys = ["id", "createdAt", "updatedAt", "organizationId", "formType", "status", "approval", "writer", "author", "approver"];
+  const entries = Object.entries(data).filter(([key]) => !skipKeys.includes(key));
+  if (entries.length > 0) {
+    return (
+      <div>
+        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <table className="w-full border-collapse border border-gray-400 text-sm">
+          <tbody>
+            {entries.map(([key, value], idx) => (
+              <tr key={idx}>
+                <td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/3">{key}</td>
+                <td className="border border-gray-400 px-3 py-2">
+                  {typeof value === "object" && value !== null
+                    ? (Array.isArray(value) ? `${(value as any[]).length}건` : JSON.stringify(value, null, 2))
+                    : String(value ?? "-")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  return <p className="text-gray-500">데이터 없음</p>;
+}
+
+// ============================================================================
+// 폼 타입별 렌더링 디스패처 (daily_log 제외 - 별도 처리)
+// ============================================================================
+function renderFormContent(data: any, formType: string) {
+  if (!data) return <p className="text-gray-500">데이터 없음</p>;
+  switch (formType) {
+    case "employee_health_check": return renderEmployeeHealthCheck(data);
+    case "air_compressor_maintenance": return renderAirCompressorMaintenance(data);
+    case "equipment_inspection": return renderEquipmentInspection(data);
+    case "temperature_humidity_check": return renderTemperatureHumidityCheck(data);
+    case "airborne_bacteria_test": return renderAirborneBacteriaTest(data);
+    case "training_log": return renderTrainingLog(data);
+    case "workplace_hygiene_check": return renderChecklistItems(data, "작업장 위생 점검표");
+    case "hygiene_facility_check": return renderChecklistItems(data, "위생시설 점검표");
+    case "personal_hygiene_check": return renderPersonalHygieneCheck(data);
+    case "cleaning_disinfection": return renderChecklistItems(data, "세척소독 관리대장");
+    case "vehicle_temperature_check": return renderRowsTable(data, "차량 온도 점검표", [{key:"vehicleNo",label:"차량번호"},{key:"temperature",label:"온도(℃)"},{key:"standard",label:"기준"},{key:"result",label:"판정"},{key:"note",label:"비고"}]);
+    case "weight_quality_check": return renderRowsTable(data, "중량 품질 검사", [{key:"productName",label:"제품명"},{key:"standard",label:"기준중량"},{key:"measured",label:"실측중량"},{key:"result",label:"판정"},{key:"note",label:"비고"}]);
+    case "surface_contamination_test": return renderRowsTable(data, "표면오염도 검사 성적서", [{key:"item",label:"검사항목"},{key:"location",label:"검사장소"},{key:"method",label:"검사방법"},{key:"result",label:"결과"},{key:"criteria",label:"기준"},{key:"judgment",label:"판정"}]);
+    case "water_management_check": return renderChecklistItems(data, "용수관리 점검표");
+    case "illumination_check": return renderRowsTable(data, "조도 점검표", [{key:"location",label:"측정장소"},{key:"standard",label:"기준"},{key:"measurement",label:"측정값"},{key:"result",label:"판정"},{key:"remarks",label:"비고"}]);
+    case "waste_management": return renderRowsTable(data, "폐기물 관리 기록", [{key:"date",label:"일자"},{key:"type",label:"폐기물종류"},{key:"amount",label:"수량"},{key:"method",label:"처리방법"},{key:"handler",label:"처리자"}]);
+    case "pest_control_checklist": return renderRowsTable(data, "방충·방서 점검표", [{key:"location",label:"설치장소"},{key:"deviceType",label:"장치유형"},{key:"captureCount",label:"포획수"},{key:"notes",label:"비고"}]);
+    case "product_test_report": return renderProductTestReport(data);
+    default: return renderGenericData(data, formType);
+  }
+}
+
+// ============================================================================
+// 메인 컴포넌트
+// ============================================================================
+export default function PrintPreviewPage() {
+  const ids = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const idsParam = params.get("ids");
+    return idsParam ? idsParam.split(",").map(Number).filter(Boolean) : [];
+  }, []);
+  
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const printTriggered = useRef(false);
+
+  const { data: approvedRequests = [] } = trpc.approval.list.useQuery({ status: "approved" });
+  const { data: employees = [] } = trpc.organization.employees.list.useQuery();
+  const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
+  const trpcUtils = trpc.useUtils();
+
+  const reviewerEmployee = useMemo(() => (employees as any[]).find((e: any) => e.approvalRole === "reviewer" && e.isActive === 1), [employees]);
+  const approverEmployee = useMemo(() => (employees as any[]).find((e: any) => e.approvalRole === "approver" && e.isActive === 1), [employees]);
+  
+  // 문서 유형별 결재 설정에서 이름 조회 헬퍼
+  const getApprovalSettingNames = (formType: string) => {
+    const setting = (allApprovalSettings as any[]).find((s: any) => s.documentType === formType);
+    if (!setting) return null;
+    const empList = employees as any[];
+    const author = empList.find((e: any) => e.id === setting.authorEmployeeId);
+    const reviewer = empList.find((e: any) => e.id === setting.reviewerEmployeeId);
+    const approver = empList.find((e: any) => e.id === setting.approverEmployeeId);
+    return {
+      authorName: author?.name || "",
+      reviewerName: reviewer?.name || "",
+      approverName: approver?.name || "",
+    };
+  };
+
+  useEffect(() => {
+    const loadDocuments = async () => {
+      if (ids.length === 0 || approvedRequests.length === 0) return;
+      const docs: any[] = [];
+      for (const id of ids) {
+        const request = (approvedRequests as any[]).find((r: any) => r.id === id);
+        if (!request) continue;
+        let formData = null;
+        let formType = "";
+        if (request.referenceId) {
+          try {
+            const record = await trpcUtils.genericChecklist.getById.fetch({ id: request.referenceId });
+            let rawFormData = record?.formData || record?.data || record;
+            // formData가 string인 경우 JSON.parse 처리
+            if (typeof rawFormData === "string") {
+              try { rawFormData = JSON.parse(rawFormData); } catch (_) {}
+            }
+            formData = rawFormData;
+            formType = record?.formType || "";
+          } catch (e) { console.error("폼 데이터 조회 오류:", e); }
+        }
+        docs.push({ ...request, formData, formType });
+      }
+      setDocuments(docs);
+      setLoading(false);
+    };
+    loadDocuments();
+  }, [ids.length, approvedRequests.length]);
+
+  useEffect(() => {
+    if (!loading && documents.length > 0 && !printTriggered.current) {
+      printTriggered.current = true;
+      setTimeout(() => window.print(), 800);
+    }
+  }, [loading, documents.length]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
+        <p className="text-gray-600">문서를 불러오는 중...</p>
+      </div>
+    </div>
+  );
+
+  if (documents.length === 0) return (
+    <div className="flex items-center justify-center min-h-screen">
+      <p className="text-gray-500">인쇄할 문서가 없습니다.</p>
+    </div>
+  );
+
+  // 문서 목록을 페이지 단위로 펼침 (daily_log는 5페이지)
+  const allPages: { doc: any; pageContent: React.ReactNode; pageTitle: string; pageIndex: number; totalPages: number }[] = [];
+  
+  documents.forEach((doc) => {
+    const approval = doc.formData?.approval || {};
+    // 우선순위: formData.approval > 대시보드 결재 설정 > approvalRole > 요청자/승인자
+    const settingNames = getApprovalSettingNames(doc.formType || doc.requestType || "");
+    const authorName = approval.writerName || settingNames?.authorName || doc.formData?.inspector || doc.formData?.author || doc.formData?.writer || doc.requester?.name || "";
+    const reviewerName = approval.reviewerName || settingNames?.reviewerName || doc.reviewer?.name || reviewerEmployee?.name || "";
+    const approverName = approval.approverName || settingNames?.approverName || doc.approver?.name || approverEmployee?.name || "";
+    const requestedAt = doc.requestedAt;
+    const reviewedAt = doc.reviewedAt || (doc.approvedAt && reviewerName ? doc.approvedAt : undefined);
+    const approvedAt = doc.approvedAt;
+
+    if (doc.formType === "daily_log") {
+      const pages = renderDailyLogPages(doc.formData);
+      pages.forEach((pageContent, idx) => {
+        allPages.push({
+          doc: { ...doc, authorName, reviewerName, approverName, requestedAt, reviewedAt, approvedAt },
+          pageContent,
+          pageTitle: DAILY_LOG_PAGE_TITLES[idx] || `일일일지 ${idx + 1}`,
+          pageIndex: idx,
+          totalPages: pages.length,
+        });
+      });
+    } else {
+      allPages.push({
+        doc: { ...doc, authorName, reviewerName, approverName, requestedAt, reviewedAt, approvedAt },
+        pageContent: renderFormContent(doc.formData, doc.formType),
+        pageTitle: FORM_TYPE_LABELS[doc.formType] || doc.title || doc.requestType || "체크리스트",
+        pageIndex: 0,
+        totalPages: 1,
+      });
+    }
+  });
+
+  return (
+    <>
+      <style>{`
+        @media print { body { margin: 0; padding: 0; } .no-print { display: none !important; } .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } }
+        @media screen { .print-page { max-width: 210mm; margin: 0 auto 20px; padding: 20mm; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white; border: 1px solid #e5e7eb; } }
+      `}</style>
+
+      <div className="no-print bg-blue-600 text-white p-4 sticky top-0 z-50 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h1 className="font-bold text-lg">인쇄 미리보기</h1>
+          <span className="text-blue-200">{allPages.length}페이지 ({documents.length}건의 문서)</span>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => window.print()} className="bg-white text-blue-600 px-4 py-2 rounded font-medium hover:bg-blue-50">인쇄하기</button>
+          <button onClick={() => window.close()} className="bg-blue-500 text-white px-4 py-2 rounded font-medium hover:bg-blue-400">닫기</button>
+        </div>
+      </div>
+
+      <div className="bg-gray-100 min-h-screen p-4 print:p-0 print:bg-white">
+        {allPages.map((page, index) => (
+          <div key={index} className="print-page">
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex-1">
+                <div className="text-xs text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+                <h1 className="text-xl font-bold mb-2">{page.pageTitle}</h1>
+                <div className="text-sm text-gray-600 space-y-0.5">
+                  <div><span className="font-medium">문서번호: </span>#{page.doc.id}</div>
+                  <div><span className="font-medium">작성일: </span>{page.doc.requestedAt ? new Date(page.doc.requestedAt).toLocaleDateString("ko-KR") : "-"}</div>
+                  {page.doc.approvedAt && <div><span className="font-medium">승인일: </span>{new Date(page.doc.approvedAt).toLocaleDateString("ko-KR")}</div>}
+                </div>
+              </div>
+              <div className="flex-shrink-0 ml-4">
+                <ApprovalHeader
+                  authorName={page.doc.authorName}
+                  reviewerName={page.doc.reviewerName}
+                  approverName={page.doc.approverName}
+                  requestedAt={page.doc.requestedAt}
+                  reviewedAt={page.doc.reviewedAt}
+                  approvedAt={page.doc.approvedAt}
+                />
+              </div>
+            </div>
+            <hr className="border-gray-300 mb-4" />
+            <div className="mb-6">{page.pageContent}</div>
+            <div className="text-center text-xs text-gray-400 mt-6">{index + 1} / {allPages.length}</div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}

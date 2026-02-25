@@ -1,0 +1,48 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build outputs
+dist
+client/dist
+client/server
+.vite
+
+# Manus internal files
+.manus/
+.manus-logs/
+.webdev/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Backup & patch files
+*.backup*
+*.bak*
+*.broken
+*.current
+backups/
+dist.tar.gz
+
+# Python patch/fix scripts (generated files)
+fix_*.py
+patch_*.py
+patch_*.sh
+check_*.sh
+apply_*.sh
+
+# Logs
+*.log
+pm2-*.log
+
+# Misc
+*.tar.gz
