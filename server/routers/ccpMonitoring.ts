@@ -987,6 +987,10 @@ export const ccpMonitoringRouter = router({
       correctiveAction: z.string().optional(),
       sortOrder: z.number().optional(),
       equipmentIds: z.array(z.number()).optional(),
+      // 배치 운영 설정 (공정그룹에서 관리)
+      equipGroupMode: z.enum(['sequential', 'concurrent', 'grouped']).optional(),
+      equipIntervalMin: z.number().optional(),
+      equipBatchSize: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -994,8 +998,8 @@ export const ccpMonitoringRouter = router({
       const tenantId = getEffectiveTenantId(ctx);
       
       const [result] = await db.execute(
-        sql`INSERT INTO ccp_process_groups (tenant_id, name, ccp_type, description, temperature_min, temperature_max, time_min, time_max, pressure_min, pressure_max, ph_min, ph_max, monitoring_method, corrective_action, sort_order)
-        VALUES (${tenantId}, ${input.name}, ${input.ccpType}, ${input.description || null}, ${input.temperatureMin || null}, ${input.temperatureMax || null}, ${input.timeMin || null}, ${input.timeMax || null}, ${input.pressureMin || null}, ${input.pressureMax || null}, ${input.phMin || null}, ${input.phMax || null}, ${input.monitoringMethod || null}, ${input.correctiveAction || null}, ${input.sortOrder || 0})`
+        sql`INSERT INTO ccp_process_groups (tenant_id, name, ccp_type, description, temperature_min, temperature_max, time_min, time_max, pressure_min, pressure_max, ph_min, ph_max, monitoring_method, corrective_action, sort_order, equip_group_mode, equip_interval_min, equip_batch_size)
+        VALUES (${tenantId}, ${input.name}, ${input.ccpType}, ${input.description || null}, ${input.temperatureMin || null}, ${input.temperatureMax || null}, ${input.timeMin || null}, ${input.timeMax || null}, ${input.pressureMin || null}, ${input.pressureMax || null}, ${input.phMin || null}, ${input.phMax || null}, ${input.monitoringMethod || null}, ${input.correctiveAction || null}, ${input.sortOrder || 0}, ${input.equipGroupMode || 'sequential'}, ${input.equipIntervalMin ?? 10}, ${input.equipBatchSize ?? 1})`
       );
       
       const groupId = (result as any).insertId;
@@ -1030,6 +1034,10 @@ export const ccpMonitoringRouter = router({
       correctiveAction: z.string().optional(),
       sortOrder: z.number().optional(),
       equipmentIds: z.array(z.number()).optional(),
+      // 배치 운영 설정
+      equipGroupMode: z.enum(['sequential', 'concurrent', 'grouped']).optional(),
+      equipIntervalMin: z.number().nullable().optional(),
+      equipBatchSize: z.number().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1065,6 +1073,10 @@ export const ccpMonitoringRouter = router({
       if (input.monitoringMethod !== undefined) setClauses.push(sql`monitoring_method = ${input.monitoringMethod}`);
       if (input.correctiveAction !== undefined) setClauses.push(sql`corrective_action = ${input.correctiveAction}`);
       if (input.sortOrder !== undefined) setClauses.push(sql`sort_order = ${input.sortOrder}`);
+      // 배치 운영 설정 업데이트
+      if (input.equipGroupMode !== undefined) setClauses.push(sql`equip_group_mode = ${input.equipGroupMode}`);
+      if (input.equipIntervalMin !== undefined) setClauses.push(sql`equip_interval_min = ${input.equipIntervalMin}`);
+      if (input.equipBatchSize !== undefined) setClauses.push(sql`equip_batch_size = ${input.equipBatchSize}`);
       
       if (setClauses.length > 0) {
         const setClause = sql.join(setClauses, sql`, `);

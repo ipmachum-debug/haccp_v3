@@ -523,307 +523,221 @@ function ProcessGroupFormDialog({
   );
 }
 
-// ========== 시간 프로파일 관리 다이얼로그 ==========
+// ========== 시간 프로파일 관리 다이얼로그 (공정그룹 기반 직접 편집) ==========
 function TimeProfileDialog({
   open,
   onOpenChange,
-  processGroups,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  processGroups: any[];
 }) {
-  const [newProfile, setNewProfile] = useState({
-    processType: "STEAM",
-    profileName: "",
-    timeMinutes: "",
-    ccpProcessGroupId: "" as string,
-    description: "",
-  });
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<any>({});
+  const [editForm, setEditForm] = useState<{
+    timeMin: string;
+    timeMax: string;
+    description: string;
+  }>({ timeMin: "", timeMax: "", description: "" });
 
-  // 시간 프로파일 목록 조회
-  const { data: timeProfiles, refetch } = trpc.ccpMonitoring.getTimeProfiles.useQuery(undefined);
-  const profiles = Array.isArray(timeProfiles) ? timeProfiles : [];
+  // 공정그룹 목록 조회 (시간 데이터 포함)
+  const { data: processGroupsRaw, refetch } = trpc.ccpMonitoring.getProcessGroups.useQuery(undefined);
+  const processGroups: any[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
 
-  const createMutation = trpc.ccpMonitoring.createTimeProfile.useMutation({
+  const updateMutation = trpc.ccpMonitoring.updateProcessGroup.useMutation({
     onSuccess: () => {
-      toast.success("시간 프로파일이 생성되었습니다");
-      refetch();
-      setNewProfile({ processType: "STEAM", profileName: "", timeMinutes: "", ccpProcessGroupId: "", description: "" });
-    },
-    onError: (err) => toast.error("생성 실패: " + err.message),
-  });
-
-  const updateMutation = trpc.ccpMonitoring.updateTimeProfile.useMutation({
-    onSuccess: () => {
-      toast.success("시간 프로파일이 수정되었습니다");
+      toast.success("시간 설정이 저장되었습니다");
       refetch();
       setEditingId(null);
     },
-    onError: (err) => toast.error("수정 실패: " + err.message),
+    onError: (err) => toast.error("저장 실패: " + err.message),
   });
 
-  const deleteMutation = trpc.ccpMonitoring.deleteTimeProfile.useMutation({
-    onSuccess: () => {
-      toast.success("시간 프로파일이 삭제되었습니다");
-      refetch();
-    },
-    onError: (err) => toast.error("삭제 실패: " + err.message),
-  });
+  const startEdit = (group: any) => {
+    setEditingId(group.id);
+    setEditForm({
+      timeMin: group.time_min?.toString() ?? "",
+      timeMax: group.time_max?.toString() ?? "",
+      description: group.description ?? "",
+    });
+  };
 
-  const handleCreate = () => {
-    if (!newProfile.profileName.trim() || !newProfile.timeMinutes) {
-      toast.error("프로파일명과 시간을 입력하세요");
+  const handleSave = (group: any) => {
+    if (!editForm.timeMin) {
+      toast.error("최소 시간(분)을 입력하세요");
       return;
     }
-    createMutation.mutate({
-      processType: newProfile.processType,
-      profileName: newProfile.profileName,
-      timeMinutes: Number(newProfile.timeMinutes),
-      ccpProcessGroupId: newProfile.ccpProcessGroupId && newProfile.ccpProcessGroupId !== "none" ? Number(newProfile.ccpProcessGroupId) : undefined,
-      description: newProfile.description || undefined,
-    });
-  };
-
-  const handleUpdate = () => {
-    if (!editingId) return;
     updateMutation.mutate({
-      id: editingId,
-      profileName: editForm.profileName,
-      timeMinutes: editForm.timeMinutes ? Number(editForm.timeMinutes) : undefined,
-      ccpProcessGroupId: editForm.ccpProcessGroupId && editForm.ccpProcessGroupId !== "none" ? Number(editForm.ccpProcessGroupId) : null,
-      description: editForm.description,
+      id: group.id,
+      name: group.name,
+      ccpType: group.ccp_type,
+      timeMin: Number(editForm.timeMin),
+      timeMax: editForm.timeMax ? Number(editForm.timeMax) : undefined,
+      description: editForm.description || undefined,
     });
   };
 
-  const startEdit = (profile: any) => {
-    setEditingId(profile.id);
-    setEditForm({
-      profileName: profile.profile_name || profile.profileName,
-      timeMinutes: (profile.time_minutes || profile.timeMinutes)?.toString() || "",
-      ccpProcessGroupId: (profile.ccp_process_group_id || profile.ccpProcessGroupId)?.toString() || "",
-      description: profile.description || "",
-    });
+  // CCP 타입별 배경색
+  const ccpBadgeClass = (type: string) => {
+    if (type === "CCP-1B") return "bg-red-100 text-red-700 border-red-200";
+    if (type === "CCP-2B") return "bg-blue-100 text-blue-700 border-blue-200";
+    if (type === "CCP-3B") return "bg-yellow-100 text-yellow-700 border-yellow-200";
+    if (type === "CCP-4P") return "bg-green-100 text-green-700 border-green-200";
+    return "bg-gray-100 text-gray-700 border-gray-200";
   };
+
+  // 시간 설정이 있는 그룹만 (CCP-4P 제외 — 금속검출은 시간 없음)
+  const timeGroups = processGroups.filter((g: any) => g.ccp_type !== "CCP-4P");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            시간 프로파일 관리
+            <Clock className="h-5 w-5 text-blue-600" />
+            공정별 시간 설정 관리
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* 안내 */}
-          <div className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
-            <p className="text-xs text-blue-700 dark:text-blue-300">
-              시간 프로파일은 공정별 운영시간을 정의합니다. 예를 들어 "증숙 10분", "증숙 15분" 등 다양한 시간 설정을 만들고, 제품별로 적용할 수 있습니다.
-              CL(한계기준) 범위를 벗어나는 시간은 생성 시 자동으로 차단됩니다.
+          {/* 안내 배너 */}
+          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+            <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
+              각 공정 그룹의 <strong>기준 운영 시간</strong>을 직접 수정합니다.
+              프로파일명은 공정 그룹명으로 자동 적용됩니다.
+              배치 생성 시 <code className="bg-blue-100 dark:bg-blue-900 px-1 rounded">시간(분)</code>이 자동으로 적용됩니다.
             </p>
           </div>
 
-          {/* 새 프로파일 생성 폼 */}
-          <div className="border rounded-lg p-3 bg-gray-50 dark:bg-gray-900">
-            <h4 className="text-sm font-medium mb-2 flex items-center gap-1.5">
-              <Plus className="h-3.5 w-3.5" />
-              새 시간 프로파일 추가
-            </h4>
-            <div className="grid grid-cols-5 gap-2">
-              <div>
-                <Label className="text-[10px]">공정 유형</Label>
-                <Select value={newProfile.processType} onValueChange={(v) => setNewProfile({ ...newProfile, processType: v })}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {processTypes.map(t => (
-                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-[10px]">프로파일명 *</Label>
-                <Input
-                  value={newProfile.profileName}
-                  onChange={(e) => setNewProfile({ ...newProfile, profileName: e.target.value })}
-                  placeholder="예: 증숙 10분"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-[10px]">시간 (분) *</Label>
-                <Input
-                  type="number"
-                  value={newProfile.timeMinutes}
-                  onChange={(e) => setNewProfile({ ...newProfile, timeMinutes: e.target.value })}
-                  placeholder="10"
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div>
-                <Label className="text-[10px]">공정 그룹 (선택)</Label>
-                <Select value={newProfile.ccpProcessGroupId} onValueChange={(v) => setNewProfile({ ...newProfile, ccpProcessGroupId: v })}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">없음</SelectItem>
-                    {processGroups.map((g: any) => (
-                      <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  size="sm"
-                  className="h-8 w-full text-xs"
-                  onClick={handleCreate}
-                  disabled={createMutation.isPending}
-                >
-                  {createMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3 mr-1" />}
-                  추가
-                </Button>
-              </div>
+          {/* 공정그룹 카드 목록 */}
+          {timeGroups.length === 0 ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              등록된 공정 그룹이 없습니다
             </div>
-          </div>
+          ) : (
+            <div className="space-y-2">
+              {timeGroups.map((group: any) => (
+                <div
+                  key={group.id}
+                  className="border rounded-lg p-4 bg-white dark:bg-gray-950 hover:border-blue-300 transition-colors"
+                >
+                  {editingId === group.id ? (
+                    /* 편집 모드 */
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge className={`text-xs ${ccpBadgeClass(group.ccp_type)}`}>
+                          {group.ccp_type}
+                        </Badge>
+                        <span className="font-semibold text-sm">{group.name}</span>
+                        <span className="text-xs text-muted-foreground ml-auto">프로파일명: {group.name} (자동적용)</span>
+                      </div>
+                      <div className="flex gap-3 items-end">
+                        <div className="w-[120px]">
+                          <Label className="text-xs font-medium mb-1 block">
+                            최소 시간(분) <span className="text-red-500">*</span>
+                          </Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={editForm.timeMin}
+                            onChange={(e) => setEditForm({ ...editForm, timeMin: e.target.value })}
+                            className="h-8 text-sm"
+                            placeholder="10"
+                          />
+                        </div>
+                        <div className="w-[120px]">
+                          <Label className="text-xs font-medium mb-1 block">최대 시간(분)</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={editForm.timeMax}
+                            onChange={(e) => setEditForm({ ...editForm, timeMax: e.target.value })}
+                            className="h-8 text-sm"
+                            placeholder="선택"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Label className="text-xs font-medium mb-1 block">메모 (선택)</Label>
+                          <Input
+                            value={editForm.description}
+                            onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                            className="h-8 text-sm"
+                            placeholder="공정 설명"
+                          />
+                        </div>
+                        <div className="flex gap-1 pb-0.5">
+                          <Button
+                            size="sm"
+                            className="h-8 px-3"
+                            onClick={() => handleSave(group)}
+                            disabled={updateMutation.isPending}
+                          >
+                            {updateMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Save className="h-3.5 w-3.5" />
+                            )}
+                            <span className="ml-1 text-xs">저장</span>
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-2"
+                            onClick={() => setEditingId(null)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 보기 모드 */
+                    <div className="flex items-center gap-3">
+                      <Badge className={`text-xs shrink-0 ${ccpBadgeClass(group.ccp_type)}`}>
+                        {group.ccp_type}
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{group.name}</p>
+                        {group.description && (
+                          <p className="text-xs text-muted-foreground truncate">{group.description}</p>
+                        )}
+                      </div>
+                      {/* 시간 표시 */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Clock className="h-3.5 w-3.5 text-blue-500" />
+                        {group.time_min != null ? (
+                          <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                            {group.time_min}{group.time_max ? `~${group.time_max}` : ""} 분
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">미설정</span>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 shrink-0"
+                        onClick={() => startEdit(group)}
+                      >
+                        <Edit className="h-3 w-3 mr-1" />
+                        <span className="text-xs">수정</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* 기존 프로파일 목록 */}
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50 dark:bg-gray-900">
-                  <TableHead className="text-xs w-[100px]">공정</TableHead>
-                  <TableHead className="text-xs">프로파일명</TableHead>
-                  <TableHead className="text-xs w-[80px] text-center">시간(분)</TableHead>
-                  <TableHead className="text-xs">공정 그룹</TableHead>
-                  <TableHead className="text-xs">설명</TableHead>
-                  <TableHead className="text-xs w-[80px] text-center">작업</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {profiles.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-sm text-muted-foreground">
-                      등록된 시간 프로파일이 없습니다
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  profiles.map((profile: any) => (
-                    <TableRow key={profile.id}>
-                      {editingId === profile.id ? (
-                        <>
-                          <TableCell>
-                            <Badge variant="outline" className="text-[10px]">
-                              {profile.process_type || profile.processType}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.profileName}
-                              onChange={(e) => setEditForm({ ...editForm, profileName: e.target.value })}
-                              className="h-7 text-xs"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={editForm.timeMinutes}
-                              onChange={(e) => setEditForm({ ...editForm, timeMinutes: e.target.value })}
-                              className="h-7 text-xs text-center"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Select value={editForm.ccpProcessGroupId} onValueChange={(v) => setEditForm({ ...editForm, ccpProcessGroupId: v })}>
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue placeholder="선택" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="none">없음</SelectItem>
-                                {processGroups.map((g: any) => (
-                                  <SelectItem key={g.id} value={g.id.toString()}>{g.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.description}
-                              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
-                              className="h-7 text-xs"
-                              placeholder="설명"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1 justify-center">
-                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={handleUpdate} disabled={updateMutation.isPending}>
-                                <Save className="h-3 w-3 text-green-600" />
-                              </Button>
-                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingId(null)}>
-                                <X className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </>
-                      ) : (
-                        <>
-                          <TableCell>
-                            <Badge variant="outline" className="text-[10px]">
-                              {profile.process_type || profile.processType}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-medium text-sm">
-                            {profile.profile_name || profile.profileName}
-                          </TableCell>
-                          <TableCell className="text-center font-semibold text-sm">
-                            {profile.time_minutes || profile.timeMinutes}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {profile.process_group_name || "-"}
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">
-                            {profile.description || "-"}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1 justify-center">
-                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => startEdit(profile)}>
-                                <Edit className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-6 w-6 text-red-500"
-                                onClick={() => {
-                                  if (confirm("이 시간 프로파일을 삭제하시겠습니까?")) {
-                                    deleteMutation.mutate({ id: profile.id });
-                                  }
-                                }}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          {/* 안내: CCP-4P 제외 이유 */}
+          <p className="text-[11px] text-muted-foreground text-center">
+            * 금속검출(CCP-4P) 공정은 시간 기준이 없으므로 목록에서 제외됩니다.
+          </p>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ========== 제품별 시간 프로파일 매핑 다이얼로그 ==========
+// ========== 제품별 시간 결과 다이얼로그 (공정그룹별 매핑 결과 조회) ==========
 function ProductTimeProfileMapDialog({
   open,
   onOpenChange,
@@ -831,61 +745,29 @@ function ProductTimeProfileMapDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [filterProcessType, setFilterProcessType] = useState<string>("all");
-  const [addingProduct, setAddingProduct] = useState(false);
-  const [newMap, setNewMap] = useState({ productId: "", processType: "STEAM", timeProfileId: "" });
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("all");
 
-  // 매핑 목록 조회
-  const { data: maps, refetch } = trpc.ccpMonitoring.getProductTimeProfileMaps.useQuery(
-    filterProcessType !== "all" ? { processType: filterProcessType } : undefined
-  );
-  const mapList = Array.isArray(maps) ? maps : [];
+  // 공정그룹 목록
+  const { data: processGroupsRaw } = trpc.ccpMonitoring.getProcessGroups.useQuery(undefined);
+  const processGroups: any[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
 
-  // 시간 프로파일 목록
-  const { data: timeProfiles } = trpc.ccpMonitoring.getTimeProfiles.useQuery(undefined);
-  const profiles = Array.isArray(timeProfiles) ? timeProfiles : [];
+  // 전체 제품-공정그룹 매핑 결과 (BOM 기반 + CCP-4P 수동)
+  const { data: groupProductsRaw } = trpc.ccpMonitoring.getProcessGroupProducts.useQuery(undefined);
+  const allGroupProducts: any[] = Array.isArray(groupProductsRaw) ? groupProductsRaw : [];
 
-  // 제품 목록
-  const { data: productData } = trpc.product.list.useQuery({ limit: 500 });
-  const allProducts = (productData as any)?.items ?? [];
+  // CCP-4P 제외한 시간 관련 그룹만
+  const timeGroups = processGroups.filter((g: any) => g.ccp_type !== "CCP-4P");
 
-  // 미매핑 증숙 제품
-  const { data: unmappedProducts } = trpc.ccpMonitoring.getUnmappedSteamProducts.useQuery(undefined);
-  const unmapped = Array.isArray(unmappedProducts) ? unmappedProducts : [];
+  const filteredGroups = selectedGroupId === "all"
+    ? timeGroups
+    : timeGroups.filter((g: any) => g.id.toString() === selectedGroupId);
 
-  const updateMapMutation = trpc.ccpMonitoring.updateProductTimeProfileMap.useMutation({
-    onSuccess: () => {
-      toast.success("제품 시간 프로파일이 저장되었습니다");
-      refetch();
-      setAddingProduct(false);
-      setNewMap({ productId: "", processType: "STEAM", timeProfileId: "" });
-    },
-    onError: (err) => toast.error("저장 실패: " + err.message),
-  });
-
-  const deleteMapMutation = trpc.ccpMonitoring.deleteProductTimeProfileMap.useMutation({
-    onSuccess: () => {
-      toast.success("매핑이 삭제되었습니다");
-      refetch();
-    },
-    onError: (err) => toast.error("삭제 실패: " + err.message),
-  });
-
-  const handleSaveNew = () => {
-    if (!newMap.productId || !newMap.timeProfileId) {
-      toast.error("제품과 시간 프로파일을 선택하세요");
-      return;
-    }
-    updateMapMutation.mutate({
-      productId: Number(newMap.productId),
-      processType: newMap.processType,
-      timeProfileId: Number(newMap.timeProfileId),
-    });
-  };
-
-  // 공정 유형별 필터된 프로파일
-  const getProfilesForType = (processType: string) => {
-    return profiles.filter((p: any) => (p.process_type || p.processType) === processType);
+  const ccpBadgeClass = (type: string) => {
+    if (type === "CCP-1B") return "bg-red-100 text-red-700 border-red-200";
+    if (type === "CCP-2B") return "bg-blue-100 text-blue-700 border-blue-200";
+    if (type === "CCP-3B") return "bg-yellow-100 text-yellow-700 border-yellow-200";
+    if (type === "CCP-4P") return "bg-green-100 text-green-700 border-green-200";
+    return "bg-gray-100 text-gray-700 border-gray-200";
   };
 
   return (
@@ -893,179 +775,124 @@ function ProductTimeProfileMapDialog({
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Link2 className="h-5 w-5" />
-            제품별 시간 프로파일 매핑
+            <Package className="h-5 w-5 text-green-600" />
+            제품별 공정시간 결과
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* 안내 */}
-          <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 rounded-lg p-3 border border-green-200 dark:border-green-800">
-            <p className="text-xs text-green-700 dark:text-green-300">
-              제품마다 공정별 시간을 다르게 설정할 수 있습니다. 예를 들어 "설기떡"은 증숙 10분, "인절미"는 증숙 15분으로 설정합니다.
-              시간 프로파일을 먼저 생성한 후 제품에 매핑하세요.
+          {/* 안내 배너 */}
+          <div className="bg-green-50 dark:bg-green-950/30 rounded-lg p-3 border border-green-200 dark:border-green-800">
+            <p className="text-xs text-green-700 dark:text-green-300 leading-relaxed">
+              BOM에서 연결된 공정 그룹 기준으로 <strong>각 제품에 적용되는 시간</strong>을 보여줍니다.
+              시간 수정은 <strong>공정별 시간 설정</strong> 버튼에서 하세요.
             </p>
           </div>
 
-          {/* 미매핑 경고 */}
-          {unmapped.length > 0 && (
-            <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-3 border border-red-200 dark:border-red-800">
-              <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
-                <span className="text-xs font-semibold text-red-700 dark:text-red-300">
-                  증숙 공정 미매핑 제품 ({unmapped.length}개)
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {unmapped.map((p: any) => (
-                  <Badge key={p.id} variant="outline" className="text-[10px] border-red-300 text-red-600">
-                    {p.product_name}
-                  </Badge>
-                ))}
-              </div>
-              <p className="text-[10px] text-red-500 mt-1.5">
-                위 제품들은 증숙 공정이 포함되어 있지만 시간 프로파일이 매핑되지 않았습니다. 배치 확정 시 경고가 표시됩니다.
-              </p>
-            </div>
-          )}
-
-          {/* 필터 + 추가 버튼 */}
-          <div className="flex items-center justify-between">
-            <Select value={filterProcessType} onValueChange={setFilterProcessType}>
-              <SelectTrigger className="w-[180px] h-8 text-xs">
-                <SelectValue placeholder="공정 유형 필터" />
+          {/* 공정그룹 필터 */}
+          <div className="flex items-center gap-2">
+            <Label className="text-xs shrink-0">공정 필터:</Label>
+            <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+              <SelectTrigger className="w-[220px] h-8 text-xs">
+                <SelectValue placeholder="전체 공정" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 공정</SelectItem>
-                {processTypes.map(t => (
-                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                {timeGroups.map((g: any) => (
+                  <SelectItem key={g.id} value={g.id.toString()}>
+                    {g.name}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" className="h-8 text-xs" onClick={() => setAddingProduct(true)}>
-              <Plus className="h-3 w-3 mr-1" />
-              매핑 추가
-            </Button>
           </div>
 
-          {/* 새 매핑 추가 폼 */}
-          {addingProduct && (
-            <div className="border-2 border-dashed border-green-300 rounded-lg p-3 bg-green-50/50 dark:bg-green-950/20">
-              <h4 className="text-xs font-medium mb-2">새 제품 시간 프로파일 매핑</h4>
-              <div className="grid grid-cols-4 gap-2">
-                <div>
-                  <Label className="text-[10px]">제품 *</Label>
-                  <Select value={newMap.productId} onValueChange={(v) => setNewMap({ ...newMap, productId: v })}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="제품 선택" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allProducts.map((p: any) => (
-                        <SelectItem key={p.id} value={p.id.toString()}>
-                          {p.productName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-[10px]">공정 유형 *</Label>
-                  <Select value={newMap.processType} onValueChange={(v) => setNewMap({ ...newMap, processType: v, timeProfileId: "" })}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {processTypes.map(t => (
-                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-[10px]">시간 프로파일 *</Label>
-                  <Select value={newMap.timeProfileId} onValueChange={(v) => setNewMap({ ...newMap, timeProfileId: v })}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="선택" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getProfilesForType(newMap.processType).map((tp: any) => (
-                        <SelectItem key={tp.id} value={tp.id.toString()}>
-                          {tp.profile_name || tp.profileName} ({tp.time_minutes || tp.timeMinutes}분)
-                        </SelectItem>
-                      ))}
-                      {getProfilesForType(newMap.processType).length === 0 && (
-                        <SelectItem value="_empty" disabled>해당 공정의 프로파일 없음</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end gap-1">
-                  <Button size="sm" className="h-8 text-xs flex-1" onClick={handleSaveNew} disabled={updateMapMutation.isPending}>
-                    {updateMapMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "저장"}
-                  </Button>
-                  <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => setAddingProduct(false)}>
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
+          {/* 공정그룹별 카드 */}
+          {filteredGroups.length === 0 ? (
+            <div className="text-center py-12 text-sm text-muted-foreground">
+              공정 그룹 데이터가 없습니다
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredGroups.map((group: any) => {
+                // BOM/수동 매핑에서 해당 그룹의 제품만 필터링
+                const mappedProducts: any[] = allGroupProducts.filter(
+                  (p: any) => p.process_group_id === group.id
+                );
+
+                return (
+                  <div key={group.id} className="border rounded-lg overflow-hidden">
+                    {/* 그룹 헤더 */}
+                    <div className="bg-gray-50 dark:bg-gray-900 px-4 py-3 flex items-center gap-3 border-b">
+                      <Badge className={`text-xs ${ccpBadgeClass(group.ccp_type)}`}>
+                        {group.ccp_type}
+                      </Badge>
+                      <span className="font-semibold text-sm">{group.name}</span>
+                      <div className="flex items-center gap-1 ml-auto">
+                        <Clock className="h-3.5 w-3.5 text-blue-500" />
+                        <span className="text-sm font-bold text-blue-700 dark:text-blue-300">
+                          {group.time_min != null
+                            ? `${group.time_min}${group.time_max ? `~${group.time_max}` : ""} 분`
+                            : "미설정"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* 제품 목록 테이블 */}
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="text-xs">
+                          <TableHead className="text-xs">제품명</TableHead>
+                          <TableHead className="text-xs w-[100px] text-center">적용 시간</TableHead>
+                          <TableHead className="text-xs w-[120px] text-center">공정 그룹</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {mappedProducts.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
+                              이 공정 그룹에 매핑된 제품이 없습니다
+                              <br />
+                              <span className="text-[10px]">공정 그룹 편집에서 제품을 연결하세요</span>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          mappedProducts.map((product: any) => (
+                            <TableRow key={product.id ?? product.product_id}>
+                              <TableCell className="text-sm font-medium">
+                                {product.product_name ?? product.name}
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span className="inline-flex items-center gap-1 font-semibold text-sm text-blue-700 dark:text-blue-300">
+                                  <Clock className="h-3 w-3" />
+                                  {group.time_min != null ? `${group.time_min} 분` : "-"}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <Badge variant="outline" className="text-[10px]">
+                                  {group.name}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          {/* 매핑 목록 테이블 */}
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-gray-50 dark:bg-gray-900">
-                  <TableHead className="text-xs">제품명</TableHead>
-                  <TableHead className="text-xs w-[100px]">공정</TableHead>
-                  <TableHead className="text-xs">시간 프로파일</TableHead>
-                  <TableHead className="text-xs w-[80px] text-center">시간(분)</TableHead>
-                  <TableHead className="text-xs w-[60px] text-center">삭제</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mapList.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-sm text-muted-foreground">
-                      등록된 매핑이 없습니다. "매핑 추가" 버튼으로 제품별 시간 프로파일을 설정하세요.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  mapList.map((m: any) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="font-medium text-sm">{m.product_name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">
-                          {m.process_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm">{m.profile_name}</TableCell>
-                      <TableCell className="text-center font-semibold">{m.time_minutes}</TableCell>
-                      <TableCell className="text-center">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6 text-red-500"
-                          onClick={() => {
-                            if (confirm("이 매핑을 삭제하시겠습니까?")) {
-                              deleteMapMutation.mutate({ id: m.id });
-                            }
-                          }}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <p className="text-[11px] text-muted-foreground text-center">
+            * 시간 수정은 "공정별 시간 설정" 버튼에서, 제품 연결은 각 공정 그룹의 "수정" 버튼에서 관리합니다.
+          </p>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
+
 
 // ========== 메인 컴포넌트 ==========
 export default function CCPLimitsManagement() {
@@ -1309,10 +1136,9 @@ export default function CCPLimitsManagement() {
 
       {/* 시간 프로파일 관리 다이얼로그 */}
       <TimeProfileDialog
-        open={isTimeProfileOpen}
-        onOpenChange={setIsTimeProfileOpen}
-        processGroups={groups}
-      />
+          open={isTimeProfileOpen}
+          onOpenChange={setIsTimeProfileOpen}
+        />
 
       {/* 제품별 시간 프로파일 매핑 다이얼로그 */}
       <ProductTimeProfileMapDialog

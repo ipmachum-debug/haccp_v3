@@ -243,8 +243,8 @@ export const opscoreSyncRouter = router({
       let haccpProducts = 0;
       let haccpPartners = 0;
       try {
-        const [suppRows] = await db.execute(sql`SELECT COUNT(*) as c FROM h_suppliers WHERE is_active = 1`);
-        const [prodRows] = await db.execute(sql`SELECT COUNT(*) as c FROM h_products_v2 WHERE is_active = 1`);
+        const [suppRows] = await db.execute(sql`SELECT COUNT(*) as c FROM h_suppliers WHERE is_active = 1 AND tenant_id = ${ctx.tenantId || 0}`);
+        const [prodRows] = await db.execute(sql`SELECT COUNT(*) as c FROM h_products_v2 WHERE is_active = 1 AND tenant_id = ${ctx.tenantId || 0}`);
         const partnerList = await db.select().from(partners).where(eq(partners.isActive, 1));
         haccpSuppliers = (suppRows as any)[0]?.c || 0;
         haccpProducts = (prodRows as any)[0]?.c || 0;
@@ -458,7 +458,7 @@ async function syncSuppliers(db: any, direction: string, tenantId: number | null
       const opscoreDb = getOpscoreDb();
       if (!opscoreDb) throw new Error("GOGOGOPICK DB 연결 실패");
 
-      const [haccpSuppliers] = await db.execute(sql`SELECT * FROM h_suppliers WHERE is_active = 1`);
+      const [haccpSuppliers] = await db.execute(sql`SELECT * FROM h_suppliers WHERE is_active = 1 AND tenant_id = ${tenantId || 0}`);
       let synced = 0;
       let errors = 0;
       for (const s of haccpSuppliers as any[]) {
@@ -534,7 +534,7 @@ async function syncProducts(db: any, direction: string, tenantId: number | null)
       const opscoreDb = getOpscoreDb();
       if (!opscoreDb) throw new Error("GOGOGOPICK DB 연결 실패");
 
-      const [haccpProducts] = await db.execute(sql`SELECT * FROM h_products_v2 WHERE is_active = 1`);
+      const [haccpProducts] = await db.execute(sql`SELECT * FROM h_products_v2 WHERE is_active = 1 AND tenant_id = ${tenantId || 0}`);
       let synced = 0;
       let errors = 0;
       for (const p of haccpProducts as any[]) {

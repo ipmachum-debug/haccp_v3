@@ -4,13 +4,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, Loader2, RefreshCw, Settings, ClipboardCheck } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { CcpInspectionCard } from "@/components/CcpInspectionCard";
+import { CcpMonitoringForms } from "@/components/CcpMonitoringForms";
 import ApprovalTimeline from "@/components/ApprovalTimeline";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
@@ -20,13 +22,16 @@ export default function BatchDetail() {
   const batchId = params.id ? parseInt(params.id, 10) : 0;
 
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
-  const { data: ccpList, refetch: refetchCcps } = trpc.ccp.getByBatchId.useQuery({ batchId }, { enabled: !!batchId });
+  const { data: ccpList, refetch: refetchCcps, isLoading: ccpLoading } = trpc.ccp.getByBatchId.useQuery(
+    { batchId },
+    { enabled: !!batchId }
+  );
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: batchInputs, refetch: refetchInputs } = trpc.inventory.getBatchInputs.useQuery({ batchId }, { enabled: !!batchId });
   const { data: batchCost } = trpc.batch.getCost.useQuery({ batchId }, { enabled: !!batchId });
   const { data: batchCompletion } = trpc.batch.checkCompletion.useQuery({ batchId }, { enabled: !!batchId && batch?.mode === "manual" });
-  
+
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [selectedLotId, setSelectedLotId] = useState<number | null>(null);
   const [inputQuantity, setInputQuantity] = useState("");
@@ -34,21 +39,25 @@ export default function BatchDetail() {
   const [showCostAnalysis, setShowCostAnalysis] = useState(false);
   const [revenueInput, setRevenueInput] = useState("");
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
-  
+  // 자동 CCP 생성 시도 여부 추적 (중복 방지)
+  const autoCreateAttempted = useRef(false);
+  // 자동 모드 승인관리 이동 여부 추적 (중복 방지)
+  const autoNavigated = useRef(false);
+
   // 차트 색상
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-  
+
   const { data: lots, refetch: refetchLots } = trpc.inventory.getLotsByMaterialId.useQuery(
     { materialId: selectedMaterialId! },
     { enabled: !!selectedMaterialId }
   );
-  
+
   const utils = trpc.useUtils();
 
   const updateStatusMutation = trpc.batch.updateStatus.useMutation({
     onSuccess: async (data, variables) => {
       toast.success("배치 상태가 변경되었습니다");
-      
+
       // 배치 완료 시 승인 요청 자동 생성
       if (variables.status === "completed" && batch) {
         try {
@@ -70,20 +79,63 @@ export default function BatchDetail() {
       toast.error(`오류: ${error.message}`);
     },
   });
-  
+
+  // ── CCP 자동 생성 뮤테이션 ──
   const generateCcpMutation = trpc.batch.generateCcp.useMutation({
     onSuccess: (result) => {
-      toast.success(result.message);
+      if (result.alreadyExists) {
+        // 이미 있는 경우 조용히 refetch만
+        refetchCcps();
+        return;
+      }
+      if (result.ccpCount > 0) {
+        toast.success(`CCP ${result.ccpCount}건 자동 생성 완료`, {
+          description: result.message,
+          duration: 4000,
+        });
+      } else {
+        toast.warning("CCP 자동 생성 결과 없음", {
+          description: result.message,
+          duration: 5000,
+        });
+      }
       refetchCcps();
+
+      // 자동 모드이고, CCP 자동 생성 성공 시 승인관리로 자동 이동 (중복 방지)
+      if (batch?.mode === "auto" && result.ccpCount > 0 && !autoNavigated.current) {
+        autoNavigated.current = true;
+        toast.info("자동처리 완료: 승인관리로 이동합니다", {
+          description: `CCP ${result.ccpCount}건 기록지 생성 완료 · 설비기준·공정기준 자동 삽입`,
+          duration: 3000,
+        });
+        setTimeout(() => setLocation("/dashboard/approval"), 2000);
+      }
     },
     onError: (error) => {
       toast.error(`CCP 생성 실패: ${error.message}`);
     },
   });
-  
+
+  // ── 페이지 로드 후 CCP 자동 생성 트리거 ──
+  // 배치 조회 + CCP 목록 조회가 완료되고, CCP가 0건이면 자동으로 생성 시도
+  useEffect(() => {
+    if (
+      !ccpLoading &&
+      !isLoading &&
+      batch &&
+      ccpList !== undefined &&
+      ccpList.length === 0 &&
+      !autoCreateAttempted.current &&
+      !generateCcpMutation.isPending
+    ) {
+      autoCreateAttempted.current = true;
+      console.log("[BatchDetail] CCP 없음 → 자동 생성 시도:", batchId);
+      generateCcpMutation.mutate({ batchId });
+    }
+  }, [ccpLoading, isLoading, batch, ccpList]);
+
   const generateHaccpReportMutation = trpc.batch.generateHaccpReport.useMutation({
     onSuccess: (result) => {
-      // Base64 PDF를 다운로드
       const byteCharacters = atob(result.pdf);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -103,13 +155,12 @@ export default function BatchDetail() {
       toast.error(`HACCP 보고서 생성 실패: ${error.message}`);
     },
   });
-  
+
   const addMaterialInputMutation = trpc.inventory.addMaterialInput.useMutation({
     onSuccess: (result) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
-      // 폼 초기화
       setSelectedMaterialId(null);
       setSelectedLotId(null);
       setInputQuantity("");
@@ -118,18 +169,18 @@ export default function BatchDetail() {
       toast.error(`투입 실패: ${error.message}`);
     },
   });
-  
+
   const updateRevenueMutation = trpc.batch.updateRevenue.useMutation({
     onSuccess: () => {
       toast.success("매출액이 업데이트되었습니다");
       setRevenueInput("");
-      window.location.reload(); // 페이지 새로고침으로 수익성 정보 갱신
+      window.location.reload();
     },
     onError: (error) => {
       toast.error(`오류: ${error.message}`);
     },
   });
-  
+
   const deleteMaterialInputMutation = trpc.inventory.deleteMaterialInput.useMutation({
     onSuccess: (result) => {
       toast.success(result.message);
@@ -140,7 +191,7 @@ export default function BatchDetail() {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
-  
+
   const requestApprovalMutation = trpc.approval.requestBatchApproval.useMutation({
     onSuccess: () => {
       toast.success("배치 승인 요청이 전송되었습니다");
@@ -149,7 +200,7 @@ export default function BatchDetail() {
       toast.error(`승인 요청 실패: ${error.message}`);
     },
   });
-  
+
   const approveBatchMutation = trpc.batch.approve.useMutation({
     onSuccess: () => {
       toast.success("배치가 승인되었습니다");
@@ -159,7 +210,7 @@ export default function BatchDetail() {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
-  
+
   const rejectBatchMutation = trpc.batch.reject.useMutation({
     onSuccess: () => {
       toast.success("배치가 반려되었습니다");
@@ -169,40 +220,42 @@ export default function BatchDetail() {
       toast.error(`반려 실패: ${error.message}`);
     },
   });
-  
+
   const { data: approvalStatus } = trpc.batch.getApprovalStatus.useQuery(
     { batchId },
     { enabled: !!batchId }
   );
-  
+
   const { data: ccpCheckStatus } = trpc.ccp.checkInspectionComplete.useQuery(
     { batchId },
     { enabled: !!batchId && batch?.status === "completed" }
   );
-  
+
   const handleDeleteMaterialInput = (inputId: number) => {
     if (confirm("원재료 투입 내역을 삭제하시겠습니까? 재고가 자동으로 복구됩니다.")) {
       deleteMaterialInputMutation.mutate({ inputId });
     }
   };
-  
+
   const bulkDeleteCcpMutation = trpc.ccp.bulkDelete.useMutation({
     onSuccess: (result) => {
       toast.success(result.message);
       refetchCcps();
       setSelectedCcpIds([]);
+      // 삭제 후 자동 재생성 허용 (ref 리셋)
+      autoCreateAttempted.current = false;
     },
     onError: (error) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
-  
+
   const handleToggleCcp = (ccpId: number) => {
     setSelectedCcpIds((prev) =>
       prev.includes(ccpId) ? prev.filter((id) => id !== ccpId) : [...prev, ccpId]
     );
   };
-  
+
   const handleBulkDeleteCcp = () => {
     if (selectedCcpIds.length === 0) {
       toast.error("삭제할 CCP를 선택해주세요");
@@ -212,23 +265,24 @@ export default function BatchDetail() {
       bulkDeleteCcpMutation.mutate({ instanceIds: selectedCcpIds });
     }
   };
-  
+
   const handleGenerateCcp = () => {
+    autoCreateAttempted.current = false; // 수동 재시도 허용
     generateCcpMutation.mutate({ batchId });
   };
-  
+
   const handleAddMaterialInput = () => {
     if (!selectedMaterialId || !selectedLotId || !inputQuantity) {
       toast.error("원재료, LOT, 수량을 모두 입력해주세요");
       return;
     }
-    
+
     const selectedLot = lots?.find((lot: any) => lot.id === selectedLotId);
     if (!selectedLot) {
       toast.error("선택한 LOT를 찾을 수 없습니다");
       return;
     }
-    
+
     addMaterialInputMutation.mutate({
       batchId,
       materialId: selectedMaterialId,
@@ -242,11 +296,42 @@ export default function BatchDetail() {
     updateStatusMutation.mutate({ id: batchId, status: newStatus });
   };
 
+  // CCP 상태 배지
+  const getCcpStatusBadge = () => {
+    if (ccpLoading || generateCcpMutation.isPending) {
+      return (
+        <Badge variant="secondary" className="flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          CCP 생성 중...
+        </Badge>
+      );
+    }
+    if (!ccpList || ccpList.length === 0) {
+      return <Badge variant="destructive">CCP 미생성</Badge>;
+    }
+    const draftCount = ccpList.filter((c: any) => c.status === "draft").length;
+    const approvedCount = ccpList.filter((c: any) => c.status === "approved").length;
+    if (approvedCount === ccpList.length) {
+      return <Badge className="bg-green-100 text-green-800">CCP 전체 승인됨</Badge>;
+    }
+    if (draftCount > 0) {
+      return (
+        <Badge variant="outline" className="text-orange-600 border-orange-300">
+          CCP {ccpList.length}건 (작성 중 {draftCount})
+        </Badge>
+      );
+    }
+    return <Badge variant="outline">{ccpList.length}건</Badge>;
+  };
+
   if (isLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-muted-foreground">로딩 중...</div>
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <span>배치 정보 로딩 중...</span>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -278,18 +363,19 @@ export default function BatchDetail() {
             </Button>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">{batch.batchCode}</h1>
-              <p className="text-muted-foreground mt-1">배치 상세 정보</p>
+              <p className="text-muted-foreground mt-1">{(batch as any).productName || "제품명 없음"} · 배치 상세 정보</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {getCcpStatusBadge()}
             {batch.mode === "manual" && batchCompletion && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
                 <span className="text-sm font-medium">문서 완성도:</span>
                 <span className={`text-sm font-bold ${
-                  batchCompletion.completionRate === 100 
-                    ? "text-green-600" 
-                    : batchCompletion.completionRate >= 50 
-                      ? "text-orange-600" 
+                  batchCompletion.completionRate === 100
+                    ? "text-green-600"
+                    : batchCompletion.completionRate >= 50
+                      ? "text-orange-600"
                       : "text-red-600"
                 }`}>
                   {batchCompletion.completionRate}%
@@ -328,10 +414,18 @@ export default function BatchDetail() {
             <CardDescription>배치의 기본 정보입니다</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <div className="text-sm font-medium text-muted-foreground">배치 코드</div>
                 <div className="text-lg font-semibold mt-1">{batch.batchCode}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">제품명</div>
+                <div className="text-lg font-semibold mt-1">{(batch as any).productName || "-"}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">처리 모드</div>
+                <div className="text-lg font-semibold mt-1">{batch.mode === "auto" ? "자동" : "수동"}</div>
               </div>
               <div>
                 <div className="text-sm font-medium text-muted-foreground">생성일</div>
@@ -391,7 +485,7 @@ export default function BatchDetail() {
                   </Button>
                 </div>
               </div>
-              
+
               {/* 승인/반려 버튼 */}
               {batch.status === "completed" && (
                 <div>
@@ -449,7 +543,7 @@ export default function BatchDetail() {
                           </div>
                         </div>
                       )}
-                      
+
                       {/* 승인/반려 버튼 */}
                       <div className="flex gap-2">
                         <Button
@@ -461,7 +555,7 @@ export default function BatchDetail() {
                             }
                           }}
                           disabled={
-                            approveBatchMutation.isPending || 
+                            approveBatchMutation.isPending ||
                             !ccpCheckStatus?.allComplete
                           }
                         >
@@ -473,9 +567,9 @@ export default function BatchDetail() {
                           onClick={() => {
                             const reason = prompt("반려 사유를 입력해주세요:");
                             if (reason && reason.trim()) {
-                              rejectBatchMutation.mutate({ 
-                                batchId, 
-                                rejectionReason: reason.trim() 
+                              rejectBatchMutation.mutate({
+                                batchId,
+                                rejectionReason: reason.trim()
                               });
                             } else if (reason !== null) {
                               toast.error("반려 사유를 입력해주세요");
@@ -487,12 +581,21 @@ export default function BatchDetail() {
                           반려
                         </Button>
                       </div>
-                      
+
                       {!ccpCheckStatus?.allComplete && (
                         <p className="text-xs text-muted-foreground">
                           * 모든 CCP 점검이 완료되고 적합 판정을 받아야 승인할 수 있습니다.
                         </p>
                       )}
+                      {/* 수동 모드: 승인관리 페이지로 이동 버튼 */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setLocation("/dashboard/approval")}
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        승인관리로 이동
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -500,7 +603,7 @@ export default function BatchDetail() {
             </div>
           </CardContent>
         </Card>
-        
+
         {/* 승인 이력 타임라인 */}
         {batch.status === "completed" && (
           <Card>
@@ -594,7 +697,6 @@ export default function BatchDetail() {
             {showCostAnalysis && (
               <CardContent>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* 총 비용 요약 */}
                   <div className="space-y-4">
                     <div className="p-6 border rounded-lg bg-blue-50 dark:bg-blue-950">
                       <div className="flex items-center justify-between">
@@ -607,8 +709,6 @@ export default function BatchDetail() {
                         <TrendingUp className="h-8 w-8 text-blue-600" />
                       </div>
                     </div>
-                    
-                    {/* 원재료별 비용 목록 */}
                     <div className="space-y-2">
                       <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
                       <div className="space-y-2">
@@ -637,8 +737,6 @@ export default function BatchDetail() {
                       </div>
                     </div>
                   </div>
-                  
-                  {/* 비용 분포 차트 */}
                   <div className="space-y-4">
                     <h4 className="font-semibold text-sm">비용 분포</h4>
                     <div className="h-[400px]">
@@ -680,7 +778,6 @@ export default function BatchDetail() {
             <CardDescription>배치에 투입된 원재료 목록입니다</CardDescription>
           </CardHeader>
           <CardContent>
-            {/* 원재료 투입 폼 */}
             <div className="space-y-4 mb-6 p-4 border rounded-lg">
               <h3 className="font-semibold">원재료 투입 추가</h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -697,7 +794,7 @@ export default function BatchDetail() {
                       <SelectValue placeholder="원재료 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {materials?.items?.map((material: any) => (
+                      {(Array.isArray(materials) ? materials : []).map((material: any) => (
                         <SelectItem key={material.id} value={material.id.toString()}>
                           {material.materialName} ({material.materialCode})
                         </SelectItem>
@@ -752,7 +849,6 @@ export default function BatchDetail() {
               </div>
             </div>
 
-            {/* 원재료 투입 내역 */}
             {!batchInputs || batchInputs.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 아직 투입된 원재료가 없습니다
@@ -805,15 +901,31 @@ export default function BatchDetail() {
           </CardContent>
         </Card>
 
-        {/* CCP 점검 */}
+        {/* ── CCP 점검 ── */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>CCP 점검</CardTitle>
-                <CardDescription>중요관리점(CCP) 점검 기록입니다</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  CCP 점검
+                  {getCcpStatusBadge()}
+                </CardTitle>
+                <CardDescription>
+                  중요관리점(CCP) 점검 기록입니다 ·
+                  {batch?.mode === "auto" ? (
+                    <span className="ml-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+                      <Zap className="inline h-3 w-3 mr-0.5" />
+                      자동처리: 기록지 자동 생성 → 승인관리로 자동 이동
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-xs font-medium text-orange-600 dark:text-orange-400">
+                      <ClipboardCheck className="inline h-3 w-3 mr-0.5" />
+                      수동처리: 기초데이터 삽입됨 → 직접 확인 후 수동 승인
+                    </span>
+                  )}
+                </CardDescription>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap justify-end">
                 {selectedCcpIds.length > 0 && (
                   <Button
                     onClick={handleBulkDeleteCcp}
@@ -825,14 +937,31 @@ export default function BatchDetail() {
                     {bulkDeleteCcpMutation.isPending ? "삭제 중..." : `선택 삭제 (${selectedCcpIds.length})`}
                   </Button>
                 )}
+                {/* CCP 자동 생성 / 재생성 버튼 */}
                 <Button
                   onClick={handleGenerateCcp}
                   disabled={generateCcpMutation.isPending}
                   size="sm"
+                  variant={(!ccpList || ccpList.length === 0) ? "default" : "outline"}
                 >
-                  <Zap className="mr-2 h-4 w-4" />
-                  {generateCcpMutation.isPending ? "CCP 생성 중..." : "CCP 자동 생성"}
+                  {generateCcpMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      CCP 생성 중...
+                    </>
+                  ) : (!ccpList || ccpList.length === 0) ? (
+                    <>
+                      <Zap className="mr-2 h-4 w-4" />
+                      CCP 자동 생성
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      CCP 재생성
+                    </>
+                  )}
                 </Button>
+                {/* HACCP 보고서 / 배치 완료 보고서 */}
                 {batch.status === "completed" && batch.completionReportUrl ? (
                   <Button
                     onClick={() => window.open(batch.completionReportUrl!, "_blank")}
@@ -840,7 +969,7 @@ export default function BatchDetail() {
                     variant="default"
                   >
                     <FileDown className="mr-2 h-4 w-4" />
-                    배치 완료 보고서 다운로드
+                    배치 완료 보고서
                   </Button>
                 ) : batch.status === "completed" ? (
                   <div className="text-sm text-muted-foreground px-4 py-2 rounded-md bg-muted">
@@ -854,28 +983,150 @@ export default function BatchDetail() {
                     disabled={generateHaccpReportMutation.isPending}
                   >
                     <FileDown className="mr-2 h-4 w-4" />
-                    {generateHaccpReportMutation.isPending ? "HACCP 보고서 생성 중..." : "HACCP 보고서 생성"}
+                    {generateHaccpReportMutation.isPending ? "보고서 생성 중..." : "HACCP 보고서"}
                   </Button>
                 )}
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            {!ccpList || ccpList.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
-                <p>아직 CCP가 생성되지 않았습니다</p>
-                <p className="text-sm mt-2">"배치 생성" 버튼을 클릭하여 CCP를 자동 생성하세요</p>
+            {/* CCP 로딩 중 */}
+            {(ccpLoading || generateCcpMutation.isPending) && (!ccpList || ccpList.length === 0) ? (
+              <div className="flex flex-col items-center py-10 gap-3 text-muted-foreground">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <p className="font-medium">
+                  {generateCcpMutation.isPending
+                    ? "공정그룹·설비 기준값을 적용하여 CCP를 자동 생성하고 있습니다..."
+                    : "CCP 목록을 불러오는 중..."}
+                </p>
+                <p className="text-xs">설비기준(온도/압력) + 공정기준(시간) 자동 매핑 중</p>
+              </div>
+            ) : !ccpList || ccpList.length === 0 ? (
+              /* CCP 없음 상태 */
+              <div className="text-center py-10">
+                <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-4">
+                  <Settings className="h-8 w-8 text-orange-500" />
+                </div>
+                <p className="font-semibold text-lg mb-1">CCP가 생성되지 않았습니다</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  공정그룹-제품 연결이 없거나 설비가 등록되지 않았습니다.
+                </p>
+                <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground mb-4">
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
+                    확인 경로: 공정관리 → 공정그룹 → 제품연결 탭에서 이 제품이 연결되어 있는지 확인
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-500 inline-block"></span>
+                    설비 등록: 공정관리 → 공정그룹 → 설비 탭에서 설비를 등록하세요
+                  </div>
+                </div>
+                <Button onClick={handleGenerateCcp} disabled={generateCcpMutation.isPending}>
+                  <Zap className="mr-2 h-4 w-4" />
+                  CCP 자동 생성 재시도
+                </Button>
               </div>
             ) : (
+              /* CCP 목록 표시 */
               <div className="space-y-4">
+                {/* 처리 흐름 안내 배너 */}
+                {batch?.mode === "auto" ? (
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                    <Zap className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">자동처리 완료:</span> 설비기준(온도/압력) · 공정기준(시간)이 자동으로 삽입되었습니다.<br />
+                      각 CCP 카드에서 실측값을 확인한 후{" "}
+                      <Button variant="link" className="h-auto p-0 text-xs font-semibold text-blue-700 dark:text-blue-300" onClick={() => setLocation("/dashboard/approval")}>
+                        승인관리 →
+                      </Button>
+                      {" "}에서 승인 처리하세요.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3 p-3 bg-orange-50 dark:bg-orange-950/30 rounded-lg text-sm text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-800">
+                    <ClipboardCheck className="h-5 w-5 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="font-semibold mb-1">수동처리 흐름</div>
+                      <ol className="text-xs space-y-0.5 mb-3 list-decimal list-inside">
+                        <li>아래 CCP 카드에서 각 설비의 실측값(온도·압력·시간)을 확인·입력</li>
+                        <li>모든 항목 확인 후 아래 <strong>승인 요청 등록</strong> 버튼 클릭</li>
+                        <li>승인관리 페이지에서 최종 검토·승인 처리</li>
+                      </ol>
+                      <Button
+                        size="sm"
+                        className="bg-orange-600 hover:bg-orange-700 text-white w-full"
+                        onClick={async () => {
+                          try {
+                            await utils.client.approval.createRequest.mutate({
+                              requestType: "batch_production",
+                              referenceType: "batch",
+                              referenceId: batchId,
+                              title: `[수동] 배치 CCP 승인 요청 - ${batch?.batchCode || ""}`,
+                              description: `제품: ${batch?.productName || ""}
+배치: ${batch?.batchCode || ""}
+CCP 기록지 수동 확인 후 승인 요청`,
+                              priority: "high" as const,
+                            });
+                            toast.success("승인 요청이 등록되었습니다. 승인관리 페이지로 이동합니다.");
+                            setTimeout(() => setLocation("/dashboard/approval"), 1200);
+                          } catch (err) {
+                            toast.error("승인 요청 등록 실패: " + (err as any)?.message);
+                          }
+                        }}
+                      >
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        승인 요청 등록 → 승인관리로 이동
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {ccpList.map((ccp: any) => (
-                  <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcps} />
+                  <div key={ccp.id} className="relative">
+                    {/* 체크박스 (삭제 선택용) */}
+                    <button
+                      className="absolute top-3 right-3 z-10"
+                      onClick={() => handleToggleCcp(ccp.id)}
+                    >
+                      {selectedCcpIds.includes(ccp.id)
+                        ? <CheckSquare className="h-5 w-5 text-primary" />
+                        : <Square className="h-5 w-5 text-muted-foreground/40 hover:text-muted-foreground" />
+                      }
+                    </button>
+                    <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcps} />
+                  </div>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* ── CCP 모니터링 기록지 (공식 양식) ── */}
+        {batch && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                CCP 모니터링 기록지
+                <Badge variant="outline" className="text-xs">공식 양식</Badge>
+              </CardTitle>
+              <CardDescription>
+                중요관리점(CCP) 모니터링 일지 작성 · 배치수 자동계산(생산량 ÷ BOM배치량) · 승인요청 연동
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CcpMonitoringForms
+                batchId={batchId}
+                batchNumber={batch.batchCode}
+                productId={(batch as any).productId ? Number((batch as any).productId) : undefined}
+                productName={batch.productName ?? undefined}
+                plannedQtyKg={batch.plannedQuantity ? parseFloat(batch.plannedQuantity) : undefined}
+                workDate={batch.plannedDate ?? new Date().toISOString().split("T")[0]}
+                onFormSaved={() => {
+                  refetchCcps();
+                }}
+              />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* 배치 완료 다이얼로그 */}
@@ -887,7 +1138,6 @@ export default function BatchDetail() {
           open={showCompletionDialog}
           onOpenChange={setShowCompletionDialog}
           onSuccess={() => {
-            // 배치 정보 재조회
             window.location.reload();
           }}
         />

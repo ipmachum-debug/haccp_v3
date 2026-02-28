@@ -142,7 +142,12 @@ router.put("/update/:id", async (req, res) => {
 router.delete("/delete/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await (await getRawConnection()).execute("DELETE FROM custom_period_logs WHERE id = ?", [id]);
+    const tenantId = parseInt(req.query.tenantId as string) || parseInt(req.body?.tenantId as string);
+    if (tenantId) {
+      await (await getRawConnection()).execute("DELETE FROM custom_period_logs WHERE id = ? AND tenant_id = ?", [id, tenantId]);
+    } else {
+      await (await getRawConnection()).execute("DELETE FROM custom_period_logs WHERE id = ?", [id]);
+    }
     res.json({ success: true });
   } catch (error: any) {
     console.error("특정기간일지 삭제 오류:", error);
@@ -157,8 +162,8 @@ router.post("/approve/:id", async (req, res) => {
     const { approvedBy } = req.body;
 
     await (await getRawConnection()).execute(
-      `UPDATE custom_period_logs SET status = '승인완료', approved_by = ?, approved_at = NOW() WHERE id = ?`,
-      [approvedBy, id]
+      `UPDATE custom_period_logs SET status = '승인완료', approved_by = ?, approved_at = NOW() WHERE id = ? AND tenant_id = COALESCE(?, tenant_id)`,
+      [approvedBy, id, req.body?.tenantId || null]
     );
 
     res.json({ success: true });
@@ -172,7 +177,12 @@ router.post("/approve/:id", async (req, res) => {
 router.post("/requestApproval/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await (await getRawConnection()).execute(`UPDATE custom_period_logs SET status = '승인대기' WHERE id = ?`, [id]);
+    const tenantId2 = parseInt(req.body?.tenantId as string);
+    if (tenantId2) {
+      await (await getRawConnection()).execute(`UPDATE custom_period_logs SET status = '승인대기' WHERE id = ? AND tenant_id = ?`, [id, tenantId2]);
+    } else {
+      await (await getRawConnection()).execute(`UPDATE custom_period_logs SET status = '승인대기' WHERE id = ?`, [id]);
+    }
     res.json({ success: true });
   } catch (error: any) {
     console.error("특정기간일지 승인 요청 오류:", error);

@@ -1,21 +1,154 @@
 /**
- * 배치 완료 시 일일일지(일일보고서) 자동 생성 서비스
- * 
+ * 배치 생성/완료 시 일일일지(일일보고서) 자동 생성 서비스
+ *
  * 워크플로우:
  * 1. 배치 정보 조회 (제품명, 수량, CCP 결과 등)
  * 2. 해당 날짜의 기존 일일일지 확인 (중복 방지)
- * 3. 일일일지 생성 또는 기존 일지에 배치 정보 추가
- * 4. h_daily_reports 테이블에 기록
+ * 3-A. 당일 최초 배치 생성 시:
+ *    - h_generic_checklist_records에 daily_log 타입 레코드 생성 (draft)
+ *      → form_data는 DailyLogForm 실제 양식 구조와 동일하게 생성
+ *      → hygieneChecks, foreignMaterialChecks, temperatureHumidity,
+ *         freezerTemperature, refrigeratorTemperature + batches(배치 목록)
+ *    - h_approval_requests에 daily_log 타입 승인요청 생성 (pending_review)
+ *    - h_daily_reports에 production 타입 요약 저장
+ * 3-B. 이후 배치 생성/완료 시:
+ *    - 기존 일일일지(h_generic_checklist_records) form_data의 batches 배열에 추가
+ *    - h_daily_reports 요약 업데이트 (새 승인요청 생성 안 함)
+ *
+ * ※ 트리거: 배치 생성(planned) 시점 → 승인관리에서 당일 즉시 확인 가능
+ * ※ 배치 삭제 시: form_data.batches에서 해당 배치 제거 (deleteBatch 핸들러에서 처리)
+ * ※ form_data 구조: 기존 DailyLogForm.tsx / DB record(id=90) 구조와 동일
  */
 
 import { getDb } from "../db";
-import { sql, eq, and } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 
 interface DailyReportResult {
   success: boolean;
   reportId: number | null;
+  checklistRecordId: number | null;
+  approvalRequestId: number | null;
   isNew: boolean;
   message: string;
+}
+
+/** 기존 DailyLogForm.tsx 실제 양식과 동일한 form_data 기본 구조 생성 */
+function buildDefaultFormData(date: string) {
+  return {
+    date,
+    inspector: "",
+    approval: {
+      writerId: null,
+      approverId: null,
+      reviewerId: null,
+      writerDate: "",
+      writerName: "",
+      approverDate: "",
+      approverName: "",
+      reviewerDate: "",
+      reviewerName: "",
+      writerApproved: false,
+      approverApproved: false,
+      reviewerApproved: false,
+    },
+    // 일반위생관리 및 공정점검표 (DailyLogForm hygieneChecks 매핑)
+    hygieneChecks: {
+      facility1: null,   // 위생복장 보관 구분
+      facility2: null,   // 종사자 건강상태/위생복장
+      hygiene1: null,    // 위생설비 이상 없음/위생처리 입실
+      pest1: null,       // 방충방서 밀폐/시설 이상 없음
+      hygiene2: null,    // 파손·고장 제조설비 없음 (작업중)
+      transport1: null,  // 냉장/냉동창고 온도 관리 (입고시)
+      transport2: null,  // 완제품 운송 온도 준수 (출하시)
+      process1: null,    // 청결/일반구역 분리 관리
+      process2: null,    // 가열후 식힘 공정 관리
+      process3: null,    // 완제품 포장 상태
+      process4: null,    // 모니터링방법 세척·소독
+      pest2: null,       // 음식물 폐기물 정리 (작업후)
+      cleaning1: null,   // 바닥·배수로·설비 청소·소독
+      hygiene3: null,    // 파손·고장 제조설비 없음 (작업후)
+      ccp1: null,        // CCP 점검표 작성·이탈 조치
+      storage1: null,    // 원·부재료 교차오염 방지 관리
+      inspection1: null, // 입고 검수 시험성적서/육안검사
+      storage2: null,    // 완제품 운송차량 청결·온도 준수
+      storageTemp: "",   // 보관창고 온도 기록 (텍스트)
+    },
+    hygieneNotes: {
+      specialNotes: "",
+      improvementAction: "",
+      actionBy: "",
+      confirmedBy: "",
+    },
+    // 이물관리 점검표 (DailyLogForm foreignMaterialChecks 매핑)
+    foreignMaterialChecks: {
+      material1: null,   // 원·부재료 입고시 외부 이물 제거
+      material2: null,   // 원·부재료 선별 적절
+      process1: null,    // 원·부재료 전처리시 이물 미혼입
+      process2: null,    // 재질 벗겨진 작업도구 미사용
+      process3: null,    // 개인소지품 미소지/지정 위생복 착용
+      material3: null,   // 천장 등 파손 없음
+      worker1: null,     // 작업도구·공구·필기도구 지정위치 보관
+      worker2: null,     // 클립·핀·칼날 등 불필요 물품 없음
+      worker3: null,     // 작업장 출입 전 곤충 없음
+      equipment1: null,  // 나사류·파손 우려 설비 없음
+      equipment2: null,  // 설비 주기적 세척소독
+      equipment3: null,  // 세척소독·정비후 나사·볼트 누락 없음
+      pest1: null,       // 작업장 종업원·방문자 벽 틈 없음
+      pest2: null,       // 포충등·포획장비 정상작동/지정위치
+    },
+    foreignMaterialNotes: {
+      specialNotes: "",
+      improvementAction: "",
+      actionBy: "",
+      confirmedBy: "",
+    },
+    // 원재료실 온/습도 점검기록지
+    temperatureHumidity: {
+      room1Morning: { time: "", temp: "", humidity: "", pass: null },
+      room1Afternoon: { time: "", temp: "", humidity: "", pass: null },
+      room2Morning: { time: "", temp: "", humidity: "", pass: null },
+      room2Afternoon: { time: "", temp: "", humidity: "", pass: null },
+    },
+    temperatureHumidityIssues: {
+      issueDescription: "",
+      actionTaken: "",
+      completionDate: "",
+      actionBy: "",
+      confirmedBy: "",
+    },
+    // 급속냉동고/냉동고 온도 점검기록지
+    freezerTemperature: {
+      morning: { time: "", rapidFreezer: "", freezer: "", pass: null },
+      afternoon: { time: "", rapidFreezer: "", freezer: "", pass: null },
+    },
+    freezerIssues: {
+      issueDescription: "",
+      actionTaken: "",
+      completionDate: "",
+      actionBy: "",
+      confirmedBy: "",
+    },
+    // 원재료 냉장고 온도 점검기록지
+    refrigeratorTemperature: {
+      morning: { time: "", temp: "", pass: null },
+      afternoon: { time: "", temp: "", pass: null },
+    },
+    refrigeratorIssues: {
+      issueDatetime: "",
+      issueDescription: "",
+      actionTaken: "",
+      completionDate: "",
+      actionBy: "",
+      confirmedBy: "",
+    },
+    // 배치 목록 (자동생성 - 배치 추가/삭제 시 업데이트)
+    batches: [] as any[],
+    totalBatches: 0,
+    totalProduction: 0,
+    totalPlannedQty: 0,
+    autoGenerated: true,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 export async function autoGenerateDailyReport(
@@ -29,149 +162,228 @@ export async function autoGenerateDailyReport(
     // 1. 배치 정보 조회
     const { hBatches } = await import("../../drizzle/schema");
     const [batch] = await db.select().from(hBatches).where(eq(hBatches.id, batchId)).limit(1);
-    
     if (!batch) {
       throw new Error(`배치 ID ${batchId}를 찾을 수 없습니다.`);
     }
 
-    const siteId = Number(batch.siteId);
+    const siteId = Number(batch.siteId) || 1;
     const tenantId = Number(batch.tenantId);
-    const reportDate = new Date().toISOString().split("T")[0];
 
-    // 2. 해당 날짜의 기존 일일보고서 확인
-    const existingReport = await db.execute(sql`
-      SELECT id, summary FROM h_daily_reports 
-      WHERE site_id = ${siteId} 
-        AND report_date = ${reportDate}
-        AND tenant_id = ${tenantId}
-      LIMIT 1
-    `);
+    // 작업일 = 배치의 계획일 기준 (배치 생성일이 아닌 작업 날짜로 일일일지 분류)
+    const batchPlannedDate = batch.plannedDate
+      ? new Date(batch.plannedDate as any).toISOString().split("T")[0]
+      : null;
+    const reportDate = batchPlannedDate || new Date().toISOString().split("T")[0];
 
-    // 3. 배치 관련 데이터 수집
-    // 3-1. 제품 정보
+    // 2. 제품 정보
     const productInfo = await db.execute(sql`
       SELECT p.product_name, p.product_code 
-      FROM h_products p 
-      WHERE p.id = ${Number(batch.productId)}
+      FROM h_products_v2 p 
+      WHERE p.id = ${Number(batch.productId)} AND p.tenant_id = ${tenantId}
       LIMIT 1
     `);
     const product = (productInfo as any)[0]?.[0] || { product_name: "미확인", product_code: "" };
 
-    // 3-2. CCP 기록 조회
+    // 3. CCP 기록 수집 (h_ccp_instances)
     const ccpRecords = await db.execute(sql`
       SELECT COUNT(*) as total_count,
-             SUM(CASE WHEN status = 'normal' THEN 1 ELSE 0 END) as normal_count,
+             SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as normal_count,
              SUM(CASE WHEN status = 'deviation' THEN 1 ELSE 0 END) as deviation_count
-      FROM h_ccp_monitoring 
-      WHERE batch_id = ${batchId}
+      FROM h_ccp_instances
+      WHERE batch_id = ${batchId} AND tenant_id = ${tenantId}
     `);
     const ccp = (ccpRecords as any)[0]?.[0] || { total_count: 0, normal_count: 0, deviation_count: 0 };
 
-    // 3-3. 원료 출고 기록 조회
-    const materialRecords = await db.execute(sql`
-      SELECT COUNT(DISTINCT source_line_id) as material_count,
-             SUM(ABS(CAST(amount AS DECIMAL(15,2)))) as total_cost
-      FROM h_inventory_transactions 
-      WHERE source_type = 'BATCH' AND source_id = ${batchId} AND action_type = 'AUTO_ISSUE'
-    `);
-    const materials = (materialRecords as any)[0]?.[0] || { material_count: 0, total_cost: 0 };
-
-    // 4. 일일보고서 요약 데이터 생성
+    // 4. 배치 요약 데이터 (생성 시점: actualQuantity=0, 완료 시점: 실제 수량)
     const batchSummary = {
-      batchId: batchId,
+      batchId,
       batchCode: batch.batchCode || `BATCH-${batchId}`,
       productName: product.product_name,
       productCode: product.product_code,
       plannedQuantity: parseFloat(batch.plannedQuantity?.toString() || "0"),
       actualQuantity: parseFloat(batch.actualQuantity?.toString() || "0"),
-      status: batch.status,
+      status: batch.status || "planned",
       ccpTotal: Number(ccp.total_count),
       ccpNormal: Number(ccp.normal_count),
       ccpDeviation: Number(ccp.deviation_count),
-      materialCount: Number(materials.material_count),
-      totalMaterialCost: parseFloat(materials.total_cost?.toString() || "0"),
-      completedAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
-    let reportId: number;
+    // 5. 해당 날짜의 기존 h_generic_checklist_records(daily_log) 확인
+    const existingChecklist = await db.execute(sql`
+      SELECT id, form_data FROM h_generic_checklist_records
+      WHERE form_type = 'daily_log'
+        AND form_date = ${reportDate}
+        AND site_id = ${siteId}
+        AND tenant_id = ${tenantId}
+      LIMIT 1
+    `);
+    const existingRows = (existingChecklist as any)[0] || [];
+
+    let checklistRecordId: number;
+    let approvalRequestId: number | null = null;
     let isNew: boolean;
 
-    if (existingReport && (existingReport as any)[0]?.length > 0) {
-      // 기존 보고서에 배치 정보 추가
-      const existing = (existingReport as any)[0][0];
-      reportId = Number(existing.id);
+    if (existingRows.length > 0) {
+      // 기존 일일일지에 배치 추가 (업데이트만, 새 승인요청 없음)
+      const existing = existingRows[0];
+      checklistRecordId = Number(existing.id);
       isNew = false;
 
+      let formData: any = {};
+      try {
+        formData = typeof existing.form_data === "string"
+          ? JSON.parse(existing.form_data)
+          : (existing.form_data || {});
+      } catch {
+        formData = buildDefaultFormData(reportDate);
+      }
+
+      // batches 배열이 없으면 초기화 (구버전 호환)
+      if (!formData.batches) formData.batches = [];
+
+      // 중복 배치 방지
+      const alreadyExists = formData.batches.some((b: any) => b.batchId === batchId);
+      if (!alreadyExists) {
+        formData.batches.push(batchSummary);
+      }
+
+      formData.totalBatches = formData.batches.length;
+      formData.totalProduction = formData.batches.reduce(
+        (sum: number, b: any) => sum + (b.actualQuantity || 0), 0
+      );
+      formData.totalPlannedQty = formData.batches.reduce(
+        (sum: number, b: any) => sum + (b.plannedQuantity || 0), 0
+      );
+      formData.lastUpdated = new Date().toISOString();
+
+      await db.execute(sql`
+        UPDATE h_generic_checklist_records
+        SET form_data = ${JSON.stringify(formData)}, updated_at = NOW()
+        WHERE id = ${checklistRecordId}
+      `);
+      console.log(`[autoDailyReport] 기존 일일일지 #${checklistRecordId}에 배치 #${batchId} 추가`);
+
+    } else {
+      // 당일 최초 배치 → 일일일지 신규 생성 + 승인요청 생성
+      isNew = true;
+
+      // 기존 DailyLogForm 실제 양식과 동일한 form_data 구조 생성
+      const formData = buildDefaultFormData(reportDate);
+      formData.batches = [batchSummary];
+      formData.totalBatches = 1;
+      formData.totalProduction = batchSummary.actualQuantity;
+      formData.totalPlannedQty = batchSummary.plannedQuantity;
+
+      // 당일 순번 계산
+      const seqResult = await db.execute(sql`
+        SELECT COALESCE(MAX(tenant_seq), 0) + 1 as next_seq
+        FROM h_generic_checklist_records
+        WHERE form_type = 'daily_log'
+          AND tenant_id = ${tenantId}
+          AND YEAR(created_at) = YEAR(NOW())
+      `);
+      const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
+
+      const title = `일일일지 - ${reportDate}`;
+      const insertResult = await db.execute(sql`
+        INSERT INTO h_generic_checklist_records
+          (site_id, tenant_id, form_type, tenant_seq, form_date, title, form_data, status, created_by)
+        VALUES
+          (${siteId}, ${tenantId}, 'daily_log', ${nextSeq}, ${reportDate}, ${title},
+           ${JSON.stringify(formData)}, 'draft', ${userId})
+      `);
+      checklistRecordId = Number((insertResult as any)[0]?.insertId || 0);
+
+      // 승인요청 생성 (pending_review)
+      const approvalTitle = `[일일일지] ${reportDate} 생산일지`;
+      const approvalDesc =
+        `작업일: ${reportDate}\n` +
+        `배치 수: 1건\n` +
+        `생산 제품: ${product.product_name}\n` +
+        `[자동생성 - 위생점검 항목을 검토자가 작성해주세요]`;
+
+      const approvalInsert = await db.execute(sql`
+        INSERT INTO h_approval_requests
+          (site_id, tenant_id, request_type, reference_type, reference_id,
+           title, description, status, priority, requested_by, created_at)
+        VALUES
+          (${siteId}, ${tenantId}, 'daily_log', 'checklist', ${checklistRecordId},
+           ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${userId}, NOW())
+      `);
+      approvalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
+      console.log(`[autoDailyReport] 일일일지 신규 생성: 체크리스트 #${checklistRecordId}, 승인요청 #${approvalRequestId}`);
+    }
+
+    // 6. h_daily_reports에도 기록 (기존 로직 유지 - 통계용)
+    const existingDailyReport = await db.execute(sql`
+      SELECT id, summary FROM h_daily_reports
+      WHERE site_id = ${siteId}
+        AND report_date = ${reportDate}
+        AND tenant_id = ${tenantId}
+        AND report_type = 'production'
+      LIMIT 1
+    `);
+    const reportRows = (existingDailyReport as any)[0] || [];
+    let reportId: number;
+
+    if (reportRows.length > 0) {
+      const existingRep = reportRows[0];
+      reportId = Number(existingRep.id);
       let existingSummary: any = {};
       try {
-        existingSummary = JSON.parse(existing.summary || "{}");
+        existingSummary = JSON.parse(existingRep.summary || "{}");
       } catch {
         existingSummary = { batches: [] };
       }
-
-      if (!existingSummary.batches) {
-        existingSummary.batches = [];
-      }
-      
-      // 중복 배치 방지
-      const alreadyExists = existingSummary.batches.some((b: any) => b.batchId === batchId);
-      if (!alreadyExists) {
+      if (!existingSummary.batches) existingSummary.batches = [];
+      const alreadyInReport = existingSummary.batches.some((b: any) => b.batchId === batchId);
+      if (!alreadyInReport) {
         existingSummary.batches.push(batchSummary);
       }
-
-      // 요약 통계 업데이트
       existingSummary.totalBatches = existingSummary.batches.length;
       existingSummary.totalProduction = existingSummary.batches.reduce(
         (sum: number, b: any) => sum + (b.actualQuantity || 0), 0
       );
-      existingSummary.totalCcpDeviations = existingSummary.batches.reduce(
-        (sum: number, b: any) => sum + (b.ccpDeviation || 0), 0
-      );
-
       await db.execute(sql`
-        UPDATE h_daily_reports 
+        UPDATE h_daily_reports
         SET summary = ${JSON.stringify(existingSummary)}
         WHERE id = ${reportId}
       `);
-
     } else {
-      // 새 일일보고서 생성
-      isNew = true;
-
       const summary = {
         batches: [batchSummary],
         totalBatches: 1,
         totalProduction: batchSummary.actualQuantity,
         totalCcpDeviations: batchSummary.ccpDeviation,
-        generatedAt: new Date().toISOString()
+        generatedAt: new Date().toISOString(),
       };
-
-      const insertResult = await db.execute(sql`
+      const repInsert = await db.execute(sql`
         INSERT INTO h_daily_reports (site_id, report_date, report_type, summary, generated_by, tenant_id)
         VALUES (${siteId}, ${reportDate}, 'production', ${JSON.stringify(summary)}, ${userId}, ${tenantId})
       `);
-
-      reportId = Number((insertResult as any)[0]?.insertId || 0);
+      reportId = Number((repInsert as any)[0]?.insertId || 0);
     }
-
-    console.log(`[autoDailyReport] 배치 #${batchId} → 일일보고서 #${reportId} ${isNew ? "생성" : "업데이트"} 완료`);
 
     return {
       success: true,
       reportId,
+      checklistRecordId,
+      approvalRequestId,
       isNew,
-      message: isNew 
-        ? `일일보고서가 새로 생성되었습니다 (ID: ${reportId})`
-        : `기존 일일보고서에 배치 정보가 추가되었습니다 (ID: ${reportId})`
+      message: isNew
+        ? `일일일지 신규 생성 완료 (체크리스트 #${checklistRecordId}, 승인요청 #${approvalRequestId})`
+        : `기존 일일일지 #${checklistRecordId}에 배치 정보 추가`,
     };
-
   } catch (error: any) {
-    console.error(`[autoDailyReport] 배치 #${batchId} 일일보고서 생성 실패:`, error);
+    console.error(`[autoDailyReport] 배치 #${batchId} 일일일지 생성 실패:`, error);
     return {
       success: false,
       reportId: null,
+      checklistRecordId: null,
+      approvalRequestId: null,
       isNew: false,
-      message: error.message || "일일보고서 생성 실패"
+      message: error.message || "일일일지 생성 실패",
     };
   }
 }

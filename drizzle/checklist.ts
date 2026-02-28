@@ -20,7 +20,10 @@ export const checklistTemplates = mysqlTable(
   "checklist_templates",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    
+
+    // ✅ P0 FIX: 테넌트 격리 - 반드시 저장/조회 시 사용
+    tenantId: bigint("tenant_id", { mode: "number" }).notNull(),
+
     // 기본 정보
     name: varchar("name", { length: 200 }).notNull(),
     description: text("description"),
@@ -71,6 +74,8 @@ export const checklistTemplates = mysqlTable(
       .notNull(),
   },
   (table) => [
+    index("idx_checklist_template_tenant").on(table.tenantId),
+    index("idx_checklist_template_tenant_active").on(table.tenantId, table.isActive),
     index("idx_checklist_template_category").on(table.category),
     index("idx_checklist_template_active").on(table.isActive),
     index("idx_checklist_template_ccp_type").on(table.ccpType),
@@ -153,7 +158,10 @@ export const checklistInstances = mysqlTable(
   "checklist_instances",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    
+
+    // ✅ P0 FIX: 테넌트 격리
+    tenantId: bigint("tenant_id", { mode: "number" }).notNull(),
+
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),
     
@@ -224,6 +232,8 @@ export const checklistInstances = mysqlTable(
       .notNull(),
   },
   (table) => [
+    index("idx_checklist_instance_tenant").on(table.tenantId),
+    index("idx_checklist_instance_tenant_status").on(table.tenantId, table.status),
     index("idx_checklist_instance_template").on(table.templateId),
     index("idx_checklist_instance_batch").on(table.batchId),
     index("idx_checklist_instance_status").on(table.status),

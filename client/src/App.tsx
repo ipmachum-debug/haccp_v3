@@ -10,9 +10,10 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
-const BatchList = lazy(() => import("./pages/BatchList"));
+const BatchListPage = lazy(() => import("./pages/BatchListPage"));
 const BatchCreate = lazy(() => import("./pages/BatchCreate"));
 const BatchDetail = lazy(() => import("./pages/BatchDetail"));
+const DailyBatchCreate = lazy(() => import("./pages/DailyBatchCreate"));
 const CcpInspection = lazy(() => import("./pages/CcpInspection"));
 const CcpRecords = lazy(() => import("./pages/CcpRecords"));
 const Inventory = lazy(() => import("./pages/Inventory"));
@@ -334,8 +335,9 @@ function Router() {
       <Route path="/quality/checklists/:id/history" component={ChecklistHistory} />
       <Route path="/quality/statistics" component={ChecklistStatistics} />
       <Route path="/quality/notification-settings" component={ChecklistNotificationSettings} />
-      <Route path="/dashboard/batch" component={BatchList} />
+      <Route path="/dashboard/batch" component={BatchListPage} />
       <Route path="/dashboard/batch/new" component={BatchCreate} />
+      <Route path="/dashboard/batch/bulk" component={DailyBatchCreate} />
       <Route path="/dashboard/batch/:id" component={BatchDetail} />
       <Route path="/inventory/receipt" component={InventoryReceipt} />
       <Route path="/inventory/release" component={InventoryRelease} />

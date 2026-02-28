@@ -262,6 +262,7 @@ const menuItems = [
   ] },
   { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"], children: [
     { label: "체크리스트 목록", path: "/quality/checklists" },
+    { label: "기간별일지 - 일일일지", path: "/dashboard/daily-logs" },
     { label: "템플릿 관리", path: "/quality/templates" },
     { label: "건강진단결과서 관리", path: "/dashboard/checklist/employee-health" },
   ] },
@@ -314,7 +315,7 @@ const menuItems = [
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
-const DEFAULT_WIDTH = 280;
+const DEFAULT_WIDTH = 240;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 
@@ -550,6 +551,7 @@ function DashboardLayoutContent({
     ] },
     { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"], children: [
       { label: "체크리스트 목록", path: "/quality/checklists" },
+      { label: "기간별일지 - 일일일지", path: "/dashboard/daily-logs" },
       { label: "템플릿 관리", path: "/quality/templates" },
       { label: "건강진단결과서 관리", path: "/dashboard/checklist/employee-health" },
     ] },
@@ -923,12 +925,12 @@ function DashboardLayoutContent({
                         </Badge>
                       )}
                       {user?.role === "worker" && (
-                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-blue-100 text-blue-800 hover:bg-blue-100">
+                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-blue-100 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/40">
                           작업자
                         </Badge>
                       )}
                       {user?.role === "monitor" && (
-                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-green-100 text-green-800 hover:bg-green-100">
+                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/40">
                           모니터
                         </Badge>
                       )}
@@ -1003,7 +1005,7 @@ function DashboardLayoutContent({
             <NotificationDropdown />
           </div>
         )}
-        <main className="flex-1 p-2">{children}</main>
+        <main className="flex-1 p-1 md:p-2">{children}</main>
       </SidebarInset>
     </>
   );

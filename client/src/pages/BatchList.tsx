@@ -8,19 +8,30 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { trpc } from "@/lib/trpc";
-import { Package, Plus, Download, DollarSign, Eye, EyeOff, ChevronRight } from "lucide-react";
+import { Package, Plus, Download, DollarSign, Eye, EyeOff, ChevronRight, Trash2 } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useEffect } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 
 export default function BatchList() {
   const [, setLocation] = useLocation();
   const [page, setPage] = useState(1);
   const [limit] = useState(50);
-  const { data: batchData, isLoading } = trpc.batch.list.useQuery({ page, limit });
+  const { data: batchData, isLoading, refetch } = trpc.batch.list.useQuery({ page, limit });
   const batches = batchData?.items || [];
   const totalPages = batchData?.totalPages || 1;
   
@@ -30,6 +41,21 @@ export default function BatchList() {
   const [batchCosts, setBatchCosts] = useState<Record<number, number>>({});
   const [batchCostRatios, setBatchCostRatios] = useState<Record<number, number | null>>({});
   const utils = trpc.useUtils();
+  
+  // 삭제 확인 다이얼로그
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; batchCode: string } | null>(null);
+  
+  const deleteMutation = trpc.batch.delete.useMutation({
+    onSuccess: () => {
+      toast.success("배치가 삭제되었습니다.");
+      setDeleteTarget(null);
+      refetch();
+    },
+    onError: (err) => {
+      toast.error(`삭제 실패: ${err.message}`);
+      setDeleteTarget(null);
+    },
+  });
   
   // 배치 비용 조회
   const { data: costSummary } = trpc.batch.getCostSummary.useQuery(
@@ -74,10 +100,10 @@ export default function BatchList() {
   // 상태 배지 스타일
   const getStatusBadge = (status: string) => {
     const styles = {
-      completed: "bg-green-100 text-green-700",
-      in_progress: "bg-blue-100 text-blue-700",
-      shipped: "bg-purple-100 text-purple-700",
-      planned: "bg-orange-100 text-orange-700",
+      completed: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+      in_progress: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+      shipped: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+      planned: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
     };
     const labels = {
       completed: "완료",
@@ -93,17 +119,10 @@ export default function BatchList() {
   };
 
   return (
-    
-      <div className="flex flex-col gap-6 p-4 md:p-8">
-        {/* 헤더 */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">배치 관리</h1>
-            <p className="text-muted-foreground mt-1">
-              생산 배치를 생성하고 관리하세요
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+    <>
+      <div className="flex flex-col gap-3">
+        {/* 액션 버튼 */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => setShowCost(!showCost)}
@@ -138,8 +157,15 @@ export default function BatchList() {
                 </Button>
               </Link>
             )}
+            {isWorker && (
+              <Link href="/dashboard/batch/bulk">
+                <Button className="min-h-[44px] min-w-[44px] bg-orange-500 hover:bg-orange-600 text-white">
+                  <Plus className="mr-2 h-4 w-4" />
+                  복수품목 일괄생성
+                </Button>
+              </Link>
+            )}
           </div>
-        </div>
 
         {/* 배치 목록 */}
         {isLoading ? (
@@ -165,7 +191,12 @@ export default function BatchList() {
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <Package className="h-4 w-4 text-muted-foreground" />
-                          {batch.batchCode}
+                          <div>
+                            {batch.batchCode}
+                            {(batch as any).dayBatchGroup && (
+                              <div className="text-[10px] text-blue-500 font-normal">{(batch as any).dayBatchGroup} #{(batch as any).batchOrder || ""}</div>
+                            )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -210,11 +241,23 @@ export default function BatchList() {
                         {new Date(batch.createdAt).toLocaleDateString("ko-KR")}
                       </TableCell>
                       <TableCell>
-                        <Link href={`/dashboard/batch/${batch.id}`}>
-                          <Button variant="outline" size="sm">
-                            상세 보기
-                          </Button>
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <Link href={`/dashboard/batch/${batch.id}`}>
+                            <Button variant="outline" size="sm">
+                              상세 보기
+                            </Button>
+                          </Link>
+                          {isWorker && batch.status !== 'completed' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30 border-red-200 dark:border-red-800"
+                              onClick={() => setDeleteTarget({ id: batch.id, batchCode: batch.batchCode })}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -225,11 +268,11 @@ export default function BatchList() {
             {/* 모바일: 카드 뷰 */}
             <div className="md:hidden space-y-4">
               {batches.map((batch) => (
-                <Link key={batch.id} href={`/dashboard/batch/${batch.id}`}>
-                  <Card className="hover:bg-accent transition-colors cursor-pointer">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 space-y-3">
+                <Card key={batch.id} className="hover:bg-accent/50 transition-colors">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <Link href={`/dashboard/batch/${batch.id}`} className="flex-1">
+                        <div className="space-y-3">
                           {/* 배치 코드 */}
                           <div className="flex items-center gap-2">
                             <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
@@ -254,13 +297,29 @@ export default function BatchList() {
                             {new Date(batch.createdAt).toLocaleDateString("ko-KR")}
                           </div>
                         </div>
-                        
-                        {/* 화살표 아이콘 */}
+                      </Link>
+                      
+                      <div className="flex flex-col items-end gap-2">
                         <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-1" />
+                        {isWorker && batch.status !== 'completed' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30 border-red-200 dark:border-red-800 mt-1"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setDeleteTarget({ id: batch.id, batchCode: batch.batchCode });
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-1" />
+                            삭제
+                          </Button>
+                        )}
                       </div>
-                    </CardContent>
-                  </Card>
-                </Link>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
 
@@ -299,6 +358,34 @@ export default function BatchList() {
           />
         )}
       </div>
-    
+
+      {/* 배치 삭제 확인 다이얼로그 */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>배치 삭제 확인</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{deleteTarget?.batchCode}</strong> 배치를 삭제하시겠습니까?<br />
+              삭제 시 관련 CCP 기록지와 원재료 투입 기록도 함께 삭제됩니다.<br />
+              이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteMutation.mutate({ id: deleteTarget.id });
+                }
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "삭제 중..." : "삭제"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

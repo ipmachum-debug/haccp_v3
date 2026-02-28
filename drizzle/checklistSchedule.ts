@@ -18,7 +18,10 @@ export const checklistSchedules = mysqlTable(
   "checklist_schedules",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    
+
+    // ✅ P0 FIX: 테넌트 격리 - 반드시 저장/조회 시 사용
+    tenantId: bigint("tenant_id", { mode: "number" }).notNull(),
+
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),
     
@@ -106,6 +109,9 @@ export const checklistSchedules = mysqlTable(
       .notNull(),
   },
   (table) => [
+    index("idx_schedule_tenant").on(table.tenantId),
+    index("idx_schedule_tenant_active").on(table.tenantId, table.active),
+    index("idx_schedule_tenant_template").on(table.tenantId, table.templateId),
     index("idx_schedule_template").on(table.templateId),
     index("idx_schedule_active").on(table.active),
     index("idx_schedule_frequency").on(table.frequencyType),

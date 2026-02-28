@@ -236,9 +236,13 @@ export async function createBatch(batch: {
   siteId: number;
   productId: number;
   batchCode: string;
+  dayBatchGroup?: string;
+  batchOrder?: number;
   plannedQuantity: string;
   plannedDate: Date;
   status?: string;
+  mode?: string;
+  batchStartTime?: string; // "HH:mm" format
   createdBy: number;
   tenantId?: number;
 }) {
@@ -252,9 +256,13 @@ export async function createBatch(batch: {
     siteId: batch.siteId,
     productId: batch.productId,
     batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
     plannedQuantity: batch.plannedQuantity,
     plannedDate: batch.plannedDate,
+    startTime: batch.batchStartTime ? new Date(`${batch.plannedDate.toISOString().split("T")[0]}T${batch.batchStartTime}:00`) : null,
     status: batch.status || "planned",
+    mode: (batch.mode || "auto") as any,
     createdBy: batch.createdBy
   } as any);
   
@@ -301,17 +309,24 @@ export async function createBatch(batch: {
       
       if (latestVersion.length > 0) {
         // 3. 배합비(원재료 함량) 조회
-        const ingredients = await db
+        // item_master.base_unit으로 실제 단위(kg/g) 조회
+        // h_mf_ingredients.material_id → item_master.id (직접 참조)
+        const { itemMaster } = await import("../drizzle/schema/schema_dual_unit");
+        const ingredientsRaw = await db
           .select({
             materialId: hMfIngredients.materialId,
             quantity: hMfIngredients.quantity,
             correctedQuantity: hMfIngredients.correctedQuantity,
             isDeductible: hMfIngredients.isDeductible,
-            unit: hMfIngredients.unit
+            unit: hMfIngredients.unit,         // BOM 단위 (%)
+            processGroupId: hMfIngredients.processGroupId,
+            materialUnit: itemMaster.baseUnit,  // item_master.base_unit (kg 등)
           })
           .from(hMfIngredients)
+          .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))
           .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
           .orderBy(hMfIngredients.lineNo);
+        const ingredients = ingredientsRaw;
         
         // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준, 정제수 제외)
         if (ingredients.length > 0) {
@@ -326,7 +341,8 @@ export async function createBatch(batch: {
                 batchId,
                 materialId: ing.materialId!,
                 plannedQuantity: ((ratio / 100) * plannedQty).toFixed(3),
-                unit: ing.unit,
+                unit: ing.materialUnit || "kg",  // 원재료 실제 단위 사용 (% 아닌 kg/g)
+                processGroupId: ing.processGroupId ?? null,
                 tenantId
               };
             });
@@ -345,13 +361,49 @@ export async function createBatch(batch: {
   return batchId;
 }
 
-export async function getBatchById(batchId: number) {
+export async function getBatchById(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const { hBatches } = await import("../drizzle/schema");
+  const { hBatches, hProductsV2 } = await import("../drizzle/schema");
   
-  const result = await db.select().from(hBatches).where(eq(hBatches.id, batchId)).limit(1);
+  const result = await db
+    .select({
+      id: hBatches.id,
+      tenantId: hBatches.tenantId,
+      siteId: hBatches.siteId,
+      batchCode: hBatches.batchCode,
+      productId: hBatches.productId,
+      recipeId: hBatches.recipeId,
+      plannedQuantity: hBatches.plannedQuantity,
+      actualQuantity: hBatches.actualQuantity,
+      plannedDate: hBatches.plannedDate,
+      startTime: hBatches.startTime,
+      endTime: hBatches.endTime,
+      status: hBatches.status,
+      mode: hBatches.mode,
+      manualStartTime: hBatches.manualStartTime,
+      manualEndTime: hBatches.manualEndTime,
+      lotNumber: hBatches.lotNumber,
+      expiryDate: hBatches.expiryDate,
+      revenue: hBatches.revenue,
+      plannedCost: hBatches.plannedCost,
+      actualCost: hBatches.actualCost,
+      costFinalizedAt: hBatches.costFinalizedAt,
+      notes: hBatches.notes,
+      completionIdempotencyKey: hBatches.completionIdempotencyKey,
+      completedAt: hBatches.completedAt,
+      completionReportUrl: hBatches.completionReportUrl,
+      createdBy: hBatches.createdBy,
+      createdAt: hBatches.createdAt,
+      updatedAt: hBatches.updatedAt,
+      productName: hProductsV2.productName,
+      productCode: hProductsV2.productCode,
+    })
+    .from(hBatches)
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
+    .where(eq(hBatches.id, batchId))
+    .limit(1);
   
   return result.length > 0 ? result[0] : undefined;
 }
@@ -480,13 +532,51 @@ export async function updateBatchStatus(batchId: number, status: string) {
     .where(eq(hBatches.id, batchId));
 }
 
-export async function deleteBatch(batchId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const { hBatches } = await import("../drizzle/schema");
+export async function deleteBatch(batchId: number, tenantId?: number) {
+  const pool = await getRawConnection();
   
-  await db.delete(hBatches).where(eq(hBatches.id, batchId));
+  // 관련 데이터 cascade 삭제 (CCP 행 → CCP 인스턴스 → 배치)
+  // P0: tenant_id 필터 추가 - 테넌트 격리
+  if (tenantId) {
+    await pool.execute(`DELETE r FROM h_ccp_rows r
+      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
+      WHERE i.batch_id = ? AND i.tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  } else {
+    await pool.execute(`DELETE r FROM h_ccp_rows r
+      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
+      WHERE i.batch_id = ?`, [batchId]);
+    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ?`, [batchId]);
+    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [batchId]);
+    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ?`, [batchId]);
+  }
+  
+  // 배치 자체 삭제 (테넌트 격리 적용) - h_batches AND batches (dual table sync)
+  if (tenantId) {
+    await pool.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  } else {
+    await pool.execute(`DELETE FROM h_batches WHERE id = ?`, [batchId]);
+    await pool.execute(`DELETE FROM batches WHERE id = ?`, [batchId]);
+  }
+  // CCP 모니터링 기록지 삭제
+  try {
+    if (tenantId) {
+      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ? AND rec.tenant_id = ?`, [batchId, tenantId]);
+      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    } else {
+      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ?`, [batchId]);
+      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?`, [batchId]);
+    }
+  } catch (_e) { /* ignore if table not exists */ }
+  // 승인 요청 삭제
+  if (tenantId) {
+    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type = 'batch' AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  } else {
+    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type = 'batch' AND reference_id = ?`, [batchId]);
+  }
 }
 
 // ==================== 제품 관리 ====================
@@ -505,10 +595,15 @@ export async function getAllProducts(tenantId?: number) {
 export async function getProductById(productId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  
-  const { hProducts } = await import("../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
-  
+  // Try h_products_v2 first (actual production data)
+  try {
+    const { hProductsV2 } = await import("../drizzle/schema_main.js");
+    const v2result = await db.select().from(hProductsV2 as any).where(eq((hProductsV2 as any).id, productId)).limit(1);
+    if (v2result.length > 0) return v2result[0] as any;
+  } catch (_e) { /* fallback */ }
+  // Fallback to h_products
+  const { hProducts } = await import("../drizzle/schema.js");
   const result = await db.select().from(hProducts).where(eq(hProducts.id, productId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -786,36 +881,59 @@ export async function getCcpInstanceById(instanceId: number) {
 }
 
 export async function getCcpInstancesByBatchId(batchId: number) {
-  const db = await getDb();
-  if (!db) return [];
+  const pool = await getRawConnection();
   
-  const { hCcpInstances, hCcpTemplates } = await import("../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  // 1. 인스턴스 + 공정그룹 정보 조회
+  const [instances] = await pool.execute<any[]>(
+    `SELECT 
+       i.id, i.site_id AS siteId, i.work_date AS workDate,
+       i.ccp_type AS ccpType, i.product_name AS productName,
+       i.product_id AS productId, i.batch_id AS batchId,
+       i.status, i.created_at AS createdAt, i.created_by AS createdBy,
+       i.process_group_id AS processGroupId,
+       pg.name AS processGroupName,
+       pg.temperature_min AS tempMin, pg.temperature_max AS tempMax,
+       pg.time_min AS timeMin, pg.time_max AS timeMax,
+       pg.pressure_min AS pressureMin, pg.pressure_max AS pressureMax
+     FROM h_ccp_instances i
+     LEFT JOIN ccp_process_groups pg ON pg.id = i.process_group_id
+     WHERE i.batch_id = ?
+     ORDER BY i.id`,
+    [batchId]
+  );
+
+  // 2. 각 인스턴스의 행(row) + 설비 정보 조회
+  const instanceIds = (instances as any[]).map((r: any) => r.id);
+  let rowsMap: Record<number, any[]> = {};
   
-  // CCP 인스턴스와 템플릿 정보를 JOIN하여 조회
-  const results = await db
-    .select({
-      id: hCcpInstances.id,
-      siteId: hCcpInstances.siteId,
-      workDate: hCcpInstances.workDate,
-      ccpType: hCcpInstances.ccpType,
-      productName: hCcpInstances.productName,
-      productId: hCcpInstances.productId,
-      batchId: hCcpInstances.batchId,
-      status: hCcpInstances.status,
-      createdAt: hCcpInstances.createdAt,
-      createdBy: hCcpInstances.createdBy,
-      // 템플릿 정보
-      templateId: hCcpTemplates.id,
-      templateName: hCcpTemplates.templateName,
-      criticalLimit: hCcpTemplates.criticalLimit, // 한계기준
-      description: hCcpTemplates.description
-    })
-    .from(hCcpInstances)
-    .leftJoin(hCcpTemplates, eq(hCcpInstances.ccpType, hCcpTemplates.ccpType))
-    .where(eq(hCcpInstances.batchId, batchId));
-  
-  return results;
+  if (instanceIds.length > 0) {
+    const placeholders = instanceIds.map(() => "?").join(",");
+    const [rows] = await pool.execute<any[]>(
+      `SELECT 
+         r.id, r.instance_id AS instanceId, r.sort_order AS sortOrder,
+         r.row_type AS rowType, r.measured_at AS measuredAt,
+         r.temp_c AS tempC, r.duration_min AS durationMin,
+         r.heating_min AS heatingMin, r.cycle_total_min AS cycleTotalMin,
+         r.pressure_bar AS pressureBar, r.result, r.note,
+         r.auto_generated AS autoGenerated,
+         r.equipment_id AS equipmentId, r.equipment_name AS equipmentName,
+         r.tenant_id AS tenantId, r.created_at AS createdAt
+       FROM h_ccp_rows r
+       WHERE r.instance_id IN (${placeholders})
+       ORDER BY r.instance_id, r.sort_order`,
+      instanceIds
+    );
+    for (const row of (rows as any[])) {
+      const iid = row.instanceId;
+      if (!rowsMap[iid]) rowsMap[iid] = [];
+      rowsMap[iid].push(row);
+    }
+  }
+
+  return (instances as any[]).map((inst: any) => ({
+    ...inst,
+    rows: rowsMap[inst.id] ?? [],
+  }));
 }
 
 /**
@@ -832,12 +950,46 @@ export async function createCcpRow(data: {
   result?: "PASS" | "FAIL" | "N/A";
   note?: string;
   autoGenerated?: number;
+  equipmentId?: number;
+  equipmentName?: string;
+  heatingMin?: number;
+  cycleTotalMin?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hCcpRows } = await import("../drizzle/schema.js");
-  const result = await db.insert(hCcpRows).values(data);
+  const result = await db.insert(hCcpRows).values(data as any);
   return result;
+}
+
+/**
+ * CCP 점검 행 업데이트 (인라인 편집용)
+ */
+export async function updateCcpRow(rowId: number, data: {
+  tempC?: string;
+  durationMin?: number;
+  pressureBar?: string;
+  result?: "PASS" | "FAIL" | "N/A";
+  note?: string;
+  measuredAt?: Date;
+  heatingMin?: number;
+  cycleTotalMin?: number;
+}) {
+  const conn = await getRawConnection();
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (data.tempC !== undefined)        { sets.push("temp_c = ?");          vals.push(data.tempC); }
+  if (data.durationMin !== undefined)  { sets.push("duration_min = ?");    vals.push(data.durationMin); }
+  if (data.pressureBar !== undefined)  { sets.push("pressure_bar = ?");    vals.push(data.pressureBar); }
+  if (data.result !== undefined)       { sets.push("result = ?");          vals.push(data.result); }
+  if (data.note !== undefined)         { sets.push("note = ?");            vals.push(data.note); }
+  if (data.measuredAt !== undefined)   { sets.push("measured_at = ?");     vals.push(data.measuredAt); }
+  if (data.heatingMin !== undefined)   { sets.push("heating_min = ?");     vals.push(data.heatingMin); }
+  if (data.cycleTotalMin !== undefined){ sets.push("cycle_total_min = ?"); vals.push(data.cycleTotalMin); }
+  if (sets.length === 0) return { success: true };
+  vals.push(rowId);
+  await conn.execute(`UPDATE h_ccp_rows SET ${sets.join(", ")} WHERE id = ?`, vals);
+  return { success: true };
 }
 
 /**
@@ -5743,9 +5895,14 @@ export async function predictInventoryDepletion(materialId: number) {
   
   // 현재 재고 수량 조회
   const currentStockRaw = await db.execute(sql`
-    SELECT currentStock, safetyStock, reorderPoint
-    FROM h_materials
-    WHERE id = ${materialId}
+    SELECT 
+      COALESCE(inv.available_quantity, 0) as currentStock,
+      COALESCE(mat.safety_stock_level, 0) as safetyStock,
+      COALESCE(inv.reorder_point, inv.min_stock_level, 0) as reorderPoint
+    FROM h_materials mat
+    LEFT JOIN h_inventory inv ON inv.material_id = mat.id
+    WHERE mat.id = ${materialId}
+    LIMIT 1
   `);
   
   if ((currentStockRaw as any[]).length === 0) {
@@ -7384,6 +7541,8 @@ export async function optimizeProductionSchedule(params: {
         return {
           batchId: batch.id,
           batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
           productName: batch.productName,
           plannedDate: batch.plannedDate,
           materials: materials.materials.filter((m: any) => m.shortage > 0)
@@ -7393,6 +7552,8 @@ export async function optimizeProductionSchedule(params: {
         return {
           batchId: batch.id,
           batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
           productName: batch.productName,
           plannedDate: batch.plannedDate,
           materials: []
@@ -7414,6 +7575,8 @@ export async function optimizeProductionSchedule(params: {
       // LLM에 전달할 배치 정보 준비
       const batchInfo = batchesWithShortage.map((batch: any) => ({
         batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
         productName: batch.productName,
         plannedDate: batch.plannedDate,
         shortages: batch.materials.map((m: any) => ({
@@ -7492,6 +7655,8 @@ JSON 형식으로 응답해주세요:
         return {
           batchId: batch.batchId,
           batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
           productName: batch.productName,
           currentDate: batch.plannedDate,
           issue: llmSuggestion?.issue || `재고 부족 (${batch.materials.length}건)`,
@@ -7511,6 +7676,8 @@ JSON 형식으로 응답해주세요:
         return {
           batchId: batch.batchId,
           batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
           productName: batch.productName,
           currentDate: batch.plannedDate,
           issue: `재고 부족 (${shortageList})`,
@@ -7857,6 +8024,8 @@ export async function getBatchCostAnalysis(params: {
       return {
         batchId: batch.id,
         batchCode: batch.batchCode,
+    dayBatchGroup: batch.dayBatchGroup || null,
+    batchOrder: batch.batchOrder ?? null,
         productName: batch.productName,
         plannedQuantity: batch.plannedQuantity,
         actualQuantity: batch.actualQuantity,

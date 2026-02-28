@@ -30,10 +30,10 @@ export default function BatchManagement() {
 
   return (
     <DashboardLayout>
-      <div className="container py-6">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold mb-2">배치 관리</h1>
-          <p className="text-muted-foreground">
+      <div className="py-2 px-1 md:px-2">
+        <div className="mb-4">
+          <h1 className="text-2xl font-bold mb-1">배치 관리</h1>
+          <p className="text-muted-foreground text-sm">
             배치 목록, 생성 및 수익성 분석을 통합 관리합니다.
           </p>
         </div>

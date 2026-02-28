@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getRawConnection } from "../db";
 
 export const yearlyLogsRouter = router({
   // 연간일지 작성
@@ -30,9 +30,9 @@ export const yearlyLogsRouter = router({
       confirmation: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      const result = await (db as any).execute(
+      const conn = await getRawConnection();
+
+      const [result] = await conn.execute(
         `INSERT INTO yearly_logs 
         (tenant_id, inspection_date, inspector, 
          calibration_freezer_panel_thermometer, calibration_refrigerator, calibration_timer,
@@ -45,16 +45,16 @@ export const yearlyLogsRouter = router({
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '작성중')`,
         [
           input.tenant_id, input.inspection_date, input.inspector,
-          input.calibration_freezer_panel_thermometer || null, input.calibration_refrigerator || null, input.calibration_timer || null,
-          input.calibration_probe_thermometer || null, input.calibration_scale || null, input.calibration_oven || null,
-          input.calibration_metal_detector || null, input.calibration_hygrothermograph || null, input.calibration_radiation_thermometer1 || null,
-          input.calibration_radiation_thermometer2 || null, input.calibration_oven_work_thermometer || null,
-          input.metal_detector_check_date || null, input.metal_detector_next_check || null,
-          input.periodic_verification_date || null, input.periodic_verification_next || null,
-          input.special_notes || null, input.improvement_action || null, input.action_taker || null, input.confirmation || null
+          input.calibration_freezer_panel_thermometer ?? null, input.calibration_refrigerator ?? null, input.calibration_timer ?? null,
+          input.calibration_probe_thermometer ?? null, input.calibration_scale ?? null, input.calibration_oven ?? null,
+          input.calibration_metal_detector ?? null, input.calibration_hygrothermograph ?? null, input.calibration_radiation_thermometer1 ?? null,
+          input.calibration_radiation_thermometer2 ?? null, input.calibration_oven_work_thermometer ?? null,
+          input.metal_detector_check_date ?? null, input.metal_detector_next_check ?? null,
+          input.periodic_verification_date ?? null, input.periodic_verification_next ?? null,
+          input.special_notes ?? null, input.improvement_action ?? null, input.action_taker ?? null, input.confirmation ?? null
         ]
-      );
-      
+      ) as any;
+
       return { success: true, id: result.insertId };
     }),
 
@@ -67,24 +67,24 @@ export const yearlyLogsRouter = router({
       status: z.string().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
-      
+      const conn = await getRawConnection();
+
       let query = "SELECT * FROM yearly_logs WHERE tenant_id = ?";
       const params: any[] = [input.tenant_id];
-      
+
       if (input.start_date && input.end_date) {
         query += " AND inspection_date BETWEEN ? AND ?";
         params.push(input.start_date, input.end_date);
       }
-      
+
       if (input.status && input.status !== "전체") {
         query += " AND status = ?";
         params.push(input.status);
       }
-      
+
       query += " ORDER BY inspection_date DESC";
-      
-      const logs = await (db as any).execute(query, params);
+
+      const [logs] = await conn.execute(query, params) as any;
       return { success: true, logs };
     }),
 
@@ -115,9 +115,9 @@ export const yearlyLogsRouter = router({
       confirmation: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
+      const conn = await getRawConnection();
+
+      await conn.execute(
         `UPDATE yearly_logs SET
           inspection_date = COALESCE(?, inspection_date),
           inspector = COALESCE(?, inspector),
@@ -142,18 +142,18 @@ export const yearlyLogsRouter = router({
           confirmation = ?
         WHERE id = ?`,
         [
-          input.inspection_date, input.inspector,
-          input.calibration_freezer_panel_thermometer, input.calibration_refrigerator, input.calibration_timer,
-          input.calibration_probe_thermometer, input.calibration_scale, input.calibration_oven,
-          input.calibration_metal_detector, input.calibration_hygrothermograph, input.calibration_radiation_thermometer1,
-          input.calibration_radiation_thermometer2, input.calibration_oven_work_thermometer,
-          input.metal_detector_check_date, input.metal_detector_next_check,
-          input.periodic_verification_date, input.periodic_verification_next,
-          input.special_notes, input.improvement_action, input.action_taker, input.confirmation,
+          input.inspection_date ?? null, input.inspector ?? null,
+          input.calibration_freezer_panel_thermometer ?? null, input.calibration_refrigerator ?? null, input.calibration_timer ?? null,
+          input.calibration_probe_thermometer ?? null, input.calibration_scale ?? null, input.calibration_oven ?? null,
+          input.calibration_metal_detector ?? null, input.calibration_hygrothermograph ?? null, input.calibration_radiation_thermometer1 ?? null,
+          input.calibration_radiation_thermometer2 ?? null, input.calibration_oven_work_thermometer ?? null,
+          input.metal_detector_check_date ?? null, input.metal_detector_next_check ?? null,
+          input.periodic_verification_date ?? null, input.periodic_verification_next ?? null,
+          input.special_notes ?? null, input.improvement_action ?? null, input.action_taker ?? null, input.confirmation ?? null,
           input.id
         ]
       );
-      
+
       return { success: true };
     }),
 
@@ -164,13 +164,13 @@ export const yearlyLogsRouter = router({
       approved_by: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
+      const conn = await getRawConnection();
+
+      await conn.execute(
         `UPDATE yearly_logs SET status = '승인완료', approved_by = ?, approved_at = NOW() WHERE id = ?`,
         [input.approved_by, input.id]
       );
-      
+
       return { success: true };
     }),
 
@@ -178,13 +178,13 @@ export const yearlyLogsRouter = router({
   requestApproval: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
+      const conn = await getRawConnection();
+
+      await conn.execute(
         `UPDATE yearly_logs SET status = '승인대기' WHERE id = ?`,
         [input.id]
       );
-      
+
       return { success: true };
     }),
 
@@ -195,13 +195,13 @@ export const yearlyLogsRouter = router({
       rejected_reason: z.string(),
     }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
+      const conn = await getRawConnection();
+
+      await conn.execute(
         `UPDATE yearly_logs SET status = '작성중', rejected_reason = ? WHERE id = ?`,
         [input.rejected_reason, input.id]
       );
-      
+
       return { success: true };
     }),
 
@@ -209,13 +209,13 @@ export const yearlyLogsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
+      const conn = await getRawConnection();
+
+      await conn.execute(
         `DELETE FROM yearly_logs WHERE id = ?`,
         [input.id]
       );
-      
+
       return { success: true };
     }),
 });

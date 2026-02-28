@@ -107,7 +107,12 @@ router.get("/get", async (req, res) => {
 router.put("/markAsRead/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await db.execute("UPDATE notifications SET is_read = TRUE WHERE id = ?", [id]);
+    const tenantId = req.body?.tenantId ? parseInt(req.body.tenantId) : null;
+    if (tenantId) {
+      await db.execute("UPDATE notifications SET is_read = TRUE WHERE id = ? AND tenant_id = ?", [id, tenantId]);
+    } else {
+      await db.execute("UPDATE notifications SET is_read = TRUE WHERE id = ?", [id]);
+    }
     res.json({ success: true });
   } catch (error: any) {
     console.error("알림 읽음 처리 오류:", error);
@@ -141,7 +146,12 @@ router.put("/markAllAsRead", async (req, res) => {
 router.delete("/delete/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    await db.execute("DELETE FROM notifications WHERE id = ?", [id]);
+    const tenantId = parseInt(req.query.tenantId as string) || parseInt(req.body?.tenantId as string);
+    if (tenantId) {
+      await db.execute("DELETE FROM notifications WHERE id = ? AND tenant_id = ?", [id, tenantId]);
+    } else {
+      await db.execute("DELETE FROM notifications WHERE id = ?", [id]);
+    }
     res.json({ success: true });
   } catch (error: any) {
     console.error("알림 삭제 오류:", error);

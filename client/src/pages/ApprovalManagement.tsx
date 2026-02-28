@@ -38,13 +38,20 @@ import {
 import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { ApprovalSealRow } from "@/components/SealGenerator";
+import { CcpInspectionCard } from "@/components/CcpInspectionCard";
 
 // ============================================================================
 // 승인 요청 유형 라벨 및 아이콘 (체크리스트 폼 타입 포함)
 // ============================================================================
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
+  batch_production: "배치 CCP 기록지 승인",
   batch_approval: "배치 승인",
+  batch_completion: "생산일지 (배치완료)",
+  ccp_form: "CCP 모니터링 기록지",
+  daily_log: "일반위생관리 및 공정점검표",
+  pest_control_checklist: "방충·방서 점검표",
+  employee_health_check: "종사자 건강상태 확인 일지",
   inventory_adjustment: "재고 조정",
   material_inspection: "원재료 검사",
   hygiene_inspection: "위생 점검",
@@ -81,7 +88,12 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
 };
 
 const REQUEST_TYPE_ICONS: Record<string, any> = {
+  batch_production: ClipboardCheck,
   batch_approval: Package,
+  batch_completion: Package,
+  ccp_form: ClipboardCheck,
+  daily_log: Shield,
+  pest_control_checklist: Shield,
   inventory_adjustment: TrendingUp,
   material_inspection: Droplet,
   hygiene_inspection: ClipboardCheck,
@@ -102,7 +114,12 @@ const REQUEST_TYPE_ICONS: Record<string, any> = {
 };
 
 const REQUEST_CATEGORIES: Record<string, string> = {
+  batch_production: "CCP",
   batch_approval: "생산",
+  batch_completion: "생산",
+  ccp_form: "CCP",
+  daily_log: "위생",
+  pest_control_checklist: "위생",
   inventory_adjustment: "생산",
   material_inspection: "검사",
   hygiene_inspection: "위생",
@@ -248,6 +265,18 @@ export default function ApprovalManagement() {
   // 문서 결재 설정 + 직원 목록 조회 (직인 표시용)
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const { data: allEmployees = [] } = trpc.organization.employees.list.useQuery();
+  // CCP 기록 조회 (batch_production 상세 보기용)
+  const batchIdForCcp = (selectedRequest?.requestType === "batch_production" || selectedRequest?.requestType === "batch_approval") && selectedRequest?.referenceId
+    ? Number(selectedRequest.referenceId) : 0;
+  const { data: ccpListForApproval, refetch: refetchCcpForApproval } = trpc.ccp.getByBatchId.useQuery(
+    { batchId: batchIdForCcp },
+    { enabled: !!batchIdForCcp && detailDialogOpen }
+  );
+  // CCP 기록지(h_ccp_form_records) 조회 (batch_production 상세)
+  const { data: ccpFormRecords = [], refetch: refetchCcpFormRecords } = trpc.ccpForm.getByBatch.useQuery(
+    { batchId: batchIdForCcp },
+    { enabled: !!batchIdForCcp && detailDialogOpen }
+  );
   const getApprovalSettingNames = (requestType: string) => {
     const setting = (allApprovalSettings as any[]).find((s: any) => s.documentType === requestType);
     if (!setting) return null;
@@ -1084,7 +1113,9 @@ export default function ApprovalManagement() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">전체 유형</SelectItem>
-                      <SelectItem value="batch_approval">배치 승인</SelectItem>
+                      <SelectItem value="batch_production">배치 CCP 자동승인</SelectItem>
+                      <SelectItem value="ccp_form">CCP 모니터링 기록지</SelectItem>
+                    <SelectItem value="batch_approval">배치 승인</SelectItem>
                       <SelectItem value="checklist_approval">체크리스트 승인</SelectItem>
                       <SelectItem value="ccp_deviation">CCP 이탈</SelectItem>
                       <SelectItem value="material_inspection">원재료 검사</SelectItem>
@@ -1541,7 +1572,57 @@ export default function ApprovalManagement() {
                 {selectedRequest.description && (
                   <div className="border-t pt-3">
                     <div className="text-sm text-muted-foreground mb-1">설명</div>
-                    <div className="text-sm">{selectedRequest.description}</div>
+                    <div className="text-sm whitespace-pre-line">{selectedRequest.description}</div>
+                  </div>
+                )}
+                {(selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
+                  <div className="border-t pt-3">
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-1">
+                      <Package className="h-4 w-4 text-blue-600" />
+                      CCP 기록지 (배치 #{selectedRequest.referenceId})
+                    </div>
+                    {/* CCP 기록지(h_ccp_form_records) 상태 표시 */}
+                    {(ccpFormRecords as any[]).length > 0 && (
+                      <div className="mb-2 space-y-1">
+                        {(ccpFormRecords as any[]).map((fr: any) => (
+                          <div key={fr.id} className="flex items-center justify-between bg-gray-50 border rounded px-2 py-1 text-xs">
+                            <span className="font-medium">{fr.ccpType} — {fr.processGroupName || '-'}</span>
+                            <span className={`px-2 py-0.5 rounded font-semibold ${
+                              fr.status === 'approved' ? 'bg-green-100 text-green-700' :
+                              fr.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
+                              fr.status === 'rejected' ? 'bg-red-100 text-red-700' :
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {fr.status === 'approved' ? '✅ 승인완료' :
+                               fr.status === 'submitted' ? '⏳ 검토중' :
+                               fr.status === 'rejected' ? '❌ 반려' : '✏️ 작성중'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* CCP 점검 카드 인라인 표시 */}
+                    {ccpListForApproval && ccpListForApproval.length > 0 ? (
+                      <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                        {(ccpListForApproval as any[]).map((ccp: any) => (
+                          <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcpForApproval} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                        <div className="text-xs text-blue-600">
+                          CCP 기록지를 불러오는 중이거나 생성되지 않았습니다.
+                        </div>
+                      </div>
+                    )}
+                    <Button
+                      size="sm" variant="outline"
+                      className="w-full mt-2 text-blue-600 border-blue-300"
+                      onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
+                    >
+                      <Package className="h-3 w-3 mr-1" />
+                      배치 상세 / CCP 전체 보기
+                    </Button>
                   </div>
                 )}
                 {selectedRequest.reviewComments && (
@@ -1566,6 +1647,14 @@ export default function ApprovalManagement() {
             )}
             <DialogFooter className="flex-wrap gap-2">
               <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>닫기</Button>
+              {selectedRequest && (selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
+                <Button variant="outline" className="text-blue-600 border-blue-300"
+                  onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
+                >
+                  <Package className="h-4 w-4 mr-1" />
+                  배치 상세 이동
+                </Button>
+              )}
               {selectedRequest && (selectedRequest.status === "pending_review" || selectedRequest.status === "pending") && canReview && (
                 <>
                   <Button className="bg-orange-500 hover:bg-orange-600"

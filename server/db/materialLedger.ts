@@ -518,66 +518,60 @@ export async function syncToAccounting(
   userId: number
 ) {
   const conn = await getRawConnection();
-  try {
-    // 카테고리 코드로 ID 조회
-    const categoryCode = type === 'purchase' ? 'MAT_PURCHASE' : 'MAT_USAGE';
-    const [cats]: any = await conn.execute(
-      `SELECT id FROM accounting_categories WHERE code = ? AND tenant_id = ?`,
-      [categoryCode, tenantId]
-    );
-    if (!cats || cats.length === 0) return null;
-    
-    const amount = quantity * unitPrice;
-    if (amount <= 0) return null;
-    
-    const description = type === 'purchase' 
-      ? `원재료 입고: ${materialName} ${quantity}kg × ${unitPrice}원`
-      : `원재료 사용: ${materialName} ${quantity}kg × ${unitPrice}원`;
-    
-    const [result]: any = await conn.execute(
-      `INSERT INTO accounting_transactions 
-       (transaction_date, type, amount, category_id, description, reference_type, created_by, tenant_id)
-       VALUES (?, 'expense', ?, ?, ?, 'material_ledger', ?, ?)`,
-      [date, amount, cats[0].id, description, userId, tenantId]
-    );
-    
-    return result.insertId;
-  } finally {
-    conn.release();
-  }
+  // 카테고리 코드로 ID 조회
+  const categoryCode = type === 'purchase' ? 'MAT_PURCHASE' : 'MAT_USAGE';
+  const [cats]: any = await conn.execute(
+    `SELECT id FROM accounting_categories WHERE code = ? AND tenant_id = ?`,
+    [categoryCode, tenantId]
+  );
+  if (!cats || cats.length === 0) return null;
+  
+  const amount = quantity * unitPrice;
+  if (amount <= 0) return null;
+  
+  const description = type === 'purchase' 
+    ? `원재료 입고: ${materialName} ${quantity}kg × ${unitPrice}원`
+    : `원재료 사용: ${materialName} ${quantity}kg × ${unitPrice}원`;
+  
+  const [result]: any = await conn.execute(
+    `INSERT INTO accounting_transactions 
+     (transaction_date, type, amount, category_id, description, reference_type, created_by, tenant_id)
+     VALUES (?, 'expense', ?, ?, ?, 'material_ledger', ?, ?)`,
+    [date, amount, cats[0].id, description, userId, tenantId]
+  );
+  
+  return result.insertId;
+  // ※ getRawConnection()은 Pool 싱글턴 → release() 호출 금지
 }
 
 // ========== 체크리스트 연동 ==========
 export async function getMaterialChecklistData(date: string, tenantId: number) {
   const conn = await getRawConnection();
-  try {
-    // 해당 일자의 원재료 입고/사용 요약 - 체크리스트 항목으로 제공
-    const [receiving]: any = await conn.execute(`
-      SELECT m.name as material_name, 
-             COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
-      FROM material_ledger_monthly d
-      JOIN h_materials m ON m.id = d.material_id
-      WHERE d.tenant_id = ? AND d.\`year_month\` = ?
-      AND COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
-    `, [tenantId, date.substring(0, 7)]);
-    
-    const [usage]: any = await conn.execute(`
-      SELECT m.name as material_name,
-             COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
-      FROM material_ledger_monthly d
-      JOIN h_materials m ON m.id = d.material_id
-      WHERE d.tenant_id = ? AND d.\`year_month\` = ?
-      AND COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
-    `, [tenantId, date.substring(0, 7)]);
-    
-    return {
-      date,
-      receivingItems: receiving || [],
-      usageItems: usage || [],
-      receivingCount: receiving?.length || 0,
-      usageCount: usage?.length || 0
-    };
-  } finally {
-    conn.release();
-  }
+  // 해당 일자의 원재료 입고/사용 요약 - 체크리스트 항목으로 제공
+  const [receiving]: any = await conn.execute(`
+    SELECT m.name as material_name, 
+           COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
+    FROM material_ledger_monthly d
+    JOIN h_materials m ON m.id = d.material_id
+    WHERE d.tenant_id = ? AND d.\`year_month\` = ?
+    AND COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
+  `, [tenantId, date.substring(0, 7)]);
+  
+  const [usage]: any = await conn.execute(`
+    SELECT m.name as material_name,
+           COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
+    FROM material_ledger_monthly d
+    JOIN h_materials m ON m.id = d.material_id
+    WHERE d.tenant_id = ? AND d.\`year_month\` = ?
+    AND COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
+  `, [tenantId, date.substring(0, 7)]);
+  
+  return {
+    date,
+    receivingItems: receiving || [],
+    usageItems: usage || [],
+    receivingCount: receiving?.length || 0,
+    usageCount: usage?.length || 0
+  };
+  // ※ getRawConnection()은 Pool 싱글턴 → release() 호출 금지
 }

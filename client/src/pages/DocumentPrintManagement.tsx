@@ -9,6 +9,7 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +28,16 @@ import { ApprovalSealRow } from "@/components/SealGenerator";
 
 // 요청 유형별 카테고리 매핑
 const REQUEST_TYPE_CATEGORIES: Record<string, string> = {
+  // CCP 체크리스트
   ccp_review: "ccp",
   ccp_checklist: "ccp",
   ccp_deviation: "ccp",
+  batch_plan: "ccp",              // 일괄 배치 그룹 CCP 기록지
+  batch_production: "ccp",        // 배치 생성 시 CCP 자동승인 → CCP 체크리스트
+  ccp_form: "ccp",                // CCP 모니터링 기록지
+  // 선행/위생 체크리스트
+  daily_log: "prerequisite",      // 일반위생관리 및 공정점검표(일일일지)
+  batch_completion: "prerequisite", // 생산일지(배치완료)
   checklist_approval: "prerequisite",
   employee_health_check: "prerequisite",
   temperature_humidity: "prerequisite",
@@ -77,7 +85,13 @@ function getRequestTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     checklist_approval: "체크리스트",
     ccp_review: "CCP 검토",
+    ccp_checklist: "CCP 체크리스트",
     ccp_deviation: "CCP 이탈",
+    ccp_form: "CCP 모니터링 기록지",
+    batch_plan: "일일배치 CCP 기록지 (그룹)",
+    batch_production: "배치 CCP 기록지 승인",
+    batch_completion: "생산일지",
+    daily_log: "일반위생관리 및 공정점검표",
     batch_approval: "배치 승인",
     employee_health_check: "건강상태 확인",
     temperature_humidity: "온습도 점검",
@@ -157,6 +171,8 @@ function PrintStatusBadge({ printed }: { printed: boolean }) {
 export default function DocumentPrintManagement() {
   const { toast } = useToast();
   const trpcUtils = trpc.useUtils();
+  const { user } = useAuth();
+  const tenantId = user?.tenantId ?? 0;
   const [activeTab, setActiveTab] = useState("print-queue");
 
   // 필터 상태 (입력용)
@@ -173,18 +189,24 @@ export default function DocumentPrintManagement() {
     keyword: "",
   });
 
-  // 인쇄된 항목 추적 (로컬 상태 + localStorage)
+  // 테넌트별 localStorage 키 (테넌트 격리)
+  const printedIdsKey = `haccp_printed_ids_t${tenantId}`;
+  const printHistoryKey = `haccp_print_history_t${tenantId}`;
+
+  // 인쇄된 항목 추적 (로컬 상태 + localStorage, 테넌트별 격리)
   const [printedIds, setPrintedIds] = useState<Set<number>>(() => {
     try {
-      const saved = localStorage.getItem("haccp_printed_ids");
+      if (!tenantId) return new Set();
+      const saved = localStorage.getItem(printedIdsKey);
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
 
-  // 인쇄 이력 (날짜, 문서 목록)
+  // 인쇄 이력 (날짜, 문서 목록) - 테넌트별 격리
   const [printHistory, setPrintHistory] = useState<Array<{ date: string; ids: number[]; count: number }>>(() => {
     try {
-      const saved = localStorage.getItem("haccp_print_history");
+      if (!tenantId) return [];
+      const saved = localStorage.getItem(printHistoryKey);
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
@@ -211,13 +233,13 @@ export default function DocumentPrintManagement() {
   // localStorage 동기화
   const savePrintedIds = useCallback((ids: Set<number>) => {
     setPrintedIds(ids);
-    try { localStorage.setItem("haccp_printed_ids", JSON.stringify([...ids])); } catch {}
-  }, []);
+    try { localStorage.setItem(printedIdsKey, JSON.stringify([...ids])); } catch {}
+  }, [printedIdsKey]);
 
   const savePrintHistory = useCallback((history: Array<{ date: string; ids: number[]; count: number }>) => {
     setPrintHistory(history);
-    try { localStorage.setItem("haccp_print_history", JSON.stringify(history.slice(0, 100))); } catch {}
-  }, []);
+    try { localStorage.setItem(printHistoryKey, JSON.stringify(history.slice(0, 100))); } catch {}
+  }, [printHistoryKey]);
 
   // 필터링 함수
   const filterRequests = useCallback((requests: any[], category?: string) => {

@@ -14,7 +14,7 @@ export default function ProductionManagement() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-4 space-y-4">
+      <div className="mx-auto py-2 px-1 md:px-2 space-y-3">
         {/* 탭 네비게이션 - 에메랄드 테마 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
           <div className="rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-1 shadow-lg shadow-emerald-200/50">

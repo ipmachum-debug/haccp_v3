@@ -14,7 +14,7 @@ const FORM_TYPE_LABELS: Record<string, string> = {
   airborne_bacteria_test: "부유균 검사 기록",
   consumer_complaint: "소비자 불만 처리 기록",
   daily_disposal_record: "일일 폐기물 처리 기록",
-  daily_log: "일일일지",
+  daily_log: "일반위생관리 및 공정점검표",
   employee_health_check: "종사자 건강상태 확인 일지",
   equipment_history: "설비 이력 관리",
   equipment_inspection: "설비 점검 기록",
@@ -39,51 +39,58 @@ const FORM_TYPE_LABELS: Record<string, string> = {
   personal_hygiene_check: "개인위생 점검표",
   cleaning_disinfection: "세척소독 관리대장",
   pest_control_checklist: "방충·방서 점검표",
+  // CCP 관련
+  batch_plan: "일일배치 CCP 기록지 (그룹)",
+  batch_production: "배치 CCP 기록지",
+  batch_approval: "배치 CCP 기록지",
+  ccp_form: "CCP 모니터링 기록지",
+  ccp_checklist: "CCP 체크리스트",
 };
 
 // ============================================================================
-// 상단 결재란 컴포넌트
+// 상단 결재란 컴포넌트 (컴팩트 버전 - 인쇄 시 공간 절약)
 // ============================================================================
 function ApprovalHeader({
   authorName, reviewerName, approverName,
   requestedAt, reviewedAt, approvedAt,
+  compact = false,
 }: {
   authorName: string; reviewerName: string; approverName: string;
   requestedAt?: string; reviewedAt?: string; approvedAt?: string;
+  compact?: boolean;
 }) {
+  const sealSize = compact ? 30 : 42;
+  const cellHeight = compact ? "36px" : "50px";
+  const minW = compact ? "150px" : "180px";
+  const colW = compact ? "50px" : "60px";
   return (
-    <table className="border-collapse border border-gray-600 text-xs" style={{ minWidth: "210px" }}>
+    <table className="border-collapse border border-gray-600 text-xs" style={{ minWidth: minW }}>
       <thead>
         <tr>
-          <th colSpan={3} className="border border-gray-600 px-2 py-1 bg-gray-100 text-center font-bold text-sm">결 재</th>
+          <th colSpan={3} className="border border-gray-600 px-1 py-0 bg-gray-100 text-center font-bold text-[10px]">결 재</th>
         </tr>
         <tr className="bg-gray-50">
-          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">작 성</th>
-          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">검 토</th>
-          <th className="border border-gray-600 px-3 py-1 font-medium w-[70px]">승 인</th>
+          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>작 성</th>
+          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>검 토</th>
+          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>승 인</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
-            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={55} /> : <div className="text-gray-300 text-[10px]">미작성</div>}
+          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미작성</div>}
           </td>
-          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
-            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={55} /> : <div className="text-gray-300 text-[10px]">미검토</div>}
+          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미검토</div>}
           </td>
-          <td className="border border-gray-600 px-2 py-2 text-center align-middle" style={{ height: "70px" }}>
-            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={55} /> : <div className="text-gray-300 text-[10px]">미승인</div>}
+          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미승인</div>}
           </td>
         </tr>
         <tr className="bg-gray-50">
-          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{authorName || "-"}</td>
-          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{reviewerName || "-"}</td>
-          <td className="border border-gray-600 px-2 py-1 text-center text-[10px] text-gray-600">{approverName || "-"}</td>
-        </tr>
-        <tr>
-          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">작성자</td>
-          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">검토자</td>
-          <td className="border border-gray-600 px-2 py-0.5 text-center text-[9px] text-gray-400">승인자</td>
+          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{authorName || "-"}</td>
+          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{reviewerName || "-"}</td>
+          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{approverName || "-"}</td>
         </tr>
       </tbody>
     </table>
@@ -95,6 +102,55 @@ function ApprovalHeader({
 // ============================================================================
 function renderDailyLogPages(data: any): React.ReactNode[] {
   const d = data || {};
+
+  // 자동생성 일일일지(batches 형태) - 위생 점검 데이터 없이 배치 목록만 있는 경우
+  if (d.autoGenerated && Array.isArray(d.batches)) {
+    const dateStr = d.date || "";
+    const batchList = d.batches as any[];
+    const autoPage = (
+      <div>
+        <div className="text-center mb-4">
+          <h2 className="text-xl font-bold">일일일지 (자동생성)</h2>
+          <p className="text-sm text-gray-500">작업일: {dateStr}</p>
+        </div>
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-300 rounded text-sm text-yellow-800">
+          ⚠ 이 일일일지는 배치 완료 시 자동 생성되었습니다. 위생 점검 항목을 직접 작성하여 제출하세요.
+        </div>
+        <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+          <thead>
+            <tr className="bg-blue-50">
+              <th className="border border-gray-400 px-2 py-1">배치코드</th>
+              <th className="border border-gray-400 px-2 py-1">제품명</th>
+              <th className="border border-gray-400 px-2 py-1">계획수량(kg)</th>
+              <th className="border border-gray-400 px-2 py-1">실제수량(kg)</th>
+              <th className="border border-gray-400 px-2 py-1">CCP 총계</th>
+              <th className="border border-gray-400 px-2 py-1">이탈</th>
+            </tr>
+          </thead>
+          <tbody>
+            {batchList.length > 0 ? batchList.map((b: any, i: number) => (
+              <tr key={i}>
+                <td className="border border-gray-400 px-2 py-1 text-center text-xs">{b.batchCode || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1">{b.productName || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{b.plannedQuantity ?? "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{b.actualQuantity ?? "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{b.ccpTotal ?? "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{b.ccpDeviation ?? 0}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={6} className="border border-gray-400 px-2 py-4 text-center text-gray-400">배치 정보 없음</td></tr>
+            )}
+          </tbody>
+        </table>
+        <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded text-sm">
+          <p className="font-medium mb-1">위생 점검 미작성 항목</p>
+          <p className="text-gray-500">위생 점검 내용이 아직 작성되지 않았습니다. 승인 관리 &gt; 일일일지에서 내용을 보완한 후 제출하세요.</p>
+        </div>
+      </div>
+    );
+    return [autoPage];
+  }
+
   const hc = d.hygieneChecks || {};
   const fc = d.foreignMaterialChecks || {};
   const th = d.temperatureHumidity || {};
@@ -903,7 +959,7 @@ function renderGenericData(data: any, formType: string) {
                 <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
                 {keys.map((k, i) => (
                   <td key={i} className="border border-gray-400 px-2 py-1 text-center">
-                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
+                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? row[k].toISOString().split("T")[0] : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
                   </td>
                 ))}
               </tr>
@@ -972,7 +1028,768 @@ function renderGenericData(data: any, formType: string) {
 }
 
 // ============================================================================
-// 폼 타입별 렌더링 디스패처 (daily_log 제외 - 별도 처리)
+// batch_production: 배치 CCP 기록지 요약 (기록지 없을 때)
+// ============================================================================
+function renderCcpBatchSummary(doc: any) {
+  const desc = doc.description || "";
+  const descLines = desc.split("\n").filter(Boolean);
+  return (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">배치 CCP 기록지 승인</h2>
+        <p className="text-gray-600 text-sm mt-1">{doc.title}</p>
+      </div>
+      <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+        <tbody>
+          {descLines.map((line: string, i: number) => {
+            const [label, ...rest] = line.split(":");
+            return (
+              <tr key={i}>
+                <td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/3">{label?.trim()}</td>
+                <td className="border border-gray-400 px-3 py-2">{rest.join(":").trim()}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p className="text-gray-500 text-sm text-center mt-4">
+        CCP 기록지 작성 후 개별 제출 시 별도 인쇄 가능합니다.
+      </p>
+    </div>
+  );
+}
+
+// ============================================================================
+// CCP 기록지 단건 렌더러 (h_ccp_form_records 기반)
+// 교반기_가열(증숙)공정_기준서.pdf 양식 완벽 재현
+// ============================================================================
+function renderCcpFormRecord(fr: any, doc: any) {
+  if (!fr) return <p className="text-gray-500">CCP 기록지 데이터 없음</p>;
+
+  // Date 객체 -> string 안전 변환 헬퍼
+  const s = (v: any): string => {
+    if (!v) return "";
+    if (v instanceof Date) return v.toISOString().split("T")[0];
+    return String(v);
+  };
+
+  const ccpType = s(fr.ccpType || fr.ccp_type);
+  const processGroupName = s(fr.processGroupName || fr.process_group_name);
+  const productName = s(fr.productName || fr.product_name);
+  const workDate = s(fr.workDate || fr.work_date);
+  const status = s(fr.status) || "draft";
+
+  // CL 기준값
+  const clHeatTimeLo = fr.clHeatTimeMinLo ?? fr.cl_heat_time_min_lo;
+  const clHeatTimeHi = fr.clHeatTimeMinHi ?? fr.cl_heat_time_min_hi;
+  const clHeatTempLo = fr.clHeatTempLo ?? fr.cl_heat_temp_lo;
+  const clPressureMpaLo = fr.clPressureMpaLo ?? fr.cl_pressure_mpa_lo;
+  const clMetalFe = fr.clFeMm ?? fr.cl_fe_mm;
+  const clMetalSus = fr.clSusMm ?? fr.cl_sus_mm;
+  const clMetalSensitivity = fr.clMetalSensitivity ?? fr.cl_metal_sensitivity;
+
+  const formRows: any[] = fr.rows || [];
+  const hasFormRows = formRows.length > 0;
+
+  // CCP 타입별 제목
+  const ccpTypeLabels: Record<string, string> = {
+    "CCP-1B": "중요관리점(CCP-1B) 모니터링일지",
+    "CCP-2B": "중요관리점(CCP-2B) 모니터링일지",
+    "CCP-4P": "중요관리점(CCP-4P) 모니터링일지",
+  };
+  const ccpSubLabels: Record<string, string> = {
+    "CCP-1B": "[가열(증숙)공정]",
+    "CCP-2B": "[가열(굽기)공정]",
+    "CCP-4P": "[금속검출공정]",
+  };
+
+  // 날짜 포맷
+  const formatWorkDate = (d: string) => {
+    if (!d) return "      .    .    .";
+    const parts = d.split("-");
+    if (parts.length === 3) return `${parts[0]}.  ${parts[1]}.  ${parts[2]}.`;
+    return d;
+  };
+  const getDayOfWeek = (d: string) => {
+    if (!d) return "";
+    try {
+      const days = ["일", "월", "화", "수", "목", "금", "토"];
+      return days[new Date(d).getDay()];
+    } catch { return ""; }
+  };
+
+  const bCls = "border border-gray-600";
+  const thCls = `${bCls} px-2 py-1 text-center text-xs font-medium`;
+  const tdCls = `${bCls} px-2 py-1 text-center text-xs`;
+
+  // ══════════════════════════════════════════════════════════
+  // CCP-1B: 가열(증숙) - 교반기 공정 기준서 양식
+  // ══════════════════════════════════════════════════════════
+  if (ccpType === "CCP-1B") {
+    // 한계기준 테이블 데이터 (공정그룹 내 모든 설비 표시)
+    // formRows에서 고유한 equipment_name 추출 → 한계기준 행 생성
+    const uniqueEquipNames = Array.from(
+      new Set(formRows.map((r: any) => s(r.equipmentName || r.equipment_name)).filter(Boolean))
+    );
+    const clRows = uniqueEquipNames.length > 0
+      ? uniqueEquipNames.map((name) => ({
+          name: `${productName || "찹쌀떡류"}(${name})`,
+          time: `${clHeatTimeLo || 10}분이상~${clHeatTimeHi || 15}분이하`,
+          pressure: `${clPressureMpaLo || "0.16"}Mpa이상`,
+          temp: `${clHeatTempLo || "90"}℃이상`,
+        }))
+      : [{ name: `${productName || "찹쌀떡류"}(교반기1)`, time: `${clHeatTimeLo || 10}분이상~${clHeatTimeHi || 15}분이하`, pressure: `${clPressureMpaLo || "0.16"}Mpa이상`, temp: `${clHeatTempLo || "90"}℃이상` }];
+
+    // 8개 빈 행 (기록란)
+    const displayRows = hasFormRows
+      ? formRows
+      : Array.from({ length: 8 }, (_, i) => ({ batchSeq: i + 1 }));
+
+    return (
+      <div className="text-xs">
+        {/* 제목 */}
+        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
+          <tbody>
+            <tr>
+              <td className="border-2 border-gray-700 text-center py-2 font-bold text-base" style={{ width: "70%" }}>
+                {ccpTypeLabels[ccpType]}<br />
+                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
+                <div className="text-xs">{doc?.authorName || "-"}</div>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
+                <div className="text-xs">{doc?.approverName || "-"}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 작성일자/요일 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50`} style={{ width: "12%" }}>작성일자</td>
+              <td className={`${bCls} px-3 py-1 text-center`} style={{ width: "50%" }}>
+                {formatWorkDate(workDate)}
+              </td>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center`} style={{ width: "8%" }}>요일</td>
+              <td className={`${bCls} px-2 py-1 text-center`}>{getDayOfWeek(workDate)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 한계기준 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={`${thCls} bg-gray-50`} rowSpan={2} style={{ width: "12%" }}>한계기준</th>
+              <th className={thCls} style={{ width: "25%" }}>품목</th>
+              <th className={thCls} style={{ width: "25%" }}>가열시간</th>
+              <th className={thCls} style={{ width: "18%" }}>압력</th>
+              <th className={thCls} style={{ width: "20%" }}>품온</th>
+            </tr>
+          </thead>
+          <tbody>
+            {clRows.map((row, i) => (
+              <tr key={i}>
+                {i === 0 && <td className={`${tdCls} bg-gray-50 font-medium`} rowSpan={clRows.length}></td>}
+                <td className={tdCls}>{row.name}</td>
+                <td className={tdCls}>{row.time}</td>
+                <td className={tdCls}>{row.pressure}</td>
+                <td className={tdCls}>{row.temp}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* 주기 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-bold bg-gray-50 text-center`} style={{ width: "12%" }}>주 기</td>
+              <td className={`${bCls} px-2 py-1 font-bold`}>
+                매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 모니터링 방법 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }} rowSpan={1}>
+                모니터링<br />방 법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                <div className="space-y-0.5">
+                  <p>○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록</p>
+                  <p>○ 품명 및 해당 품목 가열(증숙) 압력확인 - 압력계 수치 확인</p>
+                  <p>○ 품명 및 해당 품목 가열(증숙) 시간확인 - 가열(증숙)시간을 타이머로 설정(setting)</p>
+                  <p>○ 시루 최대 적재단수 3단이며 <u>제일 윗단 시루에 스팀이 올라오는 것</u></p>
+                  <p>&nbsp;&nbsp;확인후 타이머 (세팅된 가열(증숙)시간) 작동</p>
+                  <p>※ 품온 측정 : 스팀공급관에서 제일 끝시루</p>
+                  <p>&nbsp;&nbsp;(스팀공급관에서 제일 끝시루) 상단시루에서 모서리 1곳과 중심부 1곳을 측정</p>
+                  <p>○ 타이머로 설정된 시간 종료후 탐침온도계로 품온측정 및 측정시간 확인, 기록</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 모니터링 기록 테이블 - 교반기_가열(증숙)공정 양식 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>품 명</th>
+              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>측정시각</th>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>교반기</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>가열시간</th>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>
+                압력<br /><span className="font-normal">(메가파스칼)</span>
+              </th>
+              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>투입량</th>
+              <th className={thCls} colSpan={2} style={{ width: "20%" }}>가열후 품온</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>
+                판 정<br /><span className="font-normal">(적합/<br />부적합)</span>
+              </th>
+            </tr>
+            <tr>
+              <th className={thCls}>모서리</th>
+              <th className={thCls}>중심부</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.map((row: any, idx: number) => {
+              const rowProductName = s(row.productName || row.product_name) || productName;
+              const measureTime = s(row.measurementTime || row.measurement_time);
+              const equipName = s(row.equipmentName || row.equipment_name);
+              const heatTime = row.heatTimeMin ?? row.heat_time_min;
+              const pressure = row.pressureMpa ?? row.pressure_mpa;
+              const inputQty = row.inputQtyKg ?? row.input_qty_kg;
+              const tempEdge = row.tempEdgeC ?? row.temp_edge_c;
+              const tempCenter = row.tempCenterC ?? row.temp_center_c;
+              const result = row.result;
+              const isPass = result === "적합" || result === "PASS";
+              const isFail = result === "부적합" || result === "FAIL";
+
+              return (
+                <tr key={idx}>
+                  <td className={tdCls}>{rowProductName || ""}</td>
+                  <td className={tdCls}>{measureTime || ":"}</td>
+                  <td className={tdCls}>{equipName || ""}</td>
+                  <td className={tdCls}>{heatTime != null ? `${heatTime}` : ""}<br /><span className="text-gray-400">분</span></td>
+                  <td className={tdCls}>{pressure != null ? `${pressure}` : ""}<br /><span className="text-gray-400">Mpa</span></td>
+                  <td className={tdCls}>{inputQty != null ? `${inputQty}` : ""}<br /><span className="text-gray-400">kg</span></td>
+                  <td className={tdCls}>{tempEdge != null ? `${tempEdge}` : ""}<br /><span className="text-gray-400">℃</span></td>
+                  <td className={tdCls}>{tempCenter != null ? `${tempCenter}` : ""}<br /><span className="text-gray-400">℃</span></td>
+                  <td className={tdCls}>
+                    {result ? (
+                      <span className={isPass ? "" : "text-red-600 font-bold"}>
+                        {isPass ? "☑ 적 합" : "☑ 부적합"}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">□ 적 합<br />□ 부적합</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* 개선조치 방법 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }} rowSpan={1}>
+                개선조치<br />방법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                <div className="space-y-0.5">
+                  <p>○ 가열온도 또는 가열시간 미달 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 가열온도와 가열시간을 재조정한 후 미달된 제품에 대해 재가열을 실시하고</p>
+                  <p>&nbsp;&nbsp;&nbsp;제품검사(관능)를 실시하여 이상이 없는 경우 다음 공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 가열온도 또는 가열시간 초과 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 제품검사(관능 등)를 실시하여 이상이 없는 경우 다음공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 기계고장 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 가열기 등 기계고장 시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 수리 후 정상적으로 작동 시 재가동한다.</p>
+                  <p>&nbsp;&nbsp;※ 즉각적인 수리가 불가능할 경우 교차오염이 되지 않도록 보호조치하여</p>
+                  <p>&nbsp;&nbsp;&nbsp;&nbsp;냉장창고에 보관한후, 수리가 끝나면 제품 생산을 계속한다.</p>
+                  <p>○ 공통 : 개선조치 시</p>
+                  <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
+                  <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 한계기준 이탈내용 / 개선조치 및 결과 / 조치자 / 확인 */}
+        <table className="w-full border-collapse border border-gray-600">
+          <thead>
+            <tr>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "35%" }}>한계기준 이탈내용</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "35%" }}>개선조치 및 결과</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>조치자</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>확 인</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const deviationRows = formRows.filter((r: any) => r.isDeviation || r.is_deviation);
+              if (deviationRows.length > 0) {
+                return deviationRows.map((row: any, idx: number) => (
+                  <tr key={idx}>
+                    <td className={tdCls}>{s(row.deviationNote || row.deviation_note) || ""}</td>
+                    <td className={tdCls}>{s(row.correctiveAction || row.corrective_action) || ""}</td>
+                    <td className={tdCls}>{s(row.actionBy || row.action_by) || ""}</td>
+                    <td className={tdCls}>{s(row.confirmedBy || row.confirmed_by) || ""}</td>
+                  </tr>
+                ));
+              }
+              return (
+                <tr>
+                  <td className={`${tdCls}`} style={{ height: "30px" }}></td>
+                  <td className={tdCls}></td>
+                  <td className={tdCls}></td>
+                  <td className={tdCls}></td>
+                </tr>
+              );
+            })()}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // CCP-2B: 가열(굽기) - 오븐 공정
+  // ══════════════════════════════════════════════════════════
+  if (ccpType === "CCP-2B") {
+    const displayRows = hasFormRows
+      ? formRows
+      : Array.from({ length: 8 }, (_, i) => ({ batchSeq: i + 1 }));
+
+    return (
+      <div className="text-xs">
+        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
+          <tbody>
+            <tr>
+              <td className="border-2 border-gray-700 text-center py-2 font-bold text-base" style={{ width: "70%" }}>
+                {ccpTypeLabels[ccpType]}<br />
+                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
+                <div className="text-xs">{doc?.authorName || "-"}</div>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
+                <div className="text-xs">{doc?.approverName || "-"}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50`} style={{ width: "12%" }}>작성일자</td>
+              <td className={`${bCls} px-3 py-1 text-center`} style={{ width: "50%" }}>{formatWorkDate(workDate)}</td>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center`} style={{ width: "8%" }}>요일</td>
+              <td className={`${bCls} px-2 py-1 text-center`}>{getDayOfWeek(workDate)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "12%" }}>한계기준</th>
+              <th className={thCls}>품목</th>
+              <th className={thCls}>가열시간</th>
+              <th className={thCls}>가열온도</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className={`${tdCls} bg-gray-50`}></td>
+              <td className={tdCls}>{processGroupName || "오븐-굽기공정"}</td>
+              <td className={tdCls}>{clHeatTimeLo != null ? `${clHeatTimeLo}분이상` : "-"}{clHeatTimeHi != null ? `~${clHeatTimeHi}분이하` : ""}</td>
+              <td className={tdCls}>{clHeatTempLo != null ? `${clHeatTempLo}℃이상` : "-"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-bold bg-gray-50 text-center`} style={{ width: "12%" }}>주 기</td>
+              <td className={`${bCls} px-2 py-1 font-bold`}>매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 모니터링 기록 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={thCls} style={{ width: "14%" }}>품 명</th>
+              <th className={thCls} style={{ width: "10%" }}>측정시각</th>
+              <th className={thCls} style={{ width: "14%" }}>오븐기</th>
+              <th className={thCls} style={{ width: "12%" }}>가열시간(분)</th>
+              <th className={thCls} style={{ width: "14%" }}>가열온도(℃)</th>
+              <th className={thCls} style={{ width: "10%" }}>투입량(kg)</th>
+              <th className={thCls} style={{ width: "12%" }}>
+                판 정<br />(적합/부적합)
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayRows.map((row: any, idx: number) => {
+              const rowProductName = s(row.productName || row.product_name) || productName;
+              const measureTime = s(row.measurementTime || row.measurement_time);
+              const equipName = s(row.equipmentName || row.equipment_name);
+              const heatTime = row.heatTimeMin ?? row.heat_time_min;
+              const heatTemp = row.heatTempC ?? row.heat_temp_c;
+              const inputQty = row.inputQtyKg ?? row.input_qty_kg;
+              const result = row.result;
+              const isPass = result === "적합" || result === "PASS";
+              return (
+                <tr key={idx}>
+                  <td className={tdCls}>{rowProductName || ""}</td>
+                  <td className={tdCls}>{measureTime || ":"}</td>
+                  <td className={tdCls}>{equipName || ""}</td>
+                  <td className={tdCls}>{heatTime != null ? `${heatTime}분` : ""}</td>
+                  <td className={tdCls}>{heatTemp != null ? `${heatTemp}℃` : ""}</td>
+                  <td className={tdCls}>{inputQty != null ? `${inputQty}kg` : ""}</td>
+                  <td className={tdCls}>
+                    {result ? (
+                      <span className={isPass ? "" : "text-red-600 font-bold"}>{isPass ? "☑ 적합" : "☑ 부적합"}</span>
+                    ) : (
+                      <span className="text-gray-400">□ 적합 □ 부적합</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* 한계기준 이탈내용 */}
+        <table className="w-full border-collapse border border-gray-600">
+          <thead>
+            <tr>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "35%" }}>한계기준 이탈내용</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "35%" }}>개선조치 및 결과</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>조치자</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>확 인</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const deviationRows = formRows.filter((r: any) => r.isDeviation || r.is_deviation);
+              if (deviationRows.length > 0) {
+                return deviationRows.map((row: any, idx: number) => (
+                  <tr key={idx}>
+                    <td className={tdCls}>{s(row.deviationNote || row.deviation_note) || ""}</td>
+                    <td className={tdCls}>{s(row.correctiveAction || row.corrective_action) || ""}</td>
+                    <td className={tdCls}>{s(row.actionBy || row.action_by) || ""}</td>
+                    <td className={tdCls}>{s(row.confirmedBy || row.confirmed_by) || ""}</td>
+                  </tr>
+                ));
+              }
+              return (
+                <tr><td className={tdCls} style={{ height: "30px" }}></td><td className={tdCls}></td><td className={tdCls}></td><td className={tdCls}></td></tr>
+              );
+            })()}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // CCP-4P: 금속검출공정 (PDF 양식 기준 - 감도 모니터링 + 통과량 기록 2개 테이블)
+  // ══════════════════════════════════════════════════════════
+  if (ccpType === "CCP-4P") {
+    // formRows를 equipment_type으로 분류: 'sensitivity' = 감도 모니터링, 'passage' = 통과량 기록
+    const sensitivityRows = hasFormRows
+      ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "sensitivity")
+      : [];
+    const passageRows = hasFormRows
+      ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "passage")
+      : [];
+
+    const SENSITIVITY_ROW_COUNT = 10;
+    const PASSAGE_ROW_COUNT = 10;
+
+    const displaySensitivityRows = sensitivityRows.length > 0
+      ? sensitivityRows
+      : Array.from({ length: SENSITIVITY_ROW_COUNT }, () => ({}));
+    const displayPassageRows = passageRows.length > 0
+      ? passageRows
+      : Array.from({ length: PASSAGE_ROW_COUNT }, () => ({}));
+
+    // 시간 포맷 헬퍼 (HH:mm:ss → HH:mm)
+    const fmtTime = (v: any) => {
+      if (!v) return "";
+      const ts = String(v);
+      return ts.length >= 5 ? ts.substring(0, 5) : ts;
+    };
+
+    return (
+      <div className="text-xs">
+        {/* 제목 */}
+        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
+          <tbody>
+            <tr>
+              <td className="border-2 border-gray-700 text-center py-1 font-bold text-base" style={{ width: "70%" }}>
+                {ccpTypeLabels[ccpType]}<br />
+                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
+                <div className="text-xs">{doc?.authorName || "-"}</div>
+              </td>
+              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
+                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
+                <div className="text-xs">{doc?.approverName || "-"}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 점검일자 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50`} style={{ width: "10%" }}>점검일자</td>
+              <td className={`${bCls} px-3 py-0.5 text-center`} style={{ width: "35%" }}>
+                {formatWorkDate(workDate)}
+              </td>
+              <td className={`${bCls} px-1 py-0.5 text-center`} style={{ width: "5%" }}>
+                {getDayOfWeek(workDate)}
+              </td>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} style={{ width: "5%" }}>요일</td>
+              <td className={`${bCls} px-2 py-0.5`} style={{ width: "45%" }}></td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 한계기준 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} rowSpan={2} style={{ width: "10%" }}>한계기준</td>
+              <td className={`${bCls} px-2 py-0.5 text-center font-medium`} style={{ width: "15%" }}>감도</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>Fe</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>SUS</td>
+            </tr>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 text-center`}>{clMetalSensitivity ?? 130}</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalFe != null ? `${clMetalFe}mm\u03A6 이상 불검출` : "2.0mm\u03A6 이상 불검출"}</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalSus != null ? `${clMetalSus}mm\u03A6 이상 불검출` : "3.0mm\u03A6 이상 불검출"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 주기 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} rowSpan={2} style={{ width: "10%" }}>주 기</td>
+              <td className={`${bCls} px-2 py-0.5 text-[10px]`} style={{ width: "45%" }}>금속검출기 정상작동 여부 확인</td>
+              <td className={`${bCls} px-2 py-0.5 text-[10px]`} style={{ width: "45%" }}>품목 변경시 마다(시작시, 종료시), 동일품목 연속작업시 2시간 마다</td>
+            </tr>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 text-[10px]`}>금속검출기에 의한 공정품 확인</td>
+              <td className={`${bCls} px-2 py-0.5 text-[10px]`}>작업중 상시</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 모니터링 방법 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center align-top`} rowSpan={1} style={{ width: "10%" }}>모니터링<br/>방 법</td>
+              <td className={`${bCls} px-2 py-0.5 text-[9px] leading-tight`}>
+                <div>&#9675; 금속검출기 감도 확인</div>
+                <div>&#9675; 금속검출기 중간(벨트)에 테스트피스(Fe, SUS)를 통과시켜 검출여부 확인, 기록</div>
+                <div>&#9675; 제품강도 측정</div>
+                <div className="pl-3">- 제품을 통과 시켜 검출여부 확인(이물 없음 확인), 기록</div>
+                <div className="pl-3">- 테스트피스(Fe, SUS)를 제품의 정해진 위치에 놓고 함께 통과시켜 검출여부 확인, 기록</div>
+                <div>&#9675; 금속검출기를 통과한 해당제품별 그 양과 검출된 양을 확인, 기록</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* ═══ 상단 테이블: 금속검출기 감도 모니터링 ═══ */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={thCls} colSpan={8} style={{ fontSize: "10px", padding: "2px" }}>
+                금속검출기 감도 모니터링(검출 : O, 불검출 : X), 판정(적합, 부적합 해당사항에 &#10003; 체크)
+              </th>
+            </tr>
+            <tr>
+              <th className={thCls} rowSpan={2} style={{ width: "15%" }}>제품명</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>통과시간</th>
+              <th className={thCls} style={{ width: "9%" }}>Fe만 통과</th>
+              <th className={thCls} style={{ width: "9%" }}>SUS만<br/>통과</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>제품만<br/>통과</th>
+              <th className={thCls} style={{ width: "11%" }}>Fe+제품<br/>통과</th>
+              <th className={thCls} style={{ width: "11%" }}>SUS+<br/>제품통과</th>
+              <th className={thCls} rowSpan={2} style={{ width: "13%" }}>판 정<br/><span className="text-[8px]">(적합/부적합)</span></th>
+            </tr>
+            <tr>
+              <th className={thCls} style={{ fontSize: "8px" }}>(중간)</th>
+              <th className={thCls} style={{ fontSize: "8px" }}>(중간)</th>
+              <th className={thCls} style={{ fontSize: "8px" }}>(제품중<br/>양위)</th>
+              <th className={thCls} style={{ fontSize: "8px" }}>(제품중앙위)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displaySensitivityRows.map((row: any, idx: number) => {
+              const result = row.result;
+              const isPass = result === "적합";
+              const isFail = result === "부적합";
+              return (
+                <tr key={`sens-${idx}`}>
+                  <td className={`${tdCls} text-[10px]`}>{s(row.productName || row.product_name) || ""}</td>
+                  <td className={tdCls}>{fmtTime(row.metalPassTime || row.metal_pass_time)}</td>
+                  <td className={tdCls}>{s(row.metalFeMid || row.metal_fe_mid) || ""}</td>
+                  <td className={tdCls}>{s(row.metalSusMid || row.metal_sus_mid) || ""}</td>
+                  <td className={tdCls}>{s(row.metalProductOnly || row.metal_product_only) || ""}</td>
+                  <td className={tdCls}>{s(row.metalFeProduct || row.metal_fe_product) || ""}</td>
+                  <td className={tdCls}>{s(row.metalSusProduct || row.metal_sus_product) || ""}</td>
+                  <td className={`${tdCls} text-[9px]`}>
+                    {result ? (
+                      <span className={isFail ? "text-red-600 font-bold" : ""}>
+                        {isPass ? "\u2611 적 합" : isFail ? "\u2611 부적합" : result}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">{"\u2610 적 합\n\u2610 부적합"}</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        {/* ═══ 하단 테이블: 통과량 기록 ═══ */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <thead>
+            <tr>
+              <th className={thCls} style={{ width: "18%" }}>제품명</th>
+              <th className={thCls} style={{ width: "14%" }}>최초통과시간</th>
+              <th className={thCls} style={{ width: "14%" }}>통과종료시간</th>
+              <th className={thCls} style={{ width: "12%" }}>통과량(개)</th>
+              <th className={thCls} style={{ width: "12%" }}>검출량(개)</th>
+              <th className={thCls} style={{ width: "30%" }}>특이사항</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayPassageRows.map((row: any, idx: number) => (
+              <tr key={`pass-${idx}`}>
+                <td className={`${tdCls} text-[10px]`}>{s(row.productName || row.product_name) || ""}</td>
+                <td className={tdCls}>{fmtTime(row.passTimeStart || row.pass_time_start)}</td>
+                <td className={tdCls}>{fmtTime(row.passTimeEnd || row.pass_time_end)}</td>
+                <td className={tdCls}>{row.passQty ?? row.pass_qty ?? ""}</td>
+                <td className={tdCls}>{row.detectedQty ?? row.detected_qty ?? ""}</td>
+                <td className={`${tdCls} text-left text-[10px]`}>{s(row.specialNote || row.special_note) || ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* 개선조치 방법 */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center align-top`} rowSpan={1} style={{ width: "10%" }}>개선조치<br/>방 법</td>
+              <td className={`${bCls} px-2 py-0.5 text-[8px] leading-tight`}>
+                <div>&#9675; 금속성 이물 검출 시</div>
+                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류하고 해당(이탈) 제품을 제거한다.</div>
+                <div className="pl-2">- 공정품에 혼입된 금속이물을 찾아내고, 그 출처를 조사하여 원인을 제거한다.</div>
+                <div className="pl-2">- 금속이물 검출 내역 및 개선조치 사항을 모니터링 일지에 기록</div>
+                <div>&#9675; 감도 이상 발생 시</div>
+                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류한다.</div>
+                <div className="pl-2">- 감도를 재조정한 후 정상적으로 작동 시 재가동한다.</div>
+                <div className="pl-2">- 감도이상 발생 전부터 정상운전 확인시점까지 생산된 제품을 다시 검사한다.</div>
+                <div className="pl-2">- 재검사 후 그 내역 또는 개선조치 사항을 모니터링 일지에 기록</div>
+                <div>&#9675; 기계적 고장 시</div>
+                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류한다.</div>
+                <div className="pl-2">- 수리 후 정상적으로 작동 시 재가동한다.</div>
+                <div className="pl-2">- 수리 불가능할 때에는 납품업체에 수리를 의뢰한다.</div>
+                <div className="pl-2">- &#9734; 금속검출기의 고장으로 정상 운전 확인 이후에 생산된 제품과 금속검출기 미통과제품에 대해서는 전량 검사대기품 표시(냉동보관)를 하여 금속검출기 수리 완료 후 전량 재통과한다.</div>
+                <div>&#9675; 공통 : 개선조치 시</div>
+                <div className="pl-2">- 문제발생시 HACCP팀장에게 보고후 조치하며, 개선조치후 모니터링 일지에 기록후 HACCP팀장에게 승인을 받는다.</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        {/* 이탈내용 / 개선조치 */}
+        <table className="w-full border-collapse border border-gray-600">
+          <thead>
+            <tr>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "12%" }}>발생일시</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "25%" }}>이탈내용</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "33%" }}>개선조치 및 결과</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>조치자</th>
+              <th className={`${thCls} bg-gray-50`} style={{ width: "15%" }}>확인자</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(() => {
+              const deviationRows = formRows.filter((r: any) => r.isDeviation || r.is_deviation);
+              if (deviationRows.length > 0) {
+                return deviationRows.map((row: any, idx: number) => (
+                  <tr key={idx}>
+                    <td className={tdCls}>{s(row.measurementTime || row.measurement_time) || ""}</td>
+                    <td className={tdCls}>{s(row.deviationNote || row.deviation_note) || ""}</td>
+                    <td className={tdCls}>{s(row.correctiveAction || row.corrective_action) || ""}</td>
+                    <td className={tdCls}>{s(row.actionBy || row.action_by) || ""}</td>
+                    <td className={tdCls}>{s(row.confirmedBy || row.confirmed_by) || ""}</td>
+                  </tr>
+                ));
+              }
+              return (
+                <tr><td className={tdCls} style={{ height: "24px" }}></td><td className={tdCls}></td><td className={tdCls}></td><td className={tdCls}></td><td className={tdCls}></td></tr>
+              );
+            })()}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // ── 기본 fallback (알 수 없는 CCP 타입)
+  return (
+    <div>
+      <div className="text-center mb-4">
+        <h2 className="text-xl font-bold">{ccpType} CCP 모니터링 기록지</h2>
+      </div>
+      <p className="text-gray-500 text-sm text-center">지원되지 않는 CCP 유형입니다.</p>
+    </div>
+  );
+}
+
+// ============================================================================
+// 폼 타입별 렌더링 디스패처 (daily_log / batch_production 제외 - 별도 처리)
 // ============================================================================
 function renderFormContent(data: any, formType: string) {
   if (!data) return <p className="text-gray-500">데이터 없음</p>;
@@ -1044,19 +1861,50 @@ export default function PrintPreviewPage() {
         const request = (approvedRequests as any[]).find((r: any) => r.id === id);
         if (!request) continue;
         let formData = null;
-        let formType = "";
-        if (request.referenceId) {
+        let formType = request.requestType || "";
+
+        // ── batch_plan (일괄 배치 그룹): referenceId = 첫 배치ID → 그룹 내 모든 배치 CCP 기록지 조회
+        if (request.requestType === "batch_plan" && request.referenceId) {
+          try {
+            const ccpRecords = await trpcUtils.ccpForm.getByBatchGroup.fetch({ batchId: Number(request.referenceId), includeRows: true });
+            formData = { ccpFormRecords: ccpRecords || [], batchId: request.referenceId };
+            formType = "batch_production";
+          } catch (e) { console.error("배치 그룹 CCP 기록지 조회 오류:", e); }
+        }
+        // ── batch_production / batch_approval: CCP 기록지 전용 처리
+        //    referenceId = 배치ID → genericChecklist가 아닌 ccpForm.getByBatch 사용
+        else if (
+          (request.requestType === "batch_production" || request.requestType === "batch_approval") &&
+          request.referenceId
+        ) {
+          try {
+            const ccpRecords = await trpcUtils.ccpForm.getByBatch.fetch({ batchId: Number(request.referenceId), includeRows: true });
+            formData = { ccpFormRecords: ccpRecords || [], batchId: request.referenceId };
+            formType = "batch_production";
+          } catch (e) { console.error("CCP 기록지 조회 오류:", e); }
+        }
+        // ── ccp_form: CCP 기록지 단건 (referenceId = h_ccp_form_records.id)
+        else if (request.requestType === "ccp_form" && request.referenceId) {
+          try {
+            const ccpRecord = await trpcUtils.ccpForm.getById.fetch({ id: Number(request.referenceId) });
+            formData = { ccpFormRecord: ccpRecord, batchId: ccpRecord?.record?.batchId };
+            formType = "ccp_form";
+          } catch (e) { console.error("CCP 기록지 단건 조회 오류:", e); }
+        }
+        // ── 그 외: genericChecklist (일일일지, 위생체크리스트 등)
+        //    단, referenceType이 'batch'가 아닐 때만 조회 (배치ID 오조회 방지)
+        else if (request.referenceId && request.referenceType !== "batch" && request.referenceType !== "batch_group") {
           try {
             const record = await trpcUtils.genericChecklist.getById.fetch({ id: request.referenceId });
             let rawFormData = record?.formData || record?.data || record;
-            // formData가 string인 경우 JSON.parse 처리
             if (typeof rawFormData === "string") {
               try { rawFormData = JSON.parse(rawFormData); } catch (_) {}
             }
             formData = rawFormData;
-            formType = record?.formType || "";
+            formType = record?.formType || request.requestType || "";
           } catch (e) { console.error("폼 데이터 조회 오류:", e); }
         }
+
         docs.push({ ...request, formData, formType });
       }
       setDocuments(docs);
@@ -1097,24 +1945,96 @@ export default function PrintPreviewPage() {
     const authorName = approval.writerName || settingNames?.authorName || doc.formData?.inspector || doc.formData?.author || doc.formData?.writer || doc.requester?.name || "";
     const reviewerName = approval.reviewerName || settingNames?.reviewerName || doc.reviewer?.name || reviewerEmployee?.name || "";
     const approverName = approval.approverName || settingNames?.approverName || doc.approver?.name || approverEmployee?.name || "";
-    const requestedAt = doc.requestedAt;
-    const reviewedAt = doc.reviewedAt || (doc.approvedAt && reviewerName ? doc.approvedAt : undefined);
-    const approvedAt = doc.approvedAt;
+    // Date 객체를 string으로 안전 변환 (Drizzle ORM이 timestamp를 Date 객체로 반환)
+    const toDateStr = (v: any): string | undefined => {
+      if (!v) return undefined;
+      if (v instanceof Date) return v.toISOString();
+      if (typeof v === "string") return v;
+      return String(v);
+    };
+    const requestedAt = toDateStr(doc.requestedAt);
+    const reviewedAt = toDateStr(doc.reviewedAt) || (doc.approvedAt && reviewerName ? toDateStr(doc.approvedAt) : undefined);
+    const approvedAt = toDateStr(doc.approvedAt);
+    // Date 객체 필드 전체 string 변환 (Drizzle ORM 타임스탬프 → Date 객체 방지)
+    const safeDocDates = {
+      requestedAt,
+      reviewedAt,
+      approvedAt,
+      createdAt: toDateStr(doc.createdAt),
+      updatedAt: toDateStr(doc.updatedAt),
+    };
 
     if (doc.formType === "daily_log") {
       const pages = renderDailyLogPages(doc.formData);
       pages.forEach((pageContent, idx) => {
         allPages.push({
-          doc: { ...doc, authorName, reviewerName, approverName, requestedAt, reviewedAt, approvedAt },
+          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
           pageContent,
           pageTitle: DAILY_LOG_PAGE_TITLES[idx] || `일일일지 ${idx + 1}`,
           pageIndex: idx,
           totalPages: pages.length,
         });
       });
+    } else if (doc.formType === "batch_production" || doc.formType === "batch_approval") {
+      // CCP 기록지(배치): 같은 CCP 타입은 연속으로 한 페이지에, 타입별 페이지 분리
+      const ccpRecords: any[] = doc.formData?.ccpFormRecords || [];
+      if (ccpRecords.length === 0) {
+        allPages.push({
+          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+          pageContent: renderCcpBatchSummary(doc),
+          pageTitle: `배치 CCP 기록지 - ${doc.title || ""}`,
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      } else {
+        // 같은 CCP 타입끼리 그룹핑하여 연속 렌더링
+        const byType: Record<string, any[]> = {};
+        ccpRecords.forEach((fr: any) => {
+          const t = fr.ccpType || fr.ccp_type || "UNKNOWN";
+          if (!byType[t]) byType[t] = [];
+          byType[t].push(fr);
+        });
+        const typeKeys = Object.keys(byType);
+        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        typeKeys.forEach((ccpType, typeIdx) => {
+          const records = byType[ccpType];
+          // 같은 타입의 여러 배치 기록을 하나의 페이지에 연속 렌더링
+          const combinedContent = (
+            <div>
+              {records.map((fr: any, idx: number) => (
+                <div key={idx} className={idx > 0 ? "mt-4" : ""}>
+                  {idx > 0 && <hr className="border-gray-400 mb-4" />}
+                  {renderCcpFormRecord(fr, enrichedDoc)}
+                </div>
+              ))}
+            </div>
+          );
+          const firstFr = records[0];
+          allPages.push({
+            doc: enrichedDoc,
+            pageContent: combinedContent,
+            pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
+            pageIndex: typeIdx,
+            totalPages: typeKeys.length,
+          });
+        });
+      }
+    } else if (doc.formType === "ccp_form") {
+      // CCP 기록지 단건
+      const fr = doc.formData?.ccpFormRecord;
+      // getById returns { record, rows } — merge rows into the record object
+      const frData = fr?.record ? { ...fr.record, rows: fr.rows || [] } : fr;
+      const enrichedDocSingle = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+      allPages.push({
+        doc: enrichedDocSingle,
+        pageContent: renderCcpFormRecord(frData, enrichedDocSingle),
+        pageTitle: `CCP 기록지 - ${fr?.record?.ccpType || ""}`,
+        pageIndex: 0,
+        totalPages: 1,
+      });
     } else {
       allPages.push({
-        doc: { ...doc, authorName, reviewerName, approverName, requestedAt, reviewedAt, approvedAt },
+        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
         pageContent: renderFormContent(doc.formData, doc.formType),
         pageTitle: FORM_TYPE_LABELS[doc.formType] || doc.title || doc.requestType || "체크리스트",
         pageIndex: 0,
@@ -1142,34 +2062,63 @@ export default function PrintPreviewPage() {
       </div>
 
       <div className="bg-gray-100 min-h-screen p-4 print:p-0 print:bg-white">
-        {allPages.map((page, index) => (
+        {allPages.map((page, index) => {
+          const isCcpForm = ["batch_production", "batch_approval", "ccp_form"].includes(page.doc.formType || "");
+          return (
           <div key={index} className="print-page">
-            <div className="flex items-start justify-between mb-6">
-              <div className="flex-1">
-                <div className="text-xs text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
-                <h1 className="text-xl font-bold mb-2">{page.pageTitle}</h1>
-                <div className="text-sm text-gray-600 space-y-0.5">
-                  <div><span className="font-medium">문서번호: </span>#{page.doc.id}</div>
-                  <div><span className="font-medium">작성일: </span>{page.doc.requestedAt ? new Date(page.doc.requestedAt).toLocaleDateString("ko-KR") : "-"}</div>
-                  {page.doc.approvedAt && <div><span className="font-medium">승인일: </span>{new Date(page.doc.approvedAt).toLocaleDateString("ko-KR")}</div>}
+            {isCcpForm ? (
+              /* CCP 기록지: 간소화된 헤더 (결재란은 CCP 양식 내부에 포함) */
+              <div className="flex items-start justify-between mb-1">
+                <div className="flex-1">
+                  <div className="text-[9px] text-gray-400">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+                  <div className="text-[10px] text-gray-500 mt-0">
+                    <span>문서번호: #{page.doc.id}</span>
+                    <span className="ml-2">작성일: {page.doc.requestedAt ? (() => { try { return new Date(String(page.doc.requestedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.requestedAt); } })() : "-"}</span>
+                    {page.doc.approvedAt && <span className="ml-2">승인일: {(() => { try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); } })()}</span>}
+                  </div>
+                </div>
+                <div className="flex-shrink-0 ml-2">
+                  <ApprovalHeader
+                    authorName={page.doc.authorName}
+                    reviewerName={page.doc.reviewerName}
+                    approverName={page.doc.approverName}
+                    requestedAt={page.doc.requestedAt}
+                    reviewedAt={page.doc.reviewedAt}
+                    approvedAt={page.doc.approvedAt}
+                    compact={true}
+                  />
                 </div>
               </div>
-              <div className="flex-shrink-0 ml-4">
-                <ApprovalHeader
-                  authorName={page.doc.authorName}
-                  reviewerName={page.doc.reviewerName}
-                  approverName={page.doc.approverName}
-                  requestedAt={page.doc.requestedAt}
-                  reviewedAt={page.doc.reviewedAt}
-                  approvedAt={page.doc.approvedAt}
-                />
+            ) : (
+              /* 일반 문서: 기존 헤더 */
+              <div className="flex items-start justify-between mb-6">
+                <div className="flex-1">
+                  <div className="text-xs text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+                  <h1 className="text-xl font-bold mb-2">{page.pageTitle}</h1>
+                  <div className="text-sm text-gray-600 space-y-0.5">
+                    <div><span className="font-medium">문서번호: </span>#{page.doc.id}</div>
+                    <div><span className="font-medium">작성일: </span>{page.doc.requestedAt ? (() => { try { return new Date(String(page.doc.requestedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.requestedAt); } })() : "-"}</div>
+                    {page.doc.approvedAt && <div><span className="font-medium">승인일: </span>{(() => { try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); } })()}</div>}
+                  </div>
+                </div>
+                <div className="flex-shrink-0 ml-4">
+                  <ApprovalHeader
+                    authorName={page.doc.authorName}
+                    reviewerName={page.doc.reviewerName}
+                    approverName={page.doc.approverName}
+                    requestedAt={page.doc.requestedAt}
+                    reviewedAt={page.doc.reviewedAt}
+                    approvedAt={page.doc.approvedAt}
+                  />
+                </div>
               </div>
-            </div>
-            <hr className="border-gray-300 mb-4" />
-            <div className="mb-6">{page.pageContent}</div>
-            <div className="text-center text-xs text-gray-400 mt-6">{index + 1} / {allPages.length}</div>
+            )}
+            <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-2'}`} />
+            <div className={isCcpForm ? "mb-1" : "mb-4"}>{page.pageContent}</div>
+            <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </>
   );

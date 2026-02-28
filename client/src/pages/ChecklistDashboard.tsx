@@ -25,6 +25,7 @@ import TrainingLogListModal from "@/components/TrainingLogListModal";
 
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useEffect } from "react";
 import {
   Droplet,
@@ -452,9 +453,9 @@ function SortableChecklistCard({ item, category }: { item: any; category: any })
   };
 
   const ItemIcon = item.icon;
-  // 임시 데이터 (실제로는 API에서 가져와야 함)
-  const completedCount = Math.floor(Math.random() * 10);
-  const daysRemaining = Math.floor(Math.random() * 10) - 2;
+  // 임시 데이터 - 0으로 고정 (Math.random()은 React 렌더 오류 #185 유발)
+  const completedCount = 0;
+  const daysRemaining = 0;
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
@@ -533,8 +534,9 @@ function SortableChecklistCard({ item, category }: { item: any; category: any })
 }
 
 export default function ChecklistDashboard() {
-  // 임시로 tenantId 하드코딩 (추후 인증 시스템 연동)
-  const user = { tenantId: 1 };
+  // 인증된 사용자의 tenantId 사용
+  const { user: authUser } = useAuth();
+  const user = { tenantId: authUser?.tenantId || 0 };
   
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [allItems, setAllItems] = useState<any[]>([]);
@@ -984,137 +986,170 @@ export default function ChecklistDashboard() {
         </Tabs>
       </div>
 
-      {/* 일일일지 작성 모달 */}
-      <Dialog open={dailyLogCreateModalOpen} onOpenChange={setDailyLogCreateModalOpen}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>일일일지 작성</DialogTitle>
-            <DialogDescription>
-              오늘 날짜의 5개 일지를 작성합니다.
-            </DialogDescription>
-          </DialogHeader>
-          <DailyLogCreateModal />
-        </DialogContent>
-      </Dialog>
+      {/* 일일일지 작성 모달 - 조건부 렌더링으로 무한 루프 방지 */}
+      {dailyLogCreateModalOpen && (
+        <Dialog open={dailyLogCreateModalOpen} onOpenChange={setDailyLogCreateModalOpen}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>일일일지 작성</DialogTitle>
+              <DialogDescription>
+                오늘 날짜의 5개 일지를 작성합니다.
+              </DialogDescription>
+            </DialogHeader>
+            <DailyLogCreateModal />
+          </DialogContent>
+        </Dialog>
+      )}
 
-      {/* 일일일지 리스트 모달 */}
-      <Dialog open={dailyLogListModalOpen} onOpenChange={setDailyLogListModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>일일일지 목록</DialogTitle>
-            <DialogDescription>
-              과거에 작성된 일일일지를 조회합니다.
-            </DialogDescription>
-          </DialogHeader>
-          <DailyLogListModal onViewDetail={(logId) => {
-            // TODO: 상세 보기 모달 구현
-            console.log("상세 보기:", logId);
-          }} />
-        </DialogContent>
-      </Dialog>
+      {/* 일일일지 리스트 모달 - 조건부 렌더링 */}
+      {dailyLogListModalOpen && (
+        <Dialog open={dailyLogListModalOpen} onOpenChange={setDailyLogListModalOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>일일일지 목록</DialogTitle>
+              <DialogDescription>
+                과거에 작성된 일일일지를 조회합니다.
+              </DialogDescription>
+            </DialogHeader>
+            <DailyLogListModal onViewDetail={(logId) => {
+              console.log("상세 보기:", logId);
+            }} />
+          </DialogContent>
+        </Dialog>
+      )}
 
-      {/* 주간일지 - 일반위생관리 모달 */}
-      <WeeklyHygieneLogModal
-        open={weeklyHygieneModalOpen}
-        onClose={() => setWeeklyHygieneModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {/* 주간일지 - 일반위생관리 모달 (조건부 렌더링) */}
+      {weeklyHygieneModalOpen && (
+        <WeeklyHygieneLogModal
+          open={weeklyHygieneModalOpen}
+          onClose={() => setWeeklyHygieneModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 주간일지 - 방충방서 모달 */}
-      <WeeklyPestLogModal
-        open={weeklyPestModalOpen}
-        onClose={() => setWeeklyPestModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {weeklyPestModalOpen && (
+        <WeeklyPestLogModal
+          open={weeklyPestModalOpen}
+          onClose={() => setWeeklyPestModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 주간일지 - 일반위생관리 목록 모달 */}
-      <WeeklyHygieneLogListModal
-        open={weeklyHygieneListModalOpen}
-        onClose={() => setWeeklyHygieneListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {weeklyHygieneListModalOpen && (
+        <WeeklyHygieneLogListModal
+          open={weeklyHygieneListModalOpen}
+          onClose={() => setWeeklyHygieneListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 주간일지 - 방충방서 목록 모달 */}
-      <WeeklyPestLogListModal
-        open={weeklyPestListModalOpen}
-        onClose={() => setWeeklyPestListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {weeklyPestListModalOpen && (
+        <WeeklyPestLogListModal
+          open={weeklyPestListModalOpen}
+          onClose={() => setWeeklyPestListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 월간일지 - 일반위생관리 모달 */}
-      <MonthlyHygieneLogModal
-        open={monthlyHygieneModalOpen}
-        onClose={() => setMonthlyHygieneModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {monthlyHygieneModalOpen && (
+        <MonthlyHygieneLogModal
+          open={monthlyHygieneModalOpen}
+          onClose={() => setMonthlyHygieneModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 월간일지 - CCP 검증 모달 */}
-      <MonthlyCCPLogModal
-        open={monthlyCCPModalOpen}
-        onClose={() => setMonthlyCCPModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {monthlyCCPModalOpen && (
+        <MonthlyCCPLogModal
+          open={monthlyCCPModalOpen}
+          onClose={() => setMonthlyCCPModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 월간일지 - 일반위생관리 목록 모달 */}
-      <MonthlyHygieneLogListModal
-        open={monthlyHygieneListModalOpen}
-        onClose={() => setMonthlyHygieneListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {monthlyHygieneListModalOpen && (
+        <MonthlyHygieneLogListModal
+          open={monthlyHygieneListModalOpen}
+          onClose={() => setMonthlyHygieneListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 월간일지 - CCP 검증 목록 모달 */}
-      <MonthlyCCPLogListModal
-        open={monthlyCCPListModalOpen}
-        onClose={() => setMonthlyCCPListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {monthlyCCPListModalOpen && (
+        <MonthlyCCPLogListModal
+          open={monthlyCCPListModalOpen}
+          onClose={() => setMonthlyCCPListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 연간일지 작성 모달 */}
-      <YearlyLogModal
-        open={yearlyLogModalOpen}
-        onClose={() => setYearlyLogModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {yearlyLogModalOpen && (
+        <YearlyLogModal
+          open={yearlyLogModalOpen}
+          onClose={() => setYearlyLogModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 연간일지 목록 모달 */}
-      <YearlyLogListModal
-        open={yearlyLogListModalOpen}
-        onClose={() => setYearlyLogListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {yearlyLogListModalOpen && (
+        <YearlyLogListModal
+          open={yearlyLogListModalOpen}
+          onClose={() => setYearlyLogListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 특정기간일지 작성 모달 */}
-      <CustomPeriodLogModal
-        open={customPeriodLogModalOpen}
-        onClose={() => setCustomPeriodLogModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {customPeriodLogModalOpen && (
+        <CustomPeriodLogModal
+          open={customPeriodLogModalOpen}
+          onClose={() => setCustomPeriodLogModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
 
       {/* 특정기간일지 목록 모달 */}
-      <CustomPeriodLogListModal
-        open={customPeriodLogListModalOpen}
-        onClose={() => setCustomPeriodLogListModalOpen(false)}
-        tenantId={user?.tenantId || 0}
-      />
+      {customPeriodLogListModalOpen && (
+        <CustomPeriodLogListModal
+          open={customPeriodLogListModalOpen}
+          onClose={() => setCustomPeriodLogListModalOpen(false)}
+          tenantId={user?.tenantId || 0}
+        />
+      )}
       
       {/* 검색 모달 */}
-      <SearchModal
-        open={searchModalOpen}
-        onClose={() => setSearchModalOpen(false)}
-      />
+      {searchModalOpen && (
+        <SearchModal
+          open={searchModalOpen}
+          onClose={() => setSearchModalOpen(false)}
+        />
+      )}
 
       {/* 교육훈련일지 작성 모달 */}
-      <TrainingLogModal
-        open={trainingLogModalOpen}
-        onClose={() => setTrainingLogModalOpen(false)}
-        onSuccess={() => setTrainingLogListModalOpen(true)}
-      />
+      {trainingLogModalOpen && (
+        <TrainingLogModal
+          open={trainingLogModalOpen}
+          onClose={() => setTrainingLogModalOpen(false)}
+          onSuccess={() => setTrainingLogListModalOpen(true)}
+        />
+      )}
 
       {/* 교육훈련일지 목록 모달 */}
-      <TrainingLogListModal
-        open={trainingLogListModalOpen}
-        onClose={() => setTrainingLogListModalOpen(false)}
-      />
+      {trainingLogListModalOpen && (
+        <TrainingLogListModal
+          open={trainingLogListModalOpen}
+          onClose={() => setTrainingLogListModalOpen(false)}
+        />
+      )}
 
 
     </DashboardLayout>

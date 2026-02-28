@@ -561,9 +561,15 @@ export const ApprovalSeal: React.FC<ApprovalSealProps> = ({
   size = 60,
   className = "",
 }) => {
-  const formattedDate = approvalDate
-    ? new Date(approvalDate).toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" })
-    : new Date().toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
+  const formattedDate = (() => {
+    try {
+      if (approvalDate && typeof approvalDate === 'string' && approvalDate.trim()) {
+        const d = new Date(approvalDate);
+        if (!isNaN(d.getTime())) return d.toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
+      }
+      return new Date().toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
+    } catch { return ''; }
+  })();
 
   return (
     <div className={`inline-flex flex-col items-center gap-1 ${className}`}>
@@ -576,7 +582,7 @@ export const ApprovalSeal: React.FC<ApprovalSealProps> = ({
         size={size}
         color="#D42020"
         opacity={0.85}
-        rotation={Math.random() * 4 - 2} // 약간의 랜덤 회전
+        rotation={0} // 고정 회전 (Math.random은 React 렌더 오류 유발)
       />
       {approverTitle && (
         <span className="text-[10px] text-gray-500">{approverTitle}</span>
