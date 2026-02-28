@@ -465,10 +465,13 @@ export const expenseRouter = router({
         ],
       );
 
-      // 5. 전표 상태 변경 (posted)
+      // 5. 전표 상태 변경 (posted) + 미지급잔액 설정
+      const unpaidBalance = voucher.payment_method === "unpaid" ? totalDebit : 0;
       await conn.execute(
-        `UPDATE expense_vouchers SET status = 'posted', posted_by = ?, posted_at = NOW() WHERE id = ? AND tenant_id = ?`,
-        [ctx.user.id, input.id, tenantId],
+        `UPDATE expense_vouchers SET status = 'posted', posted_by = ?, posted_at = NOW(),
+         unpaid_balance = ?, is_fully_paid = 0
+         WHERE id = ? AND tenant_id = ?`,
+        [ctx.user.id, unpaidBalance, input.id, tenantId],
       );
 
       return { success: true, journalEntryId };
@@ -632,5 +635,373 @@ export const expenseRouter = router({
       );
       const seq = Number((rows as any[])[0]?.cnt || 0) + 1;
       return { voucherNo: `EXP-${dateStr}-${String(seq).padStart(3, "0")}` };
+    }),
+
+  // ═══════════════════════════════════════════
+  // 2차-A: 정기비용 템플릿 CRUD
+  // ═══════════════════════════════════════════
+  recurringList: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = getEffectiveTenantId(ctx);
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute(
+      `SELECT t.*, u.name as created_by_name
+       FROM expense_recurring_templates t
+       LEFT JOIN users u ON t.created_by = u.id
+       WHERE t.tenant_id = ?
+       ORDER BY t.is_active DESC, t.template_name`,
+      [tenantId],
+    );
+    return rows as any[];
+  }),
+
+  recurringCreate: protectedProcedure
+    .input(z.object({
+      templateName: z.string().min(1),
+      partnerId: z.number().optional(),
+      partnerName: z.string().optional(),
+      accountId: z.number(),
+      accountCode: z.string().optional(),
+      accountName: z.string().optional(),
+      supplyAmount: z.number(),
+      vatAmount: z.number(),
+      totalAmount: z.number(),
+      paymentMethod: z.enum(["cash", "bank", "card", "unpaid"]).default("bank"),
+      bankAccountId: z.number().optional(),
+      proofType: z.enum(["tax_invoice", "card", "cash_receipt", "simple", "none"]).default("none"),
+      recurrenceType: z.enum(["monthly", "quarterly", "yearly"]).default("monthly"),
+      recurrenceDay: z.number().min(1).max(28).default(1),
+      memo: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      const [result] = await conn.execute(
+        `INSERT INTO expense_recurring_templates
+           (tenant_id, template_name, partner_id, partner_name,
+            account_id, account_code, account_name,
+            supply_amount, vat_amount, total_amount,
+            payment_method, bank_account_id, proof_type,
+            recurrence_type, recurrence_day, memo, created_by)
+         VALUES (?,?,?,?, ?,?,?, ?,?,?, ?,?,?, ?,?,?,?)`,
+        [
+          tenantId, input.templateName,
+          input.partnerId || null, input.partnerName || null,
+          input.accountId, input.accountCode || null, input.accountName || null,
+          input.supplyAmount, input.vatAmount, input.totalAmount,
+          input.paymentMethod, input.bankAccountId || null, input.proofType,
+          input.recurrenceType, input.recurrenceDay, input.memo || null, ctx.user.id,
+        ],
+      );
+      return { success: true, id: Number((result as any).insertId) };
+    }),
+
+  recurringUpdate: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      templateName: z.string().min(1),
+      partnerId: z.number().optional(),
+      partnerName: z.string().optional(),
+      accountId: z.number(),
+      accountCode: z.string().optional(),
+      accountName: z.string().optional(),
+      supplyAmount: z.number(),
+      vatAmount: z.number(),
+      totalAmount: z.number(),
+      paymentMethod: z.enum(["cash", "bank", "card", "unpaid"]).default("bank"),
+      bankAccountId: z.number().optional(),
+      proofType: z.enum(["tax_invoice", "card", "cash_receipt", "simple", "none"]).default("none"),
+      recurrenceType: z.enum(["monthly", "quarterly", "yearly"]).default("monthly"),
+      recurrenceDay: z.number().min(1).max(28).default(1),
+      memo: z.string().optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      await conn.execute(
+        `UPDATE expense_recurring_templates SET
+           template_name=?, partner_id=?, partner_name=?,
+           account_id=?, account_code=?, account_name=?,
+           supply_amount=?, vat_amount=?, total_amount=?,
+           payment_method=?, bank_account_id=?, proof_type=?,
+           recurrence_type=?, recurrence_day=?, memo=?,
+           is_active=?
+         WHERE id=? AND tenant_id=?`,
+        [
+          input.templateName,
+          input.partnerId || null, input.partnerName || null,
+          input.accountId, input.accountCode || null, input.accountName || null,
+          input.supplyAmount, input.vatAmount, input.totalAmount,
+          input.paymentMethod, input.bankAccountId || null, input.proofType,
+          input.recurrenceType, input.recurrenceDay, input.memo || null,
+          input.isActive !== undefined ? (input.isActive ? 1 : 0) : 1,
+          input.id, tenantId,
+        ],
+      );
+      return { success: true };
+    }),
+
+  recurringDelete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      await conn.execute(
+        `DELETE FROM expense_recurring_templates WHERE id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      return { success: true };
+    }),
+
+  // 정기비용 템플릿에서 전표 수동 생성
+  recurringGenerate: protectedProcedure
+    .input(z.object({
+      templateId: z.number(),
+      expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 템플릿 조회
+      const [tRows] = await conn.execute(
+        `SELECT * FROM expense_recurring_templates WHERE id = ? AND tenant_id = ?`,
+        [input.templateId, tenantId],
+      );
+      const tpl = (tRows as any[])[0];
+      if (!tpl) throw new TRPCError({ code: "NOT_FOUND", message: "템플릿을 찾을 수 없습니다." });
+
+      // 전표번호 생성
+      const dateStr = input.expenseDate.replace(/-/g, "");
+      const [cntRows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM expense_vouchers WHERE tenant_id = ? AND voucher_no LIKE ?`,
+        [tenantId, `EXP-${dateStr}-%`],
+      );
+      const seq = Number((cntRows as any[])[0]?.cnt || 0) + 1;
+      const voucherNo = `EXP-${dateStr}-${String(seq).padStart(3, "0")}`;
+
+      // 전표 생성
+      const unpaidBalance = tpl.payment_method === "unpaid" ? Number(tpl.total_amount) : 0;
+      const [insResult] = await conn.execute(
+        `INSERT INTO expense_vouchers
+           (tenant_id, voucher_no, expense_date, partner_id, partner_name,
+            supply_amount, vat_amount, total_amount,
+            payment_method, bank_account_id, proof_type, status, memo, created_by,
+            unpaid_balance, is_fully_paid)
+         VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?, ?,?)`,
+        [
+          tenantId, voucherNo, input.expenseDate,
+          tpl.partner_id, tpl.partner_name,
+          tpl.supply_amount, tpl.vat_amount, tpl.total_amount,
+          tpl.payment_method, tpl.bank_account_id, tpl.proof_type,
+          "draft", tpl.memo ? `[정기] ${tpl.template_name} - ${tpl.memo}` : `[정기] ${tpl.template_name}`,
+          ctx.user.id, unpaidBalance, 0,
+        ],
+      );
+      const voucherId = Number((insResult as any).insertId);
+
+      // 항목 생성
+      await conn.execute(
+        `INSERT INTO expense_items
+           (tenant_id, voucher_id, account_id, account_code, account_name,
+            supply_amount, vat_amount, total_amount, description, sort_order)
+         VALUES (?,?,?,?,?, ?,?,?,?,?)`,
+        [
+          tenantId, voucherId, tpl.account_id, tpl.account_code, tpl.account_name,
+          tpl.supply_amount, tpl.vat_amount, tpl.total_amount,
+          tpl.template_name, 0,
+        ],
+      );
+
+      // 마지막 생성일 업데이트
+      await conn.execute(
+        `UPDATE expense_recurring_templates SET last_generated_date = ? WHERE id = ? AND tenant_id = ?`,
+        [input.expenseDate, input.templateId, tenantId],
+      );
+
+      return { success: true, id: voucherId, voucherNo };
+    }),
+
+  // ═══════════════════════════════════════════
+  // 2차-B: 미지급금 잔액 관리 + 지급처리
+  // ═══════════════════════════════════════════
+  unpaidList: protectedProcedure
+    .input(z.object({
+      onlyUnpaid: z.boolean().default(true),
+      page: z.number().default(1),
+      limit: z.number().default(30),
+    }).optional())
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      const p = input || { onlyUnpaid: true, page: 1, limit: 30 };
+
+      let where = "v.tenant_id = ? AND v.payment_method = 'unpaid' AND v.status = 'posted'";
+      const params: any[] = [tenantId];
+      if (p.onlyUnpaid) {
+        where += " AND v.is_fully_paid = 0";
+      }
+
+      const [cntRows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM expense_vouchers v WHERE ${where}`, params,
+      );
+      const total = Number((cntRows as any[])[0]?.cnt || 0);
+
+      const offset = ((p.page || 1) - 1) * (p.limit || 30);
+      const [rows] = await conn.execute(
+        `SELECT v.*, u.name as created_by_name
+         FROM expense_vouchers v
+         LEFT JOIN users u ON v.created_by = u.id
+         WHERE ${where}
+         ORDER BY v.expense_date DESC
+         LIMIT ? OFFSET ?`,
+        [...params, p.limit || 30, offset],
+      );
+
+      return { items: rows as any[], total };
+    }),
+
+  unpaidPaymentHistory: protectedProcedure
+    .input(z.object({ voucherId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      const [rows] = await conn.execute(
+        `SELECT p.*, u.name as paid_by_name
+         FROM expense_unpaid_payments p
+         LEFT JOIN users u ON p.paid_by = u.id
+         WHERE p.voucher_id = ? AND p.tenant_id = ?
+         ORDER BY p.payment_date DESC`,
+        [input.voucherId, tenantId],
+      );
+      return rows as any[];
+    }),
+
+  unpaidPay: protectedProcedure
+    .input(z.object({
+      voucherId: z.number(),
+      paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      paymentAmount: z.number().min(1),
+      paymentMethod: z.enum(["cash", "bank", "card"]).default("bank"),
+      bankAccountId: z.number().optional(),
+      memo: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 전표 조회
+      const [vRows] = await conn.execute(
+        `SELECT * FROM expense_vouchers WHERE id = ? AND tenant_id = ?`,
+        [input.voucherId, tenantId],
+      );
+      const voucher = (vRows as any[])[0];
+      if (!voucher) throw new TRPCError({ code: "NOT_FOUND", message: "전표를 찾을 수 없습니다." });
+      if (voucher.payment_method !== "unpaid") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "미지급 전표만 지급처리 할 수 있습니다." });
+      }
+      if (voucher.is_fully_paid) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "이미 완납된 전표입니다." });
+      }
+
+      const currentBalance = Number(voucher.unpaid_balance) || Number(voucher.total_amount);
+      if (input.paymentAmount > currentBalance + 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `지급 금액(${input.paymentAmount})이 잔액(${currentBalance})을 초과합니다.` });
+      }
+
+      // 지급 기록 생성
+      await conn.execute(
+        `INSERT INTO expense_unpaid_payments
+           (tenant_id, voucher_id, payment_date, payment_amount, payment_method, bank_account_id, memo, paid_by)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [tenantId, input.voucherId, input.paymentDate, input.paymentAmount,
+         input.paymentMethod, input.bankAccountId || null, input.memo || null, ctx.user.id],
+      );
+
+      // 잔액 업데이트
+      const newBalance = Math.max(0, currentBalance - input.paymentAmount);
+      const isFullyPaid = newBalance < 1 ? 1 : 0;
+      await conn.execute(
+        `UPDATE expense_vouchers SET unpaid_balance = ?, is_fully_paid = ? WHERE id = ? AND tenant_id = ?`,
+        [newBalance, isFullyPaid, input.voucherId, tenantId],
+      );
+
+      return { success: true, newBalance, isFullyPaid: isFullyPaid === 1 };
+    }),
+
+  // ═══════════════════════════════════════════
+  // 2차-C: 부가세(매입세액) 기간별 집계
+  // ═══════════════════════════════════════════
+  vatSummary: protectedProcedure
+    .input(z.object({
+      startDate: z.string(),
+      endDate: z.string(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 전체 부가세 집계
+      const [totalRows] = await conn.execute(
+        `SELECT
+           COUNT(*) as voucher_count,
+           SUM(supply_amount) as total_supply,
+           SUM(vat_amount) as total_vat,
+           SUM(total_amount) as total_amount
+         FROM expense_vouchers
+         WHERE tenant_id = ? AND expense_date >= ? AND expense_date <= ?
+           AND status = 'posted'`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      // 증빙유형별 부가세 집계
+      const [byProofRows] = await conn.execute(
+        `SELECT
+           proof_type,
+           COUNT(*) as cnt,
+           SUM(supply_amount) as supply_sum,
+           SUM(vat_amount) as vat_sum,
+           SUM(total_amount) as total_sum
+         FROM expense_vouchers
+         WHERE tenant_id = ? AND expense_date >= ? AND expense_date <= ?
+           AND status = 'posted'
+         GROUP BY proof_type
+         ORDER BY vat_sum DESC`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      // 월별 부가세 추이
+      const [monthlyRows] = await conn.execute(
+        `SELECT
+           DATE_FORMAT(expense_date, '%Y-%m') as month,
+           SUM(supply_amount) as supply_sum,
+           SUM(vat_amount) as vat_sum,
+           SUM(total_amount) as total_sum,
+           COUNT(*) as cnt
+         FROM expense_vouchers
+         WHERE tenant_id = ? AND expense_date >= ? AND expense_date <= ?
+           AND status = 'posted'
+         GROUP BY DATE_FORMAT(expense_date, '%Y-%m')
+         ORDER BY month`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      // 세금계산서/카드 증빙 = 매입세액 공제 가능
+      const [deductibleRows] = await conn.execute(
+        `SELECT
+           SUM(vat_amount) as deductible_vat
+         FROM expense_vouchers
+         WHERE tenant_id = ? AND expense_date >= ? AND expense_date <= ?
+           AND status = 'posted'
+           AND proof_type IN ('tax_invoice', 'card')`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      return {
+        total: (totalRows as any[])[0],
+        byProofType: byProofRows as any[],
+        monthly: monthlyRows as any[],
+        deductibleVat: Number((deductibleRows as any[])[0]?.deductible_vat || 0),
+      };
     }),
 });
