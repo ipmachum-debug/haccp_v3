@@ -50,6 +50,8 @@ export async function executeDailyClose(data: {
     totalTransactions: stats.totalTransactions,
     totalDeposits: stats.totalDeposits,
     totalWithdrawals: stats.totalWithdrawals,
+    totalExpenses: (stats as any).totalExpenses || 0,
+    totalPurchases: (stats as any).totalPurchases || 0,
     netCashFlow: stats.netCashFlow,
   };
 }
@@ -89,9 +91,33 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
     .from(schema.accountingSales)
     .where(and(...salesConditions));
 
-  const totalTransactions = (purchaseStats?.count || 0) + (salesStats?.count || 0);
+  // 비용(경비) 거래 통계 - posted(확정) 상태만 집계
+  let expenseCount = 0;
+  let expenseAmount = 0;
+  try {
+    const { expenseVouchers } = await import("../../drizzle/schema");
+    const expenseConditions: any[] = [
+      eq(expenseVouchers.expenseDate, dateStr),
+      eq(expenseVouchers.status, "posted"),
+    ];
+    if (tenantId) expenseConditions.push(eq(expenseVouchers.tenantId, tenantId));
+    
+    const [expenseStats] = await db
+      .select({
+        count: sql<number>`count(*)`,
+        totalAmount: sql<number>`COALESCE(SUM(total_amount), 0)`
+      })
+      .from(expenseVouchers)
+      .where(and(...expenseConditions));
+    expenseCount = expenseStats?.count || 0;
+    expenseAmount = expenseStats?.totalAmount || 0;
+  } catch (e) {
+    console.log("[마감] 비용 테이블 조회 스킵:", e);
+  }
+
+  const totalTransactions = (purchaseStats?.count || 0) + (salesStats?.count || 0) + expenseCount;
   const totalDeposits = salesStats?.totalAmount || 0;
-  const totalWithdrawals = purchaseStats?.totalAmount || 0;
+  const totalWithdrawals = (purchaseStats?.totalAmount || 0) + expenseAmount;
   const netCashFlow = totalDeposits - totalWithdrawals;
 
   return {
@@ -101,6 +127,8 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
     totalExceptions: 0,
     totalDeposits,
     totalWithdrawals,
+    totalExpenses: expenseAmount,
+    totalPurchases: purchaseStats?.totalAmount || 0,
     netCashFlow
   };
 }

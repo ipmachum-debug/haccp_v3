@@ -1,0 +1,1 @@
+ALTER TABLE `bank_transaction_matching_rules` DROP FOREIGN KEY `bank_transaction_matching_rules_accounting_account_id_accounting_accounts_id_fk`;

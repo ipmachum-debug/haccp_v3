@@ -30,3 +30,4 @@ export * from "../schema_accounting_items";
 export * from "./accountingMonthlyReport";
 export * from "./schema_categories";
 export * from "./accountingAccounts";
+export * from "./expense";
