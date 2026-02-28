@@ -885,6 +885,7 @@ export function CcpMonitoringForms({
   batchId, batchNumber, productId, productName, plannedQtyKg, workDate, onFormSaved,
 }: Props) {
   const { toast } = useToast();
+  const utils = trpc.useUtils();
   const today = workDate ?? new Date().toISOString().split("T")[0];
 
   // CCP 기록지 목록 조회
@@ -911,14 +912,19 @@ export function CcpMonitoringForms({
     onSuccess: () => {
       toast({ title: "CCP 기록지 생성", description: "기록지가 준비되었습니다." });
       refetchForms();
+      utils.ccpForm.getById.invalidate();
     },
     onError: err => toast({ title: "기록지 생성 실패", description: err.message, variant: "destructive" }),
   });
 
   const resyncRowsMutation = trpc.ccpForm.resyncRows.useMutation({
     onSuccess: (data) => {
-      toast({ title: "배치행 재생성 완료", description: `${data.synced}건의 CCP 행이 재동기화되었습니다.` });
+      if (data.synced > 0) {
+        toast({ title: "배치행 재생성 완료", description: `${data.synced}건의 CCP 행이 재동기화되었습니다.` });
+      }
+      // getByBatch + 각 기록지의 getById 캐시 모두 무효화
       refetchForms();
+      utils.ccpForm.getById.invalidate();
     },
     onError: err => toast({ title: "재동기화 실패", description: err.message, variant: "destructive" }),
   });
@@ -947,6 +953,25 @@ export function CcpMonitoringForms({
   }, [ccpInstances, batchId, today, productId, productName, plannedQtyKg]);
 
   const handleRefresh = () => { refetchForms(); onFormSaved?.(); };
+
+  // ★ 자동 재동기화: 페이지 로드 시 CCP-1B/2B 누락 행 자동 추가
+  //    syncCcpRowsToFormRows는 기존 행을 보호하고 누락분만 추가하므로 안전
+  //    getByBatch 결과에 rowCount가 없으므로, batchCount > 1인 기록이 하나라도 있으면 실행
+  const [autoSynced, setAutoSynced] = useState(false);
+  useEffect(() => {
+    if (autoSynced || !formRecords || !Array.isArray(formRecords) || (formRecords as any[]).length === 0) return;
+    if (resyncRowsMutation.isPending) return;
+    
+    // batchCount > 1인 CCP-1B/2B 기록이 있으면 자동 재동기화 (누락 행만 추가, 기존 데이터 보호)
+    const hasBatchRecords = (formRecords as any[]).some((fr: any) => 
+      fr.ccpType !== "CCP-4P" && fr.batchCount && Number(fr.batchCount) > 1
+    );
+    
+    if (hasBatchRecords) {
+      setAutoSynced(true);
+      resyncRowsMutation.mutate({ batchId });
+    }
+  }, [formRecords, autoSynced, batchId]);
 
   if (formsLoading) {
     return (

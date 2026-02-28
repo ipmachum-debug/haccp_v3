@@ -766,8 +766,8 @@ export async function syncCcpRowsToFormRows(params: {
       // ★ 일괄배치 시간 겹침 방지: batchId 대신 날짜+설비ID 기반 시드 사용
       // → 같은 날짜의 모든 배치가 동일한 오프셋을 사용하여 시간대가 순차적으로 배분됨
       const dateStr = fr.work_date ? String(fr.work_date).slice(0, 10) : "";
-      const dateSeed = computeSeed(0, dateStr, equipId);
-      const metalRandomOffset = computeRandomOffset(dateSeed, 0, 10);
+      const metalSeed = computeSeed(0, dateStr, equipId);
+      const metalRandomOffset = computeRandomOffset(metalSeed, 0, 10);
 
       const WORK_START = addMinToTime2(equipWorkStart, metalRandomOffset);
       const workStartMin = timeToMin(WORK_START);
