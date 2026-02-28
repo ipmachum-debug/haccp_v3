@@ -1,0 +1,41 @@
+-- Step 1: Insert missing materials
+INSERT INTO h_materials (material_name, material_code, kind, unit, unit_price, safety_stock_level, tenant_id) VALUES ('삶은팥', 'MAT-088', 'RAW', 'kg', 0.00, 0.000, 2);
+INSERT INTO h_materials (material_name, material_code, kind, unit, unit_price, safety_stock_level, tenant_id) VALUES ('차조', 'MAT-089', 'RAW', 'kg', 0.00, 0.000, 2);
+INSERT INTO h_materials (material_name, material_code, kind, unit, unit_price, safety_stock_level, tenant_id) VALUES ('초코시럽', 'MAT-090', 'RAW', 'kg', 0.00, 0.000, 2);
+INSERT INTO h_materials (material_name, material_code, kind, unit, unit_price, safety_stock_level, tenant_id) VALUES ('흑멥쌀', 'MAT-091', 'RAW', 'kg', 0.00, 0.000, 2);
+
+-- Step 2: Update unit prices
+UPDATE h_materials SET unit_price = 8000.00 WHERE id = 585;
+UPDATE h_materials SET unit_price = 12000.00 WHERE id = 665;
+UPDATE h_materials SET unit_price = 5500.00 WHERE id = 587;
+UPDATE h_materials SET unit_price = 8291.30 WHERE id = 593;
+UPDATE h_materials SET unit_price = 12900.00 WHERE id = 594;
+UPDATE h_materials SET unit_price = 7800.00 WHERE id = 596;
+UPDATE h_materials SET unit_price = 32453.33 WHERE id = 598;
+UPDATE h_materials SET unit_price = 23900.00 WHERE id = 599;
+UPDATE h_materials SET unit_price = 3215.00 WHERE id = 607;
+UPDATE h_materials SET unit_price = 6651.54 WHERE id = 609;
+UPDATE h_materials SET unit_price = 12870.00 WHERE id = 611;
+UPDATE h_materials SET unit_price = 5500.00 WHERE id = 612;
+UPDATE h_materials SET unit_price = 24500.00 WHERE id = 614;
+UPDATE h_materials SET unit_price = 1613.28 WHERE id = 617;
+UPDATE h_materials SET unit_price = 4900.00 WHERE id = 620;
+UPDATE h_materials SET unit_price = 7714.29 WHERE id = 622;
+UPDATE h_materials SET unit_price = 1168.99 WHERE id = 624;
+UPDATE h_materials SET unit_price = 14135.00 WHERE id = 629;
+UPDATE h_materials SET unit_price = 19980.00 WHERE id = 632;
+UPDATE h_materials SET unit_price = 1212.88 WHERE id = 633;
+UPDATE h_materials SET unit_price = 11500.00 WHERE id = 636;
+UPDATE h_materials SET unit_price = 20800.00 WHERE id = 639;
+UPDATE h_materials SET unit_price = 3123.24 WHERE id = 640;
+UPDATE h_materials SET unit_price = 2780.56 WHERE id = 641;
+UPDATE h_materials SET unit_price = 899.09 WHERE id = 643;
+UPDATE h_materials SET unit_price = 2900.00 WHERE id = 664;
+UPDATE h_materials SET unit_price = 3380.54 WHERE id = 645;
+UPDATE h_materials SET unit_price = 620.00 WHERE id = 646;
+UPDATE h_materials SET unit_price = 17350.00 WHERE id = 647;
+UPDATE h_materials SET unit_price = 3000.00 WHERE id = 650;
+UPDATE h_materials SET unit_price = 12490.82 WHERE id = 653;
+UPDATE h_materials SET unit_price = 6000.00 WHERE id = 655;
+UPDATE h_materials SET unit_price = 5430.55 WHERE id = 656;
+UPDATE h_materials SET unit_price = 9557.14 WHERE id = 658;

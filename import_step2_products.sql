@@ -1,0 +1,44 @@
+-- Deactivate old test products
+UPDATE h_products SET is_active = 0 WHERE tenant_id = 2 AND product_name LIKE '테스트%';
+
+-- Insert 40 actual products
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-001', '3종호두찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-002', '곤드레약식', '약식', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-003', '꿀설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-004', '다이스인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-005', '단호박설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-006', '단호박약식', '약식', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-007', '대추고약식', '약식', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-008', '딸기설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-009', '롤크림떡(고구마)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-010', '롤크림떡(딸기)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-011', '롤크림떡(말차)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-012', '롤크림떡(초코)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-013', '롤크림떡(치즈)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-014', '롤크림떡(흑임자)', '롤크림떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-015', '마카다미아 왕찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-016', '마카다미아단호박왕찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-017', '마카다미아복분자왕찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-018', '마카다미아쑥왕찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-019', '모듬설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-020', '모시개떡', '개떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-021', '습식 멥쌀가루', '기타', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-022', '쑥 꿀설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-023', '쑥개떡', '개떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-024', '쑥판인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-025', '오색송편', '송편', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-026', '왕찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-027', '우유설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-028', '자색고구마설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-029', '찹쌀떡', '찹쌀떡', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-030', '초코설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-031', '카스테라설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-032', '카스테라쑥앙금인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-033', '카스테라앙금인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-034', '콩고물쑥떡', '기타', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-035', '콩고물쑥떡(동부)', '기타', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-036', '판인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-037', '한입빙수 인절미', '인절미', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-038', '호박 꿀설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-039', '흑임자설기', '설기', 'kg', 1, 2);
+INSERT INTO h_products (product_code, product_name, category, unit, is_active, tenant_id) VALUES ('PROD-040', '흑임자약식', '약식', 'kg', 1, 2);

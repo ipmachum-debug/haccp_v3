@@ -12,6 +12,17 @@ import {
   type InsertCcpEquipBatchSetting,
 } from "../../drizzle/schema_main";
 import { eq, and, desc } from "drizzle-orm";
+import {
+  timeToMin as metalTimeToMin,
+  minToTime as metalMinToTime,
+  addMinutesToTime as metalAddMinToTime,
+  calcAvailableMinutes as metalCalcAvailableMinutes,
+  skipLunch as metalSkipLunch,
+  advanceCursor as metalAdvanceCursor,
+  seededRandom as metalSeededRandom,
+  computeSeed as metalComputeSeed,
+  computeRandomOffset as metalComputeRandomOffset,
+} from "../services/metalPassAllocator";
 
 // ─────────────────────────────────────────────────────────
 // CCP Form Record (기록지 헤더)
@@ -60,9 +71,40 @@ export async function getOrCreateCcpFormRecord(params: {
     .limit(1);
 
   if (existing.length > 0) {
-    // 행도 함께 반환
-    const rows = await getCcpFormRows(existing[0].id, params.tenantId);
-    return { record: existing[0], rows };
+    // ── bomBatchKg가 전달됐는데 기존 레코드에 없으면 업데이트 (batchOrchestrator에서 나중에 호출)
+    const rec = existing[0];
+    const newBatchCount = (params.bomBatchKg && params.plannedQtyKg && params.bomBatchKg > 0)
+      ? Math.ceil(params.plannedQtyKg / params.bomBatchKg) : null;
+    const needsUpdate =
+      (params.bomBatchKg && (!rec.bomBatchKg || Number(rec.bomBatchKg) === 0)) ||
+      (newBatchCount && newBatchCount > 1 && Number(rec.batchCount) !== newBatchCount);
+    if (needsUpdate) {
+      const conn = await getRawConnection();
+      const updateFields: string[] = [];
+      const updateVals: any[] = [];
+      if (params.bomBatchKg) {
+        updateFields.push('bom_batch_kg = ?');
+        updateVals.push(params.bomBatchKg);
+      }
+      if (newBatchCount && newBatchCount > 1) {
+        updateFields.push('batch_count = ?');
+        updateVals.push(newBatchCount);
+      }
+      if (params.plannedQtyKg) {
+        updateFields.push('planned_qty_kg = ?');
+        updateVals.push(params.plannedQtyKg);
+      }
+      if (updateFields.length > 0) {
+        updateVals.push(rec.id, params.tenantId);
+        await conn.execute(
+          `UPDATE h_ccp_form_records SET ${updateFields.join(', ')} WHERE id = ? AND tenant_id = ?`,
+          updateVals
+        );
+        console.log(`[getOrCreateCcpFormRecord] Updated existing record #${rec.id}: bomBatchKg=${params.bomBatchKg}, batchCount=${newBatchCount}, plannedQtyKg=${params.plannedQtyKg}`);
+      }
+    }
+    const rows = await getCcpFormRows(rec.id, params.tenantId);
+    return { record: { ...rec, batchCount: newBatchCount ?? rec.batchCount }, rows };
   }
 
   // 배치 수 계산
@@ -730,12 +772,16 @@ export async function syncCcpRowsToFormRows(params: {
       //    h_ccp_metal_sensitivity_checks)에도 동시 기록
       // ═══════════════════════════════════════════════════════════
 
-      // Import helpers from metalPassAllocator v2
-      const {
-        timeToMin, minToTime, addMinutesToTime: addMinToTime2,
-        calcAvailableMinutes, skipLunch: skipLunchFn, advanceCursor,
-        seededRandom: seededRandom2, computeSeed, computeRandomOffset,
-      } = await import("../services/metalPassAllocator");
+      // Import helpers from metalPassAllocator v2 (static import)
+      const timeToMin = metalTimeToMin;
+      const minToTime = metalMinToTime;
+      const addMinToTime2 = metalAddMinToTime;
+      const calcAvailableMinutes = metalCalcAvailableMinutes;
+      const skipLunchFn = metalSkipLunch;
+      const advanceCursor = metalAdvanceCursor;
+      const seededRandom2 = metalSeededRandom;
+      const computeSeed = metalComputeSeed;
+      const computeRandomOffset = metalComputeRandomOffset;
 
       // ── 1. 설비기준 작업시간 로드 ──
       let equipWorkStart = "09:00", equipWorkEnd = "16:30";

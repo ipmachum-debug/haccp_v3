@@ -10092,24 +10092,6 @@ ai: aiRouter,
         }
       })
   }),
-  tenant: router({
-    // 모든 테넌트 목록 조회
-    list: adminProcedure.query(async () => {
-      const { getAllTenants } = await import("./db");
-      return await getAllTenants();
-    }),
-    
-    // 테넌트 상세 정보 조회
-    getDetail: adminProcedure
-      .input(z.object({
-        tenantId: z.number()
-      }))
-      .query(async ({ input, ctx }) => {
-        const { getTenantDetail } = await import("./db");
-        return await getTenantDetail(input.tenantId);
-      })
-  }),
-
   // ============================================================================
   // 문서 승인 라우터 (단절 5 보강 - 일괄 승인 포함)
   // ============================================================================
