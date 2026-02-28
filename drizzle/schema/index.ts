@@ -38,3 +38,4 @@ export * from "./schema_dual_unit";
 export * from "./communicationLog";
 export * from "./communicationLogExtensions";
 export * from "./ccpMonitoring";
+export * from "./expense";

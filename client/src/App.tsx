@@ -410,6 +410,7 @@ function Router() {
       <Route path="/accounting/documents" component={lazy(() => import("@/pages/accounting/AccountingDocuments"))} />
       <Route path="/accounting/documents/:id" component={lazy(() => import("@/pages/accounting/AccountingDocumentDetail"))} />
       <Route path="/dashboard/accounting/communication-log" component={lazy(() => import("@/pages/accounting/CommunicationLog"))} />
+      <Route path="/dashboard/accounting/expense" component={lazy(() => import("@/pages/ExpenseManagement"))} />
       <Route path="/dashboard/inspection/material" component={MaterialInspection} />
       <Route path="/dashboard/inspection/hygiene" component={HygieneInspection} />
       <Route path="/dashboard/inspection/shipping" component={ShippingInspection} />

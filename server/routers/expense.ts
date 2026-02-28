@@ -1,0 +1,636 @@
+import { router, protectedProcedure, workerProcedure } from "../_core/trpc";
+import { z } from "zod";
+import { getDb, getRawConnection } from "../db";
+import {
+  expenseVouchers,
+  expenseItems,
+  expenseJournalEntries,
+  expenseJournalLines,
+  expenseAttachments,
+  accountingAccounts,
+} from "../../drizzle/schema";
+import { eq, and, desc, asc, sql, like, or, gte, lte, inArray } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+
+function getEffectiveTenantId(ctx: any): number {
+  const tenantId = ctx.tenantId;
+  if (!tenantId) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "테넌트 정보가 필요합니다." });
+  }
+  return tenantId;
+}
+
+export const expenseRouter = router({
+
+  // ═══════════════════════════════════
+  // 비용전표 목록 조회 (필터/검색)
+  // ═══════════════════════════════════
+  list: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        accountId: z.number().optional(),
+        partnerId: z.number().optional(),
+        paymentMethod: z.enum(["cash", "bank", "card", "unpaid"]).optional(),
+        proofType: z.enum(["tax_invoice", "card", "cash_receipt", "simple", "none"]).optional(),
+        status: z.enum(["draft", "posted", "canceled"]).optional(),
+        search: z.string().optional(),
+        page: z.number().default(1),
+        limit: z.number().default(30),
+      }).optional()
+    )
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const db = await getDb();
+      const p = input || {};
+      const page = p.page || 1;
+      const limit = p.limit || 30;
+
+      // Raw SQL for flexible filters + joins
+      const conn = await getRawConnection();
+
+      let where = "v.tenant_id = ?";
+      const params: any[] = [tenantId];
+
+      if (p.startDate) { where += " AND v.expense_date >= ?"; params.push(p.startDate); }
+      if (p.endDate) { where += " AND v.expense_date <= ?"; params.push(p.endDate); }
+      if (p.paymentMethod) { where += " AND v.payment_method = ?"; params.push(p.paymentMethod); }
+      if (p.proofType) { where += " AND v.proof_type = ?"; params.push(p.proofType); }
+      if (p.status) { where += " AND v.status = ?"; params.push(p.status); }
+      if (p.search) {
+        where += " AND (v.voucher_no LIKE ? OR v.partner_name LIKE ? OR v.memo LIKE ?)";
+        const s = `%${p.search}%`;
+        params.push(s, s, s);
+      }
+      if (p.accountId) {
+        where += " AND v.id IN (SELECT voucher_id FROM expense_items WHERE account_id = ? AND tenant_id = ?)";
+        params.push(p.accountId, tenantId);
+      }
+
+      // Count
+      const [cntRows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM expense_vouchers v WHERE ${where}`,
+        params,
+      );
+      const total = Number((cntRows as any[])[0]?.cnt || 0);
+
+      // Data
+      const offset = (page - 1) * limit;
+      const [rows] = await conn.execute(
+        `SELECT v.*, u.name as created_by_name
+         FROM expense_vouchers v
+         LEFT JOIN users u ON v.created_by = u.id
+         WHERE ${where}
+         ORDER BY v.expense_date DESC, v.id DESC
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset],
+      );
+
+      return { items: rows as any[], total, page, limit };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 상세 조회
+  // ═══════════════════════════════════
+  getById: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      const [vRows] = await conn.execute(
+        `SELECT v.*, u.name as created_by_name, u2.name as posted_by_name
+         FROM expense_vouchers v
+         LEFT JOIN users u ON v.created_by = u.id
+         LEFT JOIN users u2 ON v.posted_by = u2.id
+         WHERE v.id = ? AND v.tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      const voucher = (vRows as any[])[0];
+      if (!voucher) return null;
+
+      // Items
+      const [items] = await conn.execute(
+        `SELECT * FROM expense_items WHERE voucher_id = ? AND tenant_id = ? ORDER BY sort_order`,
+        [input.id, tenantId],
+      );
+
+      // Attachments
+      const [attachments] = await conn.execute(
+        `SELECT * FROM expense_attachments WHERE voucher_id = ? AND tenant_id = ? ORDER BY id`,
+        [input.id, tenantId],
+      );
+
+      // Journal entries
+      const [journalEntries] = await conn.execute(
+        `SELECT * FROM expense_journal_entries WHERE voucher_id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      let journalLines: any[] = [];
+      if ((journalEntries as any[]).length > 0) {
+        const entryId = (journalEntries as any[])[0].id;
+        const [lines] = await conn.execute(
+          `SELECT * FROM expense_journal_lines WHERE journal_entry_id = ? AND tenant_id = ? ORDER BY sort_order`,
+          [entryId, tenantId],
+        );
+        journalLines = lines as any[];
+      }
+
+      return {
+        ...voucher,
+        items: items as any[],
+        attachments: attachments as any[],
+        journalEntries: journalEntries as any[],
+        journalLines,
+      };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 생성
+  // ═══════════════════════════════════
+  create: protectedProcedure
+    .input(
+      z.object({
+        expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        partnerId: z.number().optional(),
+        partnerName: z.string().optional(),
+        supplyAmount: z.number(),
+        vatAmount: z.number(),
+        totalAmount: z.number(),
+        paymentMethod: z.enum(["cash", "bank", "card", "unpaid"]).default("cash"),
+        bankAccountId: z.number().optional(),
+        proofType: z.enum(["tax_invoice", "card", "cash_receipt", "simple", "none"]).default("none"),
+        memo: z.string().optional(),
+        items: z.array(
+          z.object({
+            accountId: z.number(),
+            accountCode: z.string().optional(),
+            accountName: z.string().optional(),
+            supplyAmount: z.number(),
+            vatAmount: z.number(),
+            totalAmount: z.number(),
+            description: z.string().optional(),
+          })
+        ).min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 1. 전표번호 자동 생성 (EXP-YYYYMMDD-NNN)
+      const dateStr = input.expenseDate.replace(/-/g, "");
+      const [cntRows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM expense_vouchers WHERE tenant_id = ? AND voucher_no LIKE ?`,
+        [tenantId, `EXP-${dateStr}-%`],
+      );
+      const seq = Number((cntRows as any[])[0]?.cnt || 0) + 1;
+      const voucherNo = `EXP-${dateStr}-${String(seq).padStart(3, "0")}`;
+
+      // 서버 검증: 합계 정합성
+      const itemsTotal = input.items.reduce((s, i) => s + i.totalAmount, 0);
+      if (Math.abs(itemsTotal - input.totalAmount) > 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `항목 합계(${itemsTotal})와 전표 합계(${input.totalAmount})가 일치하지 않습니다.`,
+        });
+      }
+
+      // 2. 전표 생성
+      const [insResult] = await conn.execute(
+        `INSERT INTO expense_vouchers
+           (tenant_id, voucher_no, expense_date, partner_id, partner_name,
+            supply_amount, vat_amount, total_amount,
+            payment_method, bank_account_id, proof_type, status, memo, created_by)
+         VALUES (?,?,?,?,?, ?,?,?, ?,?,?,?,?,?)`,
+        [
+          tenantId, voucherNo, input.expenseDate,
+          input.partnerId || null, input.partnerName || null,
+          input.supplyAmount, input.vatAmount, input.totalAmount,
+          input.paymentMethod, input.bankAccountId || null,
+          input.proofType, "draft", input.memo || null, ctx.user.id,
+        ],
+      );
+      const voucherId = Number((insResult as any).insertId);
+
+      // 3. 항목 생성
+      for (let i = 0; i < input.items.length; i++) {
+        const item = input.items[i];
+        await conn.execute(
+          `INSERT INTO expense_items
+             (tenant_id, voucher_id, account_id, account_code, account_name,
+              supply_amount, vat_amount, total_amount, description, sort_order)
+           VALUES (?,?,?,?,?, ?,?,?,?,?)`,
+          [
+            tenantId, voucherId, item.accountId,
+            item.accountCode || null, item.accountName || null,
+            item.supplyAmount, item.vatAmount, item.totalAmount,
+            item.description || null, i,
+          ],
+        );
+      }
+
+      return { success: true, id: voucherId, voucherNo };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 수정 (draft만 수정 가능)
+  // ═══════════════════════════════════
+  update: protectedProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        partnerId: z.number().optional(),
+        partnerName: z.string().optional(),
+        supplyAmount: z.number(),
+        vatAmount: z.number(),
+        totalAmount: z.number(),
+        paymentMethod: z.enum(["cash", "bank", "card", "unpaid"]).default("cash"),
+        bankAccountId: z.number().optional(),
+        proofType: z.enum(["tax_invoice", "card", "cash_receipt", "simple", "none"]).default("none"),
+        memo: z.string().optional(),
+        items: z.array(
+          z.object({
+            accountId: z.number(),
+            accountCode: z.string().optional(),
+            accountName: z.string().optional(),
+            supplyAmount: z.number(),
+            vatAmount: z.number(),
+            totalAmount: z.number(),
+            description: z.string().optional(),
+          })
+        ).min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 상태 확인
+      const [existing] = await conn.execute(
+        `SELECT status FROM expense_vouchers WHERE id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      const voucher = (existing as any[])[0];
+      if (!voucher) throw new TRPCError({ code: "NOT_FOUND", message: "전표를 찾을 수 없습니다." });
+      if (voucher.status !== "draft") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "임시저장 상태의 전표만 수정할 수 있습니다." });
+      }
+
+      // 합계 검증
+      const itemsTotal = input.items.reduce((s, i) => s + i.totalAmount, 0);
+      if (Math.abs(itemsTotal - input.totalAmount) > 1) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "항목 합계와 전표 합계가 일치하지 않습니다." });
+      }
+
+      // 전표 수정
+      await conn.execute(
+        `UPDATE expense_vouchers SET
+           expense_date=?, partner_id=?, partner_name=?,
+           supply_amount=?, vat_amount=?, total_amount=?,
+           payment_method=?, bank_account_id=?, proof_type=?, memo=?
+         WHERE id=? AND tenant_id=?`,
+        [
+          input.expenseDate, input.partnerId || null, input.partnerName || null,
+          input.supplyAmount, input.vatAmount, input.totalAmount,
+          input.paymentMethod, input.bankAccountId || null,
+          input.proofType, input.memo || null,
+          input.id, tenantId,
+        ],
+      );
+
+      // 항목 삭제 후 재생성
+      await conn.execute(
+        `DELETE FROM expense_items WHERE voucher_id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      for (let i = 0; i < input.items.length; i++) {
+        const item = input.items[i];
+        await conn.execute(
+          `INSERT INTO expense_items
+             (tenant_id, voucher_id, account_id, account_code, account_name,
+              supply_amount, vat_amount, total_amount, description, sort_order)
+           VALUES (?,?,?,?,?, ?,?,?,?,?)`,
+          [
+            tenantId, input.id, item.accountId,
+            item.accountCode || null, item.accountName || null,
+            item.supplyAmount, item.vatAmount, item.totalAmount,
+            item.description || null, i,
+          ],
+        );
+      }
+
+      return { success: true };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 확정 (Posting) - 분개 자동 생성
+  // ═══════════════════════════════════
+  post: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      // 1. 전표 조회
+      const [vRows] = await conn.execute(
+        `SELECT * FROM expense_vouchers WHERE id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      const voucher = (vRows as any[])[0];
+      if (!voucher) throw new TRPCError({ code: "NOT_FOUND", message: "전표를 찾을 수 없습니다." });
+      if (voucher.status !== "draft") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "임시저장 상태의 전표만 확정할 수 있습니다." });
+      }
+
+      // 2. 전표 항목 조회
+      const [itemRows] = await conn.execute(
+        `SELECT * FROM expense_items WHERE voucher_id = ? AND tenant_id = ? ORDER BY sort_order`,
+        [input.id, tenantId],
+      );
+      const items = itemRows as any[];
+      if (items.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "비용 항목이 없습니다." });
+      }
+
+      // 3. 분개 엔트리 생성
+      const totalDebit = Number(voucher.total_amount);
+      const [jeResult] = await conn.execute(
+        `INSERT INTO expense_journal_entries
+           (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+         VALUES (?,?,?,?,?,?,?)`,
+        [
+          tenantId, input.id, voucher.expense_date,
+          `비용전표 ${voucher.voucher_no} 확정`,
+          totalDebit, totalDebit, ctx.user.id,
+        ],
+      );
+      const journalEntryId = Number((jeResult as any).insertId);
+
+      // 4. 분개 행 생성 (차변: 비용계정, 대변: 결제수단 계정)
+      let lineOrder = 0;
+
+      // 4a. 차변 행: 각 비용항목별
+      for (const item of items) {
+        const supplyAmt = Number(item.supply_amount);
+        const vatAmt = Number(item.vat_amount);
+
+        // 비용계정 (공급가) - 차변
+        if (supplyAmt > 0) {
+          await conn.execute(
+            `INSERT INTO expense_journal_lines
+               (tenant_id, journal_entry_id, account_id, account_code, account_name,
+                debit_amount, credit_amount, description, sort_order)
+             VALUES (?,?,?,?,?, ?,0,?,?)`,
+            [
+              tenantId, journalEntryId, item.account_id,
+              item.account_code, item.account_name,
+              supplyAmt, item.description || item.account_name,
+              lineOrder++,
+            ],
+          );
+        }
+
+        // 부가세대급금 (매입세액) - 차변 (세금계산서/카드 증빙인 경우)
+        if (vatAmt > 0 && (voucher.proof_type === "tax_invoice" || voucher.proof_type === "card")) {
+          // 부가세대급금 계정 조회 (code: 1350 or name containing '부가세대급금')
+          const [vatAccRows] = await conn.execute(
+            `SELECT id, code, name FROM accounting_accounts
+             WHERE tenant_id = ? AND (code = '1350' OR name LIKE '%부가세대급금%') AND is_active = 'Y'
+             LIMIT 1`,
+            [tenantId],
+          );
+          const vatAcc = (vatAccRows as any[])[0];
+          await conn.execute(
+            `INSERT INTO expense_journal_lines
+               (tenant_id, journal_entry_id, account_id, account_code, account_name,
+                debit_amount, credit_amount, description, sort_order)
+             VALUES (?,?,?,?,?, ?,0,?,?)`,
+            [
+              tenantId, journalEntryId,
+              vatAcc?.id || 0, vatAcc?.code || "1350", vatAcc?.name || "부가세대급금",
+              vatAmt, "매입세액",
+              lineOrder++,
+            ],
+          );
+        }
+      }
+
+      // 4b. 대변 행: 결제수단에 따라 달라짐
+      const creditAmount = totalDebit;
+      let creditAccountName = "현금";
+      let creditAccountCode = "1010";
+
+      switch (voucher.payment_method) {
+        case "cash":
+          creditAccountName = "현금";
+          creditAccountCode = "1010";
+          break;
+        case "bank":
+          creditAccountName = "보통예금";
+          creditAccountCode = "1020";
+          break;
+        case "card":
+          creditAccountName = "미지급금-카드";
+          creditAccountCode = "2020";
+          break;
+        case "unpaid":
+          creditAccountName = "미지급금";
+          creditAccountCode = "2010";
+          break;
+      }
+
+      // 대변 계정 조회
+      const [creditAccRows] = await conn.execute(
+        `SELECT id, code, name FROM accounting_accounts
+         WHERE tenant_id = ? AND (code = ? OR name LIKE ?) AND is_active = 'Y'
+         LIMIT 1`,
+        [tenantId, creditAccountCode, `%${creditAccountName}%`],
+      );
+      const creditAcc = (creditAccRows as any[])[0];
+
+      await conn.execute(
+        `INSERT INTO expense_journal_lines
+           (tenant_id, journal_entry_id, account_id, account_code, account_name,
+            debit_amount, credit_amount, bank_account_id, partner_id, description, sort_order)
+         VALUES (?,?,?,?,?, 0,?,?,?,?,?)`,
+        [
+          tenantId, journalEntryId,
+          creditAcc?.id || 0, creditAcc?.code || creditAccountCode, creditAcc?.name || creditAccountName,
+          creditAmount, voucher.bank_account_id || null, voucher.partner_id || null,
+          `${voucher.payment_method} 결제`,
+          lineOrder++,
+        ],
+      );
+
+      // 5. 전표 상태 변경 (posted)
+      await conn.execute(
+        `UPDATE expense_vouchers SET status = 'posted', posted_by = ?, posted_at = NOW() WHERE id = ? AND tenant_id = ?`,
+        [ctx.user.id, input.id, tenantId],
+      );
+
+      return { success: true, journalEntryId };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 취소 (Posted → Canceled)
+  // ═══════════════════════════════════
+  cancel: protectedProcedure
+    .input(z.object({ id: z.number(), reason: z.string().min(1, "취소 사유를 입력해주세요") }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      const [vRows] = await conn.execute(
+        `SELECT status FROM expense_vouchers WHERE id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      const voucher = (vRows as any[])[0];
+      if (!voucher) throw new TRPCError({ code: "NOT_FOUND", message: "전표를 찾을 수 없습니다." });
+      if (voucher.status === "canceled") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "이미 취소된 전표입니다." });
+      }
+
+      // 분개 삭제 (posted 상태에서 취소 시)
+      if (voucher.status === "posted") {
+        const [jeRows] = await conn.execute(
+          `SELECT id FROM expense_journal_entries WHERE voucher_id = ? AND tenant_id = ?`,
+          [input.id, tenantId],
+        );
+        for (const je of jeRows as any[]) {
+          await conn.execute(
+            `DELETE FROM expense_journal_lines WHERE journal_entry_id = ? AND tenant_id = ?`,
+            [je.id, tenantId],
+          );
+        }
+        await conn.execute(
+          `DELETE FROM expense_journal_entries WHERE voucher_id = ? AND tenant_id = ?`,
+          [input.id, tenantId],
+        );
+      }
+
+      await conn.execute(
+        `UPDATE expense_vouchers SET status = 'canceled', canceled_by = ?, canceled_at = NOW(), cancel_reason = ?
+         WHERE id = ? AND tenant_id = ?`,
+        [ctx.user.id, input.reason, input.id, tenantId],
+      );
+
+      return { success: true };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용전표 삭제 (draft만)
+  // ═══════════════════════════════════
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      const [vRows] = await conn.execute(
+        `SELECT status FROM expense_vouchers WHERE id = ? AND tenant_id = ?`,
+        [input.id, tenantId],
+      );
+      const voucher = (vRows as any[])[0];
+      if (!voucher) throw new TRPCError({ code: "NOT_FOUND", message: "전표를 찾을 수 없습니다." });
+      if (voucher.status !== "draft") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "임시저장 상태의 전표만 삭제할 수 있습니다." });
+      }
+
+      await conn.execute(`DELETE FROM expense_attachments WHERE voucher_id = ? AND tenant_id = ?`, [input.id, tenantId]);
+      await conn.execute(`DELETE FROM expense_items WHERE voucher_id = ? AND tenant_id = ?`, [input.id, tenantId]);
+      await conn.execute(`DELETE FROM expense_vouchers WHERE id = ? AND tenant_id = ?`, [input.id, tenantId]);
+
+      return { success: true };
+    }),
+
+  // ═══════════════════════════════════
+  // 비용 계정과목 목록 (비용 분류만)
+  // ═══════════════════════════════════
+  getExpenseAccounts: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = getEffectiveTenantId(ctx);
+    const db = await getDb();
+    const accounts = await db
+      .select()
+      .from(accountingAccounts)
+      .where(
+        and(
+          eq(accountingAccounts.tenantId, tenantId),
+          eq(accountingAccounts.category, "expenses"),
+          eq(accountingAccounts.isActive, "Y"),
+        )
+      )
+      .orderBy(accountingAccounts.code);
+    return accounts;
+  }),
+
+  // ═══════════════════════════════════
+  // 비용 통계 요약 (대시보드용)
+  // ═══════════════════════════════════
+  getSummary: protectedProcedure
+    .input(
+      z.object({
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+      }).optional()
+    )
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+
+      const p = input || {};
+      // 이번달 기본
+      const now = new Date();
+      const startDate = p.startDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      const endDate = p.endDate || now.toISOString().split("T")[0];
+
+      const [rows] = await conn.execute(
+        `SELECT
+           COUNT(*) as total_count,
+           SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_count,
+           SUM(CASE WHEN status = 'posted' THEN 1 ELSE 0 END) as posted_count,
+           SUM(CASE WHEN status = 'canceled' THEN 1 ELSE 0 END) as canceled_count,
+           SUM(CASE WHEN status != 'canceled' THEN total_amount ELSE 0 END) as total_amount,
+           SUM(CASE WHEN status = 'posted' THEN total_amount ELSE 0 END) as posted_amount,
+           SUM(CASE WHEN status != 'canceled' THEN vat_amount ELSE 0 END) as total_vat
+         FROM expense_vouchers
+         WHERE tenant_id = ? AND expense_date >= ? AND expense_date <= ?`,
+        [tenantId, startDate, endDate],
+      );
+
+      // 계정과목별 Top 5
+      const [topAccounts] = await conn.execute(
+        `SELECT ei.account_name, SUM(ei.total_amount) as amount
+         FROM expense_items ei
+         JOIN expense_vouchers v ON ei.voucher_id = v.id AND v.tenant_id = ei.tenant_id
+         WHERE ei.tenant_id = ? AND v.expense_date >= ? AND v.expense_date <= ? AND v.status != 'canceled'
+         GROUP BY ei.account_id, ei.account_name
+         ORDER BY amount DESC LIMIT 5`,
+        [tenantId, startDate, endDate],
+      );
+
+      return {
+        ...(rows as any[])[0],
+        topAccounts: topAccounts as any[],
+      };
+    }),
+
+  // ═══════════════════════════════════
+  // 다음 전표번호 조회
+  // ═══════════════════════════════════
+  getNextVoucherNo: protectedProcedure
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      const dateStr = input.date.replace(/-/g, "");
+      const [rows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM expense_vouchers WHERE tenant_id = ? AND voucher_no LIKE ?`,
+        [tenantId, `EXP-${dateStr}-%`],
+      );
+      const seq = Number((rows as any[])[0]?.cnt || 0) + 1;
+      return { voucherNo: `EXP-${dateStr}-${String(seq).padStart(3, "0")}` };
+    }),
+});

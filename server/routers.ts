@@ -77,6 +77,7 @@ import { yearlyLogsRouter } from "./routers/yearlyLogs";
 import { bankAccountRouter } from "./routers/bankAccount";
 import { bankTransactionRouter } from "./routers/bankTransaction";
 import { bankTransactionBulkRouter } from "./routers/bankTransactionBulk";
+import { expenseRouter } from "./routers/expense";
 
 export const appRouter = router({
   
@@ -8117,6 +8118,7 @@ ai: aiRouter,
   productSku: productSkuRouter,
   productionVerification: productionVerificationRouter,
   accountingAccounts: accountingAccountsRouter,
+  expense: expenseRouter,
   accountCategories: accountCategoriesRouter,
   accountingAccountCategories: accountCategoriesRouter,
   bankAccount: bankAccountRouter,
