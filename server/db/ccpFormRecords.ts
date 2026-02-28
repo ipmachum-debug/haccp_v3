@@ -672,7 +672,7 @@ export async function syncCcpRowsToFormRows(params: {
                     e.default_temperature as temp_c,
                     e.batch_operation_time as duration_min,
                     e.default_time as heating_min,
-                    e.default_pressure as pressure_bar
+                    (e.default_pressure * 10) as pressure_bar
              FROM ccp_process_group_equipments pge
              JOIN equipments e ON e.id = pge.equipment_id AND e.tenant_id = pge.tenant_id
              WHERE pge.process_group_id = ? AND pge.tenant_id = ?

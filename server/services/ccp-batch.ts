@@ -224,7 +224,7 @@ export async function getProcessGroupsForProduct(args: {
  * ────────────────────────────────────────────────────────────────────
  *
  * ── 압력 단위 변환 ───────────────────────────────────────────────
- *  설비기준: equipments.default_pressure (bar 단위)
+ *  설비기준: equipments.default_pressure (MPa 단위)
  *  공정기준: ccp_process_groups.pressure_min (MPa 단위)
  *  h_ccp_rows.pressure_bar 컬럼 → bar 로 저장
  *  MPa → bar: × 10
@@ -287,10 +287,11 @@ async function createCcpRowsForGroup(
           ? group.temperature_min.toString()
           : null;
 
-    // 압력: 설비기준(bar) 우선 → 공정기준(MPa→bar) 폴백
+    // 압력: 설비기준(MPa→bar) 우선 → 공정기준(MPa→bar) 폴백
+    // equipments.default_pressure는 MPa 단위이므로 ×10 으로 bar 변환
     const pressureBar =
       eq.default_pressure != null
-        ? eq.default_pressure.toString()
+        ? (eq.default_pressure * 10).toFixed(2)
         : group.pressure_min != null
           ? (group.pressure_min * 10).toFixed(2)
           : null;
