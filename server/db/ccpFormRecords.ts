@@ -1137,6 +1137,8 @@ export async function syncCcpRowsToFormRows(params: {
 
       sensitivityChecks.sort((a, b) => timeToMin(a.time) - timeToMin(b.time));
 
+      console.log(`[syncCcpRowsToFormRows] CCP-4P batch=${batchId}: ${sensitivityChecks.map(c => `${c.type}@${c.time}`).join(', ')} (productChange: start=${isProductChangeStart} end=${isProductChangeEnd})`);
+
       // ── 6. 감도 모니터링 행 INSERT → h_ccp_form_rows ──
       let seqNum = 1;
       for (const check of sensitivityChecks) {
