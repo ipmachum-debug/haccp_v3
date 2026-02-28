@@ -515,7 +515,8 @@ export async function syncCcpRowsToFormRows(params: {
   const [batchInfo] = await rawConn.execute<any[]>(
     `SELECT b.planned_quantity, b.product_id,
             p.product_name as p_name,
-            DATE_FORMAT(DATE_ADD(b.start_time, INTERVAL 9 HOUR), '%H:%i') as start_time_hhmm
+            DATE_FORMAT(DATE_ADD(b.start_time, INTERVAL 9 HOUR), '%H:%i') as start_time_hhmm,
+            b.day_batch_group, b.batch_order, b.planned_date
      FROM h_batches b
      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.id = ? AND b.tenant_id = ?
@@ -525,6 +526,9 @@ export async function syncCcpRowsToFormRows(params: {
   const batchProductName = (batchInfo as any[])[0]?.p_name || "";
   const batchPlannedKg = parseFloat((batchInfo as any[])[0]?.planned_quantity) || 0;
   const productId = (batchInfo as any[])[0]?.product_id || null;
+  const dayBatchGroup = (batchInfo as any[])[0]?.day_batch_group || null;
+  const batchOrder = (batchInfo as any[])[0]?.batch_order != null ? Number((batchInfo as any[])[0].batch_order) : 0;
+  const plannedDate = (batchInfo as any[])[0]?.planned_date || null;
 
   // ═══ Issue 1: 배치 시작시간 추출 (HH:mm) ═══
   // Drizzle ORM의 MySQL timestamp 직렬화가 toISOString() (UTC)을 사용하므로
@@ -1192,8 +1196,49 @@ export async function syncCcpRowsToFormRows(params: {
       // ═══ CCP-1B / CCP-2B: 가열(증숙/굽기) 공정 ═══
       const rowCount = totalBatchCount;
 
+      // ═══ 교차배치 설비 순환 (Cross-batch equipment rotation) ═══
+      // 같은 day_batch_group (또는 같은 planned_date) 내에서 같은 process_group의 이전 배치들이
+      // 사용한 서브배치 수를 합산하여 현재 배치의 설비 시작 인덱스를 결정
+      // 예: 배치A(3서브배치) → 설비 1,2,3 사용 → 배치B는 설비 1부터 이어서 시작
+      //     배치B(2서브배치) → 설비 1,2 사용 → 배치C는 설비 3부터 이어서 시작
+      let equipStartIndex = 0;
+      if (processGroupId && (dayBatchGroup || plannedDate)) {
+        try {
+          const [prevBatches] = await rawConn.execute<any[]>(
+            `SELECT fr2.batch_count
+             FROM h_ccp_form_records fr2
+             JOIN h_batches b2 ON b2.id = fr2.batch_id AND b2.tenant_id = fr2.tenant_id
+             WHERE fr2.tenant_id = ? AND fr2.process_group_id = ? AND fr2.ccp_type = ?
+               AND b2.planned_date = ?
+               AND (
+                 (? IS NOT NULL AND b2.day_batch_group = ?)
+                 OR (? IS NULL AND b2.planned_date = ?)
+               )
+               AND b2.batch_order < ?
+             ORDER BY b2.batch_order`,
+            [
+              tenantId, processGroupId, ccpType,
+              plannedDate,
+              dayBatchGroup, dayBatchGroup,
+              dayBatchGroup, plannedDate,
+              batchOrder,
+            ],
+          );
+          for (const pb of prevBatches as any[]) {
+            equipStartIndex += (pb.batch_count ? Number(pb.batch_count) : 1);
+          }
+          if (equipStartIndex > 0) {
+            console.log(`[syncCcpRowsToFormRows] Cross-batch equip rotation: batch ${batchId} (order ${batchOrder}) starts at equipIdx ${equipStartIndex % equipCount} (total prev sub-batches: ${equipStartIndex})`);
+          }
+        } catch (rotErr) {
+          console.error(`[syncCcpRowsToFormRows] Cross-batch rotation query failed:`, rotErr);
+          equipStartIndex = 0;
+        }
+      }
+
       for (let seqIdx = 0; seqIdx < rowCount; seqIdx++) {
-        const row = (ccpRows as any[])[seqIdx % equipCount];
+        const globalSeqIdx = equipStartIndex + seqIdx;
+        const row = (ccpRows as any[])[globalSeqIdx % equipCount];
         const batchSeq = seqIdx + 1;
 
         // 이미 존재하는 batch_seq는 건너뜀 (사용자 수동 입력 데이터 보호)
@@ -1218,16 +1263,16 @@ export async function syncCcpRowsToFormRows(params: {
 
           } else if (pgGroupMode === "grouped") {
             const groupsPerRound = Math.max(1, Math.ceil(equipCount / pgBatchSize));
-            const groupIndex = Math.floor((batchSeq - 1) / pgBatchSize);
+            const groupIndex = Math.floor(globalSeqIdx / pgBatchSize);
             const roundIndex = Math.floor(groupIndex / groupsPerRound);
             const groupInRound = groupIndex % groupsPerRound;
             const offsetMin = roundIndex * cycleDuration + groupInRound * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
-            // sequential (기본)
-            const equipIndex = (batchSeq - 1) % equipCount;
-            const roundIndex = Math.floor((batchSeq - 1) / equipCount);
+            // sequential (기본) - 글로벌 인덱스 사용으로 교차배치 설비 순환 지원
+            const equipIndex = globalSeqIdx % equipCount;
+            const roundIndex = Math.floor(globalSeqIdx / equipCount);
             const offsetMin = roundIndex * cycleDuration + equipIndex * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
           }
