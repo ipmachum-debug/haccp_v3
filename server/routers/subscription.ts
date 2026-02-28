@@ -165,7 +165,7 @@ export const subscriptionRouter = router({
       const db = await getDb();
       const notifications = await db.query.subscriptionNotifications.findMany({
         where: eq(subscriptionNotifications.tenantId, input.tenantId),
-        orderBy: (notifications, { desc }) => [desc(notifications.createdAt)],
+        orderBy: (notifications: any, { desc }) => [desc(notifications.createdAt)],
       });
 
       return notifications;
@@ -352,7 +352,7 @@ export const subscriptionRouter = router({
     });
 
     return {
-      features: features.map((f) => f.featureName),
+      features: features.map((f: any) => f.featureName),
       packageName: tenant.subscriptionPackage || "basic",
       isReadOnly: tenant.isReadOnly || false,
     };
@@ -370,7 +370,7 @@ export const subscriptionRouter = router({
     let active = 0, expiring_soon = 0, grace_period = 0, suspended = 0;
     let package_basic = 0, package_pro = 0;
 
-    allTenants.forEach((tenant) => {
+    allTenants.forEach((tenant: any) => {
       // 패키지 통계
       if (tenant.subscriptionPackage === 'basic') package_basic++;
       else if (tenant.subscriptionPackage === 'pro') package_pro++;

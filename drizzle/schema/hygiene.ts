@@ -7,7 +7,7 @@ import { users } from "../schema_main";
  */
 export const hygieneChecklists = mysqlTable("hygiene_checklists", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 기본 정보
   checkDate: date("check_date").notNull(), // 점검 일자

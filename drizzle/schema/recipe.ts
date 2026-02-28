@@ -6,7 +6,7 @@ import { tenants } from '../schema_main';
  */
 export const recipes = mysqlTable("recipes", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productId: int("product_id").notNull(), // 제품 ID
   recipeName: varchar("recipe_name", { length: 255 }).notNull(), // 레시피 이름
   version: varchar("version", { length: 50 }).notNull().default("1.0"), // 버전
@@ -35,7 +35,7 @@ export const recipes = mysqlTable("recipes", {
  */
 export const recipeLines = mysqlTable("recipe_lines", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recipeId: int("recipe_id").notNull(), // 레시피 ID
   materialId: int("material_id").notNull(), // 원재료 ID
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(), // 투입량
@@ -52,7 +52,7 @@ export const recipeLines = mysqlTable("recipe_lines", {
  */
 export const recipeVersions = mysqlTable("recipe_versions", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recipeId: int("recipe_id").notNull(), // 레시피 ID
   version: varchar("version", { length: 50 }).notNull(), // 버전
   changeDescription: text("change_description"), // 변경 내역

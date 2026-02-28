@@ -21,7 +21,7 @@ export const checklistTemplates = mysqlTable(
   "checklist_templates",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 기본 정보
     name: varchar("name", { length: 200 }).notNull(),
@@ -87,7 +87,7 @@ export const checklistTemplateItems = mysqlTable(
   "checklist_template_items",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),
@@ -156,7 +156,7 @@ export const checklistInstances = mysqlTable(
   "checklist_instances",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),
@@ -244,7 +244,7 @@ export const checklistInstanceItems = mysqlTable(
   "checklist_instance_items",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 인스턴스 및 템플릿 항목 참조
     instanceId: bigint("instance_id", { mode: "number" }).notNull(),
@@ -293,7 +293,7 @@ export const checklistInstanceItemHistory = mysqlTable(
   "checklist_instance_item_history",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 인스턴스 항목 참조
     instanceItemId: bigint("instance_item_id", { mode: "number" }).notNull(),

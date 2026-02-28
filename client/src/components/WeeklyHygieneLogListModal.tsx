@@ -69,6 +69,7 @@ export function WeeklyHygieneLogListModal({
     }
   });
 
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const approveMutation = trpc.weeklyLog.approveHygiene.useMutation({
     onSuccess: () => {
       toast({

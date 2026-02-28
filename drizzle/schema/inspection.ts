@@ -6,7 +6,7 @@ import { tenants } from '../schema_main';
  */
 export const materialInspectionRecords = mysqlTable("material_inspection_records", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   materialId: int("material_id").notNull(), // 원재료 ID
   materialCode: varchar("material_code", { length: 100 }).notNull(), // 원재료 코드
   materialName: varchar("material_name", { length: 200 }).notNull(), // 원재료명
@@ -32,7 +32,7 @@ export const materialInspectionRecords = mysqlTable("material_inspection_records
  */
 export const materialInspectionItems = mysqlTable("material_inspection_items", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recordId: int("record_id").notNull(), // 검사 기록 ID
   itemName: varchar("item_name", { length: 200 }).notNull(), // 검사항목명
   standard: varchar("standard", { length: 500 }), // 기준
@@ -47,7 +47,7 @@ export const materialInspectionItems = mysqlTable("material_inspection_items", {
  */
 export const shippingInspectionRecords = mysqlTable("shipping_inspection_records", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: int("batch_id").notNull(), // 배치 ID
   batchCode: varchar("batch_code", { length: 100 }).notNull(), // 배치 코드
   productCode: varchar("product_code", { length: 100 }).notNull(), // 제품 코드
@@ -68,7 +68,7 @@ export const shippingInspectionRecords = mysqlTable("shipping_inspection_records
  */
 export const shippingInspectionItems = mysqlTable("shipping_inspection_items", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recordId: int("record_id").notNull(), // 검사 기록 ID
   itemName: varchar("item_name", { length: 200 }).notNull(), // 검사항목명
   standard: varchar("standard", { length: 500 }), // 기준
@@ -83,7 +83,7 @@ export const shippingInspectionItems = mysqlTable("shipping_inspection_items", {
  */
 export const hygieneInspectionRecords = mysqlTable("hygiene_inspection_records", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   inspectionDate: date("inspection_date", { mode: 'string' }).notNull(), // 점검일자
   inspectionArea: varchar("inspection_area", { length: 200 }).notNull(), // 점검구역
   inspectorId: int("inspector_id").notNull(), // 점검자 ID
@@ -100,7 +100,7 @@ export const hygieneInspectionRecords = mysqlTable("hygiene_inspection_records",
  */
 export const hygieneInspectionItems = mysqlTable("hygiene_inspection_items", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recordId: int("record_id").notNull(), // 검사 기록 ID
   itemName: varchar("item_name", { length: 200 }).notNull(), // 점검항목명
   standard: varchar("standard", { length: 500 }), // 기준

@@ -35,7 +35,7 @@ import { tenants } from '../schema_main';
  */
 export const hInventory = mysqlTable("h_inventory", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   materialId: bigint("material_id", { mode: "number" }),
   productId: bigint("product_id", { mode: "number" }),
@@ -58,7 +58,7 @@ export const hInventory = mysqlTable("h_inventory", {
  */
 export const hInventoryLots = mysqlTable("h_inventory_lots", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   inventoryId: bigint("inventory_id", { mode: "number" }),
   lotNumber: varchar("lot_number", { length: 100 }).unique().notNull(),
   batchId: bigint("batch_id", { mode: "number" }),
@@ -84,7 +84,7 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
  */
 export const hInventoryTransactions = mysqlTable("h_inventory_transactions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   lotId: bigint("lot_id", { mode: "number" }).notNull(),
   inventoryId: bigint("inventory_id", { mode: "number" }), // 재고 마스터 ID
   transactionType: mysqlEnum("transaction_type", [
@@ -121,7 +121,7 @@ export const hInventoryTransactions = mysqlTable("h_inventory_transactions", {
  */
 export const hInventoryAdjustments = mysqlTable("h_inventory_adjustments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   adjustmentDate: date("adjustment_date").notNull(),
   lotId: bigint("lot_id", { mode: "number" }),
@@ -143,7 +143,7 @@ export const hInventoryAdjustments = mysqlTable("h_inventory_adjustments", {
  */
 export const hInventoryCounts = mysqlTable("h_inventory_counts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   countDate: date("count_date").notNull(),
   countType: mysqlEnum("count_type", ["full", "partial", "cycle"]).notNull(),
@@ -159,7 +159,7 @@ export const hInventoryCounts = mysqlTable("h_inventory_counts", {
  */
 export const hInventoryCountItems = mysqlTable("h_inventory_count_items", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   countId: bigint("count_id", { mode: "number" }).notNull(),
   lotId: bigint("lot_id", { mode: "number" }).notNull(),
   systemQuantity: decimal("system_quantity", { precision: 10, scale: 3 }).notNull(),
@@ -175,7 +175,7 @@ export const hInventoryCountItems = mysqlTable("h_inventory_count_items", {
  */
 export const hStockAlerts = mysqlTable("h_stock_alerts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   inventoryId: bigint("inventory_id", { mode: "number" }), // nullable (재고 또는 LOT 단위)
   lotId: bigint("lot_id", { mode: "number" }), // LOT 단위 알람
@@ -195,7 +195,7 @@ export const hStockAlerts = mysqlTable("h_stock_alerts", {
  */
 export const hStockMovements = mysqlTable("h_stock_movements", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   lotId: bigint("lot_id", { mode: "number" }).notNull(),
   fromLocation: varchar("from_location", { length: 100 }),
   toLocation: varchar("to_location", { length: 100 }).notNull(),
@@ -213,7 +213,7 @@ export const hStockMovements = mysqlTable("h_stock_movements", {
  */
 export const hInboundHeaders = mysqlTable("h_inbound_headers", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   inboundNumber: varchar("inbound_number", { length: 50 }).notNull().unique(), // 입고번호 (자동 생성)
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   supplierId: bigint("supplier_id", { mode: "number" }), // 공급업체 ID
@@ -233,7 +233,7 @@ export const hInboundHeaders = mysqlTable("h_inbound_headers", {
  */
 export const hInboundLines = mysqlTable("h_inbound_lines", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   headerId: bigint("header_id", { mode: "number" }).notNull(), // 헤더 ID (FK)
   lineNumber: int("line_number").notNull(), // 라인 번호
   materialId: bigint("material_id", { mode: "number" }).notNull(), // 원재료 ID
@@ -260,7 +260,7 @@ export const hInboundLines = mysqlTable("h_inbound_lines", {
  */
 export const hHygieneChecklists = mysqlTable("h_hygiene_checklists", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   checkDate: date("check_date").notNull(),
   checkType: varchar("check_type", { length: 50 }).notNull(),
@@ -281,7 +281,7 @@ export const hHygieneChecklists = mysqlTable("h_hygiene_checklists", {
  */
 export const hHygieneChecklistItems = mysqlTable("h_hygiene_checklist_items", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   checklistId: bigint("checklist_id", { mode: "number" }).notNull(),
   itemName: varchar("item_name", { length: 200 }).notNull(),
   result: mysqlEnum("result", ["pass", "fail", "na"]),
@@ -294,7 +294,7 @@ export const hHygieneChecklistItems = mysqlTable("h_hygiene_checklist_items", {
  */
 export const hCleaningRecords = mysqlTable("h_cleaning_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   cleaningDate: date("cleaning_date").notNull(),
   area: varchar("area", { length: 100 }).notNull(),
@@ -314,7 +314,7 @@ export const hCleaningRecords = mysqlTable("h_cleaning_records", {
  */
 export const hPestControlRecords = mysqlTable("h_pest_control_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   controlDate: date("control_date").notNull(),
   area: varchar("area", { length: 100 }).notNull(),
@@ -334,7 +334,7 @@ export const hPestControlRecords = mysqlTable("h_pest_control_records", {
  */
 export const hPersonalHygieneChecks = mysqlTable("h_personal_hygiene_checks", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   checkDate: date("check_date").notNull(),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
@@ -353,7 +353,7 @@ export const hPersonalHygieneChecks = mysqlTable("h_personal_hygiene_checks", {
  */
 export const hSanitationSchedules = mysqlTable("h_sanitation_schedules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   area: varchar("area", { length: 100 }).notNull(),
   activityType: varchar("activity_type", { length: 50 }).notNull(),
@@ -371,7 +371,7 @@ export const hSanitationSchedules = mysqlTable("h_sanitation_schedules", {
  */
 export const hWaterQualityTests = mysqlTable("h_water_quality_tests", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   testDate: date("test_date").notNull(),
   sampleLocation: varchar("sample_location", { length: 100 }),
@@ -390,7 +390,7 @@ export const hWaterQualityTests = mysqlTable("h_water_quality_tests", {
  */
 export const hEquipmentCleaningLogs = mysqlTable("h_equipment_cleaning_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   equipmentId: bigint("equipment_id", { mode: "number" }),
   equipmentName: varchar("equipment_name", { length: 200 }).notNull(),
@@ -409,7 +409,7 @@ export const hEquipmentCleaningLogs = mysqlTable("h_equipment_cleaning_logs", {
  */
 export const hHygieneTrainingRecords = mysqlTable("h_hygiene_training_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   trainingDate: date("training_date").notNull(),
   trainingTopic: varchar("training_topic", { length: 200 }).notNull(),
@@ -427,7 +427,7 @@ export const hHygieneTrainingRecords = mysqlTable("h_hygiene_training_records", 
  */
 export const hHygieneIncidents = mysqlTable("h_hygiene_incidents", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   incidentDate: timestamp("incident_date").notNull(),
   incidentType: varchar("incident_type", { length: 100 }),
@@ -451,7 +451,7 @@ export const hHygieneIncidents = mysqlTable("h_hygiene_incidents", {
  */
 export const hApprovalRequests = mysqlTable("h_approval_requests", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   requestType: varchar("request_type", { length: 50 }).notNull(),
   referenceType: varchar("reference_type", { length: 50 }),
@@ -479,7 +479,7 @@ export const hApprovalRequests = mysqlTable("h_approval_requests", {
  */
 export const hApprovalWorkflows = mysqlTable("h_approval_workflows", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   workflowName: varchar("workflow_name", { length: 100 }).notNull(),
   workflowType: varchar("workflow_type", { length: 50 }).notNull(),
   description: text("description"),
@@ -494,7 +494,7 @@ export const hApprovalWorkflows = mysqlTable("h_approval_workflows", {
  */
 export const hApprovalWorkflowSteps = mysqlTable("h_approval_workflow_steps", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   workflowId: bigint("workflow_id", { mode: "number" }).notNull(),
   stepOrder: int("step_order").notNull(),
   stepName: varchar("step_name", { length: 100 }).notNull(),
@@ -509,7 +509,7 @@ export const hApprovalWorkflowSteps = mysqlTable("h_approval_workflow_steps", {
  */
 export const hApprovalHistory = mysqlTable("h_approval_history", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   requestId: bigint("request_id", { mode: "number" }).notNull(),
   stepId: bigint("step_id", { mode: "number" }),
   action: mysqlEnum("action", ["submitted", "approved", "rejected", "cancelled", "delegated"]).notNull(),
@@ -524,7 +524,7 @@ export const hApprovalHistory = mysqlTable("h_approval_history", {
  */
 export const hDelegationRecords = mysqlTable("h_delegation_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   delegatorId: bigint("delegator_id", { mode: "number" }).notNull(),
   delegateeId: bigint("delegatee_id", { mode: "number" }).notNull(),
   delegationType: varchar("delegation_type", { length: 50 }),
@@ -540,7 +540,7 @@ export const hDelegationRecords = mysqlTable("h_delegation_records", {
  */
 export const hSignatureRecords = mysqlTable("h_signature_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   referenceType: varchar("reference_type", { length: 50 }).notNull(),
   referenceId: bigint("reference_id", { mode: "number" }).notNull(),
   signatureType: varchar("signature_type", { length: 50 }),
@@ -560,7 +560,7 @@ export const hSignatureRecords = mysqlTable("h_signature_records", {
  */
 export const hDocuments = mysqlTable("h_documents", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   documentCode: varchar("document_code", { length: 50 }).unique(),
   documentTitle: varchar("document_title", { length: 200 }).notNull(),
@@ -581,7 +581,7 @@ export const hDocuments = mysqlTable("h_documents", {
  */
 export const hDocumentVersions = mysqlTable("h_document_versions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   documentId: bigint("document_id", { mode: "number" }).notNull(),
   versionNumber: varchar("version_number", { length: 20 }).notNull(),
   changeDescription: text("change_description"),
@@ -596,7 +596,7 @@ export const hDocumentVersions = mysqlTable("h_document_versions", {
  */
 export const hDocumentApprovals = mysqlTable("h_document_approvals", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   documentId: bigint("document_id", { mode: "number" }).notNull(),
   versionId: bigint("version_id", { mode: "number" }),
   approverRole: varchar("approver_role", { length: 50 }),
@@ -614,7 +614,7 @@ export const hDocumentApprovals = mysqlTable("h_document_approvals", {
  */
 export const hDocumentAttachments = mysqlTable("h_document_attachments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   documentId: bigint("document_id", { mode: "number" }).notNull(),
   fileName: varchar("file_name", { length: 255 }).notNull(),
   fileUrl: varchar("file_url", { length: 500 }).notNull(),
@@ -629,7 +629,7 @@ export const hDocumentAttachments = mysqlTable("h_document_attachments", {
  */
 export const hDocumentAccessLogs = mysqlTable("h_document_access_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   documentId: bigint("document_id", { mode: "number" }).notNull(),
   accessType: varchar("access_type", { length: 20 }),
   accessedBy: bigint("accessed_by", { mode: "number" }).notNull(),
@@ -642,7 +642,7 @@ export const hDocumentAccessLogs = mysqlTable("h_document_access_logs", {
  */
 export const hSopManuals = mysqlTable("h_sop_manuals", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   sopCode: varchar("sop_code", { length: 50 }).unique(),
   sopTitle: varchar("sop_title", { length: 200 }).notNull(),
@@ -662,7 +662,7 @@ export const hSopManuals = mysqlTable("h_sop_manuals", {
  */
 export const hTrainingMaterials = mysqlTable("h_training_materials", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   materialTitle: varchar("material_title", { length: 200 }).notNull(),
   materialType: varchar("material_type", { length: 50 }),
   category: varchar("category", { length: 100 }),
@@ -679,7 +679,7 @@ export const hTrainingMaterials = mysqlTable("h_training_materials", {
  */
 export const hDocumentCategories = mysqlTable("h_document_categories", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   categoryName: varchar("category_name", { length: 100 }).notNull(),
   parentCategoryId: bigint("parent_category_id", { mode: "number" }),
   description: text("description"),
@@ -696,7 +696,7 @@ export const hDocumentCategories = mysqlTable("h_document_categories", {
  */
 export const hChecklistTemplates = mysqlTable("h_checklist_templates", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   templateName: varchar("template_name", { length: 200 }).notNull(),
   templateType: varchar("template_type", { length: 50 }),
   category: varchar("category", { length: 100 }),
@@ -712,7 +712,7 @@ export const hChecklistTemplates = mysqlTable("h_checklist_templates", {
  */
 export const hChecklistTemplateItems = mysqlTable("h_checklist_template_items", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   templateId: bigint("template_id", { mode: "number" }).notNull(),
   itemText: text("item_text").notNull(),
   itemType: varchar("item_type", { length: 50 }),
@@ -726,7 +726,7 @@ export const hChecklistTemplateItems = mysqlTable("h_checklist_template_items", 
  */
 export const hChecklistInstances = mysqlTable("h_checklist_instances", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   templateId: bigint("template_id", { mode: "number" }).notNull(),
   siteId: bigint("site_id", { mode: "number" }),
   referenceType: varchar("reference_type", { length: 50 }),
@@ -749,7 +749,7 @@ export const hChecklistInstances = mysqlTable("h_checklist_instances", {
  */
 export const hChecklistResponses = mysqlTable("h_checklist_responses", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   instanceId: bigint("instance_id", { mode: "number" }).notNull(),
   itemId: bigint("item_id", { mode: "number" }).notNull(),
   responseValue: text("response_value"),
@@ -764,7 +764,7 @@ export const hChecklistResponses = mysqlTable("h_checklist_responses", {
  */
 export const hDailyChecklists = mysqlTable("h_daily_checklists", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   checkDate: date("check_date").notNull(),
   shift: varchar("shift", { length: 20 }),
@@ -781,7 +781,7 @@ export const hDailyChecklists = mysqlTable("h_daily_checklists", {
  */
 export const hDailyChecklistItems = mysqlTable("h_daily_checklist_items", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   checklistId: bigint("checklist_id", { mode: "number" }).notNull(),
   itemName: varchar("item_name", { length: 200 }).notNull(),
   result: mysqlEnum("result", ["pass", "fail", "na"]),
@@ -798,7 +798,7 @@ export const hDailyChecklistItems = mysqlTable("h_daily_checklist_items", {
  */
 export const hTrainingPlans = mysqlTable("h_training_plans", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   planYear: int("plan_year").notNull(),
   planName: varchar("plan_name", { length: 200 }).notNull(),
@@ -818,7 +818,7 @@ export const hTrainingPlans = mysqlTable("h_training_plans", {
  */
 export const hTrainingRecords = mysqlTable("h_training_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   planId: bigint("plan_id", { mode: "number" }),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   trainingDate: date("training_date").notNull(),
@@ -835,7 +835,7 @@ export const hTrainingRecords = mysqlTable("h_training_records", {
  */
 export const hTrainingAssessments = mysqlTable("h_training_assessments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   trainingRecordId: bigint("training_record_id", { mode: "number" }).notNull(),
   assessmentType: varchar("assessment_type", { length: 50 }),
   score: decimal("score", { precision: 5, scale: 2 }),
@@ -851,7 +851,7 @@ export const hTrainingAssessments = mysqlTable("h_training_assessments", {
  */
 export const hEmployeeCertifications = mysqlTable("h_employee_certifications", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   certificationName: varchar("certification_name", { length: 200 }).notNull(),
   certificationNumber: varchar("certification_number", { length: 100 }),
@@ -872,7 +872,7 @@ export const hEmployeeCertifications = mysqlTable("h_employee_certifications", {
  */
 export const hInspectionPlans = mysqlTable("h_inspection_plans", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   planName: varchar("plan_name", { length: 200 }).notNull(),
   inspectionType: varchar("inspection_type", { length: 50 }),
@@ -890,7 +890,7 @@ export const hInspectionPlans = mysqlTable("h_inspection_plans", {
  */
 export const hInspectionRecords = mysqlTable("h_inspection_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   planId: bigint("plan_id", { mode: "number" }),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   inspectionDate: date("inspection_date").notNull(),
@@ -915,7 +915,7 @@ export const hInspectionRecords = mysqlTable("h_inspection_records", {
  */
 export const hMaterialInspections = mysqlTable("h_material_inspections", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   receivingId: bigint("receiving_id", { mode: "number" }).notNull(), // accounting_purchases.id
   inspectionDate: date("inspection_date").notNull(),
   inspectorId: bigint("inspector_id", { mode: "number" }),
@@ -935,7 +935,7 @@ export const hMaterialInspections = mysqlTable("h_material_inspections", {
  */
 export const hProductInspections = mysqlTable("h_product_inspections", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   batchId: bigint("batch_id", { mode: "number" }),
   productId: bigint("product_id", { mode: "number" }).notNull(),
@@ -956,7 +956,7 @@ export const hProductInspections = mysqlTable("h_product_inspections", {
  */
 export const hLabTestRequests = mysqlTable("h_lab_test_requests", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   requestDate: date("request_date").notNull(),
   sampleType: varchar("sample_type", { length: 50 }),
@@ -976,7 +976,7 @@ export const hLabTestRequests = mysqlTable("h_lab_test_requests", {
  */
 export const hLabTestResults = mysqlTable("h_lab_test_results", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   requestId: bigint("request_id", { mode: "number" }).notNull(),
   testParameter: varchar("test_parameter", { length: 100 }),
   result: varchar("result", { length: 200 }),
@@ -994,7 +994,7 @@ export const hLabTestResults = mysqlTable("h_lab_test_results", {
  */
 export const hCalibrationRecords = mysqlTable("h_calibration_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   equipmentId: bigint("equipment_id", { mode: "number" }),
   equipmentName: varchar("equipment_name", { length: 200 }).notNull(),
@@ -1013,7 +1013,7 @@ export const hCalibrationRecords = mysqlTable("h_calibration_records", {
  */
 export const hVerificationRecords = mysqlTable("h_verification_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   verificationDate: date("verification_date").notNull(),
   verificationType: varchar("verification_type", { length: 50 }),
@@ -1036,7 +1036,7 @@ export const hVerificationRecords = mysqlTable("h_verification_records", {
  */
 export const hNonconformances = mysqlTable("h_nonconformances", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   ncNumber: varchar("nc_number", { length: 50 }).unique(),
   ncDate: date("nc_date").notNull(),
@@ -1059,7 +1059,7 @@ export const hNonconformances = mysqlTable("h_nonconformances", {
  */
 export const hCorrectiveActions = mysqlTable("h_corrective_actions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ncId: bigint("nc_id", { mode: "number" }).notNull(),
   actionType: varchar("action_type", { length: 50 }),
   actionDescription: text("action_description"),
@@ -1079,7 +1079,7 @@ export const hCorrectiveActions = mysqlTable("h_corrective_actions", {
  */
 export const hCapaRecords = mysqlTable("h_capa_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   capaNumber: varchar("capa_number", { length: 50 }).unique(),
   capaDate: date("capa_date").notNull(),
@@ -1105,7 +1105,7 @@ export const hCapaRecords = mysqlTable("h_capa_records", {
  */
 export const hRecallRecords = mysqlTable("h_recall_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   recallNumber: varchar("recall_number", { length: 50 }).unique(),
   recallDate: date("recall_date").notNull(),
@@ -1133,7 +1133,7 @@ export const hRecallRecords = mysqlTable("h_recall_records", {
  */
 export const hNotifications = mysqlTable("h_notifications", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   notificationType: varchar("notification_type", { length: 50 }),
   title: varchar("title", { length: 200 }).notNull(),
@@ -1154,7 +1154,7 @@ export const hNotifications = mysqlTable("h_notifications", {
  */
 export const hNotificationSettings = mysqlTable("h_notification_settings", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   
   // 알림 유형별 수신 설정
@@ -1185,7 +1185,7 @@ export const hNotificationSettings = mysqlTable("h_notification_settings", {
  */
 export const hSystemSettings = mysqlTable("h_system_settings", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   settingKey: varchar("setting_key", { length: 100 }).unique().notNull(),
   settingValue: text("setting_value"),
   settingType: varchar("setting_type", { length: 50 }),
@@ -1201,7 +1201,7 @@ export const hSystemSettings = mysqlTable("h_system_settings", {
  */
 export const hSiteSettings = mysqlTable("h_site_settings", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   settingKey: varchar("setting_key", { length: 100 }).notNull(),
   settingValue: text("setting_value"),
@@ -1216,7 +1216,7 @@ export const hSiteSettings = mysqlTable("h_site_settings", {
  */
 export const hAlertRules = mysqlTable("h_alert_rules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ruleName: varchar("rule_name", { length: 200 }).notNull(),
   ruleType: varchar("rule_type", { length: 50 }),
   condition: text("condition"),
@@ -1233,7 +1233,7 @@ export const hAlertRules = mysqlTable("h_alert_rules", {
  */
 export const hAlertRecipients = mysqlTable("h_alert_recipients", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ruleId: bigint("rule_id", { mode: "number" }).notNull(),
   userId: bigint("user_id", { mode: "number" }),
   roleId: bigint("role_id", { mode: "number" }),
@@ -1247,7 +1247,7 @@ export const hAlertRecipients = mysqlTable("h_alert_recipients", {
  */
 export const hEmailLogs = mysqlTable("h_email_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recipient: varchar("recipient", { length: 320 }).notNull(),
   subject: varchar("subject", { length: 500 }),
   body: text("body"),
@@ -1262,7 +1262,7 @@ export const hEmailLogs = mysqlTable("h_email_logs", {
  */
 export const hAuditLogs = mysqlTable("h_audit_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }),
   action: varchar("action", { length: 100 }).notNull(),
   entityType: varchar("entity_type", { length: 50 }),
@@ -1283,7 +1283,7 @@ export const hAuditLogs = mysqlTable("h_audit_logs", {
  */
 export const hDistributionRecords = mysqlTable("h_distribution_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   distributionDate: date("distribution_date").notNull(),
   batchId: bigint("batch_id", { mode: "number" }),
@@ -1309,7 +1309,7 @@ export const hDistributionRecords = mysqlTable("h_distribution_records", {
  */
 export const hDistributors = mysqlTable("h_distributors", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   distributorCode: varchar("distributor_code", { length: 50 }).unique(),
   distributorName: varchar("distributor_name", { length: 200 }).notNull(),
   businessNumber: varchar("business_number", { length: 50 }),
@@ -1327,7 +1327,7 @@ export const hDistributors = mysqlTable("h_distributors", {
  */
 export const hShippingRecords = mysqlTable("h_shipping_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   shippingDate: date("shipping_date").notNull(),
   batchId: bigint("batch_id", { mode: "number" }),
@@ -1350,7 +1350,7 @@ export const hShippingRecords = mysqlTable("h_shipping_records", {
  */
 export const hCustomers = mysqlTable("h_customers", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   customerCode: varchar("customer_code", { length: 50 }).unique(),
   customerName: varchar("customer_name", { length: 200 }).notNull(),
   customerType: varchar("customer_type", { length: 50 }),
@@ -1373,7 +1373,7 @@ export const hCustomers = mysqlTable("h_customers", {
  */
 export const hCodeGroups = mysqlTable("h_code_groups", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   groupCode: varchar("group_code", { length: 50 }).unique().notNull(),
   groupName: varchar("group_name", { length: 100 }).notNull(),
   description: text("description"),
@@ -1386,7 +1386,7 @@ export const hCodeGroups = mysqlTable("h_code_groups", {
  */
 export const hCodes = mysqlTable("h_codes", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   groupCode: varchar("group_code", { length: 50 }).notNull(),
   code: varchar("code", { length: 50 }).notNull(),
   codeName: varchar("code_name", { length: 200 }).notNull(),
@@ -1401,7 +1401,7 @@ export const hCodes = mysqlTable("h_codes", {
  */
 export const hEquipment = mysqlTable("h_equipment", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   equipmentCode: varchar("equipment_code", { length: 50 }).unique(),
   equipmentName: varchar("equipment_name", { length: 200 }).notNull(),
@@ -1423,7 +1423,7 @@ export const hEquipment = mysqlTable("h_equipment", {
  */
 export const hEquipmentMaintenance = mysqlTable("h_equipment_maintenance", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   equipmentId: bigint("equipment_id", { mode: "number" }).notNull(),
   maintenanceDate: date("maintenance_date").notNull(),
   maintenanceType: varchar("maintenance_type", { length: 50 }),
@@ -1441,7 +1441,7 @@ export const hEquipmentMaintenance = mysqlTable("h_equipment_maintenance", {
  */
 export const hSuppliers = mysqlTable("h_suppliers", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   supplierCode: varchar("supplier_code", { length: 50 }).unique(),
   supplierName: varchar("supplier_name", { length: 200 }).notNull(),
   businessNumber: varchar("business_number", { length: 50 }),
@@ -1462,7 +1462,7 @@ export const hSuppliers = mysqlTable("h_suppliers", {
  */
 export const hSupplierAudits = mysqlTable("h_supplier_audits", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   supplierId: bigint("supplier_id", { mode: "number" }).notNull(),
   auditDate: date("audit_date").notNull(),
   auditType: varchar("audit_type", { length: 50 }),
@@ -1481,7 +1481,7 @@ export const hSupplierAudits = mysqlTable("h_supplier_audits", {
  */
 export const hPurchaseOrders = mysqlTable("h_purchase_orders", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   poNumber: varchar("po_number", { length: 50 }).unique(),
   supplierId: bigint("supplier_id", { mode: "number" }).notNull(),
@@ -1499,7 +1499,7 @@ export const hPurchaseOrders = mysqlTable("h_purchase_orders", {
  */
 export const hPurchaseOrderItems = mysqlTable("h_purchase_order_items", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   poId: bigint("po_id", { mode: "number" }).notNull(),
   materialId: bigint("material_id", { mode: "number" }).notNull(),
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(),
@@ -1514,7 +1514,7 @@ export const hPurchaseOrderItems = mysqlTable("h_purchase_order_items", {
  */
 export const hReceivingRecords = mysqlTable("h_receiving_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   poId: bigint("po_id", { mode: "number" }),
   receiptDate: date("receipt_date").notNull(),
@@ -1534,7 +1534,7 @@ export const hReceivingRecords = mysqlTable("h_receiving_records", {
  */
 export const hProductionLogs = mysqlTable("h_production_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
   logTime: timestamp("log_time").defaultNow().notNull(),
   eventType: varchar("event_type", { length: 50 }),
@@ -1548,7 +1548,7 @@ export const hProductionLogs = mysqlTable("h_production_logs", {
  */
 export const hTemperatureLogs = mysqlTable("h_temperature_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   logTime: timestamp("log_time").defaultNow().notNull(),
   location: varchar("location", { length: 100 }),
@@ -1564,7 +1564,7 @@ export const hTemperatureLogs = mysqlTable("h_temperature_logs", {
  */
 export const hBatchReports = mysqlTable("h_batch_reports", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
   reportDate: date("report_date").notNull(),
   reportType: varchar("report_type", { length: 50 }),
@@ -1579,7 +1579,7 @@ export const hBatchReports = mysqlTable("h_batch_reports", {
  */
 export const hDailyReports = mysqlTable("h_daily_reports", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   reportDate: date("report_date").notNull(),
   reportType: varchar("report_type", { length: 50 }),
@@ -1594,7 +1594,7 @@ export const hDailyReports = mysqlTable("h_daily_reports", {
  */
 export const hMonthlyReports = mysqlTable("h_monthly_reports", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   reportYear: int("report_year").notNull(),
   reportMonth: int("report_month").notNull(),
@@ -1610,7 +1610,7 @@ export const hMonthlyReports = mysqlTable("h_monthly_reports", {
  */
 export const hKpiMetrics = mysqlTable("h_kpi_metrics", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   metricDate: date("metric_date").notNull(),
   metricName: varchar("metric_name", { length: 100 }).notNull(),
@@ -1627,7 +1627,7 @@ export const hKpiMetrics = mysqlTable("h_kpi_metrics", {
  */
 export const hDashboardWidgets = mysqlTable("h_dashboard_widgets", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }),
   widgetType: varchar("widget_type", { length: 50 }).notNull(),
   widgetTitle: varchar("widget_title", { length: 200 }),
@@ -1642,7 +1642,7 @@ export const hDashboardWidgets = mysqlTable("h_dashboard_widgets", {
  */
 export const hFileAttachments = mysqlTable("h_file_attachments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   referenceType: varchar("reference_type", { length: 50 }).notNull(),
   referenceId: bigint("reference_id", { mode: "number" }).notNull(),
   fileName: varchar("file_name", { length: 255 }).notNull(),
@@ -1658,7 +1658,7 @@ export const hFileAttachments = mysqlTable("h_file_attachments", {
  */
 export const hComments = mysqlTable("h_comments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   referenceType: varchar("reference_type", { length: 50 }).notNull(),
   referenceId: bigint("reference_id", { mode: "number" }).notNull(),
   commentText: text("comment_text").notNull(),
@@ -1673,7 +1673,7 @@ export const hComments = mysqlTable("h_comments", {
  */
 export const hTags = mysqlTable("h_tags", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   tagName: varchar("tag_name", { length: 100 }).unique().notNull(),
   tagColor: varchar("tag_color", { length: 20 }),
   category: varchar("category", { length: 100 }),
@@ -1686,7 +1686,7 @@ export const hTags = mysqlTable("h_tags", {
  */
 export const hEntityTags = mysqlTable("h_entity_tags", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   entityType: varchar("entity_type", { length: 50 }).notNull(),
   entityId: bigint("entity_id", { mode: "number" }).notNull(),
   tagId: bigint("tag_id", { mode: "number" }).notNull(),
@@ -1698,7 +1698,7 @@ export const hEntityTags = mysqlTable("h_entity_tags", {
  */
 export const hFavorites = mysqlTable("h_favorites", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   entityType: varchar("entity_type", { length: 50 }).notNull(),
   entityId: bigint("entity_id", { mode: "number" }).notNull(),
@@ -1710,7 +1710,7 @@ export const hFavorites = mysqlTable("h_favorites", {
  */
 export const hBookmarks = mysqlTable("h_bookmarks", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   bookmarkName: varchar("bookmark_name", { length: 200 }).notNull(),
   bookmarkUrl: varchar("bookmark_url", { length: 500 }).notNull(),
@@ -1724,7 +1724,7 @@ export const hBookmarks = mysqlTable("h_bookmarks", {
  */
 export const hUserPreferences = mysqlTable("h_user_preferences", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   preferenceKey: varchar("preference_key", { length: 100 }).notNull(),
   preferenceValue: text("preference_value"),
@@ -1736,7 +1736,7 @@ export const hUserPreferences = mysqlTable("h_user_preferences", {
  */
 export const hSessions = mysqlTable("h_sessions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   sessionToken: varchar("session_token", { length: 255 }).unique().notNull(),
   ipAddress: varchar("ip_address", { length: 45 }),
@@ -1750,7 +1750,7 @@ export const hSessions = mysqlTable("h_sessions", {
  */
 export const hLoginHistory = mysqlTable("h_login_history", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   loginAt: timestamp("login_at").defaultNow().notNull(),
   logoutAt: timestamp("logout_at"),
@@ -1764,7 +1764,7 @@ export const hLoginHistory = mysqlTable("h_login_history", {
  */
 export const hApiLogs = mysqlTable("h_api_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }),
   endpoint: varchar("endpoint", { length: 500 }).notNull(),
   method: varchar("method", { length: 10 }),
@@ -1781,7 +1781,7 @@ export const hApiLogs = mysqlTable("h_api_logs", {
  */
 export const hErrorLogs = mysqlTable("h_error_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   errorType: varchar("error_type", { length: 100 }),
   errorMessage: text("error_message"),
   stackTrace: text("stack_trace"),
@@ -1796,7 +1796,7 @@ export const hErrorLogs = mysqlTable("h_error_logs", {
  */
 export const hScheduledTasks = mysqlTable("h_scheduled_tasks", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   taskName: varchar("task_name", { length: 200 }).notNull(),
   taskType: varchar("task_type", { length: 50 }),
   schedule: varchar("schedule", { length: 100 }),
@@ -1812,7 +1812,7 @@ export const hScheduledTasks = mysqlTable("h_scheduled_tasks", {
  */
 export const hTaskHistory = mysqlTable("h_task_history", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   taskId: bigint("task_id", { mode: "number" }).notNull(),
   runAt: timestamp("run_at").defaultNow().notNull(),
   status: mysqlEnum("status", ["success", "failed"]).notNull(),
@@ -1826,7 +1826,7 @@ export const hTaskHistory = mysqlTable("h_task_history", {
  */
 export const hBackupLogs = mysqlTable("h_backup_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   backupDate: timestamp("backup_date").defaultNow().notNull(),
   backupType: varchar("backup_type", { length: 50 }),
   backupSize: bigint("backup_size", { mode: "number" }),
@@ -1841,7 +1841,7 @@ export const hBackupLogs = mysqlTable("h_backup_logs", {
  */
 export const hSystemHealth = mysqlTable("h_system_health", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   checkTime: timestamp("check_time").defaultNow().notNull(),
   cpuUsage: decimal("cpu_usage", { precision: 5, scale: 2 }),
   memoryUsage: decimal("memory_usage", { precision: 5, scale: 2 }),
@@ -1856,7 +1856,7 @@ export const hSystemHealth = mysqlTable("h_system_health", {
  */
 export const hChangeLogs = mysqlTable("h_change_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   changeDate: timestamp("change_date").defaultNow().notNull(),
   changeType: varchar("change_type", { length: 50 }),
   entityType: varchar("entity_type", { length: 50 }),
@@ -1872,7 +1872,7 @@ export const hChangeLogs = mysqlTable("h_change_logs", {
  */
 export const hDataMigrations = mysqlTable("h_data_migrations", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   migrationName: varchar("migration_name", { length: 200 }).notNull(),
   migrationVersion: varchar("migration_version", { length: 50 }),
   status: mysqlEnum("status", ["pending", "in_progress", "completed", "failed"]).default("pending"),
@@ -1887,7 +1887,7 @@ export const hDataMigrations = mysqlTable("h_data_migrations", {
  */
 export const hIntegrations = mysqlTable("h_integrations", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   integrationName: varchar("integration_name", { length: 200 }).notNull(),
   integrationType: varchar("integration_type", { length: 50 }),
   apiEndpoint: varchar("api_endpoint", { length: 500 }),
@@ -1903,7 +1903,7 @@ export const hIntegrations = mysqlTable("h_integrations", {
  */
 export const hSyncLogs = mysqlTable("h_sync_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   integrationId: bigint("integration_id", { mode: "number" }).notNull(),
   syncAt: timestamp("sync_at").defaultNow().notNull(),
   syncType: varchar("sync_type", { length: 50 }),
@@ -1920,7 +1920,7 @@ export const hSyncLogs = mysqlTable("h_sync_logs", {
  */
 export const hWebhooks = mysqlTable("h_webhooks", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   webhookName: varchar("webhook_name", { length: 200 }).notNull(),
   webhookUrl: varchar("webhook_url", { length: 500 }).notNull(),
   eventType: varchar("event_type", { length: 100 }),
@@ -1935,7 +1935,7 @@ export const hWebhooks = mysqlTable("h_webhooks", {
  */
 export const hWebhookLogs = mysqlTable("h_webhook_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   webhookId: bigint("webhook_id", { mode: "number" }).notNull(),
   sentAt: timestamp("sent_at").defaultNow().notNull(),
   payload: text("payload"),
@@ -1951,7 +1951,7 @@ export const hWebhookLogs = mysqlTable("h_webhook_logs", {
  */
 export const hCustomFields = mysqlTable("h_custom_fields", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   entityType: varchar("entity_type", { length: 50 }).notNull(),
   fieldName: varchar("field_name", { length: 100 }).notNull(),
   fieldType: varchar("field_type", { length: 50 }),
@@ -1967,7 +1967,7 @@ export const hCustomFields = mysqlTable("h_custom_fields", {
  */
 export const hCustomFieldValues = mysqlTable("h_custom_field_values", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   fieldId: bigint("field_id", { mode: "number" }).notNull(),
   entityId: bigint("entity_id", { mode: "number" }).notNull(),
   fieldValue: text("field_value"),
@@ -1980,7 +1980,7 @@ export const hCustomFieldValues = mysqlTable("h_custom_field_values", {
  */
 export const hReportsTemplates = mysqlTable("h_reports_templates", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   templateName: varchar("template_name", { length: 200 }).notNull(),
   reportType: varchar("report_type", { length: 50 }),
   templateContent: text("template_content"),
@@ -1995,7 +1995,7 @@ export const hReportsTemplates = mysqlTable("h_reports_templates", {
  */
 export const hReportSchedules = mysqlTable("h_report_schedules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   templateId: bigint("template_id", { mode: "number" }).notNull(),
   scheduleName: varchar("schedule_name", { length: 200 }).notNull(),
   frequency: varchar("frequency", { length: 50 }),
@@ -2012,7 +2012,7 @@ export const hReportSchedules = mysqlTable("h_report_schedules", {
  */
 export const hHolidays = mysqlTable("h_holidays", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   holidayDate: date("holiday_date").notNull(),
   holidayName: varchar("holiday_name", { length: 200 }).notNull(),
   holidayType: varchar("holiday_type", { length: 50 }),
@@ -2025,7 +2025,7 @@ export const hHolidays = mysqlTable("h_holidays", {
  */
 export const hWorkShifts = mysqlTable("h_work_shifts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   shiftName: varchar("shift_name", { length: 100 }).notNull(),
   startTime: varchar("start_time", { length: 10 }),
@@ -2039,7 +2039,7 @@ export const hWorkShifts = mysqlTable("h_work_shifts", {
  */
 export const hEmployeeShifts = mysqlTable("h_employee_shifts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   shiftId: bigint("shift_id", { mode: "number" }).notNull(),
   workDate: date("work_date").notNull(),
@@ -2053,7 +2053,7 @@ export const hEmployeeShifts = mysqlTable("h_employee_shifts", {
  */
 export const hAttendanceRecords = mysqlTable("h_attendance_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   workDate: date("work_date").notNull(),
   checkInTime: timestamp("check_in_time"),
@@ -2069,7 +2069,7 @@ export const hAttendanceRecords = mysqlTable("h_attendance_records", {
  */
 export const hLeaveRequests = mysqlTable("h_leave_requests", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   leaveType: varchar("leave_type", { length: 50 }),
   startDate: date("start_date").notNull(),
@@ -2091,7 +2091,7 @@ export const hLeaveRequests = mysqlTable("h_leave_requests", {
  */
 export const hOvertimeRecords = mysqlTable("h_overtime_records", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   workDate: date("work_date").notNull(),
   overtimeHours: decimal("overtime_hours", { precision: 5, scale: 2 }).notNull(),
@@ -2110,7 +2110,7 @@ export const hOvertimeRecords = mysqlTable("h_overtime_records", {
  */
 export const hPerformanceReviews = mysqlTable("h_performance_reviews", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   employeeId: bigint("employee_id", { mode: "number" }).notNull(),
   reviewPeriodStart: date("review_period_start").notNull(),
   reviewPeriodEnd: date("review_period_end").notNull(),
@@ -2130,7 +2130,7 @@ export const hPerformanceReviews = mysqlTable("h_performance_reviews", {
  */
 export const hIncidents = mysqlTable("h_incidents", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   incidentDate: timestamp("incident_date").notNull(),
   incidentType: varchar("incident_type", { length: 50 }),
@@ -2152,7 +2152,7 @@ export const hIncidents = mysqlTable("h_incidents", {
  */
 export const hRiskAssessments = mysqlTable("h_risk_assessments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   assessmentDate: date("assessment_date").notNull(),
   area: varchar("area", { length: 100 }),
@@ -2177,7 +2177,7 @@ export const hRiskAssessments = mysqlTable("h_risk_assessments", {
  */
 export const hEmergencyContacts = mysqlTable("h_emergency_contacts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   contactType: varchar("contact_type", { length: 50 }),
   contactName: varchar("contact_name", { length: 100 }).notNull(),
@@ -2194,7 +2194,7 @@ export const hEmergencyContacts = mysqlTable("h_emergency_contacts", {
  */
 export const hEmergencyDrills = mysqlTable("h_emergency_drills", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   drillDate: date("drill_date").notNull(),
   drillType: varchar("drill_type", { length: 50 }),
@@ -2213,7 +2213,7 @@ export const hEmergencyDrills = mysqlTable("h_emergency_drills", {
  */
 export const hComplaints = mysqlTable("h_complaints", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   complaintDate: date("complaint_date").notNull(),
   complaintType: varchar("complaint_type", { length: 50 }),
@@ -2236,7 +2236,7 @@ export const hComplaints = mysqlTable("h_complaints", {
  */
 export const hCustomerFeedback = mysqlTable("h_customer_feedback", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   feedbackDate: date("feedback_date").notNull(),
   customerId: bigint("customer_id", { mode: "number" }),
   feedbackType: varchar("feedback_type", { length: 50 }),
@@ -2254,7 +2254,7 @@ export const hCustomerFeedback = mysqlTable("h_customer_feedback", {
  */
 export const hQualityObjectives = mysqlTable("h_quality_objectives", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   objectiveYear: int("objective_year").notNull(),
   objectiveName: varchar("objective_name", { length: 200 }).notNull(),
@@ -2273,7 +2273,7 @@ export const hQualityObjectives = mysqlTable("h_quality_objectives", {
  */
 export const hContinuousImprovement = mysqlTable("h_continuous_improvement", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   improvementDate: date("improvement_date").notNull(),
   area: varchar("area", { length: 100 }),
@@ -2295,7 +2295,7 @@ export const hContinuousImprovement = mysqlTable("h_continuous_improvement", {
 // 배치 승인 테이블
 export const hBatchApprovals = mysqlTable("h_batch_approvals", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
   approverId: bigint("approver_id", { mode: "number" }).notNull(),
   status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
@@ -2317,7 +2317,7 @@ export const hBatchApprovals = mysqlTable("h_batch_approvals", {
 // CCP 이탈 기록 테이블
 export const hCcpDeviations = mysqlTable("h_ccp_deviations", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ccpInstanceId: bigint("ccp_instance_id", { mode: "number" }).notNull(),
   ccpRowId: bigint("ccp_row_id", { mode: "number" }),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
@@ -2337,7 +2337,7 @@ export const hCcpDeviations = mysqlTable("h_ccp_deviations", {
 // 거래처 평가 테이블
 export const hSupplierEvaluations = mysqlTable("h_supplier_evaluations", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   supplierId: bigint("supplier_id", { mode: "number" }).notNull(),
   evaluationDate: date("evaluation_date").notNull(),
   evaluatedBy: bigint("evaluated_by", { mode: "number" }).notNull(),
@@ -2360,7 +2360,7 @@ export const hSupplierEvaluations = mysqlTable("h_supplier_evaluations", {
 // 배치 수익성 예측 기록 테이블
 export const hProfitabilityForecasts = mysqlTable("h_profitability_forecasts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   forecastDate: timestamp("forecast_date").notNull(), // 예측을 수행한 날짜
   targetMonth: varchar("target_month", { length: 7 }).notNull(), // 예측 대상 월 (YYYY-MM 형식)
   predictedRevenue: decimal("predicted_revenue", { precision: 15, scale: 2 }).notNull(), // 예측 매출액
@@ -2376,7 +2376,7 @@ export const hProfitabilityForecasts = mysqlTable("h_profitability_forecasts", {
 // CCP 점검 알림 테이블
 export const hCcpInspectionAlerts = mysqlTable("h_ccp_inspection_alerts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   instanceId: bigint("instance_id", { mode: "number" }).notNull(),
   scheduledTime: timestamp("scheduled_time").notNull(),
   status: mysqlEnum("status", ["pending", "notified", "completed", "skipped"]).default("pending"),
@@ -2395,7 +2395,7 @@ export const hCcpInspectionAlerts = mysqlTable("h_ccp_inspection_alerts", {
 // 배치 생산 일정 캘린더 테이블
 export const hBatchSchedules = mysqlTable("h_batch_schedules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
   scheduledDate: timestamp("scheduled_date").notNull(),
   status: varchar("status", { length: 50 }).default("planned"),
@@ -2413,7 +2413,7 @@ export const hBatchSchedules = mysqlTable("h_batch_schedules", {
  */
 export const hCcpMonitoring = mysqlTable("h_ccp_monitoring", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ccpPoint: varchar("ccp_point", { length: 255 }).notNull(), // CCP 지점 (예: 냉장고 온도)
   monitoringDate: date("monitoring_date").notNull(),
   monitoringTime: varchar("monitoring_time", { length: 10 }).notNull(), // HH:MM 형식
@@ -2431,7 +2431,7 @@ export const hCcpMonitoring = mysqlTable("h_ccp_monitoring", {
  */
 export const hProductionBatches = mysqlTable("h_production_batches", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchNumber: varchar("batch_number", { length: 50 }).notNull().unique(), // 배치 번호
   productId: bigint("product_id", { mode: "number" }).notNull(), // 제품 ID
   plannedQuantity: varchar("planned_quantity", { length: 50 }).notNull(), // 계획 수량
@@ -2449,7 +2449,7 @@ export const hProductionBatches = mysqlTable("h_production_batches", {
  */
 export const hProductionMaterialUsage = mysqlTable("h_production_material_usage", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(), // 생산 배치 ID
   materialId: bigint("material_id", { mode: "number" }).notNull(), // 원재료 ID
   lotNumber: varchar("lot_number", { length: 50 }).notNull(), // LOT 번호
@@ -2465,7 +2465,7 @@ export const hProductionMaterialUsage = mysqlTable("h_production_material_usage"
  */
 export const hProductInventory = mysqlTable("h_product_inventory", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productId: bigint("product_id", { mode: "number" }).notNull(), // 제품 ID
   quantity: varchar("quantity", { length: 50 }).notNull(), // 총 수량
   availableQuantity: varchar("available_quantity", { length: 50 }).notNull(), // 가용 수량

@@ -252,7 +252,7 @@ export default function HazardAnalysis({ embedded }: { embedded?: boolean } = {}
               <SelectValue placeholder="제품 선택" />
             </SelectTrigger>
             <SelectContent>
-              {products?.map((product) => (
+              {products?.map((product: any) => (
                 <SelectItem key={product.id} value={product.id.toString()}>
                   {product.productName}
                 </SelectItem>
@@ -421,7 +421,7 @@ export default function HazardAnalysis({ embedded }: { embedded?: boolean } = {}
                     <SelectValue placeholder="제품 선택" />
                   </SelectTrigger>
                   <SelectContent>
-                    {products?.map((product) => (
+                    {products?.map((product: any) => (
                       <SelectItem key={product.id} value={product.id.toString()}>
                         {product.productName}
                       </SelectItem>

@@ -57,7 +57,7 @@ export default function InventoryReceipt() {
       
       // 자동 매입 거래 생성
       if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
-        const selectedMaterial = materials?.find(m => m.id === selectedMaterialId);
+        const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
           await createPurchaseMutation.mutateAsync({
             inventoryTransactionId: data.lotId,

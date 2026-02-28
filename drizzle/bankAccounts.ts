@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const bankAccounts = mysqlTable("bank_accounts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 기본 정보
   bankName: varchar("bank_name", { length: 100 }).notNull(), // 은행명 (예: 신한은행, 국민은행)
@@ -45,7 +45,7 @@ export const bankAccounts = mysqlTable("bank_accounts", {
  */
 export const bankTransactions = mysqlTable("bank_transactions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   bankAccountId: bigint("bank_account_id", { mode: "number" }).notNull().references(() => bankAccounts.id),
   
   // 거래 정보
@@ -99,7 +99,7 @@ export const bankTransactions = mysqlTable("bank_transactions", {
  */
 export const bankTransactionMatchingRules = mysqlTable("bank_transaction_matching_rules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 규칙 정보
   ruleName: varchar("rule_name", { length: 255 }).notNull(), // 규칙 이름 (예: "급여 자동 매칭")

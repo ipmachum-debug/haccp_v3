@@ -35,7 +35,7 @@ import { tenants } from '../schema_main';
  */
 export const hInventory = mysqlTable("h_inventory", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }),
   materialId: bigint("material_id", { mode: "number" }),
   productId: bigint("product_id", { mode: "number" }),

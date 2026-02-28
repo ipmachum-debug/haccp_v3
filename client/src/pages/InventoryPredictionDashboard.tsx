@@ -22,12 +22,12 @@ export default function InventoryPredictionDashboard() {
       toast.success("안전 재고 수준이 업데이트되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
-  const selectedMaterial = materials?.find((m) => m.id === selectedMaterialId);
+  const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
 
   // ERP 모듈 구현 후 재추가
   // const predictionData = calculatePrediction();
@@ -65,7 +65,7 @@ export default function InventoryPredictionDashboard() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {materials?.map((material) => (
+            {materials?.map((material: any) => (
               <Button
                 key={material.id}
                 variant={selectedMaterialId === material.id ? "default" : "outline"}

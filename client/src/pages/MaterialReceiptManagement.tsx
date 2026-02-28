@@ -127,7 +127,7 @@ export default function MaterialReceiptManagement() {
                       <SelectValue placeholder="원재료 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {materials.map((material) => (
+                      {materials.map((material: any) => (
                         <SelectItem key={material.id} value={material.id.toString()}>
                           {material.materialName} ({material.materialCode})
                         </SelectItem>
@@ -250,7 +250,7 @@ export default function MaterialReceiptManagement() {
                       <TableRow key={lot.id}>
                         <TableCell className="font-mono">{lot.lotNumber}</TableCell>
                         <TableCell>
-                          {materials.find((m) => m.id === lot.materialId)?.materialName || "-"}
+                          {materials.find((m: any) => m.id === lot.materialId)?.materialName || "-"}
                         </TableCell>
                         <TableCell>{lot.quantity} {lot.unit}</TableCell>
                         <TableCell>{lot.availableQuantity} {lot.unit}</TableCell>
@@ -314,7 +314,7 @@ export default function MaterialReceiptManagement() {
                     <SelectValue placeholder="원재료를 선택하세요" />
                   </SelectTrigger>
                   <SelectContent>
-                    {materials.map((material) => (
+                    {materials.map((material: any) => (
                       <SelectItem key={material.id} value={material.id.toString()}>
                         {material.materialName} ({material.materialCode})
                       </SelectItem>

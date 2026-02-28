@@ -6,7 +6,7 @@ import { tenants } from '../schema_main';
  */
 export const recipes = mysqlTable("recipes", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productId: int("product_id").notNull(), // 제품 ID
   recipeName: varchar("recipe_name", { length: 255 }).notNull(), // 레시피 이름
   version: varchar("version", { length: 50 }).notNull().default("1.0"), // 버전

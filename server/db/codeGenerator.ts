@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
  * 원재료 코드 자동 생성 (MAT-001, MAT-002...)
  * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성 (테넌트 간 충돌 방지)
  */
-export async function generateMaterialCode(): Promise<string> {
+export async function generateMaterialCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -28,7 +28,7 @@ export async function generateMaterialCode(): Promise<string> {
  * 제품 코드 자동 생성 (30001, 30002...)
  * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성 (테넌트 간 충돌 방지)
  */
-export async function generateProductCode(): Promise<string> {
+export async function generateProductCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   

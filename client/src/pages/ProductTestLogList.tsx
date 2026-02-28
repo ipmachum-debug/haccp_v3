@@ -40,6 +40,19 @@ export default function ProductTestLogList() {
     },
   });
 
+  const handleApprovalRequest = (record: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm("승인을 요청하시겠습니까?")) {
+      approvalMutation.mutate({
+        requestType: "checklist_approval",
+        referenceType: "generic_checklist",
+        referenceId: record.id,
+        title: record.title || "product_test_log",
+        description: "체크리스트 승인 요청",
+      });
+    }
+  };
+
   const handleDelete = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("정말 삭제하시겠습니까?")) {

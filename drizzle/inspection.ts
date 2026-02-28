@@ -6,7 +6,7 @@ import { tenants } from '../schema_main';
  */
 export const materialInspectionRecords = mysqlTable("material_inspection_records", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   materialId: int("material_id").notNull(), // 원재료 ID
   materialCode: varchar("material_code", { length: 100 }).notNull(), // 원재료 코드
   materialName: varchar("material_name", { length: 200 }).notNull(), // 원재료명

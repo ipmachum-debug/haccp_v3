@@ -21,7 +21,7 @@ import {
   Printer, Clock, Search, FileText, Shield,
   ClipboardCheck, Package, AlertTriangle, Eye, RefreshCw,
   CheckCircle, Download, CheckSquare, Square, ListChecks,
-  History, FileDown, Loader2
+  History, FileDown, Loader2, Trash2
 } from "lucide-react";
 import { ApprovalSealRow } from "@/components/SealGenerator";
 
@@ -202,6 +202,10 @@ export default function DocumentPrintManagement() {
 
   // 인쇄 진행 상태
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // 삭제 확인 다이얼로그
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ ids: number[]; mode: "single" | "bulk" } | null>(null);
 
   // 승인된 문서 조회 (status: "approved")
   const { data: approvedRequests = [], refetch: refetchApproved, isLoading } = trpc.approval.list.useQuery({ status: "approved" });
@@ -393,6 +397,58 @@ export default function DocumentPrintManagement() {
     toast({ title: "초기화 완료", description: "인쇄 이력이 초기화되었습니다." });
   };
 
+  // 단건 삭제 mutation
+  const deleteMutation = trpc.approval.deleteRequest.useMutation({
+    onSuccess: (data) => {
+      toast({ title: "삭제 완료", description: data.message });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setSelectedIds([]);
+      refetchApproved();
+    },
+    onError: (error) => {
+      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // 일괄 삭제 mutation
+  const bulkDeleteMutation = trpc.approval.bulkDeleteRequests.useMutation({
+    onSuccess: (data) => {
+      toast({ title: "일괄 삭제 완료", description: data.message });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setSelectedIds([]);
+      refetchApproved();
+    },
+    onError: (error) => {
+      toast({ title: "일괄 삭제 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // 삭제 핸들러
+  const handleDeleteSingle = (request: any) => {
+    setDeleteTarget({ ids: [request.id], mode: "single" });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) {
+      toast({ title: "선택 필요", description: "삭제할 문서를 선택해주세요.", variant: "destructive" });
+      return;
+    }
+    setDeleteTarget({ ids: [...selectedIds], mode: "bulk" });
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.mode === "single") {
+      deleteMutation.mutate({ id: deleteTarget.ids[0] });
+    } else {
+      bulkDeleteMutation.mutate({ ids: deleteTarget.ids });
+    }
+  };
+
   // 문서 카드 렌더링 (체크박스 포함)
   const renderDocumentCard = (request: any, showCheckbox: boolean = true) => {
     const isSelected = selectedIds.includes(request.id);
@@ -480,6 +536,14 @@ export default function DocumentPrintManagement() {
                 <Printer className="h-4 w-4 mr-1" />
                 {isPrinted ? "재인쇄" : "인쇄"}
               </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleDeleteSingle(request)}
+                title="삭제"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -529,6 +593,12 @@ export default function DocumentPrintManagement() {
           <Button size="sm" variant="outline" className="ml-auto" onClick={() => handleBatchPrintAll(list)} disabled={isPrinting}>
             <ListChecks className="h-4 w-4 mr-1" />
             전체 일괄 인쇄 ({list.length}건)
+          </Button>
+        )}
+        {selectedCount > 0 && (
+          <Button size="sm" variant="destructive" onClick={handleDeleteSelected}>
+            <Trash2 className="h-4 w-4 mr-1" />
+            선택 삭제 ({selectedCount}건)
           </Button>
         )}
       </div>
@@ -938,6 +1008,38 @@ export default function DocumentPrintManagement() {
                 인쇄
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 삭제 확인 다이얼로그 */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" />
+              문서 삭제 확인
+            </DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.mode === "single"
+                ? "이 문서를 삭제하시겠습니까?"
+                : `선택한 ${deleteTarget?.ids.length || 0}건의 문서를 삭제하시겠습니까?`
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="text-sm text-muted-foreground p-3 bg-red-50 dark:bg-red-950/20 rounded-lg">
+            <p className="text-red-600 font-medium">이 작업은 되돌릴 수 없습니다.</p>
+            <p className="mt-1">삭제된 문서는 승인 관리 및 문서 출력 목록에서 모두 제거됩니다.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>취소</Button>
+            <Button 
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={deleteMutation.isPending || bulkDeleteMutation.isPending}
+            >
+              {(deleteMutation.isPending || bulkDeleteMutation.isPending) ? "삭제 중..." : "삭제"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

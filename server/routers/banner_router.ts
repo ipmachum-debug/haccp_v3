@@ -29,7 +29,7 @@ export const bannerRouter = router({
       .orderBy(desc(db.schema.banners.priority));
     
     // 역할 필터링
-    return banners.filter(banner => {
+    return banners.filter((banner: any) => {
       if (!banner.targetRoles) return true;
       return banner.targetRoles.includes(ctx.user.role);
     });

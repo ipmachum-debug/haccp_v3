@@ -1067,6 +1067,36 @@ function ProductTimeProfileMapDialog({
   );
 }
 
+// ========== 공정그룹별 제품 매칭 현황 (읽기 전용 인라인 요약) ==========
+function ProcessGroupProductSummary({ groupId, groupName }: { groupId: number; groupName: string }) {
+  const { data: mappedProducts } = trpc.ccpMonitoring.getProcessGroupProducts.useQuery(
+    { processGroupId: groupId },
+    { enabled: !!groupId }
+  );
+  const products = Array.isArray(mappedProducts) ? mappedProducts : [];
+  if (products.length === 0) return null;
+
+  return (
+    <div className="mt-2 bg-green-50 dark:bg-green-950/20 rounded-md p-2 border border-green-200 dark:border-green-800">
+      <div className="text-[11px] font-semibold text-green-700 dark:text-green-300 flex items-center gap-1 mb-1">
+        <Package className="h-3 w-3" />
+        매칭 제품 ({products.length})
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {products.slice(0, 8).map((p: any) => (
+          <Badge key={p.product_id} variant="outline" className="text-[10px] px-1.5 py-0 bg-white dark:bg-gray-800">
+            {p.product_name}
+            <span className="ml-1 text-gray-400">{p.mapping_source === "BOM" ? "B" : "M"}</span>
+          </Badge>
+        ))}
+        {products.length > 8 && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">+{products.length - 8}개</Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ========== 메인 컴포넌트 ==========
 export default function CCPLimitsManagement() {
   const [filterCcpType, setFilterCcpType] = useState<string>("all");
@@ -1280,6 +1310,9 @@ export default function CCPLimitsManagement() {
                         )}
                       </div>
                     )}
+
+                    {/* 제품 매칭 현황 (읽기 전용) */}
+                    <ProcessGroupProductSummary groupId={group.id} groupName={group.name} />
                   </div>
                 );
               })}

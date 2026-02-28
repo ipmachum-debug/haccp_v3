@@ -49,7 +49,7 @@ function CompanySettingsContent() {
         description: "회사 정보가 저장되었습니다.",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "저장 실패",
         description: error.message,

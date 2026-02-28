@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const accountingMonthlySummary = mysqlTable("accounting_monthly_summary", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 기간 정보
   year: int("year").notNull(), // 연도 (예: 2026)
@@ -56,7 +56,7 @@ export const accountingMonthlySummary = mysqlTable("accounting_monthly_summary",
  */
 export const accountingMonthlyReport = mysqlTable("accounting_monthly_report", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 연관 데이터
   summaryId: bigint("summary_id", { mode: "number" }).notNull(), // accounting_monthly_summary.id
@@ -81,7 +81,7 @@ export const accountingMonthlyReport = mysqlTable("accounting_monthly_report", {
  */
 export const accountingHighAmountTransactions = mysqlTable("accounting_high_amount_transactions", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 연관 데이터
   summaryId: bigint("summary_id", { mode: "number" }).notNull(), // accounting_monthly_summary.id
@@ -104,7 +104,7 @@ export const accountingHighAmountTransactions = mysqlTable("accounting_high_amou
  */
 export const accountingDocuments = mysqlTable("accounting_documents", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 문서 분류
   category: mysqlEnum("category", [
@@ -154,7 +154,7 @@ export const accountingDocuments = mysqlTable("accounting_documents", {
  */
 export const accountingDocumentWorkflow = mysqlTable("accounting_document_workflow", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 연관 문서
   documentId: bigint("document_id", { mode: "number" }).notNull(), // accounting_documents.id

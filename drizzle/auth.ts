@@ -20,7 +20,7 @@ import {
 
 export const hEmployees = mysqlTable("h_employees", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   employeeCode: varchar("employee_code", { length: 50 }).notNull().unique(),
   employeeName: varchar("employee_name", { length: 100 }).notNull(),

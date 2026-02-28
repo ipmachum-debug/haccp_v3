@@ -68,6 +68,7 @@ export function MonthlyHygieneLogListModal({
     }
   });
 
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const approveMutation = trpc.monthlyLog.approveHygiene.useMutation({
     onSuccess: () => {
       toast({

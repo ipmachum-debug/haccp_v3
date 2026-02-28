@@ -224,7 +224,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
                   <SelectValue placeholder="설비를 선택하세요" />
                 </SelectTrigger>
                 <SelectContent>
-                  {equipmentList?.map((equipment) => (
+                  {equipmentList?.map((equipment: any) => (
                     <SelectItem key={equipment.id} value={equipment.id.toString()}>
                       {equipment.code} - {equipment.name}
                     </SelectItem>

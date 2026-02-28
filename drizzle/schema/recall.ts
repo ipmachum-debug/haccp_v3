@@ -94,7 +94,7 @@ export const h_recall_simulations = mysqlTable("h_recall_simulations", {
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -149,7 +149,7 @@ export const h_recall_distribution_tracking = mysqlTable("h_recall_distribution_
   
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -183,7 +183,7 @@ export const h_recall_checklist = mysqlTable("h_recall_checklist", {
   
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -208,7 +208,7 @@ export const h_recall_attachments = mysqlTable("h_recall_attachments", {
   
   uploadedBy: bigint("uploaded_by", { mode: "number" }).notNull(),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -241,5 +241,5 @@ export const h_recall_stats = mysqlTable("h_recall_stats", {
   
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });

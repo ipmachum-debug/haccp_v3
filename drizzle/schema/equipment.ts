@@ -4,7 +4,7 @@ import { relations } from "drizzle-orm";
 // 설비 마스터 (간소화)
 export const equipments = mysqlTable("equipments", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   code: varchar("code", { length: 50 }).notNull().unique(),
   name: varchar("name", { length: 255 }).notNull(),
   type: varchar("type", { length: 100 }).notNull(), // 증숙기, 냉각기, 금속검출기, 오븐 등

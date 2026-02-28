@@ -29,7 +29,7 @@ import { tenants } from '../schema_main';
  */
 export const hHazardAnalysis = mysqlTable("h_hazard_analysis", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productId: bigint("product_id", { mode: "number" }).notNull(),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   processStep: varchar("process_step", { length: 200 }).notNull(), // 공정 단계
@@ -72,7 +72,7 @@ export const hHazardAnalysis = mysqlTable("h_hazard_analysis", {
  */
 export const hHazardControls = mysqlTable("h_hazard_controls", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   hazardAnalysisId: bigint("hazard_analysis_id", { mode: "number" }).notNull(),
   controlType: mysqlEnum("control_type", [
     "preventive",  // 예방적 관리
@@ -96,7 +96,7 @@ export const hHazardControls = mysqlTable("h_hazard_controls", {
  */
 export const hCorrectiveActionRequests = mysqlTable("h_corrective_action_requests", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   requestNumber: varchar("request_number", { length: 50 }).unique().notNull(),
   
   // 발생 정보
@@ -171,7 +171,7 @@ export const hCorrectiveActionRequests = mysqlTable("h_corrective_action_request
  */
 export const hCorrectiveActionAttachments = mysqlTable("h_corrective_action_attachments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   requestId: bigint("request_id", { mode: "number" }).notNull(),
   fileName: varchar("file_name", { length: 255 }).notNull(),
   fileUrl: varchar("file_url", { length: 500 }).notNull(),
@@ -190,7 +190,7 @@ export const hCorrectiveActionAttachments = mysqlTable("h_corrective_action_atta
  */
 export const hTrainingCourses = mysqlTable("h_training_courses", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   courseCode: varchar("course_code", { length: 50 }).unique().notNull(),
   courseName: varchar("course_name", { length: 200 }).notNull(),
   
@@ -235,7 +235,7 @@ export const hTrainingCourses = mysqlTable("h_training_courses", {
  */
 export const hTrainingSchedules = mysqlTable("h_training_schedules", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   courseId: bigint("course_id", { mode: "number" }).notNull(),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   
@@ -264,7 +264,7 @@ export const hTrainingSchedules = mysqlTable("h_training_schedules", {
  */
 export const hTrainingParticipants = mysqlTable("h_training_participants", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   scheduleId: bigint("schedule_id", { mode: "number" }).notNull(),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   
@@ -299,7 +299,7 @@ export const hTrainingParticipants = mysqlTable("h_training_participants", {
  */
 export const hTrainingReminders = mysqlTable("h_training_reminders", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   participantId: bigint("participant_id", { mode: "number" }).notNull(),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   courseId: bigint("course_id", { mode: "number" }).notNull(),

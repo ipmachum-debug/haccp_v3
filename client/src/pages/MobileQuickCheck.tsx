@@ -24,7 +24,7 @@ export default function MobileQuickCheck() {
     schedule.ccpName?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredMaterials = materials?.filter((material) =>
+  const filteredMaterials = materials?.filter((material: any) =>
     material.materialName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     material.materialCode?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -147,7 +147,7 @@ export default function MobileQuickCheck() {
       {activeTab === "inventory" && (
         <div className="px-4 space-y-3">
           {filteredMaterials && filteredMaterials.length > 0 ? (
-            filteredMaterials.map((material) => {
+            filteredMaterials.map((material: any) => {
               const safetyStock = Number(material.safetyStockLevel) || 0;
               const currentStock = 0; // 현재 재고는 hInventory 테이블에서 조회 필요
               const isLowStock = currentStock < safetyStock;

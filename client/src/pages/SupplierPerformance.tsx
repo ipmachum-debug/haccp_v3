@@ -9,7 +9,7 @@ export default function SupplierPerformance() {
   const { data: evaluations } = trpc.supplierEvaluation.list.useQuery({ supplierId: 0 });
 
   // 거래처별 최신 평가 점수 계산
-  const supplierScores = suppliers?.map((supplier) => {
+  const supplierScores = suppliers?.map((supplier: any) => {
     const supplierEvals = evaluations?.filter((e: any) => e.supplierId === supplier.id) || [];
     const latestEval = supplierEvals[0];
     
@@ -21,10 +21,10 @@ export default function SupplierPerformance() {
       evaluationCount: supplierEvals.length,
       lastEvaluationDate: latestEval?.evaluationDate,
     };
-  }).sort((a, b) => Number(b.overallScore) - Number(a.overallScore)) || [];
+  }).sort((a: any, b: any) => Number(b.overallScore) - Number(a.overallScore)) || [];
 
   // 등급별 분포 계산
-  const ratingDistribution = suppliers?.reduce((acc, supplier) => {
+  const ratingDistribution = suppliers?.reduce((acc: any, supplier: any) => {
     const rating = supplier.rating || "C";
     acc[rating] = (acc[rating] || 0) + 1;
     return acc;
@@ -32,7 +32,7 @@ export default function SupplierPerformance() {
 
   // 평균 점수 계산
   const averageScore = supplierScores.length > 0
-    ? supplierScores.reduce((sum, s) => sum + Number(s.overallScore), 0) / supplierScores.length
+    ? supplierScores.reduce((sum: any, s: any) => sum + Number(s.overallScore), 0) / supplierScores.length
     : 0;
 
   // 상위 5개 거래처
@@ -114,7 +114,7 @@ export default function SupplierPerformance() {
                     평가 데이터가 없습니다
                   </div>
                 ) : (
-                  topSuppliers.map((supplier, index) => (
+                  topSuppliers.map((supplier: any, index: any) => (
                     <div key={supplier.id} className="flex items-center gap-4">
                       <div className="flex items-center justify-center w-8 h-8 rounded-full bg-green-100 text-green-700 font-bold">
                         {index + 1}
@@ -163,7 +163,7 @@ export default function SupplierPerformance() {
                     평가 데이터가 없습니다
                   </div>
                 ) : (
-                  bottomSuppliers.map((supplier, index) => (
+                  bottomSuppliers.map((supplier: any, index: any) => (
                     <div key={supplier.id} className="flex items-center gap-4">
                       <div className="flex items-center justify-center w-8 h-8 rounded-full bg-orange-100 text-orange-700 font-bold">
                         {supplierScores.length - bottomSuppliers.length + index + 1}

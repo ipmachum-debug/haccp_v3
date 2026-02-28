@@ -40,7 +40,7 @@ export default function ProductionStatus() {
     }));
     
     return batches.map((batch) => {
-      const product = products.find((p) => p.id === batch.productId);
+      const product = products.find((p: any) => p.id === batch.productId);
       return {
         ...batch,
         productName: product?.productName || "알 수 없음",

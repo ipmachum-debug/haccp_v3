@@ -29,7 +29,7 @@ import { tenants } from '../schema_main';
  */
 export const hHazardAnalysis = mysqlTable("h_hazard_analysis", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productId: bigint("product_id", { mode: "number" }).notNull(),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   processStep: varchar("process_step", { length: 200 }).notNull(), // 공정 단계

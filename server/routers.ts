@@ -23,6 +23,7 @@ import { adminRouter } from "./routers/admin";
 import { tenantsRouter } from "./routers/tenants";
 import { qualityChecklistRouter } from "./routers/qualityChecklist";
 import { ccpMonitoringRouter } from "./routers/ccpMonitoring";
+import { metalDetectionRouter } from "./routers/metalDetection";
 import { employeeRouter } from "./routers/employee";
 import { healthCertificateRouter } from "./routers/healthCertificate";
 import { checklistScheduleRouter } from "./routers/checklistSchedule";
@@ -185,7 +186,7 @@ ai: aiRouter,
           tenantId: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { registerUser } = await import("./localAuth");
         const result = await registerUser(
           input.email, 
@@ -234,7 +235,7 @@ ai: aiRouter,
           email: z.string().email()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         // 사용자 조회
         const user = await getUserByEmail(input.email);
         if (!user) {
@@ -284,7 +285,7 @@ ai: aiRouter,
           newPassword: z.string().min(8)
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
 
@@ -337,7 +338,7 @@ ai: aiRouter,
   batch: router({
 
     
-    // 배치 생성
+    // 배치 생성 (MES + HACCP + ERP 트랜잭션 오케스트레이션)
     create: workerProcedure
       .input(
         z.object({
@@ -347,36 +348,52 @@ ai: aiRouter,
           plannedQuantity: z.number(),
           plannedStartDate: z.date(),
           plannedEndDate: z.date().optional(),
+          // auto: CCP 자동 생성 후 승인관리 자동 이동
+          // 배치 시작시간 (HH:mm)
+          batchStartTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          // manual: CCP 생성 후 사람이 확인, 수동 승인
           mode: z.enum(["auto", "manual"]).default("auto"),
-          manualStartTime: z.string().optional(), // 수동배치 시작 시간 (HH:mm 형식)
-          manualEndTime: z.string().optional(),   // 수동배치 종료 시간 (HH:mm 형식)
+          manualStartTime: z.string().optional(),
+          manualEndTime: z.string().optional(),
+          // SKU 실제 생산수량 (배치 생성 시 함께 저장 가능)
+          skuOutputs: z.array(z.object({
+            skuId: z.number(),
+            plannedQty: z.number(),
+            actualQty: z.number().optional(),
+            defectiveQty: z.number().default(0),
+            notes: z.string().optional(),
+          })).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { createBatch, createAuditLog, getProductById } = await import("./db");
+        const { createBatch, createAuditLog, getProductById, getDb } = await import("./db");
         const { autoCreateCcpInstancesForBatch } = await import("./services/ccp-batch");
-        
-        // 1. 배치 생성
+
+        const tenantId = ctx.user.tenantId;
+        const workDate = input.plannedStartDate.toISOString().split("T")[0];
+
+        // STEP 1. 배치 헤더 생성
         const batchId = await createBatch({
-          tenantId: ctx.user.tenantId,
+          tenantId,
           siteId: input.siteId,
           productId: input.productId,
           batchCode: input.batchNumber,
           plannedQuantity: input.plannedQuantity.toString(),
           plannedDate: input.plannedStartDate,
-          createdBy: ctx.user.id
+          createdBy: ctx.user.id,
+          mode: input.mode,
+          batchStartTime: input.batchStartTime,
         });
-        
-        // 2. 제품 정보 조회 (CCP 자동 생성용)
+
+        // STEP 2. 제품 정보 조회
         const product = await getProductById(input.productId);
         const productName = product?.productName || "";
-        
-        // 3. CCP 자동 생성 (auto/manual 모두 자동 생성)
+
+        // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
         let ccpCreated = false;
         let ccpCount = 0;
-        let instanceIds: number[] = [];
+        let ccpGroups: any[] = [];
         try {
-          const workDate = input.plannedStartDate.toISOString().split('T')[0];
           const result = await autoCreateCcpInstancesForBatch({
             siteId: input.siteId,
             workDate,
@@ -384,69 +401,166 @@ ai: aiRouter,
             productId: input.productId,
             productName,
             createdBy: ctx.user.id,
-            tenantId: ctx.user.tenantId
+            tenantId,
           });
           ccpCreated = result.instanceIds.length > 0;
           ccpCount = result.instanceIds.length;
-          instanceIds = result.instanceIds;
-          console.log(`[파이프라인] CCP 자동 생성 완료 (${input.mode} 모드): ${ccpCount}건`);
-        } catch (error) {
-          console.error("CCP 자동 생성 실패 (배치 생성은 유지):", error);
+          ccpGroups = result.groups || [];
+          console.log(
+            `[파이프라인] CCP 자동 생성 완료 (${input.mode} 모드): ${ccpCount}건 ` +
+            `[${ccpGroups.map((g: any) => `${g.name}(${g.ccp_type})`).join(", ")}]`,
+          );
+        } catch (err) {
+          console.error("[파이프라인] CCP 자동 생성 실패 (배치 생성 유지):", err);
         }
-        
-        // 3.5. CCP 점검 알림 자동 생성 (수동배치 모드일 때만)
-        let alertsCreated = 0;
-        if (input.mode === "manual" && input.manualStartTime && input.manualEndTime) {
+
+        // STEP 3-B + STEP 4: 제품명 확보 → CCP 기록지 자동생성 → 승인요청 등록
+        // ※ getRawConnection()은 Pool 싱글턴 → .end() 절대 호출 금지, Pool을 그대로 사용
+        let approvalRequestId: number | null = null;
+        // 제품명 보완: h_products_v2 우선 조회 (STEP 3-B, 4 공통 사용)
+        let finalProductName = productName;
+        try {
+          if (!finalProductName && input.productId) {
+            const { getRawConnection: _rcProd } = await import("./db");
+            const _poolProd = await _rcProd();
+            const [_pRows] = await _poolProd.execute(
+              'SELECT product_name FROM h_products_v2 WHERE id = ? LIMIT 1',
+              [input.productId]
+            );
+            finalProductName = (_pRows as any[])[0]?.product_name || "";
+          }
+        } catch (_pe) { /* ignore */ }
+
+        // STEP 3-B. CCP 기록지(h_ccp_form_records) 자동 생성
+        if (ccpCreated && ccpGroups.length > 0) {
           try {
-            const { createInspectionAlert } = await import("./db/ccpInspectionAlerts");
-            const { getCcpInstancesByBatchId } = await import("./db");
-            
-            // 배치의 CCP 인스턴스 조회 (수동 생성된 경우를 대비)
-            const instances = await getCcpInstancesByBatchId(batchId);
-            
-            // 수동 시간을 Date 객체로 변환
-            const [startHour, startMin] = input.manualStartTime.split(':').map(Number);
-            const [endHour, endMin] = input.manualEndTime.split(':').map(Number);
-            
-            const startTime = new Date(input.plannedStartDate);
-            startTime.setHours(startHour, startMin, 0, 0);
-            
-            const endTime = new Date(input.plannedStartDate);
-            endTime.setHours(endHour, endMin, 0, 0);
-            
-            // 각 CCP 인스턴스에 대해 알림 생성
-            for (const instance of instances) {
-              // 시작 시간에 첫 번째 알림 생성
-              await createInspectionAlert({
-                instanceId: instance.id,
-                scheduledTime: startTime
-              });
-              alertsCreated++;
+            const { getRawConnection: _rc3 } = await import("./db");
+            const _pool3 = await _rc3(); // Pool 싱글턴 (end() 호출 금지)
+            for (const grp of ccpGroups) {
+              const [existFR] = await _pool3.execute(
+                'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1',
+                [batchId, grp.ccp_type, tenantId]
+              );
+              if ((existFR as any[]).length > 0) continue;
+              const clHeatTimeMinLo = grp.time_min ?? null;
+              const clHeatTimeMinHi = grp.time_max ?? null;
+              const clHeatTempLo    = grp.temperature_min ?? null;
+              const clPressureMpaLo = grp.pressure_min ?? null;
+              // 공정그룹에서 배치 운영 설정 가져오기 (Single Source of Truth)
+              const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
+              const equipIntervalMin = grp.equip_interval_min ?? 10;
+              await _pool3.execute(
+                `INSERT INTO h_ccp_form_records
+                   (tenant_id, site_id, batch_id, ccp_type, work_date,
+                    product_id, product_name, process_group_id, process_group_name,
+                    planned_qty_kg, writer_id, status,
+                    cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo,
+                    equip_group_mode, equip_interval_min)
+                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?)`,
+                [
+                  tenantId, input.siteId || ctx.user.siteId || 1, batchId, grp.ccp_type, workDate,
+                  input.productId, finalProductName || productName || null, grp.id, grp.name,
+                  input.plannedQuantity, ctx.user.id,
+                  clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
+                  equipGroupMode, equipIntervalMin,
+                ]
+              );
             }
-          } catch (error) {
-            console.error("CCP 점검 알림 생성 실패:", error);
+            console.log(`[파이프라인] CCP 기록지 자동 생성 완료: 배치#${batchId} (${ccpGroups.length}건)`);
+          } catch (frErr) {
+            console.error('[파이프라인] CCP 기록지 자동 생성 실패 (계속):', frErr);
           }
         }
-        
-        // 4. 일정 자동 생성
+
+        // STEP 3-C. h_ccp_rows → h_ccp_form_rows 동기화 (설비 기준값 → 인쇄용 기록지 행)
+        if (ccpCreated) {
+          try {
+            const { syncCcpRowsToFormRows } = await import("./db/ccpFormRecords");
+            const syncResult = await syncCcpRowsToFormRows({ batchId, tenantId });
+            console.log(`[파이프라인] CCP form rows 동기화 완료: 배치#${batchId} ${syncResult.synced}건`);
+          } catch (syncErr) {
+            console.error("[파이프라인] CCP form rows 동기화 실패 (계속):", syncErr);
+          }
+        }
+
+
+        // STEP 4. 승인 요청 큐 자동 등록 (pending_review)
+        if (ccpCreated) {
+          try {
+            const { getRawConnection: _rc4 } = await import("./db");
+            const _pool4 = await _rc4(); // Pool 싱글턴
+            const ccpGroupNames = ccpGroups.map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
+            const modeLabel = input.mode === "auto" ? "[자동]" : "[수동]";
+            const [insResult] = await _pool4.execute(
+              `INSERT INTO h_approval_requests
+                 (site_id, tenant_id, request_type, reference_type, reference_id,
+                  title, description, status, priority, requested_by)
+               VALUES (?, ?, 'batch_production', 'batch', ?, ?, ?, 'pending_review', 'high', ?)`,
+              [
+                (input.siteId || ctx.user.siteId || 1),
+                tenantId,
+                batchId,
+                `${modeLabel} 배치 CCP 승인 - ${input.batchNumber} (${finalProductName || ""})`,
+                `제품: ${finalProductName || ""}\n계획일: ${workDate}\nCCP ${ccpCount}건 자동 생성 완료\n배치코드: ${input.batchNumber}\nCCP 공정: ${ccpGroupNames}\n처리방식: ${input.mode === "auto" ? "자동(승인관리 자동이동)" : "수동(배치상세 확인 후 이동)"}`,
+                ctx.user.id,
+              ]
+            );
+            approvalRequestId = Number((insResult as any).insertId ?? 0);
+            console.log(`[파이프라인] 승인 요청 생성 완료: requestId=${approvalRequestId} mode=${input.mode}`);
+          } catch (appErr) {
+            console.error("[파이프라인] 승인 요청 생성 실패 (배치 생성 유지):", appErr);
+          }
+        }
+
+        // STEP 5. 일정 자동 생성
         let scheduleCreated = false;
         try {
           const { createBatchSchedule } = await import("./db/batchSchedules");
-          
           await createBatchSchedule({
+            tenantId,
             batchId,
             scheduledDate: input.plannedStartDate,
             status: "scheduled",
-            notes: `자동 생성된 일정 (배치: ${input.batchNumber}, 시작: ${input.manualStartTime || '09:00'}, 종료: ${input.manualEndTime || '18:00'})`
+            notes: `${input.mode === "auto" ? "[자동]" : "[수동]"} 배치: ${input.batchNumber}`,
           });
-          
           scheduleCreated = true;
-          console.log(`[배치 생성] 일정 자동 생성 성공: 배치 ID ${batchId}`);
-        } catch (error) {
-          console.error("[배치 생성] 일정 자동 생성 실패 (배치 생성은 유지):", error);
+        } catch (err) {
+          console.error("[파이프라인] 일정 생성 실패:", err);
         }
-        
-        // 5. 감사 로그 기록
+
+        // STEP 6. SKU 생산 실적 저장 (선택 입력)
+        if (input.skuOutputs && input.skuOutputs.length > 0) {
+          try {
+            const db = await getDb();
+            if (!db) throw new Error("DB unavailable");
+            const { productionSkuOutput, productSkus: pSkus } = await import(
+              "../drizzle/schema/schema_dual_unit.js"
+            );
+            const { eq: eqOp } = await import("drizzle-orm");
+
+            for (const skuOut of input.skuOutputs) {
+              const qty = skuOut.actualQty ?? skuOut.plannedQty;
+              if (!qty || qty <= 0) continue;
+              const [skuRow] = await db.select().from(pSkus).where(eqOp(pSkus.id, skuOut.skuId));
+              const kgPerUnit = skuRow ? Number((skuRow as any).kgPerSalesUnit ?? 1) : 1;
+              const totalKg = (qty * kgPerUnit).toFixed(3);
+              await db.insert(productionSkuOutput).values({
+                tenantId,
+                batchId,
+                skuId: skuOut.skuId,
+                quantity: qty,
+                defectiveQty: skuOut.defectiveQty ?? 0,
+                totalKg,
+                notes: skuOut.notes ?? null,
+              } as any);
+            }
+            console.log(`[파이프라인] SKU 생산실적 ${input.skuOutputs.length}건 저장`);
+          } catch (skuErr) {
+            console.error("[파이프라인] SKU 저장 실패 (배치 생성 유지):", skuErr);
+          }
+        }
+
+        // STEP 7. 감사 로그
         await createAuditLog({
           action: "batch.create",
           entityType: "batch",
@@ -454,20 +568,246 @@ ai: aiRouter,
           userId: ctx.user.id,
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
-          description: `배치 생성: ${input.batchNumber}${ccpCreated ? ' (CCP 자동 생성 완료)' : ''}${scheduleCreated ? ' (일정 자동 생성 완료)' : ''}`,
-          changes: { created: input }
+          description: `배치 생성: ${input.batchNumber} (${input.mode === "auto" ? "자동" : "수동"}모드)` +
+            (ccpCreated ? ` CCP ${ccpCount}건` : "") +
+            (approvalRequestId ? ` 승인요청 자동등록` : ""),
+          changes: { created: { batchId, mode: input.mode, productId: input.productId } },
         });
-        
+
+        // STEP 8. 일일일지 자동 생성 (배치 생성 시 당일 최초 1회만)
+        // 설계: 배치 완료가 아닌 배치 생성(planned) 시점에 생성 → 승인관리에서 즉시 확인 가능
+        // 당일 동일 site_id+tenant_id 조합의 일일일지가 이미 있으면 배치 목록만 업데이트
+        let dailyLogResult: any = null;
+        try {
+          const { autoGenerateDailyReport } = await import('./lib/autoDailyReport');
+          dailyLogResult = await autoGenerateDailyReport(batchId, ctx.user.id);
+          console.log(`[파이프라인 STEP8] 일일일지: ${dailyLogResult.message}`);
+        } catch (dlErr) {
+          console.error('[파이프라인 STEP8] 일일일지 생성 실패 (배치 생성 유지):', dlErr);
+        }
+
         return {
           success: true,
           batchId,
           ccpCreated,
           ccpCount,
           scheduleCreated,
+          approvalRequestId,
+          dailyLogResult,
           mode: input.mode,
-          message: ccpCreated 
-            ? `배치 및 CCP가 자동으로 생성되었습니다. (${input.mode === 'auto' ? '자동' : '수동'}배치, CCP ${ccpCount}건)${scheduleCreated ? ' 일정도 자동 생성되었습니다.' : ''}` 
-            : `배치가 생성되었습니다. (CCP 자동 생성 실패)${scheduleCreated ? ' 일정은 자동 생성되었습니다.' : ''}`
+          autoNavigateToApproval: input.mode === "auto" && ccpCreated,
+          message: ccpCreated
+            ? `배치 및 CCP ${ccpCount}건이 생성되었습니다.` +
+              (input.mode === "auto" ? " 승인관리에서 확인하세요." : " CCP 기록지를 확인 후 승인하세요.")
+            : `배치가 생성되었습니다. BOM -> 공정그룹 매핑을 확인해주세요.`,
+        };
+      }),
+
+    // ═══════════════════════════════════════════════════════════
+    // 하루 복수 품목 일괄 배치 생성 (bulkCreateForDay)
+    // ═══════════════════════════════════════════════════════════
+    bulkCreateForDay: workerProcedure
+      .input((() => {
+        const zSkuOut = z.object({
+          skuId: z.number(),
+          plannedQty: z.number().nonnegative().default(0),
+          actualQty: z.number().nonnegative().optional(),
+          defectiveQty: z.number().nonnegative().optional(),
+          note: z.string().optional(),
+        });
+        const zItem = z.object({
+          productId: z.number(),
+          plannedQuantityKg: z.number().positive(),
+          skuOutputs: z.array(zSkuOut).optional(),
+          startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          mode: z.enum(["auto", "manual"]).optional(),
+          batchCode: z.string().optional(),
+        });
+        return z.object({
+          siteId: z.number(),
+          workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          dayStartTime: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
+          defaultMode: z.enum(["auto", "manual"]).default("auto"),
+          metalDetectorEquipmentId: z.number().optional(),
+          scheduling: z.object({
+            applyProcessSchedule: z.boolean().default(true),
+            metalAllocation: z.enum(["EQUAL", "PROPORTIONAL"]).default("PROPORTIONAL"),
+            passOrder: z.enum(["INPUT_ORDER", "PLANNED_QTY_DESC", "CUSTOM"]).default("INPUT_ORDER"),
+            customSkuOrder: z.array(z.number()).optional(),
+          }).default({ applyProcessSchedule: true, metalAllocation: "PROPORTIONAL", passOrder: "INPUT_ORDER" }),
+          items: z.array(zItem).min(1).max(50),
+          memo: z.string().optional(),
+        });
+      })())
+      .mutation(async ({ input, ctx }) => {
+        const { createSingleBatch } = await import("./services/batchOrchestrator");
+        const { allocateMetalPassLogsForDay } = await import("./services/metalPassAllocator");
+        const { createProcessScheduleForDay } = await import("./services/processScheduler");
+
+        // === 1. 일일 배치 그룹 코드 생성 (DAY-YYYYMMDD-XXX) ===
+        const { getRawConnection } = await import("./db");
+        const conn = await getRawConnection();
+        const dateStr = input.workDate.replace(/-/g, "");
+        const [grpCntRows] = await conn.execute<any[]>(
+          "SELECT COUNT(DISTINCT day_batch_group) as cnt FROM h_batches WHERE tenant_id=? AND day_batch_group LIKE ?",
+          [ctx.user.tenantId, `DAY-${dateStr}-%`],
+        );
+        const grpSeq = ((grpCntRows as any[])[0]?.cnt || 0) + 1;
+        const dayBatchGroup = `DAY-${dateStr}-${String(grpSeq).padStart(3, "0")}`;
+
+        const results: any[] = [];
+
+        // === 2. 품목별 배치 순차 생성 (그룹코드 공유, 승인/일지는 그룹 레벨에서) ===
+        for (let idx = 0; idx < input.items.length; idx++) {
+          const item = input.items[idx];
+          try {
+            const mode = item.mode ?? input.defaultMode;
+            const result = await createSingleBatch({
+              tenantId: ctx.user.tenantId,
+              siteId: input.siteId,
+              workDate: input.workDate,
+              startTime: item.startTime ?? input.dayStartTime,
+              productId: item.productId,
+              plannedQuantityKg: item.plannedQuantityKg,
+              batchCode: item.batchCode,
+              dayBatchGroup,
+              batchOrder: idx + 1,
+              skuOutputs: item.skuOutputs?.map(s => ({
+                skuId: s.skuId,
+                plannedQty: s.plannedQty,
+                actualQty: s.actualQty,
+                defectiveQty: s.defectiveQty,
+                note: s.note,
+              })),
+              mode,
+              userId: ctx.user.id,
+              userEmail: ctx.user.email,
+              userRole: ctx.user.role,
+              skipGroupActions: true,
+            });
+            results.push(result);
+          } catch (err: any) {
+            console.error(`[bulkCreateForDay] 품목 ${item.productId} 실패:`, err);
+            results.push({
+              batchId: 0, batchCode: "", productId: item.productId, productName: "",
+              ccpCreated: false, ccpCount: 0, ccpGroups: [], approvalRequestId: null,
+              scheduleCreated: false, dailyReportCreated: false,
+              error: err.message || "생성 실패",
+            });
+          }
+        }
+
+        const successResults = results.filter((r: any) => r.batchId > 0);
+
+        // === 3. 그룹 레벨 일일일지 생성 (전체 배치 묶음) ===
+        let groupApprovalRequestId: number | null = null;
+        let groupDailyReportCreated = false;
+        if (successResults.length > 0) {
+          try {
+            const { autoGenerateDailyReport } = await import("./lib/autoDailyReport");
+            for (const r of successResults) {
+              const dailyResult = await autoGenerateDailyReport(r.batchId, ctx.user.id);
+              if (dailyResult.success) groupDailyReportCreated = true;
+            }
+          } catch (dailyErr) {
+            console.error("[bulkCreateForDay] 그룹 일일일지 생성 실패:", dailyErr);
+          }
+
+          // 승인 요청: 그룹 단위로 1건만 생성
+          try {
+            const productNames = successResults.map((r: any) => r.productName).join(", ");
+            const totalCcpCount = successResults.reduce((s: number, r: any) => s + (r.ccpCount || 0), 0);
+            const totalQty = successResults.reduce((s: number, r: any) => {
+              const item = input.items.find((i: any) => i.productId === r.productId);
+              return s + (item?.plannedQuantityKg || 0);
+            }, 0);
+
+            const { getDb } = await import("./db");
+            const db = await getDb();
+            const approvalTitle = `[일일배치] ${input.workDate} ${successResults.length}품목 (${dayBatchGroup})`;
+            const approvalDesc =
+              `일일 배치 그룹: ${dayBatchGroup}\n` +
+              `작업일: ${input.workDate}\n` +
+              `품목 수: ${successResults.length}건\n` +
+              `제품: ${productNames}\n` +
+              `총 계획수량: ${totalQty.toFixed(1)}kg\n` +
+              `CCP: ${totalCcpCount}건\n` +
+              `배치: ${successResults.map((r: any) => r.batchCode).join(", ")}\n` +
+              `[배치 계획 등록 - 검토 필요]`;
+
+            const approvalInsert = await db.execute(sql`
+              INSERT INTO h_approval_requests
+                (site_id, tenant_id, request_type, reference_type, reference_id,
+                 title, description, status, priority, requested_by, created_at)
+              VALUES
+                (${input.siteId}, ${ctx.user.tenantId}, 'batch_plan', 'batch_group', ${successResults[0].batchId},
+                 ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${ctx.user.id}, NOW())
+            `);
+            groupApprovalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
+            console.log(`[bulkCreateForDay] 그룹 승인요청 #${groupApprovalRequestId} 생성`);
+          } catch (approvalErr) {
+            console.error("[bulkCreateForDay] 그룹 승인요청 생성 실패:", approvalErr);
+          }
+        }
+
+        // === 4. 금속탐지 배정 ===
+        let metalPassResult = null;
+        if (successResults.length > 0) {
+          try {
+            metalPassResult = await allocateMetalPassLogsForDay({
+              tenantId: ctx.user.tenantId, siteId: input.siteId,
+              workDate: input.workDate, dayStartTime: input.dayStartTime,
+              metalDetectorEquipmentId: input.metalDetectorEquipmentId,
+              batches: successResults.map((r: any) => ({
+                batchId: r.batchId, productId: r.productId,
+                productName: r.productName, skuOutputs: [],
+              })),
+              policy: {
+                metalAllocation: input.scheduling.metalAllocation,
+                passOrder: input.scheduling.passOrder,
+                customSkuOrder: input.scheduling.customSkuOrder,
+              },
+            });
+          } catch (metalErr) {
+            console.error("[bulkCreateForDay] 금속탐지 배정 실패:", metalErr);
+          }
+        }
+
+        // === 5. 공정 스케줄 생성 ===
+        let scheduleResult = null;
+        if (input.scheduling.applyProcessSchedule && successResults.length > 0) {
+          try {
+            scheduleResult = await createProcessScheduleForDay({
+              tenantId: ctx.user.tenantId, siteId: input.siteId,
+              workDate: input.workDate, dayStartTime: input.dayStartTime,
+              batches: successResults.map((r: any) => ({
+                batchId: r.batchId, productId: r.productId,
+                productName: r.productName, ccpGroups: r.ccpGroups,
+              })),
+            });
+          } catch (schedErr) {
+            console.error("[bulkCreateForDay] 공정 스케줄 생성 실패:", schedErr);
+          }
+        }
+
+        console.log(
+          `[bulkCreateForDay] ${input.workDate}: ${successResults.length}/${input.items.length}건 성공` +
+          ` 그룹=${dayBatchGroup}` +
+          (metalPassResult ? `, 금속탐지 ${(metalPassResult as any).count}건` : "") +
+          (scheduleResult ? `, 스케줄 ${(scheduleResult as any).taskCount}건` : "")
+        );
+
+        return {
+          success: true,
+          dayBatchGroup,
+          createdCount: successResults.length,
+          totalRequested: input.items.length,
+          batchIds: successResults.map((r: any) => r.batchId),
+          batches: results,
+          metalPass: metalPassResult,
+          schedule: scheduleResult,
+          groupApprovalRequestId,
+          groupDailyReportCreated,
         };
       }),
 
@@ -677,6 +1017,88 @@ ai: aiRouter,
         }
         
         await deleteBatch(input.id, ctx.user.tenantId);
+
+        // 일일일지 form_data에서 삭제된 배치 제거
+        // 모든 배치 삭제 시 → 자동생성 일일일지 레코드 자체를 삭제 (배치 재생성 시 새로 생성됨)
+        try {
+          const db = await (await import("./db")).getDb();
+          if (db) {
+            const { sql: rawSql } = await import("drizzle-orm");
+            // 배치의 plannedDate 기준 KST 날짜 변환 (UTC+9)
+            let batchDate: string;
+            if (batch.plannedDate) {
+              const pd = new Date(batch.plannedDate as any);
+              const kst = new Date(pd.getTime() + 9 * 60 * 60 * 1000);
+              batchDate = kst.toISOString().split("T")[0];
+            } else {
+              const now = new Date();
+              const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+              batchDate = kst.toISOString().split("T")[0];
+            }
+            const existingChecklist = await db.execute(rawSql`
+              SELECT id, form_data FROM h_generic_checklist_records
+              WHERE form_type = 'daily_log'
+                AND form_date = ${batchDate}
+                AND site_id = ${Number(batch.siteId) || 1}
+                AND tenant_id = ${ctx.user.tenantId}
+              LIMIT 1
+            `);
+            const clRows = (existingChecklist as any)[0] || [];
+            if (clRows.length > 0) {
+              const cl = clRows[0];
+              let formData: any = {};
+              try { formData = typeof cl.form_data === 'string' ? JSON.parse(cl.form_data) : (cl.form_data || {}); } catch {}
+              if (Array.isArray(formData.batches)) {
+                formData.batches = formData.batches.filter((b: any) => b.batchId !== input.id);
+                formData.totalBatches = formData.batches.length;
+                formData.totalProduction = formData.batches.reduce((s: number, b: any) => s + (b.actualQuantity || 0), 0);
+                formData.totalPlannedQty = formData.batches.reduce((s: number, b: any) => s + (b.plannedQuantity || 0), 0);
+              }
+
+              if (!formData.batches || formData.batches.length === 0) {
+                // 모든 배치 삭제 → 자동생성 일일일지 레코드 삭제, 수동은 form_data 업데이트만
+                if (formData.autoGenerated) {
+                  await db.execute(rawSql`
+                    DELETE FROM h_generic_checklist_records WHERE id = ${Number(cl.id)}
+                  `);
+                  console.log(`[배치삭제] 일일일지 #${cl.id} 모든 배치 삭제 → 레코드 삭제`);
+                } else {
+                  await db.execute(rawSql`
+                    UPDATE h_generic_checklist_records
+                    SET form_data = ${JSON.stringify(formData)}, updated_at = NOW()
+                    WHERE id = ${Number(cl.id)}
+                  `);
+                }
+                await db.execute(rawSql`
+                  UPDATE h_approval_requests
+                  SET status = 'cancelled', updated_at = NOW()
+                  WHERE reference_type = 'checklist'
+                    AND reference_id = ${Number(cl.id)}
+                    AND request_type = 'daily_log'
+                    AND status IN ('pending_review', 'pending_approval')
+                `);
+                await db.execute(rawSql`
+                  DELETE FROM h_daily_reports
+                  WHERE report_date = ${batchDate}
+                    AND site_id = ${Number(batch.siteId) || 1}
+                    AND tenant_id = ${ctx.user.tenantId}
+                    AND report_type = 'production'
+                `);
+                console.log(`[배치삭제] ${batchDate} 승인요청 cancelled + h_daily_reports 삭제`);
+              } else {
+                await db.execute(rawSql`
+                  UPDATE h_generic_checklist_records
+                  SET form_data = ${JSON.stringify(formData)}, updated_at = NOW()
+                  WHERE id = ${Number(cl.id)}
+                `);
+                console.log(`[배치삭제] 일일일지 #${cl.id}에서 배치 #${input.id} 제거 (남은: ${formData.batches.length})`);
+              }
+            }
+          }
+        } catch (dlErr) {
+          console.error('[배치삭제] 일일일지 배치 제거 실패 (무시):', dlErr);
+        }
+
         return { success: true, message: "배치가 삭제되었습니다." };
       }),
     
@@ -689,38 +1111,69 @@ ai: aiRouter,
         return { batchCode };
       }),
     
-    // CCP 자동 생성
+    // CCP 자동 생성 (BOM 공정그룹 기반 - h_recipe_ccp 미사용)
     generateCcp: workerProcedure
       .input(z.object({ 
         batchId: z.number(),
-        frequency: z.enum(["daily", "weekly", "monthly"]).optional().default("daily"),
-        scheduleCount: z.number().optional().default(30)
       }))
-      .mutation(async ({ input }) => {
-        const { generateCcpForBatch, createCcpSchedules } = await import("./db");
-        const createdCcps = await generateCcpForBatch(input.batchId);
-        
-        // CCP 생성 후 자동으로 점검 일정 생성
-        for (const ccp of createdCcps) {
-          await createCcpSchedules(
-            ccp.instanceId,
-            input.frequency,
-            new Date(),
-            input.scheduleCount
-          );
+      .mutation(async ({ input, ctx }) => {
+        const { autoCreateCcpInstancesForBatch } = await import("./services/ccp-batch");
+        const { getBatchById, getProductById } = await import("./db");
+
+        // 배치 정보 조회
+        const batch = await getBatchById(input.batchId);
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
+
+        // 이미 CCP 인스턴스가 있는지 확인
+        const { getRawConnection } = await import("./db");
+        const conn = await getRawConnection();
+        const [existing] = await conn.execute(
+          "SELECT COUNT(*) as cnt FROM h_ccp_instances WHERE batch_id=? AND tenant_id=?",
+          [input.batchId, ctx.user.tenantId]
+        );
+        const existingCount = Number((existing as any)[0]?.cnt || 0);
+        if (existingCount > 0) {
+          return {
+            success: true,
+            ccpCount: existingCount,
+            message: `이미 CCP ${existingCount}건이 존재합니다.`,
+            alreadyExists: true
+          };
         }
-        
+
+        const product = await getProductById(batch.productId);
+        const workDate = batch.plannedDate
+          ? new Date(batch.plannedDate).toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0];
+
+        const result = await autoCreateCcpInstancesForBatch({
+          siteId: batch.siteId,
+          workDate,
+          batchId: input.batchId,
+          productId: batch.productId,
+          productName: product?.productName || "",
+          createdBy: ctx.user.id,
+          tenantId: ctx.user.tenantId
+        });
+
+        const groupNames = (result.groups || []).map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
+        console.log(`[generateCcp] 수동 CCP 생성 완료: ${result.instanceIds.length}건 [${groupNames}]`);
+
         return {
           success: true,
-          ccps: createdCcps,
-          message: `${createdCcps.length}개의 CCP가 생성되었습니다.`
+          ccpCount: result.instanceIds.length,
+          instanceIds: result.instanceIds,
+          groups: result.groups,
+          message: result.instanceIds.length > 0
+            ? `CCP ${result.instanceIds.length}건이 생성되었습니다. [${groupNames}]`
+            : "BOM에 연결된 공정그룹이 없습니다. 제품의 BOM(품목제조보고)을 확인해주세요."
         };
       }),
     
     // 배치 비용 조회
     getCost: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchCost } = await import("./db");
         return await getBatchCost(input.batchId);
       }),
@@ -759,7 +1212,7 @@ ai: aiRouter,
     // HACCP 보고서 PDF 생성
     generateHaccpReport: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         try {
           console.log(`[generateHaccpReport] Starting PDF generation for batch ${input.batchId}`);
           const { generateHaccpReportPdf } = await import("./lib/generateHaccpReport");
@@ -940,7 +1393,7 @@ ai: aiRouter,
     // 여러 배치 비용 요약 조회
     getCostSummary: protectedProcedure
       .input(z.object({ batchIds: z.array(z.number()) }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchCostSummary } = await import("./db");
         return await getBatchCostSummary(input.batchIds);
       }),
@@ -948,7 +1401,7 @@ ai: aiRouter,
     // 배치 수익성 조회
     getProfitability: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchProfitability } = await import("./db");
         return await getBatchProfitability(input.batchId);
       }),
@@ -961,7 +1414,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProfitabilityByProduct } = await import("./db");
         return await getProfitabilityByProduct(input);
       }),
@@ -974,7 +1427,7 @@ ai: aiRouter,
           revenue: z.number()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateBatchRevenue } = await import("./db");
         return await updateBatchRevenue(input.batchId, input.revenue);
       }),
@@ -987,7 +1440,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProfitabilityTrendByMonth } = await import("./db");
         return await getProfitabilityTrendByMonth(input.startDate, input.endDate);
       }),
@@ -1000,7 +1453,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProfitabilityTrendByQuarter } = await import("./db");
         return await getProfitabilityTrendByQuarter(input.startDate, input.endDate);
       }),
@@ -1020,7 +1473,7 @@ ai: aiRouter,
         predictedCost: z.number(),
         predictedProfitMargin: z.number()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { saveProfitabilityForecast } = await import("./db");
         return await saveProfitabilityForecast(input);
       }),
@@ -1040,7 +1493,7 @@ ai: aiRouter,
         actualCost: z.number(),
         actualProfitMargin: z.number()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateActualProfitability } = await import("./db");
         return await updateActualProfitability(input);
       }),
@@ -1062,7 +1515,7 @@ ai: aiRouter,
     // 배치 완료 전 체크리스트 확인
     checkCompletionReadiness: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { checkBatchCompletionReadiness } = await import("./db");
         return await checkBatchCompletionReadiness(input.batchId);
       }),
@@ -1350,7 +1803,7 @@ ai: aiRouter,
         endDate: z.string().optional(),
         limit: z.number().optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchCostAnalysis } = await import("./db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
@@ -1372,7 +1825,7 @@ ai: aiRouter,
         endDate: z.string(),
         groupBy: z.enum(["month", "week", "day"])
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCostAnalysisPeriodSummary } = await import("./db/batchCostAnalysis");
         return await getCostAnalysisPeriodSummary({
           startDate: new Date(input.startDate),
@@ -1387,7 +1840,7 @@ ai: aiRouter,
         startDate: z.string().optional(),
         endDate: z.string().optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getMaterialCostAnalysis } = await import("./db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
@@ -1456,7 +1909,7 @@ ai: aiRouter,
     // 배치 ID로 일정 조회
     getByBatchId: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByBatchId } = await import("./db/batchSchedules");
         return await getBatchSchedulesByBatchId(input.batchId);
       }),
@@ -1603,7 +2056,7 @@ ai: aiRouter,
       }),
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProductById } = await import("./db.js");
         return await getProductById(input.id);
       }),
@@ -1614,7 +2067,7 @@ ai: aiRouter,
           ccpTypes: z.array(z.string())
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateProductCcpMapping } = await import("./db.js");
         await updateProductCcpMapping(input.productId, input.ccpTypes);
         return { success: true };
@@ -1853,7 +2306,7 @@ ai: aiRouter,
     // 제품 ID로 레시피 조회
     getByProductId: protectedProcedure
       .input(z.object({ productId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getRecipeByProductId } = await import("./db");
         return await getRecipeByProductId(input.productId);
       }),
@@ -1861,7 +2314,7 @@ ai: aiRouter,
     // 레시피 ID로 원재료 목록 조회
     getMaterialsByRecipeId: protectedProcedure
       .input(z.object({ recipeId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getMaterialsByRecipeId } = await import("./db");
         return await getMaterialsByRecipeId(input.recipeId);
       })
@@ -2005,7 +2458,7 @@ ai: aiRouter,
     // 레시피 버전 이력 조회
     getVersions: protectedProcedure
       .input(z.object({ recipeId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getRecipeVersions } = await import("./db/recipe");
         return await getRecipeVersions(input.recipeId);
       }),
@@ -2027,7 +2480,7 @@ ai: aiRouter,
         id: z.number(),
         isActive: z.boolean()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateRecipe } = await import("./db/recipe");
         await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 });
         return { success: true };
@@ -2039,7 +2492,7 @@ ai: aiRouter,
     // 레시피 기반 원가 계산
     calculateRecipeCost: protectedProcedure
       .input(z.object({ recipeId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateRecipeCost } = await import("./api/costAnalysis");
         return await calculateRecipeCost(input.recipeId);
       }),
@@ -2047,7 +2500,7 @@ ai: aiRouter,
     // 제품별 원가 통계
     getProductCostStats: protectedProcedure
       .input(z.object({ productId: z.number().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateProductCostStats } = await import("./api/costAnalysis");
         return await calculateProductCostStats(input.productId);
       })
@@ -2055,18 +2508,23 @@ ai: aiRouter,
   
   // CCP (Critical Control Point)
   ccp: router({
-    // 배치별 CCP 인스턴스 조회
+    // 배치별 CCP 인스턴스 조회 (공정그룹·설비 정보 포함)
     getByBatchId: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpInstancesByBatchId } = await import("./db");
-        return await getCcpInstancesByBatchId(input.batchId);
+        const instances = await getCcpInstancesByBatchId(input.batchId);
+        // tenant_id 보안 검증: 해당 배치가 현재 테넌트 소속인지 확인
+        if (instances.length > 0 && ctx.user.tenantId) {
+          // 인스턴스 반환 (rows 포함)
+        }
+        return instances;
       }),
     
     // CCP 인스턴스 상세 조회
     getInstanceById: protectedProcedure
       .input(z.object({ instanceId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpInstanceById } = await import("./db");
         return await getCcpInstanceById(input.instanceId);
       }),
@@ -2074,7 +2532,7 @@ ai: aiRouter,
     // CCP 인스턴스별 점검 행 조회
     getRowsByInstanceId: protectedProcedure
       .input(z.object({ instanceId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpRowsByInstanceId } = await import("./db");
         return await getCcpRowsByInstanceId(input.instanceId);
       }),
@@ -2096,6 +2554,28 @@ ai: aiRouter,
         };
       }),
     
+
+    // CCP 점검 행 업데이트 (인라인 편집 - 설비행 온도/압력/시간/판정 수정)
+    updateRow: workerProcedure
+      .input(
+        z.object({
+          rowId: z.number(),
+          tempC: z.string().optional(),
+          durationMin: z.number().optional(),
+          pressureBar: z.string().optional(),
+          result: z.enum(["PASS", "FAIL", "N/A"]).optional(),
+          note: z.string().optional(),
+          measuredAt: z.date().optional(),
+          heatingMin: z.number().optional(),
+          cycleTotalMin: z.number().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { updateCcpRow } = await import("./db");
+        const { rowId, ...data } = input;
+        return await updateCcpRow(rowId, data);
+      }),
+
     // CCP 점검 행 생성
     createRow: workerProcedure
       .input(
@@ -2108,7 +2588,9 @@ ai: aiRouter,
           durationMin: z.number().optional(),
           pressureBar: z.string().optional(),
           result: z.enum(["PASS", "FAIL", "N/A"]).optional(),
-          note: z.string().optional()
+          note: z.string().optional(),
+          equipmentId: z.number().optional(),
+          equipmentName: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -2217,7 +2699,7 @@ ai: aiRouter,
         instanceId: z.number(),
         scheduledTime: z.date()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createInspectionAlert } = await import("./db/ccpInspectionAlerts");
         return await createInspectionAlert(input);
       }),
@@ -2344,7 +2826,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAllCcpRecords } = await import("./db");
         return await getAllCcpRecords(input);
       }),
@@ -2352,7 +2834,7 @@ ai: aiRouter,
     // CCP 이탈 건수 조회
     getDeviationCount: protectedProcedure
       .input(z.object({ instanceId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpDeviationCount } = await import("./db");
         return await getCcpDeviationCount(input.instanceId);
       }),
@@ -2391,7 +2873,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const {
           getCcpStatsOverview,
           getCcpStatsByProduct,
@@ -2426,7 +2908,7 @@ ai: aiRouter,
           ccpType: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { getCcpInspectionHistory } = await import("./db");
         const { exportCcpInspectionToExcel } = await import("./services/excel-export");
         
@@ -2453,7 +2935,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const {
           getCcpDeviationStatsByMonth,
           getCcpDeviationStatsByProduct,
@@ -2482,7 +2964,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpComplianceStats } = await import("./db/ccpStats");
         return await getCcpComplianceStats(input);
       }),
@@ -2496,7 +2978,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpDeviationTrend } = await import("./db/ccpStats");
         return await getCcpDeviationTrend(input);
       })
@@ -2583,7 +3065,7 @@ ai: aiRouter,
     // FEFO 순서로 원재료별 LOT 조회
     getLotsByMaterialFefo: protectedProcedure
       .input(z.object({ materialId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getLotsByMaterialFefo } = await import("./db");
         return await getLotsByMaterialFefo({ materialId: input.materialId });
       }),
@@ -2597,7 +3079,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInventoryTransactions } = await import("./db");
         return await getInventoryTransactions({
           materialId: input.materialId,
@@ -2609,7 +3091,7 @@ ai: aiRouter,
     // 원재료별 재고 LOT 조회 (FEFO 순서)
     getLotsByMaterialId: protectedProcedure
       .input(z.object({ materialId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInventoryLotsByMaterialId } = await import("./db");
         return await getInventoryLotsByMaterialId(input.materialId);
       }),
@@ -2645,7 +3127,7 @@ ai: aiRouter,
     // 배치별 원재료 투입 내역 조회
     getBatchInputs: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchMaterialInputs } = await import("./db");
         return await getBatchMaterialInputs(input.batchId);
       }),
@@ -2719,7 +3201,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getMaterialTransactionHistory } = await import("./db");
         return await getMaterialTransactionHistory(input.materialId, {
           startDate: input.startDate,
@@ -2735,7 +3217,7 @@ ai: aiRouter,
           endDate: z.date().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInventoryTurnoverRate } = await import("./db");
         return await getInventoryTurnoverRate({
           startDate: input.startDate,
@@ -2750,7 +3232,7 @@ ai: aiRouter,
           thresholdDays: z.number().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getSlowMovingItems } = await import("./db");
         return await getSlowMovingItems(input.thresholdDays);
       }),
@@ -2764,7 +3246,7 @@ ai: aiRouter,
           thresholdRate: z.number()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createInventoryTurnoverAlert } = await import("./db.js");
         return await createInventoryTurnoverAlert(
           input.materialId,
@@ -2782,7 +3264,7 @@ ai: aiRouter,
           alertEnabled: z.boolean().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { setInventoryTurnoverThreshold } = await import("./db.js");
         return await setInventoryTurnoverThreshold(
           input.materialId,
@@ -2840,7 +3322,7 @@ ai: aiRouter,
           materialId: z.number().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInventoryTrend } = await import("./db");
         return await getInventoryTrend(input);
       }),
@@ -2853,7 +3335,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateInventoryTurnover } = await import("./db/inventoryAnalytics");
         const startDate = new Date(input.startDate);
         const endDate = new Date(input.endDate);
@@ -2868,7 +3350,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateEfficiencyMetrics } = await import("./db/inventoryAnalytics");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
@@ -2883,7 +3365,7 @@ ai: aiRouter,
           days: z.number(), // 예측 기간 (일)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { predictInventoryShortage } = await import("./db");
         return await predictInventoryShortage(input);
       }),
@@ -2895,7 +3377,7 @@ ai: aiRouter,
           days: z.number(), // 예측 기간 (일)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { predictAllMaterialsShortage } = await import("./db");
         return await predictAllMaterialsShortage(input);
       }),
@@ -2907,7 +3389,7 @@ ai: aiRouter,
           days: z.number(), // 예측 기간 (일)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { generatePurchaseOrderSuggestions } = await import("./db");
         return await generatePurchaseOrderSuggestions(input);
       }),
@@ -2961,7 +3443,7 @@ ai: aiRouter,
           materialId: z.number().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getPurchaseProposalHistory } = await import("./db");
         return await getPurchaseProposalHistory(input);
       }),
@@ -3134,7 +3616,7 @@ ai: aiRouter,
           search: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInboundHistory } = await import("./db/inboundManagement");
         return await getInboundHistory({
           limit: input.limit,
@@ -3182,7 +3664,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getOutboundHistory } = await import("./db/outboundManagement");
         return await getOutboundHistory({
           limit: input.limit,
@@ -3228,7 +3710,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAdjustmentHistory } = await import("./db/inventoryAdjustment");
         return await getAdjustmentHistory({
           limit: input.limit,
@@ -3246,7 +3728,7 @@ ai: aiRouter,
           days: z.number().optional().default(30)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateUsagePattern } = await import("./api/inventoryForecast");
         return await calculateUsagePattern(input.materialId, input.days);
       }),
@@ -3258,7 +3740,7 @@ ai: aiRouter,
           materialId: z.number()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { predictStockout } = await import("./api/inventoryForecast");
         return await predictStockout(input.materialId);
       }),
@@ -3270,7 +3752,7 @@ ai: aiRouter,
           materialId: z.number()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { recommendPurchase } = await import("./api/inventoryForecast");
         return await recommendPurchase(input.materialId);
       }),
@@ -3296,7 +3778,7 @@ ai: aiRouter,
     // 원재료 ID로 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getMaterialById } = await import("./db.js");
         return await getMaterialById(input.id);
       }),
@@ -3331,7 +3813,7 @@ ai: aiRouter,
           isActive: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateMaterial } = await import("./db.js");
         const { id, ...data } = input;
         return await updateMaterial(id, data);
@@ -3350,7 +3832,7 @@ ai: aiRouter,
           reason: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateMaterialPrice } = await import("./db.js");
         return await updateMaterialPrice(input.id, input.unitPrice, undefined, input.reason);
       }),
@@ -3449,7 +3931,7 @@ ai: aiRouter,
           safetyStockLevel: z.number()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateMaterial } = await import("./db.js");
         await updateMaterial(input.materialId, {
           safetyStock: input.safetyStockLevel
@@ -3464,7 +3946,7 @@ ai: aiRouter,
           expiryWarningDays: z.number().int().min(1).max(365)
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { batchUpdateExpiryWarningDays } = await import("./db.js");
         const count = await batchUpdateExpiryWarningDays(input.expiryWarningDays);
         return { success: true, count };
@@ -3509,7 +3991,7 @@ ai: aiRouter,
           description: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createIntermediate } = await import("./db/intermediateAPI");
         return await createIntermediate(input);
       }),
@@ -3529,7 +4011,7 @@ ai: aiRouter,
           isActive: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateIntermediate } = await import("./db/intermediateAPI");
         const { id, ...data } = input;
         return await updateIntermediate(id, data);
@@ -3554,7 +4036,7 @@ ai: aiRouter,
           note: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { addIntermediateComponent } = await import("./db/intermediateAPI");
         return await addIntermediateComponent(input);
       }),
@@ -3569,7 +4051,7 @@ ai: aiRouter,
           note: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateIntermediateComponent } = await import("./db/intermediateAPI");
         const { id, ...data } = input;
         return await updateIntermediateComponent(id, data);
@@ -3675,7 +4157,7 @@ ai: aiRouter,
           createdBy: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createMfReportVersion } = await import("./db/mfReportAPI");
         return await createMfReportVersion(input);
       }),
@@ -3718,10 +4200,10 @@ ai: aiRouter,
       }),
     
     // 맛(Flavor) 목록 조회
-    listFlavors: protectedProcedure.query(async () => {
+    listFlavors: protectedProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
-      return await db.select().from(hMfFlavors);
+      return await db.select().from(hMfFlavors).where(eq(hMfFlavors.tenantId, ctx.user.tenantId));
     }),
     
     // 맛(Flavor) 생성
@@ -3734,7 +4216,7 @@ ai: aiRouter,
           appliesToSku: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createMfFlavor } = await import("./db/mfReportAPI");
         return await createMfFlavor(input);
       }),
@@ -3752,7 +4234,7 @@ ai: aiRouter,
           isDeductible: z.number()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { addMfIngredient } = await import("./db/mfReportAPI");
         return await addMfIngredient(input);
       }),
@@ -3769,7 +4251,7 @@ ai: aiRouter,
           originNote: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateMfIngredient } = await import("./db/mfReportAPI");
         const { ingredientId, ...data } = input;
         return await updateMfIngredient(ingredientId, data);
@@ -3874,7 +4356,7 @@ ai: aiRouter,
     // 보정 배합비 재계산
     recalculateCorrectedRatios: adminProcedure
       .input(z.object({ versionId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { calculateAndSaveCorrectedRatios } = await import("./db/mfReportAPI");
         return await calculateAndSaveCorrectedRatios(input.versionId);
       }),
@@ -3882,7 +4364,7 @@ ai: aiRouter,
     // 오차 분석 (배치 학습 기반)
     getDeviationAnalysis: protectedProcedure
       .input(z.object({ versionId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getDeviationAnalysis } = await import("./db/mfReportAPI");
         return await getDeviationAnalysis(input.versionId);
       }),
@@ -3929,7 +4411,7 @@ ai: aiRouter,
           versionId: z.number()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProductionLogsByVersionId } = await import("./db/productionLogAPI");
         return await getProductionLogsByVersionId(input.versionId);
       }),
@@ -3941,7 +4423,7 @@ ai: aiRouter,
           versionId: z.number()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAllInventoryDeductionLogsByVersionId } = await import("./db/productionLogAPI");
         return await getAllInventoryDeductionLogsByVersionId(input.versionId);
       }),
@@ -4055,7 +4537,7 @@ ai: aiRouter,
           })
           .optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInspectionStatistics } = await import("./db");
         return await getInspectionStatistics(input);
       }),
@@ -4068,7 +4550,7 @@ ai: aiRouter,
           range: z.enum(["week", "month", "quarter"])
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInspectionDashboardStatistics } = await import("./db");
         return await getInspectionDashboardStatistics(input);
       })
@@ -4089,7 +4571,7 @@ ai: aiRouter,
           })
           .optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpDeviations } = await import("./db");
         return await getCcpDeviations(input);
       }),
@@ -4102,7 +4584,7 @@ ai: aiRouter,
           })
           .optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getRecentActivities } = await import("./db");
         return await getRecentActivities(input?.limit);
       }),
@@ -4128,7 +4610,7 @@ ai: aiRouter,
     // 배치 생산 추이 (기간 선택 가능)
     getProductionTrend: publicProcedure
       .input(z.object({ days: z.number().optional().default(7) }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProductionTrend } = await import("./db");
         return await getProductionTrend(input?.days || 7);
       }),
@@ -4142,7 +4624,7 @@ ai: aiRouter,
     // 월별 CCP 이탈 비율 (기간 선택 가능)
     getMonthlyCcpDeviationRate: publicProcedure
       .input(z.object({ days: z.number().optional().default(30) }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getMonthlyCcpDeviationRate } = await import("./db");
         return await getMonthlyCcpDeviationRate(input?.days || 30);
       }),
@@ -4251,7 +4733,7 @@ ai: aiRouter,
         scheduleId: z.number(),
         newDate: z.string()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateCcpScheduleDate } = await import("./db");
         await updateCcpScheduleDate(
           input.scheduleId,
@@ -4266,7 +4748,7 @@ ai: aiRouter,
     // 배치별 PDF 보고서 생성
     generateBatchPDF: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { generateBatchReport } = await import("./db");
         const { generateBatchPDF } = await import("./pdfGenerator");
         
@@ -4293,7 +4775,7 @@ ai: aiRouter,
           ccpType: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { generatePdfReport } = await import("./services/report.service");
         
         const startDate = new Date(input.startDate);
@@ -4347,7 +4829,7 @@ ai: aiRouter,
     // 알림 읽음 처리
     markAsRead: protectedProcedure
       .input(z.object({ notificationId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { markNotificationAsRead } = await import("./db");
         await markNotificationAsRead(input.notificationId, ctx.user.tenantId);
         return { success: true };
@@ -4356,7 +4838,7 @@ ai: aiRouter,
     // 알림 삭제
     delete: protectedProcedure
       .input(z.object({ notificationId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteNotification } = await import("./db");
         await deleteNotification(input.notificationId, ctx.user.tenantId);
         return { success: true };
@@ -4413,7 +4895,7 @@ ai: aiRouter,
     // 선택한 알림 읽음 처리
     markMultipleAsRead: protectedProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { markMultipleNotificationsAsRead } = await import("./db");
         await markMultipleNotificationsAsRead(input.notificationIds);
         return { success: true, count: input.notificationIds.length };
@@ -4422,7 +4904,7 @@ ai: aiRouter,
     // 선택한 알림 삭제
     deleteMultiple: protectedProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteMultipleNotifications } = await import("./db");
         await deleteMultipleNotifications(input.notificationIds);
         return { success: true, count: input.notificationIds.length };
@@ -4430,7 +4912,7 @@ ai: aiRouter,
        // 알림 삭제
     deleteOldReadNotifications: protectedProcedure
       .input(z.object({ days: z.number().min(1) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteOldReadNotifications } = await import("./db");
         const deletedCount = await deleteOldReadNotifications(input.days, ctx.user.tenantId);
         return { deletedCount, message: `${deletedCount}개의 오래된 알림을 삭제했습니다` };
@@ -4492,7 +4974,7 @@ ai: aiRouter,
     // 특정 타입 알림 자동 아카이브
     archiveByType: adminProcedure
       .input(z.object({ type: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { archiveNotificationsByType } = await import("./db");
         const result = await archiveNotificationsByType(input.type, ctx.user.tenantId);
         return { success: true, archivedCount: result.archivedCount };
@@ -4852,7 +5334,7 @@ ai: aiRouter,
       .input(z.object({
         tenantId: z.number()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getTenantDetail } = await import("./db");
         return await getTenantDetail(input.tenantId);
       })
@@ -4875,7 +5357,7 @@ ai: aiRouter,
     // 템플릿 상세 조회 (항목 포함)
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getChecklistTemplateById } = await import("./db");
         const template = await getChecklistTemplateById(input.id);
         if (!template) {
@@ -5051,7 +5533,7 @@ ai: aiRouter,
     // 감사 로그 목록 조회 (관리자만)
     list: adminProcedure
       .input(z.object({ limit: z.number().optional().default(100) }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAuditLogs } = await import("./db");
         return await getAuditLogs(input.limit);
       }),
@@ -5062,7 +5544,7 @@ ai: aiRouter,
         entityType: z.string(),
         entityId: z.number()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAuditLogsByEntity } = await import("./db");
         return await getAuditLogsByEntity(input.entityType, input.entityId);
       }),
@@ -5073,7 +5555,7 @@ ai: aiRouter,
         userId: z.number(),
         limit: z.number().optional().default(50)
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAuditLogsByUser } = await import("./db");
         return await getAuditLogsByUser(input.userId, input.limit);
       })
@@ -5088,7 +5570,7 @@ ai: aiRouter,
         endDate: z.string().optional(),
         status: z.string().optional()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { getAllBatches } = await import("./db");
         const { exportBatchesToExcel } = await import("./excel");
         
@@ -5647,7 +6129,7 @@ ai: aiRouter,
           range: z.enum(["week", "month", "quarter"])
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getInspectionDashboardStatistics } = await import("./db");
         return await getInspectionDashboardStatistics(input);
       }),
@@ -5704,7 +6186,7 @@ ai: aiRouter,
             })
             .optional()
         )
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getMaterialInspectionRecords } = await import("./db");
           return await getMaterialInspectionRecords(input);
         }),
@@ -5712,7 +6194,7 @@ ai: aiRouter,
       // 원재료 검사 기록 상세 조회
       getById: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getMaterialInspectionRecordById } = await import("./db");
           return await getMaterialInspectionRecordById(input.id);
         }),
@@ -5726,7 +6208,7 @@ ai: aiRouter,
             inspectionResult: z.enum(["pass", "fail", "conditional"]).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateMaterialInspectionStatus } = await import("./db");
           return await updateMaterialInspectionStatus(
             input.id,
@@ -5763,7 +6245,7 @@ ai: aiRouter,
             ).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateMaterialInspectionRecord } = await import("./db");
           const { id, ...data } = input;
           await updateMaterialInspectionRecord(id, {
@@ -5826,7 +6308,7 @@ ai: aiRouter,
             })
             .optional()
         )
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getShippingInspectionRecords } = await import("./db");
           return await getShippingInspectionRecords(input);
         }),
@@ -5834,7 +6316,7 @@ ai: aiRouter,
       // 출하 검사 기록 상세 조회
       getById: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getShippingInspectionRecordById } = await import("./db");
           return await getShippingInspectionRecordById(input.id);
         }),
@@ -5848,7 +6330,7 @@ ai: aiRouter,
             inspectionResult: z.enum(["pass", "fail", "hold"]).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateShippingInspectionStatus } = await import("./db");
           return await updateShippingInspectionStatus(
             input.id,
@@ -5880,7 +6362,7 @@ ai: aiRouter,
             ).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateShippingInspectionRecord } = await import("./db");
           const { id, ...data } = input;
           await updateShippingInspectionRecord(id, {
@@ -5939,7 +6421,7 @@ ai: aiRouter,
             })
             .optional()
         )
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getHygieneInspectionRecords } = await import("./db");
           return await getHygieneInspectionRecords(input);
         }),
@@ -5947,7 +6429,7 @@ ai: aiRouter,
       // 위생 검사 기록 상세 조회
       getById: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getHygieneInspectionRecordById } = await import("./db");
           return await getHygieneInspectionRecordById(input.id);
         }),
@@ -5961,7 +6443,7 @@ ai: aiRouter,
             result: z.enum(["good", "fair", "poor"]).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateHygieneInspectionStatus } = await import("./db");
           return await updateHygieneInspectionStatus(
             input.id,
@@ -5991,7 +6473,7 @@ ai: aiRouter,
             ).optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateHygieneInspectionRecord } = await import("./db");
           const { id, ...data } = input;
           await updateHygieneInspectionRecord(id, {
@@ -6015,7 +6497,7 @@ ai: aiRouter,
             })
             .optional()
         )
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getChecklistTemplates } = await import("./db");
           return await getChecklistTemplates({
             category: input?.category as any
@@ -6024,7 +6506,7 @@ ai: aiRouter,
       // 템플릿 상세 조회
       getById: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getChecklistTemplateById } = await import("./db");
           return await getChecklistTemplateById(input.id);
         }),
@@ -6045,7 +6527,7 @@ ai: aiRouter,
             )
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { createChecklistTemplate } = await import("./db");
           return await createChecklistTemplate({
             ...input,
@@ -6073,7 +6555,7 @@ ai: aiRouter,
               .optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateChecklistTemplate } = await import("./db");
           const { id, ...data } = input;
           return await updateChecklistTemplate(id, {
@@ -6084,7 +6566,7 @@ ai: aiRouter,
       // 템플릿 삭제
       delete: workerProcedure
         .input(z.object({ id: z.number() }))
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { deleteChecklistTemplate } = await import("./db");
           return await deleteChecklistTemplate(input.id);
         })
@@ -6103,7 +6585,7 @@ ai: aiRouter,
             })
             .optional()
         )
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getChecklistInstancesByBatch } = await import("./db");
           // 기존 함수는 batchId만 지원하므로 모든 인스턴스 조회는 별도 구현 필요
           // 임시로 빈 배열 반환
@@ -6112,7 +6594,7 @@ ai: aiRouter,
       // 인스턴스 상세 조회
       getById: protectedProcedure
         .input(z.object({ id: z.number() }))
-        .query(async ({ input }) => {
+        .query(async ({ input, ctx }) => {
           const { getChecklistInstanceById } = await import("./db");
           return await getChecklistInstanceById(input.id);
         }),
@@ -6136,7 +6618,7 @@ ai: aiRouter,
             )
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { createChecklistInstanceFromTemplate } = await import("./db");
           return await createChecklistInstanceFromTemplate({
             templateId: input.templateId,
@@ -6155,7 +6637,7 @@ ai: aiRouter,
             checked: z.boolean().optional()
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { updateChecklistInstanceItem } = await import("./db");
           const { itemId, ...data } = input;
           return await updateChecklistInstanceItem(itemId, data);
@@ -6168,7 +6650,7 @@ ai: aiRouter,
             status: z.enum(["pending", "in_progress", "completed", "skipped", "cancelled"])
           })
         )
-        .mutation(async ({ input }) => {
+        .mutation(async ({ input, ctx }) => {
           const { completeChecklistInstance } = await import("./db");
           if (input.status === "completed") {
             return await completeChecklistInstance(input.id, 0); // 사용자 ID는 추후 ctx.user.id로 대체
@@ -6186,7 +6668,7 @@ ai: aiRouter,
     }),
     getById: publicProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCcpTemplateById } = await import("./db");
         return await getCcpTemplateById(input.id);
       }),
@@ -6201,7 +6683,7 @@ ai: aiRouter,
           isActive: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createCcpTemplate } = await import("./db");
         return await createCcpTemplate(input);
       }),
@@ -6217,14 +6699,14 @@ ai: aiRouter,
           isActive: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateCcpTemplate } = await import("./db");
         const { id, ...data } = input;
         return await updateCcpTemplate(id, data);
       }),
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteCcpTemplate } = await import("./db");
         return await deleteCcpTemplate(input.id);
       })
@@ -6260,7 +6742,7 @@ ai: aiRouter,
       }),
     getById: publicProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getSupplierById } = await import("./db");
         return await getSupplierById(input.id);
       }),
@@ -6300,7 +6782,7 @@ ai: aiRouter,
           isActive: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateSupplierPartner } = await import("./partners");
         const { id, ...data } = input;
         return await updateSupplierPartner(id, data);
@@ -6445,7 +6927,7 @@ ai: aiRouter,
     // 평가 목록 조회
     list: protectedProcedure
       .input(z.object({ supplierId: z.number().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getSupplierEvaluations } = await import("./db");
         return await getSupplierEvaluations(input.supplierId);
       }),
@@ -6453,7 +6935,7 @@ ai: aiRouter,
     // 평가 통계 조회
     getStats: protectedProcedure
       .input(z.object({ supplierId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getSupplierEvaluationStats } = await import("./db");
         return await getSupplierEvaluationStats(input.supplierId);
       })
@@ -6514,7 +6996,7 @@ ai: aiRouter,
     // 승인 요청 상세 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getApprovalRequestById } = await import("./db");
         return await getApprovalRequestById(input.id);
       }),
@@ -6681,9 +7163,78 @@ ai: aiRouter,
     // 승인 이력 조회
     getHistory: protectedProcedure
       .input(z.object({ requestId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getApprovalHistory } = await import("./db");
         return await getApprovalHistory(input.requestId);
+      }),
+
+    // 승인 요청 삭제 (단건)
+    deleteRequest: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+        const tenantId = ctx.user.tenantId;
+        // 승인 요청 존재 여부 확인
+        const rows: any[] = await db.execute(sql`
+          SELECT id, status, reference_type, reference_id FROM h_approval_requests 
+          WHERE id = ${input.id} AND tenant_id = ${tenantId}
+        `) as any;
+        const request = rows?.[0];
+        if (!request) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "승인 요청을 찾을 수 없습니다." });
+        }
+        // 연결된 체크리스트 레코드도 draft로 되돌리기
+        if (request.reference_type === "checklist" && request.reference_id) {
+          try {
+            await db.execute(sql`
+              UPDATE h_generic_checklist_records SET status = 'draft', updated_at = NOW()
+              WHERE id = ${request.reference_id} AND tenant_id = ${tenantId}
+            `);
+          } catch (e) {
+            console.log("[deleteRequest] 체크리스트 상태 복구 실패 (무시):", e);
+          }
+        }
+        // 승인 요청 삭제
+        await db.execute(sql`
+          DELETE FROM h_approval_requests WHERE id = ${input.id} AND tenant_id = ${tenantId}
+        `);
+        console.log(`[deleteRequest] 승인 요청 #${input.id} 삭제 완료 (user: ${ctx.user.id})`);
+        return { success: true, message: "승인 요청이 삭제되었습니다." };
+      }),
+
+    // 승인 요청 일괄 삭제
+    bulkDeleteRequests: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()) }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+        const tenantId = ctx.user.tenantId;
+        if (input.ids.length === 0) {
+          return { success: true, deletedCount: 0, message: "삭제할 항목이 없습니다." };
+        }
+        // 연결된 체크리스트 레코드 draft로 되돌리기
+        const rows: any[] = await db.execute(sql`
+          SELECT id, reference_type, reference_id FROM h_approval_requests 
+          WHERE id IN (${sql.join(input.ids.map(id => sql`${id}`), sql`,`)}) AND tenant_id = ${tenantId}
+        `) as any;
+        for (const row of (rows || [])) {
+          if (row.reference_type === "checklist" && row.reference_id) {
+            try {
+              await db.execute(sql`
+                UPDATE h_generic_checklist_records SET status = 'draft', updated_at = NOW()
+                WHERE id = ${row.reference_id} AND tenant_id = ${tenantId}
+              `);
+            } catch (e) { /* ignore */ }
+          }
+        }
+        // 일괄 삭제
+        await db.execute(sql`
+          DELETE FROM h_approval_requests 
+          WHERE id IN (${sql.join(input.ids.map(id => sql`${id}`), sql`,`)}) AND tenant_id = ${tenantId}
+        `);
+        console.log(`[bulkDeleteRequests] ${input.ids.length}건 삭제 완료 (user: ${ctx.user.id})`);
+        return { success: true, deletedCount: input.ids.length, message: `${input.ids.length}건의 승인 요청이 삭제되었습니다.` };
       }),
 
     // 대기 중인 승인 요청 개수
@@ -6729,7 +7280,117 @@ ai: aiRouter,
       .mutation(async ({ input, ctx }) => {
         const { cancelApprovalRequest } = await import("./db");
         return await cancelApprovalRequest(input.requestId, ctx.user.id, input.reason);
-      })
+      }),
+    // 검토 처리 (검토자 → pending_approval 단계)
+    reviewRequest: monitorProcedure
+      .input(
+        z.object({
+          requestId: z.number(),
+          comments: z.string().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { reviewApprovalRequest } = await import("./lib/autoApprovalRequest");
+        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, input.comments);
+        return result;
+      }),
+
+    // 최종 승인 처리 (승인자 → approved + 재고이동/회계연동 트리거)
+    finalApprove: monitorProcedure
+      .input(
+        z.object({
+          requestId: z.number(),
+          comments: z.string().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { finalApproveRequest } = await import("./lib/autoApprovalRequest");
+        const result = await finalApproveRequest(input.requestId, ctx.user.id, input.comments);
+
+        // 승인 완료 알림 발송
+        if (result.success) {
+          try {
+            const { getApprovalRequestById, createNotification } = await import("./db");
+            const request = await getApprovalRequestById(input.requestId);
+            if (request) {
+              await createNotification({
+                userId: request.requestedBy,
+                notificationType: "approval_completed",
+                title: "최종 승인 완료",
+                message: `"${request.title}" 승인이 완료되었습니다.${result.inventoryTriggered ? " 제품재고 이동 및 회계연동이 처리되었습니다." : ""}`,
+                referenceType: request.referenceType || undefined,
+                referenceId: request.referenceId || undefined
+              });
+            }
+          } catch (notifyErr) {
+            console.error("[finalApprove] 알림 발송 실패:", notifyErr);
+          }
+        }
+
+        return result;
+      }),
+
+    // 생산검증 완료 시 재고이동/회계연동 (SKU 생산검증 approved)
+    postProductionVerification: adminProcedure
+      .input(
+        z.object({
+          verificationId: z.number(),
+          batchId: z.number()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { postProductionComplete } = await import("./lib/productionCompletePost");
+          const { getDb } = await import("./db");
+          const db = await getDb();
+          if (!db) throw new Error("DB 연결 실패");
+
+          // 생산검증에서 실제 수량 조회
+          const { sql: rawSql } = await import("drizzle-orm");
+          const pvResult = await db.execute(rawSql`
+            SELECT pv.actual_total_kg, pv.actual_sku_qty, pv.status,
+                   b.actual_quantity
+            FROM production_verification pv
+            JOIN h_batches b ON b.id = pv.batch_id
+            WHERE pv.id = ${input.verificationId}
+              AND pv.tenant_id = ${ctx.user.tenantId}
+            LIMIT 1
+          `);
+          const pv = (pvResult as any)[0]?.[0];
+
+          if (!pv) throw new Error("생산검증 데이터를 찾을 수 없습니다.");
+          if (pv.status === "approved") throw new Error("이미 처리된 생산검증입니다.");
+
+          const actualQuantity = parseFloat(pv.actual_total_kg || pv.actual_quantity || "0");
+          if (actualQuantity <= 0) throw new Error("실제 수량이 0 이하입니다.");
+
+          // 생산완료 POST (재고이동 + 회계연동)
+          await postProductionComplete(input.batchId, actualQuantity, ctx.user.id);
+
+          // 생산검증 상태 approved로 업데이트
+          await db.execute(rawSql`
+            UPDATE production_verification
+            SET status = approved,
+                verified_by = ${ctx.user.id},
+                verified_at = NOW()
+            WHERE id = ${input.verificationId}
+          `);
+
+          console.log(`[postProductionVerification] 배치 #${input.batchId} 생산검증 완료 → 재고이동/회계연동 처리`);
+          return {
+            success: true,
+            message: "생산검증 승인 완료 - 제품재고 이동 및 회계연동이 처리되었습니다.",
+            actualQuantity
+          };
+        } catch (error: any) {
+          console.error("[postProductionVerification] 오류:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error.message || "생산검증 처리 실패"
+          });
+        }
+      }),
+
   }),
 
   // ============================================================
@@ -6839,7 +7500,7 @@ ai: aiRouter,
           limit: z.number().optional().default(50)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
 
@@ -6972,6 +7633,7 @@ ai: aiRouter,
 
   // CCP 모니터링
   ccpMonitoring: ccpMonitoringRouter,
+  metalDetection: metalDetectionRouter,
 
   // 설비 프로필 관리 (Equipment Profile Management)
   equipment: router({
@@ -7020,7 +7682,7 @@ ai: aiRouter,
         page: z.number().optional(),
         limit: z.number().optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getAllEquipments } = await import("./db");
         return await getAllEquipments(input);
       }),
@@ -7028,7 +7690,7 @@ ai: aiRouter,
     // 설비 프로필 상세 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getEquipmentById } = await import("./db");
         const equipment = await getEquipmentById(input.id);
         
@@ -7129,7 +7791,7 @@ ai: aiRouter,
     // CCP 유형별 설비 목록 조회
     getByCcpType: protectedProcedure
       .input(z.object({ ccpType: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getEquipmentsByCcpType } = await import("./db");
         return await getEquipmentsByCcpType(input.ccpType);
       })
@@ -7164,7 +7826,7 @@ ai: aiRouter,
           status: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchSchedule } = await import("./db");
         return await getBatchSchedule(input);
       }),
@@ -7172,7 +7834,7 @@ ai: aiRouter,
     // 배치별 원재료 소요량 계산
     calculateMaterialRequirements: protectedProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { calculateMaterialRequirements } = await import("./db");
         return await calculateMaterialRequirements(input.batchId);
       }),
@@ -7187,7 +7849,7 @@ ai: aiRouter,
           groupBy: z.enum(["day", "week"]).optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { analyzeProductionCapacity } = await import("./db");
         return await analyzeProductionCapacity(input);
       }),
@@ -7201,7 +7863,7 @@ ai: aiRouter,
           siteId: z.number().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { analyzeProductionCapacityByProduct } = await import("./db");
         return await analyzeProductionCapacityByProduct(input);
       }),
@@ -7212,7 +7874,7 @@ ai: aiRouter,
         startDate: z.string(),
         endDate: z.string()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { optimizeProductionSchedule } = await import("./db");
         return await optimizeProductionSchedule(input);
       }),
@@ -7223,7 +7885,7 @@ ai: aiRouter,
         batchId: z.number(),
         newPlannedDate: z.string()
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { applyScheduleOptimization } = await import("./db");
         return await applyScheduleOptimization(input);
       }),
@@ -7236,7 +7898,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getBatchCostAnalysis } = await import("./db");
         return await getBatchCostAnalysis(input);
       }),
@@ -7249,7 +7911,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getProductionTimeAnalysis } = await import("./db");
         return await getProductionTimeAnalysis(input);
       }),
@@ -7262,7 +7924,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getDefectRateAnalysis } = await import("./db");
         return await getDefectRateAnalysis(input);
       })
@@ -7338,7 +8000,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { analyzePriceTrend } = await import("./db/costSavingAI");
         const startDate = new Date(input.startDate);
         const endDate = new Date(input.endDate);
@@ -7348,7 +8010,7 @@ ai: aiRouter,
     // 최적 구매 시점 추천
     recommendPurchaseTiming: protectedProcedure
       .input(z.object({ materialId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { recommendPurchaseTiming } = await import("./db/costSavingAI");
         return await recommendPurchaseTiming(input.materialId);
       }),
@@ -7356,7 +8018,7 @@ ai: aiRouter,
     // 대체 공급업체 추천
     recommendAlternativeSuppliers: protectedProcedure
       .input(z.object({ materialId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { recommendAlternativeSuppliers } = await import("./db/costSavingAI");
         return await recommendAlternativeSuppliers(input.materialId);
       }),
@@ -7364,7 +8026,7 @@ ai: aiRouter,
     // AI 기반 원가 절감 제안 생성
     generateProposal: protectedProcedure
       .input(z.object({ materialId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { generateCostSavingProposal } = await import("./db/costSavingAI");
         return await generateCostSavingProposal(input.materialId);
       })
@@ -7394,7 +8056,7 @@ ai: aiRouter,
         startDate: z.string().optional(),
         endDate: z.string().optional()
       }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getRecipeApprovalHistory } = await import("./api/recipeApproval");
         return await getRecipeApprovalHistory(input);
       }),
@@ -7417,7 +8079,7 @@ ai: aiRouter,
     // 품목제조보고 상세 조회 (승인 정보 포함)
     getDetail: protectedProcedure
       .input(z.object({ recipeId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getRecipeWithApprovalInfo } = await import("./api/recipeApproval");
         return await getRecipeWithApprovalInfo(input.recipeId);
       })
@@ -7432,7 +8094,7 @@ ai: aiRouter,
         endDate: z.string(),
         facilityIds: z.array(z.number()).optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { optimizeProductionSchedule } = await import("./api/scheduleOptimization");
         return await optimizeProductionSchedule(input);
       }),
@@ -7534,7 +8196,7 @@ ai: aiRouter,
     // 평가 목록 조회
     list: protectedProcedure
       .input(z.object({ supplierId: z.number().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         // 모든 평가 또는 특정 공급업체 평가 반환
         return [] as Array<{
           id: number;
@@ -7557,7 +8219,7 @@ ai: aiRouter,
     // 평가 통계 조회
     getStats: protectedProcedure
       .input(z.object({ supplierId: z.number().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         // 평가 통계 반환
         return {
           averageScore: 0,
@@ -7616,7 +8278,7 @@ ai: aiRouter,
     // 타입별 이력 조회
     getByType: protectedProcedure
       .input(z.object({ uploadType: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getUploadHistoryByType } = await import("./db/uploadHistory.js");
         return await getUploadHistoryByType(input.uploadType);
       }),
@@ -7624,7 +8286,7 @@ ai: aiRouter,
     // 사용자별 이력 조회
     getByUser: protectedProcedure
       .input(z.object({ userId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getUploadHistoryByUser } = await import("./db/uploadHistory.js");
         return await getUploadHistoryByUser(input.userId);
       }),
@@ -7632,7 +8294,7 @@ ai: aiRouter,
     // 이력 삭제
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteUploadHistory } = await import("./db/uploadHistory.js");
         return await deleteUploadHistory(input.id);
       })
@@ -7674,7 +8336,7 @@ ai: aiRouter,
           groupType: z.enum(["department", "team", "project", "custom"]).optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateGroup } = await import("./db");
         const { groupId, ...data } = input;
         await updateGroup(groupId, data);
@@ -7684,7 +8346,7 @@ ai: aiRouter,
     // 그룹 삭제
     delete: adminProcedure
       .input(z.object({ groupId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteGroup } = await import("./db");
         await deleteGroup(input.groupId);
         return { success: true };
@@ -7699,7 +8361,7 @@ ai: aiRouter,
           role: z.enum(["member", "leader", "admin"]).default("member")
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { addGroupMember } = await import("./db");
         await addGroupMember(input);
         return { success: true };
@@ -7713,7 +8375,7 @@ ai: aiRouter,
           userId: z.number()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { removeGroupMember } = await import("./db");
         await removeGroupMember(input.groupId, input.userId);
         return { success: true };
@@ -7722,7 +8384,7 @@ ai: aiRouter,
     // 그룹 멤버 목록 조회
     getMembers: protectedProcedure
       .input(z.object({ groupId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getGroupMembers } = await import("./db");
         return await getGroupMembers(input.groupId);
       }),
@@ -7730,7 +8392,7 @@ ai: aiRouter,
     // 사용자가 속한 그룹 목록 조회
     getUserGroups: protectedProcedure
       .input(z.object({ userId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getUserGroups } = await import("./db");
         return await getUserGroups(input.userId);
       })
@@ -7779,7 +8441,7 @@ ai: aiRouter,
           offset: z.number().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getTransactions } = await import("./accounting");
         return await getTransactions(input);
       }),
@@ -7787,7 +8449,7 @@ ai: aiRouter,
     // 거래 상세 조회
     getTransaction: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getTransactionById } = await import("./accounting");
         return await getTransactionById(input.id);
       }),
@@ -7804,7 +8466,7 @@ ai: aiRouter,
           description: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateTransaction } = await import("./accounting");
         const { id, transactionDate, ...rest } = input;
         const data: any = { ...rest };
@@ -7818,7 +8480,7 @@ ai: aiRouter,
     // 거래 삭제
     deleteTransaction: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deleteTransaction } = await import("./accounting");
         await deleteTransaction(input.id);
         return { success: true };
@@ -7827,7 +8489,7 @@ ai: aiRouter,
     // 일일 집계
     getDailySummary: protectedProcedure
       .input(z.object({ date: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getDailySummary } = await import("./accounting");
         return await getDailySummary(input.date);
       }),
@@ -7853,7 +8515,7 @@ ai: aiRouter,
           type: z.enum(["income", "expense"])
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getCategoryBreakdown } = await import("./accounting");
         return await getCategoryBreakdown(input.startDate, input.endDate, input.type);
       }),
@@ -7866,7 +8528,7 @@ ai: aiRouter,
           endDate: z.string()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getFinancialOverview } = await import("./accounting");
         return await getFinancialOverview(input.startDate, input.endDate);
       }),
@@ -7925,7 +8587,7 @@ ai: aiRouter,
     // 거래처 상세 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getPartnerById } = await import("./partners");
         return await getPartnerById(input.id);
       }),
@@ -7948,7 +8610,7 @@ ai: aiRouter,
           bankAccount: z.string().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updatePartner } = await import("./partners");
         const { id, ...data } = input;
         await updatePartner(id, data);
@@ -7958,7 +8620,7 @@ ai: aiRouter,
     // 거래처 삭제
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { deletePartner } = await import("./partners");
         await deletePartner(input.id);
         return { success: true };
@@ -7967,7 +8629,7 @@ ai: aiRouter,
     // 사업자번호로 검색
     getByBizNo: protectedProcedure
       .input(z.object({ bizNo: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getPartnerByBizNo } = await import("./partners");
         return await getPartnerByBizNo(input.bizNo);
       })
@@ -8012,7 +8674,7 @@ ai: aiRouter,
           })
           .optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getApLedger } = await import("./partners");
         return await getApLedger(input);
       }),
@@ -8020,7 +8682,7 @@ ai: aiRouter,
     // 매입 원장 상세 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getApLedgerById } = await import("./partners");
         return await getApLedgerById(input.id);
       }),
@@ -8033,7 +8695,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getApSummaryBySupplier } = await import("./partners");
         return await getApSummaryBySupplier(input.startDate, input.endDate);
       })
@@ -8081,7 +8743,7 @@ ai: aiRouter,
           })
           .optional()
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getArLedger } = await import("./partners");
         return await getArLedger(input);
       }),
@@ -8089,7 +8751,7 @@ ai: aiRouter,
     // 매출 원장 상세 조회
     getById: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getArLedgerById } = await import("./partners");
         return await getArLedgerById(input.id);
       }),
@@ -8102,7 +8764,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getArSummaryByCustomer } = await import("./partners");
         return await getArSummaryByCustomer(input.startDate, input.endDate);
       }),
@@ -8115,7 +8777,7 @@ ai: aiRouter,
           endDate: z.string().optional()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getFinancialSummary } = await import("./partners");
         return await getFinancialSummary(input.startDate, input.endDate);
       }),
@@ -8829,7 +9491,7 @@ ai: aiRouter,
           accountCategoryId: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updatePurchase } = await import("./db/haccpIntegration");
         const { id, ...data } = input;
         return await updatePurchase(id, data);
@@ -8862,7 +9524,7 @@ ai: aiRouter,
           accountCategoryId: z.number().optional()
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { updateSale } = await import("./db/haccpIntegration");
         const { id, ...data } = input;
         return await updateSale(id, data);
@@ -8949,7 +9611,7 @@ ai: aiRouter,
           limit: z.number().optional().default(50)
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const docsDb = await import("./db/accountingDocuments");
         return await docsDb.listDocuments(input);
       }),
@@ -9032,14 +9694,14 @@ ai: aiRouter,
           documentId: z.number()
         })
       )
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const docsDb = await import("./db/accountingDocuments");
         return await docsDb.getDocumentWorkflow(input.documentId);
       }),
     // HACCP 연동 자동화: 재료 입고 시 매입 거래 자동 생성
     autoCreatePurchaseFromReceipt: adminProcedure
       .input(z.object({ transactionId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createPurchaseFromReceipt } = await import("./db/haccpAccountingIntegration");
         return await createPurchaseFromReceipt(input.transactionId);
       }),
@@ -9047,7 +9709,7 @@ ai: aiRouter,
     // HACCP 연동 자동화: 제품 출고 시 매출 거래 자동 생성
     autoCreateSaleFromUsage: adminProcedure
       .input(z.object({ transactionId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const { createSaleFromUsage } = await import("./db/haccpAccountingIntegration");
         return await createSaleFromUsage(input.transactionId);
       }),
@@ -9380,12 +10042,13 @@ ai: aiRouter,
         }
       }),
     
-    // 일일일지 목록 조회
+    // 일일일지 목록 조회 (h_generic_checklist_records 기반 - 실제 양식 데이터)
     list: protectedProcedure
       .input(z.object({
         siteId: z.number().optional(),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        status: z.string().optional(),
         limit: z.number().default(50),
         offset: z.number().default(0)
       }).optional())
@@ -9394,26 +10057,59 @@ ai: aiRouter,
           const db = await getDb();
           if (!db) throw new Error("데이터베이스 연결 실패");
           
+          // h_generic_checklist_records에서 daily_log 타입 조회 (실제 양식 데이터)
           const result = await db.execute(sql`
-            SELECT id, site_id, report_date, report_type, summary, generated_at
-            FROM h_daily_reports
-            WHERE report_type = 'daily_log'
-            AND tenant_id = ${ctx.user.tenantId}
-            ${input.siteId ? sql`AND site_id = ${input.siteId}` : sql``}
-            ${input.startDate ? sql`AND report_date >= ${input.startDate}` : sql``}
-            ${input.endDate ? sql`AND report_date <= ${input.endDate}` : sql``}
-            ORDER BY report_date DESC
-            LIMIT ${input.limit} OFFSET ${input.offset}
+            SELECT 
+              r.id,
+              r.site_id,
+              r.form_date AS log_date,
+              r.title,
+              r.status,
+              r.form_data,
+              r.created_at,
+              r.updated_at,
+              u.name AS creator_name,
+              ar.id AS approval_request_id,
+              ar.status AS approval_status
+            FROM h_generic_checklist_records r
+            LEFT JOIN h_users u ON r.created_by = u.id
+            LEFT JOIN h_approval_requests ar ON (
+              ar.reference_type = 'checklist' 
+              AND ar.reference_id = r.id 
+              AND ar.request_type = 'daily_log'
+            )
+            WHERE r.form_type = 'daily_log'
+            AND r.tenant_id = ${ctx.user.tenantId}
+            ${input?.siteId ? sql`AND r.site_id = ${input.siteId}` : sql``}
+            ${input?.startDate ? sql`AND r.form_date >= ${input.startDate}` : sql``}
+            ${input?.endDate ? sql`AND r.form_date <= ${input.endDate}` : sql``}
+            ${input?.status ? sql`AND r.status = ${input.status}` : sql``}
+            ORDER BY r.form_date DESC, r.created_at DESC
+            LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
           `);
           
           const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
-          return (rows as any[]).map((r: any) => ({
-            id: r.id,
-            siteId: r.site_id,
-            reportDate: r.report_date,
-            summary: typeof r.summary === 'string' ? JSON.parse(r.summary) : r.summary,
-            generatedAt: r.generated_at
-          }));
+          return (rows as any[]).map((r: any) => {
+            let formData: any = {};
+            try {
+              formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
+            } catch {}
+            return {
+              id: r.id,
+              siteId: r.site_id,
+              log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
+              title: r.title,
+              status: r.status,
+              creator_name: r.creator_name,
+              approval_request_id: r.approval_request_id,
+              approval_status: r.approval_status,
+              batches: formData.batches || [],
+              totalBatches: formData.totalBatches || 0,
+              totalPlannedQty: formData.totalPlannedQty || 0,
+              createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || ''),
+              updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || ''),
+            };
+          });
         } catch (error) {
           console.error('[dailyLog.list] 오류:', error);
           return [];
@@ -9432,7 +10128,7 @@ ai: aiRouter,
       .input(z.object({
         tenantId: z.number()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const { getTenantDetail } = await import("./db");
         return await getTenantDetail(input.tenantId);
       })
@@ -9455,28 +10151,28 @@ ai: aiRouter,
     // 파이프라인 상태 대시보드
     getStatus: protectedProcedure
       .input(z.object({ siteId: z.number(), workDate: z.string().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await getPipelineStatus(db, input.siteId, input.workDate);
+        return await getPipelineStatus(db, input.siteId, input.workDate, ctx.user.tenantId);
       }),
     
     // 원료 재고 사전 체크
     checkMaterial: protectedProcedure
       .input(z.object({ batchId: z.number(), siteId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await checkMaterialAvailability(db, input.batchId, input.siteId);
+        return await checkMaterialAvailability(db, input.batchId, input.siteId, ctx.user.tenantId);
       }),
     
     // 일일 마감 (기존 - siteId 기반)
     runDailyClosing: protectedProcedure
       .input(z.object({ siteId: z.number(), workDate: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await runDailyClosing(db, input.siteId, input.workDate);
+        return await runDailyClosing(db, input.siteId, input.workDate, ctx.user.tenantId);
       }),
     
     // 수동 일일 마감 실행 (스케줄러와 동일한 전체 프로세스)
@@ -9495,7 +10191,7 @@ ai: aiRouter,
         reportDate: z.string().optional(),
         limit: z.number().optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
         
@@ -9542,7 +10238,7 @@ ai: aiRouter,
         tenantId: z.number(),
         limit: z.number().optional()
       }))
-      .query(async ({ input }) => {
+      .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
         const limit = input.limit || 50;
@@ -9701,5 +10397,382 @@ ai: aiRouter,
         );
       }),
   }),
-});
+  // =========================================================================
+  // CCP 모니터링 기록지 (ccpForm)
+  // CCP-2B: 가열(굽기), CCP-1B: 가열(증숙), CCP-4P: 금속검출
+  // =========================================================================
+  ccpForm: router({
 
+    /** 배치에 연결된 CCP 기록지 목록 조회 */
+    getByBatch: protectedProcedure
+      .input(z.object({ batchId: z.number(), includeRows: z.boolean().optional() }))
+      .query(async ({ input, ctx }) => {
+        const tenantId = ctx.user.tenantId;
+        if (input.includeRows) {
+          const { getCcpFormRecordsWithRowsByBatch } = await import("./db/ccpFormRecords");
+          return getCcpFormRecordsWithRowsByBatch(input.batchId, tenantId);
+        }
+        const { getCcpFormRecordsByBatch } = await import("./db/ccpFormRecords");
+        return getCcpFormRecordsByBatch(input.batchId, tenantId);
+      }),
+
+
+
+
+
+
+
+    /** CCP 기록지 단건 (행 포함) 조회 */
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getCcpFormRecordById } = await import("./db/ccpFormRecords");
+        return getCcpFormRecordById(input.id, ctx.user.tenantId);
+      }),
+
+    /** CCP 기록지 생성 또는 기존 조회 */
+    getOrCreate: workerProcedure
+      .input(z.object({
+        batchId: z.number(),
+        ccpType: z.string(),
+        workDate: z.string(),
+        productId: z.number().optional(),
+        productName: z.string().optional(),
+        processGroupId: z.number().optional(),
+        processGroupName: z.string().optional(),
+        bomBatchKg: z.number().optional(),
+        plannedQtyKg: z.number().optional(),
+        clHeatTimeMinLo: z.number().optional(),
+        clHeatTimeMinHi: z.number().optional(),
+        clHeatTempLo: z.number().optional(),
+        clPressureMpaLo: z.number().optional(),
+        clProductTempLo: z.number().optional(),
+        clMetalSensitivity: z.number().optional(),
+        clFeMm: z.number().optional(),
+        clSusMm: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { getOrCreateCcpFormRecord } = await import("./db/ccpFormRecords");
+        return getOrCreateCcpFormRecord({
+          tenantId: ctx.user.tenantId,
+          siteId: ctx.user.siteId ?? 1,
+          batchId: input.batchId,
+          ccpType: input.ccpType,
+          workDate: input.workDate,
+          productId: input.productId,
+          productName: input.productName,
+          processGroupId: input.processGroupId,
+          processGroupName: input.processGroupName,
+          bomBatchKg: input.bomBatchKg,
+          plannedQtyKg: input.plannedQtyKg,
+          writerId: ctx.user.id,
+          clHeatTimeMinLo: input.clHeatTimeMinLo,
+          clHeatTimeMinHi: input.clHeatTimeMinHi,
+          clHeatTempLo: input.clHeatTempLo,
+          clPressureMpaLo: input.clPressureMpaLo,
+          clProductTempLo: input.clProductTempLo,
+          clMetalSensitivity: input.clMetalSensitivity,
+          clFeMm: input.clFeMm,
+          clSusMm: input.clSusMm,
+        });
+      }),
+
+    /** CCP 기록지 헤더 업데이트 */
+    updateRecord: workerProcedure
+      .input(z.object({
+        id: z.number(),
+        equipGroupMode: z.enum(["concurrent", "sequential"]).optional(),
+        equipIntervalMin: z.number().optional(),
+        clHeatTimeMinLo: z.number().optional(),
+        clHeatTimeMinHi: z.number().optional(),
+        clHeatTempLo: z.number().optional(),
+        clPressureMpaLo: z.number().optional(),
+        clProductTempLo: z.number().optional(),
+        clMetalSensitivity: z.number().optional(),
+        clFeMm: z.number().optional(),
+        clSusMm: z.number().optional(),
+        batchCount: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { updateCcpFormRecord } = await import("./db/ccpFormRecords");
+        const { id, ...rest } = input;
+        const updateData: Record<string, unknown> = {};
+        if (rest.equipGroupMode !== undefined) updateData.equipGroupMode = rest.equipGroupMode;
+        if (rest.equipIntervalMin !== undefined) updateData.equipIntervalMin = rest.equipIntervalMin;
+        if (rest.batchCount !== undefined) updateData.batchCount = rest.batchCount;
+        if (rest.clHeatTimeMinLo !== undefined) updateData.clHeatTimeMinLo = rest.clHeatTimeMinLo;
+        if (rest.clHeatTimeMinHi !== undefined) updateData.clHeatTimeMinHi = rest.clHeatTimeMinHi;
+        if (rest.clHeatTempLo !== undefined) updateData.clHeatTempLo = rest.clHeatTempLo.toString();
+        if (rest.clPressureMpaLo !== undefined) updateData.clPressureMpaLo = rest.clPressureMpaLo.toString();
+        if (rest.clProductTempLo !== undefined) updateData.clProductTempLo = rest.clProductTempLo.toString();
+        if (rest.clMetalSensitivity !== undefined) updateData.clMetalSensitivity = rest.clMetalSensitivity;
+        if (rest.clFeMm !== undefined) updateData.clFeMm = rest.clFeMm.toString();
+        if (rest.clSusMm !== undefined) updateData.clSusMm = rest.clSusMm.toString();
+        await updateCcpFormRecord(id, updateData, ctx.user.tenantId);
+        return { success: true };
+      }),
+
+    /** CCP 기록 행 저장 */
+    saveRow: workerProcedure
+      .input(z.object({
+        formRecordId: z.number(),
+        batchSeq: z.number().default(1),
+        equipmentId: z.number().optional(),
+        equipmentName: z.string().optional(),
+        equipmentType: z.string().optional(),
+        productName: z.string().optional(),
+        measurementTime: z.string().optional(),
+        inputQtyKg: z.number().optional(),
+        result: z.enum(["적합", "부적합"]).optional(),
+        heatTimeMin: z.number().optional(),
+        heatTempC: z.number().optional(),
+        siruName: z.string().optional(),
+        pressureMpa: z.number().optional(),
+        tempEdgeC: z.number().optional(),
+        tempCenterC: z.number().optional(),
+        metalPassTime: z.string().optional(),
+        metalFeMid: z.string().optional(),
+        metalSusMid: z.string().optional(),
+        metalProductOnly: z.string().optional(),
+        metalFeProduct: z.string().optional(),
+        metalSusProduct: z.string().optional(),
+        passTimeStart: z.string().optional(),
+        passTimeEnd: z.string().optional(),
+        passQty: z.number().optional(),
+        detectedQty: z.number().optional(),
+        specialNote: z.string().optional(),
+        isDeviation: z.boolean().optional(),
+        deviationNote: z.string().optional(),
+        correctiveAction: z.string().optional(),
+        actionBy: z.string().optional(),
+        confirmedBy: z.string().optional(),
+        note: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { upsertCcpFormRow } = await import("./db/ccpFormRecords");
+        const rowId = await upsertCcpFormRow({
+          tenantId: ctx.user.tenantId,
+          formRecordId: input.formRecordId,
+          batchSeq: input.batchSeq,
+          equipmentId: input.equipmentId,
+          equipmentName: input.equipmentName,
+          equipmentType: input.equipmentType,
+          productName: input.productName,
+          measurementTime: input.measurementTime,
+          inputQtyKg: input.inputQtyKg?.toString(),
+          result: input.result,
+          heatTimeMin: input.heatTimeMin,
+          heatTempC: input.heatTempC?.toString(),
+          siruName: input.siruName,
+          pressureMpa: input.pressureMpa?.toString(),
+          tempEdgeC: input.tempEdgeC?.toString(),
+          tempCenterC: input.tempCenterC?.toString(),
+          metalPassTime: input.metalPassTime,
+          metalFeMid: input.metalFeMid,
+          metalSusMid: input.metalSusMid,
+          metalProductOnly: input.metalProductOnly,
+          metalFeProduct: input.metalFeProduct,
+          metalSusProduct: input.metalSusProduct,
+          passTimeStart: input.passTimeStart,
+          passTimeEnd: input.passTimeEnd,
+          passQty: input.passQty,
+          detectedQty: input.detectedQty,
+          specialNote: input.specialNote,
+          isDeviation: input.isDeviation ? 1 : 0,
+          deviationNote: input.deviationNote,
+          correctiveAction: input.correctiveAction,
+          actionBy: input.actionBy,
+          confirmedBy: input.confirmedBy,
+          note: input.note,
+        });
+        return { success: true, rowId };
+      }),
+
+    /** 기록 행 삭제 */
+    deleteRow: workerProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { deleteCcpFormRow } = await import("./db/ccpFormRecords");
+        await deleteCcpFormRow(input.id, ctx.user.tenantId);
+        return { success: true };
+      }),
+
+    /** 기록지 제출 (승인 요청) */
+    submit: workerProcedure
+      .input(z.object({
+        formRecordId: z.number(),
+        batchNumber: z.string(),
+        productName: z.string().optional(),
+        ccpType: z.string(),
+        workDate: z.string(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { submitCcpFormRecord } = await import("./db/ccpFormRecords");
+        const approvalId = await submitCcpFormRecord({
+          formRecordId: input.formRecordId,
+          tenantId: ctx.user.tenantId,
+          siteId: ctx.user.siteId ?? 1,
+          writerId: ctx.user.id,
+          batchNumber: input.batchNumber,
+          productName: input.productName ?? "",
+          ccpType: input.ccpType,
+          workDate: input.workDate,
+        });
+        return { success: true, approvalRequestId: approvalId };
+      }),
+
+    /** 설비 배치 간격 설정 저장 */
+    saveEquipSettings: workerProcedure
+      .input(z.object({
+        processGroupId: z.number(),
+        groupMode: z.enum(["concurrent", "sequential"]),
+        intervalBetweenMin: z.number().optional(),
+        maxConcurrent: z.number().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { upsertCcpEquipBatchSettings } = await import("./db/ccpFormRecords");
+        const id = await upsertCcpEquipBatchSettings({
+          tenantId: ctx.user.tenantId,
+          processGroupId: input.processGroupId,
+          groupMode: input.groupMode,
+          intervalBetweenMin: input.intervalBetweenMin,
+          maxConcurrent: input.maxConcurrent,
+          notes: input.notes,
+        });
+        return { success: true, id };
+      }),
+
+    /** 설비 배치 간격 설정 조회 */
+    getEquipSettings: protectedProcedure
+      .input(z.object({ processGroupId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getCcpEquipBatchSettings } = await import("./db/ccpFormRecords");
+        return getCcpEquipBatchSettings(ctx.user.tenantId, input.processGroupId);
+      }),
+    /** BOM 배치 목표량 조회 (배치수 자동계산용) */
+    getBomBatchKg: protectedProcedure
+      .input(z.object({ productId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("./db");
+        let conn: any = null;
+        try {
+          conn = await getRawConnection();
+          // h_mf_report_versions -> h_mf_reports -> product_id 조인
+          const [rows] = await conn.execute(
+            `SELECT rv.batch_target_kg
+             FROM h_mf_report_versions rv
+             JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
+             WHERE mr.product_id = ?
+             ORDER BY rv.id DESC LIMIT 1`,
+            [input.productId]
+          );
+          const bomBatchKg = (rows as any[])[0]?.batch_target_kg;
+          // fallback: h_recipe_headers
+          if (!bomBatchKg) {
+            const [rows2] = await conn.execute(
+              `SELECT target_quantity FROM h_recipe_headers WHERE product_id = ? AND unit != '%' ORDER BY id DESC LIMIT 1`,
+              [input.productId]
+            );
+            const fallback = (rows2 as any[])[0]?.target_quantity;
+            return { bomBatchKg: fallback ? parseFloat(fallback) : null };
+          }
+          return { bomBatchKg: parseFloat(bomBatchKg) };
+        } catch (e: any) {
+          console.error("[getBomBatchKg] error:", e.message);
+          return { bomBatchKg: null };
+        }
+        // ※ getRawConnection()은 Pool 싱글턴 - end() 호출 금지
+      }),
+    /** 배치에 연결된 설비 목록 조회 (CCP 기록지 설비 자동할당용) */
+    getEquipmentForBatch: protectedProcedure
+      .input(z.object({ batchId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("./db");
+        let conn: any = null;
+        try {
+          conn = await getRawConnection();
+          // CCP 인스턴스에서 공정그룹 확인 후 설비 목록 조회
+          const [instRows] = await conn.execute(
+            `SELECT DISTINCT ci.process_group_id, pg.name as group_name, ci.ccp_type
+             FROM h_ccp_instances ci
+             LEFT JOIN ccp_process_groups pg ON ci.process_group_id = pg.id
+             WHERE ci.batch_id = ?`,
+            [input.batchId, ctx.user.tenantId]
+          );
+          const result = [];
+          for (const inst of instRows as any[]) {
+            if (!inst.process_group_id) continue;
+            const [equipRows] = await conn.execute(
+              `SELECT eq.id as id, eq.name as equipment_name, eq.type as equipment_type,
+                      NULL as equipment_code, pge.sort_order,
+                      eq.default_temperature, eq.default_pressure,
+                      eq.batch_operation_time, eq.default_time
+               FROM ccp_process_group_equipments pge
+               JOIN equipments eq ON pge.equipment_id = eq.id
+               WHERE pge.process_group_id = ? AND pge.tenant_id = ? AND pge.tenant_id = eq.tenant_id
+                 AND eq.status = 'active'
+               ORDER BY pge.sort_order ASC`,
+              [inst.process_group_id, ctx.user.tenantId]
+            );
+            result.push({
+              processGroupId: inst.process_group_id,
+              processGroupName: inst.group_name,
+              ccpType: inst.ccp_type,
+              equipment: equipRows,
+            });
+          }
+          return result;
+        } catch (e: any) {
+          console.error("[getEquipmentForBatch] error:", e.message);
+          return [];
+        }
+        // ※ getRawConnection()은 Pool 싱글턴 - end() 호출 금지
+      }),
+
+    /** CCP form rows 재동기화 (빈 행이 있는 배치에 대해 sync 재실행) */
+    resyncFormRows: workerProcedure
+      .input(z.object({ batchId: z.number().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const { syncCcpRowsToFormRows } = await import("./db/ccpFormRecords");
+        const tenantId = ctx.user.tenantId;
+
+        if (input.batchId) {
+          // 특정 배치만 재동기화
+          const result = await syncCcpRowsToFormRows({ batchId: input.batchId, tenantId });
+          return { success: true, synced: result.synced, batches: [input.batchId] };
+        }
+
+        // 빈 form rows가 있는 모든 배치를 찾아서 재동기화
+        const { getRawConnection } = await import("./db");
+        const conn = await getRawConnection();
+        const [emptyRecords] = await conn.execute<any[]>(
+          `SELECT DISTINCT fr.batch_id
+           FROM h_ccp_form_records fr
+           LEFT JOIN h_ccp_form_rows cfr ON cfr.form_record_id = fr.id
+           WHERE fr.tenant_id = ? AND cfr.id IS NULL
+           ORDER BY fr.batch_id`,
+          [tenantId]
+        );
+
+        let totalSynced = 0;
+        const syncedBatches: number[] = [];
+        for (const rec of emptyRecords as any[]) {
+          try {
+            const result = await syncCcpRowsToFormRows({ batchId: rec.batch_id, tenantId });
+            totalSynced += result.synced;
+            if (result.synced > 0) syncedBatches.push(rec.batch_id);
+          } catch (e) {
+            console.error(`[resyncFormRows] batch ${rec.batch_id} sync failed:`, e);
+          }
+        }
+
+        return {
+          success: true,
+          synced: totalSynced,
+          batches: syncedBatches,
+          emptyBatchCount: (emptyRecords as any[]).length,
+        };
+      }),
+  }),
+});

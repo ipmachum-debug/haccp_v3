@@ -23,7 +23,7 @@ import { tenants } from '../schema_main';
  */
 export const categories = mysqlTable("categories", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   type: mysqlEnum("type", ["material", "product", "purchase", "sale"]).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   code: varchar("code", { length: 50 }), // 선택적 코드 (예: MAT-MEAT, PRD-FINISHED)

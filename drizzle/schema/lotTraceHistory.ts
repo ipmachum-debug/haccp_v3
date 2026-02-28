@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const lotTraceHistory = mysqlTable("lot_trace_history", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 추적 정보
   traceType: text("trace_type").notNull(), // 'forward' (정방향) 또는 'backward' (역방향)

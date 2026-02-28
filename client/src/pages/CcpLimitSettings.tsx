@@ -33,7 +33,7 @@ export default function CcpLimitSettings() {
       setEditingSpec(null);
       refetch();
     },
-    onError: (err) => toast.error(`저장 실패: ${err.message}`),
+    onError: (err: any) => toast.error(`저장 실패: ${err.message}`),
   });
 
   // 삭제 mutation

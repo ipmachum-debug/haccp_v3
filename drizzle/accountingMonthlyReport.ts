@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const accountingMonthlySummary = mysqlTable("accounting_monthly_summary", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 기간 정보
   year: int("year").notNull(), // 연도 (예: 2026)

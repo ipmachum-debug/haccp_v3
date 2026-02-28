@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 export const weeklyLogsRouter = router({
   // ==================== 일반위생관리 주간일지 ====================
@@ -58,7 +58,7 @@ export const weeklyLogsRouter = router({
       })
     )
     .query(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
       let query = 'SELECT * FROM weekly_hygiene_logs WHERE tenant_id = ?';
       const params: any[] = [input.tenant_id];
 
@@ -74,7 +74,7 @@ export const weeklyLogsRouter = router({
 
       query += ' ORDER BY check_date DESC';
 
-      const logs = await (db as any).execute(query, params);
+      const [logs] = await conn.execute(query, params) as any;
       return { success: true, logs };
     }),
 
@@ -121,8 +121,8 @@ export const weeklyLogsRouter = router({
   deleteHygiene: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      await (db as any).execute('DELETE FROM weekly_hygiene_logs WHERE id = ?', [input.id]);
+      const conn = await getRawConnection();
+      await conn.execute('DELETE FROM weekly_hygiene_logs WHERE id = ?', [input.id]);
       return { success: true, message: '일반위생관리 주간일지가 삭제되었습니다.' };
     }),
 
@@ -280,7 +280,7 @@ export const weeklyLogsRouter = router({
       })
     )
     .query(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
       let query = 'SELECT * FROM weekly_pest_logs WHERE tenant_id = ?';
       const params: any[] = [input.tenant_id];
 
@@ -296,7 +296,7 @@ export const weeklyLogsRouter = router({
 
       query += ' ORDER BY check_date DESC';
 
-      const logs = await (db as any).execute(query, params);
+      const [logs] = await conn.execute(query, params) as any;
 
       // 각 로그에 대한 설비별 체크 데이터 조회
       for (const log of logs) {
@@ -378,7 +378,7 @@ export const weeklyLogsRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
 
       // 1. 메인 레코드 수정
       await (db as any).execute(
@@ -397,7 +397,7 @@ export const weeklyLogsRouter = router({
       );
 
       // 2. 기존 설비별 체크 삭제
-      await (db as any).execute('DELETE FROM weekly_pest_checks WHERE log_id = ?', [input.id]);
+      await conn.execute('DELETE FROM weekly_pest_checks WHERE log_id = ?', [input.id]);
 
       // 3. 새로운 설비별 체크 삽입
       if (input.equipment_checks && input.equipment_checks.length > 0) {
@@ -434,9 +434,9 @@ export const weeklyLogsRouter = router({
   deletePest: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
       // CASCADE로 설정되어 있어 weekly_pest_checks도 자동 삭제됨
-      await (db as any).execute('DELETE FROM weekly_pest_logs WHERE id = ?', [input.id]);
+      await conn.execute('DELETE FROM weekly_pest_logs WHERE id = ?', [input.id]);
       return { success: true, message: '방충방서 주간일지가 삭제되었습니다.' };
     }),
 

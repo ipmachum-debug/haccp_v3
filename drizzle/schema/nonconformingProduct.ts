@@ -98,7 +98,7 @@ export const h_nonconforming_products = mysqlTable("h_nonconforming_products", {
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -122,7 +122,7 @@ export const h_nonconforming_product_attachments = mysqlTable("h_nonconforming_p
   
   uploadedBy: bigint("uploaded_by", { mode: "number" }).notNull(),
   uploadedAt: timestamp("uploaded_at").notNull().defaultNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });
 
 /**
@@ -163,5 +163,5 @@ export const h_nonconforming_product_stats = mysqlTable("h_nonconforming_product
   
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-  tenantId: int("tenant_id").notNull(),
+  tenantId: int("tenant_id").notNull().default(1),
 });

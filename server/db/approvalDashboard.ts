@@ -13,12 +13,13 @@ export async function getPendingApprovals(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  // 1. 승인 요청 테이블에서 모든 승인 항목 조회
+  // 1. 승인 요청 테이블에서 모든 승인 항목 조회 (description 포함)
   const requests = await db
     .select({
       id: hApprovalRequests.id,
       requestType: hApprovalRequests.requestType,
       title: hApprovalRequests.title,
+      description: hApprovalRequests.description,
       referenceType: hApprovalRequests.referenceType,
       referenceId: hApprovalRequests.referenceId,
       status: hApprovalRequests.status,
@@ -49,8 +50,13 @@ export async function getPendingApprovals(tenantId?: number) {
   const approvals = requests.map(request => {
     let type = "unknown";
     
-    // requestType 또는 referenceType에서 유형 결정
-    if (request.requestType === "batch_approval" || request.referenceType === "batch") {
+    // requestType 우선, referenceType 보조로 유형 결정
+    // batch_production / batch_completion 은 requestType으로 먼저 분기
+    if (request.requestType === "batch_production") {
+      type = "batch_production";
+    } else if (request.requestType === "batch_completion") {
+      type = "batch_completion";
+    } else if (request.requestType === "batch_approval" || request.referenceType === "batch") {
       type = "batch";
     } else if (request.requestType === "inventory_adjustment" || request.referenceType === "inventory_adjustment") {
       type = "inventory_adjustment";
@@ -65,9 +71,11 @@ export async function getPendingApprovals(tenantId?: number) {
     }
 
     return {
-      id: request.referenceId || request.id,
+      id: request.id,
+      referenceId: request.referenceId,
       type,
       title: request.title,
+      description: request.description,
       requesterName: requesterMap.get(request.requestedBy) || "알 수 없음",
       status: request.status,
       createdAt: request.createdAt

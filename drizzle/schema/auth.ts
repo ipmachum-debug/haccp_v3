@@ -21,7 +21,7 @@ import {
 
 export const hEmployees = mysqlTable("h_employees", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   employeeCode: varchar("employee_code", { length: 50 }).notNull().unique(),
   employeeName: varchar("employee_name", { length: 100 }).notNull(),
@@ -37,7 +37,7 @@ export const hEmployees = mysqlTable("h_employees", {
 
 export const hUserRoles = mysqlTable("h_user_roles", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   roleId: bigint("role_id", { mode: "number" }).notNull(),
   assignedAt: timestamp("assigned_at").defaultNow().notNull(),
@@ -46,7 +46,7 @@ export const hUserRoles = mysqlTable("h_user_roles", {
 
 export const hRbacRoles = mysqlTable("h_rbac_roles", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   roleName: varchar("role_name", { length: 100 }).notNull().unique(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -54,7 +54,7 @@ export const hRbacRoles = mysqlTable("h_rbac_roles", {
 
 export const hRbacPermissions = mysqlTable("h_rbac_permissions", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   permissionName: varchar("permission_name", { length: 100 }).notNull().unique(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -62,7 +62,7 @@ export const hRbacPermissions = mysqlTable("h_rbac_permissions", {
 
 export const hRbacRolePermissions = mysqlTable("h_rbac_role_permissions", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   roleId: bigint("role_id", { mode: "number" }).notNull(),
   permissionId: bigint("permission_id", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -70,7 +70,7 @@ export const hRbacRolePermissions = mysqlTable("h_rbac_role_permissions", {
 
 export const hOrganization = mysqlTable("h_organization", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   parentId: bigint("parent_id", { mode: "number" }),
   organizationName: varchar("organization_name", { length: 100 }).notNull(),
   level: int("level"),
@@ -79,7 +79,7 @@ export const hOrganization = mysqlTable("h_organization", {
 
 export const hUserWidgetSettings = mysqlTable("h_user_widget_settings", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   widgetId: varchar("widget_id", { length: 100 }).notNull(),
   isVisible: int("is_visible").default(1).notNull(),
@@ -89,7 +89,7 @@ export const hUserWidgetSettings = mysqlTable("h_user_widget_settings", {
 
 export const hUserFavorites = mysqlTable("h_user_favorites", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   userId: bigint("user_id", { mode: "number" }).notNull(),
   menuPath: varchar("menu_path", { length: 255 }).notNull(),
   menuLabel: varchar("menu_label", { length: 100 }).notNull(),

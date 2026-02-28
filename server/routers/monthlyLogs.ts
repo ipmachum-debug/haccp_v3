@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 export const monthlyLogsRouter = router({
   // ============================================
@@ -58,7 +58,7 @@ export const monthlyLogsRouter = router({
       status: z.string().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
       
       let query = 'SELECT * FROM monthly_hygiene_logs WHERE tenant_id = ?';
       const params: any[] = [input.tenant_id];
@@ -80,7 +80,7 @@ export const monthlyLogsRouter = router({
 
       query += ' ORDER BY check_date DESC';
 
-      const logs = await (db as any).execute(query, params);
+      const [logs] = await conn.execute(query, params) as any;
 
       return { logs };
     }),
@@ -316,7 +316,7 @@ export const monthlyLogsRouter = router({
       status: z.string().optional(),
     }))
     .query(async ({ input }) => {
-      const db = await getDb();
+      const conn = await getRawConnection();
       
       let query = 'SELECT * FROM monthly_ccp_logs WHERE tenant_id = ?';
       const params: any[] = [input.tenant_id];
@@ -338,7 +338,7 @@ export const monthlyLogsRouter = router({
 
       query += ' ORDER BY check_date DESC';
 
-      const logs = await (db as any).execute(query, params);
+      const [logs] = await conn.execute(query, params) as any;
 
       return { logs };
     }),

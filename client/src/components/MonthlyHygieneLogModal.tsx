@@ -33,6 +33,7 @@ export function MonthlyHygieneLogModal({
   // 특이사항, 개선조치, 확인
   const [specialNotes, setSpecialNotes] = useState('');
   const [improvementAction, setImprovementAction] = useState('');
+  const [confirmation, setConfirmation] = useState("");
 
 
   const createMutation = trpc.monthlyLog.createHygiene.useMutation({

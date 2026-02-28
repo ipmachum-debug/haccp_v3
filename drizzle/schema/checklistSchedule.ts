@@ -20,7 +20,7 @@ export const checklistSchedules = mysqlTable(
   "checklist_schedules",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),
@@ -123,7 +123,7 @@ export const checklistApprovals = mysqlTable(
   "checklist_approvals",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 인스턴스 참조
     instanceId: bigint("instance_id", { mode: "number" }).notNull(),

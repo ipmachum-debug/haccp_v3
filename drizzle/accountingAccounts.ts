@@ -11,7 +11,7 @@ import { tenants } from '../schema_main';
  */
 export const accountingAccounts = mysqlTable("accounting_accounts", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 계정 과목 분류 (5분류)
   category: mysqlEnum("category", ["assets", "liabilities", "equity", "revenue", "expenses"]).notNull(),

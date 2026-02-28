@@ -69,6 +69,7 @@ export function WeeklyPestLogListModal({
     }
   });
 
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const approveMutation = trpc.weeklyLog.approvePest.useMutation({
     onSuccess: () => {
       toast({

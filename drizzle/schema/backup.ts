@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const hBackups = mysqlTable("h_backups", {
   id: serial("id").primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 백업 파일 정보
   fileName: varchar("file_name", { length: 255 }).notNull(), // 예: "haccp_backup_20260121_120000.sql.gz"

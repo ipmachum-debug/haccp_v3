@@ -7,7 +7,7 @@ export const communicationLogComments = mysqlTable(
   "communication_log_comments",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    tenantId: int("tenant_id").notNull(),
+    tenantId: int("tenant_id").notNull().default(1),
     logId: bigint("log_id", { mode: "number" }).notNull(),
     content: text("content").notNull(),
     authorId: bigint("author_id", { mode: "number" }).notNull(),
@@ -34,7 +34,7 @@ export const communicationLogFiles = mysqlTable(
   "communication_log_files",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    tenantId: int("tenant_id").notNull(),
+    tenantId: int("tenant_id").notNull().default(1),
     logId: bigint("log_id", { mode: "number" }).notNull(),
     fileName: varchar("file_name", { length: 255 }).notNull(),
     filePath: varchar("file_path", { length: 500 }).notNull(),
@@ -62,7 +62,7 @@ export const communicationLogNotifications = mysqlTable(
   "communication_log_notifications",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-    tenantId: int("tenant_id").notNull(),
+    tenantId: int("tenant_id").notNull().default(1),
     logId: bigint("log_id", { mode: "number" }).notNull(),
     userId: bigint("user_id", { mode: "number" }).notNull(),
     type: varchar("type", { length: 20 }).notNull(), // 'status_change', 'mention', 'comment'

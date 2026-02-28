@@ -21,7 +21,7 @@ router.get('/tenants', async (req, res) => {
         id: true,
         name: true,
       },
-      orderBy: (tenants, { asc }) => [asc(tenants.name)],
+      orderBy: (tenants: any, { asc }) => [asc(tenants.name)],
     });
 
     res.json({

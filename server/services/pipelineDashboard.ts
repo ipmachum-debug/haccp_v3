@@ -20,8 +20,8 @@ import { sql } from "drizzle-orm";
 // ============================================================================
 // 1. 파이프라인 상태 대시보드 - 오늘 배치별 진행 상태 한눈에 확인
 // ============================================================================
-export async function getPipelineStatus(db: any, siteId: number, workDate?: string) {
-  const targetDate = workDate || new Date().toISOString().split('T')[0];
+export async function getPipelineStatus(db: any, siteId: number, workDate?: string, tenantId?: number) {
+  const targetDate = workDate || new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   try {
     // 오늘의 배치 목록 + 각 단계 진행 상태
@@ -38,14 +38,37 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         b.created_at,
         p.product_name,
         p.product_code,
-        -- 원료 출고 상태 (reference_type='batch'로 배치 참조)
+        -- 원료 출고 상태: h_batch_inputs (inventory_deducted=1) 또는 h_inventory_transactions
+        (SELECT COUNT(*) FROM h_batch_inputs 
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id) as batch_input_count,
+        (SELECT COUNT(*) FROM h_batch_inputs 
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id AND inventory_deducted = 1) as batch_input_deducted_count,
         (SELECT COUNT(*) FROM h_inventory_transactions 
          WHERE reference_id = b.id AND reference_type = 'batch' AND transaction_type IN ('outbound', 'usage')) as material_issue_count,
-        -- CCP 인스턴스 상태 (h_ccp_instances에 batch_id 있음)
+        -- CCP 기록지 상태 (h_ccp_form_records 기반 - 실제 인쇄/출력 기준)
+        (SELECT COUNT(*) FROM h_ccp_form_records
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id) as ccp_form_count,
+        (SELECT COUNT(*) FROM h_ccp_form_records
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id AND status IN ('submitted', 'approved')) as ccp_form_completed_count,
+        (SELECT SUM(CASE WHEN (SELECT COUNT(*) FROM h_ccp_form_rows WHERE form_record_id = fr2.id) > 0 THEN 1 ELSE 0 END)
+         FROM h_ccp_form_records fr2 WHERE fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id) as ccp_form_with_rows,
+        -- CCP 인스턴스 상태 (h_ccp_instances에 batch_id 있음, process_group_id 연결)
         (SELECT COUNT(*) FROM h_ccp_instances 
-         WHERE batch_id = b.id) as ccp_record_count,
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id) as ccp_record_count,
         (SELECT COUNT(*) FROM h_ccp_instances 
-         WHERE batch_id = b.id AND status IN ('submitted', 'approved')) as ccp_completed_count,
+         WHERE batch_id = b.id AND tenant_id = b.tenant_id AND status IN ('submitted', 'approved')) as ccp_completed_count,
+        -- CCP 공정그룹별 현황 (JSON)
+        (SELECT JSON_ARRAYAGG(JSON_OBJECT(
+           'instanceId', ci.id,
+           'ccpType', ci.ccp_type,
+           'groupName', COALESCE(pg.name, ci.ccp_type),
+           'status', ci.status,
+           'mappingSource', CASE WHEN ci.process_group_id IS NOT NULL THEN 'BOM' ELSE 'MANUAL' END
+         ))
+         FROM h_ccp_instances ci
+         LEFT JOIN ccp_process_groups pg ON pg.id = ci.process_group_id
+         WHERE ci.batch_id = b.id AND ci.tenant_id = b.tenant_id
+        ) as ccp_group_details,
         -- 문서 생성 상태
         (SELECT COUNT(*) FROM document_instances 
          WHERE batch_id = b.id) as document_count,
@@ -57,10 +80,10 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         (SELECT COUNT(*) FROM accounting_transactions 
          WHERE reference_id = b.id AND reference_type = 'batch') as accounting_entry_count
       FROM h_batches b
-      LEFT JOIN h_products_v2 p ON b.product_id = p.id
-      WHERE b.site_id = ${siteId}
-        AND DATE(b.created_at) = ${targetDate}
-      ORDER BY b.created_at DESC
+      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
+      WHERE b.planned_date = ${targetDate}
+        ${tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``}
+      ORDER BY b.id ASC
     `;
     
     const batchesResult = await db.execute(batchesQuery);
@@ -69,6 +92,12 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
     
     // 각 배치의 파이프라인 단계 상태 매핑
     const pipelineData = (batches as any[]).map((batch: any) => {
+      const formCount = Number(batch.ccp_form_count) || 0;
+      const formCompleted = Number(batch.ccp_form_completed_count) || 0;
+      const formWithRows = Number(batch.ccp_form_with_rows) || 0;
+      const batchInputCount = Number(batch.batch_input_count) || 0;
+      const batchInputDeducted = Number(batch.batch_input_deducted_count) || 0;
+
       const steps = [
         { 
           step: 1, name: '레시피', 
@@ -82,42 +111,92 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         },
         { 
           step: 3, name: '원료출고', 
-          status: batch.material_issue_count > 0 ? 'completed' : 
-                  batch.status === 'in_progress' ? 'in_progress' : 'pending',
-          detail: `${batch.material_issue_count}건 출고`
+          status: (() => {
+            // 재고 차감 완료
+            if (batchInputDeducted > 0 && batchInputDeducted >= batchInputCount) return 'completed';
+            // inventory_transactions에 기록 있음
+            if (Number(batch.material_issue_count) > 0) return 'completed';
+            // 배치가 in_progress/completed면서 입력 데이터가 있으면 완료로 간주
+            if ((batch.status === 'in_progress' || batch.status === 'completed') && batchInputCount > 0) return 'completed';
+            // batch_inputs가 있으면 출고 대기 (계획 수립 완료)
+            if (batchInputCount > 0) return 'in_progress';
+            return 'pending';
+          })(),
+          detail: batchInputCount > 0 
+            ? `${batchInputDeducted}/${batchInputCount}건 출고` 
+            : `${Number(batch.material_issue_count) || 0}건 출고`
         },
         { 
           step: 4, name: 'CCP관리', 
-          status: batch.ccp_completed_count > 0 && batch.ccp_completed_count === batch.ccp_record_count ? 'completed' :
-                  batch.ccp_record_count > 0 ? 'in_progress' : 'pending',
-          detail: `${batch.ccp_completed_count}/${batch.ccp_record_count}건 완료`
+          status: (() => {
+            // 모든 form이 submitted/approved이면 완료
+            if (formCount > 0 && formCompleted === formCount) return 'completed';
+            // 모든 form에 데이터 행이 있으면 완료 (draft여도 데이터 채워짐 = CCP 기록 완료)
+            if (formCount > 0 && formWithRows === formCount) return 'completed';
+            // 일부 form에 행이 있으면 진행중
+            if (formWithRows > 0) return 'in_progress';
+            // form이 있지만 행이 없으면 진행중
+            if (formCount > 0) return 'in_progress';
+            return 'pending';
+          })(),
+          detail: `${formWithRows}/${formCount}건 기록완료`,
+          groups: (() => {
+            try {
+              const d = typeof batch.ccp_group_details === 'string'
+                ? JSON.parse(batch.ccp_group_details)
+                : batch.ccp_group_details;
+              return Array.isArray(d) ? d : [];
+            } catch { return []; }
+          })()
         },
         { 
           step: 5, name: '기록', 
-          status: (batch.status === 'completed' || batch.status === 'approved') ? 'completed' : 
-                  batch.status === 'in_progress' ? 'in_progress' : 'pending',
-          detail: (batch.status === 'completed' || batch.status === 'approved') ? '기록 완료' : '진행 중'
+          status: (() => {
+            // 모든 CCP form에 데이터 행이 있으면 완료
+            if (formCount > 0 && formWithRows === formCount) return 'completed';
+            if (formWithRows > 0) return 'in_progress';
+            if (formCount > 0) return 'in_progress';
+            return 'pending';
+          })(),
+          detail: formWithRows > 0 ? `${formWithRows}건 기록 완료` : '대기'
         },
         { 
           step: 6, name: '일일일지', 
-          status: (batch.status === 'completed' || batch.status === 'approved') ? 'completed' : 'pending',
-          detail: (batch.status === 'completed' || batch.status === 'approved') ? '자동 생성' : '대기'
+          status: batch.status === 'completed' ? 'completed' : 
+                  (formCount > 0 && formWithRows === formCount) ? 'in_progress' : 'pending',
+          detail: batch.status === 'completed' ? '자동 생성' : '대기'
         },
         { 
           step: 7, name: '문서생성', 
-          status: batch.document_count > 0 ? 'completed' : 'pending',
-          detail: `${batch.document_count}건 생성`
+          status: Number(batch.document_count) > 0 ? 'completed' : 
+                  (formCount > 0 && formWithRows === formCount) ? 'in_progress' : 'pending',
+          detail: `${Number(batch.document_count) || 0}건 생성`
         },
         { 
-          step: 8, name: '승인', 
-          status: batch.approved_document_count > 0 && batch.approved_document_count === batch.document_count ? 'completed' :
-                  batch.pending_document_count > 0 ? 'in_progress' : 'pending',
-          detail: `${batch.approved_document_count}/${batch.document_count}건 승인`
+          step: 8, name: '결재', 
+          status: (() => {
+            const docCount = Number(batch.document_count) || 0;
+            const approvedCount = Number(batch.approved_document_count) || 0;
+            const pendingCount = Number(batch.pending_document_count) || 0;
+            if (docCount > 0 && approvedCount === docCount) return 'completed';
+            if (pendingCount > 0) return 'in_progress';
+            return 'pending';
+          })(),
+          detail: `${Number(batch.approved_document_count) || 0}/${Number(batch.document_count) || 0}건 승인`
         },
         { 
-          step: 9, name: '회계', 
-          status: batch.accounting_entry_count > 0 ? 'completed' : 'pending',
-          detail: `${batch.accounting_entry_count}건 전표`
+          step: 9, name: '문서출력', 
+          status: (() => {
+            const docCount = Number(batch.document_count) || 0;
+            const approvedCount = Number(batch.approved_document_count) || 0;
+            // 승인된 문서가 있으면 출력 가능 상태
+            if (approvedCount > 0 && approvedCount === docCount) return 'completed';
+            if (approvedCount > 0) return 'in_progress';
+            // 회계 전표가 있으면 문서 처리 완료
+            if (Number(batch.accounting_entry_count) > 0) return 'completed';
+            return 'pending';
+          })(),
+          detail: Number(batch.accounting_entry_count) > 0 ? `${batch.accounting_entry_count}건 전표` : '대기'
         },
       ];
       
@@ -172,49 +251,53 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
 // ============================================================================
 // 2. 재고 부족 사전 경고 - 배치 시작 전 원료 재고 사전 체크
 // ============================================================================
-export async function checkMaterialAvailability(db: any, batchId: number, siteId: number) {
-  // 배치 정보 조회
+export async function checkMaterialAvailability(db: any, batchId: number, siteId: number, tenantId?: number) {
+  // 배치 정보 조회 (테넌트 격리)
   const batchQuery = sql`
     SELECT b.*, p.product_name
     FROM h_batches b
-    LEFT JOIN h_products_v2 p ON b.product_id = p.id
+    LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
     WHERE b.id = ${batchId}
+    ${tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``}
   `;
   const batchResultRaw = await db.execute(batchQuery);
   const batchResult = Array.isArray(batchResultRaw) && Array.isArray(batchResultRaw[0]) ? batchResultRaw[0] : batchResultRaw;
   const batch = (batchResult as any[])[0];
   
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
+
+  const batchTenantId = Number(batch.tenant_id) || tenantId || 1;
   
-  // 레시피 원료 목록 조회
-  const recipeQuery = sql`
+  // h_batch_inputs에서 원재료 투입 계획 조회 (MF report 기반 - 신규 스키마)
+  const inputsQuery = sql`
     SELECT 
-      rl.material_id,
-      rl.quantity as recipe_quantity,
-      rl.unit,
-      m.name as material_name,
-      m.code as material_code
-    FROM recipe_lines rl
-    LEFT JOIN materials m ON rl.material_id = m.id
-    WHERE rl.recipe_id = ${batch.recipe_id}
+      bi.material_id,
+      bi.planned_quantity,
+      bi.unit,
+      m.material_name,
+      m.material_code
+    FROM h_batch_inputs bi
+    LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+    WHERE bi.batch_id = ${batchId} AND bi.tenant_id = ${batchTenantId}
+    ORDER BY bi.id
   `;
-  const recipeLinesRaw = await db.execute(recipeQuery);
-  const recipeLines = Array.isArray(recipeLinesRaw) && Array.isArray(recipeLinesRaw[0]) ? recipeLinesRaw[0] : recipeLinesRaw;
+  const inputsRaw = await db.execute(inputsQuery);
+  const batchInputs = Array.isArray(inputsRaw) && Array.isArray(inputsRaw[0]) ? inputsRaw[0] : inputsRaw;
   
-  // 필요 수량 계산 (레시피 수량 * 배치 계획 수량 / 레시피 기준 수량)
+  // 필요 수량 계산
   const warnings: any[] = [];
   const results: any[] = [];
   
-  for (const line of (recipeLines as any[])) {
-    const requiredQty = parseFloat(line.recipe_quantity) * parseFloat(batch.planned_quantity);
+  for (const line of (batchInputs as any[])) {
+    const requiredQty = parseFloat(line.planned_quantity?.toString() || '0');
     
-    // 현재 재고 확인
+    // 현재 재고 확인 (테넌트 격리)
     const stockQuery = sql`
-      SELECT COALESCE(SUM(quantity), 0) as available_qty
+      SELECT COALESCE(SUM(available_quantity), 0) as available_qty
       FROM h_inventory
       WHERE material_id = ${line.material_id}
-        AND site_id = ${siteId}
-        AND quantity > 0
+        AND tenant_id = ${batchTenantId}
+        AND available_quantity > 0
     `;
     const stockResultRaw = await db.execute(stockQuery);
     const stockResult = Array.isArray(stockResultRaw) && Array.isArray(stockResultRaw[0]) ? stockResultRaw[0] : stockResultRaw;
@@ -308,18 +391,18 @@ export async function notifyPipelineEvent(db: any, siteId: number, batchId: numb
 // ============================================================================
 // 4. 일일 마감 자동화 - 매일 특정 시간에 미완료 건 정리
 // ============================================================================
-export async function runDailyClosing(db: any, siteId: number, workDate?: string) {
-  const targetDate = workDate || new Date().toISOString().split('T')[0];
+export async function runDailyClosing(db: any, siteId: number, workDate?: string, tenantId?: number) {
+  const targetDate = workDate || new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   const results: string[] = [];
   
   try {
-    // 4-1. 미완료 배치 확인 및 경고
+    // 4-1. 미완료 배치 확인 및 경고 (tenant_id 격리 + planned_date 기준)
     const incompleteBatchesQuery = sql`
       SELECT id, batch_code, status
       FROM h_batches
-      WHERE site_id = ${siteId}
-        AND DATE(created_at) = ${targetDate}
+      WHERE planned_date = ${targetDate}
+        ${tenantId ? sql`AND tenant_id = ${tenantId}` : sql``}
         AND status NOT IN ('completed', 'cancelled')
     `;
     const incompleteBatchesRaw = await db.execute(incompleteBatchesQuery);
@@ -341,11 +424,11 @@ export async function runDailyClosing(db: any, siteId: number, workDate?: string
     try {
       const pendingDocsQuery = sql`
         SELECT COUNT(*) as count
-        FROM document_instances
-        WHERE batch_id IN (
-          SELECT id FROM h_batches WHERE site_id = ${siteId} AND DATE(created_at) = ${targetDate}
-        )
-        AND status IN ('pending_review', 'pending_approval')
+        FROM document_instances di
+        JOIN h_batches b ON di.batch_id = b.id
+        WHERE b.planned_date = ${targetDate}
+          ${tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``}
+          AND di.status IN ('pending_review', 'pending_approval')
       `;
       const pendingDocsRaw = await db.execute(pendingDocsQuery);
       const pendingDocs = Array.isArray(pendingDocsRaw) && Array.isArray(pendingDocsRaw[0]) ? pendingDocsRaw[0] : pendingDocsRaw;
@@ -366,8 +449,8 @@ export async function runDailyClosing(db: any, siteId: number, workDate?: string
         SUM(CASE WHEN status = 'completed' THEN actual_quantity ELSE 0 END) as total_production,
         SUM(planned_quantity) as total_planned
       FROM h_batches
-      WHERE site_id = ${siteId}
-        AND DATE(created_at) = ${targetDate}
+      WHERE planned_date = ${targetDate}
+        ${tenantId ? sql`AND tenant_id = ${tenantId}` : sql``}
     `;
     const productionSummaryRaw = await db.execute(productionSummaryQuery);
     const productionSummary = Array.isArray(productionSummaryRaw) && Array.isArray(productionSummaryRaw[0]) ? productionSummaryRaw[0] : productionSummaryRaw;

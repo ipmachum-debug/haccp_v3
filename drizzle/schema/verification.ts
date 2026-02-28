@@ -30,7 +30,7 @@ import { tenants } from '../schema_main';
  */
 export const hHaccpPlanVerification = mysqlTable("h_haccp_plan_verification", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 검증 정보
   verificationNumber: varchar("verification_number", { length: 50 }).unique().notNull(), // 검증 번호
@@ -109,7 +109,7 @@ export const hHaccpPlanVerification = mysqlTable("h_haccp_plan_verification", {
  */
 export const hHaccpPlanVerificationChecklist = mysqlTable("h_haccp_plan_verification_checklist", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   verificationId: bigint("verification_id", { mode: "number" }).notNull(),
   
   category: varchar("category", { length: 100 }).notNull(), // 검증 카테고리
@@ -137,7 +137,7 @@ export const hHaccpPlanVerificationChecklist = mysqlTable("h_haccp_plan_verifica
  */
 export const hInternalAuditPlans = mysqlTable("h_internal_audit_plans", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 계획 정보
   planYear: int("plan_year").notNull(), // 계획 연도
@@ -174,7 +174,7 @@ export const hInternalAuditPlans = mysqlTable("h_internal_audit_plans", {
  */
 export const hInternalAudits = mysqlTable("h_internal_audits", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   planId: bigint("plan_id", { mode: "number" }), // 감사 계획 ID (null 가능 - 임시 감사)
   
   // 감사 정보
@@ -254,7 +254,7 @@ export const hInternalAudits = mysqlTable("h_internal_audits", {
  */
 export const hInternalAuditChecklist = mysqlTable("h_internal_audit_checklist", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   auditId: bigint("audit_id", { mode: "number" }).notNull(),
   
   // 점검 항목
@@ -302,7 +302,7 @@ export const hInternalAuditChecklist = mysqlTable("h_internal_audit_checklist", 
  */
 export const hInternalAuditFindings = mysqlTable("h_internal_audit_findings", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   auditId: bigint("audit_id", { mode: "number" }).notNull(),
   checklistItemId: bigint("checklist_item_id", { mode: "number" }), // 체크리스트 항목 ID
   
@@ -365,7 +365,7 @@ export const hInternalAuditFindings = mysqlTable("h_internal_audit_findings", {
  */
 export const hInternalAuditAttachments = mysqlTable("h_internal_audit_attachments", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   auditId: bigint("audit_id", { mode: "number" }).notNull(),
   
   fileName: varchar("file_name", { length: 255 }).notNull(),

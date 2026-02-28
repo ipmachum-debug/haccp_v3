@@ -127,7 +127,7 @@ export default function CostAnalysis() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {products.map((product) => (
+                  {products.map((product: any) => (
                     <SelectItem key={product.id} value={product.id.toString()}>
                       {product.productName}
                     </SelectItem>

@@ -212,6 +212,9 @@ export default function ApprovalManagement() {
   // 일괄승인 확인 다이얼로그
   const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
   const [batchConfirmAction, setBatchConfirmAction] = useState<"review" | "approve">("review");
+  // 삭제 확인 다이얼로그
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ ids: number[]; mode: "single" | "bulk" } | null>(null);
 
   // ============================================================================
   // 현재 사용자 승인 권한 조회
@@ -459,7 +462,65 @@ export default function ApprovalManagement() {
     },
   });
 
-  // ============================================================================
+  // 단건 삭제
+  const deleteMutation = trpc.approval.deleteRequest.useMutation({
+    onSuccess: (data) => {
+      toast.success("삭제 완료", { description: data.message });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setSelectedIds([]);
+      refetchReview();
+      refetchPending();
+      refetchApproval();
+      refetchHistory();
+    },
+    onError: (error) => {
+      toast.error("삭제 실패", { description: error.message });
+    },
+  });
+
+  // 일괄 삭제
+  const bulkDeleteMutation = trpc.approval.bulkDeleteRequests.useMutation({
+    onSuccess: (data) => {
+      toast.success("일괄 삭제 완료", { description: data.message });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setSelectedIds([]);
+      refetchReview();
+      refetchPending();
+      refetchApproval();
+      refetchHistory();
+    },
+    onError: (error) => {
+      toast.error("일괄 삭제 실패", { description: error.message });
+    },
+  });
+
+  // 삭제 핸들러
+  const handleDeleteSingle = (request: any) => {
+    setDeleteTarget({ ids: [request.id], mode: "single" });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) {
+      toast.error("삭제할 항목을 선택해주세요.");
+      return;
+    }
+    setDeleteTarget({ ids: [...selectedIds], mode: "bulk" });
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return;
+    if (deleteTarget.mode === "single") {
+      deleteMutation.mutate({ id: deleteTarget.ids[0] });
+    } else {
+      bulkDeleteMutation.mutate({ ids: deleteTarget.ids });
+    }
+  };
+
+    // ============================================================================
   // 핸들러
   // ============================================================================
 
@@ -733,6 +794,10 @@ export default function ApprovalManagement() {
                     검토 권한이 없습니다 (검토자/승인자 직급 필요)
                   </div>
                 )}
+                <Button size="sm" variant="destructive" onClick={() => handleDeleteSingle(request)}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  삭제
+                </Button>
               </div>
             )}
 
@@ -768,10 +833,14 @@ export default function ApprovalManagement() {
                     승인 권한이 없습니다 (승인자 직급 필요)
                   </div>
                 )}
+                <Button size="sm" variant="destructive" onClick={() => handleDeleteSingle(request)}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  삭제
+                </Button>
               </div>
             )}
 
-            {/* 승인 완료 → 인쇄/문서출력 */}
+            {/* 승인 완료 → 인쇄/문서출력/삭제 */}
             {request.status === "approved" && mode === "readonly" && (
               <div className="flex gap-2 pt-2">
                 <Button size="sm" variant="outline"
@@ -786,10 +855,14 @@ export default function ApprovalManagement() {
                   <Printer className="h-4 w-4 mr-1" />
                   인쇄
                 </Button>
+                <Button size="sm" variant="destructive" onClick={() => handleDeleteSingle(request)}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  삭제
+                </Button>
               </div>
             )}
 
-            {/* 반려 → 상세 */}
+            {/* 반려 → 상세/삭제 */}
             {request.status === "rejected" && mode === "readonly" && (
               <div className="flex gap-2 pt-2">
                 <Button size="sm" variant="outline"
@@ -797,6 +870,10 @@ export default function ApprovalManagement() {
                 >
                   <Eye className="h-4 w-4 mr-1" />
                   상세
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => handleDeleteSingle(request)}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  삭제
                 </Button>
               </div>
             )}
@@ -991,6 +1068,10 @@ export default function ApprovalManagement() {
                         {batchApproveMutation.isPending ? "처리 중..." : `일괄 바로승인 (${selectedReviewCount}건)`}
                       </Button>
                     )}
+                    <Button size="sm" variant="destructive" onClick={handleDeleteSelected}>
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      선택 삭제 ({selectedReviewCount}건)
+                    </Button>
                   </div>
                 )}
               </div>
@@ -1028,10 +1109,18 @@ export default function ApprovalManagement() {
                   }
                 </button>
                 <span className="text-sm text-muted-foreground">전체 선택 ({filteredApproval.length}건)</span>
-                {selectedApprovalCount > 0 && canApprove && (
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700 ml-auto" onClick={handleBatchApprove} disabled={batchApproveMutation.isPending}>
-                    {batchApproveMutation.isPending ? "처리 중..." : `일괄 승인 (${selectedApprovalCount}건)`}
-                  </Button>
+                {selectedApprovalCount > 0 && (
+                  <div className="flex gap-2 ml-auto flex-wrap">
+                    {canApprove && (
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleBatchApprove} disabled={batchApproveMutation.isPending}>
+                        {batchApproveMutation.isPending ? "처리 중..." : `일괄 승인 (${selectedApprovalCount}건)`}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="destructive" onClick={handleDeleteSelected}>
+                      <Trash2 className="h-4 w-4 mr-1" />
+                      선택 삭제 ({selectedApprovalCount}건)
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1108,8 +1197,34 @@ export default function ApprovalManagement() {
                 }}>
                   초기화
                 </Button>
+                {selectedIds.length > 0 && (
+                  <Button variant="destructive" size="sm" className="h-9" onClick={handleDeleteSelected}>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    선택 삭제 ({selectedIds.length}건)
+                  </Button>
+                )}
               </div>
             </Card>
+
+            {historyRequests && historyRequests.length > 0 && (
+              <div className="flex items-center gap-2 py-2 flex-wrap">
+                <button onClick={() => toggleSelectAll(historyRequests)}
+                  className="text-muted-foreground hover:text-blue-600 transition-colors"
+                >
+                  {historyRequests.every((r: any) => selectedIds.includes(r.id))
+                    ? <CheckSquare className="w-5 h-5 text-blue-600" />
+                    : <Square className="w-5 h-5" />
+                  }
+                </button>
+                <span className="text-sm text-muted-foreground">전체 선택 ({historyRequests.length}건)</span>
+                {selectedIds.filter(id => historyRequests.some((r: any) => r.id === id)).length > 0 && (
+                  <Button variant="destructive" size="sm" className="ml-auto" onClick={handleDeleteSelected}>
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    선택 삭제 ({selectedIds.filter(id => historyRequests.some((r: any) => r.id === id)).length}건)
+                  </Button>
+                )}
+              </div>
+            )}
 
             {!historyRequests || historyRequests.length === 0 ? (
               <Card>
@@ -1120,7 +1235,25 @@ export default function ApprovalManagement() {
               </Card>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
-                {historyRequests.map((request: any) => renderRequestCard(request, "readonly"))}
+                {historyRequests.map((request: any) => {
+                const isSelected = selectedIds.includes(request.id);
+                return (
+                  <div key={request.id} className="relative">
+                    <div className="absolute top-4 right-4 z-10">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleSelect(request.id); }}
+                        className="text-muted-foreground hover:text-blue-600 transition-colors"
+                      >
+                        {isSelected 
+                          ? <CheckSquare className="w-5 h-5 text-blue-600" /> 
+                          : <Square className="w-5 h-5" />
+                        }
+                      </button>
+                    </div>
+                    {renderRequestCard(request, "readonly")}
+                  </div>
+                );
+              })}
               </div>
             )}
           </TabsContent>
@@ -1677,6 +1810,39 @@ export default function ApprovalManagement() {
                 disabled={!rejectionReason.trim() || rejectRecipeMutation.isPending}
               >
                 {rejectRecipeMutation.isPending ? "처리 중..." : "반려"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* ============================================================ */}
+        {/* 삭제 확인 다이얼로그 */}
+        {/* ============================================================ */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-red-600" />
+                삭제 확인
+              </DialogTitle>
+              <DialogDescription>
+                {deleteTarget?.mode === "single"
+                  ? "이 승인 요청을 삭제하시겠습니까?"
+                  : `선택한 ${deleteTarget?.ids.length || 0}건의 승인 요청을 삭제하시겠습니까?`
+                }
+              </DialogDescription>
+            </DialogHeader>
+            <div className="text-sm text-muted-foreground p-3 bg-red-50 dark:bg-red-950/20 rounded-lg">
+              <p className="text-red-600 font-medium">이 작업은 되돌릴 수 없습니다.</p>
+              <p className="mt-1">삭제된 승인 요청은 복구할 수 없으며, 연결된 체크리스트는 초안 상태로 되돌아갑니다.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>취소</Button>
+              <Button 
+                variant="destructive"
+                onClick={confirmDelete}
+                disabled={deleteMutation.isPending || bulkDeleteMutation.isPending}
+              >
+                {(deleteMutation.isPending || bulkDeleteMutation.isPending) ? "삭제 중..." : "삭제"}
               </Button>
             </DialogFooter>
           </DialogContent>

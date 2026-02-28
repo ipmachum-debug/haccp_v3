@@ -295,7 +295,7 @@ export default function SupplierManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSuppliers.map((supplier) => (
+                  {filteredSuppliers.map((supplier: any) => (
                     <TableRow key={supplier.id}>
                       <TableCell className="font-mono">{supplier.supplierCode || "-"}</TableCell>
                       <TableCell className="font-medium">{supplier.supplierName}</TableCell>

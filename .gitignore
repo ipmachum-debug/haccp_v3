@@ -46,3 +46,5 @@ pm2-*.log
 
 # Misc
 *.tar.gz
+haccp_v3_clone
+CCP배치기록지.pdf

@@ -11,7 +11,7 @@ import { tenants } from './schema_main';
  */
 export const hMixedMaterialComponents = mysqlTable("h_mixed_material_components", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   intermediateMaterialId: bigint("intermediate_material_id", { mode: "number" }).notNull(), // MIXED 재료 ID
   componentMaterialId: bigint("component_material_id", { mode: "number" }).notNull(), // RAW 또는 MIXED 재료 ID
   ratioPercent: decimal("ratio_percent", { precision: 5, scale: 2 }), // % 기준

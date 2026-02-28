@@ -7,7 +7,7 @@ import { mysqlTable, serial, varchar, text, timestamp, int } from "drizzle-orm/m
  */
 export const auditLogs = mysqlTable("audit_logs", {
   id: serial("id").primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 작업 정보
   action: varchar("action", { length: 100 }).notNull(), // 예: "batch.create", "ccp.approve", "user.updateRole"

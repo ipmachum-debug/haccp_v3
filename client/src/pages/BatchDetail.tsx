@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon } from "lucide-react";
+import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, RefreshCw, Send } from "lucide-react";
 import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { CcpInspectionCard } from "@/components/CcpInspectionCard";
+import { CcpFormRecordCard } from "@/components/CcpFormRecordCard";
 import ApprovalTimeline from "@/components/ApprovalTimeline";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
@@ -21,6 +22,7 @@ export default function BatchDetail() {
 
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
   const { data: ccpList, refetch: refetchCcps } = trpc.ccp.getByBatchId.useQuery({ batchId }, { enabled: !!batchId });
+  const { data: ccpFormRecords, refetch: refetchCcpForms } = trpc.ccpForm.getByBatch.useQuery({ batchId }, { enabled: !!batchId });
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: batchInputs, refetch: refetchInputs } = trpc.inventory.getBatchInputs.useQuery({ batchId }, { enabled: !!batchId });
@@ -149,6 +151,20 @@ export default function BatchDetail() {
       toast.error(`승인 요청 실패: ${error.message}`);
     },
   });
+
+  // 수동 모드 CCP 승인요청 등록
+  const requestCcpApprovalMutation = trpc.approval.requestBatchCcpApproval.useMutation({
+    onSuccess: (result) => {
+      if (result.alreadyExists) {
+        toast.info(result.message);
+      } else {
+        toast.success(result.message || "CCP 승인요청이 등록되었습니다");
+      }
+    },
+    onError: (error) => {
+      toast.error(`CCP 승인요청 실패: ${error.message}`);
+    },
+  });
   
   const approveBatchMutation = trpc.batch.approve.useMutation({
     onSuccess: () => {
@@ -213,8 +229,8 @@ export default function BatchDetail() {
     }
   };
   
-  const handleGenerateCcp = () => {
-    generateCcpMutation.mutate({ batchId });
+  const handleGenerateCcp = (force = false) => {
+    generateCcpMutation.mutate({ batchId, force });
   };
   
   const handleAddMaterialInput = () => {
@@ -302,12 +318,12 @@ export default function BatchDetail() {
             <span
               className={`px-4 py-2 rounded-full text-sm font-medium ${
                 batch.status === "completed"
-                  ? "bg-green-100 text-green-700"
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
                   : batch.status === "in_progress"
-                    ? "bg-blue-100 text-blue-700"
+                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
                     : batch.status === "shipped"
-                      ? "bg-purple-100 text-purple-700"
-                      : "bg-orange-100 text-orange-700"
+                      ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                      : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
               }`}
             >
               {batch.status === "completed"
@@ -826,12 +842,26 @@ export default function BatchDetail() {
                   </Button>
                 )}
                 <Button
-                  onClick={handleGenerateCcp}
+                  onClick={() => handleGenerateCcp(false)}
                   disabled={generateCcpMutation.isPending}
                   size="sm"
                 >
                   <Zap className="mr-2 h-4 w-4" />
                   {generateCcpMutation.isPending ? "CCP 생성 중..." : "CCP 자동 생성"}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (confirm("기존 CCP를 모두 삭제하고 다시 생성하시겠습니까?")) {
+                      handleGenerateCcp(true);
+                    }
+                  }}
+                  disabled={generateCcpMutation.isPending}
+                  size="sm"
+                  variant="outline"
+                  title="기존 CCP를 삭제하고 전체 공정그룹으로 재생성"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  강제 재생성
                 </Button>
                 {batch.status === "completed" && batch.completionReportUrl ? (
                   <Button
@@ -861,17 +891,60 @@ export default function BatchDetail() {
             </div>
           </CardHeader>
           <CardContent>
-            {!ccpList || ccpList.length === 0 ? (
+            {/* 새로운 CCP 기록지 (h_ccp_form_records 기반) */}
+            {ccpFormRecords && (ccpFormRecords as any[]).length > 0 ? (
+              <div className="space-y-4">
+                <div className="text-xs text-muted-foreground mb-2">
+                  CCP 기록지 {(ccpFormRecords as any[]).length}건 (공정그룹별 설비 기준값 적용)
+                </div>
+                {(ccpFormRecords as any[]).map((formData: any) => (
+                  <CcpFormRecordCard
+                    key={formData.record?.id}
+                    formData={formData}
+                    batchCode={batch.batchCode || ""}
+                    onSaved={() => { refetchCcpForms(); refetchCcps(); }}
+                  />
+                ))}
+              </div>
+            ) : !ccpList || ccpList.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <p>아직 CCP가 생성되지 않았습니다</p>
-                <p className="text-sm mt-2">"배치 생성" 버튼을 클릭하여 CCP를 자동 생성하세요</p>
+                <p className="text-sm mt-2">"CCP 자동 생성" 버튼을 클릭하여 CCP를 생성하세요</p>
               </div>
             ) : (
               <div className="space-y-4">
+                <div className="text-xs text-muted-foreground mb-2">
+                  CCP 인스턴스 {ccpList.length}건 (레거시)
+                </div>
                 {ccpList.map((ccp: any) => (
                   <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcps} />
                 ))}
+                {/* 수동 모드: CCP 승인요청 등록 버튼 */}
+                {batch.mode === "manual" && ccpList.length > 0 && (
+                  <div className="pt-4 border-t">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">CCP 기록지 확인 완료 후 승인요청을 등록하세요</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          승인관리 페이지에서 검토/승인 처리가 진행됩니다
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => {
+                          if (confirm("CCP 기록지 승인요청을 등록하시겠습니까?\n승인관리 페이지에서 검토/승인이 진행됩니다.")) {
+                            requestCcpApprovalMutation.mutate({ batchId });
+                          }
+                        }}
+                        disabled={requestCcpApprovalMutation.isPending}
+                        className="bg-indigo-600 hover:bg-indigo-700"
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        {requestCcpApprovalMutation.isPending ? "등록 중..." : "CCP 승인요청 등록"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

@@ -20,7 +20,7 @@ export const checklistTemplateVersions = mysqlTable(
   "checklist_template_versions",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
     
     // 템플릿 참조
     templateId: bigint("template_id", { mode: "number" }).notNull(),

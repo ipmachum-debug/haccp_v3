@@ -17,17 +17,46 @@ function getEffectiveSiteId(input: { siteId?: number }, ctx: any): number {
 }
 
 function getEffectiveTenantId(ctx: any): number {
+  // ✅ P0 FIX: fallback 제거 - ctx.tenantId는 trpc.ts 미들웨어에서 이미 결정됨
+  // super_admin의 경우 actingTenantId가 없으면 tenantId = null → 명시적 403
   const tenantId = ctx.tenantId;
   if (!tenantId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "테넌트 정보가 필요합니다. (actingTenantId 누락)" });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: ctx.user?.role === "super_admin"
+        ? "테넌트를 먼저 선택해주세요. (actingTenantId 필요)"
+        : "테넌트 정보가 필요합니다. 관리자에게 문의하세요.",
+    });
   }
   return tenantId;
 }
 
-async function verifySiteOwnership(db: any, table: any, id: number, siteId: number) {
-  const rows = await db.select().from(table).where(and(eq(table.id, id), eq(table.siteId, siteId))).limit(1);
+/**
+ * ✅ P0 FIX: verifySiteOwnership - siteId + tenantId 이중 교차 검증
+ * siteId 단독으로는 테넌트 경계를 보장하지 못하므로,
+ * tenantId를 함께 확인하여 타 테넌트의 레코드 접근을 원천 차단
+ */
+async function verifySiteOwnership(
+  db: any,
+  table: any,
+  id: number,
+  siteId: number,
+  tenantId?: number
+) {
+  // siteId 조건 기본
+  const conditions: any[] = [eq(table.id, id), eq(table.siteId, siteId)];
+
+  // tenantId 교차 검증 추가 (테이블에 tenantId 컬럼이 있는 경우)
+  if (tenantId && table.tenantId) {
+    conditions.push(eq(table.tenantId, tenantId));
+  }
+
+  const rows = await db.select().from(table).where(and(...conditions)).limit(1);
   if (!rows[0]) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "해당 레코드를 찾을 수 없거나 접근 권한이 없습니다." });
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "해당 레코드를 찾을 수 없거나 접근 권한이 없습니다.",
+    });
   }
   return rows[0];
 }
@@ -158,7 +187,37 @@ export const checklistDashboardRouter = router({
         try {
           // 전체 개수
           // ✅ P0 FIX: siteId 필터 적용
-          const siteFilter = (stat.table as any).siteId ? eq((stat.table as any).siteId, ctx.user?.siteId) : undefined;
+          // ✅ P0 FIX: siteId + tenantId 이중 필터 (어느 하나라도 없으면 빈 결과)
+          const siteId = ctx.user?.siteId;
+          const tenantId = ctx.tenantId;
+
+          // siteId 없으면 해당 통계는 0으로 처리
+          if (!siteId) {
+            return {
+              id: stat.id,
+              name: stat.name,
+              total: 0,
+              completed: 0,
+              pending: 0,
+              overdue: 0,
+            };
+          }
+
+          // siteId 필터 (기본)
+          const siteCondition = (stat.table as any).siteId
+            ? eq((stat.table as any).siteId, siteId)
+            : undefined;
+
+          // tenantId 필터 (테이블에 tenantId 컬럼 있을 경우 추가 검증)
+          const tenantCondition =
+            tenantId && (stat.table as any).tenantId
+              ? eq((stat.table as any).tenantId, tenantId)
+              : undefined;
+
+          // 복합 필터 (and로 결합)
+          const baseFilter = [siteCondition, tenantCondition].filter(Boolean);
+          const siteFilter = baseFilter.length > 0 ? and(...(baseFilter as any[])) : undefined;
+
           const totalResult = await db.select({ count: count() }).from(stat.table).where(siteFilter);
           const total = totalResult[0]?.count || 0;
 
@@ -304,7 +363,9 @@ export const waterQualityTestRouter = router({
       if (data.testResult) updateData.testResult = data.testResult;
       if (data.remarks !== undefined) updateData.remarks = data.remarks;
 
-      await db.update(hWaterQualityTests).set(updateData).where(eq(hWaterQualityTests.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hWaterQualityTests).set(updateData).where(and(eq(hWaterQualityTests.id, id), eq(hWaterQualityTests.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -315,7 +376,9 @@ export const waterQualityTestRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hWaterQualityTests).where(eq(hWaterQualityTests.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hWaterQualityTests).where(and(eq(hWaterQualityTests.id, input.id), eq(hWaterQualityTests.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -388,7 +451,9 @@ export const airCompressorRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
 
       const { id, ...data } = input;
-      await db.update(hAirCompressors).set(data as any).where(eq(hAirCompressors.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hAirCompressors).set(data as any).where(and(eq(hAirCompressors.id, id), eq(hAirCompressors.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -399,7 +464,9 @@ export const airCompressorRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hAirCompressors).where(eq(hAirCompressors.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hAirCompressors).where(and(eq(hAirCompressors.id, input.id), eq(hAirCompressors.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -527,7 +594,9 @@ export const validityEvaluationRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
 
       const { id, ...data } = input;
-      await db.update(hValidityEvaluations).set(data as any).where(eq(hValidityEvaluations.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hValidityEvaluations).set(data as any).where(and(eq(hValidityEvaluations.id, id), eq(hValidityEvaluations.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -538,7 +607,9 @@ export const validityEvaluationRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hValidityEvaluations).where(eq(hValidityEvaluations.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hValidityEvaluations).where(and(eq(hValidityEvaluations.id, input.id), eq(hValidityEvaluations.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -622,7 +693,9 @@ export const personalHygieneCheckRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
 
       const { id, ...data } = input;
-      await db.update(hPersonalHygieneChecks).set(data as any).where(eq(hPersonalHygieneChecks.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hPersonalHygieneChecks).set(data as any).where(and(eq(hPersonalHygieneChecks.id, id), eq(hPersonalHygieneChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -633,7 +706,9 @@ export const personalHygieneCheckRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hPersonalHygieneChecks).where(eq(hPersonalHygieneChecks.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hPersonalHygieneChecks).where(and(eq(hPersonalHygieneChecks.id, input.id), eq(hPersonalHygieneChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -729,7 +804,9 @@ export const waterUsageCheckRouter = router({
       if (data.checkResult) updateData.checkResult = data.checkResult;
       if (data.remarks !== undefined) updateData.remarks = data.remarks;
 
-      await db.update(hWaterUsageChecks).set(updateData).where(eq(hWaterUsageChecks.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hWaterUsageChecks).set(updateData).where(and(eq(hWaterUsageChecks.id, id), eq(hWaterUsageChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -740,7 +817,9 @@ export const waterUsageCheckRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hWaterUsageChecks).where(eq(hWaterUsageChecks.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hWaterUsageChecks).where(and(eq(hWaterUsageChecks.id, input.id), eq(hWaterUsageChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -832,7 +911,9 @@ export const equipmentCleaningRecordRouter = router({
       const updateData: any = { ...data };
       if (data.cleaningDate) updateData.cleaningDate = new Date(data.cleaningDate);
 
-      await db.update(hEquipmentCleaningRecords).set(updateData).where(eq(hEquipmentCleaningRecords.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hEquipmentCleaningRecords).set(updateData).where(and(eq(hEquipmentCleaningRecords.id, id), eq(hEquipmentCleaningRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -843,7 +924,9 @@ export const equipmentCleaningRecordRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hEquipmentCleaningRecords).where(eq(hEquipmentCleaningRecords.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hEquipmentCleaningRecords).where(and(eq(hEquipmentCleaningRecords.id, input.id), eq(hEquipmentCleaningRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -944,7 +1027,9 @@ export const foreignMaterialRecordRouter = router({
       const updateData: any = { ...data };
       if (data.detectionDate) updateData.detectionDate = new Date(data.detectionDate);
 
-      await db.update(hForeignMaterialRecords).set(updateData).where(eq(hForeignMaterialRecords.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hForeignMaterialRecords).set(updateData).where(and(eq(hForeignMaterialRecords.id, id), eq(hForeignMaterialRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -955,7 +1040,9 @@ export const foreignMaterialRecordRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hForeignMaterialRecords).where(eq(hForeignMaterialRecords.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hForeignMaterialRecords).where(and(eq(hForeignMaterialRecords.id, input.id), eq(hForeignMaterialRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1071,7 +1158,9 @@ export const refrigerationCheckRouter = router({
       if (data.targetTemperature !== undefined) updateData.targetTemperature = data.targetTemperature.toString();
       if (data.humidity !== undefined) updateData.humidity = data.humidity.toString();
 
-      await db.update(hRefrigerationChecks).set(updateData).where(eq(hRefrigerationChecks.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hRefrigerationChecks).set(updateData).where(and(eq(hRefrigerationChecks.id, id), eq(hRefrigerationChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1082,7 +1171,9 @@ export const refrigerationCheckRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hRefrigerationChecks).where(eq(hRefrigerationChecks.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hRefrigerationChecks).where(and(eq(hRefrigerationChecks.id, input.id), eq(hRefrigerationChecks.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1182,7 +1273,9 @@ export const packagingStorageRecordRouter = router({
       if (data.expiryDate) updateData.expiryDate = new Date(data.expiryDate);
       if (data.quantity !== undefined) updateData.quantity = data.quantity.toString();
 
-      await db.update(hPackagingStorageRecords).set(updateData).where(eq(hPackagingStorageRecords.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hPackagingStorageRecords).set(updateData).where(and(eq(hPackagingStorageRecords.id, id), eq(hPackagingStorageRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1193,7 +1286,9 @@ export const packagingStorageRecordRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hPackagingStorageRecords).where(eq(hPackagingStorageRecords.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hPackagingStorageRecords).where(and(eq(hPackagingStorageRecords.id, input.id), eq(hPackagingStorageRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1296,7 +1391,9 @@ export const qualityIssueRecordRouter = router({
       if (data.issueDate) updateData.issueDate = new Date(data.issueDate);
       if (data.affectedQuantity !== undefined) updateData.affectedQuantity = data.affectedQuantity.toString();
 
-      await db.update(hQualityIssueRecords).set(updateData).where(eq(hQualityIssueRecords.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hQualityIssueRecords).set(updateData).where(and(eq(hQualityIssueRecords.id, id), eq(hQualityIssueRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1307,7 +1404,9 @@ export const qualityIssueRecordRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hQualityIssueRecords).where(eq(hQualityIssueRecords.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hQualityIssueRecords).where(and(eq(hQualityIssueRecords.id, input.id), eq(hQualityIssueRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1422,7 +1521,9 @@ export const capaRecordRouter = router({
       if (data.targetCompletionDate) updateData.targetCompletionDate = new Date(data.targetCompletionDate);
       if (data.actualCompletionDate) updateData.actualCompletionDate = new Date(data.actualCompletionDate);
 
-      await db.update(hCapaRecords).set(updateData).where(eq(hCapaRecords.id, id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 수정
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.update(hCapaRecords).set(updateData).where(and(eq(hCapaRecords.id, id), eq(hCapaRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),
@@ -1433,7 +1534,9 @@ export const capaRecordRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      await db.delete(hCapaRecords).where(eq(hCapaRecords.id, input.id));
+      // ✅ P0 FIX: siteId 소유권 검증 후 삭제
+      const effectiveSiteId = getEffectiveSiteId({ siteId: undefined }, ctx);
+      await db.delete(hCapaRecords).where(and(eq(hCapaRecords.id, input.id), eq(hCapaRecords.siteId, effectiveSiteId)));
 
       return { success: true };
     }),

@@ -6,7 +6,7 @@ import { users } from "../schema_main";
 // 검교정설비 등록
 export const calibrationEquipment = mysqlTable("calibration_equipment", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   code: varchar("code", { length: 50 }).notNull().unique(), // 검교정설비코드
   name: varchar("name", { length: 200 }).notNull(), // 검교정설비명
   calibrationType: mysqlEnum("calibration_type", ["certified", "internal"]).notNull(), // 검교정구분 (공인기관/사내)

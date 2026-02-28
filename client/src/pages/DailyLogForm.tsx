@@ -142,7 +142,7 @@ export default function DailyLogForm() {
         description: "일일일지가 제출되었습니다.",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "제출 실패",
         description: error.message,

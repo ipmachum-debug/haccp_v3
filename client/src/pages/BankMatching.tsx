@@ -43,32 +43,32 @@ export default function BankMatching() {
       setShowAccountDialog(false);
       refetchAccounts();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
 
   // 거래 업로드
   const uploadMutation = trpc.bankTransactions.upload.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(`${result.inserted}건 업로드 완료 (중복 ${result.duplicates}건)`);
       setShowUploadDialog(false);
       setUploadFile(null);
       setParsedData([]);
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
 
   // 자동 매칭
   const autoMatchMutation = trpc.bankTransactions.autoMatch.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(`${result.matched}건 자동 매칭 완료`);
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -79,7 +79,7 @@ export default function BankMatching() {
       toast.success("매칭이 완료되었습니다");
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -169,7 +169,7 @@ export default function BankMatching() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {accounts.map((account) => (
+            {accounts.map((account: any) => (
               <Card
                 key={account.id}
                 className={`cursor-pointer transition-all ${

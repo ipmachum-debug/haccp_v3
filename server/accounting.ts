@@ -164,7 +164,7 @@ export async function getDailySummary(date: string) {
   return result[0];
 }
 
-export async function getMonthlySummary(year: number, month: number) {
+export async function getMonthlySummary(year: number, month: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   

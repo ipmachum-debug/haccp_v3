@@ -7,7 +7,7 @@ import { users } from "../schema_main";
  */
 export const pestControlChecklists = mysqlTable("pest_control_checklists", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 기본 정보
   checkDate: date("check_date").notNull(), // 점검 일자
@@ -34,7 +34,7 @@ export const pestControlChecklists = mysqlTable("pest_control_checklists", {
  */
 export const pestControlItems = mysqlTable("pest_control_items", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 체크리스트 참조
   checklistId: int("checklist_id").notNull().references(() => pestControlChecklists.id, { onDelete: "cascade" }),

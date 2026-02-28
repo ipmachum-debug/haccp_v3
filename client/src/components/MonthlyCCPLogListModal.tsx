@@ -68,6 +68,7 @@ export function MonthlyCCPLogListModal({
     }
   });
 
+  const { data: currentUser } = trpc.auth.me.useQuery();
   const approveMutation = trpc.monthlyLog.approveCCP.useMutation({
     onSuccess: () => {
       toast({

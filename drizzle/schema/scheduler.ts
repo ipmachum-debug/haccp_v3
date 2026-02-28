@@ -7,7 +7,7 @@ import { tenants } from '../schema_main';
  */
 export const hSchedulerLogs = mysqlTable("h_scheduler_logs", {
   id: int("id").primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   schedulerName: varchar("scheduler_name", { length: 100 }).notNull(), // 스케줄러 이름 (예: "notification_cleanup")
   executionTime: timestamp("execution_time").notNull(), // 실행 시간
   status: varchar("status", { length: 20 }).notNull(), // 실행 상태 (success, error)

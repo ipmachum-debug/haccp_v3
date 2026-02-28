@@ -29,6 +29,9 @@ export function MonthlyCCPLogModal({
   const [checkerName, setCheckerName] = useState('');
 
   const [confirmDate, setConfirmDate] = useState('');
+  const [confirmerName, setConfirmerName] = useState("");
+  const [actionTaker, setActionTaker] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   
   // 가열 공정
   const [heatingTempTimeCheck, setHeatingTempTimeCheck] = useState('');

@@ -12,7 +12,7 @@ import { tenants } from '../schema_main';
  */
 export const hDocumentApprovalSettings = mysqlTable("h_document_approval_settings", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   documentType: varchar("document_type", { length: 100 }).notNull(), // daily_log, ccp, raw_material 등
   documentTypeName: varchar("document_type_name", { length: 255 }).notNull(), // 일일일지, CCP 모니터링 등
   

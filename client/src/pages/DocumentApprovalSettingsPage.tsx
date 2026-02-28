@@ -19,6 +19,9 @@ import { Save, Loader2, Search, User, UserCheck, Shield, Settings } from "lucide
 // 44개 formType 전체 목록 (표시명 포함)
 // ============================================================================
 const FORM_TYPES: { formType: string; name: string; category: string }[] = [
+  // 배치/생산 관리
+  { formType: "batch_production", name: "배치 CCP 기록지", category: "배치/생산" },
+  { formType: "batch_completion", name: "생산완료 승인", category: "배치/생산" },
   // 일일 점검 (일일일지 탭 항목들)
   { formType: "hygiene_checklist", name: "일반위생관리 점검일지", category: "일일 점검" },
   { formType: "foreign_material_record", name: "이물관리 점검일지", category: "일일 점검" },

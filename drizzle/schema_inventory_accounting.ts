@@ -7,7 +7,7 @@ import {mysqlTable, bigint, varchar, decimal, text, timestamp, mysqlEnum, index,
  */
 export const accountingTransactions = mysqlTable("accounting_transactions", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 전표 정보
   transactionDate: varchar("transaction_date", { length: 10 }).notNull(),

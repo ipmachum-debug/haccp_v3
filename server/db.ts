@@ -24,14 +24,13 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
         charset: 'utf8mb4',
         connectionLimit: 10,
         connectTimeout: 30000,
-        acquireTimeout: 30000,
         waitForConnections: true,
         queueLimit: 0
       });
       
       // 각 연결마다 character set 강제 설정
       connection.on('connection', (conn) => {
-        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err) => {
+        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset:', err);
         });
       });
@@ -65,7 +64,7 @@ export async function getRawConnection(): Promise<mysql.Pool> {
       
       // 각 연결마다 character set 강제 설정
       _rawConnection.on('connection', (conn) => {
-        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err) => {
+        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset on raw connection:', err);
         });
       });
@@ -345,7 +344,7 @@ export async function createBatch(batch: {
   return batchId;
 }
 
-export async function getBatchById(batchId: number) {
+export async function getBatchById(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -468,7 +467,7 @@ export async function updateBatchSchedule(
     .where(eq(hBatches.id, batchId));
 }
 
-export async function updateBatchStatus(batchId: number, status: string) {
+export async function updateBatchStatus(batchId: number, status: string, _reserved?: any, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -480,12 +479,52 @@ export async function updateBatchStatus(batchId: number, status: string) {
     .where(eq(hBatches.id, batchId));
 }
 
-export async function deleteBatch(batchId: number) {
+export async function deleteBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const { sql: rawSql } = await import("drizzle-orm");
 
+  // 1. CCP 기록지 cascade 삭제 (h_ccp_form_rows -> h_ccp_form_records)
+  try {
+    await db.execute(rawSql`
+      DELETE r FROM h_ccp_form_rows r
+      INNER JOIN h_ccp_form_records rec ON r.record_id = rec.id
+      WHERE rec.batch_id = ${batchId}
+    `);
+    await db.execute(rawSql`DELETE FROM h_ccp_form_records WHERE batch_id = ${batchId}`);
+  } catch (e) { /* 테이블 미존재 시 무시 */ }
+
+  // 2. CCP 인스턴스 cascade 삭제 (h_ccp_rows -> h_ccp_instances)
+  try {
+    await db.execute(rawSql`
+      DELETE r FROM h_ccp_rows r
+      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
+      WHERE i.batch_id = ${batchId}
+    `);
+    await db.execute(rawSql`DELETE FROM h_ccp_instances WHERE batch_id = ${batchId}`);
+  } catch (e) { /* ignore */ }
+
+  // 3. 승인 요청 삭제
+  try {
+    await db.execute(rawSql`
+      DELETE FROM h_approval_requests 
+      WHERE reference_id = ${batchId} 
+        AND (request_type = 'batch_production' OR request_type = 'batch_completion')
+    `);
+  } catch (e) { /* ignore */ }
+
+  // 4. 배치 일정 삭제
+  try {
+    await db.execute(rawSql`DELETE FROM h_batch_schedules WHERE batch_id = ${batchId}`);
+  } catch (e) { /* ignore */ }
+
+  // 5. batches 테이블 삭제 (레거시)
+  try {
+    await db.execute(rawSql`DELETE FROM batches WHERE id = ${batchId}`);
+  } catch (e) { /* 테이블 미존재 시 무시 */ }
+
+  // 6. h_batches 삭제 (메인)
   const { hBatches } = await import("../drizzle/schema");
-  
   await db.delete(hBatches).where(eq(hBatches.id, batchId));
 }
 
@@ -1223,7 +1262,7 @@ export async function getMaterialById(id: number) {
  * 배치 번호 자동 생성 (개선판: 동시성 처리 및 날짜별 순번 조회)
  * 형식: 제품코드-YYYYMMDD-순번 (예: PROD001-20240124-001)
  */
-export async function generateBatchCode(productId: number) {
+export async function generateBatchCode(productId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hBatches } = await import("../drizzle/schema.js");
@@ -1390,7 +1429,7 @@ export async function notifyLowStock(materialId: number) {
 /**
  * 대시보드 통계 조회
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hBatches, hCcpInstances } = await import("../drizzle/schema.js");
@@ -5645,7 +5684,7 @@ export async function getNotificationStatistics(startDate?: string, endDate?: st
 /**
  * 활성 배치 목록 조회 (실시간 모니터링용)
  */
-export async function getActiveBatches() {
+export async function getActiveBatches(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   

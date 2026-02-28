@@ -4,7 +4,7 @@ import { tenants } from '../schema_main';
 // CCP 한계기준 테이블
 export const ccpLimits = mysqlTable('ccp_limits', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   ccpType: varchar('ccp_type', { length: 10 }).notNull(),
   productName: varchar('product_name', { length: 255 }).notNull(),
   heatingTimeMinMin: int('heating_time_min_min'), // 가열 시간 최소 (분)
@@ -19,7 +19,7 @@ export const ccpLimits = mysqlTable('ccp_limits', {
 // CCP 모니터링 기록 테이블 (통합)
 export const ccpMonitoringRecords = mysqlTable('ccp_monitoring_records', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   recordDate: timestamp('record_date').notNull(), // 기록 일시
   ccpType: varchar('ccp_type', { length: 10 }).notNull(), // CCP 유형
   batchId: varchar('batch_id', { length: 255 }), // 배치 ID
@@ -68,7 +68,7 @@ export const ccpMonitoringRecords = mysqlTable('ccp_monitoring_records', {
 // 금속검출 테스트 기록 테이블
 export const metalDetectionTests = mysqlTable('metal_detection_tests', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   testDate: timestamp('test_date').notNull(), // 테스트 일자
   productCategory: varchar('product_category', { length: 255 }).notNull(), // 제품 카테고리
   metalType: mysqlEnum('metal_type', ['Fe', 'STS']).notNull(), // 금속 유형
@@ -85,7 +85,7 @@ export const metalDetectionTests = mysqlTable('metal_detection_tests', {
 // 금속검출 기준 테이블
 export const metalDetectionStandards = mysqlTable('metal_detection_standards', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productCategory: varchar('product_category', { length: 255 }).notNull(), // 제품 카테고리
   metalType: mysqlEnum('metal_type', ['Fe', 'STS']).notNull(), // 금속 유형
   sizeMm: decimal('size_mm', { precision: 3, scale: 1 }).notNull(), // 금속 크기 (mmΦ)
@@ -98,7 +98,7 @@ export const metalDetectionStandards = mysqlTable('metal_detection_standards', {
 // 검증 기록 테이블
 export const verificationRecords = mysqlTable('verification_records', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   verificationDate: timestamp('verification_date').notNull(), // 검증 일자
   verificationType: mysqlEnum('verification_type', ['최초', '일상', '정기', '특별']).notNull(), // 검증 유형
   verifierId: int('verifier_id').notNull(), // 검증원 ID
@@ -113,7 +113,7 @@ export const verificationRecords = mysqlTable('verification_records', {
 // 위해요소 분석 테이블
 export const hazardAnalysis = mysqlTable('hazard_analysis', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   processName: varchar('process_name', { length: 255 }).notNull(), // 공정명
   hazardCategory: mysqlEnum('hazard_category', ['생물학적', '화학적', '물리적']).notNull(), // 위해요소 구분
   hazardName: varchar('hazard_name', { length: 255 }).notNull(), // 명칭
@@ -130,7 +130,7 @@ export const hazardAnalysis = mysqlTable('hazard_analysis', {
 // 제품 설명서 테이블
 export const productSpecifications = mysqlTable('product_specifications', {
   id: int('id').primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   productName: varchar('product_name', { length: 255 }).notNull(), // 제품명
   foodType: varchar('food_type', { length: 255 }), // 식품의 유형
   appearance: text('appearance'), // 성상

@@ -70,7 +70,7 @@ export const tenants = mysqlTable("tenants", {
  */
 export const users = mysqlTable("users", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
@@ -1530,7 +1530,7 @@ export type InsertMatchingRule = typeof matchingRules.$inferInsert;
  */
 export const subscriptionNotifications = mysqlTable("subscription_notifications", {
   id: int("id").autoincrement().primaryKey(),
-  tenantId: int("tenant_id").references(() => tenants.id).notNull(),
+  tenantId: int("tenant_id").references(() => tenants.id).notNull().default(1),
   notificationType: mysqlEnum("notification_type", ["7_days", "3_days", "1_day", "expired", "grace_period_end"]).notNull(),
   notificationDate: timestamp("notification_date").defaultNow().notNull(),
   isRead: boolean("is_read").default(false).notNull(),

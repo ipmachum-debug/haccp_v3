@@ -14,7 +14,7 @@ import { tenants } from '../schema_main';
  */
 export const communicationLogs = mysqlTable("communication_logs", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   
   // 거래처 정보
   partnerId: bigint("partner_id", { mode: "number" }).notNull(), // partners.id 참조

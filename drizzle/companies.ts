@@ -16,7 +16,7 @@ import {
 
 export const companies = mysqlTable("companies", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
+  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   companyCode: varchar("company_code", { length: 50 }).notNull().unique(),
   companyName: varchar("company_name", { length: 255 }).notNull(),
   businessNumber: varchar("business_number", { length: 50 }),
