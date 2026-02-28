@@ -858,7 +858,7 @@ export async function syncCcpRowsToFormRows(params: {
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
            LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.planned_date = ?
-           ORDER BY b.batch_order, b.id, ps.sku_code`,
+           ORDER BY COALESCE(b.day_batch_group, CONCAT('_STANDALONE_', b.id)), b.batch_order, b.id, ps.sku_code`,
           [tenantId, batchWorkDate],
         );
 
@@ -1048,12 +1048,12 @@ export async function syncCcpRowsToFormRows(params: {
       const sensitivityChecks: SensitivityCheck[] = [];
 
       const currentProductId2 = currentBatchSlots[0].productId;
-      const allSlotsForProduct = skuSlots.filter(s => s.productId === currentProductId2);
-      const productGroupStart = allSlotsForProduct[0].workStart;
-      const productGroupEnd = allSlotsForProduct[allSlotsForProduct.length - 1].workEnd;
       const batchWorkStartM = currentBatchSlots[0].workStart;
       const batchWorkEndM = currentBatchSlots[currentBatchSlots.length - 1].workEnd;
 
+      // ═══ 품목변경 감지: 이전/다음 배치의 제품과 비교 ═══
+      // allBatchIds는 skuSlots의 순서를 따르며, SQL에서 day_batch_group별로 그룹화됨
+      // → 같은 day_batch_group 내에서만 연속 동일품목 판단
       const allBatchIds = [...new Set(skuSlots.map(s => s.batchId))];
       const currentBatchIdx = allBatchIds.indexOf(batchId);
       const prevBatchSlots = currentBatchIdx > 0 ? skuSlots.filter(s => s.batchId === allBatchIds[currentBatchIdx - 1]) : [];
@@ -1063,6 +1063,27 @@ export async function syncCcpRowsToFormRows(params: {
 
       const isProductChangeStart = prevProductId === null || prevProductId !== currentProductId2;
       const isProductChangeEnd = nextProductId === null || nextProductId !== currentProductId2;
+
+      // ═══ 연속 동일품목 구간 (contiguous product run) 계산 ═══
+      // 2시간 간격 체크의 기준점: 현재 배치를 포함한 연속 동일품목 배치의 시작~종료 시간
+      // 예: [A, A, A, B, B, A, A] → 배치5(B)의 contiguous run = 배치4~5
+      //     배치6(A)의 contiguous run = 배치6~7 (배치1~3과 분리)
+      let contigRunStart = batchWorkStartM;
+      let contigRunEnd = batchWorkEndM;
+      // 현재 배치부터 앞으로 탐색: 같은 product가 연속인 동안 확장
+      for (let bi = currentBatchIdx - 1; bi >= 0; bi--) {
+        const prevSlots = skuSlots.filter(s => s.batchId === allBatchIds[bi]);
+        if (prevSlots.length > 0 && prevSlots[0].productId === currentProductId2) {
+          contigRunStart = prevSlots[0].workStart;
+        } else break;
+      }
+      // 현재 배치부터 뒤로 탐색
+      for (let bi = currentBatchIdx + 1; bi < allBatchIds.length; bi++) {
+        const nextSlots = skuSlots.filter(s => s.batchId === allBatchIds[bi]);
+        if (nextSlots.length > 0 && nextSlots[0].productId === currentProductId2) {
+          contigRunEnd = nextSlots[nextSlots.length - 1].workEnd;
+        } else break;
+      }
 
       // 품목 시작 체크
       if (isProductChangeStart) {
@@ -1075,9 +1096,9 @@ export async function syncCcpRowsToFormRows(params: {
         });
       }
 
-      // 2시간 간격 체크
+      // 2시간 간격 체크 (연속 동일품목 구간 기준)
       const TWO_HOURS = 120;
-      let checkpoint = productGroupStart + TWO_HOURS;
+      let checkpoint = contigRunStart + TWO_HOURS;
       while (checkpoint < batchWorkEndM) {
         if (checkpoint >= batchWorkStartM) {
           const adjTime = skipLunchFn(checkpoint, lunchStartMin, lunchEndMin);
