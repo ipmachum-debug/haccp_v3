@@ -1172,11 +1172,34 @@ export async function syncCcpRowsToFormRows(params: {
       }
 
       // ── 7. 제품 통과 기록 행 INSERT (SKU별) → h_ccp_form_rows ──
+      // ★ 핵심 시간 제약 (실무 기준):
+      //   감도시작(품목시작) → 통과시작 → 통과종료 → 감도종료(품목종료)
+      //   즉, 제품 통과 구간은 감도 모니터링 시작/종료 사이에 위치해야 함
+      const firstSensCheck = sensitivityChecks.length > 0
+        ? sensitivityChecks[0] : null;
+      const lastSensCheck = sensitivityChecks.length > 0
+        ? sensitivityChecks[sensitivityChecks.length - 1] : null;
+      const firstSensTimeMin = firstSensCheck ? timeToMin(firstSensCheck.time) : null;
+      const lastSensTimeMin = lastSensCheck ? timeToMin(lastSensCheck.time) : null;
+
       for (const slot of currentBatchSlots) {
         const passStart = skipLunchFn(slot.workStart, lunchStartMin, lunchEndMin);
         const passEnd = skipLunchFn(slot.workEnd, lunchStartMin, lunchEndMin);
         const microOff1 = Math.floor(seededRandom2(metalSeed + 200 + seqNum) * 4);
         const microOff2 = Math.floor(seededRandom2(metalSeed + 201 + seqNum) * 4);
+
+        // 통과 시작시간: 감도 시작 체크 이후여야 함 (최소 1분 후)
+        let rawPassStart = passStart + microOff1;
+        if (firstSensTimeMin != null && rawPassStart <= firstSensTimeMin) {
+          rawPassStart = firstSensTimeMin + 1;
+        }
+
+        // 통과 종료시간 계산: passEnd에서 microOff2를 뺀 값이 기본
+        let rawPassEnd = Math.max(rawPassStart + 3, passEnd - microOff2);
+        // ★ 감도 모니터링 종료시간보다 앞에 있어야 함 (최소 1분 전)
+        if (lastSensTimeMin != null && rawPassEnd >= lastSensTimeMin) {
+          rawPassEnd = Math.max(rawPassStart + 2, lastSensTimeMin - 1 - Math.floor(seededRandom2(metalSeed + 300 + seqNum) * 3));
+        }
 
         // 실제 통과량: production_sku_output에서 조회 시도
         let actualPassQty = slot.passQty;
@@ -1206,8 +1229,8 @@ export async function syncCcpRowsToFormRows(params: {
           [
             tenantId, formRecordId, seqNum,
             slot.skuName,
-            minToTime(passStart + microOff1),
-            minToTime(Math.max(passStart + 5, passEnd - microOff2)),
+            minToTime(rawPassStart),
+            minToTime(rawPassEnd),
             actualPassQty,
           ],
         );

@@ -1530,15 +1530,16 @@ function renderCcpFormRecord(fr: any, doc: any) {
       ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "passage")
       : [];
 
-    const SENSITIVITY_ROW_COUNT = 10;
-    const PASSAGE_ROW_COUNT = 10;
+    const SENSITIVITY_ROW_COUNT = Math.max(10, sensitivityRows.length);
+    const PASSAGE_ROW_COUNT = Math.max(10, passageRows.length);
 
+    // 데이터가 있으면 빈 행으로 최소 10행 채움, 없으면 빈 10행
     const displaySensitivityRows = sensitivityRows.length > 0
-      ? sensitivityRows
-      : Array.from({ length: SENSITIVITY_ROW_COUNT }, () => ({}));
+      ? [...sensitivityRows, ...Array.from({ length: Math.max(0, 10 - sensitivityRows.length) }, () => ({}))]
+      : Array.from({ length: 10 }, () => ({}));
     const displayPassageRows = passageRows.length > 0
-      ? passageRows
-      : Array.from({ length: PASSAGE_ROW_COUNT }, () => ({}));
+      ? [...passageRows, ...Array.from({ length: Math.max(0, 10 - passageRows.length) }, () => ({}))]
+      : Array.from({ length: 10 }, () => ({}));
 
     // 시간 포맷 헬퍼 (HH:mm:ss → HH:mm)
     const fmtTime = (v: any) => {
@@ -1998,25 +1999,54 @@ export default function PrintPreviewPage() {
         const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
         typeKeys.forEach((ccpType, typeIdx) => {
           const records = byType[ccpType];
-          // 같은 타입의 여러 배치 기록을 하나의 페이지에 연속 렌더링
-          const combinedContent = (
-            <div>
-              {records.map((fr: any, idx: number) => (
-                <div key={idx} className={idx > 0 ? "mt-4" : ""}>
-                  {idx > 0 && <hr className="border-gray-400 mb-4" />}
-                  {renderCcpFormRecord(fr, enrichedDoc)}
-                </div>
-              ))}
-            </div>
-          );
-          const firstFr = records[0];
-          allPages.push({
-            doc: enrichedDoc,
-            pageContent: combinedContent,
-            pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
-            pageIndex: typeIdx,
-            totalPages: typeKeys.length,
-          });
+
+          if (ccpType === "CCP-4P" && records.length > 1) {
+            // ★ CCP-4P: 하루 모든 배치를 한 페이지에 합산 (금속검출기 공정 = 일일 단위)
+            // 모든 form_rows를 합쳐서 하나의 가상 레코드로 만듦
+            const allRows: any[] = [];
+            for (const fr of records) {
+              const rows = fr.rows || [];
+              allRows.push(...rows);
+            }
+            // 시간 기준 정렬 (sensitivity: metal_pass_time, passage: pass_time_start)
+            allRows.sort((a: any, b: any) => {
+              const typeA = (a.equipmentType || a.equipment_type) || "";
+              const typeB = (b.equipmentType || b.equipment_type) || "";
+              if (typeA !== typeB) return typeA === "sensitivity" ? -1 : 1;
+              const tA = String(a.metalPassTime || a.metal_pass_time || a.passTimeStart || a.pass_time_start || "");
+              const tB = String(b.metalPassTime || b.metal_pass_time || b.passTimeStart || b.pass_time_start || "");
+              return tA.localeCompare(tB);
+            });
+            // 첫 번째 레코드의 메타정보를 사용하되 rows를 합산
+            const mergedFr = { ...records[0], rows: allRows };
+            allPages.push({
+              doc: enrichedDoc,
+              pageContent: renderCcpFormRecord(mergedFr, enrichedDoc),
+              pageTitle: `CCP 기록지 - CCP-4P (금속검출공정)`,
+              pageIndex: typeIdx,
+              totalPages: typeKeys.length,
+            });
+          } else {
+            // CCP-1B/2B 또는 CCP-4P 단건: 같은 타입의 여러 배치 기록을 하나의 페이지에 연속 렌더링
+            const combinedContent = (
+              <div>
+                {records.map((fr: any, idx: number) => (
+                  <div key={idx} className={idx > 0 ? "mt-4" : ""}>
+                    {idx > 0 && <hr className="border-gray-400 mb-4" />}
+                    {renderCcpFormRecord(fr, enrichedDoc)}
+                  </div>
+                ))}
+              </div>
+            );
+            const firstFr = records[0];
+            allPages.push({
+              doc: enrichedDoc,
+              pageContent: combinedContent,
+              pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
+              pageIndex: typeIdx,
+              totalPages: typeKeys.length,
+            });
+          }
         });
       }
     } else if (doc.formType === "ccp_form") {
