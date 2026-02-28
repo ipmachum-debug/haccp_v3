@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import session from "express-session";
@@ -136,6 +137,11 @@ async function startServer() {
   const yearlyLogRestRouter = (await import("../routers/yearlyLogRest")).default;
   app.use("/api/yearlyLog", yearlyLogRestRouter);
   app.use("/api/superadmin", superadminRouter);
+  // 비용전표 첨부파일 업로드 REST API
+  const expenseUploadRouter = (await import("../routers/expenseUpload")).default;
+  app.use("/api/expense", expenseUploadRouter);
+  // 업로드 파일 정적 서빙
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
   // tRPC API
   app.use(
     "/api/trpc",
