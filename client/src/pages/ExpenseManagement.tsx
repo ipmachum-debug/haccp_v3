@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   Plus, Search, Download, CheckCircle, XCircle, Trash2, Eye, Edit, FileText,
   Receipt, CreditCard, Building2, Banknote, AlertTriangle, TrendingDown,
   RefreshCw, Clock, Wallet, BarChart3, Play,
+  Paperclip, Upload, X, File, Image, FileSpreadsheet,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
@@ -41,6 +42,19 @@ const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondar
 
 function fmt(n: any) {
   return Number(n || 0).toLocaleString("ko-KR");
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileIcon(mimeType: string) {
+  if (mimeType?.startsWith("image/")) return <Image className="w-4 h-4 text-green-500" />;
+  if (mimeType?.includes("pdf")) return <FileText className="w-4 h-4 text-red-500" />;
+  if (mimeType?.includes("excel") || mimeType?.includes("spreadsheet") || mimeType?.includes("csv")) return <FileSpreadsheet className="w-4 h-4 text-green-600" />;
+  return <File className="w-4 h-4 text-blue-500" />;
 }
 
 // ─── 메인 ─────────────────────────────────
@@ -505,6 +519,31 @@ function ExpenseDetailView({ data }: { data: any }) {
         </div>
       )}
 
+      {/* 첨부파일 */}
+      {data.attachments?.length > 0 && (
+        <div>
+          <h4 className="font-semibold mb-1 flex items-center gap-1">
+            <Paperclip className="w-4 h-4" /> 첨부파일 ({data.attachments.length})
+          </h4>
+          <div className="space-y-1">
+            {data.attachments.map((att: any) => (
+              <div key={att.id} className="flex items-center gap-2 p-2 bg-muted/30 rounded text-xs">
+                {getFileIcon(att.mime_type)}
+                <a
+                  href={att.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline flex-1 truncate"
+                >
+                  {att.file_name}
+                </a>
+                <span className="text-muted-foreground">{formatFileSize(Number(att.file_size || 0))}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data.created_by_name && <div className="text-xs text-muted-foreground">작성자: {data.created_by_name}</div>}
       {data.posted_by_name && <div className="text-xs text-muted-foreground">확정자: {data.posted_by_name}</div>}
       {data.cancel_reason && <div className="text-xs text-red-500">취소사유: {data.cancel_reason}</div>}
@@ -537,6 +576,9 @@ function ExpenseFormDialog({
 
   const [expenseDate, setExpenseDate] = useState(existing?.expense_date || new Date().toISOString().slice(0, 10));
   const [partnerName, setPartnerName] = useState(existing?.partner_name || "");
+  const [partnerId, setPartnerId] = useState<number | null>(existing?.partner_id || null);
+  const [partnerSearch, setPartnerSearch] = useState("");
+  const [showPartnerDropdown, setShowPartnerDropdown] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState(existing?.payment_method || "cash");
   const [proofType, setProofType] = useState(existing?.proof_type || "none");
   const [memo, setMemo] = useState(existing?.memo || "");
@@ -557,6 +599,7 @@ function ExpenseFormDialog({
     if (existing && isEdit) {
       setExpenseDate(existing.expense_date || "");
       setPartnerName(existing.partner_name || "");
+      setPartnerId(existing.partner_id || null);
       setPaymentMethod(existing.payment_method || "cash");
       setProofType(existing.proof_type || "none");
       setMemo(existing.memo || "");
@@ -571,11 +614,68 @@ function ExpenseFormDialog({
           description: it.description || "",
         })));
       }
+      setExistingAttachments(existing.attachments || []);
     }
   }, [existing]);
 
+  // 거래처 검색 쿼리 (통합 partners 테이블)
+  const partnersQuery = trpc.expense.searchPartners.useQuery(
+    { search: partnerSearch || undefined, limit: 15 },
+    { enabled: showPartnerDropdown && partnerSearch.length >= 1 },
+  );
+  const partnerResults = partnersQuery.data || [];
+
+  // 첨부파일 관련 state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<any[]>(existing?.attachments || []);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+
+  // 파일 업로드 함수
+  const uploadFiles = useCallback(async (voucherId: number) => {
+    if (pendingFiles.length === 0) return;
+    setUploadingFiles(true);
+    try {
+      const formData = new FormData();
+      formData.append("voucherId", String(voucherId));
+      pendingFiles.forEach((f) => formData.append("files", f));
+      const resp = await fetch("/api/expense/upload", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!resp.ok) {
+        const errData = await resp.json();
+        throw new Error(errData.error || "업로드 실패");
+      }
+      setPendingFiles([]);
+    } catch (err: any) {
+      toast({ title: "첨부파일 업로드 실패", description: err.message, variant: "destructive" });
+    } finally {
+      setUploadingFiles(false);
+    }
+  }, [pendingFiles, toast]);
+
+  // 기존 첨부파일 삭제
+  const deleteAttachment = async (attId: number) => {
+    try {
+      const resp = await fetch(`/api/expense/attachments/${attId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!resp.ok) throw new Error("삭제 실패");
+      setExistingAttachments((prev) => prev.filter((a) => a.id !== attId));
+      toast({ title: "첨부파일 삭제 완료" });
+    } catch (err: any) {
+      toast({ title: "삭제 실패", description: err.message, variant: "destructive" });
+    }
+  };
+
   const createMut = trpc.expense.create.useMutation({
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      if (pendingFiles.length > 0) {
+        await uploadFiles(data.id);
+      }
       toast({ title: "등록 완료", description: `전표 ${data.voucherNo}이(가) 등록되었습니다.` });
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
@@ -585,7 +685,10 @@ function ExpenseFormDialog({
   });
 
   const updateMut = trpc.expense.update.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
+      if (pendingFiles.length > 0 && editingId) {
+        await uploadFiles(editingId);
+      }
       toast({ title: "수정 완료" });
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
@@ -629,6 +732,7 @@ function ExpenseFormDialog({
 
     const payload = {
       expenseDate,
+      partnerId: partnerId || undefined,
       partnerName: partnerName || undefined,
       supplyAmount: totals.supply,
       vatAmount: totals.vat,
@@ -650,140 +754,269 @@ function ExpenseFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? "비용전표 수정" : "비용전표 등록"}</DialogTitle>
           <DialogDescription>비용(경비) 전표를 {isEdit ? "수정" : "등록"}합니다.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {/* 기본 정보 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <Label>비용일자 *</Label>
-              <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} />
-            </div>
-            <div>
-              <Label>거래처</Label>
-              <Input placeholder="거래처명" value={partnerName} onChange={(e) => setPartnerName(e.target.value)} />
-            </div>
-            <div>
-              <Label>결제수단 *</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">현금</SelectItem>
-                  <SelectItem value="bank">계좌이체</SelectItem>
-                  <SelectItem value="card">카드</SelectItem>
-                  <SelectItem value="unpaid">미지급(외상)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>증빙유형 *</Label>
-              <Select value={proofType} onValueChange={setProofType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="tax_invoice">세금계산서</SelectItem>
-                  <SelectItem value="card">카드</SelectItem>
-                  <SelectItem value="cash_receipt">현금영수증</SelectItem>
-                  <SelectItem value="simple">간이영수증</SelectItem>
-                  <SelectItem value="none">없음</SelectItem>
-                </SelectContent>
-              </Select>
+        <div className="space-y-5">
+          {/* 기본 정보 - 2행 구조 */}
+          <div className="border rounded-lg p-4 bg-muted/20 space-y-3">
+            <Label className="font-semibold text-sm">기본 정보</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">비용일자 *</Label>
+                <Input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="mt-1" />
+              </div>
+              <div className="relative">
+                <Label className="text-xs text-muted-foreground">거래처</Label>
+                <div className="relative mt-1">
+                  <Building2 className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="거래처 검색 (사업자번호, 회사명)"
+                    value={partnerName}
+                    onChange={(e) => {
+                      setPartnerName(e.target.value);
+                      setPartnerSearch(e.target.value);
+                      setPartnerId(null);
+                      setShowPartnerDropdown(true);
+                    }}
+                    onFocus={() => { if (partnerName) setShowPartnerDropdown(true); }}
+                    onBlur={() => setTimeout(() => setShowPartnerDropdown(false), 200)}
+                    className="pl-8"
+                  />
+                </div>
+                {/* 거래처 검색 드롭다운 */}
+                {showPartnerDropdown && partnerResults.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {partnerResults.map((p: any) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center gap-2 border-b last:border-0"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          setPartnerId(p.id);
+                          setPartnerName(p.company_name);
+                          setShowPartnerDropdown(false);
+                        }}
+                      >
+                        <Building2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium">{p.company_name}</span>
+                          {p.biz_no && <span className="text-xs text-muted-foreground ml-2">{p.biz_no}</span>}
+                        </div>
+                        <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                          {p.partner_type === "supplier" ? "공급" : p.partner_type === "customer" ? "고객" : "외주"}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {partnerId && (
+                  <p className="text-[10px] text-green-600 mt-0.5">✓ 등록된 거래처 선택됨 (ID: {partnerId})</p>
+                )}
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">결제수단 *</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">현금</SelectItem>
+                    <SelectItem value="bank">계좌이체</SelectItem>
+                    <SelectItem value="card">카드</SelectItem>
+                    <SelectItem value="unpaid">미지급(외상)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">증빙유형 *</Label>
+                <Select value={proofType} onValueChange={setProofType}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tax_invoice">세금계산서</SelectItem>
+                    <SelectItem value="card">카드</SelectItem>
+                    <SelectItem value="cash_receipt">현금영수증</SelectItem>
+                    <SelectItem value="simple">간이영수증</SelectItem>
+                    <SelectItem value="none">없음</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
           {/* 비용 항목 */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <Label className="font-semibold">비용 항목</Label>
+          <div className="border rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="font-semibold text-sm">비용 항목</Label>
               <Button variant="outline" size="sm" onClick={addItem}><Plus className="w-3 h-3 mr-1" /> 항목 추가</Button>
             </div>
             <div className="space-y-2">
               {items.map((item, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-end border rounded p-2 bg-muted/30">
-                  <div className="col-span-3">
-                    <Label className="text-xs">계정과목 *</Label>
-                    <Select
-                      value={String(item.accountId || "")}
-                      onValueChange={(v) => {
-                        const acc = accounts.find((a) => String(a.id) === v);
-                        updateItem(idx, "accountId", Number(v));
-                        if (acc) {
-                          updateItem(idx, "accountCode", acc.code);
-                          updateItem(idx, "accountName", acc.name);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="선택" /></SelectTrigger>
-                      <SelectContent>
-                        {accounts.map((acc: any) => (
-                          <SelectItem key={acc.id} value={String(acc.id)}>
-                            [{acc.code}] {acc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-xs">공급가액</Label>
-                    <Input
-                      type="number" className="h-8 text-xs"
-                      value={item.supplyAmount || ""}
-                      onChange={(e) => updateItem(idx, "supplyAmount", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-xs">부가세</Label>
-                    <Input
-                      type="number" className="h-8 text-xs"
-                      value={item.vatAmount || ""}
-                      onChange={(e) => updateItem(idx, "vatAmount", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-xs">합계</Label>
-                    <Input type="number" className="h-8 text-xs bg-muted" readOnly value={item.totalAmount || 0} />
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-xs">적요</Label>
-                    <Input
-                      className="h-8 text-xs" placeholder="내용"
-                      value={item.description || ""}
-                      onChange={(e) => updateItem(idx, "description", e.target.value)}
-                    />
-                  </div>
-                  <div className="col-span-1 flex justify-center">
-                    {items.length > 1 && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeItem(idx)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    )}
+                <div key={idx} className="border rounded p-3 bg-muted/20">
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
+                    <div className="md:col-span-2">
+                      <Label className="text-xs text-muted-foreground">계정과목 *</Label>
+                      <Select
+                        value={String(item.accountId || "")}
+                        onValueChange={(v) => {
+                          const acc = accounts.find((a: any) => String(a.id) === v);
+                          updateItem(idx, "accountId", Number(v));
+                          if (acc) {
+                            updateItem(idx, "accountCode", acc.code);
+                            updateItem(idx, "accountName", acc.name);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9 text-xs mt-1"><SelectValue placeholder="계정과목 선택" /></SelectTrigger>
+                        <SelectContent>
+                          {accounts.map((acc: any) => (
+                            <SelectItem key={acc.id} value={String(acc.id)}>
+                              [{acc.code}] {acc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">공급가액</Label>
+                      <Input
+                        type="number" className="h-9 text-xs mt-1"
+                        value={item.supplyAmount || ""}
+                        onChange={(e) => updateItem(idx, "supplyAmount", Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">부가세</Label>
+                      <Input
+                        type="number" className="h-9 text-xs mt-1"
+                        value={item.vatAmount || ""}
+                        onChange={(e) => updateItem(idx, "vatAmount", Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">합계</Label>
+                      <Input type="number" className="h-9 text-xs bg-muted mt-1" readOnly value={item.totalAmount || 0} />
+                    </div>
+                    <div className="flex gap-1 items-end">
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">적요</Label>
+                        <Input
+                          className="h-9 text-xs mt-1" placeholder="내용"
+                          value={item.description || ""}
+                          onChange={(e) => updateItem(idx, "description", e.target.value)}
+                        />
+                      </div>
+                      {items.length > 1 && (
+                        <Button variant="ghost" size="icon" className="h-9 w-9 text-red-500 flex-shrink-0" onClick={() => removeItem(idx)}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* 합계 */}
+            <div className="grid grid-cols-3 gap-3 bg-primary/5 p-3 rounded-lg font-semibold text-sm">
+              <div>공급가액: <span className="text-blue-600">{fmt(totals.supply)}원</span></div>
+              <div>부가세: <span className="text-orange-600">{fmt(totals.vat)}원</span></div>
+              <div className="text-base">합계: <span className="text-primary">{fmt(totals.total)}원</span></div>
+            </div>
           </div>
 
-          {/* 합계 */}
-          <div className="grid grid-cols-3 gap-3 bg-muted/50 p-3 rounded font-semibold">
-            <div>공급가액: {fmt(totals.supply)}원</div>
-            <div>부가세: {fmt(totals.vat)}원</div>
-            <div className="text-lg">합계: {fmt(totals.total)}원</div>
-          </div>
+          {/* 메모 + 첨부파일 - 2열 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border rounded-lg p-4 space-y-2">
+              <Label className="font-semibold text-sm">메모</Label>
+              <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택)" rows={3} />
+            </div>
 
-          {/* 메모 */}
-          <div>
-            <Label>메모</Label>
-            <Textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="메모 (선택)" rows={2} />
+            <div className="border rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="font-semibold text-sm flex items-center gap-1">
+                  <Paperclip className="w-4 h-4" /> 첨부파일
+                </Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="w-3 h-3 mr-1" /> 파일 선택
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept="image/*,.pdf,.xlsx,.xls,.doc,.docx,.txt,.csv"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length + pendingFiles.length + existingAttachments.length > 5) {
+                      toast({ title: "최대 5개까지 첨부 가능합니다.", variant: "destructive" });
+                      return;
+                    }
+                    const oversized = files.filter(f => f.size > 10 * 1024 * 1024);
+                    if (oversized.length > 0) {
+                      toast({ title: "10MB 이하 파일만 업로드 가능합니다.", variant: "destructive" });
+                      return;
+                    }
+                    setPendingFiles((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+
+              {/* 기존 첨부파일 (수정 시) */}
+              {existingAttachments.length > 0 && (
+                <div className="space-y-1">
+                  {existingAttachments.map((att: any) => (
+                    <div key={att.id} className="flex items-center gap-2 p-1.5 bg-muted/30 rounded text-xs">
+                      {getFileIcon(att.mime_type)}
+                      <a href={att.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex-1 truncate">
+                        {att.file_name}
+                      </a>
+                      <span className="text-muted-foreground">{formatFileSize(Number(att.file_size || 0))}</span>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-red-500" onClick={() => deleteAttachment(att.id)}>
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 새로 추가된 파일 */}
+              {pendingFiles.length > 0 && (
+                <div className="space-y-1">
+                  {pendingFiles.map((f, idx) => (
+                    <div key={idx} className="flex items-center gap-2 p-1.5 bg-blue-50 dark:bg-blue-950/30 rounded text-xs border border-blue-200 dark:border-blue-800">
+                      {getFileIcon(f.type)}
+                      <span className="flex-1 truncate">{f.name}</span>
+                      <span className="text-muted-foreground">{formatFileSize(f.size)}</span>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-red-500" onClick={() => setPendingFiles((prev) => prev.filter((_, i) => i !== idx))}>
+                        <X className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {existingAttachments.length === 0 && pendingFiles.length === 0 && (
+                <div className="text-xs text-muted-foreground p-2 text-center border border-dashed rounded">
+                  이미지, PDF, Excel, Word, CSV (최대 10MB, 5개)
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="mt-4 pt-4 border-t">
           <Button variant="outline" onClick={onClose}>취소</Button>
-          <Button onClick={handleSubmit} disabled={isPending}>
-            {isPending ? "처리중..." : isEdit ? "수정" : "등록"}
+          <Button onClick={handleSubmit} disabled={isPending || uploadingFiles}>
+            {isPending || uploadingFiles ? "처리중..." : isEdit ? "수정" : "등록"}
           </Button>
         </DialogFooter>
       </DialogContent>
