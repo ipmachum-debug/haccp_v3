@@ -171,7 +171,7 @@ export async function getSupplierPartners(params: {
     supplierCode: p.supplierCode || `SUP-${String(p.id).padStart(3, "0")}`,
     supplierName: p.companyName,
     businessNumber: p.bizNo,
-    contactPerson: p.ceoName,
+    contactPerson: (p as any).contactPerson || p.ceoName,
     phone: p.phone,
     email: p.email,
     address: p.address,
@@ -231,26 +231,6 @@ export async function createSupplierPartner(data: {
     rating: data.rating || null,
   });
 
-  // h_suppliers에도 동기화 삽입
-  try {
-    const { hSuppliers } = await import("../drizzle/schema");
-    await db.insert(hSuppliers).values({
-      tenantId: data.tenantId,
-      supplierCode,
-      supplierName: data.supplierName,
-      businessNumber: data.businessNumber || null,
-      contactPerson: data.contactPerson || null,
-      phone: data.phone || null,
-      email: data.email || null,
-      address: data.address || null,
-      supplierType: data.supplierType || "거래처",
-      certifications: data.certifications || null,
-      rating: data.rating || null,
-    });
-  } catch (e) {
-    console.warn("[createSupplierPartner] h_suppliers 동기화 실패 (무시):", e);
-  }
-
   return result.insertId;
 }
 
@@ -277,7 +257,7 @@ export async function updateSupplierPartner(id: number, data: {
   if (data.supplierName !== undefined) updateData.companyName = data.supplierName;
   if (data.supplierCode !== undefined) updateData.supplierCode = data.supplierCode;
   if (data.businessNumber !== undefined) updateData.bizNo = data.businessNumber;
-  if (data.contactPerson !== undefined) updateData.ceoName = data.contactPerson;
+  if (data.contactPerson !== undefined) updateData.contactPerson = data.contactPerson;
   if (data.phone !== undefined) updateData.phone = data.phone;
   if (data.email !== undefined) updateData.email = data.email;
   if (data.address !== undefined) updateData.address = data.address;

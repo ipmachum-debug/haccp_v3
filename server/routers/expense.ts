@@ -1004,4 +1004,36 @@ export const expenseRouter = router({
         deductibleVat: Number((deductibleRows as any[])[0]?.deductible_vat || 0),
       };
     }),
+
+  // ═══════════════════════════════════
+  // 거래처 검색 (통합 partners 테이블)
+  // ═══════════════════════════════════
+  searchPartners: protectedProcedure
+    .input(z.object({
+      search: z.string().optional(),
+      partnerType: z.enum(["supplier", "customer", "subcontractor"]).optional(),
+      limit: z.number().default(20),
+    }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = await getRawConnection();
+      let where = "tenant_id = ? AND is_active = 1";
+      const params: any[] = [tenantId];
+      if (input.partnerType) {
+        where += " AND partner_type = ?";
+        params.push(input.partnerType);
+      }
+      if (input.search) {
+        where += " AND (company_name LIKE ? OR biz_no LIKE ? OR contact_person LIKE ?)";
+        const s = `%${input.search}%`;
+        params.push(s, s, s);
+      }
+      params.push(input.limit);
+      const [rows] = await conn.execute(
+        `SELECT id, company_name, partner_type, biz_no, supplier_code, contact_person, phone, email
+         FROM partners WHERE ${where} ORDER BY company_name LIMIT ?`,
+        params,
+      );
+      return rows as any[];
+    }),
 });

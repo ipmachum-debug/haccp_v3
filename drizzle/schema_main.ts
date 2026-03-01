@@ -1330,6 +1330,7 @@ export const partners = mysqlTable("partners", {
   rating: varchar("rating", { length: 20 }),
   companyName: varchar("company_name", { length: 255 }).notNull(),
   ceoName: varchar("ceo_name", { length: 100 }),
+  contactPerson: varchar("contact_person", { length: 100 }),
   bizType: varchar("biz_type", { length: 255 }), // 업태
   bizItem: varchar("biz_item", { length: 255 }), // 종목
   address: varchar({ length: 500 }),
