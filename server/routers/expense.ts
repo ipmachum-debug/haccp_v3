@@ -1028,10 +1028,10 @@ export const expenseRouter = router({
         const s = `%${input.search}%`;
         params.push(s, s, s);
       }
-      params.push(input.limit);
-      const [rows] = await conn.execute(
+      const limitVal = Math.max(1, Math.min(input.limit, 50));
+      const [rows] = await conn.query(
         `SELECT id, company_name, partner_type, biz_no, supplier_code, contact_person, phone, email
-         FROM partners WHERE ${where} ORDER BY company_name LIMIT ?`,
+         FROM partners WHERE ${where} ORDER BY company_name LIMIT ${limitVal}`,
         params,
       );
       return rows as any[];

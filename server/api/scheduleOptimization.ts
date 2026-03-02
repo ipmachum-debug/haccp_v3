@@ -13,8 +13,9 @@ export async function optimizeProductionSchedule(params: {
   startDate: string;
   endDate: string;
   facilityIds?: number[];
+  tenantId: number;
 }) {
-  const { startDate, endDate, facilityIds } = params;
+  const { startDate, endDate, facilityIds, tenantId } = params;
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -34,6 +35,7 @@ export async function optimizeProductionSchedule(params: {
     .from(hBatches)
     .where(
       and(
+        eq(hBatches.tenantId, tenantId),
         gte(hBatches.plannedDate, new Date(startDate)),
         lte(hBatches.plannedDate, new Date(endDate)),
         sql`${hBatches.status} IN ('planned', 'in_progress')`
@@ -169,7 +171,7 @@ ${plannedBatches
 /**
  * 재고 수준 기반 생산 우선순위 계산
  */
-export async function calculateProductionPriority() {
+export async function calculateProductionPriority(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 

@@ -84,10 +84,7 @@ export async function processAutoApprovals() {
             .select()
             .from(hInventoryAdjustments)
             .where(
-              and(
-                eq(hInventoryAdjustments.id, request.referenceId),
-                eq(hInventoryAdjustments.tenantId, tenantId)
-              )
+              eq(hInventoryAdjustments.id, request.referenceId)
             )
             .limit(1);
 

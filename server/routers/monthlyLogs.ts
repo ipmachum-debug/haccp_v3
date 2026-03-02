@@ -1,468 +1,276 @@
+/**
+ * 월간일지 (Monthly Log) 라우터
+ * - h_generic_checklist_records (form_type='monthly_log') 기반
+ * - 이전 데이터 pre-fill (getPreviousFormData)
+ * - 전체 양식 저장 (saveFullForm)
+ * - 승인관리에서 데이터 수정 (updateFormData)
+ * - 목록/상세 조회
+ */
 import { router, protectedProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { getDb, getRawConnection } from "../db";
+import { getDb } from "../db";
+import { sql } from "drizzle-orm";
 
 export const monthlyLogsRouter = router({
-  // ============================================
-  // 일반위생관리 및 공정점검표 (월간)
-  // ============================================
-  
-  // 일반위생관리 월간일지 작성
-  createHygiene: protectedProcedure
+  // ── 이전 작성 데이터 조회 (pre-fill용) ──
+  getPreviousFormData: protectedProcedure
+    .input(z.object({ beforeDate: z.string() }))
+    .query(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) return null;
+        const result = await db.execute(sql`
+          SELECT id, form_date, form_data FROM h_generic_checklist_records
+          WHERE form_type = 'monthly_log'
+            AND tenant_id = ${ctx.user.tenantId}
+            AND form_date < ${input.beforeDate}
+            AND form_data IS NOT NULL
+          ORDER BY form_date DESC
+          LIMIT 1
+        `);
+        const rows = (result as any)[0] || [];
+        if (rows.length === 0) return null;
+        const row = rows[0];
+        let fd: any = {};
+        try {
+          fd = typeof row.form_data === 'string' ? JSON.parse(row.form_data) : (row.form_data || {});
+        } catch { return null; }
+        return {
+          sourceDate: row.form_date instanceof Date
+            ? row.form_date.toISOString().split('T')[0]
+            : String(row.form_date),
+          formData: fd,
+        };
+      } catch (e) {
+        console.error('[monthlyLog.getPreviousFormData]', e);
+        return null;
+      }
+    }),
+
+  // ── 해당 날짜 월간일지 조회 (편집용) ──
+  getByDate: protectedProcedure
+    .input(z.object({ logDate: z.string(), siteId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) return null;
+        const result = await db.execute(sql`
+          SELECT id, site_id, form_date, title, status, form_data, created_at, updated_at
+          FROM h_generic_checklist_records
+          WHERE form_type = 'monthly_log'
+            AND form_date = ${input.logDate}
+            AND tenant_id = ${ctx.user.tenantId}
+          ORDER BY created_at DESC LIMIT 1
+        `);
+        const rows = (result as any)[0] || [];
+        if (rows.length === 0) return null;
+        const r = rows[0];
+        let fd: any = {};
+        try {
+          fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
+        } catch {}
+        return {
+          id: r.id,
+          siteId: r.site_id,
+          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
+          title: r.title,
+          status: r.status,
+          formData: fd,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        };
+      } catch (e) {
+        console.error('[monthlyLog.getByDate]', e);
+        return null;
+      }
+    }),
+
+  // ── 월간일지 저장 (전체 양식) ──
+  saveFullForm: protectedProcedure
     .input(z.object({
-      tenant_id: z.number(),
-      check_date: z.string(),
-      checker_name: z.string().optional(),
-      confirmer_name: z.string().optional(),
-      confirm_date: z.string().optional(),
-      cleaning_status: z.string().optional(),
-      education_status: z.string().optional(),
-      ccp_verification: z.string().optional(),
-      special_notes: z.string().optional(),
-      improvement_action: z.string().optional(),
-      confirmation: z.string().optional(),
+      logDate: z.string(),
+      formData: z.any(),
+      siteId: z.number().optional(),
+      status: z.enum(['draft', 'submitted']).default('draft'),
     }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      const result = await (db as any).execute(
-        `INSERT INTO monthly_hygiene_logs 
-        (tenant_id, check_date, checker_name, confirmer_name, confirm_date,
-         cleaning_status, education_status, ccp_verification,
-         special_notes, improvement_action, confirmation, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '작성중')`,
-        [
-          input.tenant_id,
-          input.check_date,
-          input.checker_name,
-          input.confirmer_name,
-          input.confirm_date,
-          input.cleaning_status,
-          input.education_status,
-          input.ccp_verification,
-          input.special_notes,
-          input.improvement_action,
-          input.confirmation,
-        ]
-      );
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const tenantId = ctx.user.tenantId;
+        const siteId = input.siteId || 1;
 
-      return { success: true, id: result.insertId };
-    }),
+        const existing = await db.execute(sql`
+          SELECT id, form_data FROM h_generic_checklist_records
+          WHERE form_type = 'monthly_log'
+            AND form_date = ${input.logDate}
+            AND tenant_id = ${tenantId}
+          LIMIT 1
+        `);
+        const existingRows = (existing as any)[0] || [];
 
-  // 일반위생관리 월간일지 조회
-  getHygiene: protectedProcedure
-    .input(z.object({
-      tenant_id: z.number(),
-      start_date: z.string().optional(),
-      end_date: z.string().optional(),
-      status: z.string().optional(),
-    }))
-    .query(async ({ input }) => {
-      const conn = await getRawConnection();
-      
-      let query = 'SELECT * FROM monthly_hygiene_logs WHERE tenant_id = ?';
-      const params: any[] = [input.tenant_id];
+        let recordId: number;
+        const title = `월간일지 - ${input.logDate}`;
 
-      if (input.start_date) {
-        query += ' AND check_date >= ?';
-        params.push(input.start_date);
-      }
+        if (existingRows.length > 0) {
+          recordId = existingRows[0].id;
+          let oldFd: any = {};
+          try {
+            oldFd = typeof existingRows[0].form_data === 'string'
+              ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {});
+          } catch {}
+          const merged = { ...oldFd, ...input.formData, lastUpdated: new Date().toISOString() };
 
-      if (input.end_date) {
-        query += ' AND check_date <= ?';
-        params.push(input.end_date);
-      }
+          await db.execute(sql`
+            UPDATE h_generic_checklist_records
+            SET form_data = ${JSON.stringify(merged)},
+                status = ${input.status},
+                title = ${title},
+                updated_at = NOW()
+            WHERE id = ${recordId}
+          `);
+        } else {
+          const seqR = await db.execute(sql`
+            SELECT COALESCE(MAX(tenant_seq), 0) + 1 as ns
+            FROM h_generic_checklist_records
+            WHERE form_type = 'monthly_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
+          `);
+          const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
+          const formDataStr = JSON.stringify({ ...input.formData, date: input.logDate });
 
-      if (input.status) {
-        query += ' AND status = ?';
-        params.push(input.status);
-      }
-
-      query += ' ORDER BY check_date DESC';
-
-      const [logs] = await conn.execute(query, params) as any;
-
-      return { logs };
-    }),
-
-  // 일반위생관리 월간일지 수정
-  updateHygiene: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      check_date: z.string().optional(),
-      checker_name: z.string().optional(),
-      confirmer_name: z.string().optional(),
-      confirm_date: z.string().optional(),
-      cleaning_status: z.string().optional(),
-      education_status: z.string().optional(),
-      ccp_verification: z.string().optional(),
-      special_notes: z.string().optional(),
-      improvement_action: z.string().optional(),
-      confirmation: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      const updates: string[] = [];
-      const params: any[] = [];
-
-      if (input.check_date !== undefined) {
-        updates.push('check_date = ?');
-        params.push(input.check_date);
-      }
-      if (input.checker_name !== undefined) {
-        updates.push('checker_name = ?');
-        params.push(input.checker_name);
-      }
-      if (input.confirmer_name !== undefined) {
-        updates.push('confirmer_name = ?');
-        params.push(input.confirmer_name);
-      }
-      if (input.confirm_date !== undefined) {
-        updates.push('confirm_date = ?');
-        params.push(input.confirm_date);
-      }
-      if (input.cleaning_status !== undefined) {
-        updates.push('cleaning_status = ?');
-        params.push(input.cleaning_status);
-      }
-      if (input.education_status !== undefined) {
-        updates.push('education_status = ?');
-        params.push(input.education_status);
-      }
-      if (input.ccp_verification !== undefined) {
-        updates.push('ccp_verification = ?');
-        params.push(input.ccp_verification);
-      }
-      if (input.special_notes !== undefined) {
-        updates.push('special_notes = ?');
-        params.push(input.special_notes);
-      }
-      if (input.improvement_action !== undefined) {
-        updates.push('improvement_action = ?');
-        params.push(input.improvement_action);
-      }
-      if (input.confirmation !== undefined) {
-        updates.push('confirmation = ?');
-        params.push(input.confirmation);
-      }
-
-      if (updates.length === 0) {
-        throw new Error('수정할 항목이 없습니다.');
-      }
-
-      params.push(input.id);
-
-      await (db as any).execute(
-        `UPDATE monthly_hygiene_logs SET ${updates.join(', ')} WHERE id = ?`,
-        params
-      );
-
-      return { success: true };
-    }),
-
-  // 일반위생관리 월간일지 삭제
-  deleteHygiene: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        'DELETE FROM monthly_hygiene_logs WHERE id = ?',
-        [input.id]
-      );
-
-      return { success: true };
-    }),
-
-  // 일반위생관리 월간일지 승인
-  approveHygiene: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      approved_by: z.string(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_hygiene_logs 
-         SET status = '승인완료', approved_by = ?, approved_at = NOW() 
-         WHERE id = ?`,
-        [input.approved_by, input.id]
-      );
-
-      return { success: true };
-    }),
-
-  // 일반위생관리 월간일지 승인 요청
-  requestHygieneApproval: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_hygiene_logs SET status = '승인대기' WHERE id = ?`,
-        [input.id]
-      );
-
-      return { success: true };
-    }),
-
-  // 일반위생관리 월간일지 반려
-  rejectHygiene: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      rejected_by: z.string(),
-      reject_reason: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_hygiene_logs SET status = '작성중' WHERE id = ?`,
-        [input.id]
-      );
-
-      return { success: true };
-    }),
-
-  // ============================================
-  // 중요관리점(CCP) 검증점검표 (매월)
-  // ============================================
-  
-  // CCP 월간일지 작성
-  createCCP: protectedProcedure
-    .input(z.object({
-      tenant_id: z.number(),
-      check_date: z.string(),
-      checker_name: z.string().optional(),
-      confirmer_name: z.string().optional(),
-      confirm_date: z.string().optional(),
-      
-      // 가열 공정
-      heating_temp_time_check: z.string().optional(),
-      heating_equipment_calibration: z.string().optional(),
-      heating_temp_method: z.string().optional(),
-      heating_time_method: z.string().optional(),
-      heating_core_temp_method: z.string().optional(),
-      heating_monitoring_observation_date: z.string().optional(),
-      heating_corrective_action_knowledge: z.string().optional(),
-      heating_monitoring_interview_date: z.string().optional(),
-      
-      // 금속검출 공정
-      metal_detector_test: z.string().optional(),
-      metal_detector_calibration: z.string().optional(),
-      metal_detector_method: z.string().optional(),
-      metal_monitoring_observation_date: z.string().optional(),
-      metal_corrective_action_knowledge: z.string().optional(),
-      metal_monitoring_interview_date: z.string().optional(),
-      
-      // 한계기준 이탈내용, 개선조치, 조치자, 확인
-      deviation_details: z.string().optional(),
-      improvement_action: z.string().optional(),
-      action_taker: z.string().optional(),
-      confirmation: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      const result = await (db as any).execute(
-        `INSERT INTO monthly_ccp_logs 
-        (tenant_id, check_date, checker_name, confirmer_name, confirm_date,
-         heating_temp_time_check, heating_equipment_calibration, heating_temp_method,
-         heating_time_method, heating_core_temp_method, heating_monitoring_observation_date,
-         heating_corrective_action_knowledge, heating_monitoring_interview_date,
-         metal_detector_test, metal_detector_calibration, metal_detector_method,
-         metal_monitoring_observation_date, metal_corrective_action_knowledge,
-         metal_monitoring_interview_date, deviation_details, improvement_action,
-         action_taker, confirmation, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '작성중')`,
-        [
-          input.tenant_id,
-          input.check_date,
-          input.checker_name,
-          input.confirmer_name,
-          input.confirm_date,
-          input.heating_temp_time_check,
-          input.heating_equipment_calibration,
-          input.heating_temp_method,
-          input.heating_time_method,
-          input.heating_core_temp_method,
-          input.heating_monitoring_observation_date,
-          input.heating_corrective_action_knowledge,
-          input.heating_monitoring_interview_date,
-          input.metal_detector_test,
-          input.metal_detector_calibration,
-          input.metal_detector_method,
-          input.metal_monitoring_observation_date,
-          input.metal_corrective_action_knowledge,
-          input.metal_monitoring_interview_date,
-          input.deviation_details,
-          input.improvement_action,
-          input.action_taker,
-          input.confirmation,
-        ]
-      );
-
-      return { success: true, id: result.insertId };
-    }),
-
-  // CCP 월간일지 조회
-  getCCP: protectedProcedure
-    .input(z.object({
-      tenant_id: z.number(),
-      start_date: z.string().optional(),
-      end_date: z.string().optional(),
-      status: z.string().optional(),
-    }))
-    .query(async ({ input }) => {
-      const conn = await getRawConnection();
-      
-      let query = 'SELECT * FROM monthly_ccp_logs WHERE tenant_id = ?';
-      const params: any[] = [input.tenant_id];
-
-      if (input.start_date) {
-        query += ' AND check_date >= ?';
-        params.push(input.start_date);
-      }
-
-      if (input.end_date) {
-        query += ' AND check_date <= ?';
-        params.push(input.end_date);
-      }
-
-      if (input.status) {
-        query += ' AND status = ?';
-        params.push(input.status);
-      }
-
-      query += ' ORDER BY check_date DESC';
-
-      const [logs] = await conn.execute(query, params) as any;
-
-      return { logs };
-    }),
-
-  // CCP 월간일지 수정
-  updateCCP: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      check_date: z.string().optional(),
-      checker_name: z.string().optional(),
-      confirmer_name: z.string().optional(),
-      confirm_date: z.string().optional(),
-      
-      heating_temp_time_check: z.string().optional(),
-      heating_equipment_calibration: z.string().optional(),
-      heating_temp_method: z.string().optional(),
-      heating_time_method: z.string().optional(),
-      heating_core_temp_method: z.string().optional(),
-      heating_monitoring_observation_date: z.string().optional(),
-      heating_corrective_action_knowledge: z.string().optional(),
-      heating_monitoring_interview_date: z.string().optional(),
-      
-      metal_detector_test: z.string().optional(),
-      metal_detector_calibration: z.string().optional(),
-      metal_detector_method: z.string().optional(),
-      metal_monitoring_observation_date: z.string().optional(),
-      metal_corrective_action_knowledge: z.string().optional(),
-      metal_monitoring_interview_date: z.string().optional(),
-      
-      deviation_details: z.string().optional(),
-      improvement_action: z.string().optional(),
-      action_taker: z.string().optional(),
-      confirmation: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      const updates: string[] = [];
-      const params: any[] = [];
-
-      // 모든 필드에 대한 업데이트 처리
-      Object.entries(input).forEach(([key, value]) => {
-        if (key !== 'id' && value !== undefined) {
-          updates.push(`${key} = ?`);
-          params.push(value);
+          const ins = await db.execute(sql`
+            INSERT INTO h_generic_checklist_records
+              (site_id, tenant_id, form_type, tenant_seq, form_date, title, form_data, status, created_by)
+            VALUES
+              (${siteId}, ${tenantId}, 'monthly_log', ${nextSeq}, ${input.logDate}, ${title},
+               ${formDataStr}, ${input.status}, ${ctx.user.id})
+          `);
+          recordId = Number((ins as any)[0]?.insertId || 0);
         }
-      });
 
-      if (updates.length === 0) {
-        throw new Error('수정할 항목이 없습니다.');
+        // submitted이면 승인요청 생성/업데이트
+        if (input.status === 'submitted') {
+          const existApproval = await db.execute(sql`
+            SELECT id FROM h_approval_requests
+            WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'monthly_log'
+            LIMIT 1
+          `);
+          const approvalRows = (existApproval as any)[0] || [];
+          if (approvalRows.length === 0) {
+            await db.execute(sql`
+              INSERT INTO h_approval_requests
+                (site_id, tenant_id, request_type, reference_type, reference_id,
+                 title, description, status, priority, requested_by, created_at)
+              VALUES
+                (${siteId}, ${tenantId}, 'monthly_log', 'checklist', ${recordId},
+                 ${`[월간일지] ${input.logDate} 일반위생관리 및 CCP 검증점검표`},
+                 ${'월간 위생점검/CCP검증 완료 - 승인 요청합니다.'}, 'pending_review', 'medium', ${ctx.user.id}, NOW())
+            `);
+          } else {
+            await db.execute(sql`
+              UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
+              WHERE id = ${approvalRows[0].id}
+            `);
+          }
+        }
+
+        return { success: true, id: recordId, status: input.status };
+      } catch (error) {
+        console.error('[monthlyLog.saveFullForm]', error);
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: error instanceof Error ? error.message : '저장 실패',
+        });
       }
-
-      params.push(input.id);
-
-      await (db as any).execute(
-        `UPDATE monthly_ccp_logs SET ${updates.join(', ')} WHERE id = ?`,
-        params
-      );
-
-      return { success: true };
     }),
 
-  // CCP 월간일지 삭제
-  deleteCCP: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        'DELETE FROM monthly_ccp_logs WHERE id = ?',
-        [input.id]
-      );
-
-      return { success: true };
+  // ── 승인관리에서 데이터 수정 ──
+  updateFormData: protectedProcedure
+    .input(z.object({ id: z.number(), formData: z.any() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const existing = await db.execute(sql`
+          SELECT form_data FROM h_generic_checklist_records
+          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+        `);
+        const oldRows = (existing as any)[0] || [];
+        let oldFd: any = {};
+        if (oldRows.length > 0) {
+          try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : oldRows[0].form_data; } catch {}
+        }
+        const merged = { ...oldFd, ...input.formData, lastUpdated: new Date().toISOString() };
+        await db.execute(sql`
+          UPDATE h_generic_checklist_records
+          SET form_data = ${JSON.stringify(merged)}, updated_at = NOW()
+          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+        `);
+        return { success: true };
+      } catch (error) {
+        console.error('[monthlyLog.updateFormData]', error);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '수정 실패' });
+      }
     }),
 
-  // CCP 월간일지 승인
-  approveCCP: protectedProcedure
+  // ── 월간일지 목록 조회 ──
+  list: protectedProcedure
     .input(z.object({
-      id: z.number(),
-      approved_by: z.string(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_ccp_logs 
-         SET status = '승인완료', approved_by = ?, approved_at = NOW() 
-         WHERE id = ?`,
-        [input.approved_by, input.id]
-      );
-
-      return { success: true };
+      siteId: z.number().optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.number().default(50),
+      offset: z.number().default(0),
+    }).optional())
+    .query(async ({ input = { limit: 50, offset: 0 }, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const result = await db.execute(sql`
+          SELECT
+            r.id, r.site_id, r.form_date AS log_date, r.title, r.status, r.form_data,
+            r.created_at, r.updated_at,
+            u.name AS creator_name,
+            ar.id AS approval_request_id, ar.status AS approval_status
+          FROM h_generic_checklist_records r
+          LEFT JOIN users u ON r.created_by = u.id
+          LEFT JOIN h_approval_requests ar ON (
+            ar.reference_type = 'checklist' AND ar.reference_id = r.id AND ar.request_type = 'monthly_log'
+          )
+          WHERE r.form_type = 'monthly_log'
+          AND r.tenant_id = ${ctx.user.tenantId}
+          ${input?.siteId ? sql`AND r.site_id = ${input.siteId}` : sql``}
+          ${input?.startDate ? sql`AND r.form_date >= ${input.startDate}` : sql``}
+          ${input?.endDate ? sql`AND r.form_date <= ${input.endDate}` : sql``}
+          ${input?.status ? sql`AND r.status = ${input.status}` : sql``}
+          ORDER BY r.form_date DESC, r.created_at DESC
+          LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
+        `);
+        const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
+        return (rows as any[]).map((r: any) => {
+          let formData: any = {};
+          try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
+          return {
+            id: r.id, siteId: r.site_id,
+            log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
+            title: r.title, status: r.status, creator_name: r.creator_name,
+            approval_request_id: r.approval_request_id, approval_status: r.approval_status,
+            formData,
+            createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || ''),
+            updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || ''),
+          };
+        });
+      } catch (error) {
+        console.error('[monthlyLog.list]', error);
+        return [];
+      }
     }),
 
-  // CCP 월간일지 승인 요청
-  requestCCPApproval: protectedProcedure
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_ccp_logs SET status = '승인대기' WHERE id = ?`,
-        [input.id]
-      );
-
-      return { success: true };
-    }),
-
-  // CCP 월간일지 반려
-  rejectCCP: protectedProcedure
-    .input(z.object({
-      id: z.number(),
-      rejected_by: z.string(),
-      reject_reason: z.string().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const db = await getDb();
-      
-      await (db as any).execute(
-        `UPDATE monthly_ccp_logs SET status = '작성중' WHERE id = ?`,
-        [input.id]
-      );
-
-      return { success: true };
-    }),
+  // ── Legacy compat stubs ──
+  createHygiene: protectedProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
+  getHygiene: protectedProcedure.input(z.any()).query(async () => ({ logs: [] })),
+  createCCP: protectedProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
+  getCCP: protectedProcedure.input(z.any()).query(async () => ({ logs: [] })),
 });

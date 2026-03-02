@@ -50,3 +50,5 @@ dist_backup_*/
 dist_backup_prev/
 fix_batch73.mjs
 fix_new_batches.mjs
+*.pdf
+core

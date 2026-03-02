@@ -626,12 +626,39 @@ export async function syncCcpRowsToFormRows(params: {
 
     // 2. 기존 row 조회: 이미 모든 배치가 채워져 있으면 건너뜀
     //    부분적으로 채워진 경우(예: batch_count=10인데 row 1개만 있으면) → 누락된 행만 추가
+    //    ★ 중복 방지: batch_seq별 실제 행 수를 확인하여 이미 존재하면 건너뜀
     const [existingRows] = await rawConn.execute<any[]>(
-      `SELECT batch_seq FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
+      `SELECT batch_seq, COUNT(*) as cnt FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? GROUP BY batch_seq`,
       [formRecordId, tenantId],
     );
     const existingSeqs = new Set((existingRows as any[]).map((r: any) => Number(r.batch_seq)));
+    const existingSeqCounts = new Map((existingRows as any[]).map((r: any) => [Number(r.batch_seq), Number(r.cnt)]));
     const expectedCount = fr.batch_count ? Number(fr.batch_count) : 1;
+    
+    // ★ 중복 행 자동 정리: batch_seq당 2개 이상 존재하면 최신 1개만 남기고 삭제
+    const seqKeys = Array.from(existingSeqCounts.keys());
+    for (let si = 0; si < seqKeys.length; si++) {
+      const seq = seqKeys[si];
+      const cnt = existingSeqCounts.get(seq) || 0;
+      if (cnt > 1) {
+        console.log(`[syncCcpRowsToFormRows] ⚠ form_record=${formRecordId} batch_seq=${seq}: ${cnt}개 중복 발견 → 최신 1개만 유지`);
+        try {
+          await rawConn.execute(
+            `DELETE FROM h_ccp_form_rows 
+             WHERE form_record_id = ? AND tenant_id = ? AND batch_seq = ? 
+             AND id NOT IN (
+               SELECT id FROM (
+                 SELECT MAX(id) as id FROM h_ccp_form_rows 
+                 WHERE form_record_id = ? AND tenant_id = ? AND batch_seq = ?
+               ) t
+             )`,
+            [formRecordId, tenantId, seq, formRecordId, tenantId, seq],
+          );
+        } catch (dedupeErr) {
+          console.error(`[syncCcpRowsToFormRows] 중복 정리 실패 (batch_seq=${seq}):`, dedupeErr);
+        }
+      }
+    }
     
     // CCP-4P는 감도/통과 등 특수 행이므로 기존 로직 유지 (있으면 건너뜀)
     // CCP-1B/2B는 batch_count 기반으로 누락된 행만 추가
@@ -894,23 +921,136 @@ export async function syncCcpRowsToFormRows(params: {
         }];
       }
 
-      // ── 3. 비례배분: SKU별 시간 슬롯 계산 ──
+      // ┌─────────────────────────────────────────────────────────────────┐
+      // │  ⚠️  CRITICAL SECTION — DO NOT MODIFY WITHOUT REVIEW  ⚠️       │
+      // │                                                                 │
+      // │  CCP-4P 금속검출 제품별 순차 시간 배분 로직                      │
+      // │                                                                 │
+      // │  이 섹션은 다음 불변 조건(invariant)을 보장합니다:               │
+      // │  1. 서로 다른 제품의 시간 슬롯은 절대 겹치지 않음               │
+      // │  2. 동일 제품의 배치는 연속된 하나의 시간 블록으로 그룹화       │
+      // │  3. 감도 모니터링(품목시작/종료)은 제품 그룹 경계에서만 발생    │
+      // │  4. 통과(passage) 시간은 배치 할당 슬롯 범위를 사용            │
+      // │     (중간 배치는 자체 sensitivity check로 클램핑하지 않음)      │
+      // │                                                                 │
+      // │  위반 시 금속검출 공정 혼입(contamination) 사고 발생 위험       │
+      // │                                                                 │
+      // │  관련 테스트: server/ccp4p-sequential-allocation.test.ts        │
+      // │  최종 검증일: 2026-03-01                                        │
+      // └─────────────────────────────────────────────────────────────────┘
+      //
+      // ── 3. 제품별 순차 배분: 금속검출기 1대 → 제품별 비중복 시간 슬롯 ──
+      // ★ 핵심 설계: 동일 제품의 배치를 모아서 하나의 연속 시간 슬롯으로 할당
+      //   예: [호두찹쌀떡 300kg, 호두찹쌀떡(쑥) 600kg, 단호박설기 50kg]
+      //   → 제품A 시간대 → 제품B 시간대 → 제품C 시간대 (겹침 없음)
+      //
+      // 1) skuSlots를 productId 기준으로 그룹화 (등장 순서 유지)
+      // 2) 제품별 총 수량 기준 비례 시간 할당
+      // 3) 제품 내부에서 배치별 하위 분배
+
+      interface ProductGroup {
+        productId: number;
+        productName: string;
+        totalQty: number;
+        slots: SkuSlot[];
+        allocatedMin: number;
+        groupStart: number;
+        groupEnd: number;
+      }
+      const productGroupOrder: number[] = []; // productId 등장 순서
+      const productGroupMap: Record<number, ProductGroup> = {};
+
+      for (const slot of skuSlots) {
+        const pid = slot.productId;
+        if (!productGroupMap[pid]) {
+          productGroupMap[pid] = {
+            productId: pid,
+            productName: slot.productName,
+            totalQty: 0,
+            slots: [],
+            allocatedMin: 0,
+            groupStart: 0,
+            groupEnd: 0,
+          };
+          productGroupOrder.push(pid);
+        }
+        productGroupMap[pid].totalQty += slot.plannedQty;
+        productGroupMap[pid].slots.push(slot);
+      }
+
       const totalDayQty = skuSlots.reduce((s, sl) => s + sl.plannedQty, 0);
       let cursorMin = workStartMin;
 
-      for (const slot of skuSlots) {
-        const proportion = totalDayQty > 0 ? slot.plannedQty / totalDayQty : 1 / skuSlots.length;
-        let allocMin = Math.round(totalWorkMin * proportion);
-        if (allocMin < 5) allocMin = 5;
+      // 제품 그룹별 순차 시간 할당
+      for (let gi = 0; gi < productGroupOrder.length; gi++) {
+        const pg = productGroupMap[productGroupOrder[gi]];
+        const proportion = totalDayQty > 0 ? pg.totalQty / totalDayQty : 1 / productGroupOrder.length;
+        let pgAllocMin = Math.round(totalWorkMin * proportion);
+        if (pgAllocMin < 5) pgAllocMin = 5;
 
         cursorMin = skipLunchFn(cursorMin, lunchStartMin, lunchEndMin);
-        const slotStart = cursorMin;
-        const slotEnd = advanceCursor(cursorMin, allocMin, lunchStartMin, lunchEndMin);
-        cursorMin = slotEnd;
+        const pgStart = cursorMin;
+        const pgEnd = advanceCursor(cursorMin, pgAllocMin, lunchStartMin, lunchEndMin);
 
-        slot.allocatedMin = allocMin;
-        slot.workStart = slotStart;
-        slot.workEnd = slotEnd;
+        pg.allocatedMin = pgAllocMin;
+        pg.groupStart = pgStart;
+        pg.groupEnd = pgEnd;
+
+        // 제품 내부: 배치별 비례 하위 분배
+        const groupTotalQty = pg.totalQty;
+        let innerCursor = pgStart;
+        for (const slot of pg.slots) {
+          const innerProp = groupTotalQty > 0 ? slot.plannedQty / groupTotalQty : 1 / pg.slots.length;
+          let innerAlloc = Math.round(pgAllocMin * innerProp);
+          if (innerAlloc < 3) innerAlloc = 3;
+
+          innerCursor = skipLunchFn(innerCursor, lunchStartMin, lunchEndMin);
+          const slotStart = innerCursor;
+          const slotEnd = advanceCursor(innerCursor, innerAlloc, lunchStartMin, lunchEndMin);
+          innerCursor = slotEnd;
+
+          slot.allocatedMin = innerAlloc;
+          slot.workStart = slotStart;
+          slot.workEnd = Math.min(slotEnd, pgEnd); // 제품 그룹 범위 내 제한
+        }
+
+        cursorMin = pgEnd;
+      }
+
+      console.log(`[syncCcpRowsToFormRows] CCP-4P 제품별 순차 배분: ${productGroupOrder.map(pid => {
+        const pg = productGroupMap[pid];
+        return `${pg.productName}(${pg.totalQty}kg,${minToTime(pg.groupStart)}-${minToTime(pg.groupEnd)})`;
+      }).join(' → ')}`);
+
+      // ── 3.5. 런타임 불변 조건 검증 (INVARIANT VALIDATION) ──
+      // ⚠️ 이 검증을 제거하지 마세요. 제품별 비중복 시간 배분을 보장합니다.
+      {
+        let prevEnd = -1;
+        let prevProductName = "";
+        for (let vi = 0; vi < productGroupOrder.length; vi++) {
+          const vpg = productGroupMap[productGroupOrder[vi]];
+          // 검증 1: 각 제품 그룹의 시작이 이전 그룹의 끝 이후여야 함
+          if (vi > 0 && vpg.groupStart < prevEnd) {
+            console.error(`[CCP-4P INVARIANT VIOLATION] 제품 시간 겹침 발생! ` +
+              `${prevProductName} ends at ${minToTime(prevEnd)} but ${vpg.productName} starts at ${minToTime(vpg.groupStart)}. ` +
+              `이 오류는 금속검출 혼입(contamination)을 의미합니다. 즉시 수정이 필요합니다.`);
+          }
+          // 검증 2: 제품 그룹 시작 < 종료
+          if (vpg.groupStart >= vpg.groupEnd) {
+            console.error(`[CCP-4P INVARIANT VIOLATION] 제품 그룹 시간 역전! ` +
+              `${vpg.productName}: start=${minToTime(vpg.groupStart)} >= end=${minToTime(vpg.groupEnd)}`);
+          }
+          // 검증 3: 내부 배치 슬롯이 제품 그룹 범위 내에 있어야 함
+          for (const vs of vpg.slots) {
+            if (vs.workStart < vpg.groupStart || vs.workEnd > vpg.groupEnd + 1) {
+              console.error(`[CCP-4P INVARIANT VIOLATION] 배치 슬롯 범위 초과! ` +
+                `batch=${vs.batchId} (${minToTime(vs.workStart)}-${minToTime(vs.workEnd)}) ` +
+                `outside product group ${vpg.productName} (${minToTime(vpg.groupStart)}-${minToTime(vpg.groupEnd)})`);
+            }
+          }
+          prevEnd = vpg.groupEnd;
+          prevProductName = vpg.productName;
+        }
       }
 
       // ── 4. 현재 배치의 슬롯 필터링 ──
@@ -1051,44 +1191,23 @@ export async function syncCcpRowsToFormRows(params: {
       const batchWorkStartM = currentBatchSlots[0].workStart;
       const batchWorkEndM = currentBatchSlots[currentBatchSlots.length - 1].workEnd;
 
-      // ═══ 품목변경 감지: 이전/다음 배치의 제품과 비교 ═══
-      // allBatchIds는 skuSlots의 순서를 따르며, SQL에서 day_batch_group별로 그룹화됨
-      // → 같은 day_batch_group 내에서만 연속 동일품목 판단
-      const allBatchIds = [...new Set(skuSlots.map(s => s.batchId))];
-      const currentBatchIdx = allBatchIds.indexOf(batchId);
-      const prevBatchSlots = currentBatchIdx > 0 ? skuSlots.filter(s => s.batchId === allBatchIds[currentBatchIdx - 1]) : [];
-      const nextBatchSlots = currentBatchIdx < allBatchIds.length - 1 ? skuSlots.filter(s => s.batchId === allBatchIds[currentBatchIdx + 1]) : [];
-      const prevProductId = prevBatchSlots.length > 0 ? prevBatchSlots[0].productId : null;
-      const nextProductId = nextBatchSlots.length > 0 ? nextBatchSlots[0].productId : null;
+      // ═══ 제품 그룹 기반 품목변경 감지 ═══
+      // 동일 productId의 배치는 하나의 제품 그룹으로 묶여 연속 시간대를 할당받음
+      // → 제품 그룹 내 첫 번째/마지막 배치에서만 시작/종료 감도 체크
+      const currentPg = productGroupMap[currentProductId2];
+      const currentPgSlots = currentPg ? currentPg.slots : [];
+      const currentBatchIdxInPg = currentPgSlots.findIndex(s => s.batchId === batchId);
+      const isFirstBatchInProductGroup = currentBatchIdxInPg === 0;
+      const isLastBatchInProductGroup = currentBatchIdxInPg === currentPgSlots.length - 1;
 
-      const isProductChangeStart = prevProductId === null || prevProductId !== currentProductId2;
-      const isProductChangeEnd = nextProductId === null || nextProductId !== currentProductId2;
+      // 제품 그룹의 전체 시간 범위
+      const productGroupStart = currentPg ? currentPg.groupStart : batchWorkStartM;
+      const productGroupEnd = currentPg ? currentPg.groupEnd : batchWorkEndM;
 
-      // ═══ 연속 동일품목 구간 (contiguous product run) 계산 ═══
-      // 2시간 간격 체크의 기준점: 현재 배치를 포함한 연속 동일품목 배치의 시작~종료 시간
-      // 예: [A, A, A, B, B, A, A] → 배치5(B)의 contiguous run = 배치4~5
-      //     배치6(A)의 contiguous run = 배치6~7 (배치1~3과 분리)
-      let contigRunStart = batchWorkStartM;
-      let contigRunEnd = batchWorkEndM;
-      // 현재 배치부터 앞으로 탐색: 같은 product가 연속인 동안 확장
-      for (let bi = currentBatchIdx - 1; bi >= 0; bi--) {
-        const prevSlots = skuSlots.filter(s => s.batchId === allBatchIds[bi]);
-        if (prevSlots.length > 0 && prevSlots[0].productId === currentProductId2) {
-          contigRunStart = prevSlots[0].workStart;
-        } else break;
-      }
-      // 현재 배치부터 뒤로 탐색
-      for (let bi = currentBatchIdx + 1; bi < allBatchIds.length; bi++) {
-        const nextSlots = skuSlots.filter(s => s.batchId === allBatchIds[bi]);
-        if (nextSlots.length > 0 && nextSlots[0].productId === currentProductId2) {
-          contigRunEnd = nextSlots[nextSlots.length - 1].workEnd;
-        } else break;
-      }
-
-      // 품목 시작 체크
-      if (isProductChangeStart) {
-        const checkTime = skipLunchFn(batchWorkStartM, lunchStartMin, lunchEndMin);
-        const microOffset = Math.floor(seededRandom2(metalSeed + 1) * 4);
+      // 품목 시작 체크 (제품 그룹의 첫 번째 배치에서만)
+      if (isFirstBatchInProductGroup) {
+        const checkTime = skipLunchFn(productGroupStart, lunchStartMin, lunchEndMin);
+        const microOffset = Math.floor(seededRandom2(metalSeed + 1 + currentProductId2) * 4);
         sensitivityChecks.push({
           time: minToTime(checkTime + microOffset),
           productName: currentBatchSlots[0].productName,
@@ -1096,13 +1215,14 @@ export async function syncCcpRowsToFormRows(params: {
         });
       }
 
-      // 2시간 간격 체크 (연속 동일품목 구간 기준)
+      // 2시간 간격 체크 (제품 그룹 전체 범위 기준)
       const TWO_HOURS = 120;
-      let checkpoint = contigRunStart + TWO_HOURS;
-      while (checkpoint < batchWorkEndM) {
-        if (checkpoint >= batchWorkStartM) {
+      let checkpoint = productGroupStart + TWO_HOURS;
+      while (checkpoint < productGroupEnd) {
+        // 현재 배치 시간대에 포함되는 체크포인트만 이 배치에서 생성
+        if (checkpoint >= batchWorkStartM && checkpoint < batchWorkEndM) {
           const adjTime = skipLunchFn(checkpoint, lunchStartMin, lunchEndMin);
-          const microOffset2 = Math.floor(seededRandom2(metalSeed + checkpoint) * 6);
+          const microOffset2 = Math.floor(seededRandom2(metalSeed + checkpoint + currentProductId2) * 6);
           sensitivityChecks.push({
             time: minToTime(adjTime + microOffset2),
             productName: currentBatchSlots[0].productName,
@@ -1112,11 +1232,11 @@ export async function syncCcpRowsToFormRows(params: {
         checkpoint += TWO_HOURS;
       }
 
-      // 품목 종료 체크
-      if (isProductChangeEnd) {
-        const endTime = skipLunchFn(batchWorkEndM, lunchStartMin, lunchEndMin);
-        const microOffset3 = Math.floor(seededRandom2(metalSeed + 99) * 4);
-        const adjEndTime = Math.max(batchWorkStartM + 5, endTime - 3 - microOffset3);
+      // 품목 종료 체크 (제품 그룹의 마지막 배치에서만)
+      if (isLastBatchInProductGroup) {
+        const endTime = skipLunchFn(productGroupEnd, lunchStartMin, lunchEndMin);
+        const microOffset3 = Math.floor(seededRandom2(metalSeed + 99 + currentProductId2) * 4);
+        const adjEndTime = Math.max(productGroupStart + 5, endTime - 3 - microOffset3);
         sensitivityChecks.push({
           time: minToTime(skipLunchFn(adjEndTime, lunchStartMin, lunchEndMin)),
           productName: currentBatchSlots[0].productName,
@@ -1127,7 +1247,7 @@ export async function syncCcpRowsToFormRows(params: {
       // 최소 1개 보장
       if (sensitivityChecks.length === 0) {
         const checkTime = skipLunchFn(batchWorkStartM, lunchStartMin, lunchEndMin);
-        const microOffset = Math.floor(seededRandom2(metalSeed + 50) * 6);
+        const microOffset = Math.floor(seededRandom2(metalSeed + 50 + currentProductId2) * 6);
         sensitivityChecks.push({
           time: minToTime(checkTime + microOffset),
           productName: currentBatchSlots[0].productName,
@@ -1137,7 +1257,7 @@ export async function syncCcpRowsToFormRows(params: {
 
       sensitivityChecks.sort((a, b) => timeToMin(a.time) - timeToMin(b.time));
 
-      console.log(`[syncCcpRowsToFormRows] CCP-4P batch=${batchId}: ${sensitivityChecks.map(c => `${c.type}@${c.time}`).join(', ')} (productChange: start=${isProductChangeStart} end=${isProductChangeEnd})`);
+      console.log(`[syncCcpRowsToFormRows] CCP-4P batch=${batchId}: ${sensitivityChecks.map(c => `${c.type}@${c.time}`).join(', ')} (productGroup: ${currentPg?.productName} ${minToTime(productGroupStart)}-${minToTime(productGroupEnd)}, firstInGroup=${isFirstBatchInProductGroup}, lastInGroup=${isLastBatchInProductGroup})`);
 
       // ── 6. 감도 모니터링 행 INSERT → h_ccp_form_rows ──
       let seqNum = 1;
@@ -1175,12 +1295,34 @@ export async function syncCcpRowsToFormRows(params: {
       // ★ 핵심 시간 제약 (실무 기준):
       //   감도시작(품목시작) → 통과시작 → 통과종료 → 감도종료(품목종료)
       //   즉, 제품 통과 구간은 감도 모니터링 시작/종료 사이에 위치해야 함
-      const firstSensCheck = sensitivityChecks.length > 0
-        ? sensitivityChecks[0] : null;
-      const lastSensCheck = sensitivityChecks.length > 0
-        ? sensitivityChecks[sensitivityChecks.length - 1] : null;
-      const firstSensTimeMin = firstSensCheck ? timeToMin(firstSensCheck.time) : null;
-      const lastSensTimeMin = lastSensCheck ? timeToMin(lastSensCheck.time) : null;
+      //
+      // ★ 중요: 제품 그룹 내 중간 배치(첫/끝이 아닌)는 자체 sensitivity 체크가 
+      //   interval/end 타입이므로, 제한으로 사용하면 통과 시간이 극단적으로 줄어듦.
+      //   → 제품 그룹 전체의 품목시작/품목종료를 기준으로 통과 시간 제약을 적용
+      
+      // 제품 그룹 전체의 sensitivity 시간 범위 계산
+      // - 첫 배치의 품목시작 sensitivity가 전체 통과의 하한
+      // - 마지막 배치의 품목종료 sensitivity가 전체 통과의 상한
+      let pgSensStartMin: number | null = null;  // 제품 그룹 첫 sensitivity (품목시작)
+      let pgSensEndMin: number | null = null;    // 제품 그룹 마지막 sensitivity (품목종료)
+      
+      if (isFirstBatchInProductGroup && sensitivityChecks.length > 0) {
+        // 이 배치가 첫 번째 → 자체 품목시작 sensitivity를 하한으로 사용
+        const startCheck = sensitivityChecks.find(c => c.type === "start");
+        pgSensStartMin = startCheck ? timeToMin(startCheck.time) : timeToMin(sensitivityChecks[0].time);
+      } else {
+        // 중간/마지막 배치 → 제품 그룹 시작 시간을 하한으로 사용 (품목시작 check는 첫 배치에 있음)
+        pgSensStartMin = productGroupStart;
+      }
+      
+      if (isLastBatchInProductGroup && sensitivityChecks.length > 0) {
+        // 이 배치가 마지막 → 자체 품목종료 sensitivity를 상한으로 사용
+        const endCheck = sensitivityChecks.find(c => c.type === "end");
+        pgSensEndMin = endCheck ? timeToMin(endCheck.time) : timeToMin(sensitivityChecks[sensitivityChecks.length - 1].time);
+      } else {
+        // 첫 번째/중간 배치 → 제품 그룹 종료 시간을 상한으로 사용 (품목종료 check는 마지막 배치에 있음)
+        pgSensEndMin = productGroupEnd;
+      }
 
       for (const slot of currentBatchSlots) {
         const passStart = skipLunchFn(slot.workStart, lunchStartMin, lunchEndMin);
@@ -1188,17 +1330,17 @@ export async function syncCcpRowsToFormRows(params: {
         const microOff1 = Math.floor(seededRandom2(metalSeed + 200 + seqNum) * 4);
         const microOff2 = Math.floor(seededRandom2(metalSeed + 201 + seqNum) * 4);
 
-        // 통과 시작시간: 감도 시작 체크 이후여야 함 (최소 1분 후)
+        // 통과 시작시간: 제품 그룹의 품목시작 감도 체크 이후여야 함 (최소 1분 후)
         let rawPassStart = passStart + microOff1;
-        if (firstSensTimeMin != null && rawPassStart <= firstSensTimeMin) {
-          rawPassStart = firstSensTimeMin + 1;
+        if (isFirstBatchInProductGroup && pgSensStartMin != null && rawPassStart <= pgSensStartMin) {
+          rawPassStart = pgSensStartMin + 1;
         }
 
         // 통과 종료시간 계산: passEnd에서 microOff2를 뺀 값이 기본
         let rawPassEnd = Math.max(rawPassStart + 3, passEnd - microOff2);
-        // ★ 감도 모니터링 종료시간보다 앞에 있어야 함 (최소 1분 전)
-        if (lastSensTimeMin != null && rawPassEnd >= lastSensTimeMin) {
-          rawPassEnd = Math.max(rawPassStart + 2, lastSensTimeMin - 1 - Math.floor(seededRandom2(metalSeed + 300 + seqNum) * 3));
+        // ★ 마지막 배치만: 제품 그룹의 품목종료 감도 체크보다 앞에 있어야 함 (최소 1분 전)
+        if (isLastBatchInProductGroup && pgSensEndMin != null && rawPassEnd >= pgSensEndMin) {
+          rawPassEnd = Math.max(rawPassStart + 2, pgSensEndMin - 1 - Math.floor(seededRandom2(metalSeed + 300 + seqNum) * 3));
         }
 
         // 실제 통과량: production_sku_output에서 조회 시도
@@ -1237,6 +1379,7 @@ export async function syncCcpRowsToFormRows(params: {
         seqNum++;
         totalSynced++;
       }
+      // ── END OF CRITICAL SECTION: CCP-4P 제품별 순차 배분 ──
 
     } else {
       // ═══ CCP-1B / CCP-2B: 가열(증숙/굽기) 공정 ═══
@@ -1291,6 +1434,17 @@ export async function syncCcpRowsToFormRows(params: {
         if (existingSeqs.has(batchSeq)) {
           continue;
         }
+        // ★ 동시 호출 방지: INSERT 직전에 한번 더 확인
+        try {
+          const [dupCheck] = await rawConn.execute<any[]>(
+            `SELECT id FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? AND batch_seq = ? LIMIT 1`,
+            [formRecordId, tenantId, batchSeq],
+          );
+          if ((dupCheck as any[]).length > 0) {
+            existingSeqs.add(batchSeq);
+            continue;
+          }
+        } catch { /* 확인 실패 시 INSERT 진행 */ }
 
         // pressure_bar(bar) → pressure_mpa(MPa): ÷10
         const pressureMpa = row.pressure_bar != null

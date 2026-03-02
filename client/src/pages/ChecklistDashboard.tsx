@@ -23,7 +23,7 @@ import { SearchModal } from "@/components/SearchModal";
 import TrainingLogModal from "@/components/TrainingLogModal";
 import TrainingLogListModal from "@/components/TrainingLogListModal";
 
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useEffect } from "react";
@@ -537,6 +537,7 @@ export default function ChecklistDashboard() {
   // 인증된 사용자의 tenantId 사용
   const { user: authUser } = useAuth();
   const user = { tenantId: authUser?.tenantId || 0 };
+  const [, navigate] = useLocation();
   
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [allItems, setAllItems] = useState<any[]>([]);
@@ -696,7 +697,7 @@ export default function ChecklistDashboard() {
                   <Button 
                     size="sm" 
                     className="w-full"
-                    onClick={() => setDailyLogCreateModalOpen(true)}
+                    onClick={() => navigate("/daily-log/daily")}
                   >
                     <FileText className="h-4 w-4 mr-2" />
                     작성하기
@@ -705,7 +706,7 @@ export default function ChecklistDashboard() {
                     size="sm" 
                     variant="outline"
                     className="w-full"
-                    onClick={() => setDailyLogListModalOpen(true)}
+                    onClick={() => navigate("/dashboard/daily-logs")}
                   >
                     <List className="h-4 w-4 mr-2" />
                     리스트 보기
@@ -729,40 +730,20 @@ export default function ChecklistDashboard() {
                   <Button 
                     size="sm" 
                     className="w-full"
-                    onClick={() => setWeeklyHygieneModalOpen(true)}
+                    onClick={() => navigate("/weekly-log/form")}
                   >
                     <FileText className="h-4 w-4 mr-2" />
-                    일반위생관리
+                    작성하기
                   </Button>
                   <Button 
                     size="sm" 
                     variant="outline"
                     className="w-full"
-                    onClick={() => setWeeklyPestModalOpen(true)}
+                    onClick={() => setWeeklyHygieneListModalOpen(true)}
                   >
-                    <Bug className="h-4 w-4 mr-2" />
-                    방충방서
+                    <List className="h-4 w-4 mr-2" />
+                    리스트 보기
                   </Button>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="w-full text-xs"
-                      onClick={() => setWeeklyHygieneListModalOpen(true)}
-                    >
-                      <List className="h-3 w-3 mr-1" />
-                      위생관리 목록
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="w-full text-xs"
-                      onClick={() => setWeeklyPestListModalOpen(true)}
-                    >
-                      <List className="h-3 w-3 mr-1" />
-                      방충방서 목록
-                    </Button>
-                  </div>
                 </CardContent>
               </Card>
 
@@ -782,40 +763,20 @@ export default function ChecklistDashboard() {
                   <Button 
                     size="sm" 
                     className="w-full"
-                    onClick={() => setMonthlyHygieneModalOpen(true)}
+                    onClick={() => navigate("/monthly-log/form")}
                   >
                     <FileText className="h-4 w-4 mr-2" />
-                    일반위생관리
+                    작성하기
                   </Button>
                   <Button 
                     size="sm" 
                     variant="outline"
                     className="w-full"
-                    onClick={() => setMonthlyCCPModalOpen(true)}
+                    onClick={() => setMonthlyHygieneListModalOpen(true)}
                   >
-                    <FlaskConical className="h-4 w-4 mr-2" />
-                    CCP 검증
+                    <List className="h-4 w-4 mr-2" />
+                    리스트 보기
                   </Button>
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="w-full text-xs"
-                      onClick={() => setMonthlyHygieneListModalOpen(true)}
-                    >
-                      <List className="h-3 w-3 mr-1" />
-                      위생관리 목록
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="ghost"
-                      className="w-full text-xs"
-                      onClick={() => setMonthlyCCPListModalOpen(true)}
-                    >
-                      <List className="h-3 w-3 mr-1" />
-                      CCP 목록
-                    </Button>
-                  </div>
                 </CardContent>
               </Card>
 

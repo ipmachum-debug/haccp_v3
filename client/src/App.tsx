@@ -377,6 +377,8 @@ function Router() {
       <Route path="/dashboard/notification-settings" component={NotificationSettings} />
       <Route path="/dashboard/daily-logs" component={DailyLogs} />
       <Route path="/daily-log/daily" component={DailyLogForm} />
+      <Route path="/weekly-log/form" component={lazy(() => import("@/pages/WeeklyLogForm"))} />
+      <Route path="/monthly-log/form" component={lazy(() => import("@/pages/MonthlyLogForm"))} />
       <Route path="/dashboard/production-performance" component={ProductionPerformance} />
       <Route path="/dashboard/inventory" component={Inventory} />
       <Route path="/dashboard/users" component={UserManagement} />

@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 export default function InventoryReceipt() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");
+  const [autoLot, setAutoLot] = useState(true);
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("kg");
   const [expiryDate, setExpiryDate] = useState("");
@@ -22,6 +23,7 @@ export default function InventoryReceipt() {
   const [autoCreatePurchase, setAutoCreatePurchase] = useState(true);
   const [unitPrice, setUnitPrice] = useState("");
   const [supplierId, setSupplierId] = useState<number | null>(null);
+  const [supplierName, setSupplierName] = useState("");
 
   // 원재료 목록 조회
   const { data: _rawMaterials, isLoading: materialsLoading } = trpc.material.list.useQuery({ limit: 9999 });
@@ -50,14 +52,13 @@ export default function InventoryReceipt() {
     },
   });
 
-  // 입고 mutation
+  // 수동 LOT 입고 mutation
   const createLotMutation = trpc.inventory.createLot.useMutation({
     onSuccess: async (data) => {
       toast.success("재고가 성공적으로 입고되었습니다.");
       
-      // 자동 매입 거래 생성
       if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
-        const selectedMaterial = materials?.find(m => m.id === selectedMaterialId);
+        const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
           await createPurchaseMutation.mutateAsync({
             inventoryTransactionId: data.lotId,
@@ -67,17 +68,49 @@ export default function InventoryReceipt() {
             unitPrice: unitPrice,
             partnerId: supplierId,
           });
-        } catch (error) {
-          // 에러는 mutation의 onError에서 처리됨
-        }
+        } catch (error) {}
       }
       
-      // 폼 초기화
       setSelectedMaterialId(null);
       setLotNumber("");
       setQuantity("");
       setUnitPrice("");
       setSupplierId(null);
+      setSupplierName("");
+      setExpiryDate("");
+      setReceiptDate(new Date().toISOString().split("T")[0]);
+      refetchLots();
+    },
+    onError: (error) => {
+      toast.error(`입고 실패: ${error.message}`);
+    },
+  });
+
+  // LOT 자동생성 입고 mutation
+  const createReceivingWithLotMutation = trpc.lotManagement.createReceivingWithLot.useMutation({
+    onSuccess: async (result: any) => {
+      toast.success(`입고 완료! LOT: ${result.lotNumber}`);
+      
+      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
+        const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
+        try {
+          await createPurchaseMutation.mutateAsync({
+            inventoryTransactionId: result.lotId || 0,
+            itemName: selectedMaterial?.materialName || "재료",
+            quantity: quantity,
+            unit: unit,
+            unitPrice: unitPrice,
+            partnerId: supplierId,
+          });
+        } catch (error) {}
+      }
+      
+      setSelectedMaterialId(null);
+      setLotNumber("");
+      setQuantity("");
+      setUnitPrice("");
+      setSupplierId(null);
+      setSupplierName("");
       setExpiryDate("");
       setReceiptDate(new Date().toISOString().split("T")[0]);
       refetchLots();
@@ -95,24 +128,41 @@ export default function InventoryReceipt() {
       return;
     }
 
-    if (!lotNumber.trim()) {
-      toast.error("LOT 번호를 입력해주세요.");
-      return;
-    }
-
     if (!quantity || parseFloat(quantity) <= 0) {
       toast.error("올바른 수량을 입력해주세요.");
       return;
     }
 
-    createLotMutation.mutate({
-      materialId: selectedMaterialId,
-      lotNumber: lotNumber.trim(),
-      quantity,
-      unit,
-      expiryDate: expiryDate || undefined,
-      receiptDate: receiptDate || undefined,
-    });
+    if (autoLot) {
+      // LOT 자동 생성
+      const mat = materials?.find((m: any) => m.id === selectedMaterialId);
+      const supplierLabel = supplierId ? suppliers?.find((s: any) => s.id === supplierId)?.companyName : supplierName;
+      createReceivingWithLotMutation.mutate({
+        materialId: selectedMaterialId,
+        materialCode: mat?.materialCode || `M${selectedMaterialId}`,
+        quantity: parseFloat(quantity),
+        unit,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : undefined,
+        supplierName: supplierLabel || undefined,
+        expiryDate: expiryDate || undefined,
+        receiptDate: receiptDate || undefined,
+        notes: '',
+      });
+    } else {
+      // 수동 LOT 번호
+      if (!lotNumber.trim()) {
+        toast.error("LOT 번호를 입력해주세요.");
+        return;
+      }
+      createLotMutation.mutate({
+        materialId: selectedMaterialId,
+        lotNumber: lotNumber.trim(),
+        quantity,
+        unit,
+        expiryDate: expiryDate || undefined,
+        receiptDate: receiptDate || undefined,
+      });
+    }
   };
 
   return (
@@ -178,13 +228,29 @@ export default function InventoryReceipt() {
 
                 {/* LOT 번호 */}
                 <div className="space-y-2">
-                  <Label htmlFor="lotNumber">LOT 번호 *</Label>
-                  <Input
-                    id="lotNumber"
-                    placeholder="예: LOT-2024-001"
-                    value={lotNumber}
-                    onChange={(e) => setLotNumber(e.target.value)}
-                  />
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="lotNumber">LOT 번호</Label>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="autoLot"
+                        checked={autoLot}
+                        onCheckedChange={(v) => setAutoLot(!!v)}
+                      />
+                      <label htmlFor="autoLot" className="text-xs text-muted-foreground cursor-pointer">자동 생성</label>
+                    </div>
+                  </div>
+                  {autoLot ? (
+                    <div className="flex items-center h-10 px-3 border rounded-md bg-muted text-muted-foreground text-sm">
+                      MAT-[코드]-[날짜]-[순번] 자동 생성
+                    </div>
+                  ) : (
+                    <Input
+                      id="lotNumber"
+                      placeholder="예: LOT-2024-001"
+                      value={lotNumber}
+                      onChange={(e) => setLotNumber(e.target.value)}
+                    />
+                  )}
                 </div>
 
                 {/* 수량 */}
@@ -294,8 +360,8 @@ export default function InventoryReceipt() {
               </div>
 
               <div className="flex justify-end">
-                <Button type="submit" disabled={createLotMutation.isPending}>
-                  {createLotMutation.isPending ? (
+                <Button type="submit" disabled={createLotMutation.isPending || createReceivingWithLotMutation.isPending}>
+                  {(createLotMutation.isPending || createReceivingWithLotMutation.isPending) ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       입고 처리 중...
@@ -303,7 +369,7 @@ export default function InventoryReceipt() {
                   ) : (
                     <>
                       <PackagePlus className="w-4 h-4 mr-2" />
-                      입고 등록
+                      {autoLot ? "입고 (LOT 자동생성)" : "입고 등록"}
                     </>
                   )}
                 </Button>

@@ -1,45 +1,28 @@
+/**
+ * 알림 REST API
+ * 
+ * ⚠️ 현재 미사용 (server/_core/index.ts에 마운트되지 않음)
+ * ✅ 보안 강화: JWT 기반 인증 미들웨어 적용
+ * ✅ tenantId는 req.tenantUser에서만 추출
+ * ✅ 런타임 CREATE TABLE 제거 (마이그레이션으로 이관)
+ * ✅ db import 제거 (getRawConnection 사용)
+ */
 import { Router } from "express";
-import { db } from "../db";
+import { getRawConnection } from "../db";
 import { z } from "zod";
+import { requireTenantAuth, TenantAuthRequest } from "../_core/expressAuthMiddleware";
 
 const router = Router();
 
-// 테이블 자동 생성
-async function ensureNotificationsTable() {
-  const createTableSQL = `
-    CREATE TABLE IF NOT EXISTS notifications (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      tenant_id INT NOT NULL,
-      user_id INT COMMENT '수신자 ID',
-      title VARCHAR(255) NOT NULL COMMENT '알림 제목',
-      message TEXT NOT NULL COMMENT '알림 내용',
-      type ENUM('일지작성', '승인요청', '승인완료', '반려', '기타') DEFAULT '기타',
-      log_type VARCHAR(50) COMMENT '일지 유형 (daily, weekly, monthly, yearly, custom)',
-      log_id INT COMMENT '일지 ID',
-      is_read BOOLEAN DEFAULT FALSE COMMENT '읽음 여부',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_tenant_user (tenant_id, user_id),
-      INDEX idx_read (is_read),
-      INDEX idx_created (created_at)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='알림'
-  `;
-  
-  try {
-    await db.execute(createTableSQL);
-    console.log("✅ notifications 테이블 확인/생성 완료");
-  } catch (error) {
-    console.error("❌ notifications 테이블 생성 오류:", error);
-  }
-}
-
-// 서버 시작 시 테이블 생성
-ensureNotificationsTable();
+// ✅ 모든 라우트에 인증 미들웨어 적용
+router.use(requireTenantAuth as any);
 
 // 알림 생성
-router.post("/create", async (req, res) => {
+router.post("/create", async (req: TenantAuthRequest, res) => {
   try {
+    const tenantId = req.tenantUser!.tenantId;
+
     const schema = z.object({
-      tenantId: z.number(),
       userId: z.number().optional(),
       title: z.string(),
       message: z.string(),
@@ -49,13 +32,14 @@ router.post("/create", async (req, res) => {
     });
 
     const data = schema.parse(req.body);
+    const pool = await getRawConnection();
 
-    const [result] = await db.execute(
+    const [result] = await pool.execute(
       `INSERT INTO notifications (
         tenant_id, user_id, title, message, type, log_type, log_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        data.tenantId,
+        tenantId,
         data.userId || null,
         data.title,
         data.message,
@@ -73,9 +57,9 @@ router.post("/create", async (req, res) => {
 });
 
 // 알림 조회
-router.get("/get", async (req, res) => {
+router.get("/get", async (req: TenantAuthRequest, res) => {
   try {
-    const tenantId = parseInt(req.query.tenantId as string);
+    const tenantId = req.tenantUser!.tenantId;
     const userId = req.query.userId ? parseInt(req.query.userId as string) : null;
     const isRead = req.query.isRead as string;
 
@@ -95,7 +79,8 @@ router.get("/get", async (req, res) => {
 
     query += " ORDER BY created_at DESC LIMIT 100";
 
-    const [rows] = await db.execute(query, params);
+    const pool = await getRawConnection();
+    const [rows] = await pool.execute(query, params);
     res.json(rows);
   } catch (error: any) {
     console.error("알림 조회 오류:", error);
@@ -103,16 +88,18 @@ router.get("/get", async (req, res) => {
   }
 });
 
-// 알림 읽음 처리
-router.put("/markAsRead/:id", async (req, res) => {
+// 알림 읽음 처리 (✅ tenant_id 강제)
+router.put("/markAsRead/:id", async (req: TenantAuthRequest, res) => {
   try {
+    const tenantId = req.tenantUser!.tenantId;
     const id = parseInt(req.params.id);
-    const tenantId = req.body?.tenantId ? parseInt(req.body.tenantId) : null;
-    if (tenantId) {
-      await db.execute("UPDATE notifications SET is_read = TRUE WHERE id = ? AND tenant_id = ?", [id, tenantId]);
-    } else {
-      await db.execute("UPDATE notifications SET is_read = TRUE WHERE id = ?", [id]);
-    }
+
+    const pool = await getRawConnection();
+    await pool.execute(
+      "UPDATE notifications SET is_read = TRUE WHERE id = ? AND tenant_id = ?",
+      [id, tenantId]
+    );
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("알림 읽음 처리 오류:", error);
@@ -121,10 +108,10 @@ router.put("/markAsRead/:id", async (req, res) => {
 });
 
 // 모든 알림 읽음 처리
-router.put("/markAllAsRead", async (req, res) => {
+router.put("/markAllAsRead", async (req: TenantAuthRequest, res) => {
   try {
-    const tenantId = parseInt(req.body.tenantId);
-    const userId = req.body.userId ? parseInt(req.body.userId) : null;
+    const tenantId = req.tenantUser!.tenantId;
+    const userId = req.tenantUser!.id;
 
     let query = "UPDATE notifications SET is_read = TRUE WHERE tenant_id = ?";
     const params: any[] = [tenantId];
@@ -134,7 +121,8 @@ router.put("/markAllAsRead", async (req, res) => {
       params.push(userId);
     }
 
-    await db.execute(query, params);
+    const pool = await getRawConnection();
+    await pool.execute(query, params);
     res.json({ success: true });
   } catch (error: any) {
     console.error("모든 알림 읽음 처리 오류:", error);
@@ -142,16 +130,18 @@ router.put("/markAllAsRead", async (req, res) => {
   }
 });
 
-// 알림 삭제
-router.delete("/delete/:id", async (req, res) => {
+// 알림 삭제 (✅ tenant_id 강제)
+router.delete("/delete/:id", async (req: TenantAuthRequest, res) => {
   try {
+    const tenantId = req.tenantUser!.tenantId;
     const id = parseInt(req.params.id);
-    const tenantId = parseInt(req.query.tenantId as string) || parseInt(req.body?.tenantId as string);
-    if (tenantId) {
-      await db.execute("DELETE FROM notifications WHERE id = ? AND tenant_id = ?", [id, tenantId]);
-    } else {
-      await db.execute("DELETE FROM notifications WHERE id = ?", [id]);
-    }
+
+    const pool = await getRawConnection();
+    await pool.execute(
+      "DELETE FROM notifications WHERE id = ? AND tenant_id = ?",
+      [id, tenantId]
+    );
+
     res.json({ success: true });
   } catch (error: any) {
     console.error("알림 삭제 오류:", error);
@@ -160,10 +150,10 @@ router.delete("/delete/:id", async (req, res) => {
 });
 
 // 읽지 않은 알림 개수 조회
-router.get("/unreadCount", async (req, res) => {
+router.get("/unreadCount", async (req: TenantAuthRequest, res) => {
   try {
-    const tenantId = parseInt(req.query.tenantId as string);
-    const userId = req.query.userId ? parseInt(req.query.userId as string) : null;
+    const tenantId = req.tenantUser!.tenantId;
+    const userId = req.tenantUser!.id;
 
     let query = "SELECT COUNT(*) as count FROM notifications WHERE tenant_id = ? AND is_read = FALSE";
     const params: any[] = [tenantId];
@@ -173,7 +163,8 @@ router.get("/unreadCount", async (req, res) => {
       params.push(userId);
     }
 
-    const [rows] = await db.execute(query, params) as any;
+    const pool = await getRawConnection();
+    const [rows] = await pool.execute(query, params) as any;
     res.json({ count: rows[0].count });
   } catch (error: any) {
     console.error("읽지 않은 알림 개수 조회 오류:", error);

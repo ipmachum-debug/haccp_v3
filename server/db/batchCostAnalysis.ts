@@ -56,7 +56,7 @@ export async function getBatchCostAnalysis(params: {
 
   // 배치 조회 조건
   const conditions = [];
-  if (tenantId) conditions.push(eq(hMaterials.tenantId, tenantId));
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
   if (startDate) {
     conditions.push(gte(hBatches.plannedDate, startDate));
   }
@@ -294,6 +294,9 @@ export async function getMaterialCostAnalysis(params: {
 
   // 배치 조건
   const batchConditions = [];
+  if (tenantId) {
+    batchConditions.push(eq(hBatches.tenantId, tenantId));
+  }
   if (startDate) {
     batchConditions.push(gte(hBatches.plannedDate, startDate));
   }

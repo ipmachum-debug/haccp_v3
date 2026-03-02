@@ -23,7 +23,8 @@ export async function getMaterialPriceHistory(materialId: number, tenantId?: num
       supplierName: hInventoryLots.supplierName
     })
     .from(hInventoryLots)
-    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.materialId, materialId)))    .orderBy(desc(hInventoryLots.receiptDate))
+    .where(eq(hInventoryLots.materialId, materialId))
+    .orderBy(desc(hInventoryLots.receiptDate))
     .limit(30);
 
   // 날짜별로 그룹화하여 평균 단가 계산

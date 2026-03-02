@@ -3,14 +3,13 @@ import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
-import MaterialInspections from "./MaterialInspections";
-import ShippingInspections from "./ShippingInspections";
-import HygieneInspections from "./HygieneInspections";
+import { VisualInspectionLogContent } from "./VisualInspectionLog";
+import { FinishedProductInspectionLogContent } from "./FinishedProductInspectionLog";
 
 export default function InspectionManagement() {
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(location.split('?')[1] || '');
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'material');
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'visual');
 
   // URL 쿼리 파라미터와 탭 상태 동기화
   useEffect(() => {
@@ -33,27 +32,22 @@ export default function InspectionManagement() {
         <div className="mb-6">
           <h1 className="text-3xl font-bold mb-2">검사 관리</h1>
           <p className="text-muted-foreground">
-            원재료, 출하, 위생 검사를 통합 관리합니다.
+            육안검사(원재료) 및 완제품 출고검사를 통합 관리합니다.
           </p>
         </div>
 
         <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:w-[450px]">
-            <TabsTrigger value="material">원재료</TabsTrigger>
-            <TabsTrigger value="shipping">출하</TabsTrigger>
-            <TabsTrigger value="hygiene">위생</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+            <TabsTrigger value="visual">육안검사(원재료)</TabsTrigger>
+            <TabsTrigger value="finished">완제품출고검사</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="material" className="space-y-4">
-            <MaterialInspections />
+          <TabsContent value="visual" className="space-y-4">
+            <VisualInspectionLogContent />
           </TabsContent>
 
-          <TabsContent value="shipping" className="space-y-4">
-            <ShippingInspections />
-          </TabsContent>
-
-          <TabsContent value="hygiene" className="space-y-4">
-            <HygieneInspections />
+          <TabsContent value="finished" className="space-y-4">
+            <FinishedProductInspectionLogContent />
           </TabsContent>
         </Tabs>
       </div>

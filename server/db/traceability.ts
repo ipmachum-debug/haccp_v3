@@ -25,7 +25,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
   const [lot] = await db
     .select()
     .from(hInventoryLots)
-    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, lotId)));
+    .where(eq(hInventoryLots.id, lotId));
   if (!lot) {
     throw new Error("LOT을 찾을 수 없습니다.");
   }
@@ -174,7 +174,7 @@ export async function traceLotByMaterialLotNumber(lotNumber: string, tenantId?: 
   const [lot] = await db
     .select()
     .from(hInventoryLots)
-    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.lotNumber, lotNumber)));
+    .where(eq(hInventoryLots.lotNumber, lotNumber));
   if (!lot) {
     throw new Error("해당 LOT 번호의 원재료를 찾을 수 없습니다.");
   }

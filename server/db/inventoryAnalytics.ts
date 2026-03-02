@@ -17,18 +17,32 @@ export interface InventoryTurnoverResult {
  * @param materialId 원재료 ID (선택)
  * @param startDate 시작 날짜
  * @param endDate 종료 날짜
+ * @param tenantId 테넌트 ID (멀티테넌트 격리)
  * @returns 재고 회전율 결과
  */
 export async function calculateInventoryTurnover(
   materialId?: number,
   startDate?: Date,
-  endDate?: Date
+  endDate?: Date,
+  tenantId?: number
 ): Promise<InventoryTurnoverResult[]> {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
   const start = startDate || new Date(new Date().getFullYear(), 0, 1);
   const end = endDate || new Date();
+  
+  // WHERE 조건 구성 (materialId + tenantId 필터)
+  const whereConditions: string[] = [];
+  if (materialId) {
+    whereConditions.push(`m.id = ${Number(materialId)}`);
+  }
+  if (tenantId) {
+    whereConditions.push(`m.tenant_id = ${Number(tenantId)}`);
+  }
+  const whereClause = whereConditions.length > 0
+    ? sql`WHERE ${sql.raw(whereConditions.join(' AND '))}`
+    : sql``;
   
   // 기간 내 원재료 사용량 조회 (배치 투입 기준)
   const usageQuery = sql`
@@ -42,7 +56,7 @@ export async function calculateInventoryTurnover(
     LEFT JOIN h_batch_inputs bi ON m.id = bi.material_id 
       AND bi.created_at >= ${start} AND bi.created_at <= ${end}
     LEFT JOIN h_inventory inv ON m.id = inv.material_id
-    ${materialId ? sql`WHERE m.id = ${materialId}` : sql``}
+    ${whereClause}
     GROUP BY m.id, m.material_code, m.material_name
   `;
   
@@ -75,11 +89,13 @@ export async function calculateInventoryTurnover(
  * 재고 효율성 지표 계산
  * @param startDate 시작 날짜
  * @param endDate 종료 날짜
+ * @param tenantId 테넌트 ID (멀티테넌트 격리)
  * @returns 재고 효율성 지표
  */
 export async function calculateEfficiencyMetrics(
   startDate?: Date,
-  endDate?: Date
+  endDate?: Date,
+  tenantId?: number
 ): Promise<{
   averageTurnoverRate: number;
   averageHoldingPeriod: number;
@@ -88,7 +104,7 @@ export async function calculateEfficiencyMetrics(
   lowEfficiencyCount: number;
   totalMaterials: number;
 }> {
-  const turnoverResults = await calculateInventoryTurnover(undefined, startDate, endDate);
+  const turnoverResults = await calculateInventoryTurnover(undefined, startDate, endDate, tenantId);
   const totalMaterials = turnoverResults.length;
   const highEfficiencyCount = turnoverResults.filter((r) => r.efficiency === "high").length;
   const mediumEfficiencyCount = turnoverResults.filter((r) => r.efficiency === "medium").length;

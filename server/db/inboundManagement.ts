@@ -16,12 +16,15 @@ async function updateInventoryQuantity(params: {
   materialId: number;
   quantityChange: number;
   unit: string;
+  tenantId?: number;
 }) {
   // 기존 재고 레코드 조회
+  const conditions: any[] = [eq(hInventory.materialId, params.materialId)];
+  if (params.tenantId) conditions.push(eq(hInventory.tenantId, params.tenantId));
   const [existingInventory] = await params.db
     .select()
     .from(hInventory)
-    .where(and(eq(hInventory.tenantId, tenantId), eq(hInventory.materialId, params.materialId)));
+    .where(and(...conditions));
   if (existingInventory) {
     // 기존 레코드 업데이트 (수량 증가)
     const newTotalQuantity = parseFloat(existingInventory.totalQuantity) + params.quantityChange;
@@ -34,10 +37,11 @@ async function updateInventoryQuantity(params: {
         availableQuantity: newAvailableQuantity.toString(),
         lastUpdated: new Date()
       })
-      .where(and(eq(hInventory.tenantId, tenantId), eq(hInventory.id, existingInventory.id)));  } else {
+      .where(eq(hInventory.id, existingInventory.id));
+  } else {
     // 신규 레코드 생성
     await params.db.insert(hInventory).values({
-      tenantId,
+      tenantId: params.tenantId || 1,
       materialId: params.materialId,
       totalQuantity: params.quantityChange.toString(),
       availableQuantity: params.quantityChange.toString(),
@@ -100,7 +104,10 @@ export async function createInboundReceipt(params: {
   const [material] = await db
     .select()
     .from(hMaterials)
-    .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, params.materialId)));
+    .where(and(
+      ...(tenantId ? [eq(hMaterials.tenantId, tenantId)] : []),
+      eq(hMaterials.id, params.materialId)
+    ));
   if (!material) {
     throw new Error(`Material not found: ${params.materialId}`);
   }
@@ -120,7 +127,6 @@ export async function createInboundReceipt(params: {
 
   // LOT 생성
   const insertResult = await db.insert(hInventoryLots).values({
-      tenantId,
     lotNumber,
     materialId: params.materialId,
     quantity: params.quantity.toString(),
@@ -139,7 +145,6 @@ export async function createInboundReceipt(params: {
 
   // 재고 거래 내역 기록
   await db.insert(hInventoryTransactions).values({
-      tenantId,
     lotId: lotId,
     transactionType: "receipt",
     quantity: params.quantity.toString(),
@@ -155,7 +160,8 @@ export async function createInboundReceipt(params: {
     db,
     materialId: params.materialId,
     quantityChange: params.quantity,
-    unit: params.unit
+    unit: params.unit,
+    tenantId
   });
 
   return {
@@ -188,7 +194,11 @@ export async function getInboundHistory(params: {
 
   // 입고 거래 내역 조회 (receipt 타입만)
   // 필터 조건 구성
-  const conditions: any[] = [eq(hInventoryTransactions.tenantId, tenantId), eq(hInventoryTransactions.transactionType, "receipt")];
+  const conditions: any[] = [eq(hInventoryTransactions.transactionType, "receipt")];
+  // tenantId 필터: hInventoryTransactions에 tenant_id 없음 → hMaterials.tenantId 사용
+  if (tenantId) {
+    conditions.push(eq(hMaterials.tenantId, tenantId));
+  }
   
   if (params.materialId) {
     conditions.push(eq(hInventoryLots.materialId, params.materialId));

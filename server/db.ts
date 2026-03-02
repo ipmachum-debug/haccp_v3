@@ -1028,20 +1028,28 @@ export async function updateCcpInstanceStatus(instanceId: number, status: "draft
 /**
  * LOT 목록 조회 (소비기한/생산일자 포함)
  */
-export async function getAllInventoryLotsWithDetails() {
+export async function getAllInventoryLotsWithDetails(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hInventoryLots, hMaterials } = await import("../drizzle/schema.js");
-  const { desc } = await import("drizzle-orm");
+  const { desc, eq } = await import("drizzle-orm");
+  
+  // 원재료 정보 조회 (tenantId 필터)
+  const materials = tenantId
+    ? await db.select().from(hMaterials).where(eq(hMaterials.tenantId, tenantId))
+    : await db.select().from(hMaterials);
+  const materialMap = new Map(materials.map(m => [m.id, m]));
+  const materialIds = new Set(materials.map(m => m.id));
   
   // LOT 목록 조회
   const lots = await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.createdAt));
   
-  // 원재료 정보 병합
-  const materials = await db.select().from(hMaterials);
-  const materialMap = new Map(materials.map(m => [m.id, m]));
+  // tenantId가 있으면 해당 테넌트 원재료의 LOT만 필터
+  const filteredLots = tenantId
+    ? lots.filter(lot => lot.materialId && materialIds.has(lot.materialId))
+    : lots;
   
-  return lots.map(lot => ({
+  return filteredLots.map(lot => ({
     ...lot,
     materialName: lot.materialId ? (materialMap.get(lot.materialId)?.materialName || "Unknown") : "Unknown",
     materialCode: lot.materialId ? (materialMap.get(lot.materialId)?.materialCode || "") : ""
@@ -1066,9 +1074,7 @@ export async function getAllInventoryLots(filters?: {
   
   // 필터 조건 구성
   const conditions = [];
-  if (filters?.tenantId) {
-    conditions.push(eq(hInventoryLots.tenantId, filters.tenantId));
-  }
+  // NOTE: hInventoryLots에 tenant_id 컬럼 없음 → hMaterials.tenantId 기반 필터링은 후처리
   if (filters?.startDate) {
     conditions.push(gte(hInventoryLots.createdAt, new Date(filters.startDate)));
   }
@@ -1087,11 +1093,19 @@ export async function getAllInventoryLots(filters?: {
   }
   const lots = await query.orderBy(desc(hInventoryLots.createdAt));
   
-  // 원재료 정보 병합
-  const materials = await db.select().from(hMaterials);
+  // 원재료 정보 병합 (tenantId 필터 포함)
+  const materials = filters?.tenantId
+    ? await db.select().from(hMaterials).where(eq(hMaterials.tenantId, filters.tenantId))
+    : await db.select().from(hMaterials);
   const materialMap = new Map(materials.map(m => [m.id, m]));
+  const materialIds = new Set(materials.map(m => m.id));
   
-  let results = lots.map(lot => ({
+  // tenantId 기반 LOT 필터링 (hInventoryLots에 tenant_id 없으므로 materialId 기준)
+  let filteredLots = filters?.tenantId
+    ? lots.filter(lot => lot.materialId && materialIds.has(lot.materialId))
+    : lots;
+  
+  let results = filteredLots.map(lot => ({
     ...lot,
     materialName: lot.materialId ? (materialMap.get(lot.materialId)?.materialName || "Unknown") : "Unknown",
     materialCode: lot.materialId ? (materialMap.get(lot.materialId)?.materialCode || "") : ""
@@ -4192,7 +4206,7 @@ export async function getLowStockWarnings() {
 /**
  * 유통기한 임박 원재료 조회 (7일 이내)
  */
-export async function getExpiringMaterials() {
+export async function getExpiringMaterials(tenantId?: number) {
   const db = await getDb();
   if (!db) return [];
   
@@ -4206,21 +4220,24 @@ export async function getExpiringMaterials() {
       materialId: hInventoryLots.materialId,
       quantity: hInventoryLots.availableQuantity,
       unit: hInventoryLots.unit,
-      expiryDate: hInventoryLots.expiryDate
+      expiryDate: hInventoryLots.expiryDate,
+      materialName: hMaterials.materialName
     })
     .from(hInventoryLots)
+    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
     .where(
       and(
         sql`${hInventoryLots.expiryDate} IS NOT NULL`,
         lte(hInventoryLots.expiryDate, sevenDaysLater),
-        gte(hInventoryLots.expiryDate, today)
+        gte(hInventoryLots.expiryDate, today),
+        tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
       )
     )
     .orderBy(hInventoryLots.expiryDate)
     .limit(10);
   
   return expiringLots.map((lot) => ({
-    materialName: `재료 ID: ${lot.materialId}`,
+    materialName: lot.materialName || `재료 ID: ${lot.materialId}`,
     lotNumber: lot.lotNumber,
     expiryDate: lot.expiryDate ? new Date(lot.expiryDate).toISOString().split('T')[0] : '',
     quantity: Number(lot.quantity),
@@ -7038,6 +7055,7 @@ export async function getBatchSchedule(params: {
   endDate: string;
   siteId?: number;
   status?: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7046,6 +7064,7 @@ export async function getBatchSchedule(params: {
   const { and, eq, sql } = await import("drizzle-orm");
   
   const conditions = [
+    eq(hBatches.tenantId, params.tenantId),
     sql`${hBatches.plannedDate} >= ${params.startDate}`,
     sql`${hBatches.plannedDate} <= ${params.endDate}`,
   ];
@@ -7064,13 +7083,13 @@ export async function getBatchSchedule(params: {
       product: hProducts
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProducts, and(eq(hBatches.productId, hProducts.id), eq(hProducts.tenantId, params.tenantId)))
     .where(and(...conditions))
     .orderBy(hBatches.plannedDate);
   
   return batches.map((row) => ({
     ...row.batch,
-    productName: row.product?.productName || "알 수 없음",
+    productName: row.product?.productName || "\uc54c \uc218 \uc5c6\uc74c",
     productCode: row.product?.productCode || ""
   }));
 }
@@ -7078,18 +7097,22 @@ export async function getBatchSchedule(params: {
 /**
  * 배치별 원재료 소요량 계산
  */
-export async function calculateMaterialRequirements(batchId: number) {
+export async function calculateMaterialRequirements(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
   const { hBatches, recipes, recipeLines, hMaterials, hInventoryLots } = await import("../drizzle/schema");
   const { eq, and, sql } = await import("drizzle-orm");
   
-  // 1. 배치 정보 조회
+  // 1. 배치 정보 조회 (tenantId가 있으면 격리 적용)
+  const batchConditions = [eq(hBatches.id, batchId)];
+  if (tenantId) {
+    batchConditions.push(eq(hBatches.tenantId, tenantId));
+  }
   const [batch] = await db
     .select()
     .from(hBatches)
-    .where(eq(hBatches.id, batchId))
+    .where(and(...batchConditions))
     .limit(1);
   
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
@@ -7186,6 +7209,7 @@ export async function analyzeProductionCapacity(params: {
   endDate: string;
   siteId?: number;
   groupBy?: "day" | "week";
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7214,7 +7238,8 @@ export async function analyzeProductionCapacity(params: {
       SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completedBatches,
       COALESCE(SUM(CASE WHEN status = 'completed' THEN actual_quantity ELSE 0 END), 0) as totalActualQuantity
     FROM h_batches
-    WHERE planned_date >= ${params.startDate} AND planned_date <= ${params.endDate}
+    WHERE tenant_id = ${params.tenantId}
+      AND planned_date >= ${params.startDate} AND planned_date <= ${params.endDate}
     GROUP BY DATE_FORMAT(planned_date, ${dateFormat})
     ORDER BY DATE_FORMAT(planned_date, ${dateFormat})
   `);
@@ -7235,6 +7260,7 @@ export async function analyzeProductionCapacityByProduct(params: {
   startDate: string;
   endDate: string;
   siteId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7243,6 +7269,7 @@ export async function analyzeProductionCapacityByProduct(params: {
   const { and, eq, sql } = await import("drizzle-orm");
   
   const conditions = [
+    eq(hBatches.tenantId, params.tenantId),
     sql`${hBatches.plannedDate} >= ${params.startDate}`,
     sql`${hBatches.plannedDate} <= ${params.endDate}`,
   ];
@@ -7288,7 +7315,7 @@ export async function analyzeProductionCapacityByProduct(params: {
 /**
  * 실시간 재고 현황 조회
  */
-export async function getInventoryDashboard() {
+export async function getInventoryDashboard(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -7304,7 +7331,8 @@ export async function getInventoryDashboard() {
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
     .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id));
+    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .where(tenantId ? eq(hMaterials.tenantId, tenantId) : undefined);
   
   // 2. 원재료별 재고 현황
   const materialStocks = await db
@@ -7321,7 +7349,10 @@ export async function getInventoryDashboard() {
     })
     .from(hInventoryLots)
     .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(eq(hInventoryLots.status, "available"))
+    .where(and(
+      eq(hInventoryLots.status, "available"),
+      tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
+    ))
     .groupBy(hMaterials.id, hMaterials.materialName, hMaterials.materialCode, hMaterials.unit, hMaterials.unitPrice, hMaterials.safetyStockLevel, hMaterials.expiryWarningDays);
   
   // 3. 재고 부족 원재료 (safetyStockLevel 이하)
@@ -7341,7 +7372,8 @@ export async function getInventoryDashboard() {
     .where(and(
       eq(hInventoryLots.status, "available"),
       sql`${hInventoryLots.expiryDate} IS NOT NULL`,
-      sql`${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL COALESCE(${hMaterials.expiryWarningDays}, 7) DAY)`
+      sql`${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL COALESCE(${hMaterials.expiryWarningDays}, 7) DAY)`,
+      tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
     ))
     .orderBy(hInventoryLots.expiryDate);
   
@@ -7379,6 +7411,7 @@ export async function getInventoryTrend(params: {
   endDate?: string;
   siteId?: number;
   materialId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7397,6 +7430,12 @@ export async function getInventoryTrend(params: {
   
   if (params.materialId) {
     conditions.push(eq(hInventoryLots.materialId, params.materialId));
+  }
+  
+  // hInventoryLots → hMaterials JOIN으로 tenantId 필터링 (별도 서브쿼리)
+  if (params.tenantId) {
+    const { hMaterials } = await import("../drizzle/schema");
+    conditions.push(sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})`);
   }
   
   const trend = await db
@@ -7431,6 +7470,7 @@ export async function getInventoryTurnoverAnalysis(params: {
   endDate?: string;
   siteId?: number;
   materialId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7453,7 +7493,8 @@ export async function getInventoryTurnoverAnalysis(params: {
     .where(and(
       eq(hInventoryTransactions.transactionType, "usage"),
       sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
-      sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`
+      sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
+      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
     ))
     .groupBy(hInventoryLots.materialId);
   
@@ -7464,11 +7505,16 @@ export async function getInventoryTurnoverAnalysis(params: {
       totalStock: sql<number>`SUM(${hInventoryLots.availableQuantity})`
     })
     .from(hInventoryLots)
-    .where(eq(hInventoryLots.status, "available"))
+    .where(and(
+      eq(hInventoryLots.status, "available"),
+      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+    ))
     .groupBy(hInventoryLots.materialId);
   
-  // 3. 원재료 정보와 결합
-  const materials = await db.select().from(hMaterials);
+  // 3. 원재료 정보와 결합 (tenantId 필터 포함)
+  const materials = await db.select().from(hMaterials).where(
+    params.tenantId ? eq(hMaterials.tenantId, params.tenantId) : undefined
+  );
   
   // 4. 회전율 계산
   const turnoverRates = materials.map((material) => {
@@ -7507,6 +7553,7 @@ export async function getInventoryTurnoverAnalysis(params: {
 export async function optimizeProductionSchedule(params: {
   startDate: string;
   endDate: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7526,6 +7573,7 @@ export async function optimizeProductionSchedule(params: {
     .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
     .where(
       and(
+        eq(hBatches.tenantId, params.tenantId),
         sql`${hBatches.plannedDate} >= ${params.startDate}`,
         sql`${hBatches.plannedDate} <= ${params.endDate}`,
         sql`${hBatches.status} IN ('planned', 'running')`
@@ -7701,6 +7749,7 @@ JSON 형식으로 응답해주세요:
 export async function applyScheduleOptimization(params: {
   batchId: number;
   newPlannedDate: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7710,7 +7759,7 @@ export async function applyScheduleOptimization(params: {
     .set({
       plannedDate: new Date(params.newPlannedDate)
     })
-    .where(eq(hBatches.id, params.batchId));
+    .where(and(eq(hBatches.id, params.batchId), eq(hBatches.tenantId, params.tenantId)));
 
   return { success: true };
 }
@@ -7721,6 +7770,7 @@ export async function applyScheduleOptimization(params: {
 export async function predictInventoryShortage(params: {
   materialId: number;
   days: number; // 예측 기간 (일)
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7740,7 +7790,8 @@ export async function predictInventoryShortage(params: {
     .where(
       and(
         eq(hInventoryLots.materialId, params.materialId),
-        sql`${hInventoryTransactions.createdAt} >= ${thirtyDaysAgo.toISOString().split('T')[0]}`
+        sql`${hInventoryTransactions.createdAt} >= ${thirtyDaysAgo.toISOString().split('T')[0]}`,
+        params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
       )
     )
     .orderBy(hInventoryTransactions.createdAt);
@@ -7759,7 +7810,8 @@ export async function predictInventoryShortage(params: {
     .where(
       and(
         eq(hInventoryLots.materialId, params.materialId),
-        sql`${hInventoryLots.status} = 'available'`
+        sql`${hInventoryLots.status} = 'available'`,
+        params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
       )
     );
   
@@ -7787,11 +7839,11 @@ export async function predictInventoryShortage(params: {
 /**
  * 모든 원재료 재고 부족 예측
  */
-export async function predictAllInventoryShortage(days: number) {
+export async function predictAllInventoryShortage(days: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // 1. 모든 원재료 조회
+  // 1. 모든 원재료 조회 (tenantId 필터 포함)
   const materials = await db
     .select({
       id: hMaterials.id,
@@ -7799,7 +7851,8 @@ export async function predictAllInventoryShortage(days: number) {
       materialName: hMaterials.materialName,
       unit: hMaterials.unit
     })
-    .from(hMaterials);
+    .from(hMaterials)
+    .where(tenantId ? eq(hMaterials.tenantId, tenantId) : undefined);
   
   // 2. 각 원재료별로 재고 부족 예측
   const predictions = await Promise.all(
@@ -7807,7 +7860,8 @@ export async function predictAllInventoryShortage(days: number) {
       try {
         const prediction = await predictInventoryShortage({
           materialId: material.id,
-          days
+          days,
+          tenantId
         });
         return {
           ...prediction,
@@ -7834,11 +7888,16 @@ export async function predictAllInventoryShortage(days: number) {
  */
 export async function generatePurchaseOrderSuggestions(params: {
   days: number; // 예측 기간 (일)
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // 1. 모든 활성 원재료 조회
+  // 1. 모든 활성 원재료 조회 (tenantId 필터 포함)
+  const conditions: any[] = [eq(hMaterials.isActive, 1)];
+  if (params.tenantId) {
+    conditions.push(eq(hMaterials.tenantId, params.tenantId));
+  }
   const materials = await db
     .select({
       id: hMaterials.id,
@@ -7848,14 +7907,15 @@ export async function generatePurchaseOrderSuggestions(params: {
       safetyStockLevel: hMaterials.safetyStockLevel
     })
     .from(hMaterials)
-    .where(eq(hMaterials.isActive, 1));
+    .where(and(...conditions));
   
   // 2. 각 원재료별 재고 예측 분석
   const suggestions = await Promise.all(
     materials.map(async (material: any) => {
       const prediction = await predictInventoryShortage({
         materialId: material.id,
-        days: params.days
+        days: params.days,
+        tenantId: params.tenantId
       });
       
       const safetyStock = Number(material.safetyStockLevel || 0);
@@ -7896,11 +7956,16 @@ export async function generatePurchaseOrderSuggestions(params: {
  */
 export async function predictAllMaterialsShortage(params: {
   days: number; // 예측 기간 (일)
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // 1. 모든 활성 원재료 조회
+  // 1. 모든 활성 원재료 조회 (tenantId 필터 포함)
+  const conditions: any[] = [eq(hMaterials.isActive, 1)];
+  if (params.tenantId) {
+    conditions.push(eq(hMaterials.tenantId, params.tenantId));
+  }
   const materials = await db
     .select({
       id: hMaterials.id,
@@ -7909,14 +7974,15 @@ export async function predictAllMaterialsShortage(params: {
       unit: hMaterials.unit
     })
     .from(hMaterials)
-    .where(eq(hMaterials.isActive, 1));
+    .where(and(...conditions));
   
   // 2. 각 원재료별 재고 예측
   const predictions = await Promise.all(
     materials.map(async (material: any) => {
       const prediction = await predictInventoryShortage({
         materialId: material.id,
-        days: params.days
+        days: params.days,
+        tenantId: params.tenantId
       });
       
       // 예측 기간 내 부족이 예상되는 경우만 반환
@@ -7950,6 +8016,7 @@ export async function getBatchCostAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7959,6 +8026,14 @@ export async function getBatchCostAnalysis(params: {
   const startDate = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   // 1. 기간 내 완료된 배치 조회
+  const conditions = [
+    sql`${hBatches.startTime} >= ${startDate}`,
+    sql`${hBatches.endTime} <= ${endDate}`,
+    eq(hBatches.status, "completed")
+  ];
+  if (params.tenantId) {
+    conditions.push(eq(hBatches.tenantId, params.tenantId));
+  }
   const batches = await db
     .select({
       id: hBatches.id,
@@ -7974,13 +8049,7 @@ export async function getBatchCostAnalysis(params: {
     })
     .from(hBatches)
     .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
-    .where(
-      and(
-        sql`${hBatches.startTime} >= ${startDate}`,
-        sql`${hBatches.endTime} <= ${endDate}`,
-        eq(hBatches.status, "completed")
-      )
-    )
+    .where(and(...conditions))
     .orderBy(hBatches.startTime);
   
   // 2. 각 배치별 원재료 비용 계산
@@ -8049,6 +8118,7 @@ export async function getProductionTimeAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8058,6 +8128,7 @@ export async function getProductionTimeAnalysis(params: {
   const startDate = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
   // sql 템플릿으로 전체 쿼리 작성 (ONLY_FULL_GROUP_BY 모드 호환)
+  const tenantFilter = params.tenantId ? sql`AND tenant_id = ${params.tenantId}` : sql``;
   const result = await db.execute<{
     date: string;
     avgProductionTime: number;
@@ -8071,6 +8142,7 @@ export async function getProductionTimeAnalysis(params: {
     WHERE start_time >= ${startDate}
       AND end_time <= ${endDate}
       AND status = 'completed'
+      ${tenantFilter}
     GROUP BY DATE(start_time)
     ORDER BY DATE(start_time)
   `);
@@ -8090,6 +8162,7 @@ export async function getDefectRateAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8098,6 +8171,14 @@ export async function getDefectRateAnalysis(params: {
   const endDate = params.endDate || new Date().toISOString().split('T')[0];
   const startDate = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   
+  const conditions = [
+    sql`${hBatches.startTime} >= ${startDate}`,
+    sql`${hBatches.endTime} <= ${endDate}`,
+    eq(hBatches.status, "completed")
+  ];
+  if (params.tenantId) {
+    conditions.push(eq(hBatches.tenantId, params.tenantId));
+  }
   const result = await db
     .select({
       productId: hBatches.productId,
@@ -8108,13 +8189,7 @@ export async function getDefectRateAnalysis(params: {
     })
     .from(hBatches)
     .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
-    .where(
-      and(
-        sql`${hBatches.startTime} >= ${startDate}`,
-        sql`${hBatches.endTime} <= ${endDate}`,
-        eq(hBatches.status, "completed")
-      )
-    )
+    .where(and(...conditions))
     .groupBy(hBatches.productId, hProducts.productName);
   
   return result.map((r: any) => {
@@ -8346,11 +8421,12 @@ export async function getInventoryTrendData(params: {
   startDate?: string;
   endDate?: string;
   materialId?: number;
+  tenantId?: number;
 }) {
   const [inventoryTrend, turnoverAnalysis, expiringMaterials] = await Promise.all([
     getInventoryTrend(params),
     getInventoryTurnoverAnalysis(params),
-    getExpiringMaterials(),
+    getExpiringMaterials(params.tenantId),
   ]);
 
   return {

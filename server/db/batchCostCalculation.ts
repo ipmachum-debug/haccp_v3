@@ -39,7 +39,7 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
       const [lot] = await db
         .select()
         .from(hInventoryLots)
-        .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, material.lotId)));
+        .where(eq(hInventoryLots.id, material.lotId));
       if (lot && lot.unitPrice) {
         const unitPrice = parseFloat(lot.unitPrice);
         const quantityUsed = parseFloat(material.quantityUsed);

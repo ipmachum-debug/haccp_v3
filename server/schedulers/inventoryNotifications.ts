@@ -53,7 +53,7 @@ export async function checkExpiryReminders() {
         .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
         .where(
           and(
-            eq(hInventoryLots.tenantId, tenantId),
+            eq(hMaterials.tenantId, tenantId),
             lte(hInventoryLots.expiryDate, maxWarningDate),
             eq(hInventoryLots.status, "available")
           )

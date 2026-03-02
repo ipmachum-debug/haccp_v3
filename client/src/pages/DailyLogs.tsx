@@ -96,6 +96,10 @@ export default function DailyLogs() {
           <RefreshCw className="h-4 w-4 mr-1" />
           새로고침
         </Button>
+        <Button size="sm" onClick={() => navigate("/daily-log/daily")}>
+          <FileText className="h-4 w-4 mr-1" />
+          새 일지 작성
+        </Button>
       </div>
 
       {/* Summary Cards */}

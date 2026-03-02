@@ -1,17 +1,53 @@
+/**
+ * 슈퍼관리자 REST API
+ * 
+ * ✅ 보안 강화: JWT 기반 인증 미들웨어 사용
+ * ✅ requireTenantAuth로 인증 후 super_admin 역할 검증
+ * ✅ getDb() 사용 (시스템 전역 테이블이므로 TenantDb 불필요)
+ */
 import { Router } from "express";
 import { getDb } from "./db";
 import { users, tenants } from "../drizzle/schema_main";
 import { auditLogs } from "../drizzle/schema/audit";
 import { eq, desc, count, sql } from "drizzle-orm";
+import { verifyToken } from "./_core/jwtAuth";
+import { getUserById } from "./localAuth";
+import { COOKIE_NAME } from "../shared/const";
 
 const router = Router();
 
-// 권한 검증 미들웨어
-const requireSuperAdmin = (req: any, res: any, next: any) => {
-  if (req.user?.role !== "super_admin") {
-    return res.status(403).json({ error: "슈퍼관리자 권한이 필요합니다" });
+/**
+ * 슈퍼관리자 인증 미들웨어
+ * JWT 쿠키에서 사용자를 인증하고 super_admin 역할을 확인
+ */
+const requireSuperAdmin = async (req: any, res: any, next: any) => {
+  try {
+    const token = req.cookies?.[COOKIE_NAME];
+    if (!token) {
+      return res.status(401).json({ error: "인증이 필요합니다." });
+    }
+
+    const payload = await verifyToken(token);
+    if (!payload || !payload.userId) {
+      return res.status(401).json({ error: "유효하지 않은 인증 토큰입니다." });
+    }
+
+    const dbUser = await getUserById(payload.userId);
+    if (!dbUser) {
+      return res.status(401).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+
+    if (dbUser.role !== "super_admin") {
+      return res.status(403).json({ error: "슈퍼관리자 권한이 필요합니다" });
+    }
+
+    // req.user에 인증된 사용자 정보 주입
+    req.user = dbUser;
+    next();
+  } catch (error) {
+    console.error("[SuperAdmin Auth] Error:", error);
+    return res.status(500).json({ error: "인증 처리 중 오류가 발생했습니다." });
   }
-  next();
 };
 
 // 모든 라우트에 슈퍼관리자 권한 필수
