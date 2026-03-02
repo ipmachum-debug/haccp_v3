@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { skipToken } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -618,12 +619,12 @@ function ExpenseFormDialog({
     }
   }, [existing]);
 
-  // 거래처 검색 쿼리 (통합 partners 테이블)
+  // 거래처 검색 쿼리 (통합 partners 테이블) - skipToken 패턴 사용
+  const partnerSearchEnabled = showPartnerDropdown && partnerSearch.length >= 1;
   const partnersQuery = trpc.expense.searchPartners.useQuery(
-    { search: partnerSearch || undefined, limit: 15 },
-    { enabled: showPartnerDropdown && partnerSearch.length >= 1 },
+    partnerSearchEnabled ? { search: partnerSearch, limit: 15 } : skipToken,
   );
-  const partnerResults = partnersQuery.data || [];
+  const partnerResults = partnersQuery.data ?? [];
 
   // 첨부파일 관련 state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -782,14 +783,20 @@ function ExpenseFormDialog({
                       setPartnerId(null);
                       setShowPartnerDropdown(true);
                     }}
-                    onFocus={() => { if (partnerName) setShowPartnerDropdown(true); }}
+                    onFocus={() => { if (partnerName.length >= 1) { setPartnerSearch(partnerName); setShowPartnerDropdown(true); } }}
                     onBlur={() => setTimeout(() => setShowPartnerDropdown(false), 200)}
                     className="pl-8"
                   />
                 </div>
                 {/* 거래처 검색 드롭다운 */}
-                {showPartnerDropdown && partnerResults.length > 0 && (
+                {showPartnerDropdown && partnerSearch.length >= 1 && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {partnersQuery.isFetching && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground text-center">검색 중...</div>
+                    )}
+                    {!partnersQuery.isFetching && partnerResults.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground text-center">검색 결과 없음</div>
+                    )}
                     {partnerResults.map((p: any) => (
                       <button
                         key={p.id}

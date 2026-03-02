@@ -7,10 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLocation } from "wouter";
-import { Plus, Search, FileText, Trash2, Edit , Send} from "lucide-react";
+import { Plus, FileText, Trash2, Edit, Send, Loader2, Printer, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { toast as sonnerToast } from "sonner";
 
-export default function FinishedProductCheckList() {
+/** 완제품 출고검사 리스트 - 임베드 가능한 컴포넌트 */
+export function FinishedProductCheckListContent() {
   const [, setLocation] = useLocation();
   const navigate = (path: string) => setLocation(path);
   const { toast } = useToast();
@@ -23,20 +25,20 @@ export default function FinishedProductCheckList() {
   const deleteMutation = trpc.genericChecklist.delete.useMutation({
     onSuccess: () => {
       toast({ title: "삭제 완료", description: "기록이 삭제되었습니다." });
-
-  const approvalMutation = trpc.approval.createRequest.useMutation({
-    onSuccess: () => {
-      toast({ title: "승인 요청 완료", description: "승인관리 페이지에서 확인할 수 있습니다." });
-      refetch();
-    },
-    onError: (error: any) => {
-      toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
-    },
-  });
       refetch();
     },
     onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const submitMutation = trpc.genericChecklist.submitForReview.useMutation({
+    onSuccess: () => {
+      sonnerToast.success("승인 요청 완료");
+      refetch();
+    },
+    onError: (error: any) => {
+      sonnerToast.error("승인 요청 실패: " + error.message);
     },
   });
 
@@ -45,6 +47,16 @@ export default function FinishedProductCheckList() {
     if (window.confirm("정말 삭제하시겠습니까?")) {
       deleteMutation.mutate({ id });
     }
+  };
+
+  const handleApprovalRequest = (record: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    submitMutation.mutate({
+      id: record.id,
+      requestType: "finished_product_check",
+      title: `완제품 출고검사 - ${record.formDate}`,
+      description: `${record.formDate} 완제품 출고검사일지\n${record.title || ''}\n[검토 필요]`,
+    });
   };
 
   const getStatusBadge = (status: string) => {
@@ -63,85 +75,113 @@ export default function FinishedProductCheckList() {
   }) || [];
 
   return (
+    <div className="space-y-6">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <FileText className="h-5 w-5 text-green-600" />
+            완제품 출고검사 일지
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">완제품 출고 시 품질 검사 기록을 관리합니다</p>
+        </div>
+        <Button onClick={() => navigate("/finished-product-check/new")} className="gap-1">
+          <Plus className="h-4 w-4" />
+          신규 작성
+        </Button>
+      </div>
+
+      {/* 필터 */}
+      <div className="flex items-center gap-3">
+        <Input type="month" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className="w-44 h-9" placeholder="월 선택" />
+        {searchDate && (
+          <Button variant="outline" size="sm" onClick={() => setSearchDate("")}>초기화</Button>
+        )}
+      </div>
+
+      {/* 리스트 */}
+      <Card>
+        <CardContent className="p-0">
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-3" />
+              로딩 중...
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="w-12 text-center">No.</TableHead>
+                  <TableHead className="w-32">작성일</TableHead>
+                  <TableHead>제목</TableHead>
+                  <TableHead className="text-center w-24">상태</TableHead>
+                  <TableHead className="w-56 text-center">작업</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRecords.length > 0 ? (
+                  filteredRecords.map((record: any, index: number) => (
+                    <TableRow key={record.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/finished-product-check/${record.id}`)}>
+                      <TableCell className="text-center text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell className="font-medium">{record.formDate}</TableCell>
+                      <TableCell>{record.title || "-"}</TableCell>
+                      <TableCell className="text-center">{getStatusBadge(record.status)}</TableCell>
+                      <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          {record.status === "draft" && (
+                            <Button variant="default" size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                              onClick={(e) => handleApprovalRequest(record, e)}
+                              disabled={submitMutation.isPending}>
+                              {submitMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
+                              승인요청
+                            </Button>
+                          )}
+                          {record.status === "approved" && (
+                            <Button variant="outline" size="sm" className="h-7 text-xs"
+                              onClick={() => navigate(`/finished-product-check/${record.id}`)}>
+                              <Printer className="h-3 w-3 mr-1" />출력
+                            </Button>
+                          )}
+                          <Button variant="outline" size="sm" className="h-7 text-xs"
+                            onClick={() => navigate(`/finished-product-check/${record.id}`)}>
+                            <Eye className="h-3 w-3 mr-1" />{record.status === "draft" ? "수정" : "보기"}
+                          </Button>
+                          {record.status === "draft" && (
+                            <Button variant="destructive" size="sm" className="h-7 text-xs"
+                              onClick={(e) => handleDelete(record.id, e)}>
+                              <Trash2 className="h-3 w-3 mr-1" />삭제
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
+                      <FileText className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+                      <p className="font-medium">등록된 출고검사 기록이 없습니다.</p>
+                      <Button variant="link" className="mt-2" onClick={() => navigate("/finished-product-check/new")}>
+                        새로운 기록 작성하기
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Standalone page (wrapped with DashboardLayout) */
+export default function FinishedProductCheckList() {
+  return (
     <DashboardLayout>
       <div className="container mx-auto py-6 max-w-[1200px]">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <FileText className="h-6 w-6 text-blue-600" />
-                <div>
-                  <CardTitle className="text-xl">완제품 검사 기록</CardTitle>
-                  <CardDescription className="mt-1">작성된 기록을 관리합니다</CardDescription>
-                </div>
-              </div>
-              <Button onClick={() => navigate("/finished-product-check/new")} className="gap-1">
-                <Plus className="h-4 w-4" />
-                신규 작성
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex items-center gap-2">
-                <Input type="month" value={searchDate} onChange={(e) => setSearchDate(e.target.value)} className="w-44 h-9" placeholder="월 선택" />
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setSearchDate("")}>
-                초기화
-              </Button>
-            </div>
-            {isLoading ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-3"></div>
-                로딩 중...
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-muted/50">
-                      <TableHead className="w-12 text-center">No.</TableHead>
-                      <TableHead className="w-32">작성일</TableHead>
-                      <TableHead>제목</TableHead>
-                      <TableHead className="text-center w-24">상태</TableHead>
-                      <TableHead className="w-56 text-center">작업</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRecords.length > 0 ? (
-                      filteredRecords.map((record: any, index: number) => (
-                        <TableRow key={record.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/finished-product-check/${record.id}`)}>
-                          <TableCell className="text-center text-muted-foreground">{index + 1}</TableCell>
-                          <TableCell className="font-medium">{record.formDate}</TableCell>
-                          <TableCell>{record.title || "-"}</TableCell>
-                          <TableCell className="text-center">{getStatusBadge(record.status)}</TableCell>
-                          <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex flex-wrap gap-1 justify-center">
-                              {record.status === "draft" && <Button variant="default" size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={(e) => handleApprovalRequest(record, e)}><Send className="h-3 w-3 mr-1" />승인요청</Button>}
-                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(`/finished-product-check/${record.id}`)}><Edit className="h-3 w-3 mr-1" />수정</Button>
-                              <Button variant="destructive" size="sm" className="h-7 text-xs" onClick={(e) => handleDelete(record.id, e)}><Trash2 className="h-3 w-3 mr-1" />삭제</Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                          <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          등록된 기록이 없습니다.
-                          <br />
-                          <Button variant="link" className="mt-2" onClick={() => navigate("/finished-product-check/new")}>
-                            새로운 기록 작성하기
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <FinishedProductCheckListContent />
       </div>
     </DashboardLayout>
   );

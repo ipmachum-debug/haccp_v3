@@ -15,12 +15,15 @@ async function adjustInventoryQuantity(params: {
   db: any;
   materialId: number;
   quantityChange: number; // 양수: 증가, 음수: 감소
+  tenantId?: number;
 }) {
   // 기존 재고 레코드 조회
+  const conditions: any[] = [eq(hInventory.materialId, params.materialId)];
+  if (params.tenantId) conditions.push(eq(hInventory.tenantId, params.tenantId));
   const [existingInventory] = await params.db
     .select()
     .from(hInventory)
-    .where(and(eq(hInventory.tenantId, tenantId), eq(hInventory.materialId, params.materialId)));
+    .where(and(...conditions));
   if (!existingInventory) {
     throw new Error("재고가 존재하지 않습니다.");
   }
@@ -46,7 +49,8 @@ async function adjustInventoryQuantity(params: {
       availableQuantity: newAvailableQuantity.toString(),
       lastUpdated: new Date()
     })
-    .where(and(eq(hInventory.tenantId, tenantId), eq(hInventory.id, existingInventory.id)));}
+    .where(eq(hInventory.id, existingInventory.id));
+}
 
 /**
  * 재고 조정 등록
@@ -72,7 +76,10 @@ export async function adjustInventory(params: {
   const [material] = await db
     .select()
     .from(hMaterials)
-    .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, params.materialId)));
+    .where(and(
+      ...(tenantId ? [eq(hMaterials.tenantId, tenantId)] : []),
+      eq(hMaterials.id, params.materialId)
+    ));
   if (!material) {
     throw new Error("원재료를 찾을 수 없습니다.");
   }
@@ -81,7 +88,7 @@ export async function adjustInventory(params: {
   const [lot] = await db
     .select()
     .from(hInventoryLots)
-    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, params.lotId)));
+    .where(eq(hInventoryLots.id, params.lotId));
   if (!lot) {
     throw new Error("LOT를 찾을 수 없습니다.");
   }
@@ -101,10 +108,9 @@ export async function adjustInventory(params: {
     .set({
       quantity: newLotQuantity.toString()
     })
-    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, params.lotId)));
+    .where(eq(hInventoryLots.id, params.lotId));
   // 재고 거래 내역 기록
   await db.insert(hInventoryTransactions).values({
-      tenantId,
     lotId: params.lotId,
     transactionType: "adjustment",
     quantity: Math.abs(params.quantityChange).toString(),
@@ -119,7 +125,8 @@ export async function adjustInventory(params: {
   await adjustInventoryQuantity({
     db,
     materialId: params.materialId,
-    quantityChange: params.quantityChange
+    quantityChange: params.quantityChange,
+    tenantId
   });
 
   return {
@@ -144,7 +151,11 @@ export async function getAdjustmentHistory(params?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions = [eq(hInventoryTransactions.tenantId, tenantId), eq(hInventoryTransactions.transactionType, "adjustment")];
+  const conditions: any[] = [eq(hInventoryTransactions.transactionType, "adjustment")];
+  // tenantId 필터: hInventoryTransactions에 tenant_id 없음 → hMaterials.tenantId 사용
+  if (tenantId) {
+    conditions.push(eq(hMaterials.tenantId, tenantId));
+  }
 
   if (params?.materialId) {
     // materialId로 필터링하려면 LOT를 조인해야 함

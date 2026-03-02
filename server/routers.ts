@@ -74,6 +74,7 @@ import { supplierAuditRouter } from "./routers/supplierAudit";
 import { weeklyLogsRouter } from "./routers/weeklyLogs";
 import { monthlyLogsRouter } from "./routers/monthlyLogs";
 import { yearlyLogsRouter } from "./routers/yearlyLogs";
+import { dailyLogRouter } from "./routers/dailyLogRouter";
 import { bankAccountRouter } from "./routers/bankAccount";
 import { bankTransactionRouter } from "./routers/bankTransaction";
 import { bankTransactionBulkRouter } from "./routers/bankTransactionBulk";
@@ -610,6 +611,15 @@ ai: aiRouter,
           console.error('[파이프라인 STEP8.5] 기간별 일지 생성 실패:', plErr);
         }
 
+        // STEP 9. 생산일지(production_daily) 자동 생성/갱신
+        try {
+          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+          await autoRegenerateProductionDaily(tenantId, workDate);
+          console.log('[파이프라인 STEP9] 생산일지(production_daily) 자동 갱신 완료:', workDate);
+        } catch (pdErr) {
+          console.error('[파이프라인 STEP9] 생산일지 갱신 실패:', pdErr);
+        }
+
         return {
           success: true,
           batchId,
@@ -870,6 +880,15 @@ ai: aiRouter,
           (scheduleResult ? `, 스케줄 ${(scheduleResult as any).taskCount}건` : "")
         );
 
+        // === 6. 생산일지(production_daily) 자동 생성/갱신 ===
+        try {
+          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+          await autoRegenerateProductionDaily(ctx.user.tenantId, input.workDate);
+          console.log(`[bulkCreateForDay] 생산일지(production_daily) 자동 갱신 완료 - ${input.workDate}`);
+        } catch (pdErr) {
+          console.error('[bulkCreateForDay] 생산일지(production_daily) 자동 갱신 실패:', pdErr);
+        }
+
         return {
           success: true,
           dayBatchGroup,
@@ -1059,6 +1078,18 @@ ai: aiRouter,
           }
         }
         // === 파이프라인 자동화 끝 ===
+        
+        // === 생산일지 자동 갱신 (배치 상태 변경 시) ===
+        try {
+          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+          const batchDateStr = batch.plannedDate
+            ? new Date(batch.plannedDate).toISOString().split('T')[0]
+            : new Date().toISOString().split('T')[0];
+          await autoRegenerateProductionDaily(ctx.user.tenantId, batchDateStr);
+          console.log(`[파이프라인] 생산일지 자동 갱신 완료 - batch:${input.id}, date:${batchDateStr}`);
+        } catch (pdErr) {
+          console.error('[파이프라인] 생산일지 자동 갱신 오류:', pdErr);
+        }
         
         return {
           success: true,
@@ -1790,6 +1821,16 @@ ai: aiRouter,
           } catch (ledgerError) {
             console.error("[원료수불부] 배치 사용 반영 실패:", ledgerError);
           }
+          // 생산일지(production_daily) 자동 갱신 (배치 완료 시)
+          try {
+            const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+            const batchInfo = await (await import("./db")).getBatchById(input.batchId, ctx.user.tenantId);
+            const bDate = batchInfo?.plannedDate ? new Date(batchInfo.plannedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+            await autoRegenerateProductionDaily(ctx.user.tenantId, bDate);
+            console.log('[파이프라인] 생산일지(production_daily) 자동 갱신 완료 (배치완료)');
+          } catch (pdErr) {
+            console.error('[파이프라인] 생산일지 갱신 실패 (배치완료):', pdErr);
+          }
           return {
             success: true,
             message: "배치가 성공적으로 완료되었습니다.",
@@ -1853,7 +1894,7 @@ ai: aiRouter,
         const { getBatchCostAnalysis } = await import("./db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
-        return await getBatchCostAnalysis({ startDate, endDate, limit: input.limit });
+        return await getBatchCostAnalysis({ startDate, endDate, limit: input.limit }, ctx.user.tenantId);
       }),
 
     // 특정 배치의 원재료별 비용 분석
@@ -1877,7 +1918,7 @@ ai: aiRouter,
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
           groupBy: input.groupBy
-        });
+        }, ctx.user.tenantId);
       }),
 
     // 원재료별 비용 분석
@@ -1890,7 +1931,7 @@ ai: aiRouter,
         const { getMaterialCostAnalysis } = await import("./db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
-        return await getMaterialCostAnalysis({ startDate, endDate });
+        return await getMaterialCostAnalysis({ startDate, endDate }, ctx.user.tenantId);
       }),
     
     // 배치 원가율 계산
@@ -1949,7 +1990,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByDateRange } = await import("./db/batchSchedules");
-        return await getBatchSchedulesByDateRange(input.startDate, input.endDate, ctx.user.tenantId);
+        return await getBatchSchedulesByDateRange(ctx.user.tenantId, input.startDate, input.endDate);
       }),
     
     // 배치 ID로 일정 조회
@@ -1957,7 +1998,7 @@ ai: aiRouter,
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByBatchId } = await import("./db/batchSchedules");
-        return await getBatchSchedulesByBatchId(input.batchId);
+        return await getBatchSchedulesByBatchId(ctx.user.tenantId, input.batchId);
       }),
     
     // 배치 일정 수정
@@ -3034,9 +3075,9 @@ ai: aiRouter,
   inventory: router({
     // LOT 목록 조회 (소비기한/생산일자 포함)
     listLots: protectedProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getAllInventoryLotsWithDetails } = await import("./db");
-        return await getAllInventoryLotsWithDetails();
+        return await getAllInventoryLotsWithDetails(ctx.user.tenantId);
       }),
     
     // 모든 재고 LOT 조회
@@ -3354,9 +3395,9 @@ ai: aiRouter,
       }),
     
     // 재고 현황 대시보드
-    getDashboard: protectedProcedure.query(async () => {
+    getDashboard: protectedProcedure.query(async ({ ctx }) => {
       const { getInventoryDashboard } = await import("./db");
-      return await getInventoryDashboard();
+      return await getInventoryDashboard(ctx.user.tenantId);
     }),
     
     // 재고 이동 추이 (일별)
@@ -3370,7 +3411,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getInventoryTrend } = await import("./db");
-        return await getInventoryTrend(input);
+        return await getInventoryTrend({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 원재료별 재고 회전율 분석
@@ -3385,7 +3426,7 @@ ai: aiRouter,
         const { calculateInventoryTurnover } = await import("./db/inventoryAnalytics");
         const startDate = new Date(input.startDate);
         const endDate = new Date(input.endDate);
-        return await calculateInventoryTurnover(undefined, startDate, endDate);
+        return await calculateInventoryTurnover(undefined, startDate, endDate, ctx.user.tenantId);
       }),
     
     // 재고 효율성 지표
@@ -3400,7 +3441,7 @@ ai: aiRouter,
         const { calculateEfficiencyMetrics } = await import("./db/inventoryAnalytics");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
-        return await calculateEfficiencyMetrics(startDate, endDate);
+        return await calculateEfficiencyMetrics(startDate, endDate, ctx.user.tenantId);
       }),
     
     // 재고 부족 예측 분석 (단일 원재료)
@@ -3413,7 +3454,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { predictInventoryShortage } = await import("./db");
-        return await predictInventoryShortage(input);
+        return await predictInventoryShortage({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 재고 부족 예측 분석 (모든 원재료)
@@ -3425,7 +3466,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { predictAllMaterialsShortage } = await import("./db");
-        return await predictAllMaterialsShortage(input);
+        return await predictAllMaterialsShortage({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 자동 발주 제안 생성
@@ -3437,7 +3478,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { generatePurchaseOrderSuggestions } = await import("./db");
-        return await generatePurchaseOrderSuggestions(input);
+        return await generatePurchaseOrderSuggestions({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 발주 제안 승인
@@ -3474,9 +3515,9 @@ ai: aiRouter,
       }),
     
     // 유통기한 임박 현황 (7일 이내)
-    getExpiringStock: protectedProcedure.query(async () => {
+    getExpiringStock: protectedProcedure.query(async ({ ctx }) => {
       const { getExpiringMaterials } = await import("./db");
-      return await getExpiringMaterials();
+      return await getExpiringMaterials(ctx.user.tenantId);
     }),
     
     // 발주 제안 이력 조회
@@ -3511,7 +3552,7 @@ ai: aiRouter,
         
         // LOT 조회 (테넌트 격리 적용)
         const [lot] = await db.select().from(hInventoryLots).where(
-          and(eq(hInventoryLots.id, input.lotId), eq(hInventoryLots.tenantId, ctx.user.tenantId))
+          eq(hInventoryLots.id, input.lotId)
         );
         if (!lot) {
           throw new Error("LOT을 찾을 수 없습니다.");
@@ -3528,11 +3569,10 @@ ai: aiRouter,
           .set({ 
             availableQuantity: newAvailableQty.toString()
           })
-          .where(and(eq(hInventoryLots.id, input.lotId), eq(hInventoryLots.tenantId, ctx.user.tenantId)));
+          .where(eq(hInventoryLots.id, input.lotId));
         
         // 거래 내역 기록 (h_inventory_transactions)
         await db.insert(hInventoryTransactions).values({
-          tenantId: ctx.user.tenantId,
           lotId: input.lotId,
           transactionType: "usage",
           quantity: input.quantity.toString(),
@@ -3564,7 +3604,7 @@ ai: aiRouter,
         
         // LOT 조회 (테넌트 격리 적용)
         const [lot] = await db.select().from(hInventoryLots).where(
-          and(eq(hInventoryLots.id, input.lotId), eq(hInventoryLots.tenantId, ctx.user.tenantId))
+          eq(hInventoryLots.id, input.lotId)
         );
         if (!lot) {
           throw new Error("LOT을 찾을 수 없습니다.");
@@ -3578,7 +3618,7 @@ ai: aiRouter,
           .set({ 
             availableQuantity: input.newQuantity.toString()
           })
-          .where(and(eq(hInventoryLots.id, input.lotId), eq(hInventoryLots.tenantId, ctx.user.tenantId)));
+          .where(eq(hInventoryLots.id, input.lotId));
         
         // 거래 내역 기록은 추후 구현
         
@@ -3647,7 +3687,7 @@ ai: aiRouter,
           location: input.location,
           notes: input.notes,
           createdBy: ctx.user?.id || 0
-        });
+        }, ctx.user.tenantId);
       }),
 
     // 입고 이력 조회
@@ -3671,7 +3711,14 @@ ai: aiRouter,
           startDate: input.startDate ? new Date(input.startDate) : undefined,
           endDate: input.endDate ? new Date(input.endDate) : undefined,
           search: input.search
-        });
+        }, ctx.user.tenantId);
+      }),
+
+    // 입고 이력 조회 (alias for getInboundHistory - 클라이언트 호환용)
+    getReceiptHistory: protectedProcedure
+      .query(async ({ ctx }) => {
+        const { getInboundHistory } = await import("./db/inboundManagement");
+        return await getInboundHistory({ limit: 50 }, ctx.user.tenantId);
       }),
 
     // 출고 등록 (LOT 차감 + 재고 반영)
@@ -3696,7 +3743,7 @@ ai: aiRouter,
           batchId: input.batchId,
           notes: input.notes,
           createdBy: ctx.user?.id || 0
-        });
+        }, ctx.user.tenantId);
       }),
 
     // 출고 이력 조회
@@ -3718,7 +3765,7 @@ ai: aiRouter,
           batchId: input.batchId,
           startDate: input.startDate ? new Date(input.startDate) : undefined,
           endDate: input.endDate ? new Date(input.endDate) : undefined
-        });
+        }, ctx.user.tenantId);
       }),
 
     // 재고 조정 (LOT 단위)
@@ -3743,7 +3790,7 @@ ai: aiRouter,
           reason: input.reason,
           notes: input.notes,
           createdBy: ctx.user?.id || 0
-        });
+        }, ctx.user.tenantId);
       }),
 
     // 재고 조정 이력 조회
@@ -3763,7 +3810,7 @@ ai: aiRouter,
           materialId: input.materialId,
           startDate: input.startDate ? new Date(input.startDate) : undefined,
           endDate: input.endDate ? new Date(input.endDate) : undefined
-        });
+        }, ctx.user.tenantId);
       }),
     
     // 사용량 패턴 분석
@@ -4650,7 +4697,7 @@ ai: aiRouter,
     // 유통기한 임박 원재료
     getExpiringMaterials: publicProcedure.query(async () => {
       const { getExpiringMaterials } = await import("./db");
-      return await getExpiringMaterials();
+      return await getExpiringMaterials(ctx.user.tenantId);
     }),
 
     // 배치 생산 추이 (기간 선택 가능)
@@ -7805,7 +7852,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getBatchSchedule } = await import("./db");
-        return await getBatchSchedule(input);
+        return await getBatchSchedule({ ...input, tenantId: ctx.user.tenantId });
       }),
 
     // 배치별 원재료 소요량 계산
@@ -7813,7 +7860,7 @@ ai: aiRouter,
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { calculateMaterialRequirements } = await import("./db");
-        return await calculateMaterialRequirements(input.batchId);
+        return await calculateMaterialRequirements(input.batchId, ctx.user.tenantId);
       }),
 
     // 생산 능력 분석 (일별/주별)
@@ -7828,7 +7875,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { analyzeProductionCapacity } = await import("./db");
-        return await analyzeProductionCapacity(input);
+        return await analyzeProductionCapacity({ ...input, tenantId: ctx.user.tenantId });
       }),
 
     // 제품별 생산 능력 분석
@@ -7842,7 +7889,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { analyzeProductionCapacityByProduct } = await import("./db");
-        return await analyzeProductionCapacityByProduct(input);
+        return await analyzeProductionCapacityByProduct({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 생산 일정 최적화 제안 조회
@@ -7853,7 +7900,7 @@ ai: aiRouter,
       }))
       .query(async ({ input, ctx }) => {
         const { optimizeProductionSchedule } = await import("./db");
-        return await optimizeProductionSchedule(input);
+        return await optimizeProductionSchedule({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 최적화 제안 적용 (배치 일정 변경)
@@ -7864,7 +7911,7 @@ ai: aiRouter,
       }))
       .mutation(async ({ input, ctx }) => {
         const { applyScheduleOptimization } = await import("./db");
-        return await applyScheduleOptimization(input);
+        return await applyScheduleOptimization({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 배치별 원가 분석
@@ -7877,7 +7924,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getBatchCostAnalysis } = await import("./db");
-        return await getBatchCostAnalysis(input);
+        return await getBatchCostAnalysis({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 생산 시간 추이 분석
@@ -7890,7 +7937,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getProductionTimeAnalysis } = await import("./db");
-        return await getProductionTimeAnalysis(input);
+        return await getProductionTimeAnalysis({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 불량률 분석
@@ -7903,7 +7950,7 @@ ai: aiRouter,
       )
       .query(async ({ input, ctx }) => {
         const { getDefectRateAnalysis } = await import("./db");
-        return await getDefectRateAnalysis(input);
+        return await getDefectRateAnalysis({ ...input, tenantId: ctx.user.tenantId });
       })
   }),
 
@@ -7939,7 +7986,428 @@ ai: aiRouter,
       .query(async ({ input, ctx }) => {
         const { getDailySummary } = await import("./db/dailyReport");
         return await getDailySummary(input.date, ctx.user.tenantId);
-      })
+      }),
+
+    // 자동 생성된 생산일보 조회 (배치잡이 생성한 production_daily 레코드)
+    getGeneratedReport: protectedProcedure
+      .input(z.object({ date: z.string() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        try {
+          const result = await db.execute(sql`
+            SELECT id, report_date, summary, generated_at
+            FROM h_daily_reports
+            WHERE tenant_id = ${ctx.user.tenantId}
+              AND report_date = ${input.date}
+              AND report_type = 'production_daily'
+            LIMIT 1
+          `);
+          const rows = (result as any)[0] || [];
+          if (!(rows as any[]).length) return null;
+          const row = (rows as any[])[0];
+          let summary: any = {};
+          try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
+          return {
+            id: row.id,
+            reportDate: row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date),
+            summary,
+            generatedAt: row.generated_at,
+          };
+        } catch (err) {
+          console.error('[dailyReport.getGeneratedReport]', err);
+          return null;
+        }
+      }),
+
+    // 수동으로 생산일보 생성/재생성 (관리자용)
+    regenerateReport: protectedProcedure
+      .input(z.object({ date: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const tenantId = ctx.user.tenantId;
+        const dateStr = input.date;
+
+        // 배치 기본 정보 + SKU 생산량 + 파이프라인 상태 + 승인 시각 + CCP 기록 시각
+        const batchResult = await db.execute(sql`
+          SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
+            b.start_time, b.end_time, b.planned_date,
+            p.product_name, p.product_code,
+            COALESCE(sku.total_kg_sum, 0) as sku_actual_kg,
+            COALESCE(pp.actual_quantity, 0) as perf_actual_quantity,
+            ps.start_time as prod_start_time,
+            ar.status as pipeline_status,
+            ar.approved_at as pipeline_approved_at,
+            ccp_time.ccp_first_time,
+            ccp_time.ccp_last_time
+          FROM h_batches b
+          LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
+          LEFT JOIN (
+            SELECT batch_id, SUM(total_kg) as total_kg_sum
+            FROM production_sku_output
+            WHERE tenant_id = ${tenantId}
+            GROUP BY batch_id
+          ) sku ON sku.batch_id = b.id
+          LEFT JOIN h_production_performance pp ON pp.batch_id = b.id AND pp.tenant_id = ${tenantId}
+          LEFT JOIN h_production_start ps ON ps.batch_id = b.id AND ps.tenant_id = ${tenantId}
+          LEFT JOIN h_approval_requests ar
+            ON ar.reference_id = b.id
+            AND ar.reference_type = 'batch'
+            AND ar.request_type = 'batch_production'
+            AND ar.tenant_id = ${tenantId}
+          LEFT JOIN (
+            SELECT fr2.batch_id,
+              MIN(r2.measurement_time) as ccp_first_time,
+              MAX(r2.measurement_time) as ccp_last_time
+            FROM h_ccp_form_records fr2
+            JOIN h_ccp_form_rows r2 ON r2.form_record_id = fr2.id AND r2.tenant_id = ${tenantId}
+            WHERE fr2.tenant_id = ${tenantId}
+              AND r2.measurement_time IS NOT NULL
+            GROUP BY fr2.batch_id
+          ) ccp_time ON ccp_time.batch_id = b.id
+          WHERE b.tenant_id = ${tenantId}
+            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+          ORDER BY b.created_at ASC
+        `);
+        const batches = Array.isArray(batchResult) && Array.isArray(batchResult[0]) ? batchResult[0] : batchResult;
+
+        // 배치별 CCP 상세 정보
+        const ccpDetailResult = await db.execute(sql`
+          SELECT fr.batch_id, fr.ccp_type, fr.status as ccp_status,
+            COUNT(r.id) as row_count,
+            SUM(CASE WHEN r.is_deviation = 0 THEN 1 ELSE 0 END) as pass_count,
+            SUM(CASE WHEN r.is_deviation = 1 THEN 1 ELSE 0 END) as fail_count
+          FROM h_ccp_form_records fr
+          INNER JOIN h_batches b ON fr.batch_id = b.id
+          LEFT JOIN h_ccp_form_rows r ON r.form_record_id = fr.id AND r.tenant_id = ${tenantId}
+          WHERE fr.tenant_id = ${tenantId}
+            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+          GROUP BY fr.batch_id, fr.ccp_type, fr.status
+        `);
+        const ccpDetails = Array.isArray(ccpDetailResult) && Array.isArray(ccpDetailResult[0]) ? ccpDetailResult[0] : ccpDetailResult;
+
+        const ccpResult = await db.execute(sql`
+          SELECT COUNT(fr.id) as total_ccp,
+            SUM(CASE WHEN EXISTS (
+              SELECT 1 FROM h_ccp_form_rows r WHERE r.form_record_id = fr.id AND r.is_deviation = 1
+            ) THEN 1 ELSE 0 END) as deviation_count
+          FROM h_ccp_form_records fr
+          INNER JOIN h_batches b ON fr.batch_id = b.id
+          WHERE fr.tenant_id = ${tenantId}
+            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+        `);
+        const ccpStatsRaw = (ccpResult as any)[0]?.[0] || { total_ccp: 0, deviation_count: 0 };
+        const ccpStats = {
+          total_ccp: Number(ccpStatsRaw.total_ccp) || 0,
+          normal_count: (Number(ccpStatsRaw.total_ccp) || 0) - (Number(ccpStatsRaw.deviation_count) || 0),
+          deviation_count: Number(ccpStatsRaw.deviation_count) || 0,
+        };
+
+        const issueResult = await db.execute(sql`
+          SELECT r.id as row_id, r.is_deviation, r.deviation_note as note, r.measurement_time,
+            fr.ccp_type, b.batch_code, p.product_name, fr.work_date
+          FROM h_ccp_form_rows r
+          INNER JOIN h_ccp_form_records fr ON r.form_record_id = fr.id
+          INNER JOIN h_batches b ON fr.batch_id = b.id
+          LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ${tenantId}
+          WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
+            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+          ORDER BY r.measurement_time ASC
+        `);
+        const issues = Array.isArray(issueResult) && Array.isArray(issueResult[0]) ? issueResult[0] : issueResult;
+
+        const clResult = await db.execute(sql`
+          SELECT id, status FROM h_generic_checklist_records
+          WHERE form_type = 'daily_log' AND form_date = ${dateStr} AND tenant_id = ${tenantId}
+          LIMIT 1
+        `);
+        const clRows = (clResult as any)[0] || [];
+        let checklistInfo: any = null;
+        if ((clRows as any[]).length > 0) {
+          checklistInfo = { id: (clRows as any[])[0].id, status: (clRows as any[])[0].status };
+        }
+
+        // CCP 상세 맵 생성 (batch_id -> ccpDetails)
+        const ccpByBatch = new Map<number, any[]>();
+        for (const c of (ccpDetails as any[])) {
+          const bId = Number(c.batch_id);
+          if (!ccpByBatch.has(bId)) ccpByBatch.set(bId, []);
+          ccpByBatch.get(bId)!.push({
+            ccpType: c.ccp_type, status: c.ccp_status,
+            rowCount: Number(c.row_count || 0), passCount: Number(c.pass_count || 0), failCount: Number(c.fail_count || 0),
+          });
+        }
+
+        // 배치 파이프라인 상태 매핑
+        const mapPipelineStatus = (batchStatus: string, pipelineStatus: string | null): string => {
+          if (pipelineStatus === 'approved') return 'completed';
+          if (pipelineStatus === 'pending_review' || pipelineStatus === 'pending_approval') return 'in_progress';
+          if (pipelineStatus === 'rejected') return 'rejected';
+          if (batchStatus === 'completed') return 'completed';
+          if (batchStatus === 'in_progress') return 'in_progress';
+          if (batchStatus === 'approved') return 'in_progress';
+          return batchStatus;
+        };
+
+        const batchList = (batches as any[]).map((b: any) => {
+          const actualQty = parseFloat(b.sku_actual_kg || '0') || parseFloat(b.actual_quantity || '0') || parseFloat(b.perf_actual_quantity || '0') || 0;
+          let startTime: string | null = null;
+          if (b.ccp_first_time) { startTime = dateStr + ' ' + String(b.ccp_first_time); }
+          else if (b.start_time) { startTime = String(b.start_time); }
+          else if (b.prod_start_time) { startTime = String(b.prod_start_time); }
+          let endTime: string | null = null;
+          if (b.ccp_last_time) { endTime = dateStr + ' ' + String(b.ccp_last_time); }
+          else if (b.end_time) { endTime = String(b.end_time); }
+          else if (b.pipeline_approved_at) { endTime = String(b.pipeline_approved_at); }
+          const status = mapPipelineStatus(b.status, b.pipeline_status);
+          return {
+            batchId: b.id, batchCode: b.batch_code, productName: b.product_name || '미확인',
+            productCode: b.product_code || '', plannedQuantity: parseFloat(b.planned_quantity || '0'),
+            actualQuantity: actualQty, status, pipelineStatus: b.pipeline_status || null,
+            startTime, endTime,
+            ccpDetails: ccpByBatch.get(Number(b.id)) || [],
+          };
+        });
+        const totalPlanned = batchList.reduce((s: number, b: any) => s + b.plannedQuantity, 0);
+        const totalActual = batchList.reduce((s: number, b: any) => s + b.actualQuantity, 0);
+
+        const reportSummary = {
+          date: dateStr, tenantId, autoGenerated: false, generatedAt: new Date().toISOString(),
+          production: {
+            batches: batchList, totalBatches: batchList.length,
+            completedBatches: batchList.filter((b: any) => b.status === 'completed').length,
+            activeBatches: batchList.filter((b: any) => b.status === 'in_progress').length,
+            totalPlannedQty: totalPlanned, totalActualQty: totalActual,
+            achievementRate: totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0,
+          },
+          ccp: {
+            totalRecords: Number(ccpStats.total_ccp) || 0,
+            normalCount: ccpStats.normal_count,
+            deviationCount: ccpStats.deviation_count,
+            complianceRate: ccpStats.total_ccp > 0
+              ? ((ccpStats.total_ccp - ccpStats.deviation_count) / ccpStats.total_ccp * 100).toFixed(1)
+              : '100.0',
+          },
+          issues: (issues as any[]).map((i: any) => ({
+            rowId: i.row_id, batchCode: i.batch_code, productName: i.product_name,
+            ccpType: i.ccp_type, result: i.is_deviation ? 'FAIL' : 'PASS', note: i.note,
+            measuredAt: i.measurement_time ? dateStr + ' ' + String(i.measurement_time) : null,
+          })),
+          checklist: checklistInfo,
+        };
+
+        const existing = await db.execute(sql`
+          SELECT id FROM h_daily_reports
+          WHERE tenant_id = ${tenantId} AND report_date = ${dateStr} AND report_type = 'production_daily'
+          LIMIT 1
+        `);
+        const existRows = (existing as any)[0] || [];
+        if ((existRows as any[]).length > 0) {
+          await db.execute(sql`
+            UPDATE h_daily_reports SET summary = ${JSON.stringify(reportSummary)}, generated_at = NOW()
+            WHERE id = ${(existRows as any[])[0].id}
+          `);
+        } else {
+          await db.execute(sql`
+            INSERT INTO h_daily_reports (site_id, report_date, report_type, summary, generated_at, tenant_id)
+            VALUES (0, ${dateStr}, 'production_daily', ${JSON.stringify(reportSummary)}, NOW(), ${tenantId})
+          `);
+        }
+
+        return { success: true, message: dateStr + ' 생산일보 생성 완료 (배치 ' + batchList.length + '건)' };
+      }),
+
+    // 월별 생산일보 리스트 조회
+    listReports: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        try {
+          const startDate = `${input.year}-${String(input.month).padStart(2, '0')}-01`;
+          const endMonth = input.month === 12 ? 1 : input.month + 1;
+          const endYear = input.month === 12 ? input.year + 1 : input.year;
+          const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
+          // 승인 설정 조회 (설정된 작성/검토/승인 담당자)
+          const settingResult = await db.execute(sql`
+            SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
+              e_a.name as cfg_author_name, e_r.name as cfg_reviewer_name, e_p.name as cfg_approver_name
+            FROM h_document_approval_settings das
+            LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${ctx.user.tenantId}
+            LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${ctx.user.tenantId}
+            LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${ctx.user.tenantId}
+            WHERE das.tenant_id = ${ctx.user.tenantId}
+              AND das.document_type IN ('production_daily', 'batch_production')
+              AND das.is_active = 1
+            ORDER BY FIELD(das.document_type, 'production_daily', 'batch_production')
+            LIMIT 1
+          `);
+          const cfgRows = (settingResult as any)[0] || [];
+          const cfg = (cfgRows as any[])[0] || {};
+
+          const result = await db.execute(sql`
+            SELECT dr.id, dr.report_date, dr.summary, dr.generated_at,
+              ar.id as approval_id, ar.status as approval_status,
+              ar.requested_at, ar.approved_at, ar.approved_by,
+              u_req.name as requester_name, u_app.name as approver_name,
+              u_rev.name as reviewer_name, ar.reviewed_at,
+              ar.requested_by
+            FROM h_daily_reports dr
+            LEFT JOIN h_approval_requests ar
+              ON ar.reference_type = 'daily_report'
+              AND ar.reference_id = dr.id
+              AND ar.request_type = 'production_daily'
+              AND ar.tenant_id = ${ctx.user.tenantId}
+            LEFT JOIN users u_req ON u_req.id = ar.requested_by
+            LEFT JOIN users u_app ON u_app.id = ar.approved_by
+            LEFT JOIN users u_rev ON u_rev.id = ar.reviewed_by
+            WHERE dr.tenant_id = ${ctx.user.tenantId}
+              AND dr.report_type = 'production_daily'
+              AND dr.report_date >= ${startDate}
+              AND dr.report_date < ${endDate}
+            ORDER BY dr.report_date DESC
+          `);
+          const rows = (result as any)[0] || [];
+          return (rows as any[]).map((row: any) => {
+            let summary: any = {};
+            try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
+            return {
+              id: row.id,
+              reportDate: row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date),
+              generatedAt: row.generated_at,
+              totalBatches: summary?.production?.totalBatches || 0,
+              completedBatches: summary?.production?.completedBatches || 0,
+              totalPlannedQty: summary?.production?.totalPlannedQty || 0,
+              totalActualQty: summary?.production?.totalActualQty || 0,
+              achievementRate: summary?.production?.achievementRate || 0,
+              ccpTotal: summary?.ccp?.totalRecords || 0,
+              ccpDeviation: summary?.ccp?.deviationCount || 0,
+              issueCount: summary?.issues?.length || 0,
+              approvalId: row.approval_id || null,
+              approvalStatus: row.approval_status || null,
+              // 승인설정의 역할 이름을 우선 사용 (설정된 작성/검토/승인 담당자 표시)
+              requesterName: cfg.cfg_author_name || row.requester_name || null,
+              approverName: cfg.cfg_approver_name || row.approver_name || null,
+              reviewerName: cfg.cfg_reviewer_name || row.reviewer_name || null,
+              approvedAt: row.approved_at || null,
+              reviewedAt: row.reviewed_at || null,
+              requestedAt: row.requested_at || null,
+            };
+          });
+        } catch (err) {
+          console.error('[dailyReport.listReports]', err);
+          return [];
+        }
+      }),
+
+    // 생산일보 승인 요청 (승인함으로 보내기)
+    submitForApproval: protectedProcedure
+      .input(z.object({ reportId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb, getRawConnection } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const tenantId = ctx.user.tenantId;
+        const rptResult = await db.execute(sql`
+          SELECT id, report_date, summary FROM h_daily_reports
+          WHERE id = ${input.reportId} AND tenant_id = ${tenantId} AND report_type = 'production_daily'
+          LIMIT 1
+        `);
+        const rptRows = (rptResult as any)[0] || [];
+        if (!(rptRows as any[]).length) throw new Error("생산일보를 찾을 수 없습니다.");
+        const rpt = (rptRows as any[])[0];
+        let summary: any = {};
+        try { summary = typeof rpt.summary === 'string' ? JSON.parse(rpt.summary) : rpt.summary; } catch {}
+        const dateStr = rpt.report_date instanceof Date ? rpt.report_date.toISOString().split('T')[0] : String(rpt.report_date);
+        const batchCount = summary?.production?.totalBatches || 0;
+
+        // 승인 설정 조회 (production_daily 우선, batch_production fallback)
+        // 승인 설정에서 h_employees의 user_id로 매핑
+        const settingResult = await db.execute(sql`
+          SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
+            e_a.user_id as author_user_id, e_r.user_id as reviewer_user_id, e_p.user_id as approver_user_id
+          FROM h_document_approval_settings das
+          LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${tenantId}
+          LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${tenantId}
+          LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${tenantId}
+          WHERE das.tenant_id = ${tenantId}
+            AND das.document_type IN ('production_daily', 'batch_production')
+            AND is_active = 1
+          ORDER BY FIELD(das.document_type, 'production_daily', 'batch_production')
+          LIMIT 1
+        `);
+        const settingRows = (settingResult as any)[0] || [];
+        const setting = (settingRows as any[])[0] || null;
+        const authorId = setting?.author_user_id || ctx.user.id;
+
+        // 기존 승인 요청 확인
+        const existResult = await db.execute(sql`
+          SELECT id FROM h_approval_requests
+          WHERE reference_type = 'daily_report' AND reference_id = ${input.reportId}
+            AND request_type = 'production_daily' AND tenant_id = ${tenantId}
+          LIMIT 1
+        `);
+        const existRows = (existResult as any)[0] || [];
+        if ((existRows as any[]).length > 0) {
+          await db.execute(sql`
+            UPDATE h_approval_requests
+            SET status = 'pending_review',
+                requested_by = ${authorId},
+                requested_at = NOW(),
+                reviewed_by = NULL, reviewed_at = NULL,
+                approved_by = NULL, approved_at = NULL
+            WHERE id = ${(existRows as any[])[0].id}
+          `);
+          return { success: true, message: `${dateStr} 생산일지 승인 재요청 완료` };
+        }
+        const pool = await getRawConnection();
+        await pool.execute(
+          `INSERT INTO h_approval_requests
+            (site_id, tenant_id, request_type, reference_type, reference_id,
+             title, description, status, priority, requested_by)
+           VALUES (?, ?, 'production_daily', 'daily_report', ?, ?, ?, 'pending_review', 'medium', ?)`,
+          [
+            ctx.user.siteId || 1, tenantId, input.reportId,
+            `생산일지 - ${dateStr}`,
+            `${dateStr} 생산일지\n배치: ${batchCount}건\nCCP: ${summary?.ccp?.totalRecords || 0}건`,
+            authorId,
+          ]
+        );
+        return { success: true, message: `${dateStr} 생산일지 승인 요청 완료 (배치 ${batchCount}건)` };
+      }),
+
+    // 생산일보 일괄 삭제
+    deleteReports: protectedProcedure
+      .input(z.object({ ids: z.array(z.number()) }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const tenantId = ctx.user.tenantId;
+        let deleted = 0;
+        for (const id of input.ids) {
+          await db.execute(sql`
+            DELETE FROM h_approval_requests
+            WHERE reference_type = 'daily_report' AND reference_id = ${id}
+              AND request_type = 'production_daily' AND tenant_id = ${tenantId}
+          `);
+          await db.execute(sql`
+            DELETE FROM h_daily_reports
+            WHERE id = ${id} AND tenant_id = ${tenantId} AND report_type = 'production_daily'
+          `);
+          deleted++;
+        }
+        return { success: true, message: `${deleted}건 삭제 완료` };
+      }),
   }),
 
   // 배치 생산 대시보드 (Production Dashboard)
@@ -8073,14 +8541,14 @@ ai: aiRouter,
       }))
       .query(async ({ input, ctx }) => {
         const { optimizeProductionSchedule } = await import("./api/scheduleOptimization");
-        return await optimizeProductionSchedule(input);
+        return await optimizeProductionSchedule({ ...input, tenantId: ctx.user.tenantId });
       }),
     
     // 재고 수준 기반 생산 우선순위 계산
     getPriority: protectedProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { calculateProductionPriority } = await import("./api/scheduleOptimization");
-        return await calculateProductionPriority();
+        return await calculateProductionPriority(ctx.user.tenantId);
       })
   }),
 
@@ -9895,205 +10363,7 @@ ai: aiRouter,
   weeklyLog: weeklyLogsRouter,
   monthlyLog: monthlyLogsRouter,
   yearlyLog: yearlyLogsRouter,
-  dailyLog: router({
-    // 일일일지 생성 (단절3 보강 - 실제 구현)
-    create: protectedProcedure
-      .input(z.object({
-        logDate: z.string(),
-        siteId: z.number().optional(),
-        batchId: z.number().optional(),
-        notes: z.string().optional()
-      }))
-      .mutation(async ({ input, ctx }) => {
-        try {
-          const db = await getDb();
-          if (!db) throw new Error("데이터베이스 연결 실패");
-          
-          // 해당 날짜의 배치 정보 조회 (테넌트 격리)
-          const batchData = await db.execute(sql`
-            SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
-                   p.product_name, p.id as product_id
-            FROM h_batches b
-            LEFT JOIN h_products_v2 p ON b.product_id = p.id
-            WHERE DATE(b.planned_date) = ${input.logDate}
-            AND b.tenant_id = ${ctx.user.tenantId}
-            ${input.siteId ? sql`AND b.site_id = ${input.siteId}` : sql``}
-            ${input.batchId ? sql`AND b.id = ${input.batchId}` : sql``}
-          `);
-          
-          // CCP 기록 조회 (테넌트 격리)
-          const ccpData = await db.execute(sql`
-            SELECT ci.id, ci.batch_id, ci.status, ci.measured_value, ci.result,
-                   cc.ccp_name, cc.hazard_type
-            FROM h_ccp_instances ci
-            LEFT JOIN h_ccp_criteria cc ON ci.ccp_criteria_id = cc.id
-            WHERE DATE(ci.work_date) = ${input.logDate}
-            AND ci.tenant_id = ${ctx.user.tenantId}
-            ${input.siteId ? sql`AND ci.site_id = ${input.siteId}` : sql``}
-          `);
-          
-          // 일일일지 요약 생성
-          const batches = Array.isArray(batchData) && Array.isArray(batchData[0]) ? batchData[0] : ((batchData as any).rows || batchData);
-          const ccpRecords = Array.isArray(ccpData) && Array.isArray(ccpData[0]) ? ccpData[0] : ((ccpData as any).rows || ccpData);
-          
-          const summary = {
-            date: input.logDate,
-            totalBatches: batches.length,
-            completedBatches: batches.filter((b: any) => b.status === 'completed').length,
-            inProgressBatches: batches.filter((b: any) => b.status === 'in_progress').length,
-            totalCcpChecks: ccpRecords.length,
-            passedCcpChecks: ccpRecords.filter((c: any) => c.result === 'pass' || c.status === 'completed').length,
-            failedCcpChecks: ccpRecords.filter((c: any) => c.result === 'fail' || c.result === 'deviation').length,
-            products: [...new Set(batches.map((b: any) => b.product_name).filter(Boolean))],
-            notes: input.notes || ''
-          };
-          
-          // h_daily_reports 테이블에 저장
-          const reportResult = await db.execute(sql`
-            INSERT INTO h_daily_reports (site_id, report_date, report_type, summary, generated_at, tenant_id)
-            VALUES (
-              ${input.siteId},
-              ${input.logDate},
-              'daily_log',
-              ${JSON.stringify(summary)},
-              NOW(),
-              ${ctx.user.tenantId}
-            )
-            ON DUPLICATE KEY UPDATE summary = ${JSON.stringify(summary)}, generated_at = NOW()
-          `);
-          
-          const reportId = (reportResult as any).insertId || 1;
-          
-          console.log(`[파이프라인] 일일일지 생성 완료: ${input.logDate}, 배치 ${summary.totalBatches}건, CCP ${summary.totalCcpChecks}건`);
-          
-          return {
-            success: true,
-            id: reportId,
-            summary,
-            message: `일일일지가 생성되었습니다. (배치 ${summary.totalBatches}건, CCP ${summary.totalCcpChecks}건)`
-          };
-        } catch (error) {
-          console.error('[dailyLog.create] 오류:', error);
-          throw new TRPCError({
-            code: 'INTERNAL_SERVER_ERROR',
-            message: error instanceof Error ? error.message : '일일일지 생성 중 오류가 발생했습니다.'
-          });
-        }
-      }),
-    
-    // 일일일지 조회
-    getByDate: protectedProcedure
-      .input(z.object({
-        logDate: z.string(),
-        siteId: z.number().optional()
-      }))
-      .query(async ({ input, ctx }) => {
-        try {
-          const db = await getDb();
-          if (!db) throw new Error("데이터베이스 연결 실패");
-          
-          const result = await db.execute(sql`
-            SELECT id, site_id, report_date, report_type, summary, generated_at
-            FROM h_daily_reports
-            WHERE report_date = ${input.logDate}
-            AND tenant_id = ${ctx.user.tenantId}
-            ${input.siteId ? sql`AND site_id = ${input.siteId}` : sql``}
-            AND report_type = 'daily_log'
-            ORDER BY generated_at DESC
-            LIMIT 1
-          `);
-          
-          const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
-          if ((rows as any[]).length === 0) return null;
-          
-          const report = (rows as any[])[0];
-          return {
-            id: report.id,
-            siteId: report.site_id,
-            reportDate: report.report_date,
-            summary: typeof report.summary === 'string' ? JSON.parse(report.summary) : report.summary,
-            generatedAt: report.generated_at
-          };
-        } catch (error) {
-          console.error('[dailyLog.getByDate] 오류:', error);
-          return null;
-        }
-      }),
-    
-    // 일일일지 목록 조회 (h_generic_checklist_records 기반 - 실제 양식 데이터)
-    list: protectedProcedure
-      .input(z.object({
-        siteId: z.number().optional(),
-        startDate: z.string().optional(),
-        endDate: z.string().optional(),
-        status: z.string().optional(),
-        limit: z.number().default(50),
-        offset: z.number().default(0)
-      }).optional())
-      .query(async ({ input = { limit: 50, offset: 0 }, ctx }) => {
-        try {
-          const db = await getDb();
-          if (!db) throw new Error("데이터베이스 연결 실패");
-          
-          // h_generic_checklist_records에서 daily_log 타입 조회 (실제 양식 데이터)
-          const result = await db.execute(sql`
-            SELECT 
-              r.id,
-              r.site_id,
-              r.form_date AS log_date,
-              r.title,
-              r.status,
-              r.form_data,
-              r.created_at,
-              r.updated_at,
-              u.name AS creator_name,
-              ar.id AS approval_request_id,
-              ar.status AS approval_status
-            FROM h_generic_checklist_records r
-            LEFT JOIN users u ON r.created_by = u.id
-            LEFT JOIN h_approval_requests ar ON (
-              ar.reference_type = 'checklist' 
-              AND ar.reference_id = r.id 
-              AND ar.request_type = 'daily_log'
-            )
-            WHERE r.form_type = 'daily_log'
-            AND r.tenant_id = ${ctx.user.tenantId}
-            ${input?.siteId ? sql`AND r.site_id = ${input.siteId}` : sql``}
-            ${input?.startDate ? sql`AND r.form_date >= ${input.startDate}` : sql``}
-            ${input?.endDate ? sql`AND r.form_date <= ${input.endDate}` : sql``}
-            ${input?.status ? sql`AND r.status = ${input.status}` : sql``}
-            ORDER BY r.form_date DESC, r.created_at DESC
-            LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
-          `);
-          
-          const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
-          return (rows as any[]).map((r: any) => {
-            let formData: any = {};
-            try {
-              formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
-            } catch {}
-            return {
-              id: r.id,
-              siteId: r.site_id,
-              log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
-              title: r.title,
-              status: r.status,
-              creator_name: r.creator_name,
-              approval_request_id: r.approval_request_id,
-              approval_status: r.approval_status,
-              batches: formData.batches || [],
-              totalBatches: formData.totalBatches || 0,
-              totalPlannedQty: formData.totalPlannedQty || 0,
-              createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || ''),
-              updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || ''),
-            };
-          });
-        } catch (error) {
-          console.error('[dailyLog.list] 오류:', error);
-          return [];
-        }
-      })
-  }),
+  dailyLog: dailyLogRouter,
   // ============================================================================
   // 문서 승인 라우터 (단절 5 보강 - 일괄 승인 포함)
   // ============================================================================
@@ -10841,6 +11111,330 @@ ai: aiRouter,
           batches: syncedBatches,
           emptyBatchCount: (emptyRecords as any[]).length,
         };
+      }),
+  }),
+
+  // 육안검사일지 (Visual Inspection Log)
+  visualInspection: router({
+    // 테이블 생성 (최초 1회)
+    initTables: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { createVisualInspectionTables } = await import("./db/visualInspection");
+        return await createVisualInspectionTables(db);
+      }),
+
+    // 월별 리스트
+    list: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return [];
+        try {
+          // 자동으로 테이블 생성 확인
+          const { createVisualInspectionTables, listVisualInspectionLogs } = await import("./db/visualInspection");
+          await createVisualInspectionTables(db);
+          return await listVisualInspectionLogs(db, ctx.user.tenantId, input.year, input.month);
+        } catch (err) {
+          console.error('[visualInspection.list]', err);
+          return [];
+        }
+      }),
+
+    // 상세 조회
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return null;
+        try {
+          const { getVisualInspectionLog } = await import("./db/visualInspection");
+          return await getVisualInspectionLog(db, ctx.user.tenantId, input.id);
+        } catch (err) {
+          console.error('[visualInspection.getById]', err);
+          return null;
+        }
+      }),
+
+    // 생성
+    create: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { createVisualInspectionTables, createVisualInspectionLog } = await import("./db/visualInspection");
+        await createVisualInspectionTables(db);
+        return await createVisualInspectionLog(db, ctx.user.tenantId, ctx.user.siteId || 1, input.year, input.month, ctx.user.id);
+      }),
+
+    // 항목 저장
+    saveItems: protectedProcedure
+      .input(z.object({
+        logId: z.number(),
+        items: z.array(z.object({
+          receiptDate: z.string().default(''),
+          productName: z.string().default(''),
+          importCertOrigin: z.string().default(''),
+          testReportAvail: z.string().default('—'),
+          expiryDate: z.string().default(''),
+          manufactureDate: z.string().default(''),
+          qualityRetainDate: z.string().default(''),
+          vehicleTemp: z.string().default('—'),
+          vehicleCondition: z.string().default('—'),
+          palletCondition: z.string().default('—'),
+          normalApproved: z.string().default('—'),
+          foreignMatter: z.string().default('—'),
+          labelAllergen: z.string().default('—'),
+          labelManager: z.string().default('—'),
+          compliance: z.string().default('적합'),
+          correctiveAction: z.string().default(''),
+          note: z.string().default(''),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { saveVisualInspectionItems } = await import("./db/visualInspection");
+        return await saveVisualInspectionItems(db, ctx.user.tenantId, input.logId, input.items);
+      }),
+
+    // 삭제
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { deleteVisualInspectionLog } = await import("./db/visualInspection");
+        return await deleteVisualInspectionLog(db, ctx.user.tenantId, input.id);
+      }),
+
+    // 승인 요청
+    submitForApproval: protectedProcedure
+      .input(z.object({ logId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb, getRawConnection } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const pool = await getRawConnection();
+        const { submitVisualInspectionApproval } = await import("./db/visualInspection");
+        return await submitVisualInspectionApproval(
+          db, pool, ctx.user.tenantId, ctx.user.siteId || 1, input.logId, ctx.user.id
+        );
+      }),
+
+    // 월간 자동 생성/조회
+    getOrCreateMonthly: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { createVisualInspectionTables, getOrCreateMonthlyLog } = await import("./db/visualInspection");
+        await createVisualInspectionTables(db);
+        return await getOrCreateMonthlyLog(db, ctx.user.tenantId, ctx.user.siteId || 1, input.year, input.month, ctx.user.id);
+      }),
+
+    // 원재료 입고 데이터 자동 가져오기
+    fetchMaterialReceivings: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return [];
+        try {
+          const { fetchMaterialReceivingsForMonth } = await import("./db/visualInspection");
+          return await fetchMaterialReceivingsForMonth(db, ctx.user.tenantId, input.year, input.month);
+        } catch (err) {
+          console.error('[visualInspection.fetchMaterialReceivings]', err);
+          return [];
+        }
+      }),
+
+    // 이전 입력 데이터 기반 자동완성 (품명별 최신 값)
+    fetchPreviousDefaults: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return {};
+        try {
+          const { fetchPreviousItemDefaults } = await import("./db/visualInspection");
+          return await fetchPreviousItemDefaults(db, ctx.user.tenantId, input.year, input.month);
+        } catch (err) {
+          console.error('[visualInspection.fetchPreviousDefaults]', err);
+          return {};
+        }
+      }),
+  }),
+
+  // ========== 완제품 출고검사일지 ==========
+  finishedProductInspection: router({
+    getOrCreateMonthly: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { getOrCreateFinishedProductLog } = await import("./db/visualInspection");
+        return await getOrCreateFinishedProductLog(db, ctx.user.tenantId, ctx.user.siteId || 1, input.year, input.month, ctx.user.id);
+      }),
+
+    getById: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return null;
+        try {
+          const { getFinishedProductLog } = await import("./db/visualInspection");
+          return await getFinishedProductLog(db, ctx.user.tenantId, input.id);
+        } catch (err) {
+          console.error('[finishedProductInspection.getById]', err);
+          return null;
+        }
+      }),
+
+    saveItems: protectedProcedure
+      .input(z.object({
+        logId: z.number(),
+        items: z.array(z.object({
+          shipDate: z.string().default(''),
+          productName: z.string().default(''),
+          lotNumber: z.string().default(''),
+          quantity: z.string().default(''),
+          packagingStatus: z.string().default('○'),
+          labelStatus: z.string().default('○'),
+          temperature: z.string().default(''),
+          result: z.string().default('적합'),
+          correctiveAction: z.string().default(''),
+          note: z.string().default(''),
+          batchId: z.number().nullable().optional(),
+        })),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { saveFinishedProductItems } = await import("./db/visualInspection");
+        return await saveFinishedProductItems(db, ctx.user.tenantId, input.logId, input.items);
+      }),
+
+    delete: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { deleteFinishedProductLog } = await import("./db/visualInspection");
+        return await deleteFinishedProductLog(db, ctx.user.tenantId, input.id);
+      }),
+
+    submitForApproval: protectedProcedure
+      .input(z.object({ logId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb, getRawConnection } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const pool = await getRawConnection();
+        const { submitFinishedProductApproval } = await import("./db/visualInspection");
+        return await submitFinishedProductApproval(db, pool, ctx.user.tenantId, ctx.user.siteId || 1, input.logId, ctx.user.id);
+      }),
+
+    fetchBatches: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return [];
+        try {
+          const { fetchCompletedBatchesForMonth } = await import("./db/visualInspection");
+          return await fetchCompletedBatchesForMonth(db, ctx.user.tenantId, input.year, input.month);
+        } catch (err) {
+          console.error('[finishedProductInspection.fetchBatches]', err);
+          return [];
+        }
+      }),
+
+    // 이전 입력 데이터 기반 자동완성 (제품명별 최신 값)
+    fetchPreviousDefaults: protectedProcedure
+      .input(z.object({ year: z.number(), month: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return {};
+        try {
+          const { fetchPreviousFinishedProductDefaults } = await import("./db/visualInspection");
+          return await fetchPreviousFinishedProductDefaults(db, ctx.user.tenantId, input.year, input.month);
+        } catch (err) {
+          console.error('[finishedProductInspection.fetchPreviousDefaults]', err);
+          return {};
+        }
+      }),
+  }),
+
+  // ========== LOT 관리 - 원재료 입고/추적 ==========
+  lotManagement: router({
+    // 원재료 입고 + LOT 자동 생성
+    createReceivingWithLot: protectedProcedure
+      .input(z.object({
+        materialId: z.number(),
+        materialCode: z.string(),
+        quantity: z.number(),
+        unit: z.string().default('kg'),
+        unitPrice: z.number().optional(),
+        supplierName: z.string().optional(),
+        expiryDate: z.string().optional(),
+        receiptDate: z.string().optional(),
+        notes: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb, getRawConnection } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const pool = await getRawConnection();
+        const { createMaterialReceivingWithLot } = await import("./db/visualInspection");
+        return await createMaterialReceivingWithLot(db, pool, ctx.user.tenantId, {
+          ...input,
+          userId: ctx.user.id,
+        });
+      }),
+
+    // LOT 이력 조회 (입고→사용→출고 추적)
+    getLotHistory: protectedProcedure
+      .input(z.object({
+        materialId: z.number().optional(),
+        lotNumber: z.string().optional(),
+        limit: z.number().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("./db");
+        const db = await getDb();
+        if (!db) return [];
+        try {
+          const { getMaterialLotHistory } = await import("./db/visualInspection");
+          return await getMaterialLotHistory(db, ctx.user.tenantId, input);
+        } catch (err) {
+          console.error('[lotManagement.getLotHistory]', err);
+          return [];
+        }
+      }),
+
+    // 기존 입고 건 LOT 일괄 생성 (backfill)
+    backfillLots: protectedProcedure
+      .mutation(async ({ ctx }) => {
+        const { getDb, getRawConnection } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const pool = await getRawConnection();
+        const { backfillMaterialReceivingLots } = await import("./db/visualInspection");
+        return await backfillMaterialReceivingLots(db, pool, ctx.user.tenantId, ctx.user.id);
       }),
   }),
 });

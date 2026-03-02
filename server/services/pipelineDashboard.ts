@@ -85,7 +85,46 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
            AND tenant_id = b.tenant_id) as daily_log_count,
         (SELECT COUNT(*) FROM h_generic_checklist_records
          WHERE form_type = 'daily_log' AND form_date = DATE_FORMAT(b.planned_date, '%Y-%m-%d')
-           AND tenant_id = b.tenant_id AND status IN ('submitted', 'approved')) as daily_log_approved_count
+           AND tenant_id = b.tenant_id AND status IN ('submitted', 'approved')) as daily_log_approved_count,
+        -- ═══ 결재 시스템 통합: h_approval_requests 기반 결재/승인 상태 ═══
+        -- 배치별 직접 결재 (reference_type='batch')
+        (SELECT COUNT(*) FROM h_approval_requests
+         WHERE reference_type = 'batch' AND reference_id = b.id
+           AND tenant_id = b.tenant_id) as batch_approval_count,
+        (SELECT COUNT(*) FROM h_approval_requests
+         WHERE reference_type = 'batch' AND reference_id = b.id
+           AND tenant_id = b.tenant_id AND status = 'approved') as batch_approval_approved_count,
+        (SELECT COUNT(*) FROM h_approval_requests
+         WHERE reference_type = 'batch' AND reference_id = b.id
+           AND tenant_id = b.tenant_id AND status IN ('pending_review', 'pending_approval', 'submitted')) as batch_approval_pending_count,
+        -- 배치 그룹 결재 (day_batch_group 기반 - 같은 그룹 배치들의 결재)
+        (SELECT COUNT(*) FROM h_approval_requests ar
+         WHERE ar.reference_type = 'batch_group'
+           AND ar.tenant_id = b.tenant_id
+           AND ar.status = 'approved'
+           AND (
+             ar.reference_id = b.id
+             OR (b.day_batch_group IS NOT NULL AND EXISTS (
+               SELECT 1 FROM h_batches b2 
+               WHERE b2.id = ar.reference_id AND b2.tenant_id = b.tenant_id 
+                 AND b2.day_batch_group = b.day_batch_group
+             ))
+           )
+        ) as batch_group_approval_approved,
+        -- 일일일지 결재 (h_approval_requests의 checklist 타입)
+        (SELECT COUNT(*) FROM h_approval_requests ar
+         WHERE ar.reference_type = 'checklist'
+           AND ar.tenant_id = b.tenant_id
+           AND ar.status = 'approved'
+           AND EXISTS (
+             SELECT 1 FROM h_generic_checklist_records gcr
+             WHERE gcr.id = ar.reference_id AND gcr.tenant_id = b.tenant_id
+               AND gcr.form_type = 'daily_log'
+               AND gcr.form_date = DATE_FORMAT(b.planned_date, '%Y-%m-%d')
+           )
+        ) as daily_log_checklist_approved,
+        -- 배치 day_batch_group 정보
+        b.day_batch_group
       FROM h_batches b
       LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
       WHERE b.planned_date = ${targetDate}
@@ -104,6 +143,16 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
       const formWithRows = Number(batch.ccp_form_with_rows) || 0;
       const batchInputCount = Number(batch.batch_input_count) || 0;
       const batchInputDeducted = Number(batch.batch_input_deducted_count) || 0;
+      // 결재 시스템 통합 변수
+      const batchApprovalCount = Number(batch.batch_approval_count) || 0;
+      const batchApprovalApproved = Number(batch.batch_approval_approved_count) || 0;
+      const batchApprovalPending = Number(batch.batch_approval_pending_count) || 0;
+      const batchGroupApprovalApproved = Number(batch.batch_group_approval_approved) || 0;
+      const dailyLogChecklistApproved = Number(batch.daily_log_checklist_approved) || 0;
+      // 통합 결재 상태: 배치 직접 결재 또는 배치그룹 결재 중 하나라도 승인되면 승인 처리
+      const hasAnyApproval = batchApprovalCount > 0 || batchGroupApprovalApproved > 0;
+      const isApproved = batchApprovalApproved > 0 || batchGroupApprovalApproved > 0;
+      const isApprovalPending = batchApprovalPending > 0;
 
       const steps = [
         { 
@@ -172,49 +221,85 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
           status: (() => {
             const dlCount = Number(batch.daily_log_count) || 0;
             const dlApproved = Number(batch.daily_log_approved_count) || 0;
-            if (dlCount > 0 && dlApproved > 0) return 'completed';
+            // h_approval_requests의 checklist 결재도 확인
+            if (dlCount > 0 && (dlApproved > 0 || dailyLogChecklistApproved > 0)) return 'completed';
             if (dlCount > 0) return 'in_progress';
             return 'pending';
           })(),
           detail: (() => {
             const dlCount = Number(batch.daily_log_count) || 0;
             const dlApproved = Number(batch.daily_log_approved_count) || 0;
-            if (dlCount > 0 && dlApproved > 0) return '승인 완료';
+            if (dlCount > 0 && (dlApproved > 0 || dailyLogChecklistApproved > 0)) return '승인 완료';
             if (dlCount > 0) return '작성됨 (승인 대기)';
             return '대기';
           })()
         },
         { 
           step: 7, name: '문서생성', 
-          status: Number(batch.document_count) > 0 ? 'completed' : 
-                  (formCount > 0 && formWithRows === formCount) ? 'in_progress' : 'pending',
-          detail: `${Number(batch.document_count) || 0}건 생성`
+          status: (() => {
+            // document_instances가 있으면 완료
+            if (Number(batch.document_count) > 0) return 'completed';
+            // CCP 기록지(h_ccp_form_records)에 데이터가 있으면 문서 생성 완료로 간주
+            // (CCP 기록지 = 실제 HACCP 문서이므로)
+            if (formCount > 0 && formWithRows === formCount) return 'completed';
+            if (formWithRows > 0) return 'in_progress';
+            return 'pending';
+          })(),
+          detail: (() => {
+            const docCount = Number(batch.document_count) || 0;
+            if (docCount > 0) return `${docCount}건 생성`;
+            if (formWithRows > 0) return `CCP ${formWithRows}/${formCount}건 기록`;
+            return '대기';
+          })()
         },
         { 
           step: 8, name: '결재', 
           status: (() => {
+            // 1) document_instances 기반 결재 확인
             const docCount = Number(batch.document_count) || 0;
-            const approvedCount = Number(batch.approved_document_count) || 0;
-            const pendingCount = Number(batch.pending_document_count) || 0;
-            if (docCount > 0 && approvedCount === docCount) return 'completed';
-            if (pendingCount > 0) return 'in_progress';
+            const approvedDocCount = Number(batch.approved_document_count) || 0;
+            const pendingDocCount = Number(batch.pending_document_count) || 0;
+            if (docCount > 0 && approvedDocCount === docCount) return 'completed';
+            // 2) h_approval_requests 기반 결재 확인 (배치 직접 또는 배치그룹)
+            if (isApproved) return 'completed';
+            if (isApprovalPending || pendingDocCount > 0) return 'in_progress';
+            if (hasAnyApproval) return 'in_progress';
             return 'pending';
           })(),
-          detail: `${Number(batch.approved_document_count) || 0}/${Number(batch.document_count) || 0}건 승인`
+          detail: (() => {
+            const docCount = Number(batch.document_count) || 0;
+            const approvedDocCount = Number(batch.approved_document_count) || 0;
+            if (docCount > 0) return `${approvedDocCount}/${docCount}건 승인`;
+            if (isApproved) return '승인 완료';
+            if (isApprovalPending) return '승인 대기';
+            if (hasAnyApproval) return '결재 진행중';
+            return '대기';
+          })()
         },
         { 
           step: 9, name: '문서출력', 
           status: (() => {
+            // document_instances 기반
             const docCount = Number(batch.document_count) || 0;
-            const approvedCount = Number(batch.approved_document_count) || 0;
-            // 승인된 문서가 있으면 출력 가능 상태
-            if (approvedCount > 0 && approvedCount === docCount) return 'completed';
-            if (approvedCount > 0) return 'in_progress';
+            const approvedDocCount = Number(batch.approved_document_count) || 0;
+            if (docCount > 0 && approvedDocCount === docCount) return 'completed';
+            if (approvedDocCount > 0) return 'in_progress';
+            // h_approval_requests 결재 완료 시 문서출력 가능 상태
+            // CCP 기록이 있고 결재가 완료되면 출력 가능
+            if (isApproved && formCount > 0 && formWithRows === formCount) return 'completed';
+            if (isApproved) return 'in_progress';
             // 회계 전표가 있으면 문서 처리 완료
             if (Number(batch.accounting_entry_count) > 0) return 'completed';
             return 'pending';
           })(),
-          detail: Number(batch.accounting_entry_count) > 0 ? `${batch.accounting_entry_count}건 전표` : '대기'
+          detail: (() => {
+            const docCount = Number(batch.document_count) || 0;
+            const approvedDocCount = Number(batch.approved_document_count) || 0;
+            if (docCount > 0 && approvedDocCount > 0) return `${approvedDocCount}건 출력 가능`;
+            if (isApproved && formWithRows > 0) return '출력 가능';
+            if (Number(batch.accounting_entry_count) > 0) return `${batch.accounting_entry_count}건 전표`;
+            return '대기';
+          })()
         },
       ];
       

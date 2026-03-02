@@ -296,6 +296,16 @@ async function generateDailyReport(db: any, tenantId: number, dateStr: string, s
     });
     
     console.log(`[일일마감] 보고서 저장 완료 - tenant:${tenantId}, date:${dateStr}`);
+
+    // 생산일지(production_daily) 자동 생성/갱신 (일일마감 시 함께 처리)
+    try {
+      const { autoRegenerateProductionDaily } = await import('../lib/autoProductionDaily');
+      await autoRegenerateProductionDaily(tenantId, dateStr);
+      console.log(`[일일마감] 생산일지(production_daily) 자동 갱신 완료 - tenant:${tenantId}, date:${dateStr}`);
+    } catch (pdErr) {
+      console.error('[일일마감] 생산일지(production_daily) 갱신 실패:', pdErr);
+    }
+
     return true;
   } catch (err) {
     console.error("[일일마감] 보고서 생성 오류:", err);
@@ -412,6 +422,15 @@ export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
           summary.warnings.push("보고서 저장 실패");
         }
         
+        // 5. 생산일보 (Production Daily Report) 자동 생성
+        try {
+          await generateProductionDailyReport(db, tenantId, dateStr);
+          console.log(`[일일마감] 테넌트 ${tenantId} 생산일보 생성 완료`);
+        } catch (pdrErr: any) {
+          console.error(`[일일마감] 테넌트 ${tenantId} 생산일보 생성 실패:`, pdrErr);
+          summary.warnings.push(`생산일보 생성 실패: ${pdrErr?.message || '알 수 없는 오류'}`);
+        }
+        
         console.log(`[일일마감] 테넌트 ${tenantId} 완료: 배치 ${summary.completedBatches}/${summary.totalBatches}, 미처리문서 ${summary.pendingApprovals}, 재고부족 ${summary.lowStockMaterials}`);
         
       } catch (err: any) {
@@ -430,6 +449,172 @@ export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
   }
   
   return summaries;
+}
+
+// ============================================================================
+// 5. 생산일보 (Production Daily Report) 자동 생성
+// - 당일 배치 생산 실적, CCP 기록, 이슈를 집계하여 h_daily_reports에 저장
+// - ProductionDailyReport 페이지(생산일보 탭)에서 조회
+// ============================================================================
+async function generateProductionDailyReport(db: any, tenantId: number, dateStr: string): Promise<void> {
+  try {
+    // 1. 당일 배치 목록 + 제품정보 조회
+    const batchResult = await db.execute(sql`
+      SELECT 
+        b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
+        b.start_time, b.end_time, b.planned_date,
+        p.product_name, p.product_code
+      FROM h_batches b
+      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
+      WHERE b.tenant_id = ${tenantId}
+        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+      ORDER BY b.created_at ASC
+    `);
+    const batches = Array.isArray(batchResult) && Array.isArray(batchResult[0]) ? batchResult[0] : batchResult;
+    if (!(batches as any[]).length) {
+      console.log(`[생산일보] 테넌트 ${tenantId} / ${dateStr}: 배치 없음 → 생산일보 미생성`);
+      return;
+    }
+
+    // 2. 당일 CCP 집계
+    const ccpResult = await db.execute(sql`
+      SELECT 
+        COUNT(*) as total_ccp,
+        SUM(CASE WHEN ci.status = 'completed' THEN 1 ELSE 0 END) as normal_count,
+        SUM(CASE WHEN ci.status = 'deviation' THEN 1 ELSE 0 END) as deviation_count
+      FROM h_ccp_instances ci
+      INNER JOIN h_batches b ON ci.batch_id = b.id
+      WHERE ci.tenant_id = ${tenantId}
+        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+    `);
+    const ccpStats = (ccpResult as any)[0]?.[0] || { total_ccp: 0, normal_count: 0, deviation_count: 0 };
+
+    // 3. CCP FAIL (이탈) 상세
+    const issueResult = await db.execute(sql`
+      SELECT 
+        cr.id as row_id, cr.result, cr.note, cr.measured_at,
+        ci.ccp_type, b.batch_code,
+        p.product_name
+      FROM h_ccp_rows cr
+      INNER JOIN h_ccp_instances ci ON cr.instance_id = ci.id
+      INNER JOIN h_batches b ON ci.batch_id = b.id
+      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ${tenantId}
+      WHERE cr.tenant_id = ${tenantId}
+        AND cr.result = 'FAIL'
+        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+      ORDER BY cr.measured_at ASC
+    `);
+    const issues = Array.isArray(issueResult) && Array.isArray(issueResult[0]) ? issueResult[0] : issueResult;
+
+    // 4. 위생점검 일일일지 데이터 (h_generic_checklist_records) 연결
+    const checklistResult = await db.execute(sql`
+      SELECT id, form_data, status FROM h_generic_checklist_records
+      WHERE form_type = 'daily_log'
+        AND form_date = ${dateStr}
+        AND tenant_id = ${tenantId}
+      LIMIT 1
+    `);
+    const checklistRows = (checklistResult as any)[0] || [];
+    let checklistInfo: any = null;
+    if ((checklistRows as any[]).length > 0) {
+      const cl = (checklistRows as any[])[0];
+      let formData: any = {};
+      try {
+        formData = typeof cl.form_data === 'string' ? JSON.parse(cl.form_data) : (cl.form_data || {});
+      } catch {}
+      checklistInfo = {
+        id: cl.id,
+        status: cl.status,
+        hygieneCompleted: Array.isArray(formData.hygieneChecks)
+          ? formData.hygieneChecks.filter((c: any) => c.checkResult).length
+          : Object.values(formData.hygieneChecks || {}).filter((v: any) => v !== null && v !== '' && typeof v !== 'object').length,
+        foreignCompleted: Array.isArray(formData.foreignMaterialChecks)
+          ? formData.foreignMaterialChecks.filter((c: any) => c.checkResult).length
+          : Object.values(formData.foreignMaterialChecks || {}).filter((v: any) => v !== null && v !== '').length,
+      };
+    }
+
+    // 5. 생산일보 데이터 구성
+    const batchList = (batches as any[]).map((b: any) => ({
+      batchId: b.id,
+      batchCode: b.batch_code,
+      productName: b.product_name || '미확인',
+      productCode: b.product_code || '',
+      plannedQuantity: parseFloat(b.planned_quantity || '0'),
+      actualQuantity: parseFloat(b.actual_quantity || '0'),
+      status: b.status,
+      startTime: b.start_time,
+      endTime: b.end_time,
+    }));
+
+    const totalPlanned = batchList.reduce((s: number, b: any) => s + b.plannedQuantity, 0);
+    const totalActual = batchList.reduce((s: number, b: any) => s + b.actualQuantity, 0);
+    const completedBatches = batchList.filter((b: any) => b.status === 'completed').length;
+
+    const reportSummary = {
+      date: dateStr,
+      tenantId,
+      autoGenerated: true,
+      generatedAt: new Date().toISOString(),
+      production: {
+        batches: batchList,
+        totalBatches: batchList.length,
+        completedBatches,
+        totalPlannedQty: totalPlanned,
+        totalActualQty: totalActual,
+        achievementRate: totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0,
+      },
+      ccp: {
+        totalRecords: Number(ccpStats.total_ccp) || 0,
+        normalCount: Number(ccpStats.normal_count) || 0,
+        deviationCount: Number(ccpStats.deviation_count) || 0,
+        complianceRate: Number(ccpStats.total_ccp) > 0
+          ? ((Number(ccpStats.total_ccp) - Number(ccpStats.deviation_count || 0)) / Number(ccpStats.total_ccp) * 100).toFixed(1)
+          : '100.0',
+      },
+      issues: (issues as any[]).map((i: any) => ({
+        rowId: i.row_id,
+        batchCode: i.batch_code,
+        productName: i.product_name,
+        ccpType: i.ccp_type,
+        result: i.result,
+        note: i.note,
+        measuredAt: i.measured_at,
+      })),
+      checklist: checklistInfo,
+    };
+
+    // 6. h_daily_reports UPSERT (report_type = 'production_daily')
+    const existing = await db.execute(sql`
+      SELECT id FROM h_daily_reports
+      WHERE tenant_id = ${tenantId}
+        AND report_date = ${dateStr}
+        AND report_type = 'production_daily'
+      LIMIT 1
+    `);
+    const existingRows = (existing as any)[0] || [];
+
+    if ((existingRows as any[]).length > 0) {
+      await db.execute(sql`
+        UPDATE h_daily_reports
+        SET summary = ${JSON.stringify(reportSummary)},
+            generated_at = NOW()
+        WHERE id = ${(existingRows as any[])[0].id}
+      `);
+    } else {
+      await db.execute(sql`
+        INSERT INTO h_daily_reports
+        (site_id, report_date, report_type, summary, generated_at, tenant_id)
+        VALUES
+        (0, ${dateStr}, 'production_daily', ${JSON.stringify(reportSummary)}, NOW(), ${tenantId})
+      `);
+    }
+
+    console.log(`[생산일보] 테넌트 ${tenantId} / ${dateStr}: 배치 ${batchList.length}건, CCP ${ccpStats.total_ccp}건, 이슈 ${(issues as any[]).length}건`);
+  } catch (err) {
+    console.error(`[생산일보] 테넌트 ${tenantId} / ${dateStr} 생성 실패:`, err);
+    throw err;
+  }
 }
 
 // ============================================================================
@@ -477,4 +662,54 @@ export function initDailyClosingScheduler() {
 
   scheduleNext();
   console.log("[Daily Closing] 일일 마감 스케줄러 초기화 완료 (매일 18:00 KST)");
+
+  // ---- 생산일지(production_daily) 09:00 KST 자동 생성 스케줄러 ----
+  function getMillisUntilNext0900KST(): number {
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const kstNow = new Date(now.getTime() + kstOffset);
+    const kstHour = kstNow.getUTCHours();
+    const kstMinute = kstNow.getUTCMinutes();
+    const kstSecond = kstNow.getUTCSeconds();
+    let hoursUntil = 9 - kstHour;
+    if (hoursUntil < 0 || (hoursUntil === 0 && (kstMinute > 0 || kstSecond > 0))) {
+      hoursUntil += 24;
+    }
+    const msUntil = ((hoursUntil * 60 - kstMinute) * 60 - kstSecond) * 1000;
+    return Math.max(msUntil, 1000);
+  }
+
+  function scheduleMorningProductionDaily() {
+    const msUntil = getMillisUntilNext0900KST();
+    const hoursUntil = Math.round(msUntil / (60 * 60 * 1000) * 10) / 10;
+    console.log(`[Production Daily] 다음 생산일지 자동 생성까지 ${hoursUntil}시간 남음`);
+
+    setTimeout(async () => {
+      console.log(`[Production Daily] ===== 09:00 KST 생산일지 자동 생성 시작 =====`);
+      try {
+        const db = await getDb();
+        if (db) {
+          // 전체 테넌트 목록 조회
+          const tenantsResult = await db.execute(sql`SELECT DISTINCT tenant_id FROM h_batches WHERE tenant_id IS NOT NULL`);
+          const tenants = ((tenantsResult as any)[0] || []) as any[];
+          const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const { autoRegenerateProductionDaily } = await import('../lib/autoProductionDaily');
+          for (const t of tenants) {
+            try {
+              await autoRegenerateProductionDaily(t.tenant_id, todayStr);
+              console.log(`[Production Daily] tenant:${t.tenant_id} - ${todayStr} 생성 완료`);
+            } catch (tErr) {
+              console.error(`[Production Daily] tenant:${t.tenant_id} 생성 실패:`, tErr);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[Production Daily] 09:00 자동 생성 오류:`, err);
+      }
+      scheduleMorningProductionDaily();
+    }, msUntil);
+  }
+
+  scheduleMorningProductionDaily();
+  console.log("[Production Daily] 생산일지 09:00 KST 자동 생성 스케줄러 초기화 완료");
 }

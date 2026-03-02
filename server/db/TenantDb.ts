@@ -229,7 +229,8 @@ export class TenantDb {
     limit?: number;
   }) {
     const db = await getDb();
-    const conditions: SQL[] = [eq(hInventoryLots.tenantId, this.tenantId)];
+    // NOTE: hInventoryLots has no tenantId column - filter via materialId -> hMaterials.tenantId
+    const conditions: SQL[] = [];
 
     if (filters?.materialId) conditions.push(eq(hInventoryLots.materialId, filters.materialId));
     if (filters?.status) conditions.push(eq(hInventoryLots.status, filters.status));
@@ -238,7 +239,8 @@ export class TenantDb {
     const limit = filters?.limit || 50;
 
     return db.select().from(hInventoryLots)
-      .where(and(...conditions))
+      .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+      .where(and(eq(hMaterials.tenantId, this.tenantId), ...conditions))
       .orderBy(desc(hInventoryLots.createdAt))
       .limit(limit)
       .offset((page - 1) * limit);

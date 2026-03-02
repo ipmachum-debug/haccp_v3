@@ -3,7 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { FileText, Activity, Calendar, Zap, TrendingUp, Package } from "lucide-react";
-import DailyLogs from "./DailyLogs";
+import { ProductionDailyReportContent } from "./ProductionDailyReport";
 import ProductionStatus from "./ProductionStatus";
 import ProductionSchedule from "./ProductionSchedule";
 import ScheduleOptimization from "./ScheduleOptimization";
@@ -52,7 +52,7 @@ export default function ProductionOperations() {
           </TabsList>
 
           <TabsContent value="daily-logs">
-            <DailyLogs />
+            <ProductionDailyReportContent />
           </TabsContent>
 
           <TabsContent value="status">

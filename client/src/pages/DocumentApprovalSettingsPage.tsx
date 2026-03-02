@@ -74,6 +74,8 @@ const FORM_TYPES: { formType: string; name: string; category: string }[] = [
   { formType: "weekly_log", name: "주간일지", category: "기간별 일지" },
   { formType: "monthly_log", name: "월간일지", category: "기간별 일지" },
   { formType: "yearly_log", name: "연간일지", category: "기간별 일지" },
+  // 생산일지
+  { formType: "production_daily", name: "생산일지", category: "생산관리" },
   // CCP 기록지 (배치 생산)
   { formType: "batch_production", name: "[CCP] 배치 CCP 승인 (자동)", category: "CCP 기록지" },
   { formType: "ccp_form", name: "[CCP] CCP 모니터링 기록지", category: "CCP 기록지" },

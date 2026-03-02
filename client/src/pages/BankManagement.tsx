@@ -16,22 +16,22 @@ export default function BankManagement() {
           </p>
         </div>
 
-        <Tabs defaultValue="accounts" className="w-full">
+        <Tabs defaultValue="transactions" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="accounts">은행 계좌 관리</TabsTrigger>
-            <TabsTrigger value="transactions">은행 거래 매칭</TabsTrigger>
+            <TabsTrigger value="transactions">은행 거래 내역</TabsTrigger>
             <TabsTrigger value="rules">매칭 규칙 관리</TabsTrigger>
+            <TabsTrigger value="accounts">은행 계좌 관리</TabsTrigger>
           </TabsList>
 
           <Card className="mt-6 p-6">
-            <TabsContent value="accounts" className="mt-0">
-              <BankAccountTab />
-            </TabsContent>
             <TabsContent value="transactions" className="mt-0">
               <BankTransactionTab />
             </TabsContent>
             <TabsContent value="rules" className="mt-0">
               <MatchingRuleTab />
+            </TabsContent>
+            <TabsContent value="accounts" className="mt-0">
+              <BankAccountTab />
             </TabsContent>
           </Card>
         </Tabs>

@@ -124,9 +124,10 @@ export async function createSingleBatch(
           `SELECT rv.batch_target_kg
            FROM h_mf_report_versions rv
            JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-           WHERE mr.product_id = ?
+           WHERE mr.product_id = ? AND mr.tenant_id = ?
+             AND rv.approval_status = 'APPROVED'
            ORDER BY rv.id DESC LIMIT 1`,
-          [input.productId]
+          [input.productId, input.tenantId]
         );
         const btkVal = (bomRows as any[])[0]?.batch_target_kg;
         if (btkVal) {

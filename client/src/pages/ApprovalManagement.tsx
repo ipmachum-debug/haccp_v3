@@ -50,6 +50,8 @@ const REQUEST_TYPE_LABELS: Record<string, string> = {
   batch_completion: "생산일지 (배치완료)",
   ccp_form: "CCP 모니터링 기록지",
   daily_log: "일반위생관리 및 공정점검표",
+  weekly_log: "주간 일반위생관리 및 방충방서 점검표",
+  monthly_log: "월간 일반위생관리 및 CCP 검증점검표",
   pest_control_checklist: "방충·방서 점검표",
   employee_health_check: "종사자 건강상태 확인 일지",
   inventory_adjustment: "재고 조정",
@@ -93,6 +95,8 @@ const REQUEST_TYPE_ICONS: Record<string, any> = {
   batch_completion: Package,
   ccp_form: ClipboardCheck,
   daily_log: Shield,
+  weekly_log: Shield,
+  monthly_log: Shield,
   pest_control_checklist: Shield,
   inventory_adjustment: TrendingUp,
   material_inspection: Droplet,
@@ -119,6 +123,8 @@ const REQUEST_CATEGORIES: Record<string, string> = {
   batch_completion: "생산",
   ccp_form: "CCP",
   daily_log: "위생",
+  weekly_log: "위생",
+  monthly_log: "위생",
   pest_control_checklist: "위생",
   inventory_adjustment: "생산",
   material_inspection: "검사",
@@ -1647,6 +1653,29 @@ export default function ApprovalManagement() {
             )}
             <DialogFooter className="flex-wrap gap-2">
               <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>닫기</Button>
+              {/* 일일/주간/월간 일지 편집 버튼 */}
+              {selectedRequest && ['daily_log', 'weekly_log', 'monthly_log'].includes(selectedRequest.requestType) && selectedRequest.status !== 'approved' && (() => {
+                const routeMap: Record<string, string> = {
+                  daily_log: '/daily-log/daily',
+                  weekly_log: '/weekly-log/form',
+                  monthly_log: '/monthly-log/form',
+                };
+                const route = routeMap[selectedRequest.requestType];
+                // Extract date from title (format: [일일일지] 2025-03-01 ...)
+                const dateMatch = selectedRequest.title?.match(/(\d{4}-\d{2}-\d{2})/);
+                const dateParam = dateMatch ? dateMatch[1] : '';
+                return (
+                  <Button variant="outline" className="text-amber-600 border-amber-300"
+                    onClick={() => {
+                      setDetailDialogOpen(false);
+                      setLocation(`${route}?date=${dateParam}&id=${selectedRequest.referenceId}`);
+                    }}
+                  >
+                    <FileText className="h-4 w-4 mr-1" />
+                    데이터 수정
+                  </Button>
+                );
+              })()}
               {selectedRequest && (selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
                 <Button variant="outline" className="text-blue-600 border-blue-300"
                   onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}

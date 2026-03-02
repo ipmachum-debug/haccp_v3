@@ -42,8 +42,7 @@ export async function getMaterialsWithInventory(tenantId?: number) {
         .select()
         .from(hInventoryLots)
         .where(
-          and(eq(hInventoryLots.tenantId, tenantId), 
-            eq(hInventoryLots.materialId, row.id),
+          and(eq(hInventoryLots.materialId, row.id),
             sql`${hInventoryLots.unitPrice} IS NOT NULL`
           )
         )

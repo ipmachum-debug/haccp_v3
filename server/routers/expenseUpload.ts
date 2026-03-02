@@ -1,12 +1,17 @@
 /**
  * 비용전표 첨부파일 업로드 REST API
  * tRPC는 파일 업로드를 직접 지원하지 않으므로 Express REST 엔드포인트로 구현
+ * 
+ * ✅ 보안 강화: JWT 기반 인증 미들웨어 사용
+ * ✅ tenantId는 req.tenantUser에서만 추출
+ * ✅ 모든 쿼리에 tenant_id 조건 강제
  */
 import { Router, Request, Response } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { getRawConnection } from "../db";
+import { requireTenantAuth, TenantAuthRequest } from "../_core/expressAuthMiddleware";
 
 // 업로드 디렉토리 설정
 const UPLOAD_DIR = path.join(process.cwd(), "uploads", "expense");
@@ -51,6 +56,9 @@ const upload = multer({
 
 const expenseUploadRouter = Router();
 
+// ✅ 모든 라우트에 인증 미들웨어 적용
+expenseUploadRouter.use(requireTenantAuth as any);
+
 /**
  * POST /api/expense/upload
  * 비용전표 첨부파일 업로드
@@ -58,15 +66,13 @@ const expenseUploadRouter = Router();
 expenseUploadRouter.post(
   "/upload",
   upload.array("files", 5), // 최대 5개 동시 업로드
-  async (req: Request, res: Response) => {
+  async (req: TenantAuthRequest, res: Response) => {
     try {
-      const tenantId = (req as any).session?.tenantId || (req as any).user?.tenantId;
-      const userId = (req as any).session?.userId || (req as any).user?.id;
+      // ✅ JWT 인증에서 tenantId/userId 추출
+      const tenantId = req.tenantUser!.tenantId;
+      const userId = req.tenantUser!.id;
       const voucherId = req.body.voucherId;
 
-      if (!tenantId || !userId) {
-        return res.status(401).json({ error: "인증이 필요합니다." });
-      }
       if (!voucherId) {
         return res.status(400).json({ error: "voucherId가 필요합니다." });
       }
@@ -112,10 +118,9 @@ expenseUploadRouter.post(
  * GET /api/expense/attachments/:voucherId
  * 비용전표 첨부파일 목록 조회
  */
-expenseUploadRouter.get("/attachments/:voucherId", async (req: Request, res: Response) => {
+expenseUploadRouter.get("/attachments/:voucherId", async (req: TenantAuthRequest, res: Response) => {
   try {
-    const tenantId = (req as any).session?.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) return res.status(401).json({ error: "인증이 필요합니다." });
+    const tenantId = req.tenantUser!.tenantId;
 
     const conn = await getRawConnection();
     const [rows] = await conn.execute(
@@ -133,10 +138,9 @@ expenseUploadRouter.get("/attachments/:voucherId", async (req: Request, res: Res
  * DELETE /api/expense/attachments/:id
  * 비용전표 첨부파일 삭제
  */
-expenseUploadRouter.delete("/attachments/:id", async (req: Request, res: Response) => {
+expenseUploadRouter.delete("/attachments/:id", async (req: TenantAuthRequest, res: Response) => {
   try {
-    const tenantId = (req as any).session?.tenantId || (req as any).user?.tenantId;
-    if (!tenantId) return res.status(401).json({ error: "인증이 필요합니다." });
+    const tenantId = req.tenantUser!.tenantId;
 
     const conn = await getRawConnection();
 

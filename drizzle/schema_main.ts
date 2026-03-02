@@ -1422,23 +1422,48 @@ export const bankAccounts = mysqlTable("bank_accounts", {
 /**
  * 은행 거래 내역 테이블
  * 엑셀 업로드 또는 API 연동으로 수집
+ * 
+ * [수정 이력] 2026-03-01: 실제 DB 스키마와 일치하도록 수정
+ *   - occurred_at → tx_date
+ *   - bank_direction → transaction_type (enum: deposit/withdrawal)
+ *   - matched_type → match_status (enum: unmatched/partial/matched)
+ *   - matched_id 제거, counterparty_text → description, hash_key 제거
+ *   - accounting_account_id, matched_by, approval_status 등 추가
  */
 export const bankTransactions = mysqlTable("bank_transactions", {
   id: bigint({ mode: "number" }).autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   bankAccountId: bigint("bank_account_id", { mode: "number" }).notNull().references(() => bankAccounts.id),
-  occurredAt: timestamp("occurred_at").notNull(),
-  bankDirection: mysqlEnum("bank_direction", ["in", "out"]).notNull(),
-  amount: decimal({ precision: 18, scale: 2 }).notNull(),
-  counterpartyText: varchar("counterparty_text", { length: 255 }), // 거래 상대방 이름
-  memo: varchar({ length: 255 }),
-  balance: decimal({ precision: 18, scale: 2 }), // 거래 후 잔액
-  hashKey: varchar("hash_key", { length: 64 }).notNull().unique(), // 중복 방지용
-  matchedType: varchar("matched_type", { length: 50 }), // 'ap', 'ar', 'manual', null
-  matchedId: bigint("matched_id", { mode: "number" }), // apLedger.id, arLedger.id, etc.
-  matchedPartnerId: bigint("matched_partner_id", { mode: "number" }).references(() => partners.id), // 매칭된 거래처 ID
-  matchedAt: timestamp("matched_at"), // 매칭 시간
+  
+  // 거래 정보
+  transactionDate: timestamp("tx_date").notNull(), // 거래일시 (DB 컬럼: tx_date)
+  amount: decimal({ precision: 15, scale: 2 }).notNull(), // 거래금액
+  balance: decimal({ precision: 15, scale: 2 }), // 거래 후 잔액
+  description: varchar("description", { length: 400 }), // 거래 적요/메모
+  memo: varchar("notes", { length: 255 }), // 추가 메모 (DB 컬럼: notes)
+  
+  // 거래 유형
+  transactionType: mysqlEnum("transaction_type", ["deposit", "withdrawal"]).notNull(), // 입금/출금
+  
+  // 회계 연동 (계정 과목 매칭)
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // 매칭된 계정 과목
+  matchingStatus: mysqlEnum("match_status", ["unmatched", "partial", "matched"]).default("unmatched").notNull(), // 매칭 상태
+  matchedBy: bigint("matched_by", { mode: "number" }), // 매칭 작업자 ID
+  matchedAt: timestamp("matched_at"), // 매칭 일시
+  
+  // 고액 거래 플래그
+  isLargeAmount: mysqlEnum("is_high_amount", ["Y", "N"]).default("N").notNull(), // 고액 거래 여부
+  
+  // 승인 워크플로우
+  approvalStatus: mysqlEnum("approval_status", ["pending", "approved", "rejected"]).default("pending").notNull(),
+  approvedBy: bigint("approved_by", { mode: "number" }),
+  approvedAt: timestamp("approved_at"),
+  rejectionReason: text("rejection_reason"),
+  
+  // 생성 정보
+  createdBy: bigint("created_by", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 /**

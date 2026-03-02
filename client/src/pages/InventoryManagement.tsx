@@ -784,7 +784,7 @@ function ReleaseTab() {
 
 // 입고관리 탭 컴포넌트
 function ReceiptTab() {
-  const { data: receipts, isLoading } = trpc.inventory.getReceiptHistory.useQuery();
+  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 50 });
   
   return (
     <Card>

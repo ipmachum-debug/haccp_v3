@@ -564,7 +564,7 @@ export const ApprovalSeal: React.FC<ApprovalSealProps> = ({
   const formattedDate = (() => {
     try {
       if (approvalDate && typeof approvalDate === 'string' && approvalDate.trim()) {
-        const d = new Date(approvalDate);
+        const d = new Date(String(approvalDate).replace(' ', 'T'));
         if (!isNaN(d.getTime())) return d.toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
       }
       return new Date().toLocaleDateString("ko-KR", { year: "2-digit", month: "2-digit", day: "2-digit" });
