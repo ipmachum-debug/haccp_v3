@@ -2,15 +2,16 @@
  * 문서 승인 관리 tRPC 라우터
  */
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
+import { assertSiteOwned, requireTenantId } from "../helpers/tenantGuards";
 
 export const documentApprovalRouter = router({
   // ============================================================================
   // 승인 대기 문서 목록 조회
   // ============================================================================
-  getPendingDocuments: protectedProcedure
+  getPendingDocuments: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -25,9 +26,12 @@ export const documentApprovalRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       // 동적 WHERE 조건 구성
       const conditions: any[] = [
+        sql`di.tenant_id = ${tenantId}`,
         sql`di.site_id = ${input.siteId}`,
       ];
 
@@ -116,7 +120,7 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 문서 검토 (작성자 → 검토자)
   // ============================================================================
-  reviewDocument: protectedProcedure
+  reviewDocument: tenantRequiredProcedure
     .input(
       z.object({
         documentId: z.number(),
@@ -127,10 +131,11 @@ export const documentApprovalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 문서 조회
+      // 문서 조회 (테넌트 격리)
       const documentQuery = sql`
-        SELECT * FROM document_instances WHERE id = ${input.documentId}
+        SELECT * FROM document_instances WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
       `;
       const documentResult = await db.execute(documentQuery);
       const document = (documentResult[0] as any);
@@ -160,15 +165,15 @@ export const documentApprovalRouter = router({
             reviewed_at = ${now},
             review_comments = ${input.comments || null},
             updated_at = ${now}
-          WHERE id = ${input.documentId}
+          WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
         `);
 
         // 이력 기록
         await db.execute(sql`
           INSERT INTO document_approval_history 
-          (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+          (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
           VALUES 
-          (${input.documentId}, 'reviewed', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'pending_approval', ${now})
+          (${tenantId}, ${input.documentId}, 'reviewed', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'pending_approval', ${now})
         `);
 
         return { success: true, message: "검토가 완료되었습니다. 승인 대기 중입니다." };
@@ -185,15 +190,15 @@ export const documentApprovalRouter = router({
             rejected_at = ${now},
             rejection_reason = ${input.comments || null},
             updated_at = ${now}
-          WHERE id = ${input.documentId}
+          WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
         `);
 
         // 이력 기록
         await db.execute(sql`
           INSERT INTO document_approval_history 
-          (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+          (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
           VALUES 
-          (${input.documentId}, 'rejected', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'draft', ${now})
+          (${tenantId}, ${input.documentId}, 'rejected', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'draft', ${now})
         `);
 
         return { success: true, message: "문서가 반려되었습니다." };
@@ -203,7 +208,7 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 문서 승인 (검토자 → 승인자)
   // ============================================================================
-  approveDocument: protectedProcedure
+  approveDocument: tenantRequiredProcedure
     .input(
       z.object({
         documentId: z.number(),
@@ -214,10 +219,11 @@ export const documentApprovalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 문서 조회
+      // 문서 조회 (테넌트 격리)
       const documentQuery = sql`
-        SELECT * FROM document_instances WHERE id = ${input.documentId}
+        SELECT * FROM document_instances WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
       `;
       const documentResult = await db.execute(documentQuery);
       const document = (documentResult[0] as any);
@@ -247,15 +253,15 @@ export const documentApprovalRouter = router({
             approved_at = ${now},
             approval_comments = ${input.comments || null},
             updated_at = ${now}
-          WHERE id = ${input.documentId}
+          WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
         `);
 
         // 이력 기록
         await db.execute(sql`
           INSERT INTO document_approval_history 
-          (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+          (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
           VALUES 
-          (${input.documentId}, 'approved', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'approved', ${now})
+          (${tenantId}, ${input.documentId}, 'approved', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'approved', ${now})
         `);
 
         return { success: true, message: "문서가 최종 승인되었습니다." };
@@ -270,15 +276,15 @@ export const documentApprovalRouter = router({
             rejected_at = ${now},
             rejection_reason = ${input.comments || null},
             updated_at = ${now}
-          WHERE id = ${input.documentId}
+          WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
         `);
 
         // 이력 기록
         await db.execute(sql`
           INSERT INTO document_approval_history 
-          (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+          (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
           VALUES 
-          (${input.documentId}, 'rejected', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'pending_review', ${now})
+          (${tenantId}, ${input.documentId}, 'rejected', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'pending_review', ${now})
         `);
 
         return { success: true, message: "문서가 반려되었습니다. 재검토가 필요합니다." };
@@ -288,7 +294,7 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 승인 완료 문서 목록 조회
   // ============================================================================
-  getApprovedDocuments: protectedProcedure
+  getApprovedDocuments: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -300,12 +306,15 @@ export const documentApprovalRouter = router({
         limit: z.number().default(20),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       // 동적 WHERE 조건 구성
       const conditions: any[] = [
+        sql`di.tenant_id = ${tenantId}`,
         sql`di.site_id = ${input.siteId}`,
         sql`di.status = 'approved'`,
       ];
@@ -387,12 +396,14 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 문서 승인 이력 조회
   // ============================================================================
-  getApprovalHistory: protectedProcedure
+  getApprovalHistory: tenantRequiredProcedure
     .input(z.object({ documentId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
+      // 테넌트 격리: document_approval_history에도 tenant_id 조건 추가
       const query = sql`
         SELECT 
           dah.*,
@@ -401,6 +412,7 @@ export const documentApprovalRouter = router({
         FROM document_approval_history dah
         LEFT JOIN users u ON dah.actor_id = u.id
         WHERE dah.document_instance_id = ${input.documentId}
+          AND dah.tenant_id = ${tenantId}
         ORDER BY dah.created_at ASC
       `;
 
@@ -412,13 +424,15 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 문서 타입 목록 조회
   // ============================================================================
-  getDocumentTypes: protectedProcedure.query(async () => {
+  getDocumentTypes: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("데이터베이스 연결 실패");
+    const tenantId = requireTenantId(ctx);
 
     const query = sql`
       SELECT * FROM document_types
       WHERE is_active = 1
+        AND tenant_id = ${tenantId}
       ORDER BY category, name
     `;
 
@@ -432,9 +446,11 @@ export const documentApprovalRouter = router({
   // ============================================================================
   getAutoApprovalSettings: adminProcedure
     .input(z.object({ siteId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       const query = sql`
         SELECT 
@@ -444,6 +460,7 @@ export const documentApprovalRouter = router({
         FROM document_auto_approval_settings daas
         JOIN document_types dt ON daas.document_type_id = dt.id
         WHERE daas.site_id = ${input.siteId}
+          AND daas.tenant_id = ${tenantId}
       `;
 
       const settings = await db.execute(query);
@@ -465,18 +482,20 @@ export const documentApprovalRouter = router({
         defaultApproverId: z.number().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       const now = new Date().toISOString();
 
-      // UPSERT
+      // UPSERT (tenant_id 포함)
       await db.execute(sql`
         INSERT INTO document_auto_approval_settings 
-        (site_id, document_type_id, auto_approval_enabled, auto_approval_delay_minutes, default_reviewer_id, default_approver_id, created_at, updated_at)
+        (tenant_id, site_id, document_type_id, auto_approval_enabled, auto_approval_delay_minutes, default_reviewer_id, default_approver_id, created_at, updated_at)
         VALUES 
-        (${input.siteId}, ${input.documentTypeId}, ${input.autoApprovalEnabled ? 1 : 0}, ${input.autoApprovalDelayMinutes}, ${input.defaultReviewerId || null}, ${input.defaultApproverId || null}, ${now}, ${now})
+        (${tenantId}, ${input.siteId}, ${input.documentTypeId}, ${input.autoApprovalEnabled ? 1 : 0}, ${input.autoApprovalDelayMinutes}, ${input.defaultReviewerId || null}, ${input.defaultApproverId || null}, ${now}, ${now})
         ON DUPLICATE KEY UPDATE
           auto_approval_enabled = VALUES(auto_approval_enabled),
           auto_approval_delay_minutes = VALUES(auto_approval_delay_minutes),
@@ -491,7 +510,7 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 일괄 검토 (단절 5 보강)
   // ============================================================================
-  bulkReview: protectedProcedure
+  bulkReview: tenantRequiredProcedure
     .input(
       z.object({
         documentIds: z.array(z.number()),
@@ -502,14 +521,16 @@ export const documentApprovalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
       
       const now = new Date().toISOString();
       const results: { documentId: number; success: boolean; message: string }[] = [];
       
       for (const documentId of input.documentIds) {
         try {
+          // 테넌트 격리
           const docResult = await db.execute(sql`
-            SELECT * FROM document_instances WHERE id = ${documentId}
+            SELECT * FROM document_instances WHERE id = ${documentId} AND tenant_id = ${tenantId}
           `);
           const doc = (docResult[0] as any);
           
@@ -526,22 +547,22 @@ export const documentApprovalRouter = router({
             await db.execute(sql`
               UPDATE document_instances
               SET status = 'pending_approval', reviewer_id = ${ctx.user.id}, reviewed_at = ${now}, review_comments = ${input.comments || null}, updated_at = ${now}
-              WHERE id = ${documentId}
+              WHERE id = ${documentId} AND tenant_id = ${tenantId}
             `);
             await db.execute(sql`
-              INSERT INTO document_approval_history (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
-              VALUES (${documentId}, 'reviewed', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'pending_approval', ${now})
+              INSERT INTO document_approval_history (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+              VALUES (${tenantId}, ${documentId}, 'reviewed', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'pending_approval', ${now})
             `);
             results.push({ documentId, success: true, message: "검토 승인" });
           } else {
             await db.execute(sql`
               UPDATE document_instances
               SET status = 'rejected', reviewer_id = ${ctx.user.id}, rejected_by = ${ctx.user.id}, rejected_at = ${now}, rejection_reason = ${input.comments || null}, updated_at = ${now}
-              WHERE id = ${documentId}
+              WHERE id = ${documentId} AND tenant_id = ${tenantId}
             `);
             await db.execute(sql`
-              INSERT INTO document_approval_history (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
-              VALUES (${documentId}, 'rejected', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'rejected', ${now})
+              INSERT INTO document_approval_history (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+              VALUES (${tenantId}, ${documentId}, 'rejected', ${ctx.user.id}, 'reviewer', ${input.comments || null}, 'pending_review', 'rejected', ${now})
             `);
             results.push({ documentId, success: true, message: "검토 반려" });
           }
@@ -561,7 +582,7 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 일괄 승인 (단절 5 보강)
   // ============================================================================
-  bulkApprove: protectedProcedure
+  bulkApprove: tenantRequiredProcedure
     .input(
       z.object({
         documentIds: z.array(z.number()),
@@ -572,14 +593,16 @@ export const documentApprovalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
       
       const now = new Date().toISOString();
       const results: { documentId: number; success: boolean; message: string }[] = [];
       
       for (const documentId of input.documentIds) {
         try {
+          // 테넌트 격리
           const docResult = await db.execute(sql`
-            SELECT * FROM document_instances WHERE id = ${documentId}
+            SELECT * FROM document_instances WHERE id = ${documentId} AND tenant_id = ${tenantId}
           `);
           const doc = (docResult[0] as any);
           
@@ -596,22 +619,22 @@ export const documentApprovalRouter = router({
             await db.execute(sql`
               UPDATE document_instances
               SET status = 'approved', approver_id = ${ctx.user.id}, approved_at = ${now}, approval_comments = ${input.comments || null}, updated_at = ${now}
-              WHERE id = ${documentId}
+              WHERE id = ${documentId} AND tenant_id = ${tenantId}
             `);
             await db.execute(sql`
-              INSERT INTO document_approval_history (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
-              VALUES (${documentId}, 'approved', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'approved', ${now})
+              INSERT INTO document_approval_history (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+              VALUES (${tenantId}, ${documentId}, 'approved', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'approved', ${now})
             `);
             results.push({ documentId, success: true, message: "최종 승인" });
           } else {
             await db.execute(sql`
               UPDATE document_instances
               SET status = 'pending_review', approver_id = ${ctx.user.id}, rejected_by = ${ctx.user.id}, rejected_at = ${now}, rejection_reason = ${input.comments || null}, updated_at = ${now}
-              WHERE id = ${documentId}
+              WHERE id = ${documentId} AND tenant_id = ${tenantId}
             `);
             await db.execute(sql`
-              INSERT INTO document_approval_history (document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
-              VALUES (${documentId}, 'rejected', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'pending_review', ${now})
+              INSERT INTO document_approval_history (tenant_id, document_instance_id, action, actor_id, actor_role, comments, previous_status, new_status, created_at)
+              VALUES (${tenantId}, ${documentId}, 'rejected', ${ctx.user.id}, 'approver', ${input.comments || null}, 'pending_approval', 'pending_review', ${now})
             `);
             results.push({ documentId, success: true, message: "승인 반려" });
           }
@@ -631,11 +654,13 @@ export const documentApprovalRouter = router({
   // ============================================================================
   // 승인 대기 문서 요약 (대시보드용)
   // ============================================================================
-  getPendingSummary: protectedProcedure
+  getPendingSummary: tenantRequiredProcedure
     .input(z.object({ siteId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
       
       const query = sql`
         SELECT 
@@ -644,18 +669,20 @@ export const documentApprovalRouter = router({
           dt.category
         FROM document_instances di
         JOIN document_types dt ON di.document_type_id = dt.id
-        WHERE di.site_id = ${input.siteId}
+        WHERE di.tenant_id = ${tenantId}
+          AND di.site_id = ${input.siteId}
           AND di.status IN ('pending_review', 'pending_approval')
         GROUP BY di.status, dt.category
       `;
       const summary = await db.execute(query);
       
-      // 오늘 날짜 기준 문서 수
+      // 오늘 날짜 기준 문서 수 (테넌트 격리)
       const today = new Date().toISOString().split('T')[0];
       const todayQuery = sql`
         SELECT COUNT(*) as count
         FROM document_instances
-        WHERE site_id = ${input.siteId}
+        WHERE tenant_id = ${tenantId}
+          AND site_id = ${input.siteId}
           AND work_date = ${today}
       `;
       const todayResult = await db.execute(todayQuery);

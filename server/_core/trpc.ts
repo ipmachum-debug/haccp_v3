@@ -323,3 +323,37 @@ export const monitorProcedure = t.procedure.use(
     });
   }),
 );
+
+/**
+ * superAdminProcedure - 슈퍼관리자 전용 프로시저
+ * 
+ * ✨ 슈퍼관리자만 접근 가능 (cross-tenant 조회):
+ * - role === 'super_admin' 필수
+ * - 테넌트 데이터가 아닌 글로벌 통계/사용자/테넌트 관리용
+ * - getDb()로 직접 접근 (특정 테넌트 아님)
+ * 
+ * ⚠️ 슈퍼관리자 대시보드, 승인 관리 등에 사용
+ */
+export const superAdminProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+
+    if (ctx.user.role !== 'super_admin') {
+      throw new TRPCError({ 
+        code: "FORBIDDEN", 
+        message: "슈퍼관리자 권한이 필요합니다." 
+      });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        user: ctx.user,
+      },
+    });
+  }),
+);

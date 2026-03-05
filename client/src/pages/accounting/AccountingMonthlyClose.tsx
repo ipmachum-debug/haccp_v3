@@ -167,7 +167,7 @@ export default function AccountingMonthlyClose() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-8 space-y-6">
+      <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">월간 마감</h1>
           <p className="text-muted-foreground mt-2">
@@ -341,7 +341,7 @@ export default function AccountingMonthlyClose() {
               재오픈 사유를 입력하세요. 이 작업은 감사 로그에 기록됩니다.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="space-y-4">
             <Textarea
               placeholder="재오픈 사유를 입력하세요..."
               value={reopenReason}

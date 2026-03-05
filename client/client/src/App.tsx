@@ -7,9 +7,11 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Lazy load pages
+const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
+const SupportManagePage = lazy(() => import("./pages/SupportManagePage"));
 const BatchListPage = lazy(() => import("./pages/BatchListPage"));
 const BatchCreate = lazy(() => import("./pages/BatchCreate"));
 const BatchDetail = lazy(() => import("./pages/BatchDetail"));
@@ -170,6 +172,9 @@ const ProductionDailyReport = lazy(() => import("./pages/ProductionDailyReport")
 const BatchProductionDashboard = lazy(() => import("./pages/BatchProductionDashboard"));
 const InventoryManagementIntegrated = lazy(() => import("./pages/InventoryManagementIntegrated"));
 const PipelineDashboard = lazy(() => import("./pages/PipelineDashboard"));
+const FAQPage = lazy(() => import("./pages/FAQPage"));
+const SupportPage = lazy(() => import("./pages/SupportPage"));
+const LegalPage = lazy(() => import("./pages/LegalPage"));
 
 // 11개 미구현 HACCP 체크리스트
 const WaterQualityTestList = lazy(() => import("./pages/WaterQualityTestList"));
@@ -262,14 +267,14 @@ function Router() {
       </div>
     }>
       <Switch>
-      <Route path="/">
-        {() => {
-          window.location.href = "/login";
-          return null;
-        }}
-      </Route>
+      <Route path="/" component={LandingPage} />
+      <Route path="/faq" component={FAQPage} />
+      <Route path="/support" component={SupportPage} />
+      <Route path="/legal/:section" component={LegalPage} />
+      <Route path="/legal" component={LegalPage} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/dashboard/super-admin" component={SuperAdminDashboard} />
+        <Route path="/dashboard/support-manage" component={SupportManagePage} />
       <Route path="/dashboard/user-approval" component={SuperAdminUserApproval} />
       <Route path="/dashboard/tenant-management" component={TenantManagement} />
       <Route path="/dashboard/system-monitoring" component={SystemMonitoring} />
@@ -305,7 +310,6 @@ function Router() {
       <Route path="/dashboard/pipeline" component={PipelineDashboard} />
       <Route path="/dashboard/master-data" component={MasterDataManagement} />
       <Route path="/dashboard/item-master" component={lazy(() => import("@/pages/ItemMasterManagement"))} />
-          <Route path="/dashboard/production-verification" component={lazy(() => import("@/pages/ProductionVerification"))} />
       <Route path="/dashboard/upload-history" component={UploadHistory} />
       <Route path="/quality/checklists" component={ChecklistDashboard} />
       <Route path="/calibration" component={CalibrationManagement} />

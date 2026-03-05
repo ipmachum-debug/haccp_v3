@@ -26,7 +26,7 @@ export default function RecipeDetail() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="container py-6">
+        <div className="space-y-6">
           <div className="text-center py-12 text-muted-foreground">
             로딩 중...
           </div>
@@ -38,7 +38,7 @@ export default function RecipeDetail() {
   if (!recipe) {
     return (
       <DashboardLayout>
-        <div className="container py-6">
+        <div className="space-y-6">
           <div className="text-center py-12 text-muted-foreground">
             레시피를 찾을 수 없습니다.
           </div>
@@ -49,7 +49,7 @@ export default function RecipeDetail() {
 
   return (
     <DashboardLayout>
-      <div className="container py-6">
+      <div className="space-y-6">
         <div className="mb-6">
           <div className="flex items-center gap-4 mb-4">
             <Link href="/dashboard/recipes">

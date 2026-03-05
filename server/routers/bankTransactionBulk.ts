@@ -62,12 +62,22 @@ function parseJsonSafe(text: string | null | undefined): any {
   }
 }
 
+interface MatchResult {
+  accountingAccountId: number | null;
+  ruleId: number | null;
+  ruleName: string | null;
+  partnerId: number | null;
+  memo: string | null;
+}
+
 async function findMatchingRule(
   db: any,
   tenantId: number,
   description: string,
-  amount: number
-): Promise<number | null> {
+  amount: number,
+  transactionType?: "deposit" | "withdrawal"
+): Promise<MatchResult> {
+  const noMatch: MatchResult = { accountingAccountId: null, ruleId: null, ruleName: null, partnerId: null, memo: null };
   try {
     const rules = await db
       .select()
@@ -85,6 +95,11 @@ async function findMatchingRule(
       const cond = parseJsonSafe(rule.conditions);
       const actions = parseJsonSafe(rule.actions);
       if (!cond) continue;
+
+      // 거래 유형 필터 (조건에 transactionType이 지정된 경우)
+      if (cond.transactionType && transactionType && cond.transactionType !== transactionType) {
+        continue;
+      }
 
       switch (rule.ruleType) {
         case "keyword":
@@ -129,10 +144,15 @@ async function findMatchingRule(
       }
 
       if (matched) {
-        // actions에서 accountingAccountId 추출
         const targetAccountId = actions?.accountingAccountId || actions?.targetAccountId;
         if (targetAccountId) {
-          return targetAccountId;
+          return {
+            accountingAccountId: targetAccountId,
+            ruleId: rule.id,
+            ruleName: cond.name || `규칙 #${rule.id}`,
+            partnerId: actions?.partnerId || null,
+            memo: actions?.memo || null,
+          };
         }
       }
     }
@@ -140,7 +160,7 @@ async function findMatchingRule(
     console.error("[findMatchingRule] Error:", e);
   }
 
-  return null;
+  return noMatch;
 }
 
 export const bankTransactionBulkRouter = router({
@@ -232,14 +252,16 @@ export const bankTransactionBulkRouter = router({
           }
 
           // 자동 매칭 시도
-          const accountingAccountId = await findMatchingRule(
+          const matchResult = await findMatchingRule(
             db,
             tenantId,
             fullDescription,
-            amount
+            amount,
+            transactionType
           );
 
           const isLargeAmount = amount >= 5000000;
+          const isMatched = !!matchResult.accountingAccountId;
 
           // 거래 삽입
           await db.insert(bankTransactions).values({
@@ -250,17 +272,17 @@ export const bankTransactionBulkRouter = router({
             amount,
             balance,
             description: fullDescription,
-            memo,
-            matchingStatus: accountingAccountId ? "matched" : "unmatched",
-            accountingAccountId,
+            memo: matchResult.memo || memo,
+            matchingStatus: isMatched ? "matched" : "unmatched",
+            accountingAccountId: matchResult.accountingAccountId,
             approvalStatus: "pending",
             isLargeAmount: isLargeAmount ? "Y" : "N",
-            matchedBy: accountingAccountId ? ctx.user.id : null,
-            matchedAt: accountingAccountId ? new Date() : null,
+            matchedBy: isMatched ? ctx.user.id : null,
+            matchedAt: isMatched ? new Date() : null,
           });
 
           results.success++;
-          if (accountingAccountId) {
+          if (isMatched) {
             results.autoMatched++;
           }
         } catch (error: any) {
@@ -305,19 +327,20 @@ export const bankTransactionBulkRouter = router({
       let matchedCount = 0;
 
       for (const transaction of unmatchedTransactions) {
-        const accountingAccountId = await findMatchingRule(
+        const matchResult = await findMatchingRule(
           db,
           tenantId,
           transaction.description || "",
-          Number(transaction.amount)
+          Number(transaction.amount),
+          transaction.transactionType as "deposit" | "withdrawal" | undefined
         );
 
-        if (accountingAccountId) {
+        if (matchResult.accountingAccountId) {
           await db
             .update(bankTransactions)
             .set({
               matchingStatus: "matched",
-              accountingAccountId,
+              accountingAccountId: matchResult.accountingAccountId,
               matchedBy: ctx.user.id,
               matchedAt: new Date(),
             })

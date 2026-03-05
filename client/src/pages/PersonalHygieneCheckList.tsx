@@ -36,7 +36,7 @@ export default function PersonalHygieneCheckList() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 max-w-[1200px]">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

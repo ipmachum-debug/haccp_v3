@@ -177,7 +177,7 @@ export default function CcpInspection() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-8">
+      <div className="flex flex-col gap-4 md:gap-6">
         {/* 헤더 */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">

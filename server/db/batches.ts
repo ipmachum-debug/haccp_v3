@@ -199,6 +199,29 @@ export async function completeBatch(
     description: `생산 완료 (실제 수량: ${data.actualQuantity})`
   });
 
+  // ★ 배치 완료 시 제품 재고 LOT 자동 생성 (h_inventory_lots.productId)
+  try {
+    const batch = await getBatchById(id);
+    if (batch && tenantId) {
+      const { createProductLotFromBatch } = await import("./productOutboundManagement");
+      await createProductLotFromBatch({
+        batchId: id,
+        batchCode: (batch as any).batchCode || (batch as any).batch_code || `B${id}`,
+        productId: (batch as any).productId || (batch as any).product_id || 0,
+        productName: (batch as any).productName || (batch as any).product_name || "제품",
+        quantity: parseFloat(data.actualQuantity || "0"),
+        unit: (batch as any).unit || "EA",
+        lotNumber: data.lotNumber || `PROD-${(batch as any).batchCode || (batch as any).batch_code || id}`,
+        expiryDate: data.expiryDate,
+        userId: 0, // system
+      }, tenantId);
+      console.log(`[completeBatch] 제품 LOT 자동 생성 완료 (배치: ${id})`);
+    }
+  } catch (err) {
+    console.error(`[completeBatch] 제품 LOT 생성 실패 (배치: ${id}):`, err);
+    // LOT 생성 실패해도 배치 완료는 성공
+  }
+
   return await getBatchById(id);
 }
 

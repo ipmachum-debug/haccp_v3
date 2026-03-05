@@ -1,10 +1,10 @@
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure, adminProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 export const recipeRouter = router({
   // 레시피 목록 조회
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
       isActive: z.boolean().optional(),
@@ -15,7 +15,7 @@ export const recipeRouter = router({
     }),
   
   // 레시피 상세 조회 (라인 포함)
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const { getRecipeById } = await import("../db/recipe");
@@ -30,7 +30,7 @@ export const recipeRouter = router({
     }),
   
   // 제품별 레시피 조회
-  getByProductId: protectedProcedure
+  getByProductId: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
     .query(async ({ input }) => {
       const { getRecipesByProductId } = await import("../db/recipe");
@@ -136,7 +136,7 @@ export const recipeRouter = router({
     }),
   
   // 레시피 버전 이력 조회
-  getVersions: protectedProcedure
+  getVersions: tenantRequiredProcedure
     .input(z.object({ recipeId: z.number() }))
     .query(async ({ input }) => {
       const { getRecipeVersions } = await import("../db/recipe");

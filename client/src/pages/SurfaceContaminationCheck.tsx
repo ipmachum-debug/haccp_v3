@@ -26,7 +26,7 @@ export default function SurfaceContaminationCheck() {
   return (
     <DashboardLayout>
 
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div><h1 className="text-3xl font-bold">표면오염도</h1><p className="text-muted-foreground mt-1">표면 오염도 측정 이력을 관리합니다</p></div>
       <Card className="p-6">
         <h2 className="text-xl font-semibold mb-4 flex items-center gap-2"><Activity className="h-5 w-5" />표면오염도 측정</h2>

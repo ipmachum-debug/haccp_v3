@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as trainingDb from "../db/training";
 
 /**
@@ -12,7 +12,7 @@ export const trainingRouter = router({
   // ============================================================================
 
   // 교육 과정 생성
-  createCourse: protectedProcedure
+  createCourse: tenantRequiredProcedure
     .input(
       z.object({
         courseCode: z.string(),
@@ -48,19 +48,19 @@ export const trainingRouter = router({
     }),
 
   // 교육 과정 상세 조회
-  getCourse: protectedProcedure
+  getCourse: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return trainingDb.getTrainingCourseById(input.id);
     }),
 
   // 전체 교육 과정 목록
-  listCourses: protectedProcedure.query(async ({ ctx }) => {
+  listCourses: tenantRequiredProcedure.query(async ({ ctx }) => {
     return trainingDb.getAllTrainingCourses(ctx.user.tenantId);
   }),
 
   // 카테고리별 교육 과정 목록
-  listCoursesByCategory: protectedProcedure
+  listCoursesByCategory: tenantRequiredProcedure
     .input(
       z.object({
         category: z.enum([
@@ -80,12 +80,12 @@ export const trainingRouter = router({
     }),
 
   // 필수 교육 과정 목록
-  listMandatoryCourses: protectedProcedure.query(async ({ ctx }) => {
+  listMandatoryCourses: tenantRequiredProcedure.query(async ({ ctx }) => {
     return trainingDb.getMandatoryTrainingCourses(ctx.user.tenantId);
   }),
 
   // 교육 과정 수정
-  updateCourse: protectedProcedure
+  updateCourse: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -121,7 +121,7 @@ export const trainingRouter = router({
     }),
 
   // 교육 과정 삭제 (아카이브)
-  deleteCourse: protectedProcedure
+  deleteCourse: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await trainingDb.deleteTrainingCourse(input.id);
@@ -133,7 +133,7 @@ export const trainingRouter = router({
   // ============================================================================
 
   // 교육 일정 생성
-  createSchedule: protectedProcedure
+  createSchedule: tenantRequiredProcedure
     .input(
       z.object({
         courseId: z.number(),
@@ -158,28 +158,28 @@ export const trainingRouter = router({
     }),
 
   // 교육 일정 상세 조회
-  getSchedule: protectedProcedure
+  getSchedule: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return trainingDb.getTrainingScheduleById(input.id);
     }),
 
   // 과정별 교육 일정 목록
-  listSchedulesByCourse: protectedProcedure
+  listSchedulesByCourse: tenantRequiredProcedure
     .input(z.object({ courseId: z.number() }))
     .query(async ({ input }) => {
       return trainingDb.getTrainingSchedulesByCourse(input.courseId);
     }),
 
   // 예정된 교육 일정 목록
-  listUpcomingSchedules: protectedProcedure
+  listUpcomingSchedules: tenantRequiredProcedure
     .input(z.object({ siteId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       return trainingDb.getUpcomingTrainingSchedules(input.siteId, ctx.user.tenantId);
     }),
 
   // 교육 일정 수정
-  updateSchedule: protectedProcedure
+  updateSchedule: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -202,7 +202,7 @@ export const trainingRouter = router({
     }),
 
   // 교육 일정 삭제
-  deleteSchedule: protectedProcedure
+  deleteSchedule: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await trainingDb.deleteTrainingSchedule(input.id);
@@ -214,7 +214,7 @@ export const trainingRouter = router({
   // ============================================================================
 
   // 교육 참가 등록
-  registerParticipant: protectedProcedure
+  registerParticipant: tenantRequiredProcedure
     .input(
       z.object({
         scheduleId: z.number(),
@@ -230,28 +230,28 @@ export const trainingRouter = router({
     }),
 
   // 참가자 정보 조회
-  getParticipant: protectedProcedure
+  getParticipant: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return trainingDb.getTrainingParticipantById(input.id);
     }),
 
   // 일정별 참가자 목록
-  listParticipantsBySchedule: protectedProcedure
+  listParticipantsBySchedule: tenantRequiredProcedure
     .input(z.object({ scheduleId: z.number() }))
     .query(async ({ input }) => {
       return trainingDb.getTrainingParticipantsBySchedule(input.scheduleId);
     }),
 
   // 사용자별 교육 이력
-  listParticipantsByUser: protectedProcedure
+  listParticipantsByUser: tenantRequiredProcedure
     .input(z.object({ userId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       return trainingDb.getTrainingParticipantsByUser(input.userId || ctx.user.id);
     }),
 
   // 출석 처리
-  recordAttendance: protectedProcedure
+  recordAttendance: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -266,7 +266,7 @@ export const trainingRouter = router({
     }),
 
   // 평가 점수 등록
-  recordAssessment: protectedProcedure
+  recordAssessment: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -283,7 +283,7 @@ export const trainingRouter = router({
     }),
 
   // 수료증 발급
-  issueCertificate: protectedProcedure
+  issueCertificate: tenantRequiredProcedure
     .input(
       z.object({
         participantId: z.number(),
@@ -299,7 +299,7 @@ export const trainingRouter = router({
     }),
 
   // 참가자 정보 수정
-  updateParticipant: protectedProcedure
+  updateParticipant: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -320,7 +320,7 @@ export const trainingRouter = router({
     }),
 
   // 참가 취소
-  cancelParticipant: protectedProcedure
+  cancelParticipant: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await trainingDb.deleteTrainingParticipant(input.id);
@@ -332,19 +332,19 @@ export const trainingRouter = router({
   // ============================================================================
 
   // 사용자별 알림 목록
-  listRemindersByUser: protectedProcedure
+  listRemindersByUser: tenantRequiredProcedure
     .input(z.object({ userId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       return trainingDb.getTrainingRemindersByUser(input.userId || ctx.user.id);
     }),
 
   // 발송 대기 중인 알림 목록
-  listPendingReminders: protectedProcedure.query(async ({ ctx }) => {
+  listPendingReminders: tenantRequiredProcedure.query(async ({ ctx }) => {
     return trainingDb.getPendingTrainingReminders(ctx.user.tenantId);
   }),
 
   // 알림 발송 완료 처리
-  markReminderAsSent: protectedProcedure
+  markReminderAsSent: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await trainingDb.markTrainingReminderAsSent(input.id);

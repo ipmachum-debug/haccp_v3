@@ -166,7 +166,7 @@ export default function ChecklistTypeSelector() {
 
   return (
     <DashboardLayout>
-      <div className="container py-8">
+      <div className="space-y-6">
         <div className="space-y-6">
           <div>
             <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">

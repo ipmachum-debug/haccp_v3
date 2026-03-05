@@ -63,8 +63,8 @@ export default function ChecklistNotificationSettings() {
 
   return (
     <DashboardLayout>
-    <div className="container py-8">
-      <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6">
+      <div className="space-y-6">
         {/* 헤더 */}
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">

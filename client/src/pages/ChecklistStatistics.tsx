@@ -148,7 +148,7 @@ export default function ChecklistStatistics() {
 
   return (
     <DashboardLayout>
-    <div className="container py-8">
+    <div className="space-y-6">
       <div className="space-y-6">
         {/* 헤더 */}
         <div>

@@ -96,7 +96,7 @@ export default function MaterialReceiptManagement() {
   const { data: transactions = [] } = trpc.inventory.getInventoryTransactions.useQuery({});
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">원재료 입고 관리</h1>

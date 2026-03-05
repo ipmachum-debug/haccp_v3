@@ -183,7 +183,7 @@ export default function CcpCalendar() {
 
   return (
     
-      <div className="flex flex-col gap-6 p-8">
+      <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">CCP 점검 캘린더</h1>

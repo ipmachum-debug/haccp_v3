@@ -109,7 +109,7 @@ export default function ChecklistApprovalManagement() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div>
         <h1 className="text-3xl font-bold">체크리스트 승인 관리</h1>

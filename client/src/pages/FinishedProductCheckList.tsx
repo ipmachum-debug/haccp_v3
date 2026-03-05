@@ -180,7 +180,7 @@ export function FinishedProductCheckListContent() {
 export default function FinishedProductCheckList() {
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 max-w-[1200px]">
+      <div className="space-y-6">
         <FinishedProductCheckListContent />
       </div>
     </DashboardLayout>

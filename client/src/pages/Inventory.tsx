@@ -119,7 +119,7 @@ export default function Inventory() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-4 md:p-8">
+      <div className="flex flex-col gap-6">
         {/* 헤더 */}
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -154,7 +154,7 @@ export default function Inventory() {
                 <DialogTitle>재고 입고</DialogTitle>
                 <DialogDescription>새로운 재고 LOT를 생성합니다</DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-4">
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="material">원재료 *</Label>
                   <Select

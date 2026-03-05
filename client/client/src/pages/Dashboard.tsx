@@ -18,8 +18,6 @@ import { RecentActivityWidget } from "@/components/RecentActivityWidget";
 import { AccountingSummaryWidget } from "@/components/AccountingSummaryWidget";
 import { SortableWidget } from "@/components/SortableWidget";
 import { Link } from "wouter";
-import { motion } from "framer-motion";
-import { staggerContainer, staggerItem } from "@/lib/animations";
 import { WelcomeBanner } from "@/components/WelcomeBanner";
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Settings, Eye, EyeOff, GripVertical } from "lucide-react";
@@ -234,29 +232,26 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-4 md:gap-8 p-4 md:p-8">
+      <div className="flex flex-col gap-4 md:gap-8">
         {/* 환영 배너 */}
         <WelcomeBanner />
-        {/* 헤더 - overflow.io 스타일 */}
-        <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+        {/* 헤더 - Premium */}
+        <div
           className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
         >
           <div>
-            <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-transparent">
-              HACCP 관리 시스템
+            <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-foreground">
+              대시보드
             </h1>
-            <p className="text-base md:text-lg text-muted-foreground mt-2 md:mt-3">
+            <p className="text-[13px] text-muted-foreground mt-0.5">
               식품 안전 관리 및 배치 생산 현황을 한눈에 확인하세요
             </p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="outline" size="lg">
-                  <Settings className="mr-2 h-4 w-4" />
+                <Button variant="outline" size="sm" className="h-9">
+                  <Settings className="mr-1.5 h-3.5 w-3.5" />
                   위젯 설정
                 </Button>
               </DialogTrigger>
@@ -267,7 +262,7 @@ export default function Dashboard() {
                     표시할 위젯과 크기를 선택하세요
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="space-y-4">
                   <div className="flex items-center justify-between gap-4">
                     <Label htmlFor="approvalPending" className="flex-1">승인 대기</Label>
                     <Select
@@ -523,79 +518,74 @@ export default function Dashboard() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button size="lg" className="w-full md:w-auto" asChild>
+            <Button size="sm" className="w-full md:w-auto h-9" asChild>
               <Link href="/dashboard/batch-management?tab=create">
-                <Package className="mr-2 h-4 w-4" />
+                <Package className="mr-1.5 h-3.5 w-3.5" />
                 새 배치 생성
               </Link>
             </Button>
           </div>
-        </motion.div>
+        </div>
 
-        {/* 통계 카드 */}
-        <motion.div 
-          className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
-          variants={staggerContainer}
-          initial="hidden"
-          animate="visible"
-        >
-          <motion.div variants={staggerItem}>
-            <Card className="card-hover transition-all duration-300 bg-gradient-to-br from-card via-card to-card/80">
+        {/* 통계 카드 - Premium */}
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <Card className="group">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">전체 배치</CardTitle>
-              <Package className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-[13px] font-medium text-muted-foreground">전체 배치</CardTitle>
+              <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
+                <Package className="h-4 w-4 text-muted-foreground" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{localStats.total}</div>
-              <p className="text-xs text-muted-foreground">총 생성된 배치 수</p>
+              <div className="text-2xl font-semibold tracking-tight">{localStats.total}</div>
+              <p className="text-[11px] text-muted-foreground mt-1">총 생성된 배치 수</p>
             </CardContent>
           </Card>
-          </motion.div>
 
-          <motion.div variants={staggerItem}>
-            <Card className="card-hover transition-all duration-300 bg-gradient-to-br from-card via-card to-card/80">
+          <Card className="group">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">진행 중</CardTitle>
-              <Clock className="h-4 w-4 text-blue-500" />
+              <CardTitle className="text-[13px] font-medium text-muted-foreground">진행 중</CardTitle>
+              <div className="h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
+                <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-500">{localStats.inProgress}</div>
-              <p className="text-xs text-muted-foreground">현재 생산 중인 배치</p>
+              <div className="text-2xl font-semibold tracking-tight text-blue-600 dark:text-blue-400">{localStats.inProgress}</div>
+              <p className="text-[11px] text-muted-foreground mt-1">현재 생산 중인 배치</p>
             </CardContent>
           </Card>
-          </motion.div>
 
-          <motion.div variants={staggerItem}>
-            <Card className="card-hover transition-all duration-300 bg-gradient-to-br from-card via-card to-card/80">
+          <Card className="group">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">오늘 완료</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <CardTitle className="text-[13px] font-medium text-muted-foreground">오늘 완료</CardTitle>
+              <div className="h-8 w-8 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-500">{localStats.completed}</div>
-              <p className="text-xs text-muted-foreground">이번 주: {stats?.completedWeek || 0}건 | 이번 달: {stats?.completedMonth || 0}건</p>
+              <div className="text-2xl font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">{localStats.completed}</div>
+              <p className="text-[11px] text-muted-foreground mt-1">이번 주: {stats?.completedWeek || 0}건 | 이번 달: {stats?.completedMonth || 0}건</p>
             </CardContent>
           </Card>
-          </motion.div>
 
-          <motion.div variants={staggerItem}>
-            <Card className="card-hover transition-all duration-300 bg-gradient-to-br from-card via-card to-card/80">
+          <Card className="group">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">재고 부족 알림</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              <CardTitle className="text-[13px] font-medium text-muted-foreground">재고 부족 알림</CardTitle>
+              <div className="h-8 w-8 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-orange-600">{stats?.lowStockCount || 0}</div>
-              <p className="text-xs text-muted-foreground">안전 재고 수준 이하</p>
+              <div className="text-2xl font-semibold tracking-tight text-amber-600 dark:text-amber-400">{stats?.lowStockCount || 0}</div>
+              <p className="text-[11px] text-muted-foreground mt-1">안전 재고 수준 이하</p>
             </CardContent>
           </Card>
-          </motion.div>
-        </motion.div>
+        </div>
 
         {/* 검사 통계 및 배치 진행 현황 차트 */}
         <div className="grid gap-4 md:grid-cols-2">
           {/* 검사 통계 차트 */}
-          <Card className="card-hover bg-gradient-to-br from-card via-card to-card/80">
+          <Card>
             <CardHeader>
               <CardTitle>검사 통계</CardTitle>
               <CardDescription>원재료, 출하, 위생 검사 현황</CardDescription>
@@ -622,7 +612,7 @@ export default function Dashboard() {
           </Card>
 
           {/* 배치 진행 현황 차트 */}
-          <Card className="card-hover bg-gradient-to-br from-card via-card to-card/80">
+          <Card>
             <CardHeader>
               <CardTitle>배치 진행 현황</CardTitle>
               <CardDescription>배치 상태별 분포</CardDescription>

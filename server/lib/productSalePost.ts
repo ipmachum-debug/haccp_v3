@@ -5,6 +5,8 @@ import { accountingTransactions } from "../../drizzle/schema_inventory_accountin
 import { accountingSales } from "../../drizzle/schema_accounting_extended";
 import { allocateLotsFEFO, saveLotAllocations } from "./fefoLotAllocation";
 import { eq } from "drizzle-orm";
+import { resolveSystemAccount } from "../db/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
  * 제품 출고/판매 POST 로직
@@ -110,25 +112,34 @@ export async function postProductSale(
     }
   }
 
-  // 5. 회계 원장 생성 (복식부기)
+  // 5. 회계 원장 생성 (복식부기) - system_code 기반
   const transactionDate = new Date().toISOString().split("T")[0];
   const totalCost = allocations.reduce(
     (sum, a) => sum + a.quantity * a.unitCost,
     0
   );
+  const tenantId = (sale as any).tenantId || 1;
+
+  // system_code 기반 계정 조회
+  const receivableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금");
+  const salesRevenueAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.SALES_REVENUE, "4010", "상품매출");
+  const cogsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가");
+  const inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품");
 
   // (A) 매출 인식
-  // 차변: 매출채권
+  // 차변: 외상매출금
   try {
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate,
-      accountCode: "1310", // 매출채권
+      accountCode: receivableAcc.code,
+      accountName: receivableAcc.name,
       debitAmount: totalAmount.toFixed(2),
       creditAmount: "0.00",
       description: `제품 판매 (판매 #${saleId})`,
       sourceType: "SALE",
       sourceId: `SALE-${saleId}`,
-      sourceLineId: `SALE-${saleId}-1`,
+      sourceLineId: `SALE-${saleId}-receivable`,
       actionType: "POST",
       createdBy: userId
     });
@@ -142,14 +153,16 @@ export async function postProductSale(
   // 대변: 매출
   try {
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate,
-      accountCode: "4110", // 제품매출
+      accountCode: salesRevenueAcc.code,
+      accountName: salesRevenueAcc.name,
       debitAmount: "0.00",
       creditAmount: totalAmount.toFixed(2),
       description: `제품 판매 (판매 #${saleId})`,
       sourceType: "SALE",
       sourceId: `SALE-${saleId}`,
-      sourceLineId: `SALE-${saleId}-1`,
+      sourceLineId: `SALE-${saleId}-revenue`,
       actionType: "POST",
       createdBy: userId
     });
@@ -164,14 +177,16 @@ export async function postProductSale(
   // 차변: 매출원가
   try {
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate,
-      accountCode: "5110", // 제품매출원가
+      accountCode: cogsAcc.code,
+      accountName: cogsAcc.name,
       debitAmount: totalCost.toFixed(2),
       creditAmount: "0.00",
       description: `제품 판매 원가 (판매 #${saleId})`,
       sourceType: "SALE",
       sourceId: `SALE-${saleId}`,
-      sourceLineId: `SALE-${saleId}-1`,
+      sourceLineId: `SALE-${saleId}-cogs`,
       actionType: "POST",
       createdBy: userId
     });
@@ -185,14 +200,16 @@ export async function postProductSale(
   // 대변: 제품재고
   try {
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate,
-      accountCode: "1140", // 제품재고
+      accountCode: inventoryGoodsAcc.code,
+      accountName: inventoryGoodsAcc.name,
       debitAmount: "0.00",
       creditAmount: totalCost.toFixed(2),
       description: `제품 판매 원가 (판매 #${saleId})`,
       sourceType: "SALE",
       sourceId: `SALE-${saleId}`,
-      sourceLineId: `SALE-${saleId}-1`,
+      sourceLineId: `SALE-${saleId}-inventory`,
       actionType: "POST",
       createdBy: userId
     });

@@ -189,7 +189,7 @@ export default function MfReportModify() {
   if (!reportDetail) {
     return (
       <DashboardLayout>
-        <div className="container mx-auto py-8">
+        <div className="space-y-6">
           <p className="text-muted-foreground">보고서를 찾을 수 없습니다.</p>
           <Button variant="outline" onClick={() => setLocation("/dashboard/manufacturing-standards")}>
             <ArrowLeft className="w-4 h-4 mr-2" /> 목록으로
@@ -201,7 +201,7 @@ export default function MfReportModify() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 pb-24">
+      <div className="space-y-6 pb-24">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">

@@ -167,7 +167,7 @@ export default function MfReportCreate() {
 
   return (
     <DashboardLayout>
-    <div className="container mx-auto py-8">
+    <div className="space-y-6">
       <h1 className="text-3xl font-bold mb-6">품목제조보고 등록</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">

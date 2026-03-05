@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { pestControlChecklists, pestControlItems } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { requireTenantId } from "../helpers/tenantGuards";
 
 const pestControlItemSchema = z.object({
   location: z.string().min(1, "위치는 필수입니다"),
@@ -16,7 +17,7 @@ export const pestControlRouter = router({
   /**
    * 방충방서 점검표 생성
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         checkDate: z.string(), // YYYY-MM-DD
@@ -30,12 +31,14 @@ export const pestControlRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const { items, ...checklistData } = input;
 
       // 체크리스트 생성
       const [checklist] = await db.insert(pestControlChecklists).values({
         ...checklistData,
+        tenantId,
         checkDate: new Date(input.checkDate),
         createdBy: Number(ctx.user.id),
       });
@@ -56,7 +59,7 @@ export const pestControlRouter = router({
   /**
    * 방충방서 점검표 수정
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -68,18 +71,21 @@ export const pestControlRouter = router({
         items: z.array(pestControlItemSchema).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const { id, items, checkDate, ...checklistData } = input;
 
-      // 체크리스트 수정
+      // 체크리스트 수정 (테넌트 조건 추가)
       const updateData = {
         ...checklistData,
         ...(checkDate ? { checkDate: new Date(checkDate) } : {}),
       };
-      await db.update(pestControlChecklists).set(updateData).where(eq(pestControlChecklists.id, id));
+      await db.update(pestControlChecklists).set(updateData).where(
+        and(eq(pestControlChecklists.id, id), eq(pestControlChecklists.tenantId, tenantId))
+      );
 
       // 점검 항목 수정 (기존 삭제 후 재생성)
       if (items) {
@@ -100,20 +106,23 @@ export const pestControlRouter = router({
   /**
    * 방충방서 점검표 삭제
    */
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
-      await db.delete(pestControlChecklists).where(eq(pestControlChecklists.id, input.id));
+      await db.delete(pestControlChecklists).where(
+        and(eq(pestControlChecklists.id, input.id), eq(pestControlChecklists.tenantId, tenantId))
+      );
       return { success: true };
     }),
 
   /**
    * 방충방서 점검표 목록 조회
    */
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         startDate: z.string().optional(),
@@ -121,11 +130,12 @@ export const pestControlRouter = router({
         approvalStatus: z.enum(["draft", "pending_review", "approved", "rejected"]).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
+      const tenantId = requireTenantId(ctx);
 
-      const conditions = [];
+      const conditions: any[] = [eq(pestControlChecklists.tenantId, tenantId)];
       if (input.startDate) {
         conditions.push(gte(pestControlChecklists.checkDate, new Date(input.startDate)));
       }
@@ -136,27 +146,28 @@ export const pestControlRouter = router({
         conditions.push(eq(pestControlChecklists.approvalStatus, input.approvalStatus));
       }
 
-      const query = conditions.length > 0
-        ? db.select().from(pestControlChecklists).where(and(...conditions))
-        : db.select().from(pestControlChecklists);
-
-      const checklists = await query.orderBy(desc(pestControlChecklists.checkDate));
+      const checklists = await db
+        .select()
+        .from(pestControlChecklists)
+        .where(and(...conditions))
+        .orderBy(desc(pestControlChecklists.checkDate));
       return checklists;
     }),
 
   /**
    * 방충방서 점검표 상세 조회
    */
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const [checklist] = await db
         .select()
         .from(pestControlChecklists)
-        .where(eq(pestControlChecklists.id, input.id));
+        .where(and(eq(pestControlChecklists.id, input.id), eq(pestControlChecklists.tenantId, tenantId)));
 
       if (!checklist) {
         throw new TRPCError({ code: "NOT_FOUND", message: "체크리스트를 찾을 수 없습니다" });
@@ -174,16 +185,17 @@ export const pestControlRouter = router({
   /**
    * 결재 요청
    */
-  submitForApproval: protectedProcedure
+  submitForApproval: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(pestControlChecklists)
         .set({ approvalStatus: "pending_review" })
-        .where(eq(pestControlChecklists.id, input.id));
+        .where(and(eq(pestControlChecklists.id, input.id), eq(pestControlChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),
@@ -191,16 +203,17 @@ export const pestControlRouter = router({
   /**
    * 승인
    */
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(pestControlChecklists)
         .set({ approvalStatus: "approved" })
-        .where(eq(pestControlChecklists.id, input.id));
+        .where(and(eq(pestControlChecklists.id, input.id), eq(pestControlChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),
@@ -208,11 +221,12 @@ export const pestControlRouter = router({
   /**
    * 반려
    */
-  reject: protectedProcedure
+  reject: tenantRequiredProcedure
     .input(z.object({ id: z.number(), reason: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(pestControlChecklists)
@@ -220,7 +234,7 @@ export const pestControlRouter = router({
           approvalStatus: "rejected",
           correctiveAction: input.reason,
         })
-        .where(eq(pestControlChecklists.id, input.id));
+        .where(and(eq(pestControlChecklists.id, input.id), eq(pestControlChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),

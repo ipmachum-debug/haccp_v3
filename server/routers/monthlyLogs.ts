@@ -6,7 +6,7 @@
  * - 승인관리에서 데이터 수정 (updateFormData)
  * - 목록/상세 조회
  */
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
@@ -14,7 +14,7 @@ import { sql } from "drizzle-orm";
 
 export const monthlyLogsRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
-  getPreviousFormData: protectedProcedure
+  getPreviousFormData: tenantRequiredProcedure
     .input(z.object({ beforeDate: z.string() }))
     .query(async ({ input, ctx }) => {
       try {
@@ -49,7 +49,7 @@ export const monthlyLogsRouter = router({
     }),
 
   // ── 해당 날짜 월간일지 조회 (편집용) ──
-  getByDate: protectedProcedure
+  getByDate: tenantRequiredProcedure
     .input(z.object({ logDate: z.string(), siteId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       try {
@@ -87,7 +87,7 @@ export const monthlyLogsRouter = router({
     }),
 
   // ── 월간일지 저장 (전체 양식) ──
-  saveFullForm: protectedProcedure
+  saveFullForm: tenantRequiredProcedure
     .input(z.object({
       logDate: z.string(),
       formData: z.any(),
@@ -186,7 +186,7 @@ export const monthlyLogsRouter = router({
     }),
 
   // ── 승인관리에서 데이터 수정 ──
-  updateFormData: protectedProcedure
+  updateFormData: tenantRequiredProcedure
     .input(z.object({ id: z.number(), formData: z.any() }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -215,7 +215,7 @@ export const monthlyLogsRouter = router({
     }),
 
   // ── 월간일지 목록 조회 ──
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),
@@ -269,8 +269,8 @@ export const monthlyLogsRouter = router({
     }),
 
   // ── Legacy compat stubs ──
-  createHygiene: protectedProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
-  getHygiene: protectedProcedure.input(z.any()).query(async () => ({ logs: [] })),
-  createCCP: protectedProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
-  getCCP: protectedProcedure.input(z.any()).query(async () => ({ logs: [] })),
+  createHygiene: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
+  getHygiene: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
+  createCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
+  getCCP: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
 });

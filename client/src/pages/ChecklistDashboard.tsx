@@ -650,7 +650,7 @@ export default function ChecklistDashboard() {
 
   return (
     <DashboardLayout>
-      <div className="container py-6">
+      <div className="space-y-6">
         {/* 헤더 */}
         <div className="mb-6 flex justify-between items-start">
           <div>

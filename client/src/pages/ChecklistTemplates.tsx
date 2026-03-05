@@ -94,7 +94,7 @@ export default function ChecklistTemplates() {
     return (
     <DashboardLayout>
 
-      <div className="container py-8">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>접근 권한 없음</CardTitle>
@@ -111,7 +111,7 @@ export default function ChecklistTemplates() {
 
   return (
     <DashboardLayout>
-    <div className="container py-8">
+    <div className="space-y-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold">체크리스트 템플릿 관리</h1>

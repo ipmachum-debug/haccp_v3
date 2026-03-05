@@ -30,7 +30,7 @@ export default function ProductionPrediction() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-4 md:p-8">
+      <div className="flex flex-col gap-6">
         {/* 헤더 */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>

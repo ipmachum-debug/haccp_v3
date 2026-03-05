@@ -39,3 +39,4 @@ export * from "./communicationLog";
 export * from "./communicationLogExtensions";
 export * from "./ccpMonitoring";
 export * from "./expense";
+export * from "./support";

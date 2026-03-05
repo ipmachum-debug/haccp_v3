@@ -32,7 +32,7 @@ export default function ApprovalDashboard() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="p-8">
+        <div className="space-y-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-muted-foreground">로딩 중...</div>
           </div>
@@ -104,7 +104,7 @@ export default function ApprovalDashboard() {
 
   return (
     <DashboardLayout>
-      <div className="p-8 space-y-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">승인 워크플로우 대시보드</h1>

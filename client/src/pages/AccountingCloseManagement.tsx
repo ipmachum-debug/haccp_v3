@@ -97,7 +97,7 @@ export default function AccountingCloseManagement() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>마감 관리</CardTitle>

@@ -54,7 +54,7 @@ export default function PurchaseDetail() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-8">
+      <div className="space-y-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <Button

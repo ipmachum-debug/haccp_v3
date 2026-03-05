@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { hygieneChecklists } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { requireTenantId } from "../helpers/tenantGuards";
 
 const checkItemSchema = z.enum(["yes", "no"]).optional();
 
@@ -11,7 +12,7 @@ export const hygieneRouter = router({
   /**
    * 일반위생관리 체크리스트 생성
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         checkDate: z.string(), // YYYY-MM-DD
@@ -35,9 +36,11 @@ export const hygieneRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const [checklist] = await db.insert(hygieneChecklists).values({
         ...input,
+        tenantId,
         checkDate: new Date(input.checkDate),
         createdBy: Number(ctx.user.id),
       });
@@ -48,7 +51,7 @@ export const hygieneRouter = router({
   /**
    * 일반위생관리 체크리스트 수정
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -70,35 +73,39 @@ export const hygieneRouter = router({
         confirmation: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const { id, checkDate, ...data } = input;
       await db.update(hygieneChecklists).set({
         ...data,
         ...(checkDate && { checkDate: new Date(checkDate) }),
-      }).where(eq(hygieneChecklists.id, id));
+      }).where(and(eq(hygieneChecklists.id, id), eq(hygieneChecklists.tenantId, tenantId)));
       return { success: true };
     }),
 
   /**
    * 일반위생관리 체크리스트 삭제
    */
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
-      await db.delete(hygieneChecklists).where(eq(hygieneChecklists.id, input.id));
+      await db.delete(hygieneChecklists).where(
+        and(eq(hygieneChecklists.id, input.id), eq(hygieneChecklists.tenantId, tenantId))
+      );
       return { success: true };
     }),
 
   /**
    * 일반위생관리 체크리스트 목록 조회
    */
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         startDate: z.string().optional(),
@@ -106,11 +113,12 @@ export const hygieneRouter = router({
         approvalStatus: z.enum(["draft", "pending_review", "approved", "rejected"]).optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
+      const tenantId = requireTenantId(ctx);
 
-      const conditions = [];
+      const conditions: any[] = [eq(hygieneChecklists.tenantId, tenantId)];
       if (input.startDate) {
         conditions.push(gte(hygieneChecklists.checkDate, new Date(input.startDate)));
       }
@@ -121,27 +129,28 @@ export const hygieneRouter = router({
         conditions.push(eq(hygieneChecklists.approvalStatus, input.approvalStatus));
       }
 
-      const query = conditions.length > 0
-        ? db.select().from(hygieneChecklists).where(and(...conditions))
-        : db.select().from(hygieneChecklists);
-
-      const checklists = await query.orderBy(desc(hygieneChecklists.checkDate));
+      const checklists = await db
+        .select()
+        .from(hygieneChecklists)
+        .where(and(...conditions))
+        .orderBy(desc(hygieneChecklists.checkDate));
       return checklists;
     }),
 
   /**
    * 일반위생관리 체크리스트 상세 조회
    */
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       const [checklist] = await db
         .select()
         .from(hygieneChecklists)
-        .where(eq(hygieneChecklists.id, input.id));
+        .where(and(eq(hygieneChecklists.id, input.id), eq(hygieneChecklists.tenantId, tenantId)));
 
       if (!checklist) {
         throw new TRPCError({ code: "NOT_FOUND", message: "체크리스트를 찾을 수 없습니다" });
@@ -153,16 +162,17 @@ export const hygieneRouter = router({
   /**
    * 결재 요청
    */
-  submitForApproval: protectedProcedure
+  submitForApproval: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(hygieneChecklists)
         .set({ approvalStatus: "pending_review" })
-        .where(eq(hygieneChecklists.id, input.id));
+        .where(and(eq(hygieneChecklists.id, input.id), eq(hygieneChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),
@@ -170,16 +180,17 @@ export const hygieneRouter = router({
   /**
    * 승인
    */
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(hygieneChecklists)
         .set({ approvalStatus: "approved" })
-        .where(eq(hygieneChecklists.id, input.id));
+        .where(and(eq(hygieneChecklists.id, input.id), eq(hygieneChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),
@@ -187,11 +198,12 @@ export const hygieneRouter = router({
   /**
    * 반려
    */
-  reject: protectedProcedure
+  reject: tenantRequiredProcedure
     .input(z.object({ id: z.number(), reason: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+      const tenantId = requireTenantId(ctx);
 
       await db
         .update(hygieneChecklists)
@@ -199,7 +211,7 @@ export const hygieneRouter = router({
           approvalStatus: "rejected",
           confirmation: input.reason,
         })
-        .where(eq(hygieneChecklists.id, input.id));
+        .where(and(eq(hygieneChecklists.id, input.id), eq(hygieneChecklists.tenantId, tenantId)));
 
       return { success: true };
     }),

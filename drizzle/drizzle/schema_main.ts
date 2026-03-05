@@ -1372,7 +1372,7 @@ export const apLedger = mysqlTable("ap_ledger", {
   refType: varchar("ref_type", { length: 50 }), // 'receiving', 'manual', etc.
   refId: bigint("ref_id", { mode: "number" }), // h_material_receivings.id, etc.
   memo: varchar({ length: 255 }),
-  accountingAccountId: bigint("accounting_account_id", { mode: "number" }).references(() => accountingAccountsV2.id),
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // FK → accounting_accounts.id
   createdBy: bigint("created_by", { mode: "number" }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1392,7 +1392,7 @@ export const arLedger = mysqlTable("ar_ledger", {
   refType: varchar("ref_type", { length: 50 }), // 'shipment', 'manual', etc.
   refId: bigint("ref_id", { mode: "number" }),
   memo: varchar({ length: 255 }),
-  accountingAccountId: bigint("accounting_account_id", { mode: "number" }).references(() => accountingAccountsV2.id),
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // FK → accounting_accounts.id
   createdBy: bigint("created_by", { mode: "number" }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

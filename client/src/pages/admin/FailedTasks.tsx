@@ -62,7 +62,7 @@ export default function FailedTasks() {
 
   if (isLoading) {
     return (
-      <div className="container py-8">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>실패 작업 관리</CardTitle>

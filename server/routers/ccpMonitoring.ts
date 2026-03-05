@@ -1,4 +1,4 @@
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { generateCcpMonitoringPdf } from "../_core/pdfGenerator.js";
 import { getDb } from "../db";
@@ -32,7 +32,7 @@ function getEffectiveTenantId(ctx: any): number {
 
 export const ccpMonitoringRouter = router({
   // CCP 한계기준 관리
-  createCcpLimit: protectedProcedure
+  createCcpLimit: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']),
       productName: z.string(),
@@ -51,7 +51,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getCcpLimits: protectedProcedure
+  getCcpLimits: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']).optional(),
       productName: z.string().optional(),
@@ -73,7 +73,7 @@ export const ccpMonitoringRouter = router({
       return await db.select().from(ccpLimits).where(and(...conditions));
     }),
 
-  updateCcpLimit: protectedProcedure
+  updateCcpLimit: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       heatingTimeMinMin: z.number().optional(),
@@ -92,7 +92,7 @@ export const ccpMonitoringRouter = router({
       return { success: true };
     }),
 
-  deleteCcpLimit: protectedProcedure
+  deleteCcpLimit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -104,7 +104,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // CCP 모니터링 기록 관리
-  createCcpMonitoringRecord: protectedProcedure
+  createCcpMonitoringRecord: tenantRequiredProcedure
     .input(z.object({
       recordDate: z.date(),
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']),
@@ -145,7 +145,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getCcpMonitoringRecords: protectedProcedure
+  getCcpMonitoringRecords: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']).optional(),
       startDate: z.date().optional(),
@@ -190,7 +190,7 @@ export const ccpMonitoringRouter = router({
       return records;
     }),
 
-  updateCcpMonitoringRecord: protectedProcedure
+  updateCcpMonitoringRecord: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       reviewerId: z.number().optional(),
@@ -207,7 +207,7 @@ export const ccpMonitoringRouter = router({
       return { success: true };
     }),
 
-  deleteCcpMonitoringRecord: protectedProcedure
+  deleteCcpMonitoringRecord: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -217,7 +217,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 금속검출 테스트 기록 관리
-  createMetalDetectionTest: protectedProcedure
+  createMetalDetectionTest: tenantRequiredProcedure
     .input(z.object({
       testDate: z.date(),
       productCategory: z.string(),
@@ -237,7 +237,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getMetalDetectionTests: protectedProcedure
+  getMetalDetectionTests: tenantRequiredProcedure
     .input(z.object({
       productCategory: z.string().optional(),
       metalType: z.enum(['Fe', 'STS']).optional(),
@@ -271,7 +271,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 금속검출 기준 관리
-  createMetalDetectionStandard: protectedProcedure
+  createMetalDetectionStandard: tenantRequiredProcedure
     .input(z.object({
       productCategory: z.string(),
       metalType: z.enum(['Fe', 'STS']),
@@ -286,7 +286,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getMetalDetectionStandards: protectedProcedure
+  getMetalDetectionStandards: tenantRequiredProcedure
     .input(z.object({
       productCategory: z.string().optional(),
       metalType: z.enum(['Fe', 'STS']).optional(),
@@ -310,7 +310,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 검증 기록 관리
-  createVerificationRecord: protectedProcedure
+  createVerificationRecord: tenantRequiredProcedure
     .input(z.object({
       verificationDate: z.date(),
       verificationType: z.enum(['최초', '일상', '정기', '특별']),
@@ -328,7 +328,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getVerificationRecords: protectedProcedure
+  getVerificationRecords: tenantRequiredProcedure
     .input(z.object({
       verificationType: z.enum(['최초', '일상', '정기', '특별']).optional(),
       startDate: z.date().optional(),
@@ -357,7 +357,7 @@ export const ccpMonitoringRouter = router({
         .limit(50);
     }),
 
-  updateVerificationRecord: protectedProcedure
+  updateVerificationRecord: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       approvedBy: z.number().optional(),
@@ -374,7 +374,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 위해요소 분석 관리
-  createHazardAnalysis: protectedProcedure
+  createHazardAnalysis: tenantRequiredProcedure
     .input(z.object({
       processName: z.string(),
       hazardCategory: z.enum(['생물학적', '화학적', '물리적']),
@@ -393,7 +393,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getHazardAnalysis: protectedProcedure
+  getHazardAnalysis: tenantRequiredProcedure
     .input(z.object({
       processName: z.string().optional(),
       hazardCategory: z.enum(['생물학적', '화학적', '물리적']).optional(),
@@ -422,7 +422,7 @@ export const ccpMonitoringRouter = router({
         .where(conditions.length > 0 ? and(...conditions) : sql`1=1`);
     }),
 
-  updateHazardAnalysis: protectedProcedure
+  updateHazardAnalysis: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       cause: z.string().optional(),
@@ -440,7 +440,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 제품 설명서 관리
-  createProductSpecification: protectedProcedure
+  createProductSpecification: tenantRequiredProcedure
     .input(z.object({
       productName: z.string(),
       foodType: z.string().optional(),
@@ -473,7 +473,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  getProductSpecifications: protectedProcedure
+  getProductSpecifications: tenantRequiredProcedure
     .input(z.object({
       productName: z.string().optional(),
     }))
@@ -489,7 +489,7 @@ export const ccpMonitoringRouter = router({
       return await query.orderBy(desc(productSpecifications.createdAt));
     }),
 
-  updateProductSpecification: protectedProcedure
+  updateProductSpecification: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       foodType: z.string().optional(),
@@ -519,7 +519,7 @@ export const ccpMonitoringRouter = router({
       return { success: true };
     }),
 
-  deleteProductSpecification: protectedProcedure
+  deleteProductSpecification: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -529,7 +529,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 위해요소 분석 삭제
-  deleteHazardAnalysis: protectedProcedure
+  deleteHazardAnalysis: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -539,7 +539,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // CCP 모니터링 PDF 생성
-  generateCcpPdf: protectedProcedure
+  generateCcpPdf: tenantRequiredProcedure
     .input(z.object({
       period: z.enum(['daily', 'weekly', 'monthly']),
       startDate: z.date(),
@@ -590,7 +590,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // CCP 모니터링 통계
-  getCcpMonitoringStats: protectedProcedure
+  getCcpMonitoringStats: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']).optional(),
       startDate: z.date(),
@@ -625,7 +625,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // 설비 기준 CCP 모니터링 기록 (설비별 조회)
   // ============================================================
-  getCcpRecordsByEquipment: protectedProcedure
+  getCcpRecordsByEquipment: tenantRequiredProcedure
     .input(z.object({
       equipmentId: z.number().optional(),
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']).optional(),
@@ -662,7 +662,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 설비 기준 CCP 기록 생성 (equipmentId 포함)
-  createCcpRecordByEquipment: protectedProcedure
+  createCcpRecordByEquipment: tenantRequiredProcedure
     .input(z.object({
       equipmentId: z.number(),
       recordDate: z.date(),
@@ -703,7 +703,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // 제품별 CCP 한계기준 스펙 (product_ccp_specs) CRUD
   // ============================================================
-  getProductCcpSpecs: protectedProcedure
+  getProductCcpSpecs: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
       ccpType: z.string().optional(),
@@ -727,7 +727,7 @@ export const ccpMonitoringRouter = router({
         .where(and(...conditions));
     }),
 
-  createProductCcpSpec: protectedProcedure
+  createProductCcpSpec: tenantRequiredProcedure
     .input(z.object({
       productId: z.number(),
       ccpType: z.string(),
@@ -754,7 +754,7 @@ export const ccpMonitoringRouter = router({
       return { id: result.insertId };
     }),
 
-  updateProductCcpSpec: protectedProcedure
+  updateProductCcpSpec: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       minTempC: z.string().optional().nullable(),
@@ -779,7 +779,7 @@ export const ccpMonitoringRouter = router({
       return { success: true };
     }),
 
-  deleteProductCcpSpec: protectedProcedure
+  deleteProductCcpSpec: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -795,7 +795,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // CCP 설비 목록 (ccp_type 기반) - raw SQL로 equipment_master 조회
   // ============================================================
-  getCcpEquipments: protectedProcedure
+  getCcpEquipments: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.string().optional(),
     }))
@@ -826,7 +826,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // 강화된 통계 - 설비별/제품별/기간별 통계
   // ============================================================
-  getCcpDetailedStats: protectedProcedure
+  getCcpDetailedStats: tenantRequiredProcedure
     .input(z.object({
       startDate: z.date(),
       endDate: z.date(),
@@ -899,7 +899,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // 제품-CCP 매핑 조회 (마스터데이터 탭용)
   // ============================================================
-  getProductCcpMappings: protectedProcedure
+  getProductCcpMappings: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
     }))
@@ -923,7 +923,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 제품 process_flags 업데이트
-  updateProductProcessFlags: protectedProcedure
+  updateProductProcessFlags: tenantRequiredProcedure
     .input(z.object({
       productId: z.number(),
       processFlags: z.string(),
@@ -943,7 +943,7 @@ export const ccpMonitoringRouter = router({
   // ========== 공정 그룹 관리 API ==========
   
   // 공정 그룹 목록 조회
-  getProcessGroups: protectedProcedure
+  getProcessGroups: tenantRequiredProcedure
     .input(z.object({ ccpType: z.string().optional() }).optional())
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -970,7 +970,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 공정 그룹 생성
-  createProcessGroup: protectedProcedure
+  createProcessGroup: tenantRequiredProcedure
     .input(z.object({
       name: z.string(),
       ccpType: z.string(),
@@ -1016,7 +1016,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 공정 그룹 수정
-  updateProcessGroup: protectedProcedure
+  updateProcessGroup: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       name: z.string().optional(),
@@ -1096,7 +1096,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 공정 그룹 삭제
-  deleteProcessGroup: protectedProcedure
+  deleteProcessGroup: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1116,7 +1116,7 @@ export const ccpMonitoringRouter = router({
   // CCP-4P(금속검출): 공정그룹 관리에서 수동 매핑 (SKU 단위)
   // ============================================================
   
-  getProcessGroupProducts: protectedProcedure
+  getProcessGroupProducts: tenantRequiredProcedure
     .input(z.object({
       processGroupId: z.number().optional(),
       ccpType: z.string().optional(),
@@ -1240,7 +1240,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 수동 제품 매핑 저장 (CCP-4P 금속검출공정용 - SKU 단위 매핑)
-  updateProcessGroupProducts: protectedProcedure
+  updateProcessGroupProducts: tenantRequiredProcedure
     .input(z.object({
       processGroupId: z.number(),
       productIds: z.array(z.number()),
@@ -1270,7 +1270,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   
   // 시간 프로파일 목록 조회
-  getTimeProfiles: protectedProcedure
+  getTimeProfiles: tenantRequiredProcedure
     .input(z.object({
       processType: z.string().optional(),
       isActive: z.boolean().default(true),
@@ -1310,7 +1310,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 시간 프로파일 생성 (가드레일: CL 검증 포함)
-  createTimeProfile: protectedProcedure
+  createTimeProfile: tenantRequiredProcedure
     .input(z.object({
       processType: z.string(),  // MIX | STEAM | OVEN
       profileName: z.string(),
@@ -1353,7 +1353,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 시간 프로파일 수정 (가드레일: CL 검증 포함)
-  updateTimeProfile: protectedProcedure
+  updateTimeProfile: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       profileName: z.string().optional(),
@@ -1415,7 +1415,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 시간 프로파일 삭제 (소프트 삭제)
-  deleteTimeProfile: protectedProcedure
+  deleteTimeProfile: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1433,7 +1433,7 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   
   // 제품별 시간 프로파일 매핑 조회
-  getProductTimeProfileMaps: protectedProcedure
+  getProductTimeProfileMaps: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
       processType: z.string().optional(),
@@ -1465,7 +1465,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 제품별 시간 프로파일 매핑 저장 (upsert)
-  updateProductTimeProfileMap: protectedProcedure
+  updateProductTimeProfileMap: tenantRequiredProcedure
     .input(z.object({
       productId: z.number(),
       processType: z.string(),
@@ -1500,7 +1500,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // 제품별 시간 프로파일 매핑 삭제
-  deleteProductTimeProfileMap: protectedProcedure
+  deleteProductTimeProfileMap: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1515,7 +1515,7 @@ export const ccpMonitoringRouter = router({
 
   // ★ 가드레일 1: 증숙 포함 제품의 timeProfile 매핑 상태 확인
   // 미매핑 제품 목록을 빨간색으로 표시하기 위한 API
-  getUnmappedSteamProducts: protectedProcedure
+  getUnmappedSteamProducts: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
@@ -1537,7 +1537,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // ★ 가드레일 1: 배치 확정 전 timeProfile 매핑 검증
-  validateBatchTimeProfiles: protectedProcedure
+  validateBatchTimeProfiles: tenantRequiredProcedure
     .input(z.object({
       productIds: z.array(z.number()),
     }))

@@ -1,4 +1,4 @@
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure, publicProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as batchPdfLogsDb from "../db/batchPdfLogs";
@@ -15,7 +15,7 @@ export const adminRouter = router({
   /**
    * 실패 작업 목록 조회
    */
-  getFailedTasks: protectedProcedure.query(async ({ ctx }) => {
+  getFailedTasks: tenantRequiredProcedure.query(async ({ ctx }) => {
     // admin 권한 확인
     if (ctx.user.role !== "admin") {
       throw new TRPCError({
@@ -32,7 +32,7 @@ export const adminRouter = router({
   /**
    * 실패 작업 재시도
    */
-  retryFailedTask: protectedProcedure
+  retryFailedTask: tenantRequiredProcedure
     .input(z.object({ taskId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       // admin 권한 확인
@@ -51,7 +51,7 @@ export const adminRouter = router({
   /**
    * 실패 작업 삭제
    */
-  deleteFailedTask: protectedProcedure
+  deleteFailedTask: tenantRequiredProcedure
     .input(z.object({ taskId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       // admin 권한 확인
@@ -70,7 +70,7 @@ export const adminRouter = router({
   /**
    * 백업 목록 조회
    */
-  listBackups: protectedProcedure.query(async ({ ctx }) => {
+  listBackups: tenantRequiredProcedure.query(async ({ ctx }) => {
     // admin 권한 확인
     if (ctx.user.role !== "admin") {
       throw new TRPCError({
@@ -100,7 +100,7 @@ export const adminRouter = router({
   /**
    * 백업 다운로드 URL 생성
    */
-  getBackupDownloadUrl: protectedProcedure
+  getBackupDownloadUrl: tenantRequiredProcedure
     .input(z.object({ backupId: z.number() }))
     .query(async ({ ctx, input }) => {
       // admin 권한 확인
@@ -200,7 +200,7 @@ export const adminRouter = router({
   /**
    * 백업 삭제
    */
-  deleteBackup: protectedProcedure
+  deleteBackup: tenantRequiredProcedure
     .input(z.object({ backupId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       // admin 권한 확인

@@ -52,3 +52,4 @@ fix_batch73.mjs
 fix_new_batches.mjs
 *.pdf
 core
+tmp/

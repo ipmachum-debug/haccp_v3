@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import { postPurchase } from "../lib/purchasePost";
 import { cancelPurchase } from "../lib/purchaseCancel";
 import { postMaterialOutbound } from "../lib/materialOutboundPost";
@@ -11,7 +11,7 @@ import { cancelProductSale } from "../lib/productSaleCancel";
 
 export const inventoryAccountingRouter = router({
   // 매입 POST
-  purchasePost: protectedProcedure
+  purchasePost: tenantRequiredProcedure
     .input(
       z.object({
         purchaseId: z.number(),
@@ -23,7 +23,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 매입 CANCEL
-  purchaseCancel: protectedProcedure
+  purchaseCancel: tenantRequiredProcedure
     .input(
       z.object({
         purchaseId: z.number(),
@@ -35,7 +35,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 원재료 출고 POST
-  materialOutboundPost: protectedProcedure
+  materialOutboundPost: tenantRequiredProcedure
     .input(
       z.object({
         outboundId: z.number(),
@@ -47,7 +47,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 원재료 출고 CANCEL
-  materialOutboundCancel: protectedProcedure
+  materialOutboundCancel: tenantRequiredProcedure
     .input(
       z.object({
         outboundId: z.number(),
@@ -59,7 +59,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 생산 완료 POST
-  productionCompletePost: protectedProcedure
+  productionCompletePost: tenantRequiredProcedure
     .input(
       z.object({
         batchId: z.number(),
@@ -72,7 +72,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 생산 완료 CANCEL
-  productionCompleteCancel: protectedProcedure
+  productionCompleteCancel: tenantRequiredProcedure
     .input(
       z.object({
         batchId: z.number(),
@@ -84,7 +84,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 제품 출고/판매 POST
-  productSalePost: protectedProcedure
+  productSalePost: tenantRequiredProcedure
     .input(
       z.object({
         saleId: z.number(),
@@ -96,7 +96,7 @@ export const inventoryAccountingRouter = router({
     }),
 
   // 제품 출고/판매 CANCEL
-  productSaleCancel: protectedProcedure
+  productSaleCancel: tenantRequiredProcedure
     .input(
       z.object({
         saleId: z.number(),

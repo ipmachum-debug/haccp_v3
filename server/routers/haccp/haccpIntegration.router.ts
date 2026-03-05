@@ -1,0 +1,270 @@
+// haccpIntegration 라우터 - routers.ts에서 분리됨
+import { adminProcedure, tenantRequiredProcedure, router } from "../../_core/trpc";
+import { z } from "zod";
+
+export const haccpIntegrationRouter = router({
+    // 재고 입고 → 매입 거래 생성
+    createPurchaseFromReceipt: adminProcedure
+      .input(
+        z.object({
+          inventoryTransactionId: z.number(),
+          partnerId: z.number().optional(),
+          itemName: z.string(),
+          quantity: z.string(),
+          unit: z.string(),
+          unitPrice: z.string(),
+          taxRate: z.string().optional(),
+          notes: z.string().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { createPurchaseFromReceipt } = await import("../../db/haccpIntegration");
+        return await createPurchaseFromReceipt({
+          ...input,
+          createdBy: ctx.user.id
+        }, ctx.user.tenantId);
+      }),
+
+    // 매입 거래 상세 조회
+    getPurchaseById: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getPurchaseById } = await import("../../db/haccpIntegration");
+        return await getPurchaseById(input.id, ctx.user.tenantId);
+      }),
+
+    getSaleById: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getSaleById } = await import("../../db/haccpIntegration");
+        return await getSaleById(input.id, ctx.user.tenantId);
+      }),
+
+    generatePurchasePdf: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { generatePurchasePdf } = await import("../../db/haccpIntegration");
+        const pdfUrl = await generatePurchasePdf(input.id, ctx.user.tenantId);
+        return { pdfUrl };
+      }),
+
+    generateSalePdf: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { generateSalePdf } = await import("../../db/haccpIntegration");
+        const pdfUrl = await generateSalePdf(input.id, ctx.user.tenantId);
+        return { pdfUrl };
+      }),
+
+    // 재고 출고 → 매출 거래 생성
+    createSaleFromUsage: tenantRequiredProcedure
+      .input(
+        z.object({
+          inventoryTransactionId: z.number().optional(),
+          partnerId: z.number().optional(),
+          itemName: z.string(),
+          quantity: z.string(),
+          unit: z.string(),
+          unitPrice: z.string(),
+          taxRate: z.string().optional(),
+          notes: z.string().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { createSaleFromUsage } = await import("../../db/haccpIntegration");
+        return await createSaleFromUsage({
+          ...input,
+          createdBy: ctx.user.id
+        }, ctx.user.tenantId);
+      }),
+
+    // 재고 거래 ID로 회계 거래 조회
+    getAccountingByInventoryTransaction: adminProcedure
+      .input(z.object({ inventoryTransactionId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getAccountingByInventoryTransaction } = await import("../../db/haccpIntegration");
+        return await getAccountingByInventoryTransaction(input.inventoryTransactionId, ctx.user.tenantId);
+      }),
+
+    // 매입 거래 목록 조회
+    getAllPurchases: adminProcedure
+      .input(
+        z
+          .object({
+            startDate: z.string().optional(),
+            endDate: z.string().optional(),
+            partnerId: z.number().optional(),
+            itemName: z.string().optional(),
+            status: z.string().optional()
+          })
+          .optional()
+      )
+      .query(async ({ input, ctx }) => {
+        const { getAllPurchases } = await import("../../db/haccpIntegration");
+        return await getAllPurchases(input, ctx.user.tenantId);
+      }),
+
+    // 매입 거래 직접 생성 (품목 단위)
+    createPurchase: adminProcedure
+      .input(
+        z.object({
+          transactionDate: z.string(),
+          partnerId: z.number(),
+          itemName: z.string(),
+          materialId: z.number().optional(), // 원재료 ID (레거시 호환)
+          itemMasterId: z.number().optional(), // item_master ID (통합 기준)
+          quantity: z.number(),
+          packagingSize: z.number().optional(), // 포장규격
+          unitPrice: z.number(),
+          amount: z.number(),
+          taxAmount: z.number(),
+          memo: z.string().optional(),
+          accountCategoryId: z.number().optional(),
+          expiryDate: z.string().optional(), // 소비기한
+          productionDate: z.string().optional(), // 생산일자
+          unit: z.string().optional(), // 단위
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { createPurchase } = await import("../../db/haccpIntegration");
+        return await createPurchase({
+          ...input,
+          createdBy: ctx.user.id
+        }, ctx.user.tenantId);
+      }),
+
+    // 매출 거래 목록 조회
+    getAllSales: adminProcedure
+      .input(
+        z
+          .object({
+            startDate: z.string().optional(),
+            endDate: z.string().optional(),
+            partnerId: z.number().optional(),
+            itemName: z.string().optional(),
+            status: z.string().optional()
+          })
+          .optional()
+      )
+      .query(async ({ input, ctx }) => {
+        const { getAllSales } = await import("../../db/haccpIntegration");
+        return await getAllSales(input, ctx.user.tenantId);
+      }),
+
+    // 매출 거래 직접 생성 (품목 단위)
+    createSale: adminProcedure
+      .input(
+        z.object({
+          transactionDate: z.string(),
+          partnerId: z.number(),
+          itemName: z.string(),
+          quantity: z.number(),
+          unitPrice: z.number(),
+          amount: z.number(),
+          taxAmount: z.number(),
+          memo: z.string().optional(),
+          accountCategoryId: z.number().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { createSale } = await import("../../db/haccpIntegration");
+        return await createSale({
+          ...input,
+          createdBy: ctx.user.id
+        }, ctx.user.tenantId);
+      }),
+
+    // 매입 거래 수정
+    updatePurchase: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          transactionDate: z.string().optional(),
+          partnerId: z.number().optional(),
+          itemName: z.string().optional(),
+          category: z.string().optional(),
+          quantity: z.number().optional(),
+          unit: z.string().optional(),
+          unitPrice: z.number().optional(),
+          totalAmount: z.number().optional(),
+          taxAmount: z.number().optional(),
+          status: z.string().optional(),
+          notes: z.string().optional(),
+          accountCategoryId: z.number().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { updatePurchase } = await import("../../db/haccpIntegration");
+        const { id, ...data } = input;
+        return await updatePurchase(id, data);
+      }),
+
+    // 매입 거래 삭제
+    deletePurchase: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { deletePurchase } = await import("../../db/haccpIntegration");
+        return await deletePurchase(input.id, ctx.user.tenantId);
+      }),
+
+    // 매출 거래 수정
+    updateSale: adminProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          transactionDate: z.string().optional(),
+          partnerId: z.number().optional(),
+          itemName: z.string().optional(),
+          category: z.string().optional(),
+          quantity: z.number().optional(),
+          unit: z.string().optional(),
+          unitPrice: z.number().optional(),
+          totalAmount: z.number().optional(),
+          taxAmount: z.number().optional(),
+          status: z.string().optional(),
+          notes: z.string().optional(),
+          accountCategoryId: z.number().optional()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { updateSale } = await import("../../db/haccpIntegration");
+        const { id, ...data } = input;
+        return await updateSale(id, data);
+      }),
+
+    // 매출 거래 삭제
+    deleteSale: adminProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { deleteSale } = await import("../../db/haccpIntegration");
+        return await deleteSale(input.id, ctx.user.tenantId);
+      }),
+
+    // 매입 거래명세표 PDF 생성
+    generatePurchasePDF: tenantRequiredProcedure
+      .input(z.object({ purchaseId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { generatePurchaseStatementPDF } = await import("../../db/transactionStatement");
+        const pdfBuffer = await generatePurchaseStatementPDF(input.purchaseId, ctx.user.tenantId);
+        
+        // Base64로 변환하여 반환
+        return {
+          pdf: pdfBuffer.toString("base64"),
+          filename: `매입거래명세표_${input.purchaseId}_${new Date().toISOString().split("T")[0]}.pdf`
+        };
+      }),
+
+    // 매출 거래명세표 PDF 생성
+    generateSalePDF: tenantRequiredProcedure
+      .input(z.object({ saleId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { generateSaleStatementPDF } = await import("../../db/transactionStatement");
+        const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.user.tenantId);
+        
+        // Base64로 변환하여 반환
+        return {
+          pdf: pdfBuffer.toString("base64"),
+          filename: `매출거래명세표_${input.saleId}_${new Date().toISOString().split("T")[0]}.pdf`
+        };
+      })
+});

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { employees } from "../../drizzle/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
@@ -8,7 +8,7 @@ export const employeeRouter = router({
   /**
    * 전체 직원 목록 조회 (테넌트 격리)
    */
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         status: z.enum(["active", "resigned", "all"]).optional().default("all"),
@@ -34,7 +34,7 @@ export const employeeRouter = router({
   /**
    * 직원 상세 조회 (테넌트 격리)
    */
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -55,7 +55,7 @@ export const employeeRouter = router({
   /**
    * 신규 직원 등록 (tenantId 자동 주입)
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         name: z.string().min(1, "이름은 필수입니다"),
@@ -83,7 +83,7 @@ export const employeeRouter = router({
   /**
    * 직원 정보 수정 (테넌트 격리)
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -115,7 +115,7 @@ export const employeeRouter = router({
   /**
    * 직원 삭제 (테넌트 격리)
    */
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -130,7 +130,7 @@ export const employeeRouter = router({
   /**
    * 직원 통계 (테넌트 격리)
    */
-  getStats: protectedProcedure.query(async ({ ctx }) => {
+  getStats: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 

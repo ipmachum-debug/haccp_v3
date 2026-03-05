@@ -124,7 +124,7 @@ export default function EquipmentManagement() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6">
+      <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold">설비 관리</h1>
@@ -240,7 +240,7 @@ export default function EquipmentManagement() {
                 설비 정보를 입력해주세요. * 표시는 필수 항목입니다.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4 py-4">
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="equipment_type">설비 유형 *</Label>
                 <Select

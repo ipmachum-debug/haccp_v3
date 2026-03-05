@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import * as recallDb from "../db/recall";
 
 export const recallSimulationRouter = router({
@@ -11,7 +11,7 @@ export const recallSimulationRouter = router({
   // 회수 시뮬레이션 관리
   // ============================================================================
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       simulationNumber: z.string(),
@@ -52,7 +52,7 @@ export const recallSimulationRouter = router({
       return { id };
     }),
 
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       status: z.string().optional(),
@@ -66,13 +66,13 @@ export const recallSimulationRouter = router({
       return await recallDb.getRecallSimulations(input);
     }),
 
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return await recallDb.getRecallSimulationById(input.id);
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       recallReason: z.string().optional(),
@@ -92,21 +92,21 @@ export const recallSimulationRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await recallDb.deleteRecallSimulation(input.id);
       return { success: true };
     }),
 
-  start: protectedProcedure
+  start: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await recallDb.startRecallSimulation(input.id);
       return { success: true };
     }),
 
-  complete: protectedProcedure
+  complete: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       actualRecalledQuantity: z.number(),
@@ -133,7 +133,7 @@ export const recallSimulationRouter = router({
   // 유통 경로 추적
   // ============================================================================
 
-  addDistribution: protectedProcedure
+  addDistribution: tenantRequiredProcedure
     .input(z.object({
       simulationId: z.number(),
       customerId: z.number(),
@@ -154,13 +154,13 @@ export const recallSimulationRouter = router({
       return { id };
     }),
 
-  getDistributions: protectedProcedure
+  getDistributions: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
     .query(async ({ input }) => {
       return await recallDb.getDistributionTracking(input.simulationId);
     }),
 
-  updateDistributionStatus: protectedProcedure
+  updateDistributionStatus: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       recallStatus: z.enum(["pending", "notified", "in_progress", "completed", "failed"]),
@@ -179,7 +179,7 @@ export const recallSimulationRouter = router({
       return { success: true };
     }),
 
-  deleteDistribution: protectedProcedure
+  deleteDistribution: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await recallDb.deleteDistributionTracking(input.id);
@@ -190,13 +190,13 @@ export const recallSimulationRouter = router({
   // 체크리스트 관리
   // ============================================================================
 
-  getChecklist: protectedProcedure
+  getChecklist: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
     .query(async ({ input }) => {
       return await recallDb.getChecklist(input.simulationId);
     }),
 
-  addChecklistItem: protectedProcedure
+  addChecklistItem: tenantRequiredProcedure
     .input(z.object({
       simulationId: z.number(),
       category: z.enum(["preparation", "identification", "notification", "retrieval", "disposal", "documentation", "evaluation"]),
@@ -210,7 +210,7 @@ export const recallSimulationRouter = router({
       return { id };
     }),
 
-  completeChecklistItem: protectedProcedure
+  completeChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await recallDb.completeChecklistItem(input.id, ctx.user.id);
@@ -221,7 +221,7 @@ export const recallSimulationRouter = router({
   // 첨부 파일 관리
   // ============================================================================
 
-  addAttachment: protectedProcedure
+  addAttachment: tenantRequiredProcedure
     .input(z.object({
       simulationId: z.number(),
       fileName: z.string(),
@@ -240,13 +240,13 @@ export const recallSimulationRouter = router({
       return { id };
     }),
 
-  getAttachments: protectedProcedure
+  getAttachments: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
     .query(async ({ input }) => {
       return await recallDb.getAttachments(input.simulationId);
     }),
 
-  deleteAttachment: protectedProcedure
+  deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await recallDb.deleteAttachment(input.id);
@@ -257,7 +257,7 @@ export const recallSimulationRouter = router({
   // 통계 및 대시보드
   // ============================================================================
 
-  getDashboard: protectedProcedure
+  getDashboard: tenantRequiredProcedure
     .input(z.object({ siteId: z.number() }))
     .query(async ({ input }) => {
       return await recallDb.getRecallDashboard(input.siteId);

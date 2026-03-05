@@ -1,9 +1,8 @@
 /**
  * 거래처 및 원장 관리 데이터베이스 함수
  * partners, apLedger, arLedger 관련 CRUD
- * [수정] tenantId 필터링 추가
+ * [P2-1] tenant 격리 전면 적용 + accountingAccountId 연결
  */
-
 import { getDb } from "./db";
 import { 
   partners, 
@@ -66,7 +65,6 @@ export async function getAllPartners(filters?: {
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
   }
-
   return await query.orderBy(desc(partners.createdAt));
 }
 
@@ -281,13 +279,12 @@ export async function deleteSupplierPartner(id: number, tenantId: number) {
   );
 }
 
-
 // ============================================
-// 매입 원장 (AP Ledger)
+// 매입 원장 (AP Ledger) - [P2-1] tenant 격리 + accountingAccountId 연결
 // ============================================
 
 /**
- * 매입 거래 생성
+ * 매입 거래 생성 (accountingAccountId 지원)
  */
 export async function createApLedgerEntry(data: InsertApLedgerEntry) {
   const db = await getDb();
@@ -298,20 +295,40 @@ export async function createApLedgerEntry(data: InsertApLedgerEntry) {
 }
 
 /**
- * 매입 원장 조회 (필터링)
+ * 매입 원장 조회 (tenant 격리 + accountingAccountId 조인)
  */
 export async function getApLedger(filters?: {
   supplierPartnerId?: number;
   startDate?: string;
   endDate?: string;
   apEntryType?: "bill" | "payment" | "credit" | "adjust";
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
+  const conditions: any[] = [];
+  
+  if (filters?.tenantId) {
+    conditions.push(eq(apLedger.tenantId, filters.tenantId));
+  }
+  if (filters?.supplierPartnerId) {
+    conditions.push(eq(apLedger.supplierPartnerId, filters.supplierPartnerId));
+  }
+  if (filters?.startDate) {
+    conditions.push(sql`${apLedger.occurredAt} >= ${filters.startDate}`);
+  }
+  if (filters?.endDate) {
+    conditions.push(sql`${apLedger.occurredAt} <= ${filters.endDate}`);
+  }
+  if (filters?.apEntryType) {
+    conditions.push(eq(apLedger.apEntryType, filters.apEntryType));
+  }
+
   let query = db
     .select({
       id: apLedger.id,
+      tenantId: apLedger.tenantId,
       supplierPartnerId: apLedger.supplierPartnerId,
       supplierName: partners.companyName,
       occurredAt: apLedger.occurredAt,
@@ -320,37 +337,35 @@ export async function getApLedger(filters?: {
       refType: apLedger.refType,
       refId: apLedger.refId,
       memo: apLedger.memo,
+      accountingAccountId: apLedger.accountingAccountId,
       createdAt: apLedger.createdAt
     })
     .from(apLedger)
     .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id));
 
-  if (filters?.supplierPartnerId) {
-    query = query.where(eq(apLedger.supplierPartnerId, filters.supplierPartnerId)) as any;
-  }
-  if (filters?.startDate) {
-    query = query.where(sql`${apLedger.occurredAt} >= ${filters.startDate}`) as any;
-  }
-  if (filters?.endDate) {
-    query = query.where(sql`${apLedger.occurredAt} <= ${filters.endDate}`) as any;
-  }
-  if (filters?.apEntryType) {
-    query = query.where(eq(apLedger.apEntryType, filters.apEntryType)) as any;
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as any;
   }
 
   return await query.orderBy(desc(apLedger.occurredAt));
 }
 
 /**
- * 매입 원장 상세 조회
+ * 매입 원장 상세 조회 (tenant 격리)
  */
-export async function getApLedgerById(id: number) {
+export async function getApLedgerById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
+
+  const conditions: any[] = [eq(apLedger.id, id)];
+  if (tenantId) {
+    conditions.push(eq(apLedger.tenantId, tenantId));
+  }
 
   const [entry] = await db
     .select({
       id: apLedger.id,
+      tenantId: apLedger.tenantId,
       supplierPartnerId: apLedger.supplierPartnerId,
       supplierName: partners.companyName,
       occurredAt: apLedger.occurredAt,
@@ -359,20 +374,34 @@ export async function getApLedgerById(id: number) {
       refType: apLedger.refType,
       refId: apLedger.refId,
       memo: apLedger.memo,
+      accountingAccountId: apLedger.accountingAccountId,
       createdAt: apLedger.createdAt
     })
     .from(apLedger)
     .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id))
-    .where(eq(apLedger.id, id));
+    .where(and(...conditions));
+
   return entry;
 }
 
 /**
- * 공급업체별 매입 집계
+ * 공급업체별 매입 집계 (tenant 격리)
  */
-export async function getApSummaryBySupplier(startDate?: string, endDate?: string) {
+export async function getApSummaryBySupplier(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
+
+  const conditions: any[] = [];
+  
+  if (tenantId) {
+    conditions.push(eq(apLedger.tenantId, tenantId));
+  }
+  if (startDate) {
+    conditions.push(sql`${apLedger.occurredAt} >= ${startDate}`);
+  }
+  if (endDate) {
+    conditions.push(sql`${apLedger.occurredAt} <= ${endDate}`);
+  }
 
   let query = db
     .select({
@@ -385,23 +414,19 @@ export async function getApSummaryBySupplier(startDate?: string, endDate?: strin
     .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id))
     .groupBy(apLedger.supplierPartnerId, partners.companyName);
 
-  if (startDate) {
-    query = query.where(sql`${apLedger.occurredAt} >= ${startDate}`) as any;
-  }
-  if (endDate) {
-    query = query.where(sql`${apLedger.occurredAt} <= ${endDate}`) as any;
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as any;
   }
 
   return await query;
 }
 
-
 // ============================================
-// 매출 원장 (AR Ledger)
+// 매출 원장 (AR Ledger) - [P2-1] tenant 격리 + accountingAccountId 연결
 // ============================================
 
 /**
- * 매출 거래 생성
+ * 매출 거래 생성 (accountingAccountId 지원)
  */
 export async function createArLedgerEntry(data: InsertArLedgerEntry) {
   const db = await getDb();
@@ -412,20 +437,40 @@ export async function createArLedgerEntry(data: InsertArLedgerEntry) {
 }
 
 /**
- * 매출 원장 조회 (필터링)
+ * 매출 원장 조회 (tenant 격리 + accountingAccountId 조인)
  */
 export async function getArLedger(filters?: {
   customerPartnerId?: number;
   startDate?: string;
   endDate?: string;
   arEntryType?: "debit" | "payment" | "credit" | "writeoff" | "adjust";
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
+  const conditions: any[] = [];
+  
+  if (filters?.tenantId) {
+    conditions.push(eq(arLedger.tenantId, filters.tenantId));
+  }
+  if (filters?.customerPartnerId) {
+    conditions.push(eq(arLedger.customerPartnerId, filters.customerPartnerId));
+  }
+  if (filters?.startDate) {
+    conditions.push(sql`${arLedger.occurredAt} >= ${filters.startDate}`);
+  }
+  if (filters?.endDate) {
+    conditions.push(sql`${arLedger.occurredAt} <= ${filters.endDate}`);
+  }
+  if (filters?.arEntryType) {
+    conditions.push(eq(arLedger.arEntryType, filters.arEntryType));
+  }
+
   let query = db
     .select({
       id: arLedger.id,
+      tenantId: arLedger.tenantId,
       customerPartnerId: arLedger.customerPartnerId,
       customerName: partners.companyName,
       occurredAt: arLedger.occurredAt,
@@ -435,37 +480,35 @@ export async function getArLedger(filters?: {
       refType: arLedger.refType,
       refId: arLedger.refId,
       memo: arLedger.memo,
+      accountingAccountId: arLedger.accountingAccountId,
       createdAt: arLedger.createdAt
     })
     .from(arLedger)
     .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id));
 
-  if (filters?.customerPartnerId) {
-    query = query.where(eq(arLedger.customerPartnerId, filters.customerPartnerId)) as any;
-  }
-  if (filters?.startDate) {
-    query = query.where(sql`${arLedger.occurredAt} >= ${filters.startDate}`) as any;
-  }
-  if (filters?.endDate) {
-    query = query.where(sql`${arLedger.occurredAt} <= ${filters.endDate}`) as any;
-  }
-  if (filters?.arEntryType) {
-    query = query.where(eq(arLedger.arEntryType, filters.arEntryType)) as any;
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as any;
   }
 
   return await query.orderBy(desc(arLedger.occurredAt));
 }
 
 /**
- * 매출 원장 상세 조회
+ * 매출 원장 상세 조회 (tenant 격리)
  */
-export async function getArLedgerById(id: number) {
+export async function getArLedgerById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
+
+  const conditions: any[] = [eq(arLedger.id, id)];
+  if (tenantId) {
+    conditions.push(eq(arLedger.tenantId, tenantId));
+  }
 
   const [entry] = await db
     .select({
       id: arLedger.id,
+      tenantId: arLedger.tenantId,
       customerPartnerId: arLedger.customerPartnerId,
       customerName: partners.companyName,
       occurredAt: arLedger.occurredAt,
@@ -475,20 +518,34 @@ export async function getArLedgerById(id: number) {
       refType: arLedger.refType,
       refId: arLedger.refId,
       memo: arLedger.memo,
+      accountingAccountId: arLedger.accountingAccountId,
       createdAt: arLedger.createdAt
     })
     .from(arLedger)
     .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id))
-    .where(eq(arLedger.id, id));
+    .where(and(...conditions));
+
   return entry;
 }
 
 /**
- * 고객사별 매출 집계
+ * 고객사별 매출 집계 (tenant 격리)
  */
-export async function getArSummaryByCustomer(startDate?: string, endDate?: string) {
+export async function getArSummaryByCustomer(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
+
+  const conditions: any[] = [];
+  
+  if (tenantId) {
+    conditions.push(eq(arLedger.tenantId, tenantId));
+  }
+  if (startDate) {
+    conditions.push(sql`${arLedger.occurredAt} >= ${startDate}`);
+  }
+  if (endDate) {
+    conditions.push(sql`${arLedger.occurredAt} <= ${endDate}`);
+  }
 
   let query = db
     .select({
@@ -501,46 +558,46 @@ export async function getArSummaryByCustomer(startDate?: string, endDate?: strin
     .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id))
     .groupBy(arLedger.customerPartnerId, partners.companyName);
 
-  if (startDate) {
-    query = query.where(sql`${arLedger.occurredAt} >= ${startDate}`) as any;
-  }
-  if (endDate) {
-    query = query.where(sql`${arLedger.occurredAt} <= ${endDate}`) as any;
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as any;
   }
 
   return await query;
 }
 
 /**
- * 매입/매출 통합 집계 (재무 현황)
+ * 매입/매출 통합 집계 (재무 현황) - tenant 격리
  */
-export async function getFinancialSummary(startDate?: string, endDate?: string) {
+export async function getFinancialSummary(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
   // 매입 합계
+  const apConditions: any[] = [];
+  const arConditions: any[] = [];
+  
+  if (tenantId) {
+    apConditions.push(eq(apLedger.tenantId, tenantId));
+    arConditions.push(eq(arLedger.tenantId, tenantId));
+  }
+  if (startDate && endDate) {
+    apConditions.push(sql`${apLedger.occurredAt} >= ${startDate} AND ${apLedger.occurredAt} <= ${endDate}`);
+    arConditions.push(sql`${arLedger.occurredAt} >= ${startDate} AND ${arLedger.occurredAt} <= ${endDate}`);
+  }
+
   const apTotal = await db
     .select({
       total: sql<number>`COALESCE(SUM(${apLedger.amount}), 0)`
     })
     .from(apLedger)
-    .where(
-      startDate && endDate
-        ? sql`${apLedger.occurredAt} >= ${startDate} AND ${apLedger.occurredAt} <= ${endDate}`
-        : undefined
-    );
+    .where(apConditions.length > 0 ? and(...apConditions) : undefined);
 
-  // 매출 합계
   const arTotal = await db
     .select({
       total: sql<number>`COALESCE(SUM(${arLedger.amount}), 0)`
     })
     .from(arLedger)
-    .where(
-      startDate && endDate
-        ? sql`${arLedger.occurredAt} >= ${startDate} AND ${arLedger.occurredAt} <= ${endDate}`
-        : undefined
-    );
+    .where(arConditions.length > 0 ? and(...arConditions) : undefined);
 
   return {
     totalPurchase: apTotal[0]?.total || 0,

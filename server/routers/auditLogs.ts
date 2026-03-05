@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { auditLogs } from "../../drizzle/schema_control_plane_ops";
 import { desc, eq, and, like, gte, lte, sql } from "drizzle-orm";
@@ -13,7 +13,7 @@ export const auditLogsRouter = router({
   /**
    * 감사 로그 목록 조회 (페이지네이션, 필터링, 검색)
    */
-  getAuditLogs: protectedProcedure
+  getAuditLogs: tenantRequiredProcedure
     .input(
       z.object({
         page: z.number().min(1).default(1),
@@ -104,7 +104,7 @@ export const auditLogsRouter = router({
   /**
    * 감사 로그 통계 조회
    */
-  getAuditLogStats: protectedProcedure.query(async ({ ctx }) => {
+  getAuditLogStats: tenantRequiredProcedure.query(async ({ ctx }) => {
     // 슈퍼관리자 권한 확인
     if (ctx.user.role !== 'super_admin') {
       throw new TRPCError({
@@ -154,7 +154,7 @@ export const auditLogsRouter = router({
   /**
    * 특정 엔티티의 감사 로그 조회
    */
-  getEntityAuditLogs: protectedProcedure
+  getEntityAuditLogs: tenantRequiredProcedure
     .input(
       z.object({
         entityType: z.string(),

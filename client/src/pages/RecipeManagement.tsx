@@ -138,7 +138,7 @@ export default function RecipeManagement() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6">
+      <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl font-bold">레시피 관리 (품목제조보고서)</CardTitle>

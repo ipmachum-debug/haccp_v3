@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as verificationDb from "../db/verification";
 
 /**
@@ -8,7 +8,7 @@ import * as verificationDb from "../db/verification";
 
 export const haccpPlanVerificationRouter = router({
   // HACCP 계획 검증 생성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         verificationNumber: z.string(),
@@ -34,7 +34,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // HACCP 계획 검증 목록 조회
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),
@@ -50,14 +50,14 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // HACCP 계획 검증 상세 조회
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return verificationDb.getHaccpPlanVerificationById(input.id);
     }),
 
   // HACCP 계획 검증 수정
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -102,7 +102,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // HACCP 계획 검증 승인
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await verificationDb.updateHaccpPlanVerification(input.id, {
@@ -113,7 +113,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // HACCP 계획 검증 삭제
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await verificationDb.deleteHaccpPlanVerification(input.id);
@@ -121,7 +121,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // 검증 체크리스트 추가
-  addChecklistItem: protectedProcedure
+  addChecklistItem: tenantRequiredProcedure
     .input(
       z.object({
         verificationId: z.number(),
@@ -138,14 +138,14 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // 검증 체크리스트 목록 조회
-  getChecklistItems: protectedProcedure
+  getChecklistItems: tenantRequiredProcedure
     .input(z.object({ verificationId: z.number() }))
     .query(async ({ input }) => {
       return verificationDb.getVerificationChecklistItems(input.verificationId);
     }),
 
   // 검증 체크리스트 항목 수정
-  updateChecklistItem: protectedProcedure
+  updateChecklistItem: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -163,7 +163,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // 검증 체크리스트 항목 삭제
-  deleteChecklistItem: protectedProcedure
+  deleteChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await verificationDb.deleteVerificationChecklistItem(input.id);
@@ -171,7 +171,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // 검증 통계 조회
-  getStatistics: protectedProcedure
+  getStatistics: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),
@@ -184,7 +184,7 @@ export const haccpPlanVerificationRouter = router({
     }),
 
   // 다음 검증 예정 목록
-  getUpcoming: protectedProcedure
+  getUpcoming: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),

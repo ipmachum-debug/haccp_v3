@@ -92,7 +92,7 @@ export default function ProductionPerformance() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 p-8">
+      <div className="flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">생산 실적 보고서</h1>
@@ -127,7 +127,7 @@ export default function ProductionPerformance() {
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="end">
-                <div className="p-4 space-y-2">
+                <div className="space-y-2">
                   <Button
                     variant="outline"
                     size="sm"

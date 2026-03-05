@@ -204,7 +204,7 @@ export default function UserManagement() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="space-y-6">
         <div className="text-center">로딩 중...</div>
       </div>
     );

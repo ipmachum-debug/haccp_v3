@@ -20,15 +20,13 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-// getLoginUrl import removed - using local login only
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, Sparkles, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { ParticleBackground } from './ParticleBackground';
 import { Button } from "./ui/button";
 import NotificationDropdown from "./NotificationDropdown";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -70,73 +68,65 @@ function SubscriptionInfo({ isCollapsed }: { isCollapsed: boolean }) {
   const isGracePeriod = subInfo.status === "expired" && subInfo.isReadOnly;
   const isSuspended = subInfo.status === "suspended";
 
-  // 색상 결정
-  let bgColor = "bg-green-50 dark:bg-green-950/30";
-  let borderColor = "border-green-200 dark:border-green-800";
-  let textColor = "text-green-700 dark:text-green-300";
-  let iconColor = "text-green-600 dark:text-green-400";
+  // 색상 결정 - 사이드바/메인과 통일된 부드러운 뉴트럴 톤
+  let textColor = "text-muted-foreground";
+  let iconColor = "text-muted-foreground/60";
+  let statusDot = "bg-emerald-500/70";
 
   if (isSuspended) {
-    bgColor = "bg-red-50 dark:bg-red-950/30";
-    borderColor = "border-red-300 dark:border-red-700";
-    textColor = "text-red-700 dark:text-red-300";
-    iconColor = "text-red-600 dark:text-red-400";
+    textColor = "text-red-500/80 dark:text-red-400/80";
+    iconColor = "text-red-500/60 dark:text-red-400/60";
+    statusDot = "bg-red-500/70";
   } else if (isGracePeriod) {
-    bgColor = "bg-red-50 dark:bg-red-950/30";
-    borderColor = "border-red-300 dark:border-red-700";
-    textColor = "text-red-700 dark:text-red-300";
-    iconColor = "text-red-600 dark:text-red-400";
+    textColor = "text-red-500/80 dark:text-red-400/80";
+    iconColor = "text-red-500/60 dark:text-red-400/60";
+    statusDot = "bg-red-500/70";
   } else if (isUrgent) {
-    bgColor = "bg-red-50 dark:bg-red-950/30";
-    borderColor = "border-red-200 dark:border-red-800";
-    textColor = "text-red-700 dark:text-red-300";
-    iconColor = "text-red-600 dark:text-red-400";
+    textColor = "text-amber-600/80 dark:text-amber-400/80";
+    iconColor = "text-amber-600/60 dark:text-amber-400/60";
+    statusDot = "bg-amber-500/70";
   } else if (isExpiringSoon) {
-    bgColor = "bg-yellow-50 dark:bg-yellow-950/30";
-    borderColor = "border-yellow-200 dark:border-yellow-800";
-    textColor = "text-yellow-700 dark:text-yellow-300";
-    iconColor = "text-yellow-600 dark:text-yellow-400";
+    textColor = "text-amber-600/80 dark:text-amber-400/80";
+    iconColor = "text-amber-600/60 dark:text-amber-400/60";
+    statusDot = "bg-amber-500/70";
   }
 
   // 패키지 표시
   const packageLabel = subInfo.subscriptionPackage === "pro" ? "Pro" : "Basic";
-  const packageBadgeColor = subInfo.subscriptionPackage === "pro" 
-    ? "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" 
-    : "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
 
   return (
-    <div className={`mb-3 rounded-lg border-2 p-3 transition-all ${bgColor} ${borderColor}`}>
-      <div className="flex items-center justify-between mb-2">
+    <div className="mb-2 rounded-lg border border-border/40 bg-muted/30 p-2.5">
+      <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-2">
-          <Clock className={`h-4 w-4 ${iconColor}`} />
-          <span className={`text-xs font-semibold ${textColor}`}>
-            구독 정보
+          <div className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
+          <span className="text-[11px] font-medium text-muted-foreground/70">
+            구독
           </span>
         </div>
-        <Badge className={`text-[10px] px-2 py-0.5 ${packageBadgeColor}`}>
+        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-medium">
           {packageLabel}
-        </Badge>
+        </span>
       </div>
       
       {isSuspended ? (
-        <div className={`text-xs ${textColor} font-medium`}>
-          ⚠️ 구독이 중단되었습니다
+        <div className={`text-[11px] ${textColor} font-medium`}>
+          구독이 중단되었습니다
         </div>
       ) : isGracePeriod ? (
         <>
-          <div className={`text-xs ${textColor} font-medium mb-1`}>
-            현재 유예기간 (읽기 전용)
+          <div className={`text-[11px] ${textColor} font-medium`}>
+            유예기간 (읽기 전용)
           </div>
-          <div className={`text-[10px] ${textColor} opacity-80`}>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
             {subInfo.gracePeriodEndDate && `${new Date(subInfo.gracePeriodEndDate).toLocaleDateString('ko-KR')} 까지`}
           </div>
         </>
       ) : (
         <>
-          <div className={`text-xs ${textColor} font-medium mb-1`}>
+          <div className={`text-[11px] font-medium ${textColor}`}>
             {daysRemaining > 0 ? `${daysRemaining}일 남음` : "만료됨"}
           </div>
-          <div className={`text-[10px] ${textColor} opacity-80`}>
+          <div className="text-[10px] text-muted-foreground/50 mt-0.5">
             {subInfo.subscriptionEndDate && `만료일: ${new Date(subInfo.subscriptionEndDate).toLocaleDateString('ko-KR')}`}
           </div>
         </>
@@ -217,8 +207,8 @@ function SortableFavoriteItem({
             <item.icon
               className={`h-4 w-4 ${isActive ? "text-primary" : (item as any).highlight ? "text-indigo-600" : ""}`}
             />
-            <span className={(item as any).highlight ? "text-indigo-700 font-semibold" : ""}>{item.label}</span>
-                          {(item as any).highlight && <span className="ml-auto text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded-full font-bold animate-pulse">NEW</span>}
+            <span>{item.label}</span>
+                          {(item as any).highlight && <span className="ml-auto text-[10px] bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full font-medium">NEW</span>}
           </SidebarMenuButton>
           <button
             onClick={(e) => {
@@ -228,13 +218,32 @@ function SortableFavoriteItem({
             className="p-1 hover:bg-accent rounded mr-2"
             title="즐겨찾기 제거"
           >
-            <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+            <Star className="h-4 w-4 fill-amber-400/80 text-amber-400/80" />
           </button>
         </div>
       </SidebarMenuItem>
     </div>
   );
 }
+
+// 관련 하위 경로 매핑 (사이드바 active 판별용 - 페이지 내부 탭으로 접근하는 경로들)
+const childRoutes: Record<string, string[]> = {
+  "/dashboard/production-management": [
+    "/dashboard/batch-management", "/dashboard/batch/new", "/dashboard/batch",
+    "/dashboard/pipeline", "/dashboard/production/prediction",
+  ],
+  "/dashboard/inspections": [
+    "/dashboard/inspection/material", "/dashboard/inspection/hygiene",
+    "/dashboard/inspection/shipping", "/dashboard/inspection/statistics",
+  ],
+  "/quality/checklists": [
+    "/dashboard/daily-logs", "/quality/templates", "/dashboard/checklist/employee-health",
+  ],
+  "/dashboard/approval": ["/dashboard/approval/dashboard"],
+  "/dashboard/document-output": [
+    "/dashboard/document-output/approved", "/dashboard/document-output/daily-log",
+  ],
+};
 
 const menuItems = [
   // 슈퍼관리자 전용 메뉴 (WORK 탭)
@@ -245,71 +254,41 @@ const menuItems = [
   // WORK 탭 고정 메뉴
   { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "worker", "inspector", "user"] },
   
-  // ALL 탭 통합 메뉴 (Production)
-  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], children: [
-    { label: "생산 예측", path: "/dashboard/production/prediction" },
-  ] },
+  // 생산 (탭 통합 페이지)
+  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
   { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
   { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
   
-  // ALL 탭 통합 메뉴 (Quality)
+  // 품질 (탭 통합 페이지)
   { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector"] },
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "worker", "inspector"], children: [
-    { label: "원재료 검사", path: "/dashboard/inspection/material" },
-    { label: "위생 점검", path: "/dashboard/inspection/hygiene" },
-    { label: "출하 검사", path: "/dashboard/inspection/shipping" },
-    { label: "검사 통계", path: "/dashboard/inspection/statistics" },
-  ] },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"], children: [
-    { label: "체크리스트 목록", path: "/quality/checklists" },
-    { label: "기간별일지 - 일일일지", path: "/dashboard/daily-logs" },
-    { label: "템플릿 관리", path: "/quality/templates" },
-    { label: "건강진단결과서 관리", path: "/dashboard/checklist/employee-health" },
-  ] },
+  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "worker", "inspector"] },
+  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"] },
   
-  // ALL 탭 통합 메뉴 (Inventory & Traceability)
+  // 재고
   { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "worker"] },
   
-  
-  // ALL 탭 통합 메뉴 (Notifications)
+  // 알림
   { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker", "inspector", "user"] },
   
-  // ALL 탭 통합 메뉴 (Approval)
-  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "inspector", "worker"], children: [
-    { label: "승인 대시보드", path: "/dashboard/approval/dashboard" },
-  ] },
+  // 승인 (탭 통합 페이지)
+  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "inspector", "worker"] },
   
-  // ALL 탭 통합 메뉴 (Document Output)
-  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "inspector", "worker"], children: [
-    { label: "승인된 문서", path: "/dashboard/document-output/approved" },
-    { label: "일일일지 출력", path: "/dashboard/document-output/daily-log" },
-  ] },
+  // 문서 출력 (탭 통합 페이지)
+  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "inspector", "worker"] },
   
-  // ALL 탭 통합 메뉴 (Equipment Management)
-  { icon: Settings, label: "설비 관리", path: "/equipment-management", roles: ["super_admin", "admin"] },
-  
-  // ALL 탭 통합 메뉴 (Master Data)
+  // 마스터 데이터
   { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"] },
   { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"] },
-        { icon: ClipboardCheck, label: "생산 검증", path: "/dashboard/production-verification", roles: ["super_admin", "admin", "worker", "inspector"] },
   
-  // ALL 탭 통합 메뉴 (Mobile)
+  // 모바일
   { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector", "user"] },
   
-  // 기타 (통합되지 않은 페이지)
-  { icon: FileWarning, label: "시정 조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "worker", "inspector"] },
-    // HACCP 검증 & 감사
-    { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector"] },
-    { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector"] },
-
   // HACCP 검증 & 감사
-  
+  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "worker", "inspector"] },
+  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector"] },
+  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector"] },
 
-  
-    // HACCP 검증 & 감사
-
-  // ALL 탭 통합 메뉴 (System) - HACCP 7원칙 아래 최하단
+  // 시스템
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
 ];
@@ -346,7 +325,6 @@ export default function DashboardLayout({
 
   return (
     <>
-      <ParticleBackground />
       <SidebarProvider
         style={
           {
@@ -378,12 +356,38 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const activeMenuItem = menuItems.find(item => item.path === location);
+  // childRoutes를 사용하여 현재 경로에 해당하는 부모 메뉴 찾기
+  const isChildRoute = (itemPath: string) => {
+    const children = childRoutes[itemPath];
+    if (!children) return false;
+    return children.some(cp => location === cp || location.startsWith(cp + "/"));
+  };
   const { theme, toggleTheme } = useTheme();
   
   // WORK/회계/HACCP 탭 상태 관리 (기본값: work)
   const [activeTab, setActiveTab] = useState<"work" | "finance" | "haccp">("work");
   
+  // location 변경 시 탭 자동 전환
+  useEffect(() => {
+    const isHaccpRoute = menuItems.some(item => 
+      item.path === location || 
+      location.startsWith(item.path + "/") ||
+      isChildRoute(item.path)
+    );
+    const isAccountingRoute = accountingMenuItems.some(item => 
+      item.path === location || location.startsWith(item.path + "/")
+    );
+    if (isAccountingRoute) {
+      setActiveTab("finance");
+    } else if (isHaccpRoute && activeTab !== "haccp") {
+      const isWorkRoute = workMenuItems.some(item => item.path === location) || 
+                          superAdminMenuItems.some(item => item.path === location);
+      if (!isWorkRoute) {
+        setActiveTab("haccp");
+      }
+    }
+  }, [location]);
+
   // localStorage에서 탭 상태 불러오기 (최초 로그인 시에만)
   useEffect(() => {
     const saved = localStorage.getItem("dashboard-active-tab");
@@ -511,12 +515,13 @@ function DashboardLayoutContent({
     }
   };
   
-  // WORK 탭 메뉴 정의
+  // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
   const workMenuItems = [
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
   ];
   
+  // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
   // 회계 탭 메뉴 정의 (이카운트 ERP 참고)
   const accountingMenuItems = [
     { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"] },
@@ -529,69 +534,9 @@ function DashboardLayoutContent({
     { icon: Building2, label: "거래처 조회", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"] },
     { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"] },
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"] },
+    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"] },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"] },
     { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"] },
-  ];
-  
-  // HACCP 탭 메뉴 정의 (모든 HACCP 관련 메뉴)
-  const haccpMenuItems = [
-    // Production
-    { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], children: [
-      { label: "생산 예측", path: "/dashboard/production/prediction" },
-    ] },
-    { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
-    { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
-
-    // Quality
-    { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "worker", "inspector"], children: [
-      { label: "원재료 검사", path: "/dashboard/inspection/material" },
-      { label: "위생 점검", path: "/dashboard/inspection/hygiene" },
-      { label: "출하 검사", path: "/dashboard/inspection/shipping" },
-      { label: "검사 통계", path: "/dashboard/inspection/statistics" },
-    ] },
-    { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"], children: [
-      { label: "체크리스트 목록", path: "/quality/checklists" },
-      { label: "기간별일지 - 일일일지", path: "/dashboard/daily-logs" },
-      { label: "템플릿 관리", path: "/quality/templates" },
-      { label: "건강진단결과서 관리", path: "/dashboard/checklist/employee-health" },
-    ] },
-    
-    // Inventory
-    { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "worker"] },
-    
-    // Notifications
-    { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    
-    // Approval
-    { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "inspector", "worker"], children: [
-      { label: "승인 대시보드", path: "/dashboard/approval/dashboard" },
-    ] },
-    
-    // Document Output
-    { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "inspector", "worker"], children: [
-      { label: "승인된 문서", path: "/dashboard/document-output/approved" },
-      { label: "일일일지 출력", path: "/dashboard/document-output/daily-log" },
-    ] },
-    
-    // Master Data
-    { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"] },
-  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"] },
-        { icon: ClipboardCheck, label: "생산 검증", path: "/dashboard/production-verification", roles: ["super_admin", "admin", "worker", "inspector"] },
-    
-    // Mobile
-    { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector", "user"] },
-    
-    // HACCP 검증 & 감사
-    { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector"] },
-    { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector"] },
-
-
-    
-    // System
-    { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
-    { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
@@ -601,8 +546,23 @@ function DashboardLayoutContent({
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
   ];
   
-  // 모든 메뉴 통합 (즐겨찾기 검색용)
-  const allMenuItems = [...menuItems, ...accountingMenuItems, ...haccpMenuItems];
+  // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
+  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems];
+
+  // activeMenuItem: 모든 메뉴에서 정확한 경로 매칭을 먼저 시도하고, 없으면 가장 긴 접두사 매칭
+  const activeMenuItem = (() => {
+    // 1. 정확한 경로 매칭
+    const exact = allMenuItems.find(item => item.path === location);
+    if (exact) return exact;
+    // 2. childRoutes 매칭
+    const childMatch = allMenuItems.find(item => isChildRoute(item.path));
+    if (childMatch) return childMatch;
+    // 3. 가장 긴 접두사 매칭 (길이 내림차순으로 정렬하여 가장 구체적인 경로 먼저 매칭)
+    const prefixMatch = [...allMenuItems]
+      .filter(item => location.startsWith(item.path + "/"))
+      .sort((a, b) => b.path.length - a.path.length);
+    return prefixMatch[0] || null;
+  })();
   
   // 즐겨찾기 메뉴 항목 생성
   const favoriteMenuItems = favorites.map(fav => {
@@ -617,7 +577,7 @@ function DashboardLayoutContent({
     ? workMenuItems
     : activeTab === "finance"
     ? accountingMenuItems
-    : haccpMenuItems;
+    : menuItems;
   
   // 자동 탭 전환 로직 제거 - 사용자가 수동으로 탭을 선택할 수 있도록 함
   const isMobile = useIsMobile();
@@ -663,81 +623,75 @@ function DashboardLayoutContent({
       <div className="relative" ref={sidebarRef}>
         <Sidebar
           collapsible="icon"
-          className="border-r-0"
+          className="border-r border-sidebar-border"
           disableTransition={isResizing}
         >
-          <SidebarHeader className="h-auto py-3 justify-center">
-            {/* 로고 영역 - 한 줄로 정리 */}
-            <div className="flex items-center gap-2 px-2 transition-all w-full mb-3">
+          <SidebarHeader className="h-auto py-4 justify-center">
+            {/* Premium Logo */}
+            <div className="flex items-center gap-2.5 px-3 transition-all w-full mb-4">
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 w-full">
-                  <Shield className="h-7 w-7 text-yellow-600 shrink-0" />
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 via-yellow-500 to-yellow-600 bg-clip-text text-transparent whitespace-nowrap">
-                    HACCP-ONE
-                  </h1>
+                <div className="flex items-center gap-2.5 w-full">
+                  <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+                    <Shield className="h-[18px] w-[18px] text-primary" />
+                  </div>
+                  <div className="flex flex-col">
+                    <h1 className="text-[15px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap">
+                      HACCP ONE
+                    </h1>
+                    <span className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider uppercase">
+                      Food Safety Platform
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <button
                   onClick={toggleSidebar}
-                  className="flex items-center justify-center w-full hover:bg-accent rounded-lg p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="flex items-center justify-center w-full hover:bg-sidebar-accent rounded-lg p-2 transition-colors focus:outline-none"
                   aria-label="Open navigation"
                   title="메뉴 열기"
                 >
-                  <Shield className="h-7 w-7 text-yellow-600" />
+                  <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                    <Shield className="h-[18px] w-[18px] text-primary" />
+                  </div>
                 </button>
               )}
             </div>
             
-            {/* 메뉴바/테마 버튼 - 탭 스타일로 시각화 */}
+            {/* WORK/회계/HACCP tabs - Premium */}
             {!isCollapsed && (
-              <div className="flex items-center gap-1 px-2 mb-2">
-                <button
-                  onClick={toggleSidebar}
-                  className="flex-1 h-9 flex items-center justify-center gap-2 hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm font-medium text-muted-foreground hover:text-foreground"
-                  aria-label="Toggle navigation"
-                >
-                  <PanelLeft className="h-4 w-4" />
-                  <span>메뉴</span>
-                </button>
-                <button
-                  onClick={toggleTheme}
-                  className="flex-1 h-9 flex items-center justify-center gap-2 hover:bg-accent rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring text-sm font-medium text-muted-foreground hover:text-foreground"
-                  aria-label="Toggle theme"
-                >
-                  {theme === "light" ? (
-                    <>
-                      <Moon className="h-4 w-4" />
-                      <span>다크</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sun className="h-4 w-4" />
-                      <span>라이트</span>
-                    </>
-                  )}
-                </button>
+              <div className="px-3 mb-2">
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
+                  <TabsList className="grid w-full grid-cols-3 text-[11px] h-8 bg-sidebar-accent/60">
+                    <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+                      WORK
+                    </TabsTrigger>
+                    <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
+                    <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </div>
-            )}
-            {/* WORK/회계/HACCP 탭 */}
-            {!isCollapsed && (
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full px-2">
-                <TabsList className="grid w-full grid-cols-3 text-xs">
-                  <TabsTrigger value="work" className="text-xs">
-                    WORK
-                  </TabsTrigger>
-                  <TabsTrigger value="finance" className="text-xs">회계</TabsTrigger>
-                  <TabsTrigger value="haccp" className="text-xs">HACCP</TabsTrigger>
-                </TabsList>
-              </Tabs>
             )}
           </SidebarHeader>
 
           <SidebarContent className="gap-0">
-            <SidebarMenu className="px-2 py-0.5">
-              {displayedMenuItems
-                .filter((item: any) => user && item.roles?.includes(user.role))
+            <SidebarMenu className="px-3 py-1">
+              {(() => {
+                const visibleItems = displayedMenuItems.filter((item: any) => user && item.roles?.includes(user.role));
+                // 현재 경로에 정확히 매칭되거나, childRoutes에 매칭되는 메뉴가 있으면 startsWith 매칭은 비활성
+                const hasExactOrChildMatch = visibleItems.some(
+                  (item: any) => location === item.path || isChildRoute(item.path)
+                );
+                return visibleItems;
+              })()
                 .map((item: any) => {
-                  const isActive = location === item.path || (item.subItems && item.subItems.some((sub: any) => location === sub.path));
+                  const exactMatch = location === item.path;
+                  const childMatch = isChildRoute(item.path);
+                  // startsWith 매칭: 다른 메뉴에 정확한 매칭이 있으면 사용하지 않음
+                  const hasOtherExactMatch = displayedMenuItems.some(
+                    (other: any) => other.path !== item.path && (location === other.path || isChildRoute(other.path))
+                  );
+                  const prefixMatch = !hasOtherExactMatch && location.startsWith(item.path + "/");
+                  const isActive = exactMatch || childMatch || prefixMatch;
                   return (
                     <div key={item.path}>
                       <SidebarMenuItem>
@@ -746,10 +700,10 @@ function DashboardLayoutContent({
                             isActive={isActive}
                             onClick={() => setLocation(item.path)}
                             tooltip={item.label}
-                            className={`h-8 transition-all font-normal flex-1 ${(item as any).highlight ? "bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-300 rounded-lg font-semibold" : ""}`}
+                            className={`h-9 font-normal flex-1 text-[13px] rounded-lg ${isActive ? "bg-emerald-50 text-emerald-700 font-medium dark:bg-emerald-500/10 dark:text-emerald-400" : "text-slate-600 hover:text-foreground hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"} ${(item as any).highlight ? "border border-primary/20 rounded-lg font-medium" : ""}`}
                           >
                             <item.icon
-                              className={`h-4 w-4 ${isActive ? "text-primary" : (item as any).highlight ? "text-indigo-600" : ""}`}
+                              className={`h-4 w-4 ${isActive ? "text-emerald-600 dark:text-emerald-400" : "text-slate-400 dark:text-slate-500"}`}
                             />
                             <span>{item.label}</span>
                           </SidebarMenuButton>
@@ -776,97 +730,50 @@ function DashboardLayoutContent({
                                 className={cn(
                                   "h-4 w-4",
                                   favorites.some((fav: any) => fav.menuPath === item.path)
-                                    ? "fill-yellow-400 text-yellow-400"
-                                    : "text-muted-foreground"
+                                    ? "fill-amber-400/80 text-amber-400/80"
+                                    : "text-muted-foreground/40"
                                 )}
                               />
                             </button>
                           )}
                         </div>
                       </SidebarMenuItem>
-                      {item.subItems && !isCollapsed && (
-                        <div className="ml-6 mt-0.5 space-y-0.5">
-                          {item.subItems.map((subItem: any) => {
-                            const isSubActive = location === subItem.path;
-                            return (
-                              <button
-                                key={subItem.path}
-                                onClick={() => setLocation(subItem.path)}
-                                className={`w-full text-left px-3 py-1 text-sm rounded-md transition-colors ${
-                                  isSubActive
-                                    ? "bg-accent text-accent-foreground font-medium"
-                                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-                                }`}
-                              >
-                                {subItem.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
               
 
-              {/* 슈퍼관리자 전용 화려한 이동 버튼 */}
+              {/* Super Admin - Premium */}
               {user?.role === "super_admin" && activeTab === "work" && !isCollapsed && (
                 <div className="px-3 py-2 mt-2">
                   <button
                     onClick={() => setLocation("/dashboard/super-admin")}
-                    className="w-full group relative overflow-hidden rounded-2xl transition-all duration-500 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/50 active:scale-95"
+                    className="w-full group flex items-center gap-2.5 rounded-lg bg-primary/10 border border-primary/20 px-3 py-2.5 transition-all hover:bg-primary/15 hover:border-primary/30"
                   >
-                    {/* 배경 그라디언트 */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 animate-gradient" />
-                    
-                    {/* 글로우 효과 */}
-                    <div className="absolute inset-0 bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 blur-xl opacity-50 group-hover:opacity-75 transition-opacity duration-500" />
-                    
-                    {/* 네온 테두리 */}
-                    <div className="absolute inset-0 rounded-2xl border-2 border-white/20 group-hover:border-white/40 transition-all duration-500" />
-                    
-                    {/* 컴텐츠 */}
-                    <div className="relative flex items-center justify-center gap-2 px-4 py-2.5">
-                      <div className="relative">
-                        <Crown className="h-4 w-4 text-yellow-300 group-hover:text-yellow-200 transition-all duration-500 group-hover:scale-110 group-hover:rotate-12" />
-                        <div className="absolute inset-0 bg-yellow-300 blur-md opacity-50 group-hover:opacity-75 transition-opacity duration-500" />
-                      </div>
-                      <div className="flex flex-col items-start">
-                        <span className="text-sm font-bold text-white group-hover:text-yellow-100 transition-colors duration-300">
-                          슈퍼관리자 페이지
-                        </span>
-                        <span className="text-[10px] text-white/70 group-hover:text-white/90 transition-colors duration-300">
-                          Super Admin Panel
-                        </span>
-                      </div>
-                      <Sparkles className="ml-auto h-3.5 w-3.5 text-yellow-300 animate-pulse" />
+                    <div className="w-7 h-7 rounded-md bg-primary/20 flex items-center justify-center shrink-0">
+                      <Crown className="h-3.5 w-3.5 text-primary" />
                     </div>
-                    
-                    {/* 애니메이션 라인 */}
-                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-white to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="flex flex-col items-start flex-1 min-w-0">
+                      <span className="text-[13px] font-semibold text-sidebar-foreground">
+                        Super Admin
+                      </span>
+                      <span className="text-[10px] text-sidebar-foreground/50">
+                        관리자 패널
+                      </span>
+                    </div>
+                    <ChevronRight className="h-3.5 w-3.5 text-sidebar-foreground/40 group-hover:text-sidebar-foreground/60 transition-colors" />
                   </button>
-                  
-                  <style>{
-                    `@keyframes gradient {
-                      0%, 100% { background-position: 0% 50%; }
-                      50% { background-position: 100% 50%; }
-                    }
-                    .animate-gradient {
-                      background-size: 200% 200%;
-                      animation: gradient 3s ease infinite;
-                    }`
-                  }</style>
                 </div>
               )}
               
               {/* WORK 탭에서 즐겨찾기 섹션 표시 (모든 사용자) */}
               {activeTab === "work" && favoriteMenuItems.length > 0 && !isCollapsed && (
                 <>
-                  <div className="px-2 py-2 mt-2">
-                    <div className="h-px bg-border" />
+                  <div className="px-3 py-2 mt-2">
+                    <div className="h-px bg-sidebar-border" />
                   </div>
                   <div className="px-4 py-2">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    <p className="text-[10px] font-semibold text-sidebar-foreground/40 uppercase tracking-wider">
                       즐겨찾기
                     </p>
                   </div>
@@ -902,68 +809,73 @@ function DashboardLayoutContent({
             </SidebarMenu>          </SidebarContent>
 
           <SidebarFooter className="p-3">
-            {/* 구독 정보 표시 (슈퍼관리자 제외) */}
+            {/* 구독 정보 (슈퍼관리자 제외) */}
             {user?.role !== "super_admin" && (
               <SubscriptionInfo isCollapsed={isCollapsed} />
+            )}
+
+            {/* 테마/메뉴 접기 */}
+            {!isCollapsed && (
+              <div className="flex items-center gap-1 mb-2">
+                <button
+                  onClick={toggleSidebar}
+                  className="flex-1 h-8 flex items-center justify-center gap-1.5 rounded-md text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+                >
+                  <PanelLeft className="h-3.5 w-3.5" />
+                  <span>접기</span>
+                </button>
+                <button
+                  onClick={toggleTheme}
+                  className="flex-1 h-8 flex items-center justify-center gap-1.5 rounded-md text-[11px] font-medium text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+                >
+                  {theme === "light" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+                  <span>{theme === "light" ? "다크" : "라이트"}</span>
+                </button>
+              </div>
             )}
             
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 rounded-lg px-1 py-1 hover:bg-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <Avatar className="h-9 w-9 border shrink-0">
-                    <AvatarFallback className="text-xs font-medium">
+                <button className="flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-sidebar-accent/50 transition-colors w-full text-left group-data-[collapsible=icon]:justify-center focus:outline-none">
+                  <Avatar className="h-8 w-8 shrink-0 border border-sidebar-border">
+                    <AvatarFallback className="text-[11px] font-semibold bg-primary/15 text-primary">
                       {user?.name?.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0 group-data-[collapsible=icon]:hidden">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium truncate leading-none">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[13px] font-medium truncate leading-none text-sidebar-foreground">
                         {user?.name || "-"}
                       </p>
                       {user?.role === "admin" && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4">
-                          관리자
-                        </Badge>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-semibold">
+                          Admin
+                        </span>
                       )}
                       {user?.role === "worker" && (
-                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-blue-100 text-blue-800 hover:bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/40">
-                          작업자
-                        </Badge>
-                      )}
-                      {user?.role === "monitor" && (
-                        <Badge className="text-[10px] px-1.5 py-0 h-4 bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/40">
-                          모니터
-                        </Badge>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">
+                          Worker
+                        </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground truncate mt-1.5">
+                    <p className="text-[11px] text-sidebar-foreground/40 truncate mt-1">
                       {user?.email || "-"}
                     </p>
                   </div>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <div className="px-2 py-1.5 text-sm font-semibold">
-                  {user?.name}
+                <div className="px-3 py-2">
+                  <p className="text-sm font-semibold">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{user?.email}</p>
                 </div>
-                <div className="px-2 py-1 text-xs text-muted-foreground">
-                  {user?.email}
-                </div>
-                <div className="px-2 py-1.5 flex items-center gap-2">
-                  <Shield className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs">
-                    {user?.role === "admin" && "관리자"}
-                    {user?.role === "worker" && "작업자"}
-                    {user?.role === "monitor" && "모니터"}
-                  </span>
-                </div>
-                <div className="h-px bg-border my-1" />
+                <div className="h-px bg-border" />
                 <DropdownMenuItem
                   onClick={logout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
+                  className="cursor-pointer text-destructive focus:text-destructive mt-1"
                 >
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>Sign out</span>
+                  <span>로그아웃</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -981,32 +893,31 @@ function DashboardLayoutContent({
 
       <SidebarInset>
         {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-10 w-10 p-0 flex items-center justify-center hover:bg-accent rounded-md transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
-                </svg>
+          <div className="flex border-b border-border h-[72px] items-center justify-between bg-white dark:bg-card backdrop-blur-xl px-4 sticky top-0 z-40">
+            <div className="flex items-center gap-3">
+              <SidebarTrigger className="h-9 w-9 p-0 flex items-center justify-center hover:bg-accent rounded-lg transition-colors">
+                <PanelLeft className="h-4 w-4" />
               </SidebarTrigger>
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
-              </div>
+              <span className="text-sm font-semibold tracking-tight text-foreground">
+                {activeMenuItem?.label ?? "Menu"}
+              </span>
             </div>
             <NotificationDropdown />
           </div>
         )}
         {!isMobile && (
-          <div className="flex border-b h-14 items-center justify-end bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <NotificationDropdown />
+          <div className="flex border-b border-border h-[72px] items-center justify-between bg-white dark:bg-card backdrop-blur-xl px-6 sticky top-0 z-40">
+            <div className="flex items-center gap-3">
+              <span className="text-[15px] font-semibold text-foreground tracking-tight">
+                {activeMenuItem?.label ?? ""}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <NotificationDropdown />
+            </div>
           </div>
         )}
-        <main className="flex-1 p-1 md:p-2">{children}</main>
+        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
       </SidebarInset>
     </>
   );

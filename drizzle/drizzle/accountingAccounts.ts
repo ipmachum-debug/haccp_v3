@@ -22,8 +22,11 @@ export const accountingAccounts = mysqlTable("accounting_accounts", {
   // 계정 과목명 (예: 현금, 미지급금, 자본금, 매출, 급여)
   name: varchar("name", { length: 100 }).notNull(),
   
-  // 상위 계정 과목 ID (계층 구조 지원)
+  // 상위 계정 과목 ID (계층 구조 지원 — 같은 테이블 내 자기참조)
   parentId: bigint("parent_id", { mode: "number" }),
+  
+  // 소속 그룹 ID (account_categories 테이블 참조)
+  accountCategoryId: bigint("account_category_id", { mode: "number" }),
   
   // 설명
   description: text("description"),

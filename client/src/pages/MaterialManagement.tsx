@@ -179,7 +179,7 @@ export default function MaterialManagement() {
   return (
     <DashboardLayout>
 
-    <div className="container py-8">
+    <div className="space-y-6">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">원재료 관리</h1>
         <p className="text-muted-foreground">

@@ -48,7 +48,7 @@ export default function InspectionStatistics() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="p-8">
+        <div className="space-y-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-muted-foreground">로딩 중...</div>
           </div>

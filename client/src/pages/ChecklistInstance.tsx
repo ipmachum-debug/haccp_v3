@@ -82,7 +82,7 @@ export default function ChecklistInstance() {
     return (
     <DashboardLayout>
 
-      <div className="container py-8">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>접근 권한 없음</CardTitle>
@@ -99,7 +99,7 @@ export default function ChecklistInstance() {
 
   if (isLoading) {
     return (
-      <div className="container py-8">
+      <div className="space-y-6">
         <div className="text-center">로딩 중...</div>
       </div>
     );
@@ -107,7 +107,7 @@ export default function ChecklistInstance() {
 
   if (!instance) {
     return (
-      <div className="container py-8">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>체크리스트를 찾을 수 없습니다</CardTitle>
@@ -124,7 +124,7 @@ export default function ChecklistInstance() {
   const canEdit = !isCompleted && hasRole(["admin", "worker"]);
 
   return (
-    <div className="container py-8">
+    <div className="space-y-6">
       <div className="mb-6">
         <Button
           variant="ghost"

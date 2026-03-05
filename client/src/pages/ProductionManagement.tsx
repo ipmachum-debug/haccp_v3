@@ -7,14 +7,14 @@ import BatchList from "./BatchList";
 import BatchCostAnalysisDashboard from "./BatchCostAnalysisDashboard";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysisDashboard from "./CostAnalysisDashboard";
-import PipelineDashboard from "./PipelineDashboard";
+import { PipelineDashboardContent } from "./PipelineDashboard";
 
 export default function ProductionManagement() {
   const [activeTab, setActiveTab] = useState("pipeline");
 
   return (
     <DashboardLayout>
-      <div className="mx-auto py-2 px-1 md:px-2 space-y-3">
+      <div className="space-y-3">
         {/* 탭 네비게이션 - 에메랄드 테마 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
           <div className="rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-1 shadow-lg shadow-emerald-200/50">
@@ -70,8 +70,8 @@ export default function ProductionManagement() {
           </div>
 
           {/* 파이프라인 현황판 - 에메랄드 테마 배경 */}
-          <TabsContent value="pipeline" className="mt-0 -mx-4 sm:-mx-6">
-            <PipelineDashboard />
+          <TabsContent value="pipeline" className="mt-4">
+            <PipelineDashboardContent />
           </TabsContent>
 
           {/* 배치 목록 */}

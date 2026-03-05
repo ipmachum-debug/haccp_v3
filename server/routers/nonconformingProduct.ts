@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import * as ncpDb from "../db/nonconformingProduct";
 
 export const nonconformingProductRouter = router({
@@ -14,7 +14,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 생성
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -83,7 +83,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 목록 조회
    */
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -103,14 +103,14 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 상세 조회
    */
-  getById: protectedProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+  getById: tenantRequiredProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
     return await ncpDb.getNonconformingProductById(input.id);
   }),
 
   /**
    * 부적합 제품 수정
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -151,7 +151,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 삭제
    */
-  delete: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  delete: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
     await ncpDb.deleteNonconformingProduct(input.id);
     return { success: true };
   }),
@@ -159,7 +159,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 상태 변경
    */
-  updateStatus: protectedProcedure
+  updateStatus: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -174,7 +174,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 승인
    */
-  approve: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+  approve: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
     await ncpDb.approveNonconformingProduct(input.id, ctx.user.id);
     return { success: true };
   }),
@@ -186,7 +186,7 @@ export const nonconformingProductRouter = router({
   /**
    * 첨부 파일 추가
    */
-  addAttachment: protectedProcedure
+  addAttachment: tenantRequiredProcedure
     .input(
       z.object({
         ncpId: z.number(),
@@ -210,14 +210,14 @@ export const nonconformingProductRouter = router({
   /**
    * 첨부 파일 목록 조회
    */
-  getAttachments: protectedProcedure.input(z.object({ ncpId: z.number() })).query(async ({ input }) => {
+  getAttachments: tenantRequiredProcedure.input(z.object({ ncpId: z.number() })).query(async ({ input }) => {
     return await ncpDb.getAttachments(input.ncpId);
   }),
 
   /**
    * 첨부 파일 삭제
    */
-  deleteAttachment: protectedProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+  deleteAttachment: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
     await ncpDb.deleteAttachment(input.id);
     return { success: true };
   }),
@@ -229,7 +229,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 통계 조회
    */
-  getStats: protectedProcedure
+  getStats: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -244,14 +244,14 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 대시보드
    */
-  getDashboard: protectedProcedure.input(z.object({ siteId: z.number() })).query(async ({ input }) => {
+  getDashboard: tenantRequiredProcedure.input(z.object({ siteId: z.number() })).query(async ({ input }) => {
     return await ncpDb.getNonconformingProductDashboard(input.siteId);
   }),
 
   /**
    * 부적합률 계산
    */
-  calculateRate: protectedProcedure
+  calculateRate: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -266,7 +266,7 @@ export const nonconformingProductRouter = router({
   /**
    * 부적합 제품 보고서 생성
    */
-  generateReport: protectedProcedure
+  generateReport: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),

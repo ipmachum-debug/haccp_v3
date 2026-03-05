@@ -10,7 +10,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
  * 주기 관리 (DAILY/WEEKLY/MONTHLY/YEARLY/INTERVAL)
  *
  * ✅ P0 SECURITY FIX:
- * - protectedProcedure → tenantRequiredProcedure 전환
+ * - tenantRequiredProcedure → tenantRequiredProcedure 전환
  *   (슈퍼관리자도 actingTenantId 없으면 403)
  * - 모든 조회/수정/삭제에 tenantId 필터 강제
  * - 소유권 검증: schedule/template 접근 시 tenantId 교차 확인

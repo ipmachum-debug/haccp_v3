@@ -207,7 +207,7 @@ export default function ChecklistInstanceForm() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
