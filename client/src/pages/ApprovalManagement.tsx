@@ -843,7 +843,7 @@ export default function ApprovalManagement() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 space-y-6">
+      <div className="space-y-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>

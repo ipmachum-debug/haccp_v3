@@ -171,7 +171,7 @@ export default function ChecklistTemplateForm() {
     return (
     <DashboardLayout>
 
-      <div className="container py-8">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>접근 권한 없음</CardTitle>
@@ -188,14 +188,14 @@ export default function ChecklistTemplateForm() {
 
   if (templateId && isLoading) {
     return (
-      <div className="container py-8">
+      <div className="space-y-6">
         <div className="text-center">로딩 중...</div>
       </div>
     );
   }
 
   return (
-    <div className="container py-8">
+    <div className="space-y-6">
       <div className="mb-6">
         <Button
           variant="ghost"

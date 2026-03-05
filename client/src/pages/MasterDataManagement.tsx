@@ -528,7 +528,7 @@ export default function MasterDataManagement() {
   
   return (
     <DashboardLayout>
-      <div className="container py-6 space-y-6">
+      <div className="space-y-6">
         <div className="flex items-center gap-3">
           <Database className="h-8 w-8 text-primary" />
           <div>

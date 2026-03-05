@@ -2,7 +2,7 @@
  * Metal Detection Record Frame API Router
  * Batch → SKU → Time/Qty Allocation → Sensitivity Checks → Deviation Actions
  */
-import { router, protectedProcedure, workerProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure, workerProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
@@ -92,7 +92,7 @@ export const metalDetectionRouter = router({
     }),
 
   /** Get batch process run with SKU slots and sensitivity checks */
-  getBatchProcessRun: protectedProcedure
+  getBatchProcessRun: tenantRequiredProcedure
     .input(z.object({
       batchId: z.number().optional(),
       workDate: z.string().optional(),
@@ -301,7 +301,7 @@ export const metalDetectionRouter = router({
     }),
 
   /** Get deviation actions for a batch run */
-  getDeviationActions: protectedProcedure
+  getDeviationActions: tenantRequiredProcedure
     .input(z.object({
       batchProcessRunId: z.number().optional(),
       status: z.enum(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]).optional(),
@@ -342,7 +342,7 @@ export const metalDetectionRouter = router({
     }),
 
   /** Get metal detection summary for a date range */
-  getSummary: protectedProcedure
+  getSummary: tenantRequiredProcedure
     .input(z.object({
       startDate: z.string(),
       endDate: z.string(),

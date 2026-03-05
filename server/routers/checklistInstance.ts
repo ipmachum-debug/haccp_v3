@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { 
@@ -11,17 +11,20 @@ import {
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
 import { storagePut } from "../storage";
 import { invokeLLM } from "../_core/llm";
+import { requireTenantId } from "../helpers/tenantGuards";
 
 /**
  * 체크리스트 인스턴스 라우터
  * 실제 체크리스트 작성/제출/승인 로직
+ * 
+ * P0 FIX: 모든 쿼리에 tenantId 조건 추가
  */
 
 export const checklistInstanceRouter = router({
   /**
    * 인스턴스 목록 조회
    */
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         periodKey: z.string().optional(), // YYYY-MM-DD, YYYY-Www, YYYY-MM, YYYY
@@ -31,11 +34,12 @@ export const checklistInstanceRouter = router({
         endDate: z.string().optional(), // YYYY-MM-DD
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      const conditions = [];
+      const conditions = [eq(checklistInstances.tenantId, tenantId)];
 
       if (input.periodKey) {
         conditions.push(eq(checklistInstances.periodKey, input.periodKey));
@@ -58,7 +62,7 @@ export const checklistInstanceRouter = router({
       }
 
       const instances = await db.query.checklistInstances.findMany({
-        where: conditions.length > 0 ? and(...conditions) : undefined,
+        where: and(...conditions),
         orderBy: [desc(checklistInstances.targetDate)],
         with: {
           template: true,
@@ -71,14 +75,15 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 상세 조회
    */
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
         with: {
           template: true,
           items: true,
@@ -96,7 +101,7 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 생성 (수동)
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         templateId: z.number(),
@@ -109,10 +114,11 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 템플릿 존재 확인
+      // 템플릿 존재 확인 (같은 테넌트의 것만)
       const template = await db.query.checklistTemplates.findFirst({
-        where: eq(checklistTemplates.id, input.templateId),
+        where: and(eq(checklistTemplates.id, input.templateId), eq(checklistTemplates.tenantId, tenantId)),
       });
 
       if (!template) {
@@ -121,6 +127,7 @@ export const checklistInstanceRouter = router({
 
       // 인스턴스 생성
       const [instance] = await db.insert(checklistInstances).values({
+        tenantId,
         templateId: input.templateId,
         periodKey: input.periodKey,
         targetDate: input.targetDate,
@@ -139,7 +146,7 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 업데이트 (작성 중)
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -155,10 +162,11 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
       });
 
       if (!instance) {
@@ -183,7 +191,9 @@ export const checklistInstanceRouter = router({
         updates.attachments = attachmentsWithMeta;
       }
 
-      await db.update(checklistInstances).set(updates).where(eq(checklistInstances.id, input.id));
+      await db.update(checklistInstances).set(updates).where(
+        and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId))
+      );
 
       return { success: true };
     }),
@@ -191,7 +201,7 @@ export const checklistInstanceRouter = router({
   /**
    * 첨부파일 업로드
    */
-  uploadAttachment: protectedProcedure
+  uploadAttachment: tenantRequiredProcedure
     .input(
       z.object({
         instanceId: z.number(),
@@ -205,10 +215,11 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.instanceId),
+        where: and(eq(checklistInstances.id, input.instanceId), eq(checklistInstances.tenantId, tenantId)),
       });
 
       if (!instance) {
@@ -219,7 +230,7 @@ export const checklistInstanceRouter = router({
       const buffer = Buffer.from(input.file.data, "base64");
 
       // S3 업로드
-      const fileKey = `tenant-${ctx.user.tenantId}/checklist-attachments/${input.instanceId}/${Date.now()}-${input.file.name}`;
+      const fileKey = `tenant-${tenantId}/checklist-attachments/${input.instanceId}/${Date.now()}-${input.file.name}`;
       const { url, key } = await storagePut(fileKey, buffer, input.file.type);
 
       // 기존 첨부파일에 추가
@@ -238,7 +249,7 @@ export const checklistInstanceRouter = router({
         .set({
           attachments: [...existingAttachments, newAttachment],
         })
-        .where(eq(checklistInstances.id, input.instanceId));
+        .where(and(eq(checklistInstances.id, input.instanceId), eq(checklistInstances.tenantId, tenantId)));
 
       return {
         success: true,
@@ -249,15 +260,16 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 제출
    */
-  submit: protectedProcedure
+  submit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
         with: {
           template: true,
         },
@@ -277,7 +289,7 @@ export const checklistInstanceRouter = router({
           completedAt: new Date().toISOString(),
           completedBy: ctx.user.id,
         })
-        .where(eq(checklistInstances.id, input.id));
+        .where(and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)));
 
       return { success: true, status: newStatus };
     }),
@@ -285,7 +297,7 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 승인
    */
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -295,10 +307,11 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
       });
 
       if (!instance) {
@@ -318,7 +331,7 @@ export const checklistInstanceRouter = router({
           reviewedBy: ctx.user.id,
           reviewComments: input.comment || null,
         })
-        .where(eq(checklistInstances.id, input.id));
+        .where(and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)));
 
       // 승인 이력 기록
       await db.insert(checklistApprovals).values({
@@ -334,7 +347,7 @@ export const checklistInstanceRouter = router({
   /**
    * 인스턴스 반려
    */
-  reject: protectedProcedure
+  reject: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -344,10 +357,11 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
       });
 
       if (!instance) {
@@ -367,7 +381,7 @@ export const checklistInstanceRouter = router({
           reviewedAt: new Date().toISOString(),
           reviewedBy: ctx.user.id,
         })
-        .where(eq(checklistInstances.id, input.id));
+        .where(and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)));
 
       // 승인 이력 기록
       await db.insert(checklistApprovals).values({
@@ -383,7 +397,7 @@ export const checklistInstanceRouter = router({
   /**
    * AI 자동 작성
    */
-  generateWithAI: protectedProcedure
+  generateWithAI: tenantRequiredProcedure
     .input(
       z.object({
         templateId: z.number(),
@@ -393,22 +407,24 @@ export const checklistInstanceRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 템플릿 조회
+      // 템플릿 조회 (테넌트 격리)
       const template = await db.query.checklistTemplates.findFirst({
-        where: eq(checklistTemplates.id, input.templateId),
+        where: and(eq(checklistTemplates.id, input.templateId), eq(checklistTemplates.tenantId, tenantId)),
       });
 
       if (!template) {
         throw new Error("템플릿을 찾을 수 없습니다.");
       }
 
-      // 기존 유사 기록 조회 (같은 템플릿, 최근 30일)
+      // 기존 유사 기록 조회 (같은 템플릿, 최근 30일, 같은 테넌트)
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
       const recentInstances = await db.query.checklistInstances.findMany({
         where: and(
+          eq(checklistInstances.tenantId, tenantId),
           eq(checklistInstances.templateId, input.templateId),
           gte(checklistInstances.targetDate, thirtyDaysAgo.toISOString().split('T')[0]),
           eq(checklistInstances.status, "approved")
@@ -500,22 +516,25 @@ ${index + 1}. 기간: ${instance.periodKey}
   /**
    * 인스턴스 삭제
    */
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database not available");
+      const tenantId = requireTenantId(ctx);
 
-      // 인스턴스 존재 확인
+      // 인스턴스 존재 확인 (테넌트 격리)
       const instance = await db.query.checklistInstances.findFirst({
-        where: eq(checklistInstances.id, input.id),
+        where: and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId)),
       });
 
       if (!instance) {
         throw new Error("인스턴스를 찾을 수 없습니다.");
       }
 
-      await db.delete(checklistInstances).where(eq(checklistInstances.id, input.id));
+      await db.delete(checklistInstances).where(
+        and(eq(checklistInstances.id, input.id), eq(checklistInstances.tenantId, tenantId))
+      );
 
       return { success: true };
     }),

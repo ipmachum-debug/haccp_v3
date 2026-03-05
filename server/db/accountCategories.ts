@@ -44,7 +44,7 @@ export async function getAllAccountCategories(tenantId?: number) {
       is_active as isActive, 
       created_at as createdAt, 
       updated_at as updatedAt
-    FROM accounting_categories 
+    FROM account_categories 
     WHERE is_active = 1${tenantWhere}
     ORDER BY code ASC`,
     params
@@ -78,7 +78,7 @@ export async function getAccountCategoriesByMajor(majorCategory: string, tenantI
       is_active as isActive, 
       created_at as createdAt, 
       updated_at as updatedAt
-    FROM accounting_categories 
+    FROM account_categories 
     WHERE is_active = 1 AND major_category = ?${tenantWhere}
     ORDER BY code ASC`,
     params
@@ -110,7 +110,7 @@ export async function createAccountCategory(data: {
   }
 
   const [existing] = await db.execute(
-    `SELECT id FROM accounting_categories WHERE code = ?${tenantWhere} LIMIT 1`,
+    `SELECT id FROM account_categories WHERE code = ?${tenantWhere} LIMIT 1`,
     dupParams
   );
 
@@ -132,7 +132,7 @@ export async function createAccountCategory(data: {
   }
 
   const [result] = await db.execute(
-    `INSERT INTO accounting_categories (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
+    `INSERT INTO account_categories (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
     vals
   );
 
@@ -165,7 +165,7 @@ export async function updateAccountCategory(
       dupParams.push(tenantId);
     }
     const [existing] = await db.execute(
-      `SELECT id FROM accounting_categories WHERE code = ? AND id != ?${tenantWhere} LIMIT 1`,
+      `SELECT id FROM account_categories WHERE code = ? AND id != ?${tenantWhere} LIMIT 1`,
       dupParams
     );
 
@@ -210,7 +210,7 @@ export async function updateAccountCategory(
   }
 
   await db.execute(
-    `UPDATE accounting_categories SET ${updates.join(", ")} WHERE id = ?${tenantWhere}`,
+    `UPDATE account_categories SET ${updates.join(", ")} WHERE id = ?${tenantWhere}`,
     values
   );
 
@@ -232,7 +232,7 @@ export async function deleteAccountCategory(id: number, tenantId?: number) {
   }
 
   await db.execute(
-    `UPDATE accounting_categories SET is_active = 0 WHERE id = ?${tenantWhere}`,
+    `UPDATE account_categories SET is_active = 0 WHERE id = ?${tenantWhere}`,
     params
   );
 
@@ -264,7 +264,7 @@ export async function getAccountCategoryById(id: number, tenantId?: number) {
       is_active as isActive, 
       created_at as createdAt, 
       updated_at as updatedAt
-    FROM accounting_categories 
+    FROM account_categories 
     WHERE id = ?${tenantWhere} LIMIT 1`,
     params
   );

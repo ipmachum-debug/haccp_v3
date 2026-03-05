@@ -621,7 +621,7 @@ export default function DocumentPrintManagement() {
 
   return (
     <DashboardLayout>
-    <div className="p-4 md:p-6 max-w-7xl mx-auto">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">

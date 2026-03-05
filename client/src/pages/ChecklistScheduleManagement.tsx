@@ -167,7 +167,7 @@ export default function ChecklistScheduleManagement() {
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">체크리스트 스케줄 관리</h1>

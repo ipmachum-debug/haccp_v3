@@ -1,9 +1,11 @@
-import { getDb } from "../db";;
+import { getDb, getRawConnection } from "../db";;
 import { accountingPurchases } from "../../drizzle/schema_accounting_extended";
 import { hInventoryTransactions, hInventoryLots } from "../../drizzle/schema/part2";
 import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { eq, and } from "drizzle-orm";
 import { generateExpiryAlerts } from "./expiryAlertGenerator";
+import { resolveSystemAccount } from "../db/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
  * 매입 POST 로직
@@ -94,41 +96,71 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     throw error;
   }
 
-  // 6. 회계 원장 생성 (accounting_transactions)
-  // 매입 분개: 차변 재고자산(또는 원재료), 대변 매입채무(또는 현금)
+  // 6. 회계 원장 생성 (accounting_transactions) - system_code 기반
+  // 매입 분개: 차변 원재료(INVENTORY_RAW) + 부가세대급금(VAT_INPUT), 대변 외상매입금(ACCOUNTS_PAYABLE)
   const totalAmount = Number(purchase.totalAmount || 0);
-  const accountCode = "1120"; // 원재료 (자산)
-  const contraAccountCode = "2110"; // 매입채무 (부채)
+  const taxAmount = Number(purchase.taxAmount || 0);
+  const supplyAmount = totalAmount - taxAmount;
+  const tenantId = purchase.tenantId || 1;
+
+  // system_code 기반 계정 조회
+  const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
+  const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
+  const vatAcc = taxAmount > 0 
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
+    : null;
 
   try {
-    // (A) 차변: 원재료 증가
+    // (A) 차변: 원재료 증가 (공급가)
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate: purchase.transactionDate,
-      accountCode,
-      accountName: "원재료",
-      debitAmount: totalAmount.toFixed(2),
+      accountCode: inventoryAcc.code,
+      accountName: inventoryAcc.name,
+      debitAmount: supplyAmount.toFixed(2),
       creditAmount: "0.00",
       description: `매입: ${purchase.itemName || ""}`,
       sourceType,
       sourceId: docId,
-      sourceLineId: purchaseId.toString(),
+      sourceLineId: `${purchaseId}-debit`,
       actionType,
       reversalOfId: null,
       postedAt: new Date(),
       createdBy: userId
     });
 
-    // (B) 대변: 매입채무 증가
+    // (A-2) 차변: 부가세대급금 (세액이 있는 경우)
+    if (vatAcc && taxAmount > 0) {
+      await db.insert(accountingTransactions).values({
+        tenantId,
+        transactionDate: purchase.transactionDate,
+        accountCode: vatAcc.code,
+        accountName: vatAcc.name,
+        debitAmount: taxAmount.toFixed(2),
+        creditAmount: "0.00",
+        description: `매입 부가세: ${purchase.itemName || ""}`,
+        sourceType,
+        sourceId: docId,
+        sourceLineId: `${purchaseId}-vat`,
+        actionType,
+        reversalOfId: null,
+        postedAt: new Date(),
+        createdBy: userId
+      });
+    }
+
+    // (B) 대변: 외상매입금 증가 (총액)
     await db.insert(accountingTransactions).values({
+      tenantId,
       transactionDate: purchase.transactionDate,
-      accountCode: contraAccountCode,
-      accountName: "매입채무",
+      accountCode: payableAcc.code,
+      accountName: payableAcc.name,
       debitAmount: "0.00",
       creditAmount: totalAmount.toFixed(2),
       description: `매입: ${purchase.itemName || ""}`,
       sourceType,
       sourceId: docId,
-      sourceLineId: purchaseId.toString(),
+      sourceLineId: `${purchaseId}-credit`,
       actionType,
       reversalOfId: null,
       postedAt: new Date(),

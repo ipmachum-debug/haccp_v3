@@ -14,7 +14,8 @@ import {
   X,
   Menu,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  MessageCircle
 } from "lucide-react";
 
 interface SuperAdminLayoutProps {
@@ -73,6 +74,11 @@ export default function SuperAdminLayout({ children }: SuperAdminLayoutProps) {
       icon: FileText,
       label: "감사 로그",
       path: "/dashboard/audit-logs",
+    },
+    {
+      icon: MessageCircle,
+      label: "문의 관리",
+      path: "/dashboard/support-manage",
     },
   ];
 

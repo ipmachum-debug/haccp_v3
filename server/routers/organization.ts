@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as organizationHelper from "../helpers/organization";
 
 /**
@@ -10,17 +10,17 @@ export const organizationRouter = router({
   // 부서 관리
   // ============================================================================
   departments: router({
-    list: protectedProcedure.query(async () => {
+    list: tenantRequiredProcedure.query(async () => {
       return await organizationHelper.listDepartments();
     }),
 
-    getById: protectedProcedure
+    getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         return await organizationHelper.getDepartmentById(input.id);
       }),
 
-    create: protectedProcedure
+    create: tenantRequiredProcedure
       .input(
         z.object({
           departmentName: z.string(),
@@ -31,7 +31,7 @@ export const organizationRouter = router({
         return await organizationHelper.createDepartment(input);
       }),
 
-    update: protectedProcedure
+    update: tenantRequiredProcedure
       .input(
         z.object({
           id: z.number(),
@@ -44,7 +44,7 @@ export const organizationRouter = router({
         return await organizationHelper.updateDepartment(id, data);
       }),
 
-    delete: protectedProcedure
+    delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await organizationHelper.deleteDepartment(input.id);
@@ -56,17 +56,17 @@ export const organizationRouter = router({
   // 직급 관리
   // ============================================================================
   positions: router({
-    list: protectedProcedure.query(async () => {
+    list: tenantRequiredProcedure.query(async () => {
       return await organizationHelper.listPositions();
     }),
 
-    getById: protectedProcedure
+    getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         return await organizationHelper.getPositionById(input.id);
       }),
 
-    create: protectedProcedure
+    create: tenantRequiredProcedure
       .input(
         z.object({
           positionName: z.string(),
@@ -79,7 +79,7 @@ export const organizationRouter = router({
         return await organizationHelper.createPosition(input);
       }),
 
-    update: protectedProcedure
+    update: tenantRequiredProcedure
       .input(
         z.object({
           id: z.number(),
@@ -94,7 +94,7 @@ export const organizationRouter = router({
         return await organizationHelper.updatePosition(id, data);
       }),
 
-    delete: protectedProcedure
+    delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await organizationHelper.deletePosition(input.id);
@@ -106,17 +106,17 @@ export const organizationRouter = router({
   // 구성원 관리
   // ============================================================================
   employees: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
+    list: tenantRequiredProcedure.query(async ({ ctx }) => {
       return await organizationHelper.listEmployees(ctx.tenantId);
     }),
 
-    getById: protectedProcedure
+    getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         return await organizationHelper.getEmployeeById(input.id);
       }),
 
-    create: protectedProcedure
+    create: tenantRequiredProcedure
       .input(
         z.object({
           userId: z.number().optional(),
@@ -132,7 +132,7 @@ export const organizationRouter = router({
         return await organizationHelper.createEmployee(input);
       }),
 
-    update: protectedProcedure
+    update: tenantRequiredProcedure
       .input(
         z.object({
           id: z.number(),
@@ -150,7 +150,7 @@ export const organizationRouter = router({
         return await organizationHelper.updateEmployee(id, data);
       }),
 
-    delete: protectedProcedure
+    delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await organizationHelper.deleteEmployee(input.id);
@@ -159,7 +159,7 @@ export const organizationRouter = router({
   }),
 
   // 현재 로그인 사용자의 승인 역할 조회
-  getMyApprovalRole: protectedProcedure.query(async ({ ctx }) => {
+  getMyApprovalRole: tenantRequiredProcedure.query(async ({ ctx }) => {
     const userId = ctx.user?.id;
     const userRole = (ctx.user as any)?.role;
     // 슈퍼관리자/관리자는 자동으로 승인자 권한
@@ -182,17 +182,17 @@ export const organizationRouter = router({
   // 문서 결재자 설정 관리
   // ============================================================================
   approvalSettings: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
+    list: tenantRequiredProcedure.query(async ({ ctx }) => {
       return await organizationHelper.listDocumentApprovalSettings(ctx.tenantId);
     }),
 
-    getById: protectedProcedure
+    getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         return await organizationHelper.getDocumentApprovalSettingById(input.id);
       }),
 
-    getByType: protectedProcedure
+    getByType: tenantRequiredProcedure
       .input(z.object({ documentType: z.string() }))
       .query(async ({ input, ctx }) => {
         if (!ctx.tenantId) {
@@ -201,7 +201,7 @@ export const organizationRouter = router({
         return await organizationHelper.getDocumentApprovalSettingByType(input.documentType, ctx.tenantId);
       }),
 
-    create: protectedProcedure
+    create: tenantRequiredProcedure
       .input(
         z.object({
           documentType: z.string(),
@@ -215,7 +215,7 @@ export const organizationRouter = router({
         return await organizationHelper.createDocumentApprovalSetting({ ...input, tenantId: ctx.tenantId });
       }),
 
-    update: protectedProcedure
+    update: tenantRequiredProcedure
       .input(
         z.object({
           id: z.number(),
@@ -232,7 +232,7 @@ export const organizationRouter = router({
         return await organizationHelper.updateDocumentApprovalSetting(id, { ...data, tenantId: ctx.tenantId });
       }),
 
-    delete: protectedProcedure
+    delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await organizationHelper.deleteDocumentApprovalSetting(input.id);

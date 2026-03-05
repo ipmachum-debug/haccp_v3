@@ -30,7 +30,7 @@ export default function BatchManagement() {
 
   return (
     <DashboardLayout>
-      <div className="py-2 px-1 md:px-2">
+      <div className="space-y-6">
         <div className="mb-4">
           <h1 className="text-2xl font-bold mb-1">배치 관리</h1>
           <p className="text-muted-foreground text-sm">
@@ -51,7 +51,7 @@ export default function BatchManagement() {
           </TabsContent>
 
           <TabsContent value="create" className="space-y-4">
-            <BatchCreate />
+            <BatchCreate embedded />
           </TabsContent>
 
           <TabsContent value="profitability" className="space-y-4">

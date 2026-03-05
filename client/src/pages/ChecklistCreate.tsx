@@ -100,8 +100,8 @@ export default function ChecklistCreate() {
 
   return (
     <DashboardLayout>
-    <div className="container py-8">
-      <div className="max-w-2xl mx-auto space-y-6">
+    <div className="space-y-6">
+      <div className="space-y-6">
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 via-blue-600 to-purple-600 bg-clip-text text-transparent">
             새 체크리스트 생성

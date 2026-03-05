@@ -588,7 +588,7 @@ export default function OpscoreSync() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-7xl mx-auto">
+      <div className="space-y-6">
         {isSuperAdmin ? <SuperAdminPanel /> : <TenantAdminPanel />}
       </div>
     </DashboardLayout>

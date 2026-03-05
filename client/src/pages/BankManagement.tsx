@@ -8,7 +8,7 @@ import MatchingRuleTab from "@/components/bank/MatchingRuleTab";
 export default function BankManagement() {
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-8 space-y-6">
+      <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold">은행 관리</h1>
           <p className="text-muted-foreground mt-2">

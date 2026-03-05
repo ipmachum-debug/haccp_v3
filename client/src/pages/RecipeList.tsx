@@ -66,7 +66,7 @@ export default function RecipeList() {
 
   return (
     <DashboardLayout>
-      <div className="container py-6">
+      <div className="space-y-6">
         <div className="mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>

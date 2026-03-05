@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as correctiveActionDb from "../db/correctiveAction";
 
 /**
@@ -8,7 +8,7 @@ import * as correctiveActionDb from "../db/correctiveAction";
 
 export const correctiveActionRouter = router({
   // 시정 조치 요청 생성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         sourceType: z.enum(["ccp_deviation", "inspection_failure", "customer_complaint", "internal_audit", "other"]),
@@ -31,7 +31,7 @@ export const correctiveActionRouter = router({
     }),
 
   // CCP 이탈 시 자동 시정 조치 생성
-  createFromCcpDeviation: protectedProcedure
+  createFromCcpDeviation: tenantRequiredProcedure
     .input(
       z.object({
         ccpInstanceId: z.number(),
@@ -48,21 +48,21 @@ export const correctiveActionRouter = router({
     }),
 
   // 시정 조치 요청 상세 조회
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return correctiveActionDb.getCorrectiveActionRequestById(input.id);
     }),
 
   // 배치별 시정 조치 목록
-  listByBatch: protectedProcedure
+  listByBatch: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input }) => {
       return correctiveActionDb.getCorrectiveActionRequestsByBatch(input.batchId);
     }),
 
   // 상태별 시정 조치 목록
-  listByStatus: protectedProcedure
+  listByStatus: tenantRequiredProcedure
     .input(z.object({ 
       status: z.enum(["open", "investigating", "action_taken", "verifying", "closed", "reopened"]) 
     }))
@@ -71,13 +71,13 @@ export const correctiveActionRouter = router({
     }),
 
   // 전체 시정 조치 목록
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .query(async () => {
       return correctiveActionDb.getAllCorrectiveActionRequests();
     }),
 
   // 즉시 조치 등록
-  recordImmediateAction: protectedProcedure
+  recordImmediateAction: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -95,7 +95,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 근본 원인 분석 등록
-  recordRootCause: protectedProcedure
+  recordRootCause: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -119,7 +119,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 시정 조치 등록
-  recordCorrectiveAction: protectedProcedure
+  recordCorrectiveAction: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -142,7 +142,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 조치 완료 처리
-  completeAction: protectedProcedure
+  completeAction: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -158,7 +158,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 효과 검증
-  verifyEffectiveness: protectedProcedure
+  verifyEffectiveness: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -181,7 +181,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 상태 변경
-  updateStatus: protectedProcedure
+  updateStatus: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -196,7 +196,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 우선순위 변경
-  updatePriority: protectedProcedure
+  updatePriority: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -211,7 +211,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 시정 조치 삭제
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await correctiveActionDb.deleteCorrectiveActionRequest(input.id);
@@ -219,7 +219,7 @@ export const correctiveActionRouter = router({
     }),
 
   // 첨부 파일 추가
-  addAttachment: protectedProcedure
+  addAttachment: tenantRequiredProcedure
     .input(
       z.object({
         requestId: z.number(),
@@ -238,14 +238,14 @@ export const correctiveActionRouter = router({
     }),
 
   // 첨부 파일 목록 조회
-  listAttachments: protectedProcedure
+  listAttachments: tenantRequiredProcedure
     .input(z.object({ requestId: z.number() }))
     .query(async ({ input }) => {
       return correctiveActionDb.getCorrectiveActionAttachments(input.requestId);
     }),
 
   // 첨부 파일 삭제
-  deleteAttachment: protectedProcedure
+  deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await correctiveActionDb.deleteCorrectiveActionAttachment(input.id);

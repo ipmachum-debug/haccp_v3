@@ -47,7 +47,7 @@ export default function ReportManagement() {
   const today = new Date().toISOString().split("T")[0];
 
   return (
-    <div className="container mx-auto py-8">
+    <div className="space-y-6">
       <div className="mb-8">
         <h1 className="text-3xl font-bold">보고서 관리</h1>
         <p className="text-muted-foreground mt-2">

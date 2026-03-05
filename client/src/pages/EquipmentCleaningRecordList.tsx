@@ -33,7 +33,7 @@ export default function EquipmentCleaningRecordList() {
 
   return (
     <DashboardLayout>
-    <div className="container mx-auto py-6">
+    <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">

@@ -38,7 +38,7 @@ export default function ChecklistHistory() {
 
   return (
     <DashboardLayout>
-    <div className="container py-8 max-w-4xl">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center gap-4 mb-6">
         <Button

@@ -1,10 +1,10 @@
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getRawConnection } from "../db";
 
 export const yearlyLogsRouter = router({
   // 연간일지 작성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       tenant_id: z.number(),
       inspection_date: z.string(),
@@ -59,7 +59,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 연간일지 조회
-  get: protectedProcedure
+  get: tenantRequiredProcedure
     .input(z.object({
       tenant_id: z.number(),
       start_date: z.string().optional(),
@@ -89,7 +89,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 연간일지 수정
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       inspection_date: z.string().optional(),
@@ -158,7 +158,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 승인
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       approved_by: z.string(),
@@ -175,7 +175,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 승인 요청
-  requestApproval: protectedProcedure
+  requestApproval: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const conn = await getRawConnection();
@@ -189,7 +189,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 반려
-  reject: protectedProcedure
+  reject: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       rejected_reason: z.string(),
@@ -206,7 +206,7 @@ export const yearlyLogsRouter = router({
     }),
 
   // 삭제
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const conn = await getRawConnection();

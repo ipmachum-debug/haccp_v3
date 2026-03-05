@@ -198,7 +198,7 @@ export default function BannerManagement() {
   };
 
   return (
-    <div className="container mx-auto py-8">
+    <div className="space-y-6">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold">배너 관리</h1>

@@ -166,7 +166,7 @@ export default function NotificationSettings() {
   if (isLoading) {
     return (
       
-        <div className="container mx-auto py-6">
+        <div className="space-y-6">
           <div className="text-center">설정을 불러오는 중...</div>
         </div>
       

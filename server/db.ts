@@ -7334,23 +7334,23 @@ export async function getInventoryDashboard(tenantId?: number) {
     .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
     .where(tenantId ? eq(hMaterials.tenantId, tenantId) : undefined);
   
-  // 2. 원재료별 재고 현황
+  // 2. 원재료별 재고 현황 (hMaterials 기준 LEFT JOIN → 재고 0인 원재료도 표시)
   const materialStocks = await db
     .select({
       materialId: hMaterials.id,
       materialName: hMaterials.materialName,
       materialCode: hMaterials.materialCode,
-      totalQuantity: sql<number>`SUM(${hInventoryLots.availableQuantity})`,
-      lotCount: sql<number>`COUNT(*)`,
+      totalQuantity: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN ${hInventoryLots.availableQuantity} ELSE 0 END), 0)`,
+      lotCount: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END), 0)`,
       unit: hMaterials.unit,
       unitPrice: hMaterials.unitPrice,
       safetyStockLevel: hMaterials.safetyStockLevel,
       expiryWarningDays: hMaterials.expiryWarningDays
     })
-    .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .from(hMaterials)
+    .leftJoin(hInventoryLots, eq(hMaterials.id, hInventoryLots.materialId))
     .where(and(
-      eq(hInventoryLots.status, "available"),
+      eq(hMaterials.isActive, 1),
       tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
     ))
     .groupBy(hMaterials.id, hMaterials.materialName, hMaterials.materialCode, hMaterials.unit, hMaterials.unitPrice, hMaterials.safetyStockLevel, hMaterials.expiryWarningDays);

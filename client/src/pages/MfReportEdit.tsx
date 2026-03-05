@@ -399,7 +399,7 @@ export default function MfReportEdit() {
   if (!reportDetail) {
     return (
       <DashboardLayout>
-        <div className="px-4 py-6">
+        <div className="space-y-6">
           <Card>
             <CardContent className="py-8">
               <p className="text-center text-muted-foreground">품목제조보고를 찾을 수 없습니다</p>
@@ -418,7 +418,7 @@ export default function MfReportEdit() {
   // === 렌더링 ===
   return (
     <DashboardLayout>
-      <div className="px-4 py-3 pb-24 max-w-full">
+      <div className="space-y-6 pb-24">
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-3">
           <div>

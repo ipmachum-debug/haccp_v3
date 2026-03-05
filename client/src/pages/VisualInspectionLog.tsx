@@ -266,7 +266,7 @@ function VisualInspectionDocument({
   const compColor = (v: string) => v === '\uC801\uD569' ? 'text-green-700 font-bold' : v === '\uBD80\uC801\uD569' ? 'text-red-600 font-bold' : 'text-gray-400';
 
   return (
-    <div className="bg-white px-4 py-4 max-w-full mx-auto overflow-x-auto" style={{ fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif" }}>
+    <div className="bg-white max-w-full overflow-x-auto space-y-6" style={{ fontFamily: "'Noto Sans KR', 'Malgun Gothic', sans-serif" }}>
       {/* Header + seal */}
       <div className="flex items-start justify-between mb-4">
         <div>
@@ -734,7 +734,7 @@ export function VisualInspectionLogContent() {
           <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />로딩 중...</div>
         ) : (
           <Card className="overflow-hidden shadow-sm border-2">
-            <CardContent className="p-0 overflow-x-auto">
+            <CardContent className="p-4 overflow-x-auto">
               <VisualInspectionDocument
                 items={items}
                 year={logDetail?.logYear || currentYear}

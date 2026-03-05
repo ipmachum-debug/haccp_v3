@@ -82,7 +82,7 @@ function CompanySettingsContent() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="space-y-6">
         <div className="text-center py-8 text-muted-foreground">
           데이터를 불러오는 중...
         </div>

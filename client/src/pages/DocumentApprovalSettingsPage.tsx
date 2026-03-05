@@ -212,7 +212,7 @@ export default function DocumentApprovalSettingsPage() {
   const changedCount = settings.filter((r) => r.changed).length;
 
   return (
-      <div className="max-w-[1400px]">
+      <div className="space-y-6">
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">

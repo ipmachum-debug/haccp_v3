@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 
@@ -83,7 +83,7 @@ import { eq, and, desc, gte, lte, like, sql, count } from "drizzle-orm";
 // ============================================================================
 
 export const checklistDashboardRouter = router({
-  getStats: protectedProcedure.query(async ({ ctx }) => {
+  getStats: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("데이터베이스 연결 실패");
 
@@ -274,7 +274,7 @@ export const checklistDashboardRouter = router({
 // ============================================================================
 
 export const waterQualityTestRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),
@@ -303,7 +303,7 @@ export const waterQualityTestRouter = router({
 
 
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       testDate: z.string(),
@@ -336,7 +336,7 @@ export const waterQualityTestRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       testDate: z.string().optional(),
@@ -370,7 +370,7 @@ export const waterQualityTestRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -389,7 +389,7 @@ export const waterQualityTestRouter = router({
 // ============================================================================
 
 export const airCompressorRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       status: z.enum(["normal", "warning", "error", "inactive"]).optional(),
@@ -412,7 +412,7 @@ export const airCompressorRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       equipmentCode: z.string(),
@@ -434,7 +434,7 @@ export const airCompressorRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       equipmentName: z.string().optional(),
@@ -458,7 +458,7 @@ export const airCompressorRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -472,7 +472,7 @@ export const airCompressorRouter = router({
     }),
 
   // 공기압축기 점검 기록
-  listChecks: protectedProcedure
+  listChecks: tenantRequiredProcedure
     .input(z.object({
       compressorId: z.number(),
       startDate: z.string().optional(),
@@ -495,7 +495,7 @@ export const airCompressorRouter = router({
       return records;
     }),
 
-  createCheck: protectedProcedure
+  createCheck: tenantRequiredProcedure
     .input(z.object({
       compressorId: z.number(),
       checkDate: z.string(),
@@ -528,7 +528,7 @@ export const airCompressorRouter = router({
 // ============================================================================
 
 export const validityEvaluationRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),
@@ -555,7 +555,7 @@ export const validityEvaluationRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       evaluationDate: z.string(),
@@ -577,7 +577,7 @@ export const validityEvaluationRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       evaluationDate: z.string().optional(),
@@ -601,7 +601,7 @@ export const validityEvaluationRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -620,7 +620,7 @@ export const validityEvaluationRouter = router({
 // ============================================================================
 
 export const personalHygieneCheckRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       employeeId: z.number().optional(),
@@ -649,7 +649,7 @@ export const personalHygieneCheckRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       employeeId: z.number(),
@@ -674,7 +674,7 @@ export const personalHygieneCheckRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       checkDate: z.string().optional(),
@@ -700,7 +700,7 @@ export const personalHygieneCheckRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -719,7 +719,7 @@ export const personalHygieneCheckRouter = router({
 // ============================================================================
 
 export const waterUsageCheckRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),
@@ -746,7 +746,7 @@ export const waterUsageCheckRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       checkDate: z.string(),
@@ -775,7 +775,7 @@ export const waterUsageCheckRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       checkDate: z.string().optional(),
@@ -811,7 +811,7 @@ export const waterUsageCheckRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -830,7 +830,7 @@ export const waterUsageCheckRouter = router({
 // ============================================================================
 
 export const equipmentCleaningRecordRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       equipmentId: z.number().optional(),
@@ -859,7 +859,7 @@ export const equipmentCleaningRecordRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       equipmentId: z.number().optional(),
@@ -888,7 +888,7 @@ export const equipmentCleaningRecordRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       equipmentName: z.string().optional(),
@@ -918,7 +918,7 @@ export const equipmentCleaningRecordRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -937,7 +937,7 @@ export const equipmentCleaningRecordRouter = router({
 // ============================================================================
 
 export const foreignMaterialRecordRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       productId: z.number().optional(),
@@ -970,7 +970,7 @@ export const foreignMaterialRecordRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       detectionDate: z.string(),
@@ -1002,7 +1002,7 @@ export const foreignMaterialRecordRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       detectionDate: z.string().optional(),
@@ -1034,7 +1034,7 @@ export const foreignMaterialRecordRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1047,7 +1047,7 @@ export const foreignMaterialRecordRouter = router({
       return { success: true };
     }),
 
-  close: protectedProcedure
+  close: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1067,7 +1067,7 @@ export const foreignMaterialRecordRouter = router({
 // ============================================================================
 
 export const refrigerationCheckRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       equipmentId: z.number().optional(),
@@ -1098,7 +1098,7 @@ export const refrigerationCheckRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       equipmentId: z.number().optional(),
@@ -1131,7 +1131,7 @@ export const refrigerationCheckRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       equipmentName: z.string().optional(),
@@ -1165,7 +1165,7 @@ export const refrigerationCheckRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1184,7 +1184,7 @@ export const refrigerationCheckRouter = router({
 // ============================================================================
 
 export const packagingStorageRecordRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       materialId: z.number().optional(),
@@ -1213,7 +1213,7 @@ export const packagingStorageRecordRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       materialId: z.number().optional(),
@@ -1246,7 +1246,7 @@ export const packagingStorageRecordRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       materialName: z.string().optional(),
@@ -1280,7 +1280,7 @@ export const packagingStorageRecordRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1299,7 +1299,7 @@ export const packagingStorageRecordRouter = router({
 // ============================================================================
 
 export const qualityIssueRecordRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       productId: z.number().optional(),
@@ -1332,7 +1332,7 @@ export const qualityIssueRecordRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       issueDate: z.string(),
@@ -1365,7 +1365,7 @@ export const qualityIssueRecordRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       issueDate: z.string().optional(),
@@ -1398,7 +1398,7 @@ export const qualityIssueRecordRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1411,7 +1411,7 @@ export const qualityIssueRecordRouter = router({
       return { success: true };
     }),
 
-  close: protectedProcedure
+  close: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1431,7 +1431,7 @@ export const qualityIssueRecordRouter = router({
 // ============================================================================
 
 export const capaRecordRouter = router({
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),
@@ -1460,7 +1460,7 @@ export const capaRecordRouter = router({
       return records;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number(),
       capaNumber: z.string(),
@@ -1492,7 +1492,7 @@ export const capaRecordRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       issueDate: z.string().optional(),
@@ -1528,7 +1528,7 @@ export const capaRecordRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1541,7 +1541,7 @@ export const capaRecordRouter = router({
       return { success: true };
     }),
 
-  verify: protectedProcedure
+  verify: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       verificationResult: z.enum(["effective", "ineffective", "pending"]),
@@ -1561,7 +1561,7 @@ export const capaRecordRouter = router({
       return { success: true };
     }),
 
-  close: protectedProcedure
+  close: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1584,7 +1584,7 @@ export const capaRecordRouter = router({
 
 export const genericChecklistRouter = router({
   // 같은 formType의 최신 레코드 조회 (이전 작성 내용 자동 불러오기)
-  getLatestByDate: protectedProcedure
+  getLatestByDate: tenantRequiredProcedure
     .input(z.object({
       formType: z.string(),
       formDate: z.string(),
@@ -1603,7 +1603,7 @@ export const genericChecklistRouter = router({
         .limit(1);
       return records[0] || null;
     }),
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       formType: z.string(),
       startDate: z.string().optional(),
@@ -1629,7 +1629,7 @@ export const genericChecklistRouter = router({
       return records;
     }),
 
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1645,7 +1645,7 @@ export const genericChecklistRouter = router({
       return records[0] || null;
     }),
 
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       formType: z.string(),
@@ -1672,7 +1672,7 @@ export const genericChecklistRouter = router({
       return { success: true, id: Number((result as any)[0]?.insertId || (result as any).insertId) };
     }),
 
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       formDate: z.string().optional(),
@@ -1696,7 +1696,7 @@ export const genericChecklistRouter = router({
       return { success: true };
     }),
 
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1710,7 +1710,7 @@ export const genericChecklistRouter = router({
     }),
 
   // 체크리스트 승인 요청 (작성자 → 검토 대기)
-  submitForReview: protectedProcedure
+  submitForReview: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       requestType: z.string(),
@@ -1744,7 +1744,7 @@ export const genericChecklistRouter = router({
     }),
 
   // 체크리스트 검토 (검토자 → 승인 대기)
-  reviewChecklist: protectedProcedure
+  reviewChecklist: tenantRequiredProcedure
     .input(z.object({
       approvalRequestId: z.number(),
       action: z.enum(["approve", "reject"]),
@@ -1779,7 +1779,7 @@ export const genericChecklistRouter = router({
     }),
 
   // 체크리스트 최종 승인 (승인자)
-  approveChecklist: protectedProcedure
+  approveChecklist: tenantRequiredProcedure
     .input(z.object({
       approvalRequestId: z.number(),
       action: z.enum(["approve", "reject"]),
@@ -1818,7 +1818,7 @@ export const genericChecklistRouter = router({
     }),
 
   // 일괄 검토 (여러 건을 한번에 검토 완료)
-  batchReviewChecklists: protectedProcedure
+  batchReviewChecklists: tenantRequiredProcedure
     .input(z.object({
       approvalRequestIds: z.array(z.number()),
       comments: z.string().optional(),
@@ -1842,7 +1842,7 @@ export const genericChecklistRouter = router({
       return { success: true, message: `${successCount}건 검토 완료`, count: successCount };
     }),
   // 일괄 승인 (여러 건을 한번에 최종 승인)
-  batchApproveChecklists: protectedProcedure
+  batchApproveChecklists: tenantRequiredProcedure
     .input(z.object({
       approvalRequestIds: z.array(z.number()),
       comments: z.string().optional(),
@@ -1873,7 +1873,7 @@ export const genericChecklistRouter = router({
       return { success: true, message: `${successCount}건 승인 완료`, count: successCount };
     }),
   // 승인자가 검토+승인 동시 처리 (검토 자동 완료)
-  approveWithAutoReview: protectedProcedure
+  approveWithAutoReview: tenantRequiredProcedure
     .input(z.object({
       approvalRequestId: z.number(),
       comments: z.string().optional(),

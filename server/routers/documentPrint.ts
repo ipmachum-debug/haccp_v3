@@ -3,15 +3,16 @@ import { generateDocumentPDF, generateBatchPrintPDF } from "../documentPDFGenera
  * 문서 출력 관리 tRPC 라우터
  */
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
+import { assertSiteOwned, requireTenantId } from "../helpers/tenantGuards";
 
 export const documentPrintRouter = router({
   // ============================================================================
   // 출력 가능한 문서 목록 조회 (강력한 필터링)
   // ============================================================================
-  getPrintableDocuments: protectedProcedure
+  getPrintableDocuments: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -36,12 +37,15 @@ export const documentPrintRouter = router({
         limit: z.number().default(50),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       // 동적 WHERE 조건 구성
       const conditions: any[] = [
+        sql`di.tenant_id = ${tenantId}`,
         sql`di.site_id = ${input.siteId}`,
         sql`di.status = 'approved'`,
       ];
@@ -172,13 +176,14 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 개별 문서 PDF 생성
   // ============================================================================
-  generateDocumentPDF: protectedProcedure
+  generateDocumentPDF: tenantRequiredProcedure
     .input(z.object({ documentId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 문서 조회
+      // 문서 조회 (테넌트 격리)
       const documentQuery = sql`
         SELECT 
           di.*,
@@ -187,7 +192,7 @@ export const documentPrintRouter = router({
           dt.template_path
         FROM document_instances di
         JOIN document_types dt ON di.document_type_id = dt.id
-        WHERE di.id = ${input.documentId}
+        WHERE di.id = ${input.documentId} AND di.tenant_id = ${tenantId}
       `;
       const documentResult = await db.execute(documentQuery);
       const document = (documentResult[0] as any);
@@ -201,19 +206,17 @@ export const documentPrintRouter = router({
       }
 
       // TODO: PDF 생성 로직 (pdfGenerator 사용)
-      // const pdfUrl = await generatePDF(document);
-
       const now = new Date().toISOString();
       const mockPdfUrl = `/pdfs/document_${input.documentId}_${Date.now()}.pdf`;
 
-      // PDF URL 업데이트
+      // PDF URL 업데이트 (테넌트 조건 추가)
       await db.execute(sql`
         UPDATE document_instances
         SET 
           pdf_url = ${mockPdfUrl},
           pdf_generated_at = ${now},
           updated_at = ${now}
-        WHERE id = ${input.documentId}
+        WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
       `);
 
       return { 
@@ -226,7 +229,7 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 선택 문서 일괄 출력 그룹 생성
   // ============================================================================
-  createBatchPrintGroup: protectedProcedure
+  createBatchPrintGroup: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -239,6 +242,8 @@ export const documentPrintRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       if (input.documentIds.length === 0) {
         throw new Error("출력할 문서를 선택해주세요");
@@ -247,12 +252,12 @@ export const documentPrintRouter = router({
       const now = new Date().toISOString();
       const groupName = input.groupName || `${input.workDate} 일일 문서`;
 
-      // 출력 그룹 생성
+      // 출력 그룹 생성 (tenant_id 포함)
       const insertGroupQuery = sql`
         INSERT INTO document_batch_print_groups 
-        (site_id, work_date, group_name, description, total_documents, printed_by, printed_at, created_at, updated_at)
+        (tenant_id, site_id, work_date, group_name, description, total_documents, printed_by, printed_at, created_at, updated_at)
         VALUES 
-        (${input.siteId}, ${input.workDate}, ${groupName}, ${input.description || null}, ${input.documentIds.length}, ${ctx.user.id}, ${now}, ${now}, ${now})
+        (${tenantId}, ${input.siteId}, ${input.workDate}, ${groupName}, ${input.description || null}, ${input.documentIds.length}, ${ctx.user.id}, ${now}, ${now}, ${now})
       `;
 
       const groupResult = await db.execute(insertGroupQuery);
@@ -278,15 +283,16 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 일괄 출력 그룹 통합 PDF 생성
   // ============================================================================
-  generateBatchPDF: protectedProcedure
+  generateBatchPDF: tenantRequiredProcedure
     .input(z.object({ groupId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 출력 그룹 조회
+      // 출력 그룹 조회 (테넌트 격리)
       const groupQuery = sql`
-        SELECT * FROM document_batch_print_groups WHERE id = ${input.groupId}
+        SELECT * FROM document_batch_print_groups WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
       `;
       const groupResult = await db.execute(groupQuery);
       const group = (groupResult[0] as any);
@@ -307,25 +313,24 @@ export const documentPrintRouter = router({
         JOIN document_instances di ON dbpi.document_instance_id = di.id
         JOIN document_types dt ON di.document_type_id = dt.id
         WHERE dbpi.batch_print_group_id = ${input.groupId}
+          AND di.tenant_id = ${tenantId}
         ORDER BY dbpi.sort_order ASC
       `;
 
       const documents = await db.execute(documentsQuery);
 
       // TODO: 통합 PDF 생성 로직
-      // const combinedPdfUrl = await generateCombinedPDF(documents);
-
       const now = new Date().toISOString();
       const mockCombinedPdfUrl = `/pdfs/batch_${input.groupId}_${Date.now()}.pdf`;
 
-      // 통합 PDF URL 업데이트
+      // 통합 PDF URL 업데이트 (테넌트 조건)
       await db.execute(sql`
         UPDATE document_batch_print_groups
         SET 
           combined_pdf_url = ${mockCombinedPdfUrl},
           pdf_generated_at = ${now},
           updated_at = ${now}
-        WHERE id = ${input.groupId}
+        WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
       `);
 
       return { 
@@ -339,7 +344,7 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 출력 이력 조회
   // ============================================================================
-  getPrintHistory: protectedProcedure
+  getPrintHistory: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -349,12 +354,15 @@ export const documentPrintRouter = router({
         limit: z.number().default(20),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
 
       // 동적 WHERE 조건 구성
       const conditions: any[] = [
+        sql`dbpg.tenant_id = ${tenantId}`,
         sql`dbpg.site_id = ${input.siteId}`,
       ];
 
@@ -410,13 +418,14 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 출력 그룹 상세 조회
   // ============================================================================
-  getPrintGroupDetail: protectedProcedure
+  getPrintGroupDetail: tenantRequiredProcedure
     .input(z.object({ groupId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 출력 그룹 조회
+      // 출력 그룹 조회 (테넌트 격리)
       const groupQuery = sql`
         SELECT 
           dbpg.*,
@@ -424,7 +433,7 @@ export const documentPrintRouter = router({
           u.email as printed_by_email
         FROM document_batch_print_groups dbpg
         LEFT JOIN users u ON dbpg.printed_by = u.id
-        WHERE dbpg.id = ${input.groupId}
+        WHERE dbpg.id = ${input.groupId} AND dbpg.tenant_id = ${tenantId}
       `;
       const groupResult = await db.execute(groupQuery);
       const group = (groupResult[0] as any);
@@ -433,7 +442,7 @@ export const documentPrintRouter = router({
         throw new Error("출력 그룹을 찾을 수 없습니다");
       }
 
-      // 그룹에 포함된 문서 목록 조회
+      // 그룹에 포함된 문서 목록 조회 (테넌트 격리)
       const documentsQuery = sql`
         SELECT 
           di.*,
@@ -445,6 +454,7 @@ export const documentPrintRouter = router({
         JOIN document_instances di ON dbpi.document_instance_id = di.id
         JOIN document_types dt ON di.document_type_id = dt.id
         WHERE dbpi.batch_print_group_id = ${input.groupId}
+          AND di.tenant_id = ${tenantId}
         ORDER BY dbpi.sort_order ASC
       `;
 
@@ -459,15 +469,16 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 문서 삭제 (권한 있는 경우)
   // ============================================================================
-  deleteDocument: protectedProcedure
+  deleteDocument: tenantRequiredProcedure
     .input(z.object({ documentId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 문서 조회
+      // 문서 조회 (테넌트 격리)
       const documentQuery = sql`
-        SELECT * FROM document_instances WHERE id = ${input.documentId}
+        SELECT * FROM document_instances WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
       `;
       const documentResult = await db.execute(documentQuery);
       const document = (documentResult[0] as any);
@@ -486,9 +497,9 @@ export const documentPrintRouter = router({
         throw new Error("승인된 문서는 삭제할 수 없습니다");
       }
 
-      // 문서 삭제
+      // 문서 삭제 (테넌트 조건)
       await db.execute(sql`
-        DELETE FROM document_instances WHERE id = ${input.documentId}
+        DELETE FROM document_instances WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
       `);
 
       return { 
@@ -500,15 +511,16 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 출력 그룹 삭제
   // ============================================================================
-  deletePrintGroup: protectedProcedure
+  deletePrintGroup: tenantRequiredProcedure
     .input(z.object({ groupId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
 
-      // 출력 그룹 조회
+      // 출력 그룹 조회 (테넌트 격리)
       const groupQuery = sql`
-        SELECT * FROM document_batch_print_groups WHERE id = ${input.groupId}
+        SELECT * FROM document_batch_print_groups WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
       `;
       const groupResult = await db.execute(groupQuery);
       const group = (groupResult[0] as any);
@@ -522,9 +534,9 @@ export const documentPrintRouter = router({
         throw new Error("삭제 권한이 없습니다");
       }
 
-      // 출력 그룹 삭제 (CASCADE로 매핑도 함께 삭제됨)
+      // 출력 그룹 삭제 (테넌트 조건, CASCADE로 매핑도 함께 삭제됨)
       await db.execute(sql`
-        DELETE FROM document_batch_print_groups WHERE id = ${input.groupId}
+        DELETE FROM document_batch_print_groups WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
       `);
 
       return { 
@@ -536,7 +548,7 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 승인 완료 문서 일괄 출력 (단절 6 보강)
   // ============================================================================
-  getApprovedDocumentsForPrint: protectedProcedure
+  getApprovedDocumentsForPrint: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number(),
@@ -545,11 +557,14 @@ export const documentPrintRouter = router({
         workDateTo: z.string().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
       
       const conditions = [
+        sql`di.tenant_id = ${tenantId}`,
         sql`di.site_id = ${input.siteId}`,
         sql`di.status = 'approved'`,
       ];
@@ -592,32 +607,36 @@ export const documentPrintRouter = router({
   // ============================================================================
   // 일일 출력 요약 (대시보드용)
   // ============================================================================
-  getDailyPrintSummary: protectedProcedure
+  getDailyPrintSummary: tenantRequiredProcedure
     .input(z.object({ siteId: z.number(), workDate: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = requireTenantId(ctx);
+      await assertSiteOwned(ctx, input.siteId);
       
-      // 해당 날짜의 문서 현황
+      // 해당 날짜의 문서 현황 (테넌트 격리)
       const statusQuery = sql`
         SELECT 
           di.status,
           COUNT(*) as count
         FROM document_instances di
-        WHERE di.site_id = ${input.siteId}
+        WHERE di.tenant_id = ${tenantId}
+          AND di.site_id = ${input.siteId}
           AND di.work_date = ${input.workDate}
         GROUP BY di.status
       `;
       const statusSummary = await db.execute(statusQuery);
       
-      // 해당 날짜의 출력 그룹
+      // 해당 날짜의 출력 그룹 (테넌트 격리)
       const printGroupQuery = sql`
         SELECT 
           dbpg.*,
           u.name as printed_by_name
         FROM document_batch_print_groups dbpg
         LEFT JOIN users u ON dbpg.printed_by = u.id
-        WHERE dbpg.site_id = ${input.siteId}
+        WHERE dbpg.tenant_id = ${tenantId}
+          AND dbpg.site_id = ${input.siteId}
           AND dbpg.work_date = ${input.workDate}
         ORDER BY dbpg.printed_at DESC
       `;

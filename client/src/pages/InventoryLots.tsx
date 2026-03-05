@@ -45,7 +45,7 @@ export default function InventoryLots() {
   };
 
   return (
-    <div className="container mx-auto py-8">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">LOT 추적 관리</h1>

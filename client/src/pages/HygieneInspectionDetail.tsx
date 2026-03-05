@@ -100,7 +100,7 @@ export default function HygieneInspectionDetail() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">로딩 중...</p>
         </div>
@@ -110,7 +110,7 @@ export default function HygieneInspectionDetail() {
 
   if (!inspection) {
     return (
-      <div className="container mx-auto py-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-center h-64">
           <p className="text-muted-foreground">검사 기록을 찾을 수 없습니다</p>
         </div>
@@ -119,7 +119,7 @@ export default function HygieneInspectionDetail() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">

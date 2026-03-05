@@ -442,7 +442,7 @@ export default function EmployeeHealthCheckForm() {
 
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 max-w-[1200px]">
+      <div className="space-y-6">
         {/* 상단 액션 바 - 인쇄 시 숨김 */}
         <div className="flex items-center justify-between mb-4 print:hidden">
           <div className="flex items-center gap-3">

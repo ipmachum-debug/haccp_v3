@@ -317,7 +317,7 @@ function SalesManagementContent() {
   }, [isPartnerSearchOpen, materialSearchItemId, selectedPartnerId, items, transactionDate, memo]);
 
   return (
-    <div className="p-4 space-y-0">
+    <div className="space-y-0">
       {/* 헤더 - 컴팩트 */}
       <div className="mb-3">
         <h1 className="text-lg font-bold flex items-center gap-2">

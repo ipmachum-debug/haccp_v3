@@ -53,7 +53,7 @@ export default function CcpStats() {
 
   return (
     
-      <div className="flex flex-col gap-6 p-8">
+      <div className="flex flex-col gap-6">
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <div>

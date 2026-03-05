@@ -58,6 +58,7 @@ export const hInventory = mysqlTable("h_inventory", {
  */
 export const hInventoryLots = mysqlTable("h_inventory_lots", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+  tenantId: int('tenant_id').notNull().references(() => tenants.id),
   inventoryId: bigint("inventory_id", { mode: "number" }),
   lotNumber: varchar("lot_number", { length: 100 }).unique().notNull(),
   batchId: bigint("batch_id", { mode: "number" }),
@@ -83,6 +84,7 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
  */
 export const hInventoryTransactions = mysqlTable("h_inventory_transactions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+  tenantId: int('tenant_id').notNull().references(() => tenants.id),
   lotId: bigint("lot_id", { mode: "number" }).notNull(),
   inventoryId: bigint("inventory_id", { mode: "number" }), // 재고 마스터 ID
   transactionType: mysqlEnum("transaction_type", [

@@ -3,7 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import DashboardLayout from "@/components/DashboardLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
@@ -13,7 +14,7 @@ import {
   Factory, FlaskConical, CheckCircle2, Info, Edit3,
   Zap, ClipboardCheck, ArrowRight, Clock
 } from "lucide-react";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
@@ -28,7 +29,7 @@ interface SkuActualInput {
 /** CCP 처리 모드 */
 type ProcessingMode = "auto" | "manual";
 
-export default function BatchCreate() {
+export default function BatchCreate({ embedded = false }: { embedded?: boolean }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
 
@@ -45,9 +46,46 @@ export default function BatchCreate() {
   // ── SKU 실제 생산수량 입력 ──
   const [skuActualInputs, setSkuActualInputs] = useState<Record<number, SkuActualInput>>({});
 
+  // ── 제품 검색 Autocomplete 상태 ──
+  const [productSearchOpen, setProductSearchOpen] = useState(false);
+  const [productSearchText, setProductSearchText] = useState("");
+  const productInputRef = useRef<HTMLInputElement>(null);
+  const productDropdownRef = useRef<HTMLDivElement>(null);
+
   // ── 제품 목록 ──
-  const { data: rawProductsData, isLoading: productsLoading } = trpc.product.list.useQuery({ limit: 9999 });
+  const { data: rawProductsData, isLoading: productsLoading } = trpc.product.list.useQuery(
+    { limit: 9999 },
+    { staleTime: 5 * 60 * 1000, gcTime: 10 * 60 * 1000 }
+  );
   const products = (rawProductsData as any)?.items ?? (Array.isArray(rawProductsData) ? rawProductsData : []);
+  const selectedProduct = products.find((p: any) => p.id === parseInt(selectedProductId));
+
+  // ── 제품 필터링 (autocomplete) ──
+  const filteredProducts = useMemo(() => {
+    if (!products || products.length === 0) return [];
+    if (!productSearchText.trim()) return products;
+    const q = productSearchText.toLowerCase();
+    return products.filter((p: any) =>
+      (p.productName || "").toLowerCase().includes(q) ||
+      (p.productCode || "").toLowerCase().includes(q)
+    );
+  }, [products, productSearchText]);
+
+  // ── 외부 클릭 감지 ──
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        productDropdownRef.current &&
+        !productDropdownRef.current.contains(e.target as Node) &&
+        productInputRef.current &&
+        !productInputRef.current.contains(e.target as Node)
+      ) {
+        setProductSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // ── SKU 목록 (전체 조회 후 제품으로 필터) ──
   const { data: allSkus, isLoading: skusLoading } = trpc.productSku.listAll.useQuery(
@@ -228,17 +266,15 @@ export default function BatchCreate() {
     createBatchMutation.mutate(payload);
   };
 
-  const selectedProduct = products.find((p: any) => p.id === parseInt(selectedProductId));
   const isReady = selectedProductId && plannedQuantityKg && parseFloat(plannedQuantityKg) > 0 && batchCode;
 
   // 실제 수량 입력 여부
   const hasActualInputs = skuOutputsPayload.length > 0;
 
-  return (
-    <DashboardLayout>
-      <div className="mx-auto py-2 px-1 md:px-2 space-y-4">
+  const content = (
+      <div className="space-y-4">
 
-        {/* 헤더 */}
+        {/* 헤더 – 임베디드 모드에서는 BatchManagement가 자체 헤더를 가지므로 표시 */}
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Factory className="h-6 w-6 text-primary" />
@@ -349,28 +385,99 @@ export default function BatchCreate() {
               제품 및 생산량 설정
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* 제품 선택 */}
+          <CardContent className="overflow-visible">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 overflow-visible">
+            {/* 제품 선택 - Autocomplete Input */}
             <div className="space-y-2">
               <Label htmlFor="product">제품 *</Label>
               {productsLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground h-10">
                   <Loader2 className="h-4 w-4 animate-spin" /> 제품 목록 로딩 중...
                 </div>
               ) : (
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                  <SelectTrigger id="product">
-                    <SelectValue placeholder="제품을 선택하세요" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products?.map((product: any) => (
-                      <SelectItem key={product.id} value={product.id.toString()}>
-                        {product.productName || `제품 #${product.id}`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="relative">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      ref={productInputRef}
+                      id="product"
+                      type="text"
+                      placeholder="제품명 또는 코드 검색..."
+                      value={productSearchOpen ? productSearchText : (selectedProduct ? (selectedProduct.productName || `제품 #${selectedProduct.id}`) : productSearchText)}
+                      onChange={(e) => {
+                        setProductSearchText(e.target.value);
+                        setProductSearchOpen(true);
+                        if (!e.target.value && selectedProductId) {
+                          setSelectedProductId("");
+                        }
+                      }}
+                      onFocus={() => {
+                        setProductSearchOpen(true);
+                        if (selectedProduct) {
+                          setProductSearchText("");
+                        }
+                      }}
+                      className="pl-9 h-10"
+                      autoComplete="off"
+                    />
+                    {selectedProductId && !productSearchOpen && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 text-lg leading-none"
+                        onClick={() => {
+                          setSelectedProductId("");
+                          setProductSearchText("");
+                          setProductSearchOpen(true);
+                          productInputRef.current?.focus();
+                        }}
+                        title="선택 해제"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {productSearchOpen && (
+                    <div
+                      ref={productDropdownRef}
+                      className="absolute z-50 top-full left-0 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[240px] overflow-y-auto"
+                    >
+                      {filteredProducts.length === 0 ? (
+                        <div className="px-3 py-4 text-sm text-center text-muted-foreground">
+                          {products.length === 0 ? "등록된 제품이 없습니다" : "일치하는 제품이 없습니다"}
+                        </div>
+                      ) : (
+                        filteredProducts.map((product: any) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            className={cn(
+                              "w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+                              selectedProductId === product.id.toString() && "bg-accent"
+                            )}
+                            onClick={() => {
+                              setSelectedProductId(product.id.toString());
+                              setProductSearchText("");
+                              setProductSearchOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "h-4 w-4 shrink-0",
+                                selectedProductId === product.id.toString() ? "opacity-100 text-emerald-600" : "opacity-0"
+                              )}
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-medium truncate">{product.productName || `제품 #${product.id}`}</span>
+                              {product.productCode && (
+                                <span className="text-[11px] text-muted-foreground truncate">{product.productCode}</span>
+                              )}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -672,6 +779,8 @@ export default function BatchCreate() {
           </Button>
         </div>
       </div>
-    </DashboardLayout>
   );
+
+  if (embedded) return content;
+  return <DashboardLayout>{content}</DashboardLayout>;
 }

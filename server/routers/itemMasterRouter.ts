@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { categories as categoriesTable } from "../../drizzle/schema/schema_categories";
 import ExcelJS from 'exceljs';
-import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { itemMaster, productSkus, productionVerification, productionSkuOutput, crossValidationReports } from "../../drizzle/schema";
+import { itemMaster, productSkus } from "../../drizzle/schema";
 import { eq, and, desc, asc, like, or, sql, inArray } from "drizzle-orm";
 import { generateSkuCode, generateExternalProductCode, generateSubsidiaryCode, generateProductCode, generateMaterialCode } from "../db/codeGenerator.js";
 
@@ -13,7 +13,7 @@ export const itemMasterRouter = router({
   // ============================================================
   
   // 품목 목록 조회
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       itemType: z.enum(["raw_material", "own_product", "external_product", "subsidiary"]).optional(),
       search: z.string().optional(),
@@ -66,7 +66,7 @@ export const itemMasterRouter = router({
     }),
   
   // 품목 상세 조회
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
@@ -80,22 +80,22 @@ export const itemMasterRouter = router({
     }),
   
   // 품목 코드 자동 생성
-  generateCode: protectedProcedure
+  generateCode: tenantRequiredProcedure
     .input(z.object({ itemType: z.enum(["raw_material", "own_product", "external_product", "subsidiary"]) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       let code: string;
       switch (input.itemType) {
         case "own_product":
-          code = await generateProductCode();
+          code = await generateProductCode(ctx.user.tenantId);
           break;
         case "raw_material":
-          code = await generateMaterialCode();
+          code = await generateMaterialCode(ctx.user.tenantId);
           break;
         case "external_product":
-          code = await generateExternalProductCode();
+          code = await generateExternalProductCode(ctx.user.tenantId);
           break;
         case "subsidiary":
-          code = await generateSubsidiaryCode();
+          code = await generateSubsidiaryCode(ctx.user.tenantId);
           break;
         default:
           code = "UNKNOWN";
@@ -128,16 +128,16 @@ export const itemMasterRouter = router({
       if (!itemCode) {
         switch (input.itemType) {
           case "own_product":
-            itemCode = await generateProductCode();
+            itemCode = await generateProductCode(ctx.user.tenantId);
             break;
           case "raw_material":
-            itemCode = await generateMaterialCode();
+            itemCode = await generateMaterialCode(ctx.user.tenantId);
             break;
           case "external_product":
-            itemCode = await generateExternalProductCode();
+            itemCode = await generateExternalProductCode(ctx.user.tenantId);
             break;
           case "subsidiary":
-            itemCode = await generateSubsidiaryCode();
+            itemCode = await generateSubsidiaryCode(ctx.user.tenantId);
             break;
           default:
             itemCode = "UNKNOWN";
@@ -165,7 +165,7 @@ export const itemMasterRouter = router({
       
       // 제품 타입이면 기본 kg SKU 자동 생성
       if (input.itemType === "own_product" || input.itemType === "external_product") {
-        const skuCode = await generateSkuCode(itemCode);
+        const skuCode = await generateSkuCode(itemCode, ctx.user.tenantId);
         await db.insert(productSkus).values({
           tenantId: ctx.user.tenantId,
           itemId: insertId,
@@ -244,7 +244,7 @@ export const itemMasterRouter = router({
   // ============================================================
 
   // 1. 템플릿 다운로드 (빈 템플릿 + 샘플 데이터)
-  downloadTemplate: protectedProcedure
+  downloadTemplate: tenantRequiredProcedure
     .input(z.object({
       itemType: z.enum(['own_product', 'raw_material', 'supplier']),
     }))
@@ -303,7 +303,7 @@ export const itemMasterRouter = router({
     }),
 
   // 2. 전체 다운로드 (현재 데이터를 템플릿 양식으로)
-  downloadAll: protectedProcedure
+  downloadAll: tenantRequiredProcedure
     .input(z.object({
       itemType: z.enum(['own_product', 'raw_material', 'supplier']),
     }))
@@ -388,7 +388,7 @@ export const itemMasterRouter = router({
 // ============================================================
 export const productSkuRouter = router({
   // SKU 목록 조회 (품목별)
-  listByItem: protectedProcedure
+  listByItem: tenantRequiredProcedure
     .input(z.object({
       itemId: z.number(),
     }))
@@ -405,7 +405,7 @@ export const productSkuRouter = router({
     }),
   
   // 전체 SKU 목록 (매출 등록용)
-  listAll: protectedProcedure
+  listAll: tenantRequiredProcedure
     .input(z.object({
       search: z.string().optional(),
       itemType: z.enum(["own_product", "external_product"]).optional(),
@@ -458,10 +458,10 @@ export const productSkuRouter = router({
     }),
   
   // SKU 코드 자동 생성
-  generateCode: protectedProcedure
+  generateCode: tenantRequiredProcedure
     .input(z.object({ parentItemCode: z.string() }))
     .query(async ({ input }) => {
-      const code = await generateSkuCode(input.parentItemCode);
+      const code = await generateSkuCode(input.parentItemCode, ctx.user.tenantId);
       return { code };
     }),
 
@@ -500,7 +500,7 @@ export const productSkuRouter = router({
         const [parentItem] = await db.select({ itemCode: itemMaster.itemCode })
           .from(itemMaster)
           .where(eq(itemMaster.id, input.itemId));
-        skuCode = await generateSkuCode(parentItem?.itemCode || String(input.itemId));
+        skuCode = await generateSkuCode(parentItem?.itemCode || String(input.itemId), ctx.user.tenantId);
       }
 
       const result = await db.insert(productSkus).values({
@@ -589,199 +589,5 @@ export const productSkuRouter = router({
           eq(productSkus.tenantId, ctx.user.tenantId)
         ));
       return { success: true, message: "SKU가 비활성화되었습니다." };
-    }),
-});
-
-// ============================================================
-// 생산 검증 라우터
-// ============================================================
-export const productionVerificationRouter = router({
-  // 검증 목록 조회
-  list: protectedProcedure
-    .input(z.object({
-      batchId: z.number().optional(),
-      status: z.enum(["draft", "verified", "approved", "rejected"]).optional(),
-      page: z.number().default(1),
-      limit: z.number().default(20),
-    }).optional())
-    .query(async ({ input, ctx }) => {
-      const db = await getDb();
-      const page = input?.page ?? 1;
-      const limit = input?.limit ?? 20;
-      const offset = (page - 1) * limit;
-      
-      const conditions = [eq(productionVerification.tenantId, ctx.user.tenantId)];
-      if (input?.batchId) {
-        conditions.push(eq(productionVerification.batchId, input.batchId));
-      }
-      if (input?.status) {
-        conditions.push(eq(productionVerification.status, input.status));
-      }
-      
-      const items = await db.select()
-        .from(productionVerification)
-        .where(and(...conditions))
-        .orderBy(desc(productionVerification.createdAt))
-        .limit(limit)
-        .offset(offset);
-      
-      return { items, page, limit };
-    }),
-  
-  // 검증 생성 (배치 완료 시)
-  create: adminProcedure
-    .input(z.object({
-      batchId: z.number(),
-      skuId: z.number().optional(),
-      plannedKg: z.number().optional(),
-      plannedSkuQty: z.number().optional(),
-      actualSkuQty: z.number(),
-      wasteKg: z.number().optional(),
-      wasteReason: z.string().optional(),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      
-      // SKU 정보 조회하여 kg 환산
-      let actualTotalKg = input.plannedKg; // 기본값
-      let kgPerUnit = 1;
-      
-      if (input.skuId) {
-        const [sku] = await db.select()
-          .from(productSkus)
-          .where(eq(productSkus.id, input.skuId));
-        if (sku) {
-          kgPerUnit = Number(sku.kgPerSalesUnit);
-          actualTotalKg = input.actualSkuQty * kgPerUnit;
-        }
-      }
-      
-      // 수율 및 차이 계산
-      const plannedKg = input.plannedKg ?? 0;
-      const wasteKg = input.wasteKg ?? 0;
-      const yieldRate = plannedKg > 0 ? ((actualTotalKg ?? 0) / plannedKg) * 100 : 0;
-      const varianceKg = (actualTotalKg ?? 0) - plannedKg;
-      const variancePct = plannedKg > 0 ? (varianceKg / plannedKg) * 100 : 0;
-      
-      const result = await db.insert(productionVerification).values({
-        tenantId: ctx.user.tenantId,
-        batchId: input.batchId,
-        skuId: input.skuId,
-        plannedKg: input.plannedKg?.toString(),
-        plannedSkuQty: input.plannedSkuQty,
-        actualSkuQty: input.actualSkuQty,
-        actualTotalKg: actualTotalKg?.toString(),
-        wasteKg: wasteKg.toString(),
-        wasteReason: input.wasteReason,
-        yieldRate: yieldRate.toFixed(2),
-        varianceKg: varianceKg.toFixed(3),
-        variancePct: variancePct.toFixed(2),
-        notes: input.notes,
-        createdBy: ctx.user.id,
-      });
-      
-      return { 
-        id: (result as any)[0]?.insertId, 
-        actualTotalKg,
-        yieldRate: Number(yieldRate.toFixed(2)),
-        varianceKg: Number(varianceKg.toFixed(3)),
-        message: "생산 검증이 등록되었습니다." 
-      };
-    }),
-  
-  // 검증 상태 변경
-  updateStatus: adminProcedure
-    .input(z.object({
-      id: z.number(),
-      status: z.enum(["verified", "approved", "rejected"]),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      
-      const updateData: any = { status: input.status };
-      if (input.status === "verified") {
-        updateData.verifiedBy = ctx.user.id;
-        updateData.verifiedAt = new Date();
-      }
-      if (input.notes) {
-        updateData.notes = input.notes;
-      }
-      
-      await db.update(productionVerification)
-        .set(updateData)
-        .where(and(
-          eq(productionVerification.id, input.id),
-          eq(productionVerification.tenantId, ctx.user.tenantId)
-        ));
-      
-      return { success: true, message: `검증 상태가 '${input.status}'로 변경되었습니다.` };
-    }),
-  
-  // SKU별 생산 실적 입력
-  addSkuOutput: adminProcedure
-    .input(z.object({
-      batchId: z.number(),
-      skuId: z.number(),
-      quantity: z.number(),
-      defectiveQty: z.number().default(0),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      console.log("[addSkuOutput] Called with input:", JSON.stringify(input));
-      const db = await getDb();
-      
-      // SKU의 kg 환산율 조회
-      const [sku] = await db.select()
-        .from(productSkus)
-        .where(eq(productSkus.id, input.skuId));
-      
-      const totalKg = sku ? input.quantity * Number(sku.kgPerSalesUnit) : input.quantity;
-      
-      const result = await db.insert(productionSkuOutput).values({
-        tenantId: ctx.user.tenantId,
-        batchId: input.batchId,
-        skuId: input.skuId,
-        quantity: input.quantity,
-        defectiveQty: input.defectiveQty,
-        totalKg: totalKg.toFixed(3),
-        notes: input.notes,
-      });
-      
-      return { 
-        id: (result as any)[0]?.insertId, 
-        totalKg,
-        message: "SKU 생산 실적이 등록되었습니다." 
-      };
-    }),
-  
-  // 배치별 SKU 생산 실적 조회
-  getSkuOutputs: protectedProcedure
-    .input(z.object({ batchId: z.number() }))
-    .query(async ({ input, ctx }) => {
-      const db = await getDb();
-      return db.select({
-        id: productionSkuOutput.id,
-        batchId: productionSkuOutput.batchId,
-        skuId: productionSkuOutput.skuId,
-        quantity: productionSkuOutput.quantity,
-        defectiveQty: productionSkuOutput.defectiveQty,
-        totalKg: productionSkuOutput.totalKg,
-        notes: productionSkuOutput.notes,
-        createdAt: productionSkuOutput.createdAt,
-        // SKU 정보
-        skuCode: productSkus.skuCode,
-        skuName: productSkus.skuName,
-        salesUnit: productSkus.salesUnit,
-        kgPerSalesUnit: productSkus.kgPerSalesUnit,
-      })
-        .from(productionSkuOutput)
-        .leftJoin(productSkus, eq(productionSkuOutput.skuId, productSkus.id))
-        .where(and(
-          eq(productionSkuOutput.batchId, input.batchId),
-          eq(productionSkuOutput.tenantId, ctx.user.tenantId)
-        ))
-        .orderBy(asc(productionSkuOutput.createdAt));
     }),
 });

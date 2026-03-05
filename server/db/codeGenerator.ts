@@ -4,15 +4,16 @@ import { sql } from "drizzle-orm";
 
 /**
  * 원재료 코드 자동 생성 (MAT-001, MAT-002...)
- * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성 (테넌트 간 충돌 방지)
+ * 테넌트별 독립 채번 — 각 테넌트가 MAT-001부터 시작
  */
-export async function generateMaterialCode(): Promise<string> {
+export async function generateMaterialCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
+    const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     const result = await db.execute(
-      sql`SELECT MAX(CAST(SUBSTRING(material_code, 5) AS UNSIGNED)) as maxNum FROM h_materials WHERE material_code REGEXP '^MAT-[0-9]+$'`
+      sql`SELECT MAX(CAST(SUBSTRING(material_code, 5) AS UNSIGNED)) as maxNum FROM h_materials WHERE material_code REGEXP '^MAT-[0-9]+$'${tenantFilter}`
     );
     
     const maxNum = Number((result as any)[0]?.[0]?.maxNum || (result as any)[0]?.maxNum || 0);
@@ -26,19 +27,21 @@ export async function generateMaterialCode(): Promise<string> {
 
 /**
  * 제품 코드 자동 생성 (30001, 30002...)
- * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성 (테넌트 간 충돌 방지)
+ * 테넌트별 독립 채번
  */
-export async function generateProductCode(): Promise<string> {
+export async function generateProductCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
+    const tenantFilter1 = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
+    const tenantFilter2 = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     // h_products_v2와 item_master 양쪽에서 최대 코드 조회
     const result1 = await db.execute(
-      sql`SELECT MAX(CAST(product_code AS UNSIGNED)) as maxNum FROM h_products_v2 WHERE product_code REGEXP '^[0-9]+$' AND CAST(product_code AS UNSIGNED) BETWEEN 30000 AND 39999`
+      sql`SELECT MAX(CAST(product_code AS UNSIGNED)) as maxNum FROM h_products_v2 WHERE product_code REGEXP '^[0-9]+$' AND CAST(product_code AS UNSIGNED) BETWEEN 30000 AND 39999${tenantFilter1}`
     );
     const result2 = await db.execute(
-      sql`SELECT MAX(CAST(item_code AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^[0-9]+$' AND CAST(item_code AS UNSIGNED) BETWEEN 30000 AND 39999`
+      sql`SELECT MAX(CAST(item_code AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^[0-9]+$' AND CAST(item_code AS UNSIGNED) BETWEEN 30000 AND 39999${tenantFilter2}`
     );
     
     const maxNum1 = Number((result1 as any)[0]?.[0]?.maxNum || (result1 as any)[0]?.maxNum || 0);
@@ -54,15 +57,16 @@ export async function generateProductCode(): Promise<string> {
 
 /**
  * 외부제품 코드 자동 생성 (OEM-001, OEM-002...)
- * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성
+ * 테넌트별 독립 채번
  */
-export async function generateExternalProductCode(): Promise<string> {
+export async function generateExternalProductCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
+    const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     const result = await db.execute(
-      sql`SELECT MAX(CAST(SUBSTRING(item_code, 5) AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^OEM-[0-9]+$'`
+      sql`SELECT MAX(CAST(SUBSTRING(item_code, 5) AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^OEM-[0-9]+$'${tenantFilter}`
     );
     
     const maxNum = Number((result as any)[0]?.[0]?.maxNum || (result as any)[0]?.maxNum || 0);
@@ -76,15 +80,16 @@ export async function generateExternalProductCode(): Promise<string> {
 
 /**
  * 부자재 코드 자동 생성 (SUB-001, SUB-002...)
- * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성
+ * 테넌트별 독립 채번
  */
-export async function generateSubsidiaryCode(): Promise<string> {
+export async function generateSubsidiaryCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
+    const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     const result = await db.execute(
-      sql`SELECT MAX(CAST(SUBSTRING(item_code, 5) AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^SUB-[0-9]+$'`
+      sql`SELECT MAX(CAST(SUBSTRING(item_code, 5) AS UNSIGNED)) as maxNum FROM item_master WHERE item_code REGEXP '^SUB-[0-9]+$'${tenantFilter}`
     );
     
     const maxNum = Number((result as any)[0]?.[0]?.maxNum || (result as any)[0]?.maxNum || 0);
@@ -98,16 +103,18 @@ export async function generateSubsidiaryCode(): Promise<string> {
 
 /**
  * SKU 코드 자동 생성 (모코드-01, 모코드-02...)
- * 모품목 코드를 기반으로 해당 품목의 SKU 중 최대 번호를 조회하여 순차 생성
+ * 모품목 코드 기반 → 부모 코드가 테넌트별 독립이므로 SKU도 자동 독립
+ * tenantId를 추가로 받아 product_skus.tenant_id 필터링
  */
-export async function generateSkuCode(parentItemCode: string): Promise<string> {
+export async function generateSkuCode(parentItemCode: string, tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
     const prefix = `${parentItemCode}-`;
+    const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     const result = await db.execute(
-      sql`SELECT MAX(CAST(SUBSTRING(sku_code, ${prefix.length + 1}) AS UNSIGNED)) as maxNum FROM product_skus WHERE sku_code LIKE ${prefix + '%'} AND SUBSTRING(sku_code, ${prefix.length + 1}) REGEXP '^[0-9]+$'`
+      sql`SELECT MAX(CAST(SUBSTRING(sku_code, ${prefix.length + 1}) AS UNSIGNED)) as maxNum FROM product_skus WHERE sku_code LIKE ${prefix + '%'} AND SUBSTRING(sku_code, ${prefix.length + 1}) REGEXP '^[0-9]+$'${tenantFilter}`
     );
     
     const maxNum = Number((result as any)[0]?.[0]?.maxNum || (result as any)[0]?.maxNum || 0);
@@ -121,15 +128,16 @@ export async function generateSkuCode(parentItemCode: string): Promise<string> {
 
 /**
  * 공급업체 코드 자동 생성 (SUP-001, SUP-002...)
- * 전체 테넌트 기준으로 최대 번호를 조회하여 순차 생성 (테넌트 간 충돌 방지)
+ * 테넌트별 독립 채번
  */
-export async function generateSupplierCode(): Promise<string> {
+export async function generateSupplierCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   try {
+    const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
     const result = await db.execute(
-      sql`SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED)) as maxNum FROM h_suppliers WHERE supplier_code REGEXP '^SUP-[0-9]+$'`
+      sql`SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED)) as maxNum FROM h_suppliers WHERE supplier_code REGEXP '^SUP-[0-9]+$'${tenantFilter}`
     );
     
     const maxNum = Number((result as any)[0]?.[0]?.maxNum || (result as any)[0]?.maxNum || 0);
@@ -143,16 +151,19 @@ export async function generateSupplierCode(): Promise<string> {
 
 /**
  * 매입 거래 코드 자동 생성 (PUR-001, PUR-002...)
+ * 테넌트별 독립 채번
  */
-export async function generatePurchaseCode(): Promise<string> {
+export async function generatePurchaseCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   const { accountingPurchases } = await import("../../drizzle/schema_accounting_extended.js");
+  const { eq } = await import("drizzle-orm");
   
   const result = await db
     .select({ maxCode: sql<string>`MAX(${accountingPurchases.id})` })
-    .from(accountingPurchases);
+    .from(accountingPurchases)
+    .where(tenantId ? eq(accountingPurchases.tenantId, tenantId) : undefined);
   
   const maxId = result[0]?.maxCode ? parseInt(result[0].maxCode, 10) : 0;
   const nextNum = maxId + 1;
@@ -161,16 +172,19 @@ export async function generatePurchaseCode(): Promise<string> {
 
 /**
  * 매출 거래 코드 자동 생성 (SAL-001, SAL-002...)
+ * 테넌트별 독립 채번
  */
-export async function generateSaleCode(): Promise<string> {
+export async function generateSaleCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
   const { accountingSales } = await import("../../drizzle/schema_accounting_extended.js");
+  const { eq } = await import("drizzle-orm");
   
   const result = await db
     .select({ maxCode: sql<string>`MAX(${accountingSales.id})` })
-    .from(accountingSales);
+    .from(accountingSales)
+    .where(tenantId ? eq(accountingSales.tenantId, tenantId) : undefined);
   
   const maxId = result[0]?.maxCode ? parseInt(result[0].maxCode, 10) : 0;
   const nextNum = maxId + 1;

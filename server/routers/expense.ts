@@ -1,4 +1,4 @@
-import { router, protectedProcedure, workerProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure, workerProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb, getRawConnection } from "../db";
 import {
@@ -11,6 +11,8 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, desc, asc, sql, like, or, gte, lte, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
+import { resolveSystemAccount, getPaymentSystemAccount, insertJournalLine, postExpenseVoucher, cancelExpenseJournal } from "../db/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 function getEffectiveTenantId(ctx: any): number {
   const tenantId = ctx.tenantId;
@@ -25,7 +27,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용전표 목록 조회 (필터/검색)
   // ═══════════════════════════════════
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         startDate: z.string().optional(),
@@ -93,7 +95,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용전표 상세 조회
   // ═══════════════════════════════════
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -149,7 +151,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용전표 생성
   // ═══════════════════════════════════
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -237,7 +239,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용전표 수정 (draft만 수정 가능)
   // ═══════════════════════════════════
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -327,8 +329,9 @@ export const expenseRouter = router({
 
   // ═══════════════════════════════════
   // 비용전표 확정 (Posting) - 분개 자동 생성
+  // [P2-3] journalHelper.postExpenseVoucher()로 공통화
   // ═══════════════════════════════════
-  post: protectedProcedure
+  post: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -355,132 +358,22 @@ export const expenseRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "비용 항목이 없습니다." });
       }
 
-      // 3. 분개 엔트리 생성
-      const totalDebit = Number(voucher.total_amount);
-      const [jeResult] = await conn.execute(
-        `INSERT INTO expense_journal_entries
-           (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
-         VALUES (?,?,?,?,?,?,?)`,
-        [
-          tenantId, input.id, voucher.expense_date,
-          `비용전표 ${voucher.voucher_no} 확정`,
-          totalDebit, totalDebit, ctx.user.id,
-        ],
-      );
-      const journalEntryId = Number((jeResult as any).insertId);
+      // 3. 공통 분개 헬퍼 호출
+      const result = await postExpenseVoucher(conn, {
+        tenantId,
+        voucherId: input.id,
+        voucher,
+        items,
+        postedBy: ctx.user.id,
+      });
 
-      // 4. 분개 행 생성 (차변: 비용계정, 대변: 결제수단 계정)
-      let lineOrder = 0;
-
-      // 4a. 차변 행: 각 비용항목별
-      for (const item of items) {
-        const supplyAmt = Number(item.supply_amount);
-        const vatAmt = Number(item.vat_amount);
-
-        // 비용계정 (공급가) - 차변
-        if (supplyAmt > 0) {
-          await conn.execute(
-            `INSERT INTO expense_journal_lines
-               (tenant_id, journal_entry_id, account_id, account_code, account_name,
-                debit_amount, credit_amount, description, sort_order)
-             VALUES (?,?,?,?,?, ?,0,?,?)`,
-            [
-              tenantId, journalEntryId, item.account_id,
-              item.account_code, item.account_name,
-              supplyAmt, item.description || item.account_name,
-              lineOrder++,
-            ],
-          );
-        }
-
-        // 부가세대급금 (매입세액) - 차변 (세금계산서/카드 증빙인 경우)
-        if (vatAmt > 0 && (voucher.proof_type === "tax_invoice" || voucher.proof_type === "card")) {
-          // 부가세대급금 계정 조회 (code: 1350 or name containing '부가세대급금')
-          const [vatAccRows] = await conn.execute(
-            `SELECT id, code, name FROM accounting_accounts
-             WHERE tenant_id = ? AND (code = '1350' OR name LIKE '%부가세대급금%') AND is_active = 'Y'
-             LIMIT 1`,
-            [tenantId],
-          );
-          const vatAcc = (vatAccRows as any[])[0];
-          await conn.execute(
-            `INSERT INTO expense_journal_lines
-               (tenant_id, journal_entry_id, account_id, account_code, account_name,
-                debit_amount, credit_amount, description, sort_order)
-             VALUES (?,?,?,?,?, ?,0,?,?)`,
-            [
-              tenantId, journalEntryId,
-              vatAcc?.id || 0, vatAcc?.code || "1350", vatAcc?.name || "부가세대급금",
-              vatAmt, "매입세액",
-              lineOrder++,
-            ],
-          );
-        }
-      }
-
-      // 4b. 대변 행: 결제수단에 따라 달라짐
-      const creditAmount = totalDebit;
-      let creditAccountName = "현금";
-      let creditAccountCode = "1010";
-
-      switch (voucher.payment_method) {
-        case "cash":
-          creditAccountName = "현금";
-          creditAccountCode = "1010";
-          break;
-        case "bank":
-          creditAccountName = "보통예금";
-          creditAccountCode = "1020";
-          break;
-        case "card":
-          creditAccountName = "미지급금-카드";
-          creditAccountCode = "2020";
-          break;
-        case "unpaid":
-          creditAccountName = "미지급금";
-          creditAccountCode = "2010";
-          break;
-      }
-
-      // 대변 계정 조회
-      const [creditAccRows] = await conn.execute(
-        `SELECT id, code, name FROM accounting_accounts
-         WHERE tenant_id = ? AND (code = ? OR name LIKE ?) AND is_active = 'Y'
-         LIMIT 1`,
-        [tenantId, creditAccountCode, `%${creditAccountName}%`],
-      );
-      const creditAcc = (creditAccRows as any[])[0];
-
-      await conn.execute(
-        `INSERT INTO expense_journal_lines
-           (tenant_id, journal_entry_id, account_id, account_code, account_name,
-            debit_amount, credit_amount, bank_account_id, partner_id, description, sort_order)
-         VALUES (?,?,?,?,?, 0,?,?,?,?,?)`,
-        [
-          tenantId, journalEntryId,
-          creditAcc?.id || 0, creditAcc?.code || creditAccountCode, creditAcc?.name || creditAccountName,
-          creditAmount, voucher.bank_account_id || null, voucher.partner_id || null,
-          `${voucher.payment_method} 결제`,
-          lineOrder++,
-        ],
-      );
-
-      // 5. 전표 상태 변경 (posted) + 미지급잔액 설정
-      const unpaidBalance = voucher.payment_method === "unpaid" ? totalDebit : 0;
-      await conn.execute(
-        `UPDATE expense_vouchers SET status = 'posted', posted_by = ?, posted_at = NOW(),
-         unpaid_balance = ?, is_fully_paid = 0
-         WHERE id = ? AND tenant_id = ?`,
-        [ctx.user.id, unpaidBalance, input.id, tenantId],
-      );
-
-      return { success: true, journalEntryId };
+      return { success: true, journalEntryId: result.journalEntryId };
     }),
 
   // ═══════════════════════════════════
   // 비용전표 취소 (Posted → Canceled)
   // ═══════════════════════════════════
-  cancel: protectedProcedure
+  cancel: tenantRequiredProcedure
     .input(z.object({ id: z.number(), reason: z.string().min(1, "취소 사유를 입력해주세요") }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -496,22 +389,9 @@ export const expenseRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "이미 취소된 전표입니다." });
       }
 
-      // 분개 삭제 (posted 상태에서 취소 시)
+      // 분개 삭제 (posted 상태에서 취소 시) - [P2-3] 공통 헬퍼 사용
       if (voucher.status === "posted") {
-        const [jeRows] = await conn.execute(
-          `SELECT id FROM expense_journal_entries WHERE voucher_id = ? AND tenant_id = ?`,
-          [input.id, tenantId],
-        );
-        for (const je of jeRows as any[]) {
-          await conn.execute(
-            `DELETE FROM expense_journal_lines WHERE journal_entry_id = ? AND tenant_id = ?`,
-            [je.id, tenantId],
-          );
-        }
-        await conn.execute(
-          `DELETE FROM expense_journal_entries WHERE voucher_id = ? AND tenant_id = ?`,
-          [input.id, tenantId],
-        );
+        await cancelExpenseJournal(conn, { tenantId, voucherId: input.id });
       }
 
       await conn.execute(
@@ -526,7 +406,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용전표 삭제 (draft만)
   // ═══════════════════════════════════
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -552,7 +432,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용 계정과목 목록 (비용 분류만)
   // ═══════════════════════════════════
-  getExpenseAccounts: protectedProcedure.query(async ({ ctx }) => {
+  getExpenseAccounts: tenantRequiredProcedure.query(async ({ ctx }) => {
     const tenantId = getEffectiveTenantId(ctx);
     const db = await getDb();
     const accounts = await db
@@ -572,7 +452,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 비용 통계 요약 (대시보드용)
   // ═══════════════════════════════════
-  getSummary: protectedProcedure
+  getSummary: tenantRequiredProcedure
     .input(
       z.object({
         startDate: z.string().optional(),
@@ -623,7 +503,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 다음 전표번호 조회
   // ═══════════════════════════════════
-  getNextVoucherNo: protectedProcedure
+  getNextVoucherNo: tenantRequiredProcedure
     .input(z.object({ date: z.string() }))
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -640,7 +520,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════════════
   // 2차-A: 정기비용 템플릿 CRUD
   // ═══════════════════════════════════════════
-  recurringList: protectedProcedure.query(async ({ ctx }) => {
+  recurringList: tenantRequiredProcedure.query(async ({ ctx }) => {
     const tenantId = getEffectiveTenantId(ctx);
     const conn = await getRawConnection();
     const [rows] = await conn.execute(
@@ -654,7 +534,7 @@ export const expenseRouter = router({
     return rows as any[];
   }),
 
-  recurringCreate: protectedProcedure
+  recurringCreate: tenantRequiredProcedure
     .input(z.object({
       templateName: z.string().min(1),
       partnerId: z.number().optional(),
@@ -695,7 +575,7 @@ export const expenseRouter = router({
       return { success: true, id: Number((result as any).insertId) };
     }),
 
-  recurringUpdate: protectedProcedure
+  recurringUpdate: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       templateName: z.string().min(1),
@@ -741,7 +621,7 @@ export const expenseRouter = router({
       return { success: true };
     }),
 
-  recurringDelete: protectedProcedure
+  recurringDelete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -754,7 +634,7 @@ export const expenseRouter = router({
     }),
 
   // 정기비용 템플릿에서 전표 수동 생성
-  recurringGenerate: protectedProcedure
+  recurringGenerate: tenantRequiredProcedure
     .input(z.object({
       templateId: z.number(),
       expenseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -825,7 +705,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════════════
   // 2차-B: 미지급금 잔액 관리 + 지급처리
   // ═══════════════════════════════════════════
-  unpaidList: protectedProcedure
+  unpaidList: tenantRequiredProcedure
     .input(z.object({
       onlyUnpaid: z.boolean().default(true),
       page: z.number().default(1),
@@ -861,7 +741,7 @@ export const expenseRouter = router({
       return { items: rows as any[], total };
     }),
 
-  unpaidPaymentHistory: protectedProcedure
+  unpaidPaymentHistory: tenantRequiredProcedure
     .input(z.object({ voucherId: z.number() }))
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
@@ -877,7 +757,7 @@ export const expenseRouter = router({
       return rows as any[];
     }),
 
-  unpaidPay: protectedProcedure
+  unpaidPay: tenantRequiredProcedure
     .input(z.object({
       voucherId: z.number(),
       paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -932,7 +812,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════════════
   // 2차-C: 부가세(매입세액) 기간별 집계
   // ═══════════════════════════════════════════
-  vatSummary: protectedProcedure
+  vatSummary: tenantRequiredProcedure
     .input(z.object({
       startDate: z.string(),
       endDate: z.string(),
@@ -1008,7 +888,7 @@ export const expenseRouter = router({
   // ═══════════════════════════════════
   // 거래처 검색 (통합 partners 테이블)
   // ═══════════════════════════════════
-  searchPartners: protectedProcedure
+  searchPartners: tenantRequiredProcedure
     .input(z.object({
       search: z.string().optional(),
       partnerType: z.enum(["supplier", "customer", "subcontractor"]).optional(),

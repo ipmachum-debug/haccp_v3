@@ -127,6 +127,7 @@ export async function createInboundReceipt(params: {
 
   // LOT 생성
   const insertResult = await db.insert(hInventoryLots).values({
+    tenantId: tenantId || 1,
     lotNumber,
     materialId: params.materialId,
     quantity: params.quantity.toString(),
@@ -145,6 +146,7 @@ export async function createInboundReceipt(params: {
 
   // 재고 거래 내역 기록
   await db.insert(hInventoryTransactions).values({
+    tenantId: tenantId || 1,
     lotId: lotId,
     transactionType: "receipt",
     quantity: params.quantity.toString(),

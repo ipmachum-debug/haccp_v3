@@ -140,7 +140,7 @@ export default function TemplateManagement() {
   };
 
   return (
-    <div className="container mx-auto py-8 space-y-6">
+    <div className="space-y-6">
       {/* 헤더 */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}

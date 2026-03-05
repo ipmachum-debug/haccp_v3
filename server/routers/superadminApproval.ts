@@ -4,7 +4,7 @@
  * - 승인 시 테넌트 자동 생성
  */
 
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, superAdminProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { users, tenants } from "../../drizzle/schema_main";
@@ -18,15 +18,7 @@ import { createAuditLogFromContext } from "../utils/auditLogger";
 
 export const superadminApprovalRouter = router({
   // 클라이언트 관리자 승인 대기 목록 조회
-  getPendingClientAdmins: protectedProcedure.query(async ({ ctx }) => {
-    // 슈퍼관리자 권한 확인
-    if (ctx.user.role !== 'super_admin') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: '슈퍼관리자 권한이 필요합니다.',
-      });
-    }
-
+  getPendingClientAdmins: superAdminProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 
@@ -57,7 +49,7 @@ export const superadminApprovalRouter = router({
   }),
 
   // 클라이언트 관리자 승인/거부
-  approveClientAdmin: protectedProcedure
+  approveClientAdmin: superAdminProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -66,14 +58,6 @@ export const superadminApprovalRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // 슈퍼관리자 권한 확인
-      if (ctx.user.role !== 'super_admin') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: '슈퍼관리자 권한이 필요합니다.',
-        });
-      }
-
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 
@@ -193,15 +177,7 @@ export const superadminApprovalRouter = router({
     }),
 
   // 전체 사용자 목록 조회 (슈퍼관리자용)
-  getAllUsers: protectedProcedure.query(async ({ ctx }) => {
-    // 슈퍼관리자 권한 확인
-    if (ctx.user.role !== 'super_admin') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: '슈퍼관리자 권한이 필요합니다.',
-      });
-    }
-
+  getAllUsers: superAdminProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 

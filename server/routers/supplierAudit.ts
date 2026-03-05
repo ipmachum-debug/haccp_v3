@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import * as supplierDb from "../db/supplierAudit";
 
 export const supplierAuditRouter = router({
@@ -11,7 +11,7 @@ export const supplierAuditRouter = router({
   // 공급업체 관리
   // ============================================================================
 
-  createSupplier: protectedProcedure
+  createSupplier: tenantRequiredProcedure
     .input(z.object({
       supplierCode: z.string().optional(),
       supplierName: z.string(),
@@ -32,7 +32,7 @@ export const supplierAuditRouter = router({
       return { id };
     }),
 
-  listSuppliers: protectedProcedure
+  listSuppliers: tenantRequiredProcedure
     .input(z.object({
       supplierType: z.string().optional(),
       isActive: z.number().optional(),
@@ -47,13 +47,13 @@ export const supplierAuditRouter = router({
       });
     }),
 
-  getSupplier: protectedProcedure
+  getSupplier: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return await supplierDb.getSupplierById(input.id);
     }),
 
-  updateSupplier: protectedProcedure
+  updateSupplier: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       supplierCode: z.string().optional(),
@@ -74,7 +74,7 @@ export const supplierAuditRouter = router({
       return { success: true };
     }),
 
-  deleteSupplier: protectedProcedure
+  deleteSupplier: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await supplierDb.deleteSupplier(input.id);
@@ -85,7 +85,7 @@ export const supplierAuditRouter = router({
   // 공급업체 감사
   // ============================================================================
 
-  createAudit: protectedProcedure
+  createAudit: tenantRequiredProcedure
     .input(z.object({
       supplierId: z.number(),
       auditDate: z.string(),
@@ -107,7 +107,7 @@ export const supplierAuditRouter = router({
       return { id };
     }),
 
-  listAudits: protectedProcedure
+  listAudits: tenantRequiredProcedure
     .input(z.object({
       supplierId: z.number().optional(),
       auditType: z.string().optional(),
@@ -124,13 +124,13 @@ export const supplierAuditRouter = router({
       });
     }),
 
-  getAudit: protectedProcedure
+  getAudit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return await supplierDb.getSupplierAuditById(input.id);
     }),
 
-  updateAudit: protectedProcedure
+  updateAudit: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       auditDate: z.string().optional(),
@@ -151,7 +151,7 @@ export const supplierAuditRouter = router({
       return { success: true };
     }),
 
-  deleteAudit: protectedProcedure
+  deleteAudit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await supplierDb.deleteSupplierAudit(input.id);
@@ -162,7 +162,7 @@ export const supplierAuditRouter = router({
   // 공급업체 평가
   // ============================================================================
 
-  createEvaluation: protectedProcedure
+  createEvaluation: tenantRequiredProcedure
     .input(z.object({
       supplierId: z.number(),
       evaluationDate: z.string(),
@@ -187,7 +187,7 @@ export const supplierAuditRouter = router({
       return { id };
     }),
 
-  listEvaluations: protectedProcedure
+  listEvaluations: tenantRequiredProcedure
     .input(z.object({
       supplierId: z.number().optional(),
       dateFrom: z.string().optional(),
@@ -202,13 +202,13 @@ export const supplierAuditRouter = router({
       });
     }),
 
-  getEvaluation: protectedProcedure
+  getEvaluation: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return await supplierDb.getSupplierEvaluationById(input.id);
     }),
 
-  updateEvaluation: protectedProcedure
+  updateEvaluation: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       qualityScore: z.number().min(1).max(5).optional(),
@@ -227,7 +227,7 @@ export const supplierAuditRouter = router({
       return { success: true };
     }),
 
-  deleteEvaluation: protectedProcedure
+  deleteEvaluation: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await supplierDb.deleteSupplierEvaluation(input.id);
@@ -238,12 +238,12 @@ export const supplierAuditRouter = router({
   // 대시보드 및 통계
   // ============================================================================
 
-  getDashboard: protectedProcedure
+  getDashboard: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       return await supplierDb.getSupplierDashboard(ctx.user.tenantId);
     }),
 
-  getUpcomingAudits: protectedProcedure
+  getUpcomingAudits: tenantRequiredProcedure
     .input(z.object({ limit: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       return await supplierDb.getUpcomingAudits(ctx.user.tenantId, input.limit);

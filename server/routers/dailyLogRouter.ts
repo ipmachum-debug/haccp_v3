@@ -7,7 +7,7 @@
  * - 목록/상세 조회
  */
 
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
@@ -15,7 +15,7 @@ import { sql } from "drizzle-orm";
 
 export const dailyLogRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
-  getPreviousFormData: protectedProcedure
+  getPreviousFormData: tenantRequiredProcedure
     .input(z.object({ beforeDate: z.string() }))
     .query(async ({ input, ctx }) => {
       try {
@@ -50,7 +50,7 @@ export const dailyLogRouter = router({
     }),
 
   // ── 해당 날짜 일일일지 조회 (편집용) ──
-  getByDate: protectedProcedure
+  getByDate: tenantRequiredProcedure
     .input(z.object({ logDate: z.string(), siteId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
       try {
@@ -88,7 +88,7 @@ export const dailyLogRouter = router({
     }),
 
   // ── 일일일지 저장 (전체 양식 = 위생점검 + 온도 + 이물관리 + 배치) ──
-  saveFullForm: protectedProcedure
+  saveFullForm: tenantRequiredProcedure
     .input(z.object({
       logDate: z.string(),
       formData: z.any(),
@@ -198,7 +198,7 @@ export const dailyLogRouter = router({
     }),
 
   // ── 승인관리에서 데이터 수정 (온도 등 수정 후 승인) ──
-  updateFormData: protectedProcedure
+  updateFormData: tenantRequiredProcedure
     .input(z.object({ id: z.number(), formData: z.any() }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -234,7 +234,7 @@ export const dailyLogRouter = router({
     }),
 
   // ── 일일일지 목록 조회 ──
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(z.object({
       siteId: z.number().optional(),
       startDate: z.string().optional(),

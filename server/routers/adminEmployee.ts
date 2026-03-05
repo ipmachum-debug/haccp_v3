@@ -5,7 +5,7 @@
  * - 소속 직원 삭제 및 역할 변경
  */
 
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { users } from "../../drizzle/schema_main";
@@ -19,7 +19,7 @@ import { tenants } from "../../drizzle/schema_main";
 
 export const adminEmployeeRouter = router({
   // 직원 승인 대기 목록 조회 (클라이언트 관리자용)
-  getPendingEmployees: protectedProcedure.query(async ({ ctx }) => {
+  getPendingEmployees: tenantRequiredProcedure.query(async ({ ctx }) => {
     // 클라이언트 관리자 권한 확인
     if (!['admin', 'super_admin'].includes(ctx.user.role)) {
       throw new TRPCError({
@@ -62,7 +62,7 @@ export const adminEmployeeRouter = router({
   }),
 
   // 직원 승인/거부 (클라이언트 관리자용)
-  approveEmployee: protectedProcedure
+  approveEmployee: tenantRequiredProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -170,7 +170,7 @@ export const adminEmployeeRouter = router({
     }),
 
   // 활성 직원 목록 조회 (클라이언트 관리자용)
-  getActiveEmployees: protectedProcedure.query(async ({ ctx }) => {
+  getActiveEmployees: tenantRequiredProcedure.query(async ({ ctx }) => {
     // 클라이언트 관리자 권한 확인
     if (!['admin', 'super_admin'].includes(ctx.user.role)) {
       throw new TRPCError({
@@ -210,7 +210,7 @@ export const adminEmployeeRouter = router({
   }),
 
   // 직원 삭제 (클라이언트 관리자용)
-  deleteEmployee: protectedProcedure
+  deleteEmployee: tenantRequiredProcedure
     .input(
       z.object({
         userId: z.number(),
@@ -274,7 +274,7 @@ export const adminEmployeeRouter = router({
     }),
 
   // 직원 역할 변경 (클라이언트 관리자용)
-  updateEmployeeRole: protectedProcedure
+  updateEmployeeRole: tenantRequiredProcedure
     .input(
       z.object({
         userId: z.number(),

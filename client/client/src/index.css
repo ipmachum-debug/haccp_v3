@@ -43,76 +43,104 @@
 }
 
 :root {
-  /* Overflow.io 감성 색상 팔레트 */
-  --primary: oklch(0.55 0.20 250); /* 보라-파랑 */
-  --primary-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.50 0.18 250);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --chart-1: oklch(0.65 0.18 250); /* 보라 */
-  --chart-2: oklch(0.60 0.15 220); /* 파랑 */
-  --chart-3: oklch(0.55 0.12 180); /* 청록 */
-  --chart-4: oklch(0.70 0.10 280); /* 연보라 */
-  --chart-5: oklch(0.50 0.16 200); /* 진파랑 */
-  --radius: 0.75rem; /* 더 둥근 모서리 */
-  --background: oklch(0.98 0.005 220);
-  --foreground: oklch(0.20 0.02 220);
+  /* Premium SaaS 색상 팔레트 - Stripe/Linear 영감 */
+  --primary: oklch(0.45 0.18 260);
+  --primary-foreground: oklch(0.99 0 0);
+  --sidebar-primary: oklch(0.45 0.18 260);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+
+  /* 차트 색상 - 세련된 톤 */
+  --chart-1: oklch(0.55 0.16 260);
+  --chart-2: oklch(0.58 0.14 220);
+  --chart-3: oklch(0.52 0.12 170);
+  --chart-4: oklch(0.62 0.10 290);
+  --chart-5: oklch(0.48 0.14 200);
+
+  --radius: 0.625rem;
+
+  /* 배경 - 미세한 따뜻한 회색 */
+  --background: oklch(0.965 0.002 240);
+  --foreground: oklch(0.14 0.02 260);
+
+  /* 카드 - 순백 */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.20 0.02 220);
+  --card-foreground: oklch(0.14 0.02 260);
+
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.20 0.02 220);
-  --secondary: oklch(0.94 0.01 220);
-  --secondary-foreground: oklch(0.30 0.02 220);
-  --muted: oklch(0.96 0.005 220);
-  --muted-foreground: oklch(0.50 0.02 220);
-  --accent: oklch(0.94 0.01 250);
-  --accent-foreground: oklch(0.20 0.02 220);
-  --destructive: oklch(0.60 0.22 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.90 0.01 220);
-  --input: oklch(0.90 0.01 220);
-  --ring: oklch(0.55 0.18 220);
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0.20 0.02 220);
-  --sidebar-accent: oklch(0.96 0.005 220);
-  --sidebar-accent-foreground: oklch(0.20 0.02 220);
-  --sidebar-border: oklch(0.92 0.01 220);
-  --sidebar-ring: oklch(0.55 0.18 220);
+  --popover-foreground: oklch(0.14 0.02 260);
+
+  /* 세컨더리 - 쿨 그레이 */
+  --secondary: oklch(0.955 0.005 260);
+  --secondary-foreground: oklch(0.25 0.02 260);
+
+  --muted: oklch(0.955 0.005 260);
+  --muted-foreground: oklch(0.45 0.015 260);
+
+  --accent: oklch(0.955 0.005 260);
+  --accent-foreground: oklch(0.14 0.02 260);
+
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  /* 보더 - 정교한 구분선 */
+  --border: oklch(0.915 0.005 260);
+  --input: oklch(0.915 0.005 260);
+  --ring: oklch(0.45 0.18 260);
+
+  /* 사이드바 - Manus 스타일 따뜻한 밝은 톤 */
+  --sidebar: oklch(0.96 0.008 70);
+  --sidebar-foreground: oklch(0.25 0.02 50);
+  --sidebar-accent: oklch(0.92 0.012 70);
+  --sidebar-accent-foreground: oklch(0.18 0.02 50);
+  --sidebar-border: oklch(0.90 0.010 70);
+  --sidebar-ring: oklch(0.45 0.18 260);
 }
 
 .dark {
-  /* Overflow.io 감성 다크모드 색상 팔레트 */
-  --primary: oklch(0.60 0.20 250); /* 보라-파랑 */
-  --primary-foreground: oklch(0.98 0 0);
-  --sidebar-primary: oklch(0.55 0.18 250);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --background: oklch(0.12 0.01 250); /* 진한 보라-파랑 배경 */
-  --foreground: oklch(0.92 0.01 250);
-  --card: oklch(0.18 0.015 250); /* 카드 배경 */
-  --card-foreground: oklch(0.92 0.01 250);
-  --popover: oklch(0.18 0.015 250);
-  --popover-foreground: oklch(0.92 0.01 250);
-  --secondary: oklch(0.25 0.02 250);
-  --secondary-foreground: oklch(0.85 0.01 250);
-  --muted: oklch(0.28 0.02 250);
-  --muted-foreground: oklch(0.65 0.015 250);
-  --accent: oklch(0.28 0.02 250);
-  --accent-foreground: oklch(0.95 0.01 250);
-  --destructive: oklch(0.55 0.20 25);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.30 0.02 250);
-  --input: oklch(0.25 0.02 250);
-  --ring: oklch(0.60 0.20 250);
-  --chart-1: oklch(0.70 0.18 250); /* 보라 */
-  --chart-2: oklch(0.65 0.15 220); /* 파랑 */
-  --chart-3: oklch(0.60 0.12 180); /* 청록 */
-  --chart-4: oklch(0.75 0.10 280); /* 연보라 */
-  --chart-5: oklch(0.55 0.16 200); /* 진파랑 */
-  --sidebar: oklch(0.15 0.015 250);
-  --sidebar-foreground: oklch(0.92 0.01 250);
-  --sidebar-accent: oklch(0.25 0.02 250);
-  --sidebar-accent-foreground: oklch(0.95 0.01 250);
-  --sidebar-border: oklch(0.30 0.02 250);
-  --sidebar-ring: oklch(0.60 0.20 250);
+  /* Premium 다크모드 색상 팔레트 */
+  --primary: oklch(0.62 0.18 260);
+  --primary-foreground: oklch(0.99 0 0);
+  --sidebar-primary: oklch(0.58 0.18 260);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+
+  --background: oklch(0.11 0.015 260);
+  --foreground: oklch(0.93 0.008 260);
+
+  --card: oklch(0.155 0.018 260);
+  --card-foreground: oklch(0.93 0.008 260);
+
+  --popover: oklch(0.155 0.018 260);
+  --popover-foreground: oklch(0.93 0.008 260);
+
+  --secondary: oklch(0.20 0.02 260);
+  --secondary-foreground: oklch(0.88 0.008 260);
+
+  --muted: oklch(0.22 0.02 260);
+  --muted-foreground: oklch(0.60 0.012 260);
+
+  --accent: oklch(0.22 0.02 260);
+  --accent-foreground: oklch(0.95 0.005 260);
+
+  --destructive: oklch(0.50 0.20 25);
+  --destructive-foreground: oklch(0.99 0 0);
+
+  --border: oklch(0.24 0.02 260);
+  --input: oklch(0.20 0.02 260);
+  --ring: oklch(0.62 0.18 260);
+
+  --chart-1: oklch(0.65 0.16 260);
+  --chart-2: oklch(0.62 0.14 220);
+  --chart-3: oklch(0.58 0.12 170);
+  --chart-4: oklch(0.70 0.10 290);
+  --chart-5: oklch(0.52 0.14 200);
+
+  /* 다크 사이드바 */
+  --sidebar: oklch(0.14 0.015 260);
+  --sidebar-foreground: oklch(0.82 0.01 260);
+  --sidebar-accent: oklch(0.20 0.02 260);
+  --sidebar-accent-foreground: oklch(0.95 0.005 260);
+  --sidebar-border: oklch(0.22 0.018 260);
+  --sidebar-ring: oklch(0.62 0.18 260);
 }
 
 @layer base {
@@ -121,6 +149,9 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
@@ -136,164 +167,65 @@
 }
 
 @layer components {
-  /**
-   * Custom container utility that centers content and adds responsive padding.
-   *
-   * This overrides Tailwind's default container behavior to:
-   * - Auto-center content (mx-auto)
-   * - Add responsive horizontal padding
-   * - Set max-width for large screens
-   *
-   * Usage: <div className="container">...</div>
-   *
-   * For custom widths, use max-w-* utilities directly:
-   * <div className="max-w-6xl mx-auto px-4">...</div>
-   */
-
-  /* 부드러운 트랜지션 효과 */
+  /* 부드러운 트랜지션 - 프리미엄 이징 */
   * {
-    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
   }
 
-  /* 버튼 호버 효과 - overflow.io 스타일 */
-  button:hover:not(:disabled),
-  [role="button"]:hover:not([aria-disabled="true"]) {
-    transform: scale(1.02);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  button:active:not(:disabled),
-  [role="button"]:active:not([aria-disabled="true"]) {
-    transform: translateY(0);
-  }
-
-  /* 카드 호버 효과 - overflow.io 스타일 */
+  /* 프리미엄 카드 호버 효과 */
   .card-hover {
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-    border-radius: 1rem;
-    background: linear-gradient(135deg, var(--card) 0%, var(--card) 100%);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .card-hover:hover {
-    transform: translateY(-6px) scale(1.01);
-    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.2), 0 10px 20px -10px rgba(99, 102, 241, 0.2);
+    border-color: oklch(0.45 0.18 260 / 0.3);
+    box-shadow: 0 0 0 1px oklch(0.45 0.18 260 / 0.08),
+                0 4px 12px -2px oklch(0 0 0 / 0.08);
   }
 
-  /* 테이블 스타일 개선 */
+  /* 테이블 스타일 */
   table tbody tr {
-    transition: background-color 0.2s ease;
+    transition: background-color 0.15s ease;
   }
 
-  /* 입력 폼 포커스 효과 */
+  /* 프리미엄 포커스 링 */
   input:focus,
   textarea:focus,
   select:focus {
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 0 0 1px var(--ring);
+    box-shadow: 0 0 0 3px oklch(0.45 0.18 260 / 0.12),
+                0 0 0 1px var(--ring);
   }
 
-  /* 스켈레톤 로딩 애니메이션 */
+  /* 스켈레톤 로딩 */
   @keyframes skeleton-pulse {
-    0%, 100% { opacity: 0.5; }
-    50% { opacity: 1; }
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
   }
 
   .skeleton {
-    animation: skeleton-pulse 1.5s ease-in-out infinite;
+    animation: skeleton-pulse 2s ease-in-out infinite;
     background: linear-gradient(
-      90deg,
+      110deg,
       var(--muted) 0%,
-      var(--muted-foreground) 50%,
-      var(--muted) 100%
+      oklch(0.90 0.005 260) 40%,
+      var(--muted) 60%
     );
     background-size: 200% 100%;
   }
 
-  /* 리플 효과 */
-  @keyframes ripple {
-    0% {
-      transform: scale(0);
-      opacity: 0.5;
-    }
-    100% {
-      transform: scale(2);
-      opacity: 0;
-    }
-  }
-
-  .ripple {
-    position: relative;
-    overflow: hidden;
-  }
-
-  .ripple::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 100%;
-    height: 100%;
-    background: currentColor;
-    border-radius: 50%;
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 0;
-  }
-
-  .ripple:active::after {
-    animation: ripple 0.6s ease-out;
-  }
-
-  /* 플로팅 애니메이션 */
-  @keyframes floating {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-10px); }
-  }
-
-  .floating {
-    animation: floating 2s ease-in-out infinite;
-  }
-
-  /* 셰이크 애니메이션 */
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
-    20%, 40%, 60%, 80% { transform: translateX(10px); }
-  }
-
-  .shake {
-    animation: shake 0.5s ease-in-out;
-  }
-
-  /* 페이드 인 애니메이션 */
+  /* 부드러운 페이드 인 */
   @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 
   .fade-in {
     animation: fadeIn 0.3s ease-out;
   }
 
-  /* 슬라이드 업 애니메이션 */
-  @keyframes slideUp {
-    from {
-      opacity: 0;
-      transform: translateY(20px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .slide-up {
-    animation: slideUp 0.4s ease-out;
-  }
-
-  /* 스피너 애니메이션 */
+  /* 스피너 */
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -303,11 +235,12 @@
     animation: spin 1s linear infinite;
   }
 
+  /* 컨테이너 */
   .container {
     width: 100%;
     margin-left: auto;
     margin-right: auto;
-    padding-left: 1rem; /* 16px - mobile padding */
+    padding-left: 1rem;
     padding-right: 1rem;
   }
 
@@ -318,117 +251,165 @@
 
   @media (min-width: 640px) {
     .container {
-      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-left: 1.5rem;
       padding-right: 1.5rem;
     }
   }
 
   @media (min-width: 1024px) {
     .container {
-      padding-left: 2rem; /* 32px - desktop padding */
+      padding-left: 2rem;
       padding-right: 2rem;
-      max-width: 1280px; /* Standard content width */
+      max-width: 1280px;
     }
   }
 }
-/* 🎨 라이트 모드 배경 */
+
+/* 프리미엄 배경 - 미세한 그라데이션 */
 body {
-  background: linear-gradient(135deg,
-    oklch(0.97 0.005 220) 0%,
-    oklch(0.98 0.008 230) 50%,
-    oklch(0.96 0.006 240) 100%
+  background: linear-gradient(
+    180deg,
+    oklch(0.965 0.002 240) 0%,
+    oklch(0.97 0.004 260) 50%,
+    oklch(0.96 0.003 250) 100%
   );
-  background-attachment: fixed;
+  min-height: 100vh;
 }
 
-/* 🎨 다크 모드 배경 (Apple 스타일) */
 .dark body,
 html.dark body {
-  background: linear-gradient(135deg, 
-    oklch(0.12 0.01 250) 0%, 
-    oklch(0.15 0.02 240) 50%, 
-    oklch(0.18 0.015 230) 100%
+  background: linear-gradient(
+    180deg,
+    oklch(0.11 0.015 260) 0%,
+    oklch(0.12 0.018 265) 50%,
+    oklch(0.105 0.014 255) 100%
   );
-  background-attachment: fixed;
 }
 
-/* 🔮 유리 모피즘 카드 효과 */
+/* 프리미엄 카드 스타일 */
+[data-slot="card"] {
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.04),
+              0 1px 2px oklch(0 0 0 / 0.06);
+}
+
+[data-slot="card"]:hover {
+  box-shadow: 0 4px 12px oklch(0 0 0 / 0.06),
+              0 1px 3px oklch(0 0 0 / 0.08);
+}
+
+.dark [data-slot="card"] {
+  box-shadow: 0 1px 3px oklch(0 0 0 / 0.2),
+              0 0 0 1px oklch(1 0 0 / 0.03);
+}
+
+.dark [data-slot="card"]:hover {
+  box-shadow: 0 4px 12px oklch(0 0 0 / 0.3),
+              0 0 0 1px oklch(1 0 0 / 0.05);
+}
+
+/* 유리 모피즘 카드 효과 - 프리미엄 */
 .glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.06);
+  background: oklch(1 0 0 / 0.8);
+  border: 1px solid oklch(0 0 0 / 0.06);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .dark .glass-card {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+  background: oklch(0.155 0.018 260 / 0.8);
+  border: 1px solid oklch(1 0 0 / 0.06);
 }
 
-/* ✨ 버튼 그라데이션 + 빛나는 효과 */
+/* 프리미엄 그라디언트 버튼 */
 .btn-gradient {
-  background: linear-gradient(135deg, 
-    oklch(0.60 0.20 250) 0%, 
-    oklch(0.65 0.22 320) 100%
-  );
-  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
-  transition: all 0.3s ease;
+  background: linear-gradient(135deg, oklch(0.45 0.18 260), oklch(0.42 0.16 280));
+  color: oklch(0.99 0 0);
+  box-shadow: 0 1px 3px oklch(0.45 0.18 260 / 0.3),
+              0 1px 2px oklch(0 0 0 / 0.1);
+  transition: all 0.2s ease;
 }
 
 .btn-gradient:hover {
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
-  transform: translateY(-2px);
+  box-shadow: 0 4px 12px oklch(0.45 0.18 260 / 0.35),
+              0 2px 4px oklch(0 0 0 / 0.1);
+  transform: translateY(-0.5px);
 }
 
-/* 💫 펄스 애니메이션 */
-@keyframes pulse-glow {
-  0%, 100% {
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 40px rgba(99, 102, 241, 0.8);
-  }
-}
-
-.pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-/* 📱 모바일 탭메뉴 가로 스크롤 스와이프 */
+/* 모바일 탭메뉴 가로 스크롤 */
 @media (max-width: 768px) {
   [role="tablist"] {
     overflow-x: auto;
     overflow-y: hidden;
-    -webkit-overflow-scrolling: touch; /* iOS 부드러운 스크롤 */
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* IE/Edge */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     display: flex !important;
     flex-wrap: nowrap !important;
   }
   
   [role="tablist"]::-webkit-scrollbar {
-    display: none; /* Chrome/Safari */
+    display: none;
   }
   
   [role="tab"] {
-    flex-shrink: 0 !important; /* 탭이 줄어들지 않도록 */
+    flex-shrink: 0 !important;
     white-space: nowrap !important;
-    min-width: fit-content !important; /* 콘텐츠 크기에 맞게 */
-    padding-left: 1rem !important; /* 16px */
-    padding-right: 1rem !important; /* 16px */
+    min-width: fit-content !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
   }
 }
 
+/* 얇은 커스텀 스크롤바 - Manus 스타일 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.80 0.005 70) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: oklch(0.80 0.008 70);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.70 0.010 70);
+}
+
+/* 사이드바 스크롤바 더 미니멀하게 */
+[data-sidebar] *::-webkit-scrollbar {
+  width: 3px;
+}
+
+[data-sidebar] *::-webkit-scrollbar-thumb {
+  background: oklch(0.85 0.008 70);
+  border-radius: 3px;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: oklch(0.30 0.01 260);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.40 0.01 260);
+}
+
+.dark * {
+  scrollbar-color: oklch(0.30 0.01 260) transparent;
+}
+
 /* ============================================================================
-   🖨️ 글로벌 인쇄 스타일 (Print Styles)
-   - 챗봇, 사이드바, 헤더, 버튼 등 인쇄 불필요 요소 숨김
-   - 체크박스 상태(체크/미체크) 인쇄 시 정확히 반영
-   - 인쇄 레이아웃 최적화
+   인쇄 스타일 (Print Styles)
    ============================================================================ */
 @media print {
-  /* 1. 챗봇 숨김 - FloatingAIChatbot (fixed z-50 요소) */
   .fixed.z-50,
   [class*="chatbot"],
   [class*="FloatingAI"] {
@@ -436,7 +417,6 @@ html.dark body {
     visibility: hidden !important;
   }
 
-  /* 2. 사이드바, 네비게이션, 헤더, 푸터 숨김 */
   nav,
   aside,
   header:not(.print-keep),
@@ -448,14 +428,12 @@ html.dark body {
     display: none !important;
   }
 
-  /* 3. 인쇄 불필요 버튼 숨김 (저장, 승인요청, 인쇄 버튼 등) */
   button:not(.print-keep),
   [role="button"]:not(.print-keep),
-  .print\\:hidden {
+  .print\:hidden {
     display: none !important;
   }
 
-  /* 4. 메인 콘텐츠 전체 너비 사용 */
   main,
   [role="main"],
   .main-content {
@@ -471,15 +449,12 @@ html.dark body {
     max-width: 100% !important;
   }
 
-  /* 5. 배경색 정확히 인쇄 */
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     background: white !important;
   }
 
-  /* 6. 체크박스 상태 인쇄 시 정확히 반영 */
-  /* 체크된 체크박스 - 체크마크 표시 */
   input[type="checkbox"] {
     -webkit-appearance: none !important;
     -moz-appearance: none !important;
@@ -501,7 +476,7 @@ html.dark body {
   }
 
   input[type="checkbox"]:checked::after {
-    content: "✓" !important;
+    content: "\2713" !important;
     display: block !important;
     position: absolute !important;
     top: -2px !important;
@@ -512,7 +487,6 @@ html.dark body {
     line-height: 1 !important;
   }
 
-  /* Radix UI / shadcn 체크박스 (button role) */
   [role="checkbox"] {
     width: 16px !important;
     height: 16px !important;
@@ -538,7 +512,6 @@ html.dark body {
     height: 12px !important;
   }
 
-  /* 7. 입력 필드 스타일 정리 */
   input:not([type="checkbox"]):not([type="radio"]),
   textarea {
     border: none !important;
@@ -551,7 +524,6 @@ html.dark body {
     color: transparent !important;
   }
 
-  /* 8. 배경색 유지 (테이블 헤더, 뱃지 등) */
   .bg-gray-50,
   .bg-blue-50,
   .bg-green-50,
@@ -561,44 +533,37 @@ html.dark body {
     print-color-adjust: exact !important;
   }
 
-  /* 9. 카드 그림자/효과 제거 (인쇄 최적화) */
   .card-hover,
   [class*="shadow"] {
     box-shadow: none !important;
     transform: none !important;
   }
 
-  /* 10. 트랜지션/애니메이션 비활성화 */
   * {
     transition: none !important;
     animation: none !important;
   }
 
-  /* 11. 인쇄 전용 요소 표시 */
   .print-only {
     display: block !important;
   }
 
-  /* 12. 페이지 여백 설정 */
   @page {
     margin: 1cm;
     size: A4;
   }
 
-  /* 13. 토스트/알림 숨김 */
   [data-sonner-toaster],
   .toaster,
   [role="alert"] {
     display: none !important;
   }
 
-  /* 14. 다이얼로그/모달 숨김 */
   [role="dialog"],
   [data-radix-portal] {
     display: none !important;
   }
 
-  /* 15. 드롭다운/셀렉트 팝오버 숨김 */
   [data-radix-popper-content-wrapper] {
     display: none !important;
   }

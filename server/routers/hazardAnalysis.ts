@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as hazardAnalysisDb from "../db/hazardAnalysis";
 
 /**
@@ -8,7 +8,7 @@ import * as hazardAnalysisDb from "../db/hazardAnalysis";
 
 export const hazardAnalysisRouter = router({
   // 위험 분석 생성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         productId: z.number(),
@@ -33,21 +33,21 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 제품별 위험 분석 목록 조회
-  listByProduct: protectedProcedure
+  listByProduct: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getHazardAnalysisByProduct(input.productId);
     }),
 
   // 위험 분석 상세 조회
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getHazardAnalysisById(input.id);
     }),
 
   // CCP 지정
-  designateAsCcp: protectedProcedure
+  designateAsCcp: tenantRequiredProcedure
     .input(z.object({ id: z.number(), ccpNumber: z.string() }))
     .mutation(async ({ input }) => {
       await hazardAnalysisDb.updateHazardAnalysis(input.id, {
@@ -58,7 +58,7 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 위험 분석 승인
-  approve: protectedProcedure
+  approve: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await hazardAnalysisDb.updateHazardAnalysis(input.id, {
@@ -70,7 +70,7 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 위험 분석 수정
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -107,7 +107,7 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 위험 분석 삭제
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await hazardAnalysisDb.deleteHazardAnalysis(input.id);
@@ -115,28 +115,28 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 사업장별 위험 분석 목록
-  listBySite: protectedProcedure
+  listBySite: tenantRequiredProcedure
     .input(z.object({ siteId: z.number() }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getHazardAnalysisBySite(input.siteId);
     }),
 
   // 상태별 위험 분석 목록
-  listByStatus: protectedProcedure
+  listByStatus: tenantRequiredProcedure
     .input(z.object({ status: z.enum(["draft", "submitted", "approved", "rejected"]) }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getHazardAnalysisByStatus(input.status);
     }),
 
   // CCP로 지정된 위험 분석 목록
-  listCcp: protectedProcedure
+  listCcp: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getCcpHazardAnalysis(input.productId);
     }),
 
   // 위험 요소 관리 방법 추가
-  addControl: protectedProcedure
+  addControl: tenantRequiredProcedure
     .input(
       z.object({
         hazardAnalysisId: z.number(),
@@ -153,14 +153,14 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 위험 분석별 관리 방법 목록
-  listControls: protectedProcedure
+  listControls: tenantRequiredProcedure
     .input(z.object({ hazardAnalysisId: z.number() }))
     .query(async ({ input }) => {
       return hazardAnalysisDb.getHazardControlsByAnalysisId(input.hazardAnalysisId);
     }),
 
   // 관리 방법 수정
-  updateControl: protectedProcedure
+  updateControl: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -178,7 +178,7 @@ export const hazardAnalysisRouter = router({
     }),
 
   // 관리 방법 삭제
-  deleteControl: protectedProcedure
+  deleteControl: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await hazardAnalysisDb.deleteHazardControl(input.id);

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as auditDb from "../db/internalAudit";
 
 /**
@@ -12,7 +12,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 내부 감사 계획 생성
-  createPlan: protectedProcedure
+  createPlan: tenantRequiredProcedure
     .input(
       z.object({
         planYear: z.number(),
@@ -33,7 +33,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 계획 목록 조회
-  listPlans: protectedProcedure
+  listPlans: tenantRequiredProcedure
     .input(
       z.object({
         planYear: z.number().optional(),
@@ -47,14 +47,14 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 계획 상세 조회
-  getPlanById: protectedProcedure
+  getPlanById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return auditDb.getAuditPlanById(input.id);
     }),
 
   // 내부 감사 계획 수정
-  updatePlan: protectedProcedure
+  updatePlan: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -72,7 +72,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 계획 승인
-  approvePlan: protectedProcedure
+  approvePlan: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await auditDb.updateAuditPlan(input.id, {
@@ -84,7 +84,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 계획 삭제
-  deletePlan: protectedProcedure
+  deletePlan: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.deleteAuditPlan(input.id);
@@ -96,7 +96,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 내부 감사 생성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         planId: z.number().optional(),
@@ -123,7 +123,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 목록 조회
-  list: protectedProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         planId: z.number().optional(),
@@ -141,14 +141,14 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 상세 조회
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return auditDb.getAuditById(input.id);
     }),
 
   // 내부 감사 수정
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -181,7 +181,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 시작
-  start: protectedProcedure
+  start: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.updateAudit(input.id, {
@@ -192,7 +192,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 완료
-  complete: protectedProcedure
+  complete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.updateAudit(input.id, {
@@ -203,7 +203,7 @@ export const internalAuditRouter = router({
     }),
 
   // 내부 감사 삭제
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.deleteAudit(input.id);
@@ -215,7 +215,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 체크리스트 항목 추가
-  addChecklistItem: protectedProcedure
+  addChecklistItem: tenantRequiredProcedure
     .input(
       z.object({
         auditId: z.number(),
@@ -245,14 +245,14 @@ export const internalAuditRouter = router({
     }),
 
   // 체크리스트 목록 조회
-  getChecklistItems: protectedProcedure
+  getChecklistItems: tenantRequiredProcedure
     .input(z.object({ auditId: z.number() }))
     .query(async ({ input }) => {
       return auditDb.getChecklistItems(input.auditId);
     }),
 
   // 체크리스트 항목 수정
-  updateChecklistItem: protectedProcedure
+  updateChecklistItem: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -283,7 +283,7 @@ export const internalAuditRouter = router({
     }),
 
   // 체크리스트 항목 삭제
-  deleteChecklistItem: protectedProcedure
+  deleteChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const item = await auditDb.getChecklistItemById(input.id);
@@ -302,7 +302,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 발견 사항 추가
-  addFinding: protectedProcedure
+  addFinding: tenantRequiredProcedure
     .input(
       z.object({
         auditId: z.number(),
@@ -329,7 +329,7 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 목록 조회
-  getFindings: protectedProcedure
+  getFindings: tenantRequiredProcedure
     .input(
       z.object({
         auditId: z.number().optional(),
@@ -344,14 +344,14 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 상세 조회
-  getFindingById: protectedProcedure
+  getFindingById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       return auditDb.getFindingById(input.id);
     }),
 
   // 발견 사항 수정
-  updateFinding: protectedProcedure
+  updateFinding: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -373,7 +373,7 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 해결
-  resolveFinding: protectedProcedure
+  resolveFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.updateFinding(input.id, {
@@ -384,7 +384,7 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 검증
-  verifyFinding: protectedProcedure
+  verifyFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       await auditDb.updateFinding(input.id, {
@@ -396,7 +396,7 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 종결
-  closeFinding: protectedProcedure
+  closeFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.updateFinding(input.id, {
@@ -406,7 +406,7 @@ export const internalAuditRouter = router({
     }),
 
   // 발견 사항 삭제
-  deleteFinding: protectedProcedure
+  deleteFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.deleteFinding(input.id);
@@ -418,7 +418,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 첨부 파일 추가
-  addAttachment: protectedProcedure
+  addAttachment: tenantRequiredProcedure
     .input(
       z.object({
         auditId: z.number(),
@@ -438,14 +438,14 @@ export const internalAuditRouter = router({
     }),
 
   // 첨부 파일 목록 조회
-  getAttachments: protectedProcedure
+  getAttachments: tenantRequiredProcedure
     .input(z.object({ auditId: z.number() }))
     .query(async ({ input }) => {
       return auditDb.getAttachments(input.auditId);
     }),
 
   // 첨부 파일 삭제
-  deleteAttachment: protectedProcedure
+  deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await auditDb.deleteAttachment(input.id);
@@ -457,7 +457,7 @@ export const internalAuditRouter = router({
   // ============================================================================
 
   // 감사 통계 조회
-  getStatistics: protectedProcedure
+  getStatistics: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),
@@ -470,7 +470,7 @@ export const internalAuditRouter = router({
     }),
 
   // 예정된 감사 목록
-  getUpcoming: protectedProcedure
+  getUpcoming: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),
@@ -482,7 +482,7 @@ export const internalAuditRouter = router({
     }),
 
   // 미해결 발견 사항 통계
-  getOpenFindingsStats: protectedProcedure
+  getOpenFindingsStats: tenantRequiredProcedure
     .input(
       z.object({
         siteId: z.number().optional(),

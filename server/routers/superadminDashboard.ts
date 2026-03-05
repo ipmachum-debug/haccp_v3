@@ -4,7 +4,7 @@
  * - 최근 활동 로그
  */
 
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, superAdminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { users, tenants } from "../../drizzle/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
@@ -12,15 +12,7 @@ import { TRPCError } from "@trpc/server";
 
 export const superadminDashboardRouter = router({
   // 대시보드 통계 조회
-  getStats: protectedProcedure.query(async ({ ctx }) => {
-    // 슈퍼관리자 권한 확인
-    if (ctx.user.role !== 'super_admin') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: '슈퍼관리자 권한이 필요합니다.',
-      });
-    }
-
+  getStats: superAdminProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 
@@ -90,15 +82,7 @@ export const superadminDashboardRouter = router({
   }),
 
   // 최근 시스템 활동 조회
-  getRecentActivities: protectedProcedure.query(async ({ ctx }) => {
-    // 슈퍼관리자 권한 확인
-    if (ctx.user.role !== 'super_admin') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: '슈퍼관리자 권한이 필요합니다.',
-      });
-    }
-
+  getRecentActivities: superAdminProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 

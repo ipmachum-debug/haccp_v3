@@ -46,7 +46,7 @@ export default function Today() {
 
   return (
     <DashboardLayout>
-      <div className="container py-6 space-y-6">
+      <div className="space-y-6">
         {/* 헤더 */}
         <div>
           <h1 className="text-3xl font-bold mb-2">Today</h1>

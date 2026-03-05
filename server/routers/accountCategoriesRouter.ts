@@ -1,4 +1,4 @@
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import {
@@ -13,33 +13,40 @@ import {
 export const accountCategoriesRouter = router({
   /**
    * 전체 계정 과목(카테고리) 목록 조회
+   * P5: tenantId 전달 추가
    */
-  getAll: protectedProcedure.query(async () => {
-    return await getAllAccountCategories();
+  getAll: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
+      const result = await getAllAccountCategories(ctx.tenantId);
+      return result;
+    } catch (error: any) {
+      console.error('[accountCategories.getAll] Error:', error.message, error.stack);
+      throw error;
+    }
   }),
 
   /**
    * 대분류별 계정 과목 조회
    */
-  getByMajor: protectedProcedure
+  getByMajor: tenantRequiredProcedure
     .input(z.object({ majorCategory: z.string() }))
-    .query(async ({ input }) => {
-      return await getAccountCategoriesByMajor(input.majorCategory);
+    .query(async ({ input, ctx }) => {
+      return await getAccountCategoriesByMajor(input.majorCategory, ctx.tenantId);
     }),
 
   /**
    * 계정 과목 상세 조회
    */
-  getById: protectedProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return await getAccountCategoryById(input.id);
+    .query(async ({ input, ctx }) => {
+      return await getAccountCategoryById(input.id, ctx.tenantId);
     }),
 
   /**
    * 계정 과목 등록
    */
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         code: z.string().min(1).max(20),
@@ -49,14 +56,14 @@ export const accountCategoriesRouter = router({
         description: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      return await createAccountCategory(input);
+    .mutation(async ({ input, ctx }) => {
+      return await createAccountCategory({ ...input, tenantId: ctx.tenantId });
     }),
 
   /**
    * 계정 과목 수정
    */
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -67,25 +74,25 @@ export const accountCategoriesRouter = router({
         description: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      return await updateAccountCategory(id, data);
+      return await updateAccountCategory(id, data, ctx.tenantId);
     }),
 
   /**
    * 계정 과목 삭제 (소프트 삭제)
    */
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      return await deleteAccountCategory(input.id);
+    .mutation(async ({ input, ctx }) => {
+      return await deleteAccountCategory(input.id, ctx.tenantId);
     }),
 
   /**
    * 대분류 목록 조회 (고유한 major_category 값들)
    */
-  getMajorCategories: protectedProcedure.query(async () => {
-    const all = await getAllAccountCategories();
+  getMajorCategories: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const all = await getAllAccountCategories(ctx.tenantId);
     const majors = [...new Set(all.map((c: any) => c.majorCategory))];
     return majors;
   }),
@@ -93,7 +100,13 @@ export const accountCategoriesRouter = router({
   /**
    * 목록 조회 (accountingAccountCategories.list 호환)
    */
-  list: protectedProcedure.query(async () => {
-    return await getAllAccountCategories();
+  list: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
+      const result = await getAllAccountCategories(ctx.tenantId);
+      return result;
+    } catch (error: any) {
+      console.error('[accountCategories.list] Error:', error.message, error.stack);
+      throw error;
+    }
   }),
 });

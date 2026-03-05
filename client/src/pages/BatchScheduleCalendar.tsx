@@ -122,7 +122,7 @@ export default function BatchScheduleCalendar() {
   return (
     <DashboardLayout>
 
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold">배치 생산 일정 캘린더</h1>

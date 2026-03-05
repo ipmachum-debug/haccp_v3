@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as hazardAnalysisDb from "../db/hazardAnalysis";
 import * as correctiveActionDb from "../db/correctiveAction";
 import * as trainingDb from "../db/training";
@@ -14,7 +14,7 @@ export const reportsRouter = router({
   // ============================================================================
 
   // 위험 분석 보고서 데이터 조회
-  getHazardAnalysisReport: protectedProcedure
+  getHazardAnalysisReport: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
     .query(async ({ input }) => {
       const hazards = await hazardAnalysisDb.getHazardAnalysisByProduct(input.productId);
@@ -42,7 +42,7 @@ export const reportsRouter = router({
   // ============================================================================
 
   // 시정 조치 이력 보고서 데이터 조회
-  getCorrectiveActionReport: protectedProcedure
+  getCorrectiveActionReport: tenantRequiredProcedure
     .input(
       z.object({
         startDate: z.string(),
@@ -92,7 +92,7 @@ export const reportsRouter = router({
   // ============================================================================
 
   // 교육 이수 증명서 데이터 조회
-  getTrainingCertificate: protectedProcedure
+  getTrainingCertificate: tenantRequiredProcedure
     .input(z.object({ participantId: z.number() }))
     .query(async ({ input }) => {
       const participant = await trainingDb.getTrainingParticipantById(input.participantId);
@@ -128,7 +128,7 @@ export const reportsRouter = router({
     }),
 
   // 사용자별 교육 이수 현황 보고서
-  getUserTrainingReport: protectedProcedure
+  getUserTrainingReport: tenantRequiredProcedure
     .input(z.object({ userId: z.number() }))
     .query(async ({ input }) => {
       const participants = await trainingDb.getTrainingParticipantsByUser(input.userId);

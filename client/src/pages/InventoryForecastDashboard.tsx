@@ -27,7 +27,7 @@ export default function InventoryForecastDashboard() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold">재고 예측 대시보드</h1>

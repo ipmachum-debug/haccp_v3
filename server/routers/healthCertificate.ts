@@ -11,7 +11,7 @@ import * as XLSX from "xlsx";
  * ✅ P0 SECURITY FIX: healthCertificate 라우터
  *
  * 변경 사항:
- * 1. protectedProcedure → tenantRequiredProcedure 전환
+ * 1. tenantRequiredProcedure → tenantRequiredProcedure 전환
  *    - super_admin도 actingTenantId 없으면 403
  *    - fallback (ctx.tenantId ?? ctx.user?.tenantId) 패턴 완전 제거
  * 2. getById: 내 테넌트 소속 직원 소유권 검증 추가

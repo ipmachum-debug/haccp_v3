@@ -1,3 +1,14 @@
+/**
+ * [LEGACY] 구식 회계 모듈 (accounting_categories + accounting_transactions)
+ * 
+ * 이 파일은 예전 단순 income/expense 기반 거래 관리 시스템입니다.
+ * 새로운 복식부기 시스템은 아래 파일을 사용하세요:
+ * - 계정과목: drizzle/schema/accountingAccounts.ts (system_code 기반)
+ * - 분개 헬퍼: server/db/journalHelper.ts
+ * - 재무보고서: server/db/financialReports.ts
+ * 
+ * @deprecated 신규 코드에서는 사용하지 마세요. P4에서 마이그레이션 후 제거 예정.
+ */
 import { eq, and, gte, lte, desc, sql, sum } from "drizzle-orm";
 import { getDb } from "./db";
 import { 
@@ -10,7 +21,7 @@ import {
 } from "../drizzle/schema";
 
 // ============================================================================
-// 계정 과목 관리
+// [LEGACY] 계정 과목 관리 (accounting_categories)
 // ============================================================================
 
 export async function getAllCategories() {
@@ -164,7 +175,7 @@ export async function getDailySummary(date: string) {
   return result[0];
 }
 
-export async function getMonthlySummary(year: number, month: number) {
+export async function getMonthlySummary(year: number, month: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   

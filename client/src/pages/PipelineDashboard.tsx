@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import DashboardLayout from '@/components/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -128,7 +129,8 @@ const SensorStatusBadge = ({ status }: { status: string }) => {
   );
 };
 
-export const PipelineDashboard: React.FC = () => {
+// 콘텐츠만 (ProductionManagement 탭에 임베드할 때 사용)
+export const PipelineDashboardContent: React.FC = () => {
   const { user } = useAuth();
   const siteId = (user as any)?.siteId || 1;
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -209,7 +211,7 @@ export const PipelineDashboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-96" style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #faf9f6 50%, #ecfdf5 100%)' }}>
+      <div className="flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             <div className="w-16 h-16 rounded-full border-4 border-emerald-200 border-t-emerald-500 animate-spin" />
@@ -222,10 +224,7 @@ export const PipelineDashboard: React.FC = () => {
   }
 
   return (
-    <div 
-      className="space-y-5 p-6 min-h-screen"
-      style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #faf9f6 50%, #ecfdf5 100%)' }}
-    >
+    <div className="space-y-5">
       {/* ── 헤더 ── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -625,6 +624,15 @@ export const PipelineDashboard: React.FC = () => {
         )}
       </div>
     </div>
+  );
+};
+
+// 전체 페이지 (직접 라우트 접근 시 사용 - DashboardLayout 포함)
+export const PipelineDashboard: React.FC = () => {
+  return (
+    <DashboardLayout>
+      <PipelineDashboardContent />
+    </DashboardLayout>
   );
 };
 

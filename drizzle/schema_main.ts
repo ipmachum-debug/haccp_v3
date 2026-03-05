@@ -1252,8 +1252,10 @@ export type InsertUserGroupMember = typeof userGroupMembers.$inferInsert;
 // ==================== 회계 관리 ====================
 
 /**
- * 계정 과목 테이블
- * 표준화된 계정 과목 체계 (세무사/회계사 활용 가능)
+ * [DEPRECATED] 구식 계정 과목 테이블 - income/expense 단순 분류
+ * → 신규 코드에서는 accounting_accounts (drizzle/schema/accountingAccounts.ts) 사용
+ * → 5분류(자산/부채/자본/수익/비용) + system_code 기반 복식부기 체계로 전환 완료
+ * @deprecated P4에서 데이터 마이그레이션 후 제거 예정
  */
 export const accountingCategories = mysqlTable("accounting_categories", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
@@ -1268,8 +1270,9 @@ export const accountingCategories = mysqlTable("accounting_categories", {
 });
 
 /**
- * 거래 내역 테이블
- * 모든 수입/지출 거래 기록
+ * [DEPRECATED] 구식 거래 내역 테이블 - income/expense 단식부기
+ * → 신규 거래는 expense_journal_entries/expense_journal_lines + accounting_transactions 사용
+ * @deprecated P4에서 데이터 마이그레이션 후 제거 예정
  */
 export const accountingTransactions = mysqlTable("accounting_transactions", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
@@ -1373,7 +1376,7 @@ export const apLedger = mysqlTable("ap_ledger", {
   refType: varchar("ref_type", { length: 50 }), // 'receiving', 'manual', etc.
   refId: bigint("ref_id", { mode: "number" }), // h_material_receivings.id, etc.
   memo: varchar({ length: 255 }),
-  accountingAccountId: bigint("accounting_account_id", { mode: "number" }).references(() => accountingAccountsV2.id),
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // FK → accounting_accounts.id (system_code 기반 통합 테이블)
   createdBy: bigint("created_by", { mode: "number" }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1393,7 +1396,7 @@ export const arLedger = mysqlTable("ar_ledger", {
   refType: varchar("ref_type", { length: 50 }), // 'shipment', 'manual', etc.
   refId: bigint("ref_id", { mode: "number" }),
   memo: varchar({ length: 255 }),
-  accountingAccountId: bigint("accounting_account_id", { mode: "number" }).references(() => accountingAccountsV2.id),
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // FK → accounting_accounts.id (system_code 기반 통합 테이블)
   createdBy: bigint("created_by", { mode: "number" }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -1467,8 +1470,11 @@ export const bankTransactions = mysqlTable("bank_transactions", {
 });
 
 /**
- * 계정 과목 v2 (5분류 체계)
- * asset(자산), liability(부채), equity(자본), revenue(수익), expense(비용)
+ * [DEPRECATED] accounting_accounts_v2 테이블은 accounting_accounts로 통합됨 (P2-2)
+ * - AP/AR/은행 거래의 accounting_account_id는 이제 accounting_accounts.id를 참조
+ * - system_code 기반 조회: resolveSystemAccount() 사용
+ * - Drizzle 정의는 하위 호환을 위해 유지하되 신규 코드에서는 사용 금지
+ * @deprecated Use accounting_accounts (drizzle/schema/accountingAccounts.ts) instead
  */
 export const accountingAccountsV2 = mysqlTable("accounting_accounts_v2", {
   id: bigint({ mode: "number" }).autoincrement().primaryKey(),

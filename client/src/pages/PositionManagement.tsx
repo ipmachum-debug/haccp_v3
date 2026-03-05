@@ -113,7 +113,7 @@ export default function PositionManagement() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto py-8">
+      <div className="space-y-6">
         <div className="text-center">로딩 중...</div>
       </div>
     );

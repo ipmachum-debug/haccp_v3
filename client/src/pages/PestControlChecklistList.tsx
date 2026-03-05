@@ -64,7 +64,7 @@ export default function PestControlChecklistList() {
 
   return (
     <DashboardLayout>
-    <div className="container mx-auto py-8">
+    <div className="space-y-6">
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">

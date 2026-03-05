@@ -143,7 +143,7 @@ export default function CcpRecords() {
   return (
     
 
-    <div className="container py-4 md:py-6">
+    <div className="space-y-6">
       <div className="mb-4 md:mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold">CCP 기록 목록</h1>

@@ -9,6 +9,8 @@
  * ✅ 멀티테넌시 격리: 모든 쿼리에 tenantId 필터 적용
  */
 import { getRawConnection } from "../db";
+import { resolveSystemAccount } from "./journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 // ===== 일별 원료수불 =====
 
@@ -508,6 +510,11 @@ export async function getDashboardSummary(tenantId: number) {
 }
 
 // ========== 회계 연동 ==========
+/**
+ * 원재료 수불 → 회계 원장 자동 연동 (복식부기)
+ * - 입고(purchase): 차변 원재료(INVENTORY_RAW) / 대변 외상매입금(ACCOUNTS_PAYABLE)
+ * - 사용(usage): 차변 매출원가(COST_OF_GOODS) / 대변 원재료(INVENTORY_RAW)
+ */
 export async function syncToAccounting(
   tenantId: number,
   type: 'purchase' | 'usage',
@@ -518,13 +525,6 @@ export async function syncToAccounting(
   userId: number
 ) {
   const conn = await getRawConnection();
-  // 카테고리 코드로 ID 조회
-  const categoryCode = type === 'purchase' ? 'MAT_PURCHASE' : 'MAT_USAGE';
-  const [cats]: any = await conn.execute(
-    `SELECT id FROM accounting_categories WHERE code = ? AND tenant_id = ?`,
-    [categoryCode, tenantId]
-  );
-  if (!cats || cats.length === 0) return null;
   
   const amount = quantity * unitPrice;
   if (amount <= 0) return null;
@@ -532,16 +532,44 @@ export async function syncToAccounting(
   const description = type === 'purchase' 
     ? `원재료 입고: ${materialName} ${quantity}kg × ${unitPrice}원`
     : `원재료 사용: ${materialName} ${quantity}kg × ${unitPrice}원`;
+
+  // system_code 기반 계정 조회
+  const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   
+  let debitAcc: { id: number; code: string; name: string };
+  let creditAcc: { id: number; code: string; name: string };
+
+  if (type === 'purchase') {
+    // 입고: 차변 원재료, 대변 외상매입금
+    debitAcc = inventoryAcc;
+    creditAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
+  } else {
+    // 사용: 차변 매출원가, 대변 원재료
+    debitAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가");
+    creditAcc = inventoryAcc;
+  }
+  
+  const sourceId = `ML-${date}-${type}-${Date.now()}`;
+
+  // 차변 라인
+  await conn.execute(
+    `INSERT INTO accounting_transactions 
+     (tenant_id, transaction_date, account_code, account_name, debit_amount, credit_amount,
+      description, source_type, source_id, source_line_id, action_type, created_by)
+     VALUES (?, ?, ?, ?, ?, 0, ?, 'material_ledger', ?, 'debit', 'POST', ?)`,
+    [tenantId, date, debitAcc.code, debitAcc.name, amount, description, sourceId, userId]
+  );
+
+  // 대변 라인
   const [result]: any = await conn.execute(
     `INSERT INTO accounting_transactions 
-     (transaction_date, type, amount, category_id, description, reference_type, created_by, tenant_id)
-     VALUES (?, 'expense', ?, ?, ?, 'material_ledger', ?, ?)`,
-    [date, amount, cats[0].id, description, userId, tenantId]
+     (tenant_id, transaction_date, account_code, account_name, debit_amount, credit_amount,
+      description, source_type, source_id, source_line_id, action_type, created_by)
+     VALUES (?, ?, ?, ?, 0, ?, ?, 'material_ledger', ?, 'credit', 'POST', ?)`,
+    [tenantId, date, creditAcc.code, creditAcc.name, amount, description, sourceId, userId]
   );
   
   return result.insertId;
-  // ※ getRawConnection()은 Pool 싱글턴 → release() 호출 금지
 }
 
 // ========== 체크리스트 연동 ==========
