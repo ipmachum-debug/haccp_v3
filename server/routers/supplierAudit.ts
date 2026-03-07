@@ -27,7 +27,7 @@ export const supplierAuditRouter = router({
     .mutation(async ({ input, ctx }) => {
       const id = await supplierDb.createSupplier({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -43,7 +43,7 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSuppliers({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
@@ -102,7 +102,7 @@ export const supplierAuditRouter = router({
       const id = await supplierDb.createSupplierAudit({
         ...input,
         score: input.score ? String(input.score) : undefined,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -120,7 +120,7 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSupplierAudits({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
@@ -182,7 +182,7 @@ export const supplierAuditRouter = router({
         ...input,
         overallScore,
         evaluatedBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -198,7 +198,7 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSupplierEvaluations({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
@@ -240,12 +240,12 @@ export const supplierAuditRouter = router({
 
   getDashboard: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      return await supplierDb.getSupplierDashboard(ctx.user.tenantId);
+      return await supplierDb.getSupplierDashboard(ctx.tenantId ?? undefined);
     }),
 
   getUpcomingAudits: tenantRequiredProcedure
     .input(z.object({ limit: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      return await supplierDb.getUpcomingAudits(ctx.user.tenantId, input.limit);
+      return await supplierDb.getUpcomingAudits(ctx.tenantId ?? undefined, input.limit);
     }),
 });

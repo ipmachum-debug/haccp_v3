@@ -315,7 +315,7 @@ export const qualityChecklistRouter = router({
    */
   deleteTemplateItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
       

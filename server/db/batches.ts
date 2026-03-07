@@ -199,27 +199,65 @@ export async function completeBatch(
     description: `생산 완료 (실제 수량: ${data.actualQuantity})`
   });
 
-  // ★ 배치 완료 시 제품 재고 LOT 자동 생성 (h_inventory_lots.productId)
+  // ★ 배치 완료 시 SKU별 제품 재고 LOT 자동 생성
   try {
     const batch = await getBatchById(id);
     if (batch && tenantId) {
-      const { createProductLotFromBatch } = await import("./productOutboundManagement");
-      await createProductLotFromBatch({
-        batchId: id,
-        batchCode: (batch as any).batchCode || (batch as any).batch_code || `B${id}`,
-        productId: (batch as any).productId || (batch as any).product_id || 0,
-        productName: (batch as any).productName || (batch as any).product_name || "제품",
-        quantity: parseFloat(data.actualQuantity || "0"),
-        unit: (batch as any).unit || "EA",
-        lotNumber: data.lotNumber || `PROD-${(batch as any).batchCode || (batch as any).batch_code || id}`,
-        expiryDate: data.expiryDate,
-        userId: 0, // system
-      }, tenantId);
-      console.log(`[completeBatch] 제품 LOT 자동 생성 완료 (배치: ${id})`);
+      const batchCode = (batch as any).batchCode || (batch as any).batch_code || `B${id}`;
+      const productId = (batch as any).productId || (batch as any).product_id || 0;
+      const productName = (batch as any).productName || (batch as any).product_name || "제품";
+      
+      // production_sku_output에서 SKU 실적 조회
+      const { getRawConnection } = await import("../db");
+      const pool = await getRawConnection();
+      const [skuOutputRows] = await pool.execute(
+        `SELECT pso.sku_id, pso.quantity, ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price
+         FROM production_sku_output pso
+         JOIN product_skus ps ON pso.sku_id = ps.id
+         WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
+        [id, tenantId]
+      );
+      
+      const skuRows = skuOutputRows as any[];
+      if (skuRows.length > 0) {
+        const { createProductLotFromBatch } = await import("./productOutboundManagement");
+        for (const sku of skuRows) {
+          const skuQty = parseInt(sku.quantity) || 0;
+          if (skuQty <= 0) continue;
+          await createProductLotFromBatch({
+            batchId: id,
+            batchCode,
+            productId,
+            productName,
+            quantity: skuQty,
+            unit: sku.sales_unit || "box",
+            lotNumber: `${batchCode}-${sku.sku_code || sku.sku_id}`,
+            expiryDate: data.expiryDate,
+            userId: 0,
+            skuId: sku.sku_id,
+            skuName: sku.sku_name,
+          }, tenantId);
+        }
+        console.log(`[completeBatch] ${skuRows.length}개 SKU LOT 자동 생성 완료 (배치: ${id})`);
+      } else {
+        // SKU 실적 없으면 기존 방식 fallback
+        const { createProductLotFromBatch } = await import("./productOutboundManagement");
+        await createProductLotFromBatch({
+          batchId: id,
+          batchCode,
+          productId,
+          productName,
+          quantity: parseFloat(data.actualQuantity || "0"),
+          unit: "kg",
+          lotNumber: data.lotNumber || `PROD-${batchCode}`,
+          expiryDate: data.expiryDate,
+          userId: 0,
+        }, tenantId);
+        console.log(`[completeBatch] fallback LOT 자동 생성 완료 (배치: ${id})`);
+      }
     }
   } catch (err) {
     console.error(`[completeBatch] 제품 LOT 생성 실패 (배치: ${id}):`, err);
-    // LOT 생성 실패해도 배치 완료는 성공
   }
 
   return await getBatchById(id);

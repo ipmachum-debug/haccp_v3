@@ -64,6 +64,8 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
   batchId: bigint("batch_id", { mode: "number" }),
   materialId: bigint("material_id", { mode: "number" }),
   productId: bigint("product_id", { mode: "number" }),
+  skuId: bigint("sku_id", { mode: "number" }),
+  skuName: varchar("sku_name", { length: 200 }),
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(),
   availableQuantity: decimal("available_quantity", { precision: 10, scale: 3 }).notNull(),
   unit: varchar("unit", { length: 20 }).notNull(),

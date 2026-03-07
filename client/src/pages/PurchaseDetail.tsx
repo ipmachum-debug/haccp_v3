@@ -11,10 +11,11 @@ export default function PurchaseDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   
-  const { data: purchase, isLoading } = trpc.haccpIntegration.getPurchaseById.useQuery(
+  const { data: _purchaseRaw, isLoading } = trpc.haccpIntegration.getPurchaseById.useQuery(
     { id: parseInt(id!) },
     { enabled: !!id }
   );
+  const purchase = _purchaseRaw as any;
 
   const downloadPdfMutation = trpc.haccpIntegration.generatePurchasePdf.useMutation({
     onSuccess: (data) => {

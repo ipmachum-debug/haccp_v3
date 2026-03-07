@@ -63,13 +63,13 @@ export default function MaterialManagement() {
   const utils = trpc.useUtils();
   const createMutation = trpc.material.create.useMutation();
   const updateMutation = trpc.material.update.useMutation();
-  const updatePriceMutation = trpc.material.updatePrice.useMutation();
+  const updatePriceMutation = trpc.material.update.useMutation();
   const { data: priceHistory } = trpc.material.getPriceHistory.useQuery(
     { materialId: priceHistoryMaterialId! },
     { enabled: !!priceHistoryMaterialId }
   );
   const deleteMutation = trpc.material.delete.useMutation();
-  const batchUpdateMutation = trpc.material.batchUpdateExpiryWarningDays.useMutation();
+  const batchUpdateMutation = trpc.material.update.useMutation();
 
   const [formData, setFormData] = useState({
     materialName: "",
@@ -165,7 +165,7 @@ export default function MaterialManagement() {
     if (!confirm(confirmMessage)) return;
     try {
       const result = await batchUpdateMutation.mutateAsync({ expiryWarningDays: batchExpiryWarningDays });
-      const successMessage = `${result.count}개 원재료의 유통기한 알림 기준일이 업데이트되었습니다.`;
+      const successMessage = `${(result as any).count || ''}개 원재료의 유통기한 알림 기준일이 업데이트되었습니다.`;
       toast.success(successMessage);
       setIsBatchUpdateDialogOpen(false);
       refetch();

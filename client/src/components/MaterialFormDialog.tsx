@@ -127,9 +127,9 @@ export default function MaterialFormDialog({
 
   const handleGenerateCode = async () => {
     try {
-      const result = await utils.material.generateCode.fetch();
-      setFormData({ ...formData, materialCode: result });
-      toast.success(`코드 자동 생성: ${result}`);
+      const code = `MAT-${String(Date.now()).slice(-6)}`;
+      setFormData({ ...formData, materialCode: code });
+      toast.success(`코드 자동 생성: ${code}`);
     } catch (error: any) {
       toast.error("코드 생성 실패: " + error.message);
     }

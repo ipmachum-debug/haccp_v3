@@ -48,7 +48,7 @@ export const batchScheduleRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByDateRange } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByDateRange(ctx.user.tenantId, input.startDate, input.endDate);
+        return await getBatchSchedulesByDateRange(ctx.tenantId ?? undefined, input.startDate, input.endDate);
       }),
     
     // 배치 ID로 일정 조회
@@ -56,7 +56,7 @@ export const batchScheduleRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByBatchId } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByBatchId(ctx.user.tenantId, input.batchId);
+        return await getBatchSchedulesByBatchId(ctx.tenantId ?? undefined, input.batchId);
       }),
     
     // 배치 일정 수정

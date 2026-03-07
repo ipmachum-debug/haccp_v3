@@ -8,7 +8,7 @@ export const recipeRouter = router({
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipeByProductId } = await import("../../db");
-        return await getRecipeByProductId(input.productId);
+        return await getRecipeByProductId(input.productId, ctx.tenantId);
       }),
     
     // 레시피 ID로 원재료 목록 조회
@@ -16,6 +16,6 @@ export const recipeRouter = router({
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMaterialsByRecipeId } = await import("../../db");
-        return await getMaterialsByRecipeId(input.recipeId);
+        return await getMaterialsByRecipeId(input.recipeId, ctx.tenantId);
       })
 });

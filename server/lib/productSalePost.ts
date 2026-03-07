@@ -118,7 +118,8 @@ export async function postProductSale(
     (sum, a) => sum + a.quantity * a.unitCost,
     0
   );
-  const tenantId = (sale as any).tenantId || 1;
+  const tenantId = (sale as any).tenantId;
+  if (!tenantId) throw new Error('[P0 보안] tenantId is required for productSalePost');
 
   // system_code 기반 계정 조회
   const receivableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금");

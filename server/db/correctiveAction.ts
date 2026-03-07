@@ -167,7 +167,7 @@ export async function addCorrectiveActionAttachment(data: {
   if (!db) throw new Error("Database not available");
   
   const [result] = await db.insert(hCorrectiveActionAttachments).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result.insertId;
 }
 

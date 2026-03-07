@@ -38,7 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { CheckCircle, XCircle, AlertTriangle, Plus, Edit, FileText, Download } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function HaccpPlanVerification({ embedded }: { embedded?: boolean } = {}) {
+export default function HaccpPlanVerification({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedVerification, setSelectedVerification] = useState<any>(null);

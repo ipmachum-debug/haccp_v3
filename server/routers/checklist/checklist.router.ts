@@ -17,7 +17,8 @@ export const checklistRouter = router({
         .query(async ({ input, ctx }) => {
           const { getChecklistTemplates } = await import("../../db");
           return await getChecklistTemplates({
-            category: input?.category as any
+            category: input?.category as any,
+            tenantId: ctx.tenantId
           });
         }),
       // 템플릿 상세 조회
@@ -25,7 +26,7 @@ export const checklistRouter = router({
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
           const { getChecklistTemplateById } = await import("../../db");
-          return await getChecklistTemplateById(input.id);
+          return await getChecklistTemplateById(input.id, ctx.tenantId);
         }),
       // 템플릿 생성
       create: workerProcedure
@@ -113,7 +114,7 @@ export const checklistRouter = router({
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
           const { getChecklistInstanceById } = await import("../../db");
-          return await getChecklistInstanceById(input.id);
+          return await getChecklistInstanceById(input.id, ctx.tenantId);
         }),
       // 인스턴스 생성
       create: workerProcedure

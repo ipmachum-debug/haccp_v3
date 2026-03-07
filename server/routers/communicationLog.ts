@@ -12,7 +12,7 @@ import {
   users,
   partners,
 } from "../../drizzle/schema/index";
-import { eq, and, desc, asc, like, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, like, or, sql, gt } from "drizzle-orm";
 
 /**
  * 커뮤니케이션 로그 생성
@@ -29,35 +29,61 @@ export async function createCommunicationLog(data: {
     const db = await getDb();
     if (!db) throw new Error("Database not initialized");
     
-    const [result] = await db.insert(communicationLogs).values({
-      tenantId: data.tenantId,
-      partnerId: data.partnerId,
-      content: data.content,
-      status: data.status || "received",
-      authorId: data.authorId,
-      mentions: data.mentions || null,
-    });
-    
-    // 멘션된 사용자에게 알림 생성
-    if (data.mentions) {
-      try {
-        const mentionedUserIds = JSON.parse(data.mentions);
-        for (const userId of mentionedUserIds) {
-          await db.insert(communicationLogNotifications).values({
-            tenantId: data.tenantId,
-            logId: result.insertId,
-            userId: userId,
-            type: "mention",
-            message: `새로운 메모에서 멘션되었습니다`,
-            isRead: false,
-          });
-        }
-      } catch (e) {
-        console.error("[createCommunicationLog] mentions parse error:", e);
-      }
+    // 거래처 메모는 반드시 partner_id > 0이어야 함
+    const partnerId = Number(data.partnerId);
+    if (!partnerId || partnerId <= 0) {
+      throw new Error("거래처 메모에는 거래처 선택이 필수입니다 (partner_id > 0)");
     }
     
-    return result.insertId;
+    // Raw SQL로 log_type='partner' 포함해서 한 번에 삽입 (Drizzle 스키마에 log_type이 없으므로)
+    try {
+      const [result]: any = await db.execute(
+        sql`INSERT INTO communication_logs (tenant_id, partner_id, content, status, author_id, mentions, log_type)
+            VALUES (${data.tenantId}, ${partnerId}, ${data.content}, ${data.status || "received"}, ${data.authorId}, ${data.mentions || null}, 'partner')`
+      );
+      
+      const insertId = Number(result?.insertId || 0);
+
+      // 멘션된 사용자에게 알림 생성
+      if (data.mentions) {
+        try {
+          const mentionedUserIds = JSON.parse(data.mentions);
+          for (const userId of mentionedUserIds) {
+            await db.insert(communicationLogNotifications).values({
+              tenantId: data.tenantId,
+              logId: insertId,
+              userId: userId,
+              type: "mention",
+              message: `새로운 메모에서 멘션되었습니다`,
+              isRead: false,
+            });
+          }
+        } catch (e) {
+          console.error("[createCommunicationLog] mentions parse error:", e);
+        }
+      }
+      
+      return insertId;
+    } catch (rawError: any) {
+      // log_type 컬럼이 없는 경우 fallback: Drizzle ORM insert + UPDATE
+      console.error("[createCommunicationLog] raw insert failed, trying Drizzle fallback:", rawError.message);
+      const [result] = await db.insert(communicationLogs).values({
+        tenantId: data.tenantId,
+        partnerId: partnerId,
+        content: data.content,
+        status: data.status || "received",
+        authorId: data.authorId,
+        mentions: data.mentions || null,
+      });
+      
+      try {
+        await db.execute(sql.raw(`UPDATE communication_logs SET log_type = 'partner' WHERE id = ${Number(result.insertId)}`));
+      } catch (e) {
+        // log_type 컬럼이 없는 경우 무시
+      }
+      
+      return result.insertId;
+    }
   } catch (error) {
     console.error("[createCommunicationLog] Error:", error);
     throw error;
@@ -81,7 +107,13 @@ export async function getCommunicationLogs(filters: {
 
   try {
     // Raw SQL로 JOIN 쿼리 실행 (작성자 이름 + 거래처명 포함)
+    // 거래처 메모 탭: 거래처가 있는 메모만 (partner_id > 0) + 사내공지 제외
     let whereClause = `cl.tenant_id = ${Number(filters.tenantId)}`;
+    
+    // partner_id > 0: 실제 거래처가 있는 메모만 표시 (사내공지는 partner_id=0)
+    whereClause += ` AND cl.partner_id > 0`;
+    
+    console.log("[getCommunicationLogs] tenantId =", filters.tenantId, "whereClause so far =", whereClause);
     
     if (filters.partnerId) {
       whereClause += ` AND cl.partner_id = ${Number(filters.partnerId)}`;
@@ -115,11 +147,17 @@ export async function getCommunicationLogs(filters: {
       ORDER BY ${sortBy} ${sortOrder}
     `));
 
-    return rows[0] || [];
+    const result = rows[0] || [];
+    console.log("[getCommunicationLogs] raw SQL returned", (result as unknown as any[]).length, "rows");
+    return result;
   } catch (error) {
-    console.error("[getCommunicationLogs] Error:", error);
-    // 폴백: 기본 쿼리
-    const conditions: any[] = [eq(communicationLogs.tenantId, filters.tenantId)];
+    console.error("[getCommunicationLogs] raw SQL Error:", error);
+    // 폴백: 기본 쿼리 (partner_id > 0 조건 포함 - 거래처 메모만)
+    console.log("[getCommunicationLogs] FALLBACK: using Drizzle ORM with gt(partnerId, 0)");
+    const conditions: any[] = [
+      eq(communicationLogs.tenantId, filters.tenantId),
+      gt(communicationLogs.partnerId, 0),
+    ];
     if (filters.partnerId) conditions.push(eq(communicationLogs.partnerId, filters.partnerId));
     if (filters.status) conditions.push(eq(communicationLogs.status, filters.status));
     if (filters.authorId) conditions.push(eq(communicationLogs.authorId, filters.authorId));
@@ -150,7 +188,7 @@ export async function getCommunicationLogById(logId: number, tenantId: number) {
       LIMIT 1
     `));
 
-    const result = rows[0] as any[];
+    const result = rows[0] as unknown as any[];
     return result && result.length > 0 ? result[0] : null;
   } catch (error) {
     console.error("[getCommunicationLogById] Error:", error);

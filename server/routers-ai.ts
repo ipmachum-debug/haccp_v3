@@ -1,11 +1,7 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "./_core/trpc";
-import OpenAI from "openai";
-
-// OpenAI 클라이언트 초기화
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { router, tenantRequiredProcedure } from "./_core/trpc";
+import { invokeLLM } from "./_core/llm";
+import { ENV } from "./_core/env";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -265,7 +261,7 @@ export const aiRouter = router({
   // ============================================================================
   // AI 채팅 (메인 챗봇 기능)
   // ============================================================================
-  chat: protectedProcedure
+  chat: tenantRequiredProcedure
     .input(
       z.object({
         message: z.string().min(1).max(2000),
@@ -275,6 +271,15 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.user?.id?.toString() || "anonymous";
       const convId = input.conversationId || userId;
+
+      // API 키 확인
+      if (!ENV.forgeApiKey) {
+        return {
+          success: false,
+          response: "AI 서비스가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.",
+          conversationId: convId,
+        };
+      }
 
       // 대화 히스토리 가져오기 또는 새로 생성
       let history = conversationHistory.get(convId) || [];
@@ -286,8 +291,7 @@ export const aiRouter = router({
       const recentHistory = history.slice(-20);
 
       try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const result = await invokeLLM({
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             ...recentHistory.map((msg) => ({
@@ -295,13 +299,13 @@ export const aiRouter = router({
               content: msg.content,
             })),
           ],
-          temperature: 0.7,
-          max_tokens: 2000,
+          maxTokens: 2000,
         });
 
         const assistantMessage =
-          completion.choices[0]?.message?.content ||
-          "죄송합니다. 응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+          (typeof result.choices[0]?.message?.content === 'string'
+            ? result.choices[0].message.content
+            : '죄송합니다. 응답을 생성하지 못했습니다. 다시 시도해 주세요.');
 
         // 어시스턴트 응답 히스토리에 추가
         history.push({ role: "assistant", content: assistantMessage });
@@ -315,27 +319,7 @@ export const aiRouter = router({
           conversationId: convId,
         };
       } catch (error: any) {
-        console.error("[AI Chat Error]", error);
-
-        // API 키 오류 처리
-        if (error?.status === 401) {
-          return {
-            success: false,
-            response:
-              "AI 서비스 인증에 실패했습니다. 관리자에게 문의해 주세요.",
-            conversationId: convId,
-          };
-        }
-
-        // 할당량 초과 처리
-        if (error?.status === 429) {
-          return {
-            success: false,
-            response:
-              "AI 서비스 사용량이 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.",
-            conversationId: convId,
-          };
-        }
+        console.error("[AI Chat Error]", error?.message || error);
 
         return {
           success: false,
@@ -349,7 +333,7 @@ export const aiRouter = router({
   // ============================================================================
   // 대화 히스토리 초기화
   // ============================================================================
-  clearHistory: protectedProcedure
+  clearHistory: tenantRequiredProcedure
     .input(
       z.object({
         conversationId: z.string().optional(),
@@ -365,126 +349,80 @@ export const aiRouter = router({
   // ============================================================================
   // HACCP 일지 초안 자동 생성
   // ============================================================================
-  generateHaccpDraft: protectedProcedure
+  generateHaccpDraft: tenantRequiredProcedure
     .input(
       z.object({
-        date: z.string(), // YYYY-MM-DD
+        date: z.string(),
         type: z.enum(["daily", "weekly", "monthly"]),
       })
     )
     .mutation(async ({ input }) => {
+      if (!ENV.forgeApiKey) {
+        return { success: false, draft: "AI 서비스가 설정되지 않았습니다.", date: input.date, type: input.type };
+      }
       try {
-        const prompt = `오늘 날짜는 ${input.date}입니다.
-식품 제조업체의 HACCP ${input.type === "daily" ? "일일" : input.type === "weekly" ? "주간" : "월간"} 점검 일지 초안을 작성해 주세요.
-다음 항목을 포함해야 합니다:
-1. 작업장 위생 상태 점검
-2. 개인 위생 점검 (작업복, 모자, 마스크, 장갑 착용 여부)
-3. 원부자재 입고 검수 상태
-4. 가열 공정 온도/시간 기록 (가열 온도: 85°C 이상, 가열 시간: 30초 이상)
-5. 냉각 공정 온도 기록 (냉각 온도: 10°C 이하, 냉각 시간: 4시간 이내)
-6. 금속 검출기 작동 상태
-7. 포장 상태 점검
-8. 보관 온도 점검 (냉장: 0~10°C, 냉동: -18°C 이하)
-9. 세척 소독 실시 여부
-10. 방충방서 상태 점검
-각 항목에 대해 "적합" 또는 "부적합"을 기본값으로 설정하고, 특이사항란을 포함해 주세요.
-표 형식으로 작성해 주세요.`;
+        const prompt = `오늘 날짜는 ${input.date}입니다.\n식품 제조업체의 HACCP ${input.type === "daily" ? "일일" : input.type === "weekly" ? "주간" : "월간"} 점검 일지 초안을 작성해 주세요.\n다음 항목을 포함: 작업장 위생, 개인 위생, 원부자재 검수, 가열 공정(85°C↑), 냉각 공정(10°C↓), 금속 검출기, 포장 상태, 보관 온도(냉장0~10°C/냉동-18°C↓), 세척 소독, 방충방서.\n각 항목에 적합/부적합 기본값, 특이사항란 포함. 표 형식.`;
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const result = await invokeLLM({
           messages: [
-            {
-              role: "system",
-              content:
-                "당신은 HACCP 전문가입니다. 식품 제조업체의 HACCP 점검 일지를 정확하고 전문적으로 작성합니다.",
-            },
+            { role: "system", content: "당신은 HACCP 전문가입니다. 식품 제조업체의 HACCP 점검 일지를 정확하고 전문적으로 작성합니다." },
             { role: "user", content: prompt },
           ],
-          temperature: 0.3,
-          max_tokens: 2000,
+          maxTokens: 2000,
         });
 
-        const draft =
-          completion.choices[0]?.message?.content ||
-          "일지 초안 생성에 실패했습니다.";
+        const draft = typeof result.choices[0]?.message?.content === 'string'
+          ? result.choices[0].message.content : "일지 초안 생성에 실패했습니다.";
 
-        return {
-          success: true,
-          draft,
-          date: input.date,
-          type: input.type,
-        };
-      } catch (error) {
-        console.error("[AI HACCP Draft Error]", error);
-        return {
-          success: false,
-          draft: "일지 초안 생성 중 오류가 발생했습니다.",
-          date: input.date,
-          type: input.type,
-        };
+        return { success: true, draft, date: input.date, type: input.type };
+      } catch (error: any) {
+        console.error("[AI HACCP Draft Error]", error?.message || error);
+        return { success: false, draft: "일지 초안 생성 중 오류가 발생했습니다.", date: input.date, type: input.type };
       }
     }),
 
   // ============================================================================
   // 검사 결과 자동 판정
   // ============================================================================
-  analyzeInspection: protectedProcedure
+  analyzeInspection: tenantRequiredProcedure
     .input(
       z.object({
-        inspectionType: z.string(), // 검사 유형
+        inspectionType: z.string(),
         measurements: z.array(
           z.object({
-            item: z.string(), // 검사 항목
-            value: z.string(), // 측정값
-            standard: z.string(), // 기준값
+            item: z.string(),
+            value: z.string(),
+            standard: z.string(),
           })
         ),
       })
     )
     .mutation(async ({ input }) => {
+      if (!ENV.forgeApiKey) {
+        return { success: false, result: "AI 서비스가 설정되지 않았습니다." };
+      }
       try {
         const measurementText = input.measurements
-          .map(
-            (m) => `- ${m.item}: 측정값 ${m.value}, 기준값 ${m.standard}`
-          )
+          .map((m) => `- ${m.item}: 측정값 ${m.value}, 기준값 ${m.standard}`)
           .join("\n");
 
-        const prompt = `다음은 식품 ${input.inspectionType} 검사 결과입니다:
-${measurementText}
-각 항목에 대해:
-1. 적합/부적합 판정
-2. 판정 근거
-3. 부적합 시 권장 조치사항
-을 JSON 형식으로 답변해 주세요.`;
+        const prompt = `다음은 식품 ${input.inspectionType} 검사 결과입니다:\n${measurementText}\n각 항목에 대해: 1.적합/부적합 판정 2.판정근거 3.부적합시 권장 조치사항을 JSON 형식으로 답변해 주세요.`;
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const result = await invokeLLM({
           messages: [
-            {
-              role: "system",
-              content:
-                "당신은 식품 품질 검사 전문가입니다. 검사 결과를 정확하게 판정합니다. 반드시 JSON 형식으로 답변하세요.",
-            },
+            { role: "system", content: "당신은 식품 품질 검사 전문가입니다. 검사 결과를 정확하게 판정합니다. 반드시 JSON 형식으로 답변하세요." },
             { role: "user", content: prompt },
           ],
-          temperature: 0.2,
-          max_tokens: 1500,
+          maxTokens: 1500,
         });
 
-        const result =
-          completion.choices[0]?.message?.content ||
-          "판정 결과를 생성하지 못했습니다.";
+        const analysisResult = typeof result.choices[0]?.message?.content === 'string'
+          ? result.choices[0].message.content : "판정 결과를 생성하지 못했습니다.";
 
-        return {
-          success: true,
-          result,
-        };
-      } catch (error) {
-        console.error("[AI Inspection Error]", error);
-        return {
-          success: false,
-          result: "검사 결과 분석 중 오류가 발생했습니다.",
-        };
+        return { success: true, result: analysisResult };
+      } catch (error: any) {
+        console.error("[AI Inspection Error]", error?.message || error);
+        return { success: false, result: "검사 결과 분석 중 오류가 발생했습니다." };
       }
     }),
 });

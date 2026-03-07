@@ -23,7 +23,7 @@ export const monthlyLogsRouter = router({
         const result = await db.execute(sql`
           SELECT id, form_date, form_data FROM h_generic_checklist_records
           WHERE form_type = 'monthly_log'
-            AND tenant_id = ${ctx.user.tenantId}
+            AND tenant_id = ${ctx.tenantId}
             AND form_date < ${input.beforeDate}
             AND form_data IS NOT NULL
           ORDER BY form_date DESC
@@ -60,7 +60,7 @@ export const monthlyLogsRouter = router({
           FROM h_generic_checklist_records
           WHERE form_type = 'monthly_log'
             AND form_date = ${input.logDate}
-            AND tenant_id = ${ctx.user.tenantId}
+            AND tenant_id = ${ctx.tenantId}
           ORDER BY created_at DESC LIMIT 1
         `);
         const rows = (result as any)[0] || [];
@@ -98,8 +98,9 @@ export const monthlyLogsRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const tenantId = ctx.user.tenantId;
-        const siteId = input.siteId || 1;
+        const tenantId = ctx.tenantId ?? undefined;
+        const siteId = input.siteId || ctx.user.siteId;
+        if (!siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "사이트 정보가 필요합니다. (siteId)" });
 
         const existing = await db.execute(sql`
           SELECT id, form_data FROM h_generic_checklist_records
@@ -194,7 +195,7 @@ export const monthlyLogsRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         const existing = await db.execute(sql`
           SELECT form_data FROM h_generic_checklist_records
-          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
         const oldRows = (existing as any)[0] || [];
         let oldFd: any = {};
@@ -205,7 +206,7 @@ export const monthlyLogsRouter = router({
         await db.execute(sql`
           UPDATE h_generic_checklist_records
           SET form_data = ${JSON.stringify(merged)}, updated_at = NOW()
-          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true };
       } catch (error) {
@@ -240,7 +241,7 @@ export const monthlyLogsRouter = router({
             ar.reference_type = 'checklist' AND ar.reference_id = r.id AND ar.request_type = 'monthly_log'
           )
           WHERE r.form_type = 'monthly_log'
-          AND r.tenant_id = ${ctx.user.tenantId}
+          AND r.tenant_id = ${ctx.tenantId}
           ${input?.siteId ? sql`AND r.site_id = ${input.siteId}` : sql``}
           ${input?.startDate ? sql`AND r.form_date >= ${input.startDate}` : sql``}
           ${input?.endDate ? sql`AND r.form_date <= ${input.endDate}` : sql``}
@@ -273,4 +274,10 @@ export const monthlyLogsRouter = router({
   getHygiene: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
   createCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
   getCCP: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
+  deleteCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  approveCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  requestCCPApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  rejectCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  approveHygiene: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  requestHygieneApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
 });

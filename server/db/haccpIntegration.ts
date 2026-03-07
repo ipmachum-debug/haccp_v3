@@ -43,7 +43,7 @@ export async function createPurchase(params: {
   }
 
   const [purchase] = await db.insert(accountingPurchases).values({
-    tenantId: tenantId ?? 1,
+    tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
     itemName: params.itemName,
@@ -189,6 +189,7 @@ export async function createSale(params: {
   unitPrice: number;
   amount: number;
   taxAmount: number;
+  unit?: string;
   memo?: string;
   accountCategoryId?: number;
   createdBy: number;
@@ -197,12 +198,12 @@ export async function createSale(params: {
   if (!db) throw new Error("Database connection not available");
 
   const [sale] = await db.insert(accountingSales).values({
-    tenantId: tenantId ?? 1,
+    tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
     itemName: params.itemName,
     quantity: params.quantity.toString(),
-    unit: "개",
+    unit: params.unit || "개",
     unitPrice: params.unitPrice.toString(),
     totalAmount: params.amount.toString(),
     taxAmount: params.taxAmount.toString(),
@@ -240,7 +241,7 @@ export async function createPurchaseFromReceipt(params: {
   const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
 
   const [purchase] = await db.insert(accountingPurchases).values({
-    tenantId: tenantId ?? 1,
+    tenantId: tenantId,
     transactionDate,
     partnerId: params.partnerId,
     itemName: params.itemName,
@@ -282,7 +283,7 @@ export async function createSaleFromUsage(params: {
   const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
 
   const [sale] = await db.insert(accountingSales).values({
-    tenantId: tenantId ?? 1,
+    tenantId: tenantId,
     transactionDate,
     partnerId: params.partnerId,
     itemName: params.itemName,

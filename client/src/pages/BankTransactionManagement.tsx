@@ -20,7 +20,8 @@ export default function BankTransactionManagement() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
 
-  const { data: accounts } = trpc.bankAccount.list.useQuery({ isActive: "Y" });
+  const { data: accountsData } = trpc.bankAccount.list.useQuery({ isActive: "Y" });
+  const accounts = (accountsData as any)?.accounts ?? (Array.isArray(accountsData) ? accountsData : []);
   const { data: transactions, refetch } = trpc.bankTransaction.list.useQuery({
     bankAccountId: selectedAccountId,
     matchStatus,
@@ -70,8 +71,8 @@ export default function BankTransactionManagement() {
             refetch();
           }
           
-          if (result.failed > 0 || result.skipped > 0) {
-            toast.warning(`실패: ${result.failed}건, 중복: ${result.skipped}건`);
+          if (result.failed > 0 || result.duplicate > 0) {
+            toast.warning(`실패: ${result.failed}건, 중복: ${result.duplicate}건`);
           }
         } catch (error: any) {
           toast.error(error.message || "업로드 실패");
@@ -225,8 +226,8 @@ export default function BankTransactionManagement() {
                     <Button variant="outline" onClick={() => setIsUploadDialogOpen(false)}>
                       닫기
                     </Button>
-                    <Button onClick={handleUpload} disabled={!uploadFile || !selectedAccountId || bulkUploadMutation.isLoading}>
-                      {bulkUploadMutation.isLoading ? "업로드 중..." : "업로드"}
+                    <Button onClick={handleUpload} disabled={!uploadFile || !selectedAccountId || bulkUploadMutation.isPending}>
+                      {bulkUploadMutation.isPending ? "업로드 중..." : "업로드"}
                     </Button>
                   </div>
                 </div>
@@ -273,7 +274,7 @@ export default function BankTransactionManagement() {
           <CardHeader>
             <CardTitle>거래 내역 ({transactions?.total || 0}건)</CardTitle>
             <CardDescription>
-              미매칭: {transactions?.data.filter((t: any) => t.transaction.matchStatus === "unmatched").length || 0}건
+              미매칭: {transactions?.items.filter((t: any) => t.transaction.matchStatus === "unmatched").length || 0}건
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -291,14 +292,14 @@ export default function BankTransactionManagement() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions?.data.length === 0 ? (
+                {transactions?.items.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-gray-500 py-8">
                       거래 내역이 없습니다
                     </TableCell>
                   </TableRow>
                 ) : (
-                  transactions?.data.map((item: any) => {
+                  transactions?.items.map((item: any) => {
                     const tx = item.transaction;
                     return (
                       <TableRow key={tx.id}>

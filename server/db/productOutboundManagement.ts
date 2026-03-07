@@ -71,38 +71,46 @@ export async function createProductLotFromBatch(params: {
   lotNumber: string;
   expiryDate?: string;
   userId: number;
+  skuId?: number;
+  skuName?: string;
 }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 이미 이 배치에서 생성된 제품 LOT가 있는지 확인
-  const existing = await db.select().from(hInventoryLots).where(
-    and(
-      eq(hInventoryLots.tenantId, tenantId),
-      eq(hInventoryLots.batchId, params.batchId)
-    )
-  );
-  if (existing.length > 0) {
-    // 기존 LOT의 수량만 업데이트
+  // 이미 이 배치(+SKU)에서 생성된 제품 LOT가 있는지 확인
+  const conditions = [
+    eq(hInventoryLots.tenantId, tenantId),
+    eq(hInventoryLots.batchId, params.batchId),
+  ];
+  const existing = await db.select().from(hInventoryLots).where(and(...conditions));
+  
+  // SKU 지정이 있으면 해당 SKU LOT만 매칭
+  const matchingLot = params.skuId
+    ? existing.find((l: any) => l.skuId === params.skuId)
+    : existing[0];
+
+  if (matchingLot) {
     await db.update(hInventoryLots)
       .set({
         quantity: params.quantity.toString(),
         availableQuantity: params.quantity.toString(),
       })
-      .where(eq(hInventoryLots.id, existing[0].id));
-    return { lotId: existing[0].id, lotNumber: existing[0].lotNumber, isNew: false };
+      .where(eq(hInventoryLots.id, matchingLot.id));
+    return { lotId: matchingLot.id, lotNumber: matchingLot.lotNumber, isNew: false };
   }
 
-  // 새 제품 LOT 생성
+  // 새 제품 LOT 생성 (SKU 정보 포함)
   const lotNumber = params.lotNumber || `PROD-${params.batchCode}`;
   const insertResult = await db.insert(hInventoryLots).values({
     tenantId,
     batchId: params.batchId,
     productId: params.productId,
+    skuId: params.skuId || null,
+    skuName: params.skuName || null,
     lotNumber,
     quantity: params.quantity.toString(),
     availableQuantity: params.quantity.toString(),
-    unit: params.unit || "EA",
+    unit: params.unit || "kg",
     productionDate: new Date().toISOString().slice(0, 10),
     expiryDate: params.expiryDate || null,
     status: "available",
@@ -116,8 +124,8 @@ export async function createProductLotFromBatch(params: {
     lotId,
     transactionType: "inbound",
     quantity: params.quantity.toString(),
-    unit: params.unit || "EA",
-    notes: `생산 완료 입고 (배치: ${params.batchCode}, 제품: ${params.productName})`,
+    unit: params.unit || "kg",
+    notes: `생산 완료 입고 (배치: ${params.batchCode}, 제품: ${params.productName}${params.skuName ? `, SKU: ${params.skuName}` : ''})`,
     createdBy: params.userId,
     performedBy: params.userId,
     transactionDate: new Date().toISOString().slice(0, 10),
@@ -131,25 +139,28 @@ export async function getProductAvailableForRelease(tenantId: number) {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
-  // 1차: h_inventory_lots에서 productId가 있는 가용 LOT 조회
+  // 1차: h_inventory_lots에서 productId가 있는 가용 LOT 조회 (SKU 정보 포함)
   const [lotRows] = await conn.execute(
     `SELECT 
       l.id as lot_id, l.lot_number, l.product_id, l.batch_id,
+      l.sku_id, l.sku_name,
       l.quantity as produced_quantity,
       l.available_quantity,
       l.unit, l.unit_price, l.expiry_date, l.production_date, l.status,
-      COALESCE(p.name, im.item_name, CONCAT('제품#', l.product_id)) as product_name,
-      b.batch_code, b.end_time as completed_at
+      COALESCE(p.product_name, im.item_name, CONCAT('제품#', l.product_id)) as product_name,
+      b.batch_code, b.end_time as completed_at,
+      ps.sku_code, ps.sales_unit
      FROM h_inventory_lots l
-     LEFT JOIN h_products p ON l.product_id = p.id
+     LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = l.product_id AND im.item_type = 'own_product'
      LEFT JOIN h_batches b ON l.batch_id = b.id
+     LEFT JOIN product_skus ps ON l.sku_id = ps.id
      WHERE l.tenant_id = ? 
        AND l.product_id IS NOT NULL 
        AND l.status = 'available'
        AND CAST(l.available_quantity AS DECIMAL(10,3)) > 0
      ORDER BY l.expiry_date ASC, l.production_date ASC, l.id ASC`,
-    [tenantId]
+    [tenantId, tenantId]
   );
 
   const lotResults = (lotRows as any[]).map(r => ({
@@ -157,14 +168,17 @@ export async function getProductAvailableForRelease(tenantId: number) {
     batchId: r.batch_id,
     batchCode: r.batch_code || null,
     productId: r.product_id,
+    skuId: r.sku_id || null,
+    skuName: r.sku_name || null,
+    skuCode: r.sku_code || null,
     lotNumber: r.lot_number,
     producedQuantity: parseFloat(r.produced_quantity || "0"),
     availableQuantity: parseFloat(r.available_quantity || "0"),
-    unit: r.unit || "EA",
+    unit: r.unit || "kg",
     unitPrice: parseFloat(r.unit_price || "0"),
     expiryDate: r.expiry_date,
     completedAt: r.completed_at,
-    productName: r.product_name || "제품",
+    productName: r.sku_name ? `${r.product_name} [${r.sku_name}]` : (r.product_name || "제품"),
     source: "lot" as const
   }));
 
@@ -177,7 +191,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
       COALESCE(shipped.total_shipped, 0) as total_shipped,
       CAST(COALESCE(b.actual_quantity, b.planned_quantity) - COALESCE(shipped.total_shipped, 0) AS DECIMAL(10,2)) as available_quantity,
       b.expiry_date, b.end_time as completed_at, b.unit,
-      COALESCE(p.name, CONCAT('제품#', b.product_id)) as product_name
+      COALESCE(p.product_name, CONCAT('제품#', b.product_id)) as product_name
      FROM h_batches b
      LEFT JOIN (
        SELECT batch_id, SUM(quantity) as total_shipped
@@ -185,11 +199,11 @@ export async function getProductAvailableForRelease(tenantId: number) {
        WHERE tenant_id = ? AND status != 'cancelled'
        GROUP BY batch_id
      ) shipped ON b.id = shipped.batch_id
-     LEFT JOIN h_products p ON b.product_id = p.id
+     LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
      HAVING available_quantity > 0
      ORDER BY b.end_time ASC`,
-    [tenantId, tenantId]
+    [tenantId, tenantId, tenantId]
   );
 
   const batchResults = (batchRows as any[])
@@ -228,6 +242,8 @@ export async function createProductOutbound(params: {
   lotNumber?: string;
   notes?: string;
   createdBy: number;
+  skuId?: number;
+  skuName?: string;
 }, tenantId: number) {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
@@ -235,18 +251,19 @@ export async function createProductOutbound(params: {
 
   let lotNumber = params.lotNumber || "";
   let batchCode = "";
+  let lot: any = null;
 
   // LOT 기반 출고 (우선)
   if (params.lotId) {
-    // LOT 가용 재고 확인
+    // LOT 가용 재고 확인 (SKU 정보 포함)
     const [lotResult] = await conn.execute(
-      `SELECT id, lot_number, available_quantity, batch_id, product_id, unit
+      `SELECT id, lot_number, available_quantity, batch_id, product_id, unit, sku_id, sku_name
        FROM h_inventory_lots WHERE id = ? AND tenant_id = ? AND status = 'available'`,
       [params.lotId, tenantId]
     );
     const lots = lotResult as any[];
     if (!lots.length) throw new Error("제품 LOT를 찾을 수 없습니다.");
-    const lot = lots[0];
+    lot = lots[0];
     const avail = parseFloat(lot.available_quantity || "0");
     if (params.quantity > avail) {
       throw new Error(`출고 가능 수량 초과. 가용: ${avail.toFixed(2)}, 요청: ${params.quantity}`);
@@ -328,14 +345,20 @@ export async function createProductOutbound(params: {
 
   const totalAmount = params.quantity * params.unitPrice;
 
-  // 출고 레코드 생성
+  // 출고 시 SKU 정보 결정: 파라미터 > LOT에서 읽은 값
+  const outboundSkuId = params.skuId || (params.lotId && lot ? lot.sku_id : null);
+  const outboundSkuName = params.skuName || (params.lotId && lot ? lot.sku_name : null);
+  const displayItemName = outboundSkuName ? `${params.productName} [${outboundSkuName}]` : params.productName;
+
+  // 출고 레코드 생성 (SKU 정보 포함)
   const [insertResult] = await conn.execute(
     `INSERT INTO h_product_outbound (
-      tenant_id, batch_id, lot_id, product_name, quantity, unit, unit_price, total_amount,
+      tenant_id, batch_id, lot_id, sku_id, sku_name, product_name, quantity, unit, unit_price, total_amount,
       partner_id, partner_name, release_date, release_type, lot_number, notes, status, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, NOW())`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, NOW())`,
     [
       tenantId, params.batchId || null, params.lotId || null,
+      outboundSkuId || null, outboundSkuName || null,
       params.productName, params.quantity, params.unit,
       params.unitPrice, totalAmount,
       params.partnerId || null, params.partnerName || null,
@@ -345,7 +368,7 @@ export async function createProductOutbound(params: {
   );
   const outboundId = (insertResult as any).insertId;
 
-  // 회계 연동 — 매출전표 자동 생성 (sale/delivery만)
+  // 회계 연동 — 매출전표 자동 생성 (sale/delivery만, SKU 명칭 반영)
   let accountingSaleCreated = false;
   if (params.releaseType === "sale" || params.releaseType === "delivery") {
     try {
@@ -357,10 +380,10 @@ export async function createProductOutbound(params: {
         [
           tenantId, params.releaseDate,
           params.partnerId || null,
-          params.productName,
+          displayItemName,
           params.quantity, params.unit, params.unitPrice,
           totalAmount,
-          `제품출고 자동생성 (LOT: ${lotNumber}${batchCode ? `, 배치: ${batchCode}` : ""}${params.partnerName ? `, 거래처: ${params.partnerName}` : ""})`,
+          `제품출고 자동생성 (LOT: ${lotNumber}${batchCode ? `, 배치: ${batchCode}` : ""}${outboundSkuName ? `, SKU: ${outboundSkuName}` : ""}${params.partnerName ? `, 거래처: ${params.partnerName}` : ""})`,
           outboundId,
           params.createdBy
         ]
@@ -552,7 +575,7 @@ export async function getProductTurnoverAnalysis(params: {
   const [rows] = await conn.execute(
     `SELECT 
       b.product_id,
-      COALESCE(im.item_name, p.name, CONCAT('제품#', b.product_id)) as product_name,
+      COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
       COALESCE(im.item_code, '') as product_code,
       
       COALESCE(SUM(CASE 
@@ -569,7 +592,7 @@ export async function getProductTurnoverAnalysis(params: {
       END), 0) - COALESCE(outbound.all_outbound, 0) as current_stock
       
      FROM h_batches b
-     LEFT JOIN h_products p ON b.product_id = p.id
+     LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
        SELECT o2.batch_id,
@@ -580,9 +603,9 @@ export async function getProductTurnoverAnalysis(params: {
        GROUP BY o2.batch_id
      ) outbound ON b.id = outbound.batch_id
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
-     GROUP BY b.product_id, im.item_name, p.name, im.item_code, outbound.total_outbound, outbound.all_outbound
+     GROUP BY b.product_id, im.item_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
      ORDER BY outbound_quantity DESC`,
-    [params.startDate, params.endDate, params.startDate, params.endDate, tenantId, tenantId]
+    [params.startDate, params.endDate, params.startDate, params.endDate, tenantId, tenantId, tenantId]
   );
 
   return (rows as any[]).map(r => {

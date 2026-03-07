@@ -75,7 +75,7 @@ export const nonconformingProductRouter = router({
         ...input,
         detectedBy: ctx.user.id,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -202,7 +202,7 @@ export const nonconformingProductRouter = router({
       const id = await ncpDb.addAttachment({
         ...input,
         uploadedBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),

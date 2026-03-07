@@ -29,7 +29,7 @@ interface SkuActualInput {
 /** CCP 처리 모드 */
 type ProcessingMode = "auto" | "manual";
 
-export default function BatchCreate({ embedded = false }: { embedded?: boolean }) {
+export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boolean; [key: string]: any }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
 

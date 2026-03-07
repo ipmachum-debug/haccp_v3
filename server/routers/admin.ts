@@ -25,7 +25,7 @@ export const adminRouter = router({
     }
 
     // h_batch_completion_retries 테이블에서 실패 작업 조회
-    const failedTasks = await batchPdfLogsDb.getFailedTasks();
+    const failedTasks = await batchPdfLogsDb.getFailedTasks(ctx.tenantId);
     return failedTasks;
   }),
 
@@ -44,7 +44,7 @@ export const adminRouter = router({
       }
 
       // 실패 작업 재시도 로직
-      const result = await batchPdfLogsDb.retryFailedTask(input.taskId);
+      const result = await batchPdfLogsDb.retryFailedTask(input.taskId, ctx.tenantId);
       return result;
     }),
 
@@ -63,7 +63,7 @@ export const adminRouter = router({
       }
 
       // 실패 작업 삭제 로직
-      const result = await batchPdfLogsDb.deleteFailedTask(input.taskId);
+      const result = await batchPdfLogsDb.deleteFailedTask(input.taskId, ctx.tenantId);
       return result;
     }),
 

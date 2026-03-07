@@ -25,7 +25,7 @@ export const productRouter = router({
         const limit = input?.limit || 20;
         const offset = (page - 1) * limit;
         
-        const conditions = [eq(hProductsV2.tenantId, ctx.user.tenantId), eq(hProductsV2.isActive, 1)];
+        const conditions = [eq(hProductsV2.tenantId, ctx.tenantId ?? undefined), eq(hProductsV2.isActive, 1)];
         
         if (input?.search) {
           conditions.push(
@@ -74,7 +74,7 @@ export const productRouter = router({
           .select()
           .from(hProductsV2)
           .where(and(
-            eq(hProductsV2.tenantId, ctx.user.tenantId),
+            eq(hProductsV2.tenantId, ctx.tenantId ?? undefined),
             eq(hProductsV2.isActive, 1)
           ))
           .orderBy(asc(hProductsV2.productCode));
@@ -120,7 +120,7 @@ export const productRouter = router({
         const result = await db.insert(hProductsV2).values({
           ...rest,
           shelfLifeDays,
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           isActive: input.isActive ?? 1,
         });
         const newProductId = Number(result[0].insertId);
@@ -129,7 +129,7 @@ export const productRouter = router({
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.insert(itemMaster).values({
-            tenantId: ctx.user.tenantId,
+            tenantId: ctx.tenantId ?? undefined,
             itemCode: input.productCode,
             itemName: input.productName,
             itemType: 'own_product',
@@ -180,7 +180,7 @@ export const productRouter = router({
           if (shelfLifeDays !== undefined) syncData.shelfLifeDays = shelfLifeDays;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyProductId, id), eq(itemMaster.tenantId, ctx.user.tenantId))
+              and(eq(itemMaster.legacyProductId, id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
             );
           }
         } catch (syncErr) {
@@ -195,13 +195,13 @@ export const productRouter = router({
         const db = await getDb();
         if (!db) throw new Error("Database connection failed");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
-        await db.update(hProductsV2).set({ isActive: 0 }).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.user.tenantId)));
+        await db.update(hProductsV2).set({ isActive: 0 }).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId ?? undefined)));
         
         // item_master 동기화 (비활성화)
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.update(itemMaster).set({ isActive: 0 }).where(
-            and(eq(itemMaster.legacyProductId, input.id), eq(itemMaster.tenantId, ctx.user.tenantId))
+            and(eq(itemMaster.legacyProductId, input.id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
           );
         } catch (syncErr) {
           console.error('item_master 동기화 실패:', syncErr);
@@ -214,7 +214,7 @@ export const productRouter = router({
     generateCode: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { generateProductCode } = await import("../../db/codeGenerator.js");
-        return await generateProductCode(ctx.user.tenantId);
+        return await generateProductCode(ctx.tenantId ?? undefined);
       }),
 
     // 일괄 등록 (UPSERT - 동일 제품명 있으면 수정, 없으면 신규)
@@ -242,7 +242,7 @@ export const productRouter = router({
         const results = { successCount: 0, insertCount: 0, updateCount: 0, failureCount: 0, errors: [] as any[] };
         
         // 현재 최대 코드 번호 조회
-        const maxResult = await db.execute(sql`SELECT MAX(CAST(SUBSTRING(product_code, 5) AS UNSIGNED)) as maxNum FROM h_products_v2 WHERE tenant_id = ${ctx.user.tenantId} AND product_code REGEXP '^PRD-[0-9]+$'`);
+        const maxResult = await db.execute(sql`SELECT MAX(CAST(SUBSTRING(product_code, 5) AS UNSIGNED)) as maxNum FROM h_products_v2 WHERE tenant_id = ${ctx.tenantId} AND product_code REGEXP '^PRD-[0-9]+$'`);
         let codeCounter = Number((maxResult as any)[0]?.[0]?.maxNum || (maxResult as any)[0]?.maxNum || 0);
         
         for (let i = 0; i < input.products.length; i++) {
@@ -255,7 +255,7 @@ export const productRouter = router({
             }
             
             const existing = await db.select().from(hProductsV2)
-              .where(and(eq(hProductsV2.tenantId, ctx.user.tenantId), eq(hProductsV2.productName, product.productName.trim())))
+              .where(and(eq(hProductsV2.tenantId, ctx.tenantId ?? undefined), eq(hProductsV2.productName, product.productName.trim())))
               .limit(1);
             
             const shelfLifeDays = product.shelfLifeMonths ? product.shelfLifeMonths * 30 : undefined;
@@ -276,7 +276,7 @@ export const productRouter = router({
               const productCode = "PRD-" + String(codeCounter).padStart(3, "0");
               
               const insertResult = await db.insert(hProductsV2).values({
-                tenantId: ctx.user.tenantId,
+                tenantId: ctx.tenantId ?? undefined,
                 productCode: product.productCode || productCode,
                 productName: product.productName.trim(),
                 category: product.category || null,
@@ -289,7 +289,7 @@ export const productRouter = router({
               try {
                 const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
                 await db.insert(itemMaster).values({
-                  tenantId: ctx.user.tenantId,
+                  tenantId: ctx.tenantId ?? undefined,
                   itemCode: productCode,
                   itemName: product.productName.trim(),
                   itemType: 'own_product',

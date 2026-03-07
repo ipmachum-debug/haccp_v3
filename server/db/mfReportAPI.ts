@@ -157,7 +157,7 @@ export async function createMfReport(data: {
     reportNo: data.reportNo,
     reportDate: new Date(data.reportDate),
     status: "ACTIVE",
-    tenantId: tenantId || 1
+    tenantId: tenantId
   } as any);
   
   const mfReportId = reportResult.insertId;
@@ -174,7 +174,7 @@ export async function createMfReport(data: {
     yieldBasis: data.yieldBasis || "PER_BATCH_KG",
     unitWeightG: data.unitWeightG || null,
     batchTargetKg: data.batchTargetKg || null,
-    tenantId: tenantId || 1
+    tenantId: tenantId
   } as any);
   
   const versionId = versionResult.insertId;

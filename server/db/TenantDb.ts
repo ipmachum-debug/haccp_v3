@@ -16,7 +16,7 @@
 import { getDb } from "../db";
 import { eq, and, desc, asc, sql, gte, lte, isNull, inArray, type SQL } from "drizzle-orm";
 import {
-  hBatches, hProducts, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
+  hBatches, hProducts, hProductsV2, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
   hCcpTemplates, hBatchInputs, hInventoryLots, hInventory, hInventoryTransactions,
   hSuppliers, hApprovalRequests, hApprovalHistory, hNotifications, hNotificationSettings,
   hCcpDeviations, hSupplierEvaluations, users,
@@ -144,17 +144,17 @@ export class TenantDb {
 
   async getAllProducts() {
     const db = await getDb();
-    return db.select().from(hProducts)
-      .where(eq(hProducts.tenantId, this.tenantId))
-      .orderBy(asc(hProducts.name));
+    return db.select().from(hProductsV2)
+      .where(eq(hProductsV2.tenantId, this.tenantId))
+      .orderBy(asc(hProductsV2.productName));
   }
 
   async getProductById(productId: number) {
     const db = await getDb();
-    const result = await db.select().from(hProducts)
+    const result = await db.select().from(hProductsV2)
       .where(and(
-        eq(hProducts.id, productId),
-        eq(hProducts.tenantId, this.tenantId)
+        eq(hProductsV2.id, productId),
+        eq(hProductsV2.tenantId, this.tenantId)
       ))
       .limit(1);
     return result[0] ?? null;

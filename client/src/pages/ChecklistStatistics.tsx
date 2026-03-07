@@ -125,24 +125,24 @@ export default function ChecklistStatistics() {
 
   if (isLoading) {
     return (
-      <div className="container py-8">
+      <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
   if (!statistics) {
     return (
-      <div className="container py-8">
+      <DashboardLayout>
         <Card>
           <CardContent className="py-12 text-center">
             <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-lg text-muted-foreground">통계 데이터를 불러올 수 없습니다</p>
           </CardContent>
         </Card>
-      </div>
+      </DashboardLayout>
     );
   }
 

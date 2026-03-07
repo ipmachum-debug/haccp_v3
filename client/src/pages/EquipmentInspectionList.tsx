@@ -23,6 +23,12 @@ export default function EquipmentInspectionList() {
   const deleteMutation = trpc.genericChecklist.delete.useMutation({
     onSuccess: () => {
       toast({ title: "삭제 완료", description: "기록이 삭제되었습니다." });
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
+    },
+  });
 
   const approvalMutation = trpc.approval.createRequest.useMutation({
     onSuccess: () => {
@@ -33,12 +39,17 @@ export default function EquipmentInspectionList() {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
     },
   });
-      refetch();
-    },
-    onError: (error: any) => {
-      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
-    },
-  });
+
+  const handleApprovalRequest = (record: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    approvalMutation.mutate({
+      referenceType: "generic_checklist",
+      referenceId: record.id,
+      title: record.title || "승인 요청",
+      description: `${record.formDate} 기록 승인 요청`,
+      priority: "normal",
+    });
+  };
 
   const handleDelete = (id: number, e: React.MouseEvent) => {
     e.stopPropagation();

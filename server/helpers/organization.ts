@@ -1,6 +1,6 @@
 import { getDb } from "../db";
 import { hEmployees, hDepartments, hPositions, hDocumentApprovalSettings } from "../../drizzle/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 /**
  * 조직도 및 결재자 설정 관리 Helper
@@ -10,22 +10,27 @@ import { eq, and, desc } from "drizzle-orm";
 // 부서 관리
 // ============================================================================
 
-export async function listDepartments() {
+export async function listDepartments(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return await db.select().from(hDepartments).orderBy(hDepartments.departmentName);
+  return await db.select().from(hDepartments)
+    .where(tenantId ? eq(hDepartments.tenantId, tenantId) : undefined)
+    .orderBy(hDepartments.departmentName);
 }
 
-export async function getDepartmentById(id: number) {
+export async function getDepartmentById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [department] = await db.select().from(hDepartments).where(eq(hDepartments.id, id));
+  const conditions = [eq(hDepartments.id, id)];
+  if (tenantId) conditions.push(eq(hDepartments.tenantId, tenantId));
+  const [department] = await db.select().from(hDepartments).where(and(...conditions));
   return department;
 }
 
 export async function createDepartment(data: {
   departmentName: string;
   description?: string;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -36,33 +41,43 @@ export async function createDepartment(data: {
 export async function updateDepartment(id: number, data: {
   departmentName?: string;
   description?: string;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(hDepartments).set(data).where(eq(hDepartments.id, id));
-  return await getDepartmentById(id);
+  const conditions = [eq(hDepartments.id, id)];
+  if (data.tenantId) conditions.push(eq(hDepartments.tenantId, data.tenantId));
+  const { tenantId, ...updateData } = data;
+  await db.update(hDepartments).set(updateData).where(and(...conditions));
+  return await getDepartmentById(id, tenantId);
 }
 
-export async function deleteDepartment(id: number) {
+export async function deleteDepartment(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(hDepartments).where(eq(hDepartments.id, id));
+  const conditions = [eq(hDepartments.id, id)];
+  if (tenantId) conditions.push(eq(hDepartments.tenantId, tenantId));
+  await db.delete(hDepartments).where(and(...conditions));
 }
 
 // ============================================================================
 // 직급 관리
 // ============================================================================
 
-export async function listPositions() {
+export async function listPositions(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return await db.select().from(hPositions).orderBy(hPositions.level);
+  return await db.select().from(hPositions)
+    .where(tenantId ? eq(hPositions.tenantId, tenantId) : undefined)
+    .orderBy(hPositions.level);
 }
 
-export async function getPositionById(id: number) {
+export async function getPositionById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [position] = await db.select().from(hPositions).where(eq(hPositions.id, id));
+  const conditions = [eq(hPositions.id, id)];
+  if (tenantId) conditions.push(eq(hPositions.tenantId, tenantId));
+  const [position] = await db.select().from(hPositions).where(and(...conditions));
   return position;
 }
 
@@ -71,6 +86,7 @@ export async function createPosition(data: {
   level?: number;
   approvalRole?: string;
   description?: string;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -83,17 +99,23 @@ export async function updatePosition(id: number, data: {
   level?: number;
   approvalRole?: string;
   description?: string;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(hPositions).set(data).where(eq(hPositions.id, id));
-  return await getPositionById(id);
+  const conditions = [eq(hPositions.id, id)];
+  if (data.tenantId) conditions.push(eq(hPositions.tenantId, data.tenantId));
+  const { tenantId, ...updateData } = data;
+  await db.update(hPositions).set(updateData).where(and(...conditions));
+  return await getPositionById(id, tenantId);
 }
 
-export async function deletePosition(id: number) {
+export async function deletePosition(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(hPositions).where(eq(hPositions.id, id));
+  const conditions = [eq(hPositions.id, id)];
+  if (tenantId) conditions.push(eq(hPositions.tenantId, tenantId));
+  await db.delete(hPositions).where(and(...conditions));
 }
 
 // ============================================================================
@@ -125,9 +147,11 @@ export async function listEmployees(tenantId?: number) {
     .orderBy(hEmployees.name);
 }
 
-export async function getEmployeeById(id: number) {
+export async function getEmployeeById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const conditions = [eq(hEmployees.id, id)];
+  if (tenantId) conditions.push(eq(hEmployees.tenantId, tenantId));
   const [employee] = await db
     .select({
       id: hEmployees.id,
@@ -146,7 +170,7 @@ export async function getEmployeeById(id: number) {
     .from(hEmployees)
     .leftJoin(hDepartments, eq(hEmployees.departmentId, hDepartments.id))
     .leftJoin(hPositions, eq(hEmployees.positionId, hPositions.id))
-    .where(eq(hEmployees.id, id));
+    .where(and(...conditions));
   return employee;
 }
 
@@ -182,6 +206,7 @@ export async function createEmployee(data: {
   positionId?: number;
   hireDate?: Date;
   isActive?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -197,17 +222,23 @@ export async function updateEmployee(id: number, data: {
   positionId?: number;
   hireDate?: Date;
   isActive?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(hEmployees).set(data).where(eq(hEmployees.id, id));
-  return await getEmployeeById(id);
+  const conditions = [eq(hEmployees.id, id)];
+  if (data.tenantId) conditions.push(eq(hEmployees.tenantId, data.tenantId));
+  const { tenantId, ...updateData } = data;
+  await db.update(hEmployees).set(updateData).where(and(...conditions));
+  return await getEmployeeById(id, tenantId);
 }
 
-export async function deleteEmployee(id: number) {
+export async function deleteEmployee(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(hEmployees).where(eq(hEmployees.id, id));
+  const conditions = [eq(hEmployees.id, id)];
+  if (tenantId) conditions.push(eq(hEmployees.tenantId, tenantId));
+  await db.delete(hEmployees).where(and(...conditions));
 }
 
 // ============================================================================
@@ -219,7 +250,7 @@ export async function listDocumentApprovalSettings(tenantId?: number) {
   if (!db) throw new Error("Database not available");
   const conditions: any[] = [eq(hDocumentApprovalSettings.isActive, true)];
   if (tenantId) {
-    conditions.push(eq((hDocumentApprovalSettings as any).tenantId, tenantId));
+    conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
   }
   return await db
     .select({
@@ -238,13 +269,15 @@ export async function listDocumentApprovalSettings(tenantId?: number) {
     .orderBy(desc(hDocumentApprovalSettings.createdAt));
 }
 
-export async function getDocumentApprovalSettingById(id: number) {
+export async function getDocumentApprovalSettingById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const conditions = [eq(hDocumentApprovalSettings.id, id)];
+  if (tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
   const [setting] = await db
     .select()
     .from(hDocumentApprovalSettings)
-    .where(eq(hDocumentApprovalSettings.id, id));
+    .where(and(...conditions));
   return setting;
 }
 
@@ -289,14 +322,19 @@ export async function updateDocumentApprovalSetting(id: number, data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(hDocumentApprovalSettings).set(data).where(eq(hDocumentApprovalSettings.id, id));
-  return await getDocumentApprovalSettingById(id);
+  const conditions = [eq(hDocumentApprovalSettings.id, id)];
+  if (data.tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, data.tenantId));
+  const { tenantId, ...updateData } = data;
+  await db.update(hDocumentApprovalSettings).set(updateData).where(and(...conditions));
+  return await getDocumentApprovalSettingById(id, tenantId);
 }
 
-export async function deleteDocumentApprovalSetting(id: number) {
+export async function deleteDocumentApprovalSetting(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const conditions = [eq(hDocumentApprovalSettings.id, id)];
+  if (tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
   await db.update(hDocumentApprovalSettings)
     .set({ isActive: false })
-    .where(eq(hDocumentApprovalSettings.id, id));
+    .where(and(...conditions));
 }

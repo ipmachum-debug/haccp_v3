@@ -854,10 +854,10 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
           <Button variant="outline" onClick={onClose}>
             취소
           </Button>
-          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={createRecord.isLoading}>
+          <Button variant="outline" onClick={() => handleSubmit("draft")} disabled={createRecord.isPending}>
             임시저장
           </Button>
-          <Button onClick={() => handleSubmit("pending_review")} disabled={createRecord.isLoading}>
+          <Button onClick={() => handleSubmit("pending_review")} disabled={createRecord.isPending}>
             승인요청
           </Button>
         </DialogFooter>

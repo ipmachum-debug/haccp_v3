@@ -12,7 +12,7 @@ export const pipelineRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await getPipelineStatus(db, input.siteId, input.workDate, ctx.user.tenantId);
+        return await getPipelineStatus(db, input.siteId, input.workDate, ctx.tenantId ?? undefined);
       }),
     
     // 원료 재고 사전 체크
@@ -21,7 +21,7 @@ export const pipelineRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await checkMaterialAvailability(db, input.batchId, input.siteId, ctx.user.tenantId);
+        return await checkMaterialAvailability(db, input.batchId, input.siteId, ctx.tenantId ?? undefined);
       }),
     
     // 일일 마감 (기존 - siteId 기반)
@@ -30,7 +30,7 @@ export const pipelineRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await runDailyClosing(db, input.siteId, input.workDate, ctx.user.tenantId);
+        return await runDailyClosing(db, input.siteId, input.workDate, ctx.tenantId ?? undefined);
       }),
     
     // 수동 일일 마감 실행 (스케줄러와 동일한 전체 프로세스)
@@ -45,20 +45,22 @@ export const pipelineRouter = router({
     // 일일 마감 보고서 조회
     getDailyClosingReport: tenantRequiredProcedure
       .input(z.object({ 
-        tenantId: z.number(), 
+        tenantId: z.number().optional(), 
         reportDate: z.string().optional(),
         limit: z.number().optional()
       }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
+        // ★ 테넌트 격리: 반드시 ctx.tenantId 사용 (input.tenantId 무시)
+        const safeTenantId = ctx.tenantId;
         
         if (input.reportDate) {
           // 특정 날짜 보고서 조회
           const resultRaw = await db.execute(sql`
             SELECT id, site_id, report_date, report_type, summary, generated_at, tenant_id
             FROM h_daily_reports
-            WHERE tenant_id = ${input.tenantId}
+            WHERE tenant_id = ${safeTenantId}
               AND report_date = ${input.reportDate}
               AND report_type = 'daily_closing'
             ORDER BY generated_at DESC
@@ -77,7 +79,7 @@ export const pipelineRouter = router({
           const resultRaw2 = await db.execute(sql`
             SELECT id, site_id, report_date, report_type, summary, generated_at, tenant_id
             FROM h_daily_reports
-            WHERE tenant_id = ${input.tenantId}
+            WHERE tenant_id = ${safeTenantId}
               AND report_type = 'daily_closing'
             ORDER BY report_date DESC
             LIMIT ${limit}
@@ -93,18 +95,20 @@ export const pipelineRouter = router({
     // 마감 알림 목록 조회 (일일마감 관련 알림만)
     getClosingNotifications: tenantRequiredProcedure
       .input(z.object({ 
-        tenantId: z.number(),
+        tenantId: z.number().optional(),
         limit: z.number().optional()
       }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
+        // ★ 테넌트 격리: 반드시 ctx.tenantId 사용 (input.tenantId 무시)
+        const safeTenantId = ctx.tenantId;
         const limit = input.limit || 50;
         const resultRaw3 = await db.execute(sql`
           SELECT id, user_id, notification_type, title, message, reference_type, reference_id, 
                  priority, is_read, action_url, is_resolved, created_at
           FROM h_notifications
-          WHERE tenant_id = ${input.tenantId}
+          WHERE tenant_id = ${safeTenantId}
             AND notification_type IN (
               'batch_incomplete_warning', 'pending_approval_summary', 
               'low_stock_critical', 'low_stock_warning', 'daily_closing_report'

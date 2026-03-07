@@ -377,7 +377,7 @@ function TenantAdminPanel() {
           </div>
           <button
             onClick={() => toggleSync.mutate({ active: !isActive })}
-            disabled={toggleSync.isLoading}
+            disabled={toggleSync.isPending}
             className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${
               isActive ? 'bg-indigo-600' : 'bg-gray-300'
             }`}
@@ -459,7 +459,7 @@ function TenantAdminPanel() {
               <button
                 key={type}
                 onClick={() => syncNow.mutate({ syncType: type, direction })}
-                disabled={syncNow.isLoading}
+                disabled={syncNow.isPending}
                 className={`p-5 rounded-xl border text-left transition-all hover:shadow-md ${
                   type === "all"
                     ? 'bg-gradient-to-br from-indigo-50 to-purple-50 border-indigo-200 hover:border-indigo-400'
@@ -469,7 +469,7 @@ function TenantAdminPanel() {
                 <div className="text-2xl mb-2">{icon}</div>
                 <div className="font-semibold text-gray-800">{label}</div>
                 <div className="text-xs text-gray-500 mt-1">{desc}</div>
-                {syncNow.isLoading && <div className="text-xs text-indigo-600 mt-2">동기화 중...</div>}
+                {syncNow.isPending && <div className="text-xs text-indigo-600 mt-2">동기화 중...</div>}
               </button>
             ))}
           </div>

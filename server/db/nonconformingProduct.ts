@@ -22,7 +22,7 @@ export async function createNonconformingProduct(data: any, tenantId?: number) {
   if (!db) throw new Error("데이터베이스 연결 실패");
 
   const [result] = await db.insert(h_nonconforming_products).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result.insertId;
 }
 
@@ -153,7 +153,7 @@ export async function addAttachment(data: any, tenantId?: number) {
   if (!db) throw new Error("데이터베이스 연결 실패");
 
   const [result] = await db.insert(h_nonconforming_product_attachments).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result.insertId;
 }
 

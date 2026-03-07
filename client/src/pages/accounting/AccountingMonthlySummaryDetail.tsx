@@ -276,7 +276,7 @@ export default function AccountingMonthlySummaryDetail() {
                         </Badge>
                       </TableCell>
                       <TableCell className="max-w-xs truncate">
-                        {tx.counterparty || tx.memo || "-"}
+                        {tx.counterparty || (tx as any).memo || "-"}
                       </TableCell>
                       <TableCell className="text-right font-semibold">
                         {formatCurrency(tx.amount)}
@@ -307,7 +307,7 @@ export default function AccountingMonthlySummaryDetail() {
                       <div>
                         <div className="font-medium">{report.fileName}</div>
                         <div className="text-sm text-muted-foreground">
-                          생성일: {new Date(report.createdAt).toLocaleString("ko-KR")}
+                          생성일: {new Date(report.generatedAt).toLocaleString("ko-KR")}
                         </div>
                       </div>
                     </div>

@@ -59,7 +59,6 @@ const CalibrationManagement = lazy(() => import("./pages/CalibrationManagement")
 const ProductManagement = lazy(() => import("./pages/ProductManagement"));
 const MaterialManagement = lazy(() => import("./pages/MaterialManagement"));
 const CcpStats = lazy(() => import("./pages/CcpStats"));
-const CcpTemplateManagement = lazy(() => import("./pages/CcpTemplateManagement"));
 const CCPMonitoring = lazy(() => import("./pages/CCPMonitoring"));
 const RecipeManagement = lazy(() => import("./pages/RecipeManagement"));
 const CCPLimitsManagement = lazy(() => import("./pages/CCPLimitsManagement"));
@@ -201,12 +200,16 @@ const CapaRecordList = lazy(() => import("./pages/CapaRecordList"));
 const CapaRecordForm = lazy(() => import("./pages/CapaRecordForm"));
 
 // PDF 양식 기반 체크리스트
-const EmployeeHealthCheckList = lazy(() => import("./pages/EmployeeHealthCheckList"));
+const EmployeeHealthCheckRecordList = lazy(() => import("./pages/EmployeeHealthCheckRecordList"));
 const EmployeeHealthCheckForm = lazy(() => import("./pages/EmployeeHealthCheckForm"));
 const TemperatureHumidityCheckList = lazy(() => import("./pages/TemperatureHumidityCheckList"));
 const TemperatureHumidityCheckForm = lazy(() => import("./pages/TemperatureHumidityCheckForm"));
 const SanitationRecordList = lazy(() => import("./pages/SanitationRecordList"));
 const SanitationRecordForm = lazy(() => import("./pages/SanitationRecordForm"));
+
+// 공지보드 & 알림 (역할별 UX)
+const NoticeBoard = lazy(() => import("./pages/NoticeBoard"));
+const BoardAlarms = lazy(() => import("./pages/BoardAlarms"));
 
 // 조직도 관리
 const DepartmentManagement = lazy(() => import("./pages/DepartmentManagement"));
@@ -370,7 +373,6 @@ function Router() {
       <Route path="/dashboard/materials" component={MaterialManagement} />
       <Route path="/dashboard/intermediates" component={IntermediateManagement} />
       <Route path="/dashboard/ccp-stats" component={CcpStats} />
-      <Route path="/dashboard/ccp-templates" component={CcpTemplateManagement} />
       <Route path="/ccp-deviation-dashboard" component={CcpDeviationDashboard} />
       <Route path="/inventory-turnover-dashboard" component={InventoryTurnoverDashboard} />
       <Route path="/batch-profitability-dashboard" component={BatchProfitabilityDashboard} />
@@ -505,7 +507,7 @@ function Router() {
       <Route path="/capa-record/:id" component={CapaRecordForm} />
 
       {/* PDF 양식 기반 체크리스트 */}
-      <Route path="/employee-health-check" component={EmployeeHealthCheckList} />
+      <Route path="/employee-health-check" component={EmployeeHealthCheckRecordList} />
       <Route path="/employee-health-check/new" component={EmployeeHealthCheckForm} />
       <Route path="/employee-health-check/:id" component={EmployeeHealthCheckForm} />
       <Route path="/temperature-humidity-check" component={TemperatureHumidityCheckList} />
@@ -581,6 +583,10 @@ function Router() {
       <Route path="/waste-management" component={WasteManagementList} />
       <Route path="/waste-management/new" component={WasteManagementForm} />
       <Route path="/waste-management/:id" component={WasteManagementForm} />
+
+      {/* 공지보드 & 알림 (역할별 UX) */}
+      <Route path="/board" component={NoticeBoard} />
+      <Route path="/board/alerts" component={BoardAlarms} />
 
       {/* 조직도 관리 */}
       <Route path="/organization/departments" component={DepartmentManagement} />

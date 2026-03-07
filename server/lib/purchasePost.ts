@@ -101,7 +101,8 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   const totalAmount = Number(purchase.totalAmount || 0);
   const taxAmount = Number(purchase.taxAmount || 0);
   const supplyAmount = totalAmount - taxAmount;
-  const tenantId = purchase.tenantId || 1;
+  const tenantId = purchase.tenantId;
+  if (!tenantId) throw new Error('[P0 보안] tenantId is required for purchasePost');
 
   // system_code 기반 계정 조회
   const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");

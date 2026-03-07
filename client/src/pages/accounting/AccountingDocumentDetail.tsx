@@ -134,7 +134,7 @@ export default function AccountingDocumentDetail() {
             </div>
           </div>
           <div className="flex gap-2">
-            {getStatusBadge(detail.status)}
+            {getStatusBadge((detail as any).status || detail.workflow?.[0]?.status || "uploaded")}
             <Badge variant="outline">{getCategoryLabel(detail.category)}</Badge>
           </div>
         </div>
@@ -270,7 +270,7 @@ export default function AccountingDocumentDetail() {
                       <div className="flex items-center gap-2 mb-1">
                         {getStatusBadge(wf.status)}
                         <span className="text-sm text-muted-foreground">
-                          {new Date(wf.createdAt).toLocaleString("ko-KR")}
+                          {new Date(wf.changedAt).toLocaleString("ko-KR")}
                         </span>
                       </div>
                       {wf.comment && (

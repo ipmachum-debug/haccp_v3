@@ -41,7 +41,7 @@ async function updateInventoryQuantity(params: {
   } else {
     // 신규 레코드 생성
     await params.db.insert(hInventory).values({
-      tenantId: params.tenantId || 1,
+      tenantId: params.tenantId,
       materialId: params.materialId,
       totalQuantity: params.quantityChange.toString(),
       availableQuantity: params.quantityChange.toString(),
@@ -127,7 +127,7 @@ export async function createInboundReceipt(params: {
 
   // LOT 생성
   const insertResult = await db.insert(hInventoryLots).values({
-    tenantId: tenantId || 1,
+    tenantId: tenantId,
     lotNumber,
     materialId: params.materialId,
     quantity: params.quantity.toString(),
@@ -146,7 +146,7 @@ export async function createInboundReceipt(params: {
 
   // 재고 거래 내역 기록
   await db.insert(hInventoryTransactions).values({
-    tenantId: tenantId || 1,
+    tenantId: tenantId,
     lotId: lotId,
     transactionType: "receipt",
     quantity: params.quantity.toString(),

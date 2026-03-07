@@ -10,7 +10,7 @@ export const mfReportRouter = router({
     // 품목제조보고 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getMfReports } = await import("../../db/mfReportAPI");
-      return await getMfReports(ctx.user.tenantId);
+      return await getMfReports(ctx.tenantId ?? undefined);
     }),
     
     // 품목제조보고 상세 조회
@@ -18,7 +18,7 @@ export const mfReportRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportDetail } = await import("../../db/mfReportAPI");
-        return await getMfReportDetail(input.id, ctx.user.tenantId);
+        return await getMfReportDetail(input.id, ctx.tenantId ?? undefined);
       }),
     
     // 품목제조보고 생성
@@ -52,7 +52,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createMfReport } = await import("../../db/mfReportAPI");
-        return await createMfReport(input, ctx.user.tenantId);
+        return await createMfReport(input, ctx.tenantId ?? undefined);
       }),
     // 품목제조보고 수정 (기존 보고서 업데이트)
     update: adminProcedure
@@ -82,7 +82,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { updateMfReport } = await import("../../db/mfReportAPI");
-        return await updateMfReport(input, ctx.user.tenantId);
+        return await updateMfReport(input, ctx.tenantId ?? undefined);
       }),
     
     // 품목제조보고 버전 생성
@@ -106,7 +106,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number(), comment: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
         const { approveMfReportVersion } = await import("../../db/mfReportAPI");
-        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.user.tenantId);
+        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId ?? undefined);
       }),
     
     // 품목제조보고 버전 목록 조회
@@ -114,7 +114,7 @@ export const mfReportRouter = router({
       .input(z.object({ mfReportId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportVersions } = await import("../../db/mfReportAPI");
-        return await getMfReportVersions(input.mfReportId, ctx.user.tenantId);
+        return await getMfReportVersions(input.mfReportId, ctx.tenantId ?? undefined);
       }),
     
     // 품목제조보고 버전 상세 조회
@@ -122,7 +122,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportVersionDetail } = await import("../../db/mfReportAPI");
-        return await getMfReportVersionDetail(input.versionId, ctx.user.tenantId);
+        return await getMfReportVersionDetail(input.versionId, ctx.tenantId ?? undefined);
       }),
     
     // 특정 날짜에 유효한 버전 조회
@@ -135,14 +135,14 @@ export const mfReportRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getMfReportVersionByDate } = await import("../../db/mfReportAPI");
-        return await getMfReportVersionByDate(input.mfReportId, input.date, ctx.user.tenantId);
+        return await getMfReportVersionByDate(input.mfReportId, input.date, ctx.tenantId ?? undefined);
       }),
     
     // 맛(Flavor) 목록 조회
     listFlavors: tenantRequiredProcedure.query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
-      return await db.select().from(hMfFlavors).where(eq(hMfFlavors.tenantId, ctx.user.tenantId));
+      return await db.select().from(hMfFlavors).where(eq(hMfFlavors.tenantId, ctx.tenantId ?? undefined));
     }),
     
     // 맛(Flavor) 생성
@@ -201,7 +201,7 @@ export const mfReportRouter = router({
       .input(z.object({ ingredientId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteMfIngredient } = await import("../../db/mfReportAPI");
-        return await deleteMfIngredient(input.ingredientId, ctx.user.tenantId);
+        return await deleteMfIngredient(input.ingredientId, ctx.tenantId ?? undefined);
       }),
     
     // 일괄 상태 변경
@@ -214,7 +214,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { bulkUpdateMfReportStatus } = await import("../../db/mfReportAPI");
-        return await bulkUpdateMfReportStatus(input.ids, input.status, ctx.user.tenantId);
+        return await bulkUpdateMfReportStatus(input.ids, input.status, ctx.tenantId ?? undefined);
       }),
     
     // 일괄 삭제
@@ -222,7 +222,7 @@ export const mfReportRouter = router({
       .input(z.object({ ids: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
         const { bulkDeleteMfReports } = await import("../../db/mfReportAPI");
-        return await bulkDeleteMfReports(input.ids, ctx.user.tenantId);
+        return await bulkDeleteMfReports(input.ids, ctx.tenantId ?? undefined);
       }),
     
     // 일괄 PDF 출력
@@ -230,7 +230,7 @@ export const mfReportRouter = router({
       .input(z.object({ ids: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
         const { bulkExportMfReportsPdf } = await import("../../db/mfReportAPI");
-        return await bulkExportMfReportsPdf(input.ids, ctx.user.tenantId);
+        return await bulkExportMfReportsPdf(input.ids, ctx.tenantId ?? undefined);
       }),
     
     // 배치 생산량 g 환산 계산
@@ -243,7 +243,7 @@ export const mfReportRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { calculateBatchRequirements } = await import("../../db/mfReportAPI");
-        return await calculateBatchRequirements(input.versionId, input.batchKg, ctx.user.tenantId);
+        return await calculateBatchRequirements(input.versionId, input.batchKg, ctx.tenantId ?? undefined);
       }),
     
     // 승인 요청
@@ -256,7 +256,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { requestMfReportApproval } = await import("../../db/mfReportAPI");
-        return await requestMfReportApproval(input.versionId, ctx.user.id, input.comment, ctx.user.tenantId);
+        return await requestMfReportApproval(input.versionId, ctx.user.id, input.comment, ctx.tenantId ?? undefined);
       }),
     
     // 승인 처리
@@ -281,7 +281,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { rejectMfReportVersion } = await import("../../db/mfReportAPI");
-        return await rejectMfReportVersion(input.versionId, ctx.user.id, input.reason, ctx.user.tenantId);
+        return await rejectMfReportVersion(input.versionId, ctx.user.id, input.reason, ctx.tenantId ?? undefined);
       }),
     
     // 승인 이력 조회
@@ -289,7 +289,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportApprovalHistory } = await import("../../db/mfReportAPI");
-        return await getMfReportApprovalHistory(input.versionId, ctx.user.tenantId);
+        return await getMfReportApprovalHistory(input.versionId, ctx.tenantId ?? undefined);
       }),
     
     // 보정 배합비 재계산
@@ -337,7 +337,7 @@ export const mfReportRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { generateIngredientLabel } = await import("../../db/mfReportAPI");
-        const pdfBuffer = await generateIngredientLabel(input.versionId, input.mode, ctx.user.tenantId);
+        const pdfBuffer = await generateIngredientLabel(input.versionId, input.mode, ctx.tenantId ?? undefined);
         return {
           pdfBase64: pdfBuffer.toString("base64")
         };
@@ -373,7 +373,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getIngredientProcessMappings } = await import("../../db/mfReportAPI");
-        return await getIngredientProcessMappings(input.versionId, ctx.user.tenantId);
+        return await getIngredientProcessMappings(input.versionId, ctx.tenantId ?? undefined);
       }),
 
     // 재료-공정 매핑 일괄 저장
@@ -389,7 +389,7 @@ export const mfReportRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { saveIngredientProcessMappings } = await import("../../db/mfReportAPI");
-        return await saveIngredientProcessMappings(input.versionId, ctx.user.tenantId, input.mappings);
+        return await saveIngredientProcessMappings(input.versionId, ctx.tenantId ?? undefined, input.mappings);
       }),
 
     // 공정별 조정 파라미터 조회
@@ -397,7 +397,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getProcessAdjustments } = await import("../../db/mfReportAPI");
-        return await getProcessAdjustments(input.versionId, ctx.user.tenantId);
+        return await getProcessAdjustments(input.versionId, ctx.tenantId ?? undefined);
       }),
 
     // 공정별 조정 파라미터 일괄 저장
@@ -419,7 +419,7 @@ export const mfReportRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { saveProcessAdjustments } = await import("../../db/mfReportAPI");
-        return await saveProcessAdjustments(input.versionId, ctx.user.tenantId, input.adjustments);
+        return await saveProcessAdjustments(input.versionId, ctx.tenantId ?? undefined, input.adjustments);
       }),
 
     // 공정그룹 기반 배치 배합비 계산
@@ -430,6 +430,6 @@ export const mfReportRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { calculateAdjustedBatchFormula } = await import("../../db/mfReportAPI");
-        return await calculateAdjustedBatchFormula(input.versionId, input.batchKg, ctx.user.tenantId);
+        return await calculateAdjustedBatchFormula(input.versionId, input.batchKg, ctx.tenantId ?? undefined);
       }),
 });

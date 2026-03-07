@@ -6,7 +6,7 @@ import {
   hBatchProducts,
   hInventoryLots,
   hMaterials,
-  hProducts
+  hProductsV2
 } from "../../drizzle/schema";
 
 /**
@@ -54,7 +54,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       lotNumber: hBatches.lotNumber,
       status: hBatches.status,
       plannedQuantity: hBatches.plannedQuantity,
@@ -63,7 +63,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(inArray(hBatches.id, batchIds));
 
   // 4. 각 배치의 완제품 LOT 정보 조회
@@ -98,7 +98,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       lotNumber: hBatches.lotNumber,
       status: hBatches.status,
       plannedQuantity: hBatches.plannedQuantity,
@@ -107,7 +107,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(eq(hBatches.id, batchId));
 
   if (!batch) {

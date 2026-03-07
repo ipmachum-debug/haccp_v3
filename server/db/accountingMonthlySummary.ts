@@ -40,7 +40,7 @@ export async function upsertMonthlySummary(data: NewAccountingMonthlySummary, te
   } else {
     // 생성
     const result = await db.insert(accountingMonthlySummary).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
     return Number(result[0].insertId);
   }
 }
@@ -234,7 +234,7 @@ export async function extractHighAmountTransactions(
   // 고액 거래 저장
   if (highAmountList.length > 0) {
     await db.insert(accountingHighAmountTransactions).values({
-      tenantId, ...highAmountList, tenantId });
+      ...highAmountList[0], tenantId });
   }
 
   return highAmountList.length;

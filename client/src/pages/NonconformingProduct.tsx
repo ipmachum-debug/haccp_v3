@@ -39,7 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertTriangle, Plus, Edit, FileText, CheckCircle } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function NonconformingProduct({ embedded }: { embedded?: boolean } = {}) {
+export default function NonconformingProduct({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedNcp, setSelectedNcp] = useState<any>(null);

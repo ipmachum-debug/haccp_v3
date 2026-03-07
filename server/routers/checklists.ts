@@ -1056,7 +1056,7 @@ export const foreignMaterialRecordRouter = router({
       await db.update(hForeignMaterialRecords).set({
         status: "closed",
         closedAt: new Date(),
-      } as any).where(eq(hForeignMaterialRecords.id, input.id));
+      } as any).where(and(eq(hForeignMaterialRecords.id, input.id), eq((hForeignMaterialRecords as any).tenantId, getEffectiveTenantId(ctx))));
 
       return { success: true };
     }),
@@ -1420,7 +1420,7 @@ export const qualityIssueRecordRouter = router({
       await db.update(hQualityIssueRecords).set({
         status: "closed",
         closedAt: new Date(),
-      } as any).where(eq(hQualityIssueRecords.id, input.id));
+      } as any).where(and(eq(hQualityIssueRecords.id, input.id), eq((hQualityIssueRecords as any).tenantId, getEffectiveTenantId(ctx))));
 
       return { success: true };
     }),
@@ -1556,7 +1556,7 @@ export const capaRecordRouter = router({
         verifiedBy: input.verifiedBy,
         verifiedAt: new Date(),
         status: "verified",
-      } as any).where(eq(hCapaRecords.id, input.id));
+      } as any).where(and(eq(hCapaRecords.id, input.id), eq((hCapaRecords as any).tenantId, getEffectiveTenantId(ctx))));
 
       return { success: true };
     }),
@@ -1569,7 +1569,7 @@ export const capaRecordRouter = router({
 
       await db.update(hCapaRecords).set({
         status: "closed",
-      } as any).where(eq(hCapaRecords.id, input.id));
+      } as any).where(and(eq(hCapaRecords.id, input.id), eq((hCapaRecords as any).tenantId, getEffectiveTenantId(ctx))));
 
       return { success: true };
     }),
@@ -1659,7 +1659,7 @@ export const genericChecklistRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
       const result = await db.insert(hGenericChecklistRecords).values({
-        siteId: input.siteId || ctx.user.siteId || 1,
+        siteId: input.siteId || ctx.user.siteId,
         tenantId: tenantId,
         formType: input.formType,
         formDate: input.formDate,
@@ -1737,7 +1737,7 @@ export const genericChecklistRouter = router({
         INSERT INTO h_approval_requests 
         (site_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by, tenant_id)
         VALUES 
-        (${ctx.user.siteId || 1}, ${input.requestType}, 'checklist', ${input.id}, ${input.title}, ${input.description || ''}, 'pending_review', 'medium', ${ctx.user.id}, ${tenantId})
+        (${ctx.user.siteId || ctx.tenantId}, ${input.requestType}, 'checklist', ${input.id}, ${input.title}, ${input.description || ''}, 'pending_review', 'medium', ${ctx.user.id}, ${tenantId})
       `);
 
       return { success: true, message: "검토 요청이 등록되었습니다." };
@@ -1755,24 +1755,53 @@ export const genericChecklistRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
 
       if (input.action === "approve") {
+        // 배치 검토 시 h_batches 상태를 under_review로 변경
+        const reqRows: any[] = await db.execute(sql`
+          SELECT reference_id, request_type, reference_type 
+          FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
+        `) as any;
+        const reqType = reqRows?.[0]?.request_type;
+        const refType = reqRows?.[0]?.reference_type;
+        const refId = reqRows?.[0]?.reference_id;
+        if (reqType === 'batch_production' && refType === 'batch' && refId) {
+          await db.execute(sql`
+            UPDATE h_batches SET status = 'under_review', updated_at = NOW()
+            WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+          `);
+          console.log(`[reviewChecklist] 배치 #${refId} 상태 → under_review`);
+        }
         await db.execute(sql`
           UPDATE h_approval_requests 
           SET status = 'pending_approval', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true, message: "검토가 완료되었습니다. 최종 승인 대기 중입니다." };
       } else {
-        const rows: any[] = await db.execute(sql`SELECT reference_id FROM h_approval_requests WHERE id = ${input.approvalRequestId}`) as any;
+        const rows: any[] = await db.execute(sql`
+          SELECT reference_id, request_type, reference_type 
+          FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
+        `) as any;
         const refId = rows?.[0]?.reference_id;
+        const reqType = rows?.[0]?.request_type;
+        const refType = rows?.[0]?.reference_type;
         if (refId) {
-          await db.update(hGenericChecklistRecords).set({ status: "draft", updatedAt: new Date() } as any)
-            .where(eq(hGenericChecklistRecords.id, refId));
+          if (reqType === 'batch_production' && refType === 'batch') {
+            // 배치 반려: planned 상태로 되돌림
+            await db.execute(sql`
+              UPDATE h_batches SET status = 'planned', updated_at = NOW()
+              WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+            `);
+            console.log(`[reviewChecklist] 배치 #${refId} 검토 반려 → planned`);
+          } else {
+            await db.update(hGenericChecklistRecords).set({ status: "draft", updatedAt: new Date() } as any)
+              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+          }
         }
         await db.execute(sql`
           UPDATE h_approval_requests 
           SET status = 'rejected', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null},
               rejected_by = ${ctx.user.id}, rejected_at = NOW(), rejection_reason = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true, message: "검토가 반려되었습니다." };
       }
@@ -1789,29 +1818,67 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      const rows: any[] = await db.execute(sql`SELECT reference_id FROM h_approval_requests WHERE id = ${input.approvalRequestId}`) as any;
+      const rows: any[] = await db.execute(sql`
+        SELECT reference_id, request_type, reference_type 
+        FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
+      `) as any;
       const refId = rows?.[0]?.reference_id;
+      const requestType = rows?.[0]?.request_type;
+      const referenceType = rows?.[0]?.reference_type;
 
       if (input.action === "approve") {
         if (refId) {
-          await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-            .where(eq(hGenericChecklistRecords.id, refId));
+          if (requestType === 'batch_production' && referenceType === 'batch') {
+            // 배치 승인: h_batches 상태를 'approved'로 변경
+            await db.execute(sql`
+              UPDATE h_batches SET status = 'approved', updated_at = NOW()
+              WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+            `);
+            console.log(`[approveChecklist] 배치 #${refId} 상태 → approved`);
+            
+            // 배치 승인 시 생산일지 갱신
+            try {
+              const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+              const batchResult: any[] = await db.execute(sql`
+                SELECT planned_date FROM h_batches WHERE id = ${refId}
+              `) as any;
+              const bRow = batchResult?.[0];
+              const bDate = bRow?.planned_date
+                ? new Date(bRow.planned_date).toISOString().split('T')[0]
+                : new Date().toISOString().split('T')[0];
+              await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+            } catch (pdErr) {
+              console.error(`[approveChecklist] 생산일지 갱신 실패:`, pdErr);
+            }
+          } else {
+            await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
+              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+          }
         }
         await db.execute(sql`
           UPDATE h_approval_requests 
           SET status = 'approved', approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true, message: "최종 승인이 완료되었습니다." };
       } else {
         if (refId) {
-          await db.update(hGenericChecklistRecords).set({ status: "submitted", updatedAt: new Date() } as any)
-            .where(eq(hGenericChecklistRecords.id, refId));
+          if (requestType === 'batch_production' && referenceType === 'batch') {
+            // 배치 반려: h_batches 상태를 'rejected'로 변경
+            await db.execute(sql`
+              UPDATE h_batches SET status = 'rejected', updated_at = NOW()
+              WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+            `);
+            console.log(`[approveChecklist] 배치 #${refId} 상태 → rejected`);
+          } else {
+            await db.update(hGenericChecklistRecords).set({ status: "submitted", updatedAt: new Date() } as any)
+              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+          }
         }
         await db.execute(sql`
           UPDATE h_approval_requests 
           SET status = 'pending_review', rejected_by = ${ctx.user.id}, rejected_at = NOW(), rejection_reason = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true, message: "승인이 반려되었습니다. 재검토가 필요합니다." };
       }
@@ -1832,7 +1899,7 @@ export const genericChecklistRouter = router({
           await db.execute(sql`
             UPDATE h_approval_requests 
             SET status = 'pending_approval', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null}
-            WHERE id = ${id} AND status IN ('pending_review', 'pending')
+            WHERE id = ${id} AND status IN ('pending_review', 'pending') AND tenant_id = ${ctx.tenantId}
           `);
           successCount++;
         } catch (e) {
@@ -1853,17 +1920,49 @@ export const genericChecklistRouter = router({
       let successCount = 0;
       for (const id of input.approvalRequestIds) {
         try {
-          // reference record도 approved로 변경
-          const rows: any[] = await db.execute(sql`SELECT reference_id FROM h_approval_requests WHERE id = ${id}`) as any;
+          // 승인 요청 정보 조회 (reference_id, request_type, reference_type)
+          const rows: any[] = await db.execute(sql`
+            SELECT reference_id, request_type, reference_type 
+            FROM h_approval_requests WHERE id = ${id} AND tenant_id = ${ctx.tenantId}
+          `) as any;
           const refId = rows?.[0]?.reference_id;
+          const requestType = rows?.[0]?.request_type;
+          const referenceType = rows?.[0]?.reference_type;
+
           if (refId) {
-            await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-              .where(eq(hGenericChecklistRecords.id, refId));
+            if (requestType === 'batch_production' && referenceType === 'batch') {
+              // 배치 승인: h_batches 상태를 'approved'로 변경
+              await db.execute(sql`
+                UPDATE h_batches SET status = 'approved', updated_at = NOW()
+                WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+              `);
+              console.log(`[batchApproveChecklists] 배치 #${refId} 상태 → approved`);
+              
+              // 배치 승인 시 생산일지(production_daily) 자동 갱신
+              try {
+                const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+                const batchResult: any[] = await db.execute(sql`
+                  SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
+                `) as any;
+                const bRow = batchResult?.[0];
+                const bDate = bRow?.planned_date
+                  ? new Date(bRow.planned_date).toISOString().split('T')[0]
+                  : new Date().toISOString().split('T')[0];
+                await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+                console.log(`[batchApproveChecklists] 생산일지 갱신 완료 (배치 #${refId})`);
+              } catch (pdErr) {
+                console.error(`[batchApproveChecklists] 생산일지 갱신 실패:`, pdErr);
+              }
+            } else {
+              // 체크리스트/일일일지 승인: 기존 로직
+              await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
+                .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+            }
           }
           await db.execute(sql`
             UPDATE h_approval_requests 
             SET status = 'approved', approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
-            WHERE id = ${id} AND status IN ('pending_approval', 'pending_review', 'pending')
+            WHERE id = ${id} AND status IN ('pending_approval', 'pending_review', 'pending') AND tenant_id = ${ctx.tenantId}
           `);
           successCount++;
         } catch (e) {
@@ -1881,12 +1980,44 @@ export const genericChecklistRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
-      const rows: any[] = await db.execute(sql`SELECT reference_id, status FROM h_approval_requests WHERE id = ${input.approvalRequestId}`) as any;
+      const rows: any[] = await db.execute(sql`
+        SELECT reference_id, status, request_type, reference_type 
+        FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
+      `) as any;
       const refId = rows?.[0]?.reference_id;
       const currentStatus = rows?.[0]?.status;
+      const requestType = rows?.[0]?.request_type;
+      const referenceType = rows?.[0]?.reference_type;
+
       if (refId) {
-        await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-          .where(eq(hGenericChecklistRecords.id, refId));
+        if (requestType === 'batch_production' && referenceType === 'batch') {
+          // 배치 승인: h_batches 상태를 'approved'로 변경
+          await db.execute(sql`
+            UPDATE h_batches SET status = 'approved', updated_at = NOW()
+            WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
+          `);
+          console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → approved`);
+          
+          // 배치 승인 시 생산일지(production_daily) 자동 갱신
+          try {
+            const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+            const batchResult: any[] = await db.execute(sql`
+              SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
+            `) as any;
+            const bRow = batchResult?.[0];
+            const bDate = bRow?.planned_date
+              ? new Date(bRow.planned_date).toISOString().split('T')[0]
+              : new Date().toISOString().split('T')[0];
+            await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+            console.log(`[approveWithAutoReview] 생산일지 갱신 완료 (배치 #${refId})`);
+          } catch (pdErr) {
+            console.error(`[approveWithAutoReview] 생산일지 갱신 실패:`, pdErr);
+          }
+        } else {
+          // 체크리스트/일일일지: 기존 로직
+          await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
+            .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+        }
       }
       // 검토 단계면 검토도 자동 완료
       if (currentStatus === 'pending_review' || currentStatus === 'pending') {
@@ -1895,13 +2026,13 @@ export const genericChecklistRouter = router({
           SET status = 'approved', 
               reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = '승인자 자동 검토',
               approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
       } else {
         await db.execute(sql`
           UPDATE h_approval_requests 
           SET status = 'approved', approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
-          WHERE id = ${input.approvalRequestId}
+          WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
       }
       return { success: true, message: "검토 및 승인이 완료되었습니다." };

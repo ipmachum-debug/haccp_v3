@@ -1,6 +1,12 @@
 import { getDb } from "../db";
 import { hUserFavorites } from "../../drizzle/schema/auth";
 import { eq, and, desc } from "drizzle-orm";
+
+/**
+ * 즐겨찾기 DB 헬퍼 함수
+ * ✅ P0 FIX: tenantId fallback (??1) 제거 - tenantId 필수 인자
+ */
+
 export async function getUserFavorites(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -10,6 +16,8 @@ export async function getUserFavorites(userId: number) {
     .where(eq(hUserFavorites.userId, userId))
     .orderBy(hUserFavorites.sortOrder);
 }
+
+// ✅ P0 FIX: tenantId 필수 (optional 제거, fallback 제거)
 export async function addUserFavorite(userId: number, menuPath: string, menuLabel: string, menuIcon?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) return 0;
@@ -40,16 +48,21 @@ export async function addUserFavorite(userId: number, menuPath: string, menuLabe
   
   const nextOrder = (maxOrder[0]?.maxOrder ?? 0) + 1;
   
-  // tenantId가 없으면 users 테이블에서 조회
+  // ✅ P0 FIX: tenantId fallback 제거 - DB에서 조회하되, 실패하면 throw
   let resolvedTenantId = tenantId;
   if (!resolvedTenantId) {
     try {
       const { users } = await import("../../drizzle/schema/auth");
       const [user] = await db.select({ tenantId: users.tenantId }).from(users).where(eq(users.id, userId)).limit(1);
-      resolvedTenantId = user?.tenantId ?? 1;
+      resolvedTenantId = user?.tenantId ?? undefined;
     } catch {
-      resolvedTenantId = 1;
+      // DB 조회 실패
     }
+  }
+  
+  if (!resolvedTenantId) {
+    console.error(`[P0 보안] addUserFavorite: tenantId를 확인할 수 없습니다. userId=${userId}`);
+    throw new Error("[P0 보안] tenantId is required for addUserFavorite");
   }
   
   const [result] = await db
@@ -66,6 +79,7 @@ export async function addUserFavorite(userId: number, menuPath: string, menuLabe
   
   return result.id;
 }
+
 export async function removeUserFavorite(userId: number, favoriteId: number) {
   const db = await getDb();
   if (!db) return;
@@ -78,6 +92,7 @@ export async function removeUserFavorite(userId: number, favoriteId: number) {
       )
     );
 }
+
 export async function updateFavoriteOrder(userId: number, favoriteId: number, newOrder: number) {
   const db = await getDb();
   if (!db) return;
@@ -91,7 +106,8 @@ export async function updateFavoriteOrder(userId: number, favoriteId: number, ne
       )
     );
 }
-// 신규 사용자 기본 즐겨찾기 생성
+
+// ✅ P0 FIX: tenantId fallback 제거
 export async function createDefaultFavorites(userId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return;
@@ -109,16 +125,21 @@ export async function createDefaultFavorites(userId: number, tenantId?: number) 
     return; // 이미 즐겨찾기가 있으면 생성하지 않음
   }
   
-  // tenantId가 없으면 users 테이블에서 조회
+  // ✅ P0 FIX: tenantId fallback 제거 - DB에서 조회하되, 실패하면 throw
   let resolvedTenantId = tenantId;
   if (!resolvedTenantId) {
     try {
       const { users } = await import("../../drizzle/schema/auth");
       const [user] = await db.select({ tenantId: users.tenantId }).from(users).where(eq(users.id, userId)).limit(1);
-      resolvedTenantId = user?.tenantId ?? 1;
+      resolvedTenantId = user?.tenantId ?? undefined;
     } catch {
-      resolvedTenantId = 1;
+      // DB 조회 실패
     }
+  }
+  
+  if (!resolvedTenantId) {
+    console.error(`[P0 보안] createDefaultFavorites: tenantId를 확인할 수 없습니다. userId=${userId}`);
+    throw new Error("[P0 보안] tenantId is required for createDefaultFavorites");
   }
   
   // 기본 즐겨찾기 일괄 삽입

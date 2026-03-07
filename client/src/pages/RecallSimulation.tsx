@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Play, CheckCircle, BarChart3, MapPin, ClipboardList } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function RecallSimulation({ embedded }: { embedded?: boolean } = {}) {
+export default function RecallSimulation({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCompleteOpen, setIsCompleteOpen] = useState(false);

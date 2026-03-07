@@ -227,15 +227,15 @@ export default function AccountingDailyClose() {
                           ? record.closeDate
                           : format(new Date(record.closeDate), "yyyy-MM-dd")}
                       </TableCell>
-                      <TableCell>{record.totalCount}건</TableCell>
+                      <TableCell>{(record as any).totalCount || record.transactionCount}건</TableCell>
                       <TableCell className="text-green-600">
-                        {record.completedCount}건
+                        {(record as any).completedCount || record.transactionCount}건
                       </TableCell>
                       <TableCell className="text-red-600">
-                        {record.exceptionCount}건
+                        {(record as any).exceptionCount || 0}건
                       </TableCell>
                       <TableCell>
-                        {record.largeAmountChecked ? "✓" : "-"}
+                        {(record as any).largeAmountChecked ? "✓" : "-"}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {format(new Date(record.createdAt), "yyyy-MM-dd HH:mm")}

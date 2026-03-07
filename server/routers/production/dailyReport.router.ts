@@ -10,7 +10,7 @@ export const dailyReportRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getDailyProduction } = await import("../../db/dailyReport");
-        return await getDailyProduction(input.date, ctx.user.tenantId);
+        return await getDailyProduction(input.date, ctx.tenantId ?? undefined);
       }),
     
     // 일별 CCP 기록 조회
@@ -18,7 +18,7 @@ export const dailyReportRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getDailyCcpRecords } = await import("../../db/dailyReport");
-        return await getDailyCcpRecords(input.date, ctx.user.tenantId);
+        return await getDailyCcpRecords(input.date, ctx.tenantId ?? undefined);
       }),
     
     // 일별 이상 사항 조회
@@ -26,7 +26,7 @@ export const dailyReportRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getDailyIssues } = await import("../../db/dailyReport");
-        return await getDailyIssues(input.date, ctx.user.tenantId);
+        return await getDailyIssues(input.date, ctx.tenantId ?? undefined);
       }),
     
     // 일별 요약 통계
@@ -34,7 +34,7 @@ export const dailyReportRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getDailySummary } = await import("../../db/dailyReport");
-        return await getDailySummary(input.date, ctx.user.tenantId);
+        return await getDailySummary(input.date, ctx.tenantId ?? undefined);
       }),
 
     // 자동 생성된 생산일보 조회 (배치잡이 생성한 production_daily 레코드)
@@ -49,7 +49,7 @@ export const dailyReportRouter = router({
           const result = await db.execute(sql`
             SELECT id, report_date, summary, generated_at
             FROM h_daily_reports
-            WHERE tenant_id = ${ctx.user.tenantId}
+            WHERE tenant_id = ${ctx.tenantId}
               AND report_date = ${input.date}
               AND report_type = 'production_daily'
             LIMIT 1
@@ -79,7 +79,7 @@ export const dailyReportRouter = router({
         const { sql } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId ?? undefined;
         const dateStr = input.date;
 
         // 배치 기본 정보 + SKU 생산량 + 파이프라인 상태 + 승인 시각 + CCP 기록 시각
@@ -289,10 +289,10 @@ export const dailyReportRouter = router({
             SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
               e_a.name as cfg_author_name, e_r.name as cfg_reviewer_name, e_p.name as cfg_approver_name
             FROM h_document_approval_settings das
-            LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${ctx.user.tenantId}
-            LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${ctx.user.tenantId}
-            LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${ctx.user.tenantId}
-            WHERE das.tenant_id = ${ctx.user.tenantId}
+            LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${ctx.tenantId}
+            LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${ctx.tenantId}
+            LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${ctx.tenantId}
+            WHERE das.tenant_id = ${ctx.tenantId}
               AND das.document_type IN ('production_daily', 'batch_production')
               AND das.is_active = 1
             ORDER BY FIELD(das.document_type, 'production_daily', 'batch_production')
@@ -313,11 +313,11 @@ export const dailyReportRouter = router({
               ON ar.reference_type = 'daily_report'
               AND ar.reference_id = dr.id
               AND ar.request_type = 'production_daily'
-              AND ar.tenant_id = ${ctx.user.tenantId}
+              AND ar.tenant_id = ${ctx.tenantId}
             LEFT JOIN users u_req ON u_req.id = ar.requested_by
             LEFT JOIN users u_app ON u_app.id = ar.approved_by
             LEFT JOIN users u_rev ON u_rev.id = ar.reviewed_by
-            WHERE dr.tenant_id = ${ctx.user.tenantId}
+            WHERE dr.tenant_id = ${ctx.tenantId}
               AND dr.report_type = 'production_daily'
               AND dr.report_date >= ${startDate}
               AND dr.report_date < ${endDate}
@@ -364,7 +364,7 @@ export const dailyReportRouter = router({
         const { sql } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId ?? undefined;
         const rptResult = await db.execute(sql`
           SELECT id, report_date, summary FROM h_daily_reports
           WHERE id = ${input.reportId} AND tenant_id = ${tenantId} AND report_type = 'production_daily'
@@ -424,7 +424,7 @@ export const dailyReportRouter = router({
              title, description, status, priority, requested_by)
            VALUES (?, ?, 'production_daily', 'daily_report', ?, ?, ?, 'pending_review', 'medium', ?)`,
           [
-            ctx.user.siteId || 1, tenantId, input.reportId,
+            ctx.user.siteId || ctx.tenantId, tenantId, input.reportId,
             `생산일지 - ${dateStr}`,
             `${dateStr} 생산일지\n배치: ${batchCount}건\nCCP: ${summary?.ccp?.totalRecords || 0}건`,
             authorId,
@@ -441,7 +441,7 @@ export const dailyReportRouter = router({
         const { sql } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId ?? undefined;
         let deleted = 0;
         for (const id of input.ids) {
           await db.execute(sql`

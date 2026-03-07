@@ -9,7 +9,7 @@ export const approvalRouter = router({
     // 승인 대시보드 - 전체 승인 대기 항목 조회
     getPendingApprovals: tenantRequiredProcedure.query(async () => {
       const { getPendingApprovals } = await import("../../db");
-      return await getPendingApprovals(ctx.user.tenantId);
+      return await getPendingApprovals(ctx.tenantId ?? undefined);
     }),
     
     // 범용 승인 요청 생성
@@ -27,8 +27,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId || 1,
+          tenantId: ctx.tenantId ?? undefined,
+          siteId: ctx.user.siteId || ctx.tenantId,
           requestType: input.requestType,
           referenceType: input.referenceType,
           referenceId: input.referenceId,
@@ -50,10 +50,10 @@ export const approvalRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getApprovalRequests } = await import("../../db");
-        if (!ctx.user.tenantId) {
+        if (!ctx.tenantId ?? undefined) {
           throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
         }
-        return await getApprovalRequests({ ...input, tenantId: ctx.user.tenantId });
+        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId ?? undefined });
       }),
 
     // 승인 요청 상세 조회
@@ -61,7 +61,12 @@ export const approvalRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getApprovalRequestById } = await import("../../db");
-        return await getApprovalRequestById(input.id);
+        const result = await getApprovalRequestById(input.id);
+        // P1: 테넌트 소유권 검증
+        if (result && result.tenantId !== (ctx.tenantId ?? undefined) && ctx.user.role !== 'super_admin') {
+          throw new TRPCError({ code: "FORBIDDEN", message: "다른 테넌트의 승인 요청을 조회할 수 없습니다." });
+        }
+        return result;
       }),
 
     // 배치 승인 요청
@@ -77,8 +82,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId || 1,
+          tenantId: ctx.tenantId ?? undefined,
+          siteId: ctx.user.siteId || ctx.tenantId,
           requestType: "batch_approval",
           referenceType: "batch",
           referenceId: input.batchId,
@@ -103,8 +108,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId || 1,
+          tenantId: ctx.tenantId ?? undefined,
+          siteId: ctx.user.siteId || ctx.tenantId,
           requestType: "ccp_review",
           referenceType: "ccp_instance",
           referenceId: input.ccpInstanceId,
@@ -234,7 +239,7 @@ export const approvalRouter = router({
     // 대기 중인 승인 요청 개수
     getPendingCount: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getPendingApprovalCount } = await import("../../db");
-      return await getPendingApprovalCount(ctx.user.tenantId);
+      return await getPendingApprovalCount(ctx.tenantId ?? undefined);
     }),
 
     // 재고 조정 승인 요청
@@ -250,8 +255,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId || 1,
+          tenantId: ctx.tenantId ?? undefined,
+          siteId: ctx.user.siteId || ctx.tenantId,
           requestType: "inventory_adjustment",
           referenceType: "inventory_adjustment",
           referenceId: input.adjustmentId,
@@ -275,6 +280,69 @@ export const approvalRouter = router({
         const { cancelApprovalRequest } = await import("../../db");
         return await cancelApprovalRequest(input.requestId, ctx.user.id, input.reason);
       }),
+    // 승인 요청 삭제 (관리자: 모든 상태, 일반: pending/cancelled만)
+    deleteRequest: tenantRequiredProcedure
+      .input(
+        z.object({
+          requestId: z.number()
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { getApprovalRequestById } = await import("../../db");
+        const db = (await import("../../db")).getDb();
+        const dbConn = await db;
+        if (!dbConn) throw new Error("Database not available");
+
+        const request = await getApprovalRequestById(input.requestId);
+        if (!request) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "승인 요청을 찾을 수 없습니다" });
+        }
+
+        // 관리자가 아니면 pending/cancelled 상태만 삭제 가능
+        if (ctx.user.role !== 'admin') {
+          if (!['pending', 'cancelled', 'rejected'].includes(request.status)) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 승인완료 문서를 삭제할 수 있습니다" });
+          }
+          if (request.requestedBy !== ctx.user.id) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "본인이 작성한 요청만 삭제할 수 있습니다" });
+          }
+        }
+
+        const { sql: sqlTag } = await import("drizzle-orm");
+        // 승인 이력 삭제
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_history WHERE request_id = ${input.requestId}`);
+        // 승인 요청 삭제
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_requests WHERE id = ${input.requestId}`);
+
+        return { success: true, message: "승인 요청이 삭제되었습니다." };
+      }),
+
+    // 승인 요청 일괄 삭제 (관리자 전용)
+    deleteMultipleRequests: adminProcedure
+      .input(
+        z.object({
+          requestIds: z.array(z.number())
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const db = (await import("../../db")).getDb();
+        const dbConn = await db;
+        if (!dbConn) throw new Error("Database not available");
+
+        if (input.requestIds.length === 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "삭제할 항목을 선택해주세요" });
+        }
+
+        const { sql: sqlTag } = await import("drizzle-orm");
+        const idList = input.requestIds.join(",");
+        // 승인 이력 삭제
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_history WHERE request_id IN (${sqlTag.raw(idList)})`);
+        // 승인 요청 삭제
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_requests WHERE id IN (${sqlTag.raw(idList)})`);
+
+        return { success: true, deletedCount: input.requestIds.length, message: `${input.requestIds.length}건의 승인 요청이 삭제되었습니다.` };
+      }),
+
     // 검토 처리 (검토자 → pending_approval 단계)
     reviewRequest: monitorProcedure
       .input(

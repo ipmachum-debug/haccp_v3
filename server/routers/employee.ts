@@ -20,7 +20,7 @@ export const employeeRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
-      const conditions = [eq(employees.tenantId, ctx.user.tenantId)];
+      const conditions = [eq(employees.tenantId, ctx.tenantId ?? undefined)];
       if (status !== "all") {
         conditions.push(eq(employees.status, status));
       }
@@ -43,7 +43,7 @@ export const employeeRouter = router({
       const [employee] = await db
         .select()
         .from(employees)
-        .where(and(eq(employees.id, input.id), eq(employees.tenantId, ctx.user.tenantId)));
+        .where(and(eq(employees.id, input.id), eq(employees.tenantId, ctx.tenantId ?? undefined)));
       
       if (!employee) {
         throw new Error("직원을 찾을 수 없습니다.");
@@ -73,7 +73,7 @@ export const employeeRouter = router({
 
       const [result] = await db.insert(employees).values({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
         createdBy: ctx.user.id,
       });
 
@@ -107,7 +107,7 @@ export const employeeRouter = router({
       await db
         .update(employees)
         .set(data)
-        .where(and(eq(employees.id, id), eq(employees.tenantId, ctx.user.tenantId)));
+        .where(and(eq(employees.id, id), eq(employees.tenantId, ctx.tenantId ?? undefined)));
 
       return { success: true };
     }),
@@ -122,7 +122,7 @@ export const employeeRouter = router({
       if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
       await db.delete(employees).where(
-        and(eq(employees.id, input.id), eq(employees.tenantId, ctx.user.tenantId))
+        and(eq(employees.id, input.id), eq(employees.tenantId, ctx.tenantId ?? undefined))
       );
       return { success: true };
     }),
@@ -141,7 +141,7 @@ export const employeeRouter = router({
         resigned: sql<number>`SUM(CASE WHEN status = 'resigned' THEN 1 ELSE 0 END)`,
       })
       .from(employees)
-      .where(eq(employees.tenantId, ctx.user.tenantId));
+      .where(eq(employees.tenantId, ctx.tenantId ?? undefined));
 
     return stats;
   }),

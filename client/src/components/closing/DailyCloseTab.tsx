@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Calendar } from "@/components/ui/calendar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -16,28 +17,33 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  CalendarCheck,
+  TrendingUp,
+  TrendingDown,
+  ArrowRightLeft,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+} from "lucide-react";
 
 export default function DailyCloseTab() {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [largeAmountChecked, setLargeAmountChecked] = useState(false);
 
-  // 일일 마감 통계 조회
   const { data: stats, refetch: refetchStats } = trpc.accountingDaily.getStats.useQuery({
     targetDate: selectedDate,
   });
 
-  // 마감 여부 확인
   const { data: isClosed, refetch: refetchIsClosed } = trpc.accountingDaily.isClosed.useQuery({
     targetDate: selectedDate,
   });
 
-  // 마감 이력 조회
   const { data: history, refetch: refetchHistory } = trpc.accountingDaily.getHistory.useQuery({
     limit: 30,
   });
 
-  // 일일 마감 실행
   const executeMutation = trpc.accountingDaily.execute.useMutation({
     onSuccess: () => {
       toast({
@@ -49,35 +55,20 @@ export default function DailyCloseTab() {
       refetchHistory();
     },
     onError: (error: any) => {
-      toast({
-        title: "일일 마감 실패",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "일일 마감 실패", description: error.message, variant: "destructive" });
     },
   });
 
   const handleExecuteClose = () => {
     if (!selectedDate) {
-      toast({
-        title: "날짜를 선택하세요",
-        variant: "destructive",
-      });
+      toast({ title: "날짜를 선택하세요", variant: "destructive" });
       return;
     }
-
     if (isClosed) {
-      toast({
-        title: "이미 마감된 날짜입니다",
-        variant: "destructive",
-      });
+      toast({ title: "이미 마감된 날짜입니다", variant: "destructive" });
       return;
     }
-
-    executeMutation.mutate({
-      closeDate: selectedDate,
-      largeAmountChecked,
-    });
+    executeMutation.mutate({ closeDate: selectedDate, largeAmountChecked });
   };
 
   return (
@@ -85,8 +76,11 @@ export default function DailyCloseTab() {
       <div className="grid gap-6 md:grid-cols-2">
         {/* 날짜 선택 */}
         <Card>
-          <CardHeader>
-            <CardTitle>마감 날짜 선택</CardTitle>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CalendarCheck className="h-4 w-4" />
+              마감 날짜 선택
+            </CardTitle>
             <CardDescription>마감할 날짜를 선택하세요</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center">
@@ -95,15 +89,18 @@ export default function DailyCloseTab() {
               selected={selectedDate}
               onSelect={(date) => date && setSelectedDate(date)}
               locale={ko}
-              className="rounded-md border"
+              className="rounded-lg border"
             />
             <div className="mt-4 text-center">
-              <p className="text-sm text-muted-foreground">선택된 날짜</p>
-              <p className="text-lg font-semibold">
+              <p className="text-xs text-muted-foreground">선택된 날짜</p>
+              <p className="text-lg font-semibold mt-0.5">
                 {format(selectedDate, "yyyy년 MM월 dd일 (E)", { locale: ko })}
               </p>
               {isClosed && (
-                <p className="text-sm text-green-600 mt-2">✓ 마감 완료</p>
+                <Badge variant="outline" className="mt-2 gap-1 text-green-600 border-green-300 bg-green-50">
+                  <CheckCircle className="h-3 w-3" />
+                  마감 완료
+                </Badge>
               )}
             </div>
           </CardContent>
@@ -111,61 +108,66 @@ export default function DailyCloseTab() {
 
         {/* 일일 통계 */}
         <Card>
-          <CardHeader>
-            <CardTitle>일일 거래 통계</CardTitle>
-            <CardDescription>
-              {format(selectedDate, "yyyy-MM-dd")} 거래 내역
-            </CardDescription>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ArrowRightLeft className="h-4 w-4" />
+              일일 거래 통계
+            </CardTitle>
+            <CardDescription>{format(selectedDate, "yyyy-MM-dd")} 거래 내역</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {stats ? (
               <>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">총 거래 건수</p>
-                    <p className="text-2xl font-bold">{stats.totalTransactions}건</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">완료 건수</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      {stats.totalCompleted}건
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">총 입금</p>
-                    <p className="text-xl font-semibold text-blue-600">
-                      {stats.totalDeposits.toLocaleString()}원
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">총 출금</p>
-                    <p className="text-xl font-semibold text-red-600">
-                      {stats.totalWithdrawals.toLocaleString()}원
-                    </p>
-                  </div>
-                </div>
-                <div className="pt-4 border-t">
-                  <p className="text-sm text-muted-foreground">순 현금 흐름</p>
-                  <p
-                    className={`text-2xl font-bold ${
-                      stats.netCashFlow >= 0 ? "text-green-600" : "text-red-600"
-                    }`}
-                  >
-                    {stats.netCashFlow >= 0 ? "+" : ""}
-                    {stats.netCashFlow.toLocaleString()}원
-                  </p>
+                  <Card className="border-l-4 border-l-blue-400">
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">총 거래 건수</p>
+                      <p className="text-xl font-bold mt-0.5">{stats.totalTransactions}<span className="text-sm font-normal text-muted-foreground ml-1">건</span></p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-green-400">
+                    <CardContent className="p-3">
+                      <p className="text-xs text-muted-foreground">완료 건수</p>
+                      <p className="text-xl font-bold mt-0.5 text-green-600">{stats.totalCompleted}<span className="text-sm font-normal text-muted-foreground ml-1">건</span></p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-indigo-400">
+                    <CardContent className="p-3">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <TrendingUp className="h-3.5 w-3.5 text-indigo-500" />
+                        <p className="text-xs text-muted-foreground">총 입금</p>
+                      </div>
+                      <p className="text-lg font-semibold text-indigo-600">{stats.totalDeposits.toLocaleString()}<span className="text-xs font-normal text-muted-foreground ml-0.5">원</span></p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-l-4 border-l-red-400">
+                    <CardContent className="p-3">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+                        <p className="text-xs text-muted-foreground">총 출금</p>
+                      </div>
+                      <p className="text-lg font-semibold text-red-600">{stats.totalWithdrawals.toLocaleString()}<span className="text-xs font-normal text-muted-foreground ml-0.5">원</span></p>
+                    </CardContent>
+                  </Card>
                 </div>
 
-                <div className="pt-4 space-y-4">
-                  <div className="flex items-center space-x-2">
+                <Card className={`border-l-4 ${stats.netCashFlow >= 0 ? "border-l-emerald-500" : "border-l-red-500"}`}>
+                  <CardContent className="p-3">
+                    <p className="text-xs text-muted-foreground">순 현금 흐름</p>
+                    <p className={`text-2xl font-bold ${stats.netCashFlow >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {stats.netCashFlow >= 0 ? "+" : ""}{stats.netCashFlow.toLocaleString()}<span className="text-sm font-normal text-muted-foreground ml-1">원</span>
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <div className="pt-2 space-y-4">
+                  <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-lg">
                     <Checkbox
                       id="largeAmount"
                       checked={largeAmountChecked}
-                      onCheckedChange={(checked) =>
-                        setLargeAmountChecked(checked as boolean)
-                      }
+                      onCheckedChange={(checked) => setLargeAmountChecked(checked as boolean)}
                     />
-                    <Label htmlFor="largeAmount" className="text-sm">
+                    <Label htmlFor="largeAmount" className="text-sm cursor-pointer">
                       고액 거래 확인 완료
                     </Label>
                   </div>
@@ -176,16 +178,16 @@ export default function DailyCloseTab() {
                     className="w-full"
                     size="lg"
                   >
-                    {executeMutation.isPending
-                      ? "마감 처리 중..."
-                      : isClosed
-                      ? "마감 완료"
-                      : "일일 마감 실행"}
+                    {executeMutation.isPending ? "마감 처리 중..." : isClosed ? "마감 완료" : "일일 마감 실행"}
                   </Button>
                 </div>
               </>
             ) : (
-              <p className="text-muted-foreground">통계를 불러오는 중...</p>
+              <div className="space-y-3">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-16 bg-muted/50 rounded-md animate-pulse" />
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -193,52 +195,72 @@ export default function DailyCloseTab() {
 
       {/* 마감 이력 */}
       <Card>
-        <CardHeader>
-          <CardTitle>최근 마감 이력</CardTitle>
-          <CardDescription>최근 30일 마감 내역</CardDescription>
+        <CardHeader className="pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Clock className="h-4 w-4" />
+                최근 마감 이력
+              </CardTitle>
+              <CardDescription>최근 30일 마감 내역</CardDescription>
+            </div>
+            {history && history.length > 0 && (
+              <Badge variant="secondary">{history.length}건</Badge>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {history && history.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>마감 날짜</TableHead>
-                  <TableHead>총 거래</TableHead>
-                  <TableHead>완료 건수</TableHead>
-                  <TableHead>예외 건수</TableHead>
-                  <TableHead>고액 확인</TableHead>
-                  <TableHead>마감 시각</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.map((record: any) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-medium">
-                      {typeof record.closeDate === "string"
-                        ? record.closeDate
-                        : format(new Date(record.closeDate), "yyyy-MM-dd")}
-                    </TableCell>
-                    <TableCell>{record.totalCount}건</TableCell>
-                    <TableCell className="text-green-600">
-                      {record.completedCount}건
-                    </TableCell>
-                    <TableCell className="text-red-600">
-                      {record.exceptionCount}건
-                    </TableCell>
-                    <TableCell>
-                      {record.largeAmountChecked ? "✓" : "-"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {format(new Date(record.createdAt), "yyyy-MM-dd HH:mm")}
-                    </TableCell>
+            <div className="rounded-lg border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <TableHead className="text-xs font-semibold">마감 날짜</TableHead>
+                    <TableHead className="text-xs font-semibold text-right">총 거래</TableHead>
+                    <TableHead className="text-xs font-semibold text-right">완료</TableHead>
+                    <TableHead className="text-xs font-semibold text-right">예외</TableHead>
+                    <TableHead className="text-xs font-semibold text-center">고액 확인</TableHead>
+                    <TableHead className="text-xs font-semibold">마감 시각</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {history.map((record: any) => (
+                    <TableRow key={record.id} className="hover:bg-muted/20">
+                      <TableCell className="font-medium text-sm">
+                        {typeof record.closeDate === "string"
+                          ? record.closeDate
+                          : format(new Date(record.closeDate), "yyyy-MM-dd")}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums text-sm">{record.totalCount}건</TableCell>
+                      <TableCell className="text-right tabular-nums text-sm text-green-600">{record.completedCount}건</TableCell>
+                      <TableCell className="text-right tabular-nums text-sm">
+                        {record.exceptionCount > 0 ? (
+                          <Badge variant="destructive" className="text-xs">{record.exceptionCount}건</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">0건</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {record.largeAmountChecked ? (
+                          <CheckCircle className="h-4 w-4 text-green-500 mx-auto" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-muted-foreground/40 mx-auto" />
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {format(new Date(record.createdAt), "yyyy-MM-dd HH:mm")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           ) : (
-            <p className="text-muted-foreground text-center py-8">
-              마감 이력이 없습니다.
-            </p>
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+              <CalendarCheck className="h-12 w-12 mb-4 opacity-30" />
+              <p className="text-base font-medium">마감 이력이 없습니다.</p>
+              <p className="text-sm mt-1">일일 마감을 실행하면 이력이 표시됩니다.</p>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -16,7 +16,7 @@ export const costSavingAIRouter = router({
         const { analyzePriceTrend } = await import("../../db/costSavingAI");
         const startDate = new Date(input.startDate);
         const endDate = new Date(input.endDate);
-        return await analyzePriceTrend(input.materialId, startDate, endDate);
+        return await analyzePriceTrend(input.materialId, startDate, endDate, ctx.tenantId);
       }),
     
     // 최적 구매 시점 추천
@@ -24,7 +24,7 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { recommendPurchaseTiming } = await import("../../db/costSavingAI");
-        return await recommendPurchaseTiming(input.materialId);
+        return await recommendPurchaseTiming(input.materialId, ctx.tenantId);
       }),
     
     // 대체 공급업체 추천
@@ -32,7 +32,7 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { recommendAlternativeSuppliers } = await import("../../db/costSavingAI");
-        return await recommendAlternativeSuppliers(input.materialId);
+        return await recommendAlternativeSuppliers(input.materialId, ctx.tenantId);
       }),
     
     // AI 기반 원가 절감 제안 생성
@@ -40,6 +40,6 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { generateCostSavingProposal } = await import("../../db/costSavingAI");
-        return await generateCostSavingProposal(input.materialId);
+        return await generateCostSavingProposal(input.materialId, ctx.tenantId);
       })
 });

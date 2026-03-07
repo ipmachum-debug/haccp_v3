@@ -25,7 +25,7 @@ export const haccpPlanVerificationRouter = router({
     .mutation(async ({ input, ctx }) => {
       const id = await verificationDb.createHaccpPlanVerification({
         ...input,
-        productIds: input.productIds ? JSON.stringify(input.productIds) : undefined,
+        productIds: input.productIds ? JSON.stringify(input.productIds, ctx.tenantId) : undefined,
         verificationTeam: input.verificationTeam ? JSON.stringify(input.verificationTeam) : undefined,
         verificationLeader: ctx.user.id,
         createdBy: ctx.user.id,
@@ -45,15 +45,15 @@ export const haccpPlanVerificationRouter = router({
         offset: z.number().default(0),
       })
     )
-    .query(async ({ input }) => {
-      return verificationDb.getHaccpPlanVerifications(input);
+    .query(async ({ input, ctx }) => {
+      return verificationDb.getHaccpPlanVerifications(input, ctx.tenantId);
     }),
 
   // HACCP 계획 검증 상세 조회
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return verificationDb.getHaccpPlanVerificationById(input.id);
+    .query(async ({ input, ctx }) => {
+      return verificationDb.getHaccpPlanVerificationById(input.id, ctx.tenantId);
     }),
 
   // HACCP 계획 검증 수정
@@ -91,7 +91,7 @@ export const haccpPlanVerificationRouter = router({
       
       await verificationDb.updateHaccpPlanVerification(id, {
         ...data,
-        productIds: productIds ? JSON.stringify(productIds) : undefined,
+        productIds: productIds ? JSON.stringify(productIds, ctx.tenantId) : undefined,
         verificationTeam: verificationTeam ? JSON.stringify(verificationTeam) : undefined,
         findings: findings ? JSON.stringify(findings) : undefined,
         attachments: attachments ? JSON.stringify(attachments) : undefined,
@@ -115,8 +115,8 @@ export const haccpPlanVerificationRouter = router({
   // HACCP 계획 검증 삭제
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await verificationDb.deleteHaccpPlanVerification(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await verificationDb.deleteHaccpPlanVerification(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -132,16 +132,16 @@ export const haccpPlanVerificationRouter = router({
         remarks: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      const id = await verificationDb.createVerificationChecklistItem(input);
+    .mutation(async ({ input, ctx }) => {
+      const id = await verificationDb.createVerificationChecklistItem(input, ctx.tenantId);
       return { id };
     }),
 
   // 검증 체크리스트 목록 조회
   getChecklistItems: tenantRequiredProcedure
     .input(z.object({ verificationId: z.number() }))
-    .query(async ({ input }) => {
-      return verificationDb.getVerificationChecklistItems(input.verificationId);
+    .query(async ({ input, ctx }) => {
+      return verificationDb.getVerificationChecklistItems(input.verificationId, ctx.tenantId);
     }),
 
   // 검증 체크리스트 항목 수정
@@ -156,17 +156,17 @@ export const haccpPlanVerificationRouter = router({
         remarks: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await verificationDb.updateVerificationChecklistItem(id, data);
+      await verificationDb.updateVerificationChecklistItem(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   // 검증 체크리스트 항목 삭제
   deleteChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await verificationDb.deleteVerificationChecklistItem(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await verificationDb.deleteVerificationChecklistItem(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -179,8 +179,8 @@ export const haccpPlanVerificationRouter = router({
         endDate: z.string().optional(),
       })
     )
-    .query(async ({ input }) => {
-      return verificationDb.getVerificationStatistics(input);
+    .query(async ({ input, ctx }) => {
+      return verificationDb.getVerificationStatistics(input, ctx.tenantId);
     }),
 
   // 다음 검증 예정 목록
@@ -191,7 +191,7 @@ export const haccpPlanVerificationRouter = router({
         days: z.number().default(30), // 앞으로 N일 이내
       })
     )
-    .query(async ({ input }) => {
-      return verificationDb.getUpcomingVerifications(input);
+    .query(async ({ input, ctx }) => {
+      return verificationDb.getUpcomingVerifications(input, ctx.tenantId);
     }),
 });

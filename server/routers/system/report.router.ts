@@ -10,7 +10,7 @@ export const reportRouter = router({
         const { generateBatchReport } = await import("../../db");
         const { generateBatchPDF } = await import("../../pdfGenerator");
         
-        const reportData = await generateBatchReport(input.batchId);
+        const reportData = await generateBatchReport(input.batchId, ctx.tenantId);
         const pdfBuffer = await generateBatchPDF(reportData);
         
         // PDF를 Base64로 인코딩하여 반환

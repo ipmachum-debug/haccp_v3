@@ -189,7 +189,7 @@ export async function createHazardControl(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [result] = await db.insert(hHazardControls).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result.insertId;
 }
 

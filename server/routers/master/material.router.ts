@@ -31,7 +31,7 @@ export const materialRouter = router({
         
         // WHERE 조건 구성 - itemMaster 기반
         const conditions: any[] = [
-          eq(itemMaster.tenantId, ctx.user.tenantId),
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined),
           eq(itemMaster.itemType, "raw_material")
         ];
         
@@ -110,7 +110,7 @@ export const materialRouter = router({
           .select()
           .from(hMaterials)
           .where(and(
-            eq(hMaterials.tenantId, ctx.user.tenantId),
+            eq(hMaterials.tenantId, ctx.tenantId ?? undefined),
             eq(hMaterials.isActive, 1)
           ))
           .orderBy(asc(hMaterials.materialCode));
@@ -131,7 +131,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.id, input.id),
-              eq(hMaterials.tenantId, ctx.user.tenantId)
+              eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
             )
           )
           .limit(1);
@@ -176,7 +176,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.materialCode, input.materialCode),
-              eq(hMaterials.tenantId, ctx.user.tenantId)
+              eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
             )
           )
           .limit(1);
@@ -187,7 +187,7 @@ export const materialRouter = router({
         
         const result = await db.insert(hMaterials).values({
           ...input,
-          tenantId: ctx.user.tenantId
+          tenantId: ctx.tenantId ?? undefined
         });
         const newMaterialId = Number(result[0].insertId);
         
@@ -195,7 +195,7 @@ export const materialRouter = router({
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.insert(itemMaster).values({
-            tenantId: ctx.user.tenantId,
+            tenantId: ctx.tenantId ?? undefined,
             itemCode: input.materialCode,
             itemName: input.materialName,
             itemType: 'raw_material',
@@ -254,7 +254,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.id, id),
-              eq(hMaterials.tenantId, ctx.user.tenantId)
+              eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
             )
           );
         
@@ -270,7 +270,7 @@ export const materialRouter = router({
           if (data.description) syncData.description = data.description;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id), eq(itemMaster.tenantId, ctx.user.tenantId))
+              and(eq(itemMaster.legacyMaterialId, id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
             );
           }
         } catch (syncErr) {
@@ -295,14 +295,14 @@ export const materialRouter = router({
           .where(
             and(
               eq(itemMaster.id, input.id),
-              eq(itemMaster.tenantId, ctx.user.tenantId)
+              eq(itemMaster.tenantId, ctx.tenantId ?? undefined)
             )
           )
           .limit(1);
         
         // itemMaster 비활성화
         await db.update(itemMaster).set({ isActive: 0 }).where(
-          and(eq(itemMaster.id, input.id), eq(itemMaster.tenantId, ctx.user.tenantId))
+          and(eq(itemMaster.id, input.id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
         );
         
         // hMaterials도 비활성화 (legacyMaterialId로 연결)
@@ -313,7 +313,7 @@ export const materialRouter = router({
             .where(
               and(
                 eq(hMaterials.id, item.legacyMaterialId),
-                eq(hMaterials.tenantId, ctx.user.tenantId)
+                eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
               )
             );
         }
@@ -350,7 +350,7 @@ export const materialRouter = router({
         // MAX 코드 번호를 루프 밖에서 한 번만 조회
         const maxCodeResult = await db.execute(sql`
           SELECT COALESCE(MAX(CAST(SUBSTRING(material_code, 5) AS UNSIGNED)), 0) as max_num 
-          FROM h_materials WHERE tenant_id = ${ctx.user.tenantId}
+          FROM h_materials WHERE tenant_id = ${ctx.tenantId}
         `);
         // drizzle db.execute returns [rows, fields] for MySQL
         const maxRows = Array.isArray((maxCodeResult as any)[0]) ? (maxCodeResult as any)[0] : maxCodeResult;
@@ -374,7 +374,7 @@ export const materialRouter = router({
               .where(
                 and(
                   eq(hMaterials.materialName, trimmedName),
-                  eq(hMaterials.tenantId, ctx.user.tenantId)
+                  eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
                 )
               )
               .limit(1);
@@ -416,14 +416,14 @@ export const materialRouter = router({
                 safetyStockLevel: mat.safetyStock !== undefined ? String(mat.safetyStock) : "0.000",
                 expiryWarningDays: mat.expiryWarningDays || 7,
                 description: [mat.storageMethod, mat.notes].filter(Boolean).join(" / ") || null,
-                tenantId: ctx.user.tenantId,
+                tenantId: ctx.tenantId ?? undefined,
               });
               
               // item_master 동기화
               try {
                 const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
                 await db.insert(itemMaster).values({
-                  tenantId: ctx.user.tenantId,
+                  tenantId: ctx.tenantId ?? undefined,
                   itemCode: materialCode,
                   itemName: trimmedName,
                   itemType: 'raw_material',
@@ -473,12 +473,12 @@ export const materialRouter = router({
           FROM h_inventory_lots il
           LEFT JOIN h_suppliers s ON il.supplierId = s.id
           WHERE il.materialId = ${input.materialId}
-            AND il.tenantId = ${ctx.user.tenantId}
+            AND il.tenantId = ${ctx.tenantId}
             AND il.unitPrice IS NOT NULL
           ORDER BY il.receivedAt DESC
           LIMIT 50
         `);
         
-        return history;
+        return (history as unknown as any[])[0] || [];
       })
 });

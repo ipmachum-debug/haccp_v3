@@ -411,10 +411,9 @@ export async function fetchCompletedBatchesForMonth(
   const result = await db.execute(sql`
     SELECT b.id, b.batch_code, b.planned_date, b.planned_quantity, b.actual_quantity,
            b.lot_number, b.expiry_date, b.status,
-           COALESCE(p2.product_name, p.product_name) as product_name
+           p2.product_name as product_name
     FROM h_batches b
     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = ${tenantId}
-    LEFT JOIN h_products p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
     WHERE b.tenant_id = ${tenantId}
       AND b.planned_date >= ${startDate}
       AND b.planned_date < ${endDate}
@@ -696,7 +695,7 @@ export async function submitFinishedProductApproval(
   await pool.execute(
     `INSERT INTO h_approval_requests (site_id, tenant_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by)
      VALUES (?, ?, 'finished_product_inspection', 'finished_product_inspection', ?, ?, ?, 'pending_review', 'medium', ?)`,
-    [siteId || 1, tenantId, logId, title, desc, authorId]
+    [siteId, tenantId, logId, title, desc, authorId]
   );
   return { success: true, message: `${log.log_year}년 ${log.log_month}월 출고검사일지 승인 요청 완료 (${itemCount}건)` };
 }
@@ -768,7 +767,7 @@ export async function submitVisualInspectionApproval(
       (site_id, tenant_id, request_type, reference_type, reference_id,
        title, description, status, priority, requested_by)
      VALUES (?, ?, 'visual_inspection', 'visual_inspection', ?, ?, ?, 'pending_review', 'medium', ?)`,
-    [siteId || 1, tenantId, logId, title, description, authorId]
+    [siteId, tenantId, logId, title, description, authorId]
   );
   
   return { success: true, message: `${log.log_year}년 ${log.log_month}월 육안검사일지 승인 요청 완료 (${itemCount}건)` };

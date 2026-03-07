@@ -1,4 +1,4 @@
-import { router, protectedTenantProcedure } from "../trpc";
+import { router, protectedTenantProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { bankTransactions, matchingRules } from "../../drizzle/schema";

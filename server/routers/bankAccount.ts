@@ -1,4 +1,4 @@
-import { router, protectedTenantProcedure } from "../trpc";
+import { router, protectedTenantProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { bankAccounts } from "../../drizzle/schema";
@@ -14,7 +14,7 @@ export const bankAccountRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      const conditions = [eq(bankAccounts.tenantId, ctx.user.tenantId)];
+      const conditions = [eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)];
       
       if (input?.isActive) {
         conditions.push(eq(bankAccounts.isActive, input.isActive));
@@ -40,7 +40,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, input.id),
-            eq(bankAccounts.tenantId, ctx.user.tenantId)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
           )
         )
         .limit(1);
@@ -68,7 +68,7 @@ export const bankAccountRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const result = await db.insert(bankAccounts).values({
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
         bankName: input.bankName,
         accountNo: input.accountNo,
         accountName: input.accountName,
@@ -107,7 +107,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, id),
-            eq(bankAccounts.tenantId, ctx.user.tenantId)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -125,7 +125,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, input.id),
-            eq(bankAccounts.tenantId, ctx.user.tenantId)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -145,7 +145,7 @@ export const bankAccountRouter = router({
           COALESCE(SUM(CASE WHEN match_status = 'unmatched' THEN 1 ELSE 0 END), 0) as unmatchedCount
         FROM bank_transactions
         WHERE bank_account_id = ${input.accountId}
-          AND tenant_id = ${ctx.user.tenantId}
+          AND tenant_id = ${ctx.tenantId}
       `);
 
       // db.execute() returns [rows, fields] for mysql2

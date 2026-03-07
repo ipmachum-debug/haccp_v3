@@ -4,7 +4,7 @@
  */
 
 import { getDb } from "../db";
-import { hBatches, hBatchMaterials, hInventoryLots, hProducts } from "../../drizzle/schema";
+import { hBatches, hBatchMaterials, hInventoryLots, hProductsV2 } from "../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
 /**
@@ -53,8 +53,8 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
   if (batch.productId) {
     const [product] = await db
       .select()
-      .from(hProducts)
-      .where(and(eq(hProducts.tenantId, tenantId), eq(hProducts.id, batch.productId)));
+      .from(hProductsV2)
+      .where(and(eq(hProductsV2.tenantId, tenantId), eq(hProductsV2.id, batch.productId)));
     if (product && product.unitPrice) {
       productPrice = parseFloat(product.unitPrice);
     }

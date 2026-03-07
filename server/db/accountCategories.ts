@@ -22,6 +22,7 @@ type AccountCategory = {
 /**
  * 모든 계정 과목 조회
  * P0: tenantId 필수
+ * tenant_id IS NULL인 글로벌 카테고리도 포함
  */
 export async function getAllAccountCategories(tenantId?: number) {
   const db = await getRawConnection();
@@ -29,7 +30,7 @@ export async function getAllAccountCategories(tenantId?: number) {
   const params: any[] = [];
   let tenantWhere = "";
   if (tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     params.push(tenantId);
   }
 
@@ -63,7 +64,7 @@ export async function getAccountCategoriesByMajor(majorCategory: string, tenantI
   const params: any[] = [majorCategory];
   let tenantWhere = "";
   if (tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     params.push(tenantId);
   }
 
@@ -101,11 +102,11 @@ export async function createAccountCategory(data: {
 }) {
   const db = await getRawConnection();
 
-  // 코드 중복 체크 (테넌트 범위 내)
+  // 코드 중복 체크 (테넌트 범위 내 + 글로벌)
   const dupParams: any[] = [data.code];
   let tenantWhere = "";
   if (data.tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     dupParams.push(data.tenantId);
   }
 
@@ -161,7 +162,7 @@ export async function updateAccountCategory(
     const dupParams: any[] = [data.code, id];
     let tenantWhere = "";
     if (tenantId) {
-      tenantWhere = " AND tenant_id = ?";
+      tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
       dupParams.push(tenantId);
     }
     const [existing] = await db.execute(
@@ -205,7 +206,7 @@ export async function updateAccountCategory(
   values.push(id);
   let tenantWhere = "";
   if (tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     values.push(tenantId);
   }
 
@@ -227,7 +228,7 @@ export async function deleteAccountCategory(id: number, tenantId?: number) {
   const params: any[] = [id];
   let tenantWhere = "";
   if (tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     params.push(tenantId);
   }
 
@@ -249,7 +250,7 @@ export async function getAccountCategoryById(id: number, tenantId?: number) {
   const params: any[] = [id];
   let tenantWhere = "";
   if (tenantId) {
-    tenantWhere = " AND tenant_id = ?";
+    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
     params.push(tenantId);
   }
 

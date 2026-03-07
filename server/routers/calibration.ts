@@ -9,20 +9,26 @@ export const calibrationRouter = router({
   listEquipments: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (db === null) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
-    const equipments = await db.select().from(calibrationEquipment).where(eq(calibrationEquipment.tenantId, Number(ctx.user.tenantId))).orderBy(desc(calibrationEquipment.createdAt));
+    const equipments = await db.select().from(calibrationEquipment).where(eq(calibrationEquipment.tenantId, Number(ctx.tenantId ?? undefined))).orderBy(desc(calibrationEquipment.createdAt));
     return equipments;
+  }),
+  getEquipmentById: tenantRequiredProcedure.input(z.number()).query(async ({ ctx, input }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+    const [equipment] = await db.select().from(calibrationEquipment).where(and(eq(calibrationEquipment.id, input), eq(calibrationEquipment.tenantId, Number(ctx.tenantId ?? undefined)))).limit(1);
+    return equipment || null;
   }),
   createEquipment: tenantRequiredProcedure.input(z.object({ code: z.string().min(1), name: z.string().min(1), equipmentType: z.enum(["scale", "thermometer", "facility_thermometer", "timer"]).default("thermometer"), calibrationType: z.enum(["certified", "internal"]), model: z.string().optional(), manufacturer: z.string().optional(), purchasePrice: z.string().optional(), purchaseDate: z.string().optional(), isActive: z.boolean().default(true), notes: z.string().optional() })).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
     const { purchaseDate, ...restInput } = input;
-    const [equipment] = await db.insert(calibrationEquipment).values({ ...restInput, ...(purchaseDate && { purchaseDate: new Date(purchaseDate) }), tenantId: Number(ctx.user.tenantId), createdBy: Number(ctx.user.id) });
+    const [equipment] = await db.insert(calibrationEquipment).values({ ...restInput, ...(purchaseDate && { purchaseDate: new Date(purchaseDate) }), tenantId: Number(ctx.tenantId ?? undefined), createdBy: Number(ctx.user.id) });
     return { success: true, id: equipment.insertId };
   }),
   listRecords: tenantRequiredProcedure.input(z.object({ equipmentId: z.number().optional(), startDate: z.string().optional(), endDate: z.string().optional() }).optional()).query(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
-    let conditions = [eq(calibrationRecords.tenantId, Number(ctx.user.tenantId))];
+    let conditions = [eq(calibrationRecords.tenantId, Number(ctx.tenantId ?? undefined))];
     if (input?.equipmentId) conditions.push(eq(calibrationRecords.equipmentId, input.equipmentId));
     if (input?.startDate) conditions.push(gte(calibrationRecords.calibrationDate, new Date(input.startDate)));
     if (input?.endDate) conditions.push(lte(calibrationRecords.calibrationDate, new Date(input.endDate)));
@@ -33,7 +39,7 @@ export const calibrationRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
     const { calibrationDate, nextCalibrationDate, regularCalibrationDate, results, ...restInput } = input;
-    const [record] = await db.insert(calibrationRecords).values({ ...restInput, calibrationDate: new Date(calibrationDate), ...(nextCalibrationDate && { nextCalibrationDate: new Date(nextCalibrationDate) }), ...(regularCalibrationDate && { regularCalibrationDate: new Date(regularCalibrationDate) }), results: JSON.stringify(results), tenantId: Number(ctx.user.tenantId), createdBy: Number(ctx.user.id) });
+    const [record] = await db.insert(calibrationRecords).values({ ...restInput, calibrationDate: new Date(calibrationDate), ...(nextCalibrationDate && { nextCalibrationDate: new Date(nextCalibrationDate) }), ...(regularCalibrationDate && { regularCalibrationDate: new Date(regularCalibrationDate) }), results: JSON.stringify(results), tenantId: Number(ctx.tenantId ?? undefined), createdBy: Number(ctx.user.id) });
     return { success: true, id: record.insertId };
   }),
 });

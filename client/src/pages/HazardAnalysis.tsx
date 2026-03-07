@@ -40,7 +40,7 @@ import { AlertTriangle, Plus, Edit, FileText, Download, CheckCircle, XCircle } f
 import { RiskMatrix } from "@/components/RiskMatrix";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function HazardAnalysis({ embedded }: { embedded?: boolean } = {}) {
+export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number>(1);
   const [editingHazard, setEditingHazard] = useState<any>(null);

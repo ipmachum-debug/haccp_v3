@@ -344,7 +344,7 @@ function DeviationAnalysisSection({ versionId }: { versionId: number }) {
   );
 }
 
-export default function MfReportList({ embedded }: { embedded?: boolean } = {}) {
+export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedReport, setSelectedReport] = useState<number | null>(null);

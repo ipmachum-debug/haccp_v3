@@ -4,6 +4,7 @@ import * as trainingDb from "../db/training";
 
 /**
  * 교육 훈련 관리 시스템 라우터
+ * ✅ P0 FIX: 모든 DB 호출에 tenantId (ctx.tenantId) 전달
  */
 
 export const trainingRouter = router({
@@ -42,7 +43,7 @@ export const trainingRouter = router({
       const id = await trainingDb.createTrainingCourse({
         ...input,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId,
       });
       return { id };
     }),
@@ -50,13 +51,13 @@ export const trainingRouter = router({
   // 교육 과정 상세 조회
   getCourse: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return trainingDb.getTrainingCourseById(input.id);
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingCourseById(input.id, ctx.tenantId);
     }),
 
   // 전체 교육 과정 목록
   listCourses: tenantRequiredProcedure.query(async ({ ctx }) => {
-    return trainingDb.getAllTrainingCourses(ctx.user.tenantId);
+    return trainingDb.getAllTrainingCourses(ctx.tenantId);
   }),
 
   // 카테고리별 교육 과정 목록
@@ -76,12 +77,12 @@ export const trainingRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return trainingDb.getTrainingCoursesByCategory(input.category, ctx.user.tenantId);
+      return trainingDb.getTrainingCoursesByCategory(input.category, ctx.tenantId);
     }),
 
   // 필수 교육 과정 목록
   listMandatoryCourses: tenantRequiredProcedure.query(async ({ ctx }) => {
-    return trainingDb.getMandatoryTrainingCourses(ctx.user.tenantId);
+    return trainingDb.getMandatoryTrainingCourses(ctx.tenantId);
   }),
 
   // 교육 과정 수정
@@ -114,17 +115,17 @@ export const trainingRouter = router({
         status: z.enum(["active", "inactive", "archived"]).optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await trainingDb.updateTrainingCourse(id, data);
+      await trainingDb.updateTrainingCourse(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   // 교육 과정 삭제 (아카이브)
   deleteCourse: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await trainingDb.deleteTrainingCourse(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await trainingDb.deleteTrainingCourse(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -152,7 +153,7 @@ export const trainingRouter = router({
       const id = await trainingDb.createTrainingSchedule({
         ...input,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId,
       });
       return { id };
     }),
@@ -160,22 +161,22 @@ export const trainingRouter = router({
   // 교육 일정 상세 조회
   getSchedule: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return trainingDb.getTrainingScheduleById(input.id);
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingScheduleById(input.id, ctx.tenantId);
     }),
 
   // 과정별 교육 일정 목록
   listSchedulesByCourse: tenantRequiredProcedure
     .input(z.object({ courseId: z.number() }))
-    .query(async ({ input }) => {
-      return trainingDb.getTrainingSchedulesByCourse(input.courseId);
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingSchedulesByCourse(input.courseId, ctx.tenantId);
     }),
 
   // 예정된 교육 일정 목록
   listUpcomingSchedules: tenantRequiredProcedure
     .input(z.object({ siteId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      return trainingDb.getUpcomingTrainingSchedules(input.siteId, ctx.user.tenantId);
+      return trainingDb.getUpcomingTrainingSchedules(input.siteId, ctx.tenantId);
     }),
 
   // 교육 일정 수정
@@ -195,17 +196,17 @@ export const trainingRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await trainingDb.updateTrainingSchedule(id, data);
+      await trainingDb.updateTrainingSchedule(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   // 교육 일정 삭제
   deleteSchedule: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await trainingDb.deleteTrainingSchedule(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await trainingDb.deleteTrainingSchedule(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -225,29 +226,29 @@ export const trainingRouter = router({
       const id = await trainingDb.registerTrainingParticipant({
         scheduleId: input.scheduleId,
         userId: input.userId || ctx.user.id,
-      });
+      }, ctx.tenantId);
       return { id };
     }),
 
   // 참가자 정보 조회
   getParticipant: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return trainingDb.getTrainingParticipantById(input.id);
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingParticipantById(input.id, ctx.tenantId);
     }),
 
   // 일정별 참가자 목록
   listParticipantsBySchedule: tenantRequiredProcedure
     .input(z.object({ scheduleId: z.number() }))
-    .query(async ({ input }) => {
-      return trainingDb.getTrainingParticipantsBySchedule(input.scheduleId);
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingParticipantsBySchedule(input.scheduleId, ctx.tenantId);
     }),
 
   // 사용자별 교육 이력
   listParticipantsByUser: tenantRequiredProcedure
     .input(z.object({ userId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      return trainingDb.getTrainingParticipantsByUser(input.userId || ctx.user.id);
+      return trainingDb.getTrainingParticipantsByUser(input.userId || ctx.user.id, ctx.tenantId);
     }),
 
   // 출석 처리
@@ -258,10 +259,10 @@ export const trainingRouter = router({
         attendanceStatus: z.enum(["registered", "attended", "absent", "excused"]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await trainingDb.updateTrainingParticipant(input.id, {
         attendanceStatus: input.attendanceStatus,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -274,11 +275,11 @@ export const trainingRouter = router({
         passed: z.number(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await trainingDb.updateTrainingParticipant(input.id, {
         assessmentScore: input.assessmentScore,
         passed: input.passed,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -290,10 +291,11 @@ export const trainingRouter = router({
         certificateUrl: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const result = await trainingDb.issueCertificate(
         input.participantId,
-        input.certificateUrl
+        input.certificateUrl,
+        ctx.tenantId
       );
       return result;
     }),
@@ -313,17 +315,17 @@ export const trainingRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await trainingDb.updateTrainingParticipant(id, data);
+      await trainingDb.updateTrainingParticipant(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   // 참가 취소
   cancelParticipant: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await trainingDb.deleteTrainingParticipant(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await trainingDb.deleteTrainingParticipant(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -335,12 +337,12 @@ export const trainingRouter = router({
   listRemindersByUser: tenantRequiredProcedure
     .input(z.object({ userId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      return trainingDb.getTrainingRemindersByUser(input.userId || ctx.user.id);
+      return trainingDb.getTrainingRemindersByUser(input.userId || ctx.user.id, ctx.tenantId);
     }),
 
   // 발송 대기 중인 알림 목록
   listPendingReminders: tenantRequiredProcedure.query(async ({ ctx }) => {
-    return trainingDb.getPendingTrainingReminders(ctx.user.tenantId);
+    return trainingDb.getPendingTrainingReminders(ctx.tenantId);
   }),
 
   // 알림 발송 완료 처리

@@ -18,7 +18,7 @@ export const communicationLogsRouter = router({
         const { createCommunicationLog } = await import("../communicationLog");
         const id = await createCommunicationLog({
           ...input,
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           authorId: ctx.user.id,
         });
         return { id, success: true };
@@ -36,7 +36,7 @@ export const communicationLogsRouter = router({
       .query(async ({ input, ctx }) => {
         const { getCommunicationLogs } = await import("../communicationLog");
         return await getCommunicationLogs({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           partnerId: input?.partnerId,
           status: input?.status,
           authorId: input?.authorId,
@@ -48,7 +48,7 @@ export const communicationLogsRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getCommunicationLogById } = await import("../communicationLog");
-        return await getCommunicationLogById(input.id, ctx.user.tenantId);
+        return await getCommunicationLogById(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 커뮤니케이션 로그 수정
@@ -64,7 +64,7 @@ export const communicationLogsRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { updateCommunicationLog } = await import("../communicationLog");
         const { id, ...data } = input;
-        await updateCommunicationLog(id, data, ctx.user.tenantId, ctx.user.id);
+        await updateCommunicationLog(id, data, ctx.tenantId ?? undefined, ctx.user.id);
         return { success: true };
       }),
 
@@ -73,7 +73,7 @@ export const communicationLogsRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteCommunicationLog } = await import("../communicationLog");
-        await deleteCommunicationLog(input.id, ctx.user.tenantId, ctx.user.id);
+        await deleteCommunicationLog(input.id, ctx.tenantId ?? undefined, ctx.user.id);
         return { success: true };
       }),
 
@@ -87,7 +87,7 @@ export const communicationLogsRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { updateCommunicationLogStatus } = await import("../communicationLog");
-        await updateCommunicationLogStatus({ id: input.id, status: input.status, tenantId: ctx.user.tenantId, userId: ctx.user.id });
+        await updateCommunicationLogStatus({ id: input.id, status: input.status, tenantId: ctx.tenantId ?? undefined, userId: ctx.user.id });
         return { success: true };
       }),
 
@@ -96,14 +96,14 @@ export const communicationLogsRouter = router({
       .input(z.object({ partnerId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getCommunicationLogStats } = await import("../communicationLog");
-        return await getCommunicationLogStats(input.partnerId, ctx.user.tenantId);
+        return await getCommunicationLogStats(input.partnerId, ctx.tenantId ?? undefined);
       }),
     // 댓글 생성
     createComment: tenantRequiredProcedure
       .input(z.object({ logId: z.number(), content: z.string().min(1), mentions: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
         const { createComment } = await import("../communicationLog");
-        const id = await createComment({ ...input, tenantId: ctx.user.tenantId, authorId: ctx.user.id });
+        const id = await createComment({ ...input, tenantId: ctx.tenantId ?? undefined, authorId: ctx.user.id });
         return { id, success: true };
       }),
     // 댓글 목록 조회
@@ -111,14 +111,14 @@ export const communicationLogsRouter = router({
       .input(z.object({ logId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getComments } = await import("../communicationLog");
-        return await getComments(input.logId, ctx.user.tenantId);
+        return await getComments(input.logId, ctx.tenantId ?? undefined);
       }),
     // 댓글 삭제
     deleteComment: tenantRequiredProcedure
       .input(z.object({ commentId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteComment } = await import("../communicationLog");
-        await deleteComment(input.commentId, ctx.user.tenantId, ctx.user.id);
+        await deleteComment(input.commentId, ctx.tenantId ?? undefined, ctx.user.id);
         return { success: true };
       }),
 });

@@ -14,7 +14,7 @@ export const checklistTemplateRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getChecklistTemplates } = await import("../../db");
-        return await getChecklistTemplates({ ...input, tenantId: ctx.user.tenantId });
+        return await getChecklistTemplates({ ...input, tenantId: ctx.tenantId ?? undefined });
       }),
     
     // 템플릿 상세 조회 (항목 포함)

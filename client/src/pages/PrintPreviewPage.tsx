@@ -1119,8 +1119,8 @@ function renderCcpFormRecord(fr: any, doc: any) {
   };
 
   const bCls = "border border-gray-600";
-  const thCls = `${bCls} px-2 py-1 text-center text-xs font-medium`;
-  const tdCls = `${bCls} px-2 py-1 text-center text-xs`;
+  const thCls = `${bCls} px-1 py-0.5 text-center text-xs font-medium`;
+  const tdCls = `${bCls} px-1 py-0.5 text-center text-xs`;
 
   // ══════════════════════════════════════════════════════════
   // CCP-1B: 가열(증숙) - 교반기 공정 기준서 양식
@@ -1241,25 +1241,21 @@ function renderCcpFormRecord(fr: any, doc: any) {
         </table>
 
         {/* 모니터링 기록 테이블 - 교반기_가열(증숙)공정 양식 */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
+        <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
-              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>품 명</th>
-              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>측정시각</th>
+              <th className={thCls} rowSpan={2} style={{ width: "11%" }}>품 명</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>측정<br/>시각</th>
               <th className={thCls} rowSpan={2} style={{ width: "10%" }}>교반기</th>
-              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>가열시간</th>
-              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>
-                압력<br /><span className="font-normal">(메가파스칼)</span>
-              </th>
-              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>투입량</th>
-              <th className={thCls} colSpan={2} style={{ width: "20%" }}>가열후 품온</th>
-              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>
-                판 정<br /><span className="font-normal">(적합/<br />부적합)</span>
-              </th>
+              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>가열<br/>시간</th>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>압력<br/><span className="font-normal text-[8px]">(MPa)</span></th>
+              <th className={thCls} rowSpan={2} style={{ width: "8%" }}>투입량<br/><span className="font-normal text-[8px]">(kg)</span></th>
+              <th className={thCls} colSpan={2}>가열후 품온</th>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>판 정</th>
             </tr>
             <tr>
-              <th className={thCls}>모서리</th>
-              <th className={thCls}>중심부</th>
+              <th className={thCls} style={{ width: "10%" }}>모서리</th>
+              <th className={thCls} style={{ width: "10%" }}>중심부</th>
             </tr>
           </thead>
           <tbody>
@@ -1281,11 +1277,11 @@ function renderCcpFormRecord(fr: any, doc: any) {
                   <td className={tdCls}>{rowProductName || ""}</td>
                   <td className={tdCls}>{measureTime || ":"}</td>
                   <td className={tdCls}>{equipName || ""}</td>
-                  <td className={tdCls}>{heatTime != null ? `${heatTime}` : ""}<br /><span className="text-gray-400">분</span></td>
-                  <td className={tdCls}>{pressure != null ? `${pressure}` : ""}<br /><span className="text-gray-400">Mpa</span></td>
-                  <td className={tdCls}>{inputQty != null ? `${inputQty}` : ""}<br /><span className="text-gray-400">kg</span></td>
-                  <td className={tdCls}>{tempEdge != null ? `${tempEdge}` : ""}<br /><span className="text-gray-400">℃</span></td>
-                  <td className={tdCls}>{tempCenter != null ? `${tempCenter}` : ""}<br /><span className="text-gray-400">℃</span></td>
+                  <td className={tdCls}>{heatTime != null ? `${heatTime}분` : ""}</td>
+                  <td className={tdCls}>{pressure != null ? `${pressure}` : ""}</td>
+                  <td className={tdCls}>{inputQty != null ? `${inputQty}` : ""}</td>
+                  <td className={tdCls}>{tempEdge != null ? `${tempEdge}℃` : ""}</td>
+                  <td className={tdCls}>{tempCenter != null ? `${tempCenter}℃` : ""}</td>
                   <td className={tdCls}>
                     {result ? (
                       <span className={isPass ? "" : "text-red-600 font-bold"}>
@@ -1440,7 +1436,7 @@ function renderCcpFormRecord(fr: any, doc: any) {
         </table>
 
         {/* 모니터링 기록 */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
+        <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
               <th className={thCls} style={{ width: "14%" }}>품 명</th>
@@ -1530,16 +1526,16 @@ function renderCcpFormRecord(fr: any, doc: any) {
       ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "passage")
       : [];
 
-    const SENSITIVITY_ROW_COUNT = Math.max(10, sensitivityRows.length);
-    const PASSAGE_ROW_COUNT = Math.max(10, passageRows.length);
+    // 인쇄 시 A4 한 장에 맞추기 위해: 데이터 행 + 최소 1~2개 빈 행 (최대 6행)
+    const SENSITIVITY_MIN = Math.min(6, Math.max(sensitivityRows.length + 1, 3));
+    const PASSAGE_MIN = Math.min(6, Math.max(passageRows.length + 1, 2));
 
-    // 데이터가 있으면 빈 행으로 최소 10행 채움, 없으면 빈 10행
     const displaySensitivityRows = sensitivityRows.length > 0
-      ? [...sensitivityRows, ...Array.from({ length: Math.max(0, 10 - sensitivityRows.length) }, () => ({}))]
-      : Array.from({ length: 10 }, () => ({}));
+      ? [...sensitivityRows, ...Array.from({ length: Math.max(0, SENSITIVITY_MIN - sensitivityRows.length) }, () => ({}))]
+      : Array.from({ length: SENSITIVITY_MIN }, () => ({}));
     const displayPassageRows = passageRows.length > 0
-      ? [...passageRows, ...Array.from({ length: Math.max(0, 10 - passageRows.length) }, () => ({}))]
-      : Array.from({ length: 10 }, () => ({}));
+      ? [...passageRows, ...Array.from({ length: Math.max(0, PASSAGE_MIN - passageRows.length) }, () => ({}))]
+      : Array.from({ length: PASSAGE_MIN }, () => ({}));
 
     // 시간 포맷 헬퍼 (HH:mm:ss → HH:mm)
     const fmtTime = (v: any) => {
@@ -1549,7 +1545,7 @@ function renderCcpFormRecord(fr: any, doc: any) {
     };
 
     return (
-      <div className="text-xs">
+      <div className="text-xs" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         {/* 제목 */}
         <table className="w-full border-collapse border-2 border-gray-700 mb-0">
           <tbody>
@@ -1619,25 +1615,20 @@ function renderCcpFormRecord(fr: any, doc: any) {
           </tbody>
         </table>
 
-        {/* 모니터링 방법 */}
+        {/* 모니터링 방법 - compact */}
         <table className="w-full border-collapse border border-gray-600 mb-0">
           <tbody>
             <tr>
-              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center align-top`} rowSpan={1} style={{ width: "10%" }}>모니터링<br/>방 법</td>
-              <td className={`${bCls} px-2 py-0.5 text-[9px] leading-tight`}>
-                <div>&#9675; 금속검출기 감도 확인</div>
-                <div>&#9675; 금속검출기 중간(벨트)에 테스트피스(Fe, SUS)를 통과시켜 검출여부 확인, 기록</div>
-                <div>&#9675; 제품강도 측정</div>
-                <div className="pl-3">- 제품을 통과 시켜 검출여부 확인(이물 없음 확인), 기록</div>
-                <div className="pl-3">- 테스트피스(Fe, SUS)를 제품의 정해진 위치에 놓고 함께 통과시켜 검출여부 확인, 기록</div>
-                <div>&#9675; 금속검출기를 통과한 해당제품별 그 양과 검출된 양을 확인, 기록</div>
+              <td className={`${bCls} px-1 py-0 font-medium bg-gray-50 text-center align-top text-[7px]`} rowSpan={1} style={{ width: "6%" }}>모니터링<br/>방 법</td>
+              <td className={`${bCls} px-1 py-0 text-[6.5px] leading-[1.1]`}>
+                <span>&#9675; 감도확인 / &#9675; 벨트 중간 테스트피스(Fe,SUS) 통과→검출여부 확인,기록 / &#9675; 제품강도측정-제품통과→이물없음 확인, 테스트피스+제품 통과 확인,기록 / &#9675; 통과량·검출량 확인,기록</span>
               </td>
             </tr>
           </tbody>
         </table>
 
         {/* ═══ 상단 테이블: 금속검출기 감도 모니터링 ═══ */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
+        <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
               <th className={thCls} colSpan={8} style={{ fontSize: "10px", padding: "2px" }}>
@@ -1645,20 +1636,20 @@ function renderCcpFormRecord(fr: any, doc: any) {
               </th>
             </tr>
             <tr>
-              <th className={thCls} rowSpan={2} style={{ width: "15%" }}>제품명</th>
-              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>통과시간</th>
-              <th className={thCls} style={{ width: "9%" }}>Fe만 통과</th>
+              <th className={thCls} rowSpan={2} style={{ width: "16%" }}>제품명</th>
+              <th className={thCls} rowSpan={2} style={{ width: "9%" }}>통과<br/>시간</th>
+              <th className={thCls} style={{ width: "9%" }}>Fe만<br/>통과</th>
               <th className={thCls} style={{ width: "9%" }}>SUS만<br/>통과</th>
               <th className={thCls} rowSpan={2} style={{ width: "9%" }}>제품만<br/>통과</th>
               <th className={thCls} style={{ width: "11%" }}>Fe+제품<br/>통과</th>
               <th className={thCls} style={{ width: "11%" }}>SUS+<br/>제품통과</th>
-              <th className={thCls} rowSpan={2} style={{ width: "13%" }}>판 정<br/><span className="text-[8px]">(적합/부적합)</span></th>
+              <th className={thCls} rowSpan={2} style={{ width: "13%" }}>판 정</th>
             </tr>
             <tr>
-              <th className={thCls} style={{ fontSize: "8px" }}>(중간)</th>
-              <th className={thCls} style={{ fontSize: "8px" }}>(중간)</th>
-              <th className={thCls} style={{ fontSize: "8px" }}>(제품중<br/>양위)</th>
-              <th className={thCls} style={{ fontSize: "8px" }}>(제품중앙위)</th>
+              <th className={thCls} style={{ fontSize: "8px", padding: "1px" }}>(중간)</th>
+              <th className={thCls} style={{ fontSize: "8px", padding: "1px" }}>(중간)</th>
+              <th className={thCls} style={{ fontSize: "8px", padding: "1px" }}>(제품중<br/>양위)</th>
+              <th className={thCls} style={{ fontSize: "8px", padding: "1px" }}>(제품중앙위)</th>
             </tr>
           </thead>
           <tbody>
@@ -1691,7 +1682,7 @@ function renderCcpFormRecord(fr: any, doc: any) {
         </table>
 
         {/* ═══ 하단 테이블: 통과량 기록 ═══ */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
+        <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
               <th className={thCls} style={{ width: "18%" }}>제품명</th>
@@ -1716,32 +1707,19 @@ function renderCcpFormRecord(fr: any, doc: any) {
           </tbody>
         </table>
 
-        {/* 개선조치 방법 */}
+        {/* 개선조치 방법 - compact */}
+        <div className="ccp-corrective-section">
         <table className="w-full border-collapse border border-gray-600 mb-0">
           <tbody>
             <tr>
-              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center align-top`} rowSpan={1} style={{ width: "10%" }}>개선조치<br/>방 법</td>
-              <td className={`${bCls} px-2 py-0.5 text-[8px] leading-tight`}>
-                <div>&#9675; 금속성 이물 검출 시</div>
-                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류하고 해당(이탈) 제품을 제거한다.</div>
-                <div className="pl-2">- 공정품에 혼입된 금속이물을 찾아내고, 그 출처를 조사하여 원인을 제거한다.</div>
-                <div className="pl-2">- 금속이물 검출 내역 및 개선조치 사항을 모니터링 일지에 기록</div>
-                <div>&#9675; 감도 이상 발생 시</div>
-                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류한다.</div>
-                <div className="pl-2">- 감도를 재조정한 후 정상적으로 작동 시 재가동한다.</div>
-                <div className="pl-2">- 감도이상 발생 전부터 정상운전 확인시점까지 생산된 제품을 다시 검사한다.</div>
-                <div className="pl-2">- 재검사 후 그 내역 또는 개선조치 사항을 모니터링 일지에 기록</div>
-                <div>&#9675; 기계적 고장 시</div>
-                <div className="pl-2">- 모니터링 담당자는 즉시 금속검출기의 작업을 중지하고 공정품을 보류한다.</div>
-                <div className="pl-2">- 수리 후 정상적으로 작동 시 재가동한다.</div>
-                <div className="pl-2">- 수리 불가능할 때에는 납품업체에 수리를 의뢰한다.</div>
-                <div className="pl-2">- &#9734; 금속검출기의 고장으로 정상 운전 확인 이후에 생산된 제품과 금속검출기 미통과제품에 대해서는 전량 검사대기품 표시(냉동보관)를 하여 금속검출기 수리 완료 후 전량 재통과한다.</div>
-                <div>&#9675; 공통 : 개선조치 시</div>
-                <div className="pl-2">- 문제발생시 HACCP팀장에게 보고후 조치하며, 개선조치후 모니터링 일지에 기록후 HACCP팀장에게 승인을 받는다.</div>
+              <td className={`${bCls} px-1 py-0 font-medium bg-gray-50 text-center align-top text-[7px]`} rowSpan={1} style={{ width: "6%" }}>개선<br/>조치<br/>방법</td>
+              <td className={`${bCls} px-1 py-0 text-[6.5px] leading-[1.1]`}>
+                <span>&#9675; 이물검출→작업중지,보류,제거,출처조사,기록 / &#9675; 감도이상→중지,재조정,재가동,재검사,기록 / &#9675; 고장→중지,수리재가동,불가시업체의뢰,미통과품재검사 / &#9675; 공통:HACCP팀장보고,조치기록,승인</span>
               </td>
             </tr>
           </tbody>
         </table>
+        </div>
 
         {/* 이탈내용 / 개선조치 */}
         <table className="w-full border-collapse border border-gray-600">
@@ -1897,7 +1875,7 @@ export default function PrintPreviewPage() {
         else if (request.referenceId && request.referenceType !== "batch" && request.referenceType !== "batch_group") {
           try {
             const record = await trpcUtils.genericChecklist.getById.fetch({ id: request.referenceId });
-            let rawFormData = record?.formData || record?.data || record;
+            let rawFormData = record?.formData || (record as any)?.data || record;
             if (typeof rawFormData === "string") {
               try { rawFormData = JSON.parse(rawFormData); } catch (_) {}
             }
@@ -2076,8 +2054,12 @@ export default function PrintPreviewPage() {
   return (
     <>
       <style>{`
-        @media print { body { margin: 0; padding: 0; } .no-print { display: none !important; } .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } }
-        @media screen { .print-page { max-width: 210mm; margin: 0 auto 20px; padding: 20mm; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white; border: 1px solid #e5e7eb; } }
+        @media print { body { margin: 0; padding: 0; } .no-print { display: none !important; } .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } table { break-inside: auto; } tr { break-inside: avoid; } thead { display: table-header-group; } .ccp-corrective-section { break-inside: avoid; page-break-inside: avoid; } .text-xs { font-size: 11px; } }
+        @media screen { .print-page { max-width: 210mm; margin: 0 auto 20px; padding: 15mm; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white; border: 1px solid #e5e7eb; } }
+        /* CCP 테이블 인쇄 미리보기 안정화 */
+        .ccp-print-table { table-layout: fixed; width: 100%; }
+        .ccp-print-table th, .ccp-print-table td { overflow: hidden; text-overflow: ellipsis; word-break: keep-all; box-sizing: border-box; }
+        .ccp-print-table th { white-space: normal; line-height: 1.2; }
       `}</style>
 
       <div className="no-print bg-blue-600 text-white p-4 sticky top-0 z-50 flex items-center justify-between">

@@ -76,8 +76,8 @@ export default function MfReportModify() {
       if (ver.batchTargetKg) setBatchTargetKg(String(ver.batchTargetKg));
 
       // 원재료 로드 (isAdditional=0인 것만, 추가 원재료 제외)
-      if (ver.ingredients && ver.ingredients.length > 0) {
-        const mainIngredients = ver.ingredients
+      if ((ver as any).ingredients && (ver as any).ingredients.length > 0) {
+        const mainIngredients = (ver as any).ingredients
           .filter((ing: any) => !ing.isAdditional || ing.isAdditional === 0)
           .map((ing: any) => ({
             materialId: ing.materialId || undefined,

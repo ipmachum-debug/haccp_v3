@@ -40,10 +40,10 @@ export default function InspectionStatistics() {
   const [dateRange, setDateRange] = useState<"week" | "month" | "quarter">("month");
 
   // 검사 통계 데이터 조회
-  const { data: stats, isLoading } = trpc.inspection.getStatistics.useQuery({
-    type: inspectionType,
-    range: dateRange,
-  });
+  const { data: stats, isLoading, error } = trpc.inspection.getStatistics.useQuery(
+    { type: inspectionType, range: dateRange },
+    { retry: 1, retryDelay: 1000 }
+  );
 
   if (isLoading) {
     return (
@@ -51,6 +51,25 @@ export default function InspectionStatistics() {
         <div className="space-y-6">
           <div className="flex items-center justify-center h-64">
             <div className="text-muted-foreground">로딩 중...</div>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">검사 통계 대시보드</h1>
+              <p className="text-muted-foreground mt-2">검사 통계 데이터를 불러올 수 없습니다.</p>
+            </div>
+          </div>
+          <div className="text-center py-12 text-muted-foreground">
+            <p className="text-sm">검사 데이터가 아직 없거나 서버와 연결할 수 없습니다.</p>
+            <p className="text-xs mt-2 text-gray-400">{error.message}</p>
           </div>
         </div>
       </DashboardLayout>

@@ -33,7 +33,7 @@ export async function executeDailyClose(data: {
   // 3. 마감 기록 생성
   const closeDateStr = closeDate.toISOString().split("T")[0]; // YYYY-MM-DD
   const [result] = await db.insert(schema.accountingDailyClose).values({
-    tenantId: tenantId ?? 1,
+    tenantId: tenantId,
     closeDate: closeDateStr,
     closedBy: userId,
     totalIncome: String(stats.totalDeposits),

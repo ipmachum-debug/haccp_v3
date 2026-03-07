@@ -323,6 +323,12 @@ export default function DashboardLayout({
     return null;
   }
 
+  // employee는 공지보드만 접근 가능
+  if (user.role === "employee") {
+    window.location.href = "/board";
+    return null;
+  }
+
   return (
     <>
       <SidebarProvider

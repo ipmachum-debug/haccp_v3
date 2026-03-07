@@ -26,7 +26,7 @@ export const accountingRouter = router({
         const { createTransaction } = await import("../../accounting");
         const transactionId = await createTransaction({
           ...input,
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           createdBy: ctx.user.id
         });
         return { success: true, transactionId };
@@ -106,7 +106,7 @@ export const accountingRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getMonthlySummary } = await import("../../accounting");
-        return await getMonthlySummary(input.year, input.month, ctx.user.tenantId);
+        return await getMonthlySummary(input.year, input.month, ctx.tenantId ?? undefined);
       }),
 
     // 계정 과목별 분석

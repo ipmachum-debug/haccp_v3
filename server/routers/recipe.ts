@@ -9,17 +9,17 @@ export const recipeRouter = router({
       productId: z.number().optional(),
       isActive: z.boolean().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { getRecipes } = await import("../db/recipe");
-      return await getRecipes(input);
+      return await getRecipes(input, ctx.tenantId);
     }),
   
   // 레시피 상세 조회 (라인 포함)
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { getRecipeById } = await import("../db/recipe");
-      const recipe = await getRecipeById(input.id);
+      const recipe = await getRecipeById(input.id, ctx.tenantId);
       if (!recipe) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -32,9 +32,9 @@ export const recipeRouter = router({
   // 제품별 레시피 조회
   getByProductId: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { getRecipesByProductId } = await import("../db/recipe");
-      return await getRecipesByProductId(input.productId);
+      return await getRecipesByProductId(input.productId, ctx.tenantId);
     }),
   
   // 레시피 생성
@@ -66,7 +66,7 @@ export const recipeRouter = router({
       return await createRecipe({
         ...input,
         createdBy: ctx.user.id,
-      });
+      }, ctx.tenantId);
     }),
   
   // 레시피 수정
@@ -109,7 +109,7 @@ export const recipeRouter = router({
         });
       }
       
-      return await updateRecipe(id, recipeData, lines);
+      return await updateRecipe(id, recipeData, lines, ctx.tenantId);
     }),
   
   // 레시피 삭제 (소프트 삭제)
@@ -117,7 +117,7 @@ export const recipeRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const { deleteRecipe, createAuditLog } = await import("../db/recipe");
-      await deleteRecipe(input.id);
+      await deleteRecipe(input.id, ctx.tenantId);
       
       // 감사 로그 기록
       const { createAuditLog: createLog } = await import("../db");
@@ -138,7 +138,7 @@ export const recipeRouter = router({
   // 레시피 버전 이력 조회
   getVersions: tenantRequiredProcedure
     .input(z.object({ recipeId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { getRecipeVersions } = await import("../db/recipe");
       return await getRecipeVersions(input.recipeId);
     }),
@@ -151,7 +151,7 @@ export const recipeRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { duplicateRecipe } = await import("../db/recipe");
-      return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id);
+      return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId);
     }),
   
   // 레시피 활성화/비활성화
@@ -160,9 +160,9 @@ export const recipeRouter = router({
       id: z.number(),
       isActive: z.boolean(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { updateRecipe } = await import("../db/recipe");
-      await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 });
+      await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 }, ctx.tenantId);
       return { success: true };
     }),
 });

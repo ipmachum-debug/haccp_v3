@@ -1,7 +1,7 @@
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, aliasedTable } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
-import { InsertUser, users, hInventoryLots, hInventory, hInventoryTransactions, hMaterials, hNotifications, materialInspectionRecords, materialInspectionItems, shippingInspectionRecords, shippingInspectionItems, hygieneInspectionRecords, hygieneInspectionItems, hSuppliers, hApprovalRequests, hApprovalHistory, hSupplierEvaluations, hNotificationSettings, hCcpDeviations, hCcpInstances, hCcpRows, hBatchInputs, hBatches, hCcpRecords, hProducts, hGenericChecklistRecords } from "../drizzle/schema";
+import { InsertUser, users, hInventoryLots, hInventory, hInventoryTransactions, hMaterials, hNotifications, materialInspectionRecords, materialInspectionItems, shippingInspectionRecords, shippingInspectionItems, hygieneInspectionRecords, hygieneInspectionItems, hSuppliers, hApprovalRequests, hApprovalHistory, hSupplierEvaluations, hNotificationSettings, hCcpDeviations, hCcpInstances, hCcpRows, hBatchInputs, hBatches, hCcpRecords, hProducts, hProductsV2, hGenericChecklistRecords } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -24,19 +24,19 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
         charset: 'utf8mb4',
         connectionLimit: 10,
         connectTimeout: 30000,
-        acquireTimeout: 30000,
+        // acquireTimeout removed (mysql2 deprecation)
         waitForConnections: true,
         queueLimit: 0
       });
       
       // 각 연결마다 character set 강제 설정
       connection.on('connection', (conn) => {
-        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err) => {
+        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset:', err);
         });
       });
       
-      _db = drizzle(connection);
+      _db = drizzle(connection) as any;
       console.log('[Database] Connection established successfully');
     } catch (error) {
       console.error("[Database] Failed to connect:", error);
@@ -65,7 +65,7 @@ export async function getRawConnection(): Promise<mysql.Pool> {
       
       // 각 연결마다 character set 강제 설정
       _rawConnection.on('connection', (conn) => {
-        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err) => {
+        conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset on raw connection:', err);
         });
       });
@@ -244,7 +244,7 @@ export async function createBatch(batch: {
   mode?: string;
   batchStartTime?: string; // "HH:mm" format
   createdBy: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -252,7 +252,7 @@ export async function createBatch(batch: {
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../drizzle/schema_recipe_new");
   
   const [result] = await db.insert(hBatches).values({
-    tenantId: batch.tenantId || 1,
+    tenantId: batch.tenantId,
     siteId: batch.siteId,
     productId: batch.productId,
     batchCode: batch.batchCode,
@@ -267,7 +267,7 @@ export async function createBatch(batch: {
   } as any);
   
   const batchId = Number(result.insertId);
-  const tenantId = batch.tenantId || 1;
+  const tenantId = batch.tenantId;
   const plannedQty = parseFloat(batch.plannedQuantity);
   
   // === 원재료 투입 자동생성 (품목제조보고 배합비 기반) ===
@@ -412,7 +412,7 @@ export async function getAllBatches(filters?: {
   siteId?: number;
   status?: string;
   productId?: number;
-  tenantId?: number;
+  tenantId: number;
   page?: number;
   limit?: number;
 }) {
@@ -614,8 +614,15 @@ export async function getAllCcpTemplates(tenantId?: number) {
   if (!db) return [];
   
   const { hCcpTemplates } = await import("../drizzle/schema.js");
-  const { desc } = await import("drizzle-orm");
+  const { desc, eq } = await import("drizzle-orm");
   
+  if (tenantId) {
+    return await db
+      .select()
+      .from(hCcpTemplates)
+      .where(eq(hCcpTemplates.tenantId, tenantId))
+      .orderBy(desc(hCcpTemplates.priority), desc(hCcpTemplates.createdAt));
+  }
   return await db
     .select()
     .from(hCcpTemplates)
@@ -644,6 +651,7 @@ export async function createCcpTemplate(data: {
   description?: string;
   priority?: number;
   isActive?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -656,7 +664,8 @@ export async function createCcpTemplate(data: {
     ccpType: data.ccpType,
     description: data.description,
     priority: data.priority || 0,
-    isActive: data.isActive !== undefined ? data.isActive : 1
+    isActive: data.isActive !== undefined ? data.isActive : 1,
+    tenantId: data.tenantId,
   });
 
   return { success: true };
@@ -808,7 +817,7 @@ export async function createProduct(data: {
   shelfLifeDays?: number;
   description?: string;
   isActive?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1065,7 +1074,7 @@ export async function getAllInventoryLots(filters?: {
   materialId?: number;
   supplierId?: number;
   search?: string;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1366,7 +1375,7 @@ export async function getAllMaterials(tenantId?: number) {
     id: itemMaster.id,
     materialName: itemMaster.itemName,
     materialCode: itemMaster.itemCode,
-    unit: itemMaster.unit,
+    unit: itemMaster.baseUnit,
     tenantId: itemMaster.tenantId,
     isActive: itemMaster.isActive
   }).from(itemMaster).where(and(...conditions)).orderBy(desc(itemMaster.id));
@@ -1479,25 +1488,31 @@ export async function getMaterialsByRecipeId(recipeId: number) {
 /**
  * 재고 부족 원재료 조회
  */
-export async function getLowStockMaterials() {
+export async function getLowStockMaterials(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hMaterials, hInventoryLots } = await import("../drizzle/schema.js");
-  const { eq, sum, sql } = await import("drizzle-orm");
+  const { eq, and, sum, sql } = await import("drizzle-orm");
   
-  // 모든 원재료 조회
-  const materials = await db.select().from(hMaterials).where(eq(hMaterials.isActive, 1));
+  // 테넌트 필터 적용
+  const materialWhere = tenantId
+    ? and(eq(hMaterials.isActive, 1), eq(hMaterials.tenantId, tenantId))
+    : eq(hMaterials.isActive, 1);
+  const materials = await db.select().from(hMaterials).where(materialWhere);
   
   const lowStockMaterials = [];
   
   for (const material of materials) {
-    // 해당 원재료의 총 가용 재고 계산
+    // 해당 원재료의 총 가용 재고 계산 (테넌트 격리)
+    const lotWhere = tenantId
+      ? and(eq(hInventoryLots.materialId, material.id), eq(hInventoryLots.tenantId, tenantId))
+      : eq(hInventoryLots.materialId, material.id);
     const stockResult = await db
       .select({
         totalStock: sum(hInventoryLots.availableQuantity)
       })
       .from(hInventoryLots)
-      .where(eq(hInventoryLots.materialId, material.id));
+      .where(lotWhere);
     
     const totalStock = parseFloat(stockResult[0]?.totalStock || "0");
     const safetyLevel = parseFloat(material.safetyStockLevel || "0");
@@ -1556,7 +1571,7 @@ export async function notifyLowStock(materialId: number) {
 /**
  * 대시보드 통계 조회
  */
-export async function getDashboardStats() {
+export async function getDashboardStats(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hBatches, hCcpInstances } = await import("../drizzle/schema.js");
@@ -1572,45 +1587,36 @@ export async function getDashboardStats() {
   
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   
-  // 진행 중인 배치 수
+  // 진행 중인 배치 수 (테넌트 격리)
+  const batchTenantCond = tenantId ? eq(hBatches.tenantId, tenantId) : undefined;
   const [inProgressResult] = await db
     .select({ count: count() })
     .from(hBatches)
-    .where(eq(hBatches.status, "in_progress"));
+    .where(batchTenantCond ? and(eq(hBatches.status, "in_progress"), batchTenantCond) : eq(hBatches.status, "in_progress"));
   
-  // 오늘 완료된 배치 수
+  // 오늘 완료된 배치 수 (테넌트 격리)
+  const todayConditions = [eq(hBatches.status, "completed"), gte(hBatches.endTime, today), lte(hBatches.endTime, tomorrow)];
+  if (batchTenantCond) todayConditions.push(batchTenantCond);
   const [completedTodayResult] = await db
     .select({ count: count() })
     .from(hBatches)
-    .where(
-      and(
-        eq(hBatches.status, "completed"),
-        gte(hBatches.endTime, today),
-        lte(hBatches.endTime, tomorrow)
-      )
-    );
+    .where(and(...todayConditions));
   
-  // 이번 주 완료된 배치 수
+  // 이번 주 완료된 배치 수 (테넌트 격리)
+  const weekConditions = [eq(hBatches.status, "completed"), gte(hBatches.endTime, weekStart)];
+  if (batchTenantCond) weekConditions.push(batchTenantCond);
   const [completedWeekResult] = await db
     .select({ count: count() })
     .from(hBatches)
-    .where(
-      and(
-        eq(hBatches.status, "completed"),
-        gte(hBatches.endTime, weekStart)
-      )
-    );
+    .where(and(...weekConditions));
   
-  // 이번 달 완료된 배치 수
+  // 이번 달 완료된 배치 수 (테넌트 격리)
+  const monthConditions = [eq(hBatches.status, "completed"), gte(hBatches.endTime, monthStart)];
+  if (batchTenantCond) monthConditions.push(batchTenantCond);
   const [completedMonthResult] = await db
     .select({ count: count() })
     .from(hBatches)
-    .where(
-      and(
-        eq(hBatches.status, "completed"),
-        gte(hBatches.endTime, monthStart)
-      )
-    );
+    .where(and(...monthConditions));
   
   // CCP 점검 현황
   const [ccpTotalResult] = await db
@@ -1623,7 +1629,7 @@ export async function getDashboardStats() {
     .where(eq(hCcpInstances.status, "submitted"));
   
   // 재고 부족 원재료 수
-  const lowStockMaterials = await getLowStockMaterials();
+  const lowStockMaterials = await getLowStockMaterials(tenantId);
   
   return {
     inProgressBatches: inProgressResult.count,
@@ -1643,13 +1649,19 @@ export async function getAllCcpRecords(filters?: {
   status?: "draft" | "submitted" | "approved" | "rejected";
   startDate?: Date;
   endDate?: Date;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
-  const { hCcpInstances, hBatches, hProducts } = await import("../drizzle/schema_main");
+  const { hCcpInstances, hBatches, hProductsV2 } = await import("../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
   
   let conditions = [];
+  
+  // ★ 테넌트 격리: tenantId 필터 필수 적용
+  if (filters?.tenantId) {
+    conditions.push(eq(hCcpInstances.tenantId, filters.tenantId));
+  }
   
   if (filters?.ccpType) {
     conditions.push(eq(hCcpInstances.ccpType, filters.ccpType));
@@ -1682,7 +1694,7 @@ export async function getAllCcpRecords(filters?: {
     })
     .from(hCcpInstances)
     .leftJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(whereClause)
     .orderBy(sql`${hCcpInstances.createdAt} DESC`);
   
@@ -1903,7 +1915,7 @@ export async function generateBatchReport(batchId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const { hBatches, hProducts, hCcpInstances, hCcpRecords, hBatchInputs, hMaterials } = await import("../drizzle/schema");
+  const { hBatches, hProductsV2, hCcpInstances, hCcpRecords, hBatchInputs, hMaterials } = await import("../drizzle/schema");
   
   // 배치 정보 조회
   const batch = await db
@@ -1920,8 +1932,8 @@ export async function generateBatchReport(batchId: number) {
   // 제품 정보 조회
   const product = await db
     .select()
-    .from(hProducts)
-    .where(eq(hProducts.id, batch.productId))
+    .from(hProductsV2)
+    .where(eq(hProductsV2.id, batch.productId))
     .limit(1)
     .then((rows) => rows[0]);
 
@@ -1978,7 +1990,7 @@ export async function updateCcpScheduleDate(scheduleId: number, newDate: Date) {
 // ============================================================================
 
 export async function createNotification(data: {
-  tenantId?: number;
+  tenantId: number;
   userId?: number;
   notificationType: string;
   title: string;
@@ -1993,7 +2005,7 @@ export async function createNotification(data: {
   if (!db) throw new Error("Database not available");
   const [notification] = await db.insert(hNotifications).values({
     ...data,
-    tenantId: data.tenantId || 1, // [보안] 기본값: 1 (테넌트 미지정 시)
+    tenantId: data.tenantId,
     userId: data.userId || 1, // 기본값: 1 (시스템 알림)
     priority: data.priority as "low" | "medium" | "high" | "urgent" | undefined
   });
@@ -2717,6 +2729,7 @@ export async function getMaterialInspectionRecords(filters?: {
   endDate?: string;
   status?: string;
   inspectionResult?: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -2735,6 +2748,9 @@ export async function getMaterialInspectionRecords(filters?: {
   }
   if (filters?.inspectionResult) {
     conditions.push(eq(materialInspectionRecords.inspectionResult, filters.inspectionResult as any));
+  }
+  if (filters?.tenantId) {
+    conditions.push(eq(materialInspectionRecords.tenantId, filters.tenantId));
   }
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -2837,6 +2853,7 @@ export async function getShippingInspectionRecords(filters?: {
   endDate?: string;
   status?: string;
   inspectionResult?: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -2855,6 +2872,9 @@ export async function getShippingInspectionRecords(filters?: {
   }
   if (filters?.inspectionResult) {
     conditions.push(eq(shippingInspectionRecords.inspectionResult, filters.inspectionResult as any));
+  }
+  if (filters?.tenantId) {
+    conditions.push(eq(shippingInspectionRecords.tenantId, filters.tenantId));
   }
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -2953,6 +2973,7 @@ export async function getHygieneInspectionRecords(filters?: {
   endDate?: string;
   status?: string;
   result?: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -2971,6 +2992,9 @@ export async function getHygieneInspectionRecords(filters?: {
   }
   if (filters?.result) {
     conditions.push(eq(hygieneInspectionRecords.result, filters.result as any));
+  }
+  if (filters?.tenantId) {
+    conditions.push(eq(hygieneInspectionRecords.tenantId, filters.tenantId));
   }
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -3344,7 +3368,7 @@ export async function createCcpInstance(data: {
   batchId?: number;
   status?: "draft" | "submitted" | "approved" | "rejected";
   createdBy?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -3371,7 +3395,7 @@ export async function createMaterial(data: {
   safetyStock?: number;
   expiryWarningDays?: number;
   isActive?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -3671,7 +3695,7 @@ export async function createApprovalRequest(data: {
  * 승인 요청 목록 조회
  */
 export async function getApprovalRequests(filters?: {
-  tenantId?: number;
+  tenantId: number;
   status?: string;
   requestType?: string;
   requestedBy?: number;
@@ -3958,8 +3982,8 @@ export async function cancelApprovalRequest(requestId: number, cancelledBy: numb
   if (!request) {
     throw new Error("Approval request not found");
   }
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be cancelled");
+  if (!["pending", "pending_review", "pending_approval"].includes(request.status)) {
+    throw new Error("승인완료/거부/취소된 요청은 취소할 수 없습니다");
   }
 
   // 취소 처리
@@ -4599,7 +4623,7 @@ export async function getCcpDeviationStatsByProduct(filters?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  const { hCcpDeviations, hCcpInstances, hProducts } = await import("../drizzle/schema.js");
+  const { hCcpDeviations, hCcpInstances, hProductsV2 } = await import("../drizzle/schema.js");
   const { and, gte, lte, eq, sql } = await import("drizzle-orm");
   
   const conditions = [];
@@ -4719,7 +4743,7 @@ export async function getProfitabilityByProduct(filters?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  const { hBatches, hProducts } = await import("../drizzle/schema.js");
+  const { hBatches, hProductsV2 } = await import("../drizzle/schema.js");
   const { and, gte, lte, eq, sql, isNotNull } = await import("drizzle-orm");
   
   const conditions = [isNotNull(hBatches.revenue)];
@@ -4733,15 +4757,15 @@ export async function getProfitabilityByProduct(filters?: {
   const stats = await db
     .select({
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       batchCount: sql<number>`COUNT(*)`,
       totalRevenue: sql<number>`SUM(${hBatches.revenue})`,
       avgRevenue: sql<number>`AVG(${hBatches.revenue})`
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
-    .groupBy(hBatches.productId, hProducts.productName)
+    .groupBy(hBatches.productId, hProductsV2.productName)
     .orderBy(sql`SUM(${hBatches.revenue}) DESC`);
   
   // 각 제품의 평균 비용 계산
@@ -5724,7 +5748,6 @@ export async function getNotificationStatistics(startDate?: string, endDate?: st
   
   const { sql } = await import("drizzle-orm");
   
-  // 날짜 필터 조건 생성
   let dateFilter = sql``;
   if (startDate && endDate) {
     dateFilter = sql` AND createdAt >= ${startDate} AND createdAt <= ${endDate}`;
@@ -5734,68 +5757,62 @@ export async function getNotificationStatistics(startDate?: string, endDate?: st
     dateFilter = sql` AND createdAt <= ${endDate}`;
   }
   
-  // 테넌트 필터 조건
   const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
   
-  // 총 알림 수
-  const totalResult: any = await db.execute(sql`SELECT COUNT(*) as count FROM ${hNotifications} WHERE 1=1${dateFilter}${tenantFilter}`);
-  const totalNotifications = Number(totalResult[0]?.count || 0);
-  
-  // 미해결/해결 알림 수
-  const unresolvedResult: any = await db.execute(sql`SELECT COUNT(*) as count FROM ${hNotifications} WHERE isResolved = 0${dateFilter}${tenantFilter}`);
-  const unresolvedCount = Number(unresolvedResult[0]?.count || 0);
+  // ★ 성능 개선: 6개 쿼리 → 3개로 통합
+  // 1) 총 알림 + 미해결 + 평균해결시간 통합 조회
+  const summaryRaw: any = await db.execute(sql`
+    SELECT 
+      COUNT(*) as totalCount,
+      SUM(CASE WHEN isResolved = 0 THEN 1 ELSE 0 END) as unresolvedCount,
+      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL 
+          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
+    FROM ${hNotifications} 
+    WHERE 1=1${dateFilter}${tenantFilter}
+  `);
+  const summary = Array.isArray(summaryRaw) && summaryRaw[0] ? (Array.isArray(summaryRaw[0]) ? summaryRaw[0][0] : summaryRaw[0]) : {};
+  const totalNotifications = Number(summary?.totalCount || 0);
+  const unresolvedCount = Number(summary?.unresolvedCount || 0);
   const resolvedCount = totalNotifications - unresolvedCount;
+  const overallAvgResolutionHours = Number(summary?.avgHours || 0);
   
-  // 알림 타입별 발생 빈도
-  const typeDistributionRaw = await db.execute(sql`
-    SELECT notificationType as type, COUNT(*) as count 
+  // 2) 타입별 빈도 + 해결시간 통합 조회
+  const typeStatsRaw = await db.execute(sql`
+    SELECT 
+      notificationType as type, 
+      COUNT(*) as count,
+      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL 
+          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
     FROM ${hNotifications} 
     WHERE 1=1${dateFilter}${tenantFilter}
     GROUP BY notificationType
   `);
-  const typeDistribution = typeDistributionRaw.map((row: any) => ({
+  const typeRows = Array.isArray(typeStatsRaw) && Array.isArray(typeStatsRaw[0]) ? typeStatsRaw[0] : typeStatsRaw;
+  const typeDistribution = (typeRows as any[]).map((row: any) => ({
     name: row.type || "기타",
     count: Number(row.count)
   }));
+  const avgResolutionTime = (typeRows as any[])
+    .filter((row: any) => row.avgHours != null)
+    .map((row: any) => ({
+      type: row.type || "기타",
+      avgHours: Number(row.avgHours || 0)
+    }));
   
-  // 평균 해결 시간 (알림 타입별)
-  const avgResolutionTimeRaw = await db.execute(sql`
-    SELECT 
-      notificationType as type,
-      AVG(TIMESTAMPDIFF(HOUR, createdAt, resolvedAt)) as avgHours
-    FROM ${hNotifications}
-    WHERE isResolved = 1 AND resolvedAt IS NOT NULL${dateFilter}${tenantFilter}
-    GROUP BY notificationType
-  `);
-  const avgResolutionTime = avgResolutionTimeRaw.map((row: any) => ({
-    type: row.type || "기타",
-    avgHours: Number(row.avgHours || 0)
-  }));
-  
-  // 전체 평균 해결 시간
-  const overallAvgResult: any = await db.execute(sql`
-    SELECT AVG(TIMESTAMPDIFF(HOUR, createdAt, resolvedAt)) as avgHours
-    FROM ${hNotifications}
-    WHERE isResolved = 1 AND resolvedAt IS NOT NULL${dateFilter}
-  `);
-  const overallAvgResolutionHours = Number(overallAvgResult[0]?.avgHours || 0);
-  
-  // 미해결 알림 추이
+  // 3) 미해결 알림 추이
   let trendDateFilter = dateFilter;
   if (!startDate && !endDate) {
-    // 기간 필터가 없으면 최근 30일
     trendDateFilter = sql` AND createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
   }
   const unresolvedTrendRaw = await db.execute(sql`
-    SELECT 
-      DATE(createdAt) as date,
-      COUNT(*) as count
+    SELECT DATE(createdAt) as date, COUNT(*) as count
     FROM ${hNotifications}
-    WHERE isResolved = 0${trendDateFilter}
+    WHERE isResolved = 0${trendDateFilter}${tenantFilter}
     GROUP BY DATE(createdAt)
     ORDER BY date ASC
   `);
-  const unresolvedTrend = unresolvedTrendRaw.map((row: any) => ({
+  const trendRows = Array.isArray(unresolvedTrendRaw) && Array.isArray(unresolvedTrendRaw[0]) ? unresolvedTrendRaw[0] : unresolvedTrendRaw;
+  const unresolvedTrend = (trendRows as any[]).map((row: any) => ({
     date: row.date,
     count: Number(row.count)
   }));
@@ -5833,7 +5850,7 @@ export async function getActiveBatches() {
       (SELECT COUNT(*) FROM hCcpInstances WHERE batchId = b.batchId) as ccpCheckCount,
       (SELECT COUNT(*) FROM hCcpInstances WHERE batchId = b.batchId AND status = 'completed') as ccpCheckCompletedCount
     FROM hBatches b
-    LEFT JOIN hProducts p ON b.productId = p.productId
+    LEFT JOIN h_products_v2 p ON b.product_id = p.id
     WHERE b.plannedDate >= DATE_SUB(NOW(), INTERVAL 7 DAY)
     ORDER BY b.plannedDate DESC
     LIMIT 20
@@ -6231,7 +6248,6 @@ export async function completeBatch(params: {
       .limit(1);
     
     if (finishedGoodsInventory.length > 0) {
-      // 기존 재고 업데이트
       await db
         .update(hInventory)
         .set({
@@ -6240,18 +6256,17 @@ export async function completeBatch(params: {
         })
         .where(eq(hInventory.productId, existingBatch.productId));
     } else {
-      // 신규 재고 생성
       await db.insert(hInventory).values({
         productId: existingBatch.productId,
         totalQuantity: actualQuantity.toString(),
         availableQuantity: actualQuantity.toString(),
         reservedQuantity: "0",
-        unit: "EA",
+        unit: "kg",
         location: "완제품 창고"
       } as any);
     }
     
-    // 완제품 입고 거래 기록
+    // 완제품 입고 거래 기록 (kg 기준 총량)
     await db.insert(hInventoryTransactions).values({
       materialId: existingBatch.productId,
       transactionType: "in",
@@ -6260,12 +6275,116 @@ export async function completeBatch(params: {
       totalPrice: "0",
       batchId: batchId,
       transactionDate: new Date(),
-      notes: `배치 완료 - 완제품 입고 (배치 ID: ${batchId})`,
-      createdBy: 1, // TODO: completedBy 파라미터 추가
+      notes: `배치 완료 - 완제품 입고 (배치 ID: ${batchId}, ${actualQuantity}kg)`,
+      createdBy: 1,
     } as any);
   } catch (error) {
     console.error(`[배치 완료] 재고 정산 실패:`, error);
-    // 재고 정산 실패해도 배치 완료는 진행
+  }
+
+  // ★ 3-2. SKU별 제품 LOT 자동 생성 (production_sku_output 기반)
+  try {
+    // getRawConnection is already available in this file
+    const pool = await getRawConnection();
+    const tenantId = existingBatch.tenantId;
+    if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
+    
+    // production_sku_output에서 이 배치의 SKU 실적 조회
+    const [skuOutputRows] = await pool.execute(
+      `SELECT pso.sku_id, pso.quantity, pso.total_kg, pso.defective_qty,
+              ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit,
+              COALESCE(im.item_name, p.product_name) as product_name
+       FROM production_sku_output pso
+       JOIN product_skus ps ON pso.sku_id = ps.id
+       LEFT JOIN item_master im ON ps.item_id = im.id AND im.tenant_id = ?
+       LEFT JOIN h_products_v2 p ON p.id = ? AND p.tenant_id = ?
+       WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
+      [tenantId, existingBatch.productId, tenantId, batchId, tenantId]
+    );
+    
+    const skuRows = skuOutputRows as any[];
+    if (skuRows.length > 0) {
+      const batchCode = existingBatch.batchCode || `B${batchId}`;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      
+      for (const sku of skuRows) {
+        const skuQty = parseInt(sku.quantity) || 0;
+        if (skuQty <= 0) continue;
+        
+        const lotNumber = `${batchCode}-${sku.sku_code || sku.sku_id}`;
+        const salesUnit = sku.sales_unit || "box";
+        const unitPrice = sku.unit_price ? parseFloat(sku.unit_price) : 0;
+        const productName = sku.product_name || "제품";
+        const skuName = sku.sku_name || "";
+        
+        // 이미 이 배치+SKU로 생성된 LOT가 있는지 확인
+        const [existingLots] = await pool.execute(
+          `SELECT id FROM h_inventory_lots WHERE batch_id = ? AND sku_id = ? AND tenant_id = ? LIMIT 1`,
+          [batchId, sku.sku_id, tenantId]
+        );
+        
+        if ((existingLots as any[]).length > 0) {
+          await pool.execute(
+            `UPDATE h_inventory_lots SET quantity = ?, available_quantity = ? WHERE id = ?`,
+            [skuQty.toString(), skuQty.toString(), (existingLots as any[])[0].id]
+          );
+          continue;
+        }
+        
+        // SKU별 LOT 생성
+        const [insertResult] = await pool.execute(
+          `INSERT INTO h_inventory_lots (
+            tenant_id, batch_id, product_id, sku_id, sku_name, lot_number,
+            quantity, available_quantity, unit, unit_price,
+            production_date, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+          [
+            tenantId, batchId, existingBatch.productId,
+            sku.sku_id, skuName, lotNumber,
+            skuQty.toString(), skuQty.toString(), salesUnit, unitPrice.toString(),
+            todayStr
+          ]
+        );
+        
+        const lotId = (insertResult as any).insertId;
+        
+        // SKU별 입고 트랜잭션 기록
+        const { hInventoryTransactions: hInvTxSchema } = await import("../drizzle/schema");
+        await db.insert(hInvTxSchema).values({
+          tenantId,
+          lotId,
+          transactionType: "inbound",
+          quantity: skuQty.toString(),
+          unit: salesUnit,
+          notes: `생산 완료 SKU 입고 (배치: ${batchCode}, SKU: ${skuName}, ${productName})`,
+          createdBy: 1,
+          performedBy: 1,
+          transactionDate: todayStr,
+        } as any);
+        
+        console.log(`[completeBatch] SKU LOT 생성: ${lotNumber} (${skuName}, ${skuQty} ${salesUnit})`);
+      }
+      console.log(`[completeBatch] 배치 #${batchId}: ${skuRows.length}개 SKU LOT 생성 완료`);
+    } else {
+      // SKU 실적 없으면 기존 방식으로 fallback (배치 단위 LOT 1개)
+      console.log(`[completeBatch] 배치 #${batchId}: SKU 실적 없음, fallback LOT 생성`);
+      const { createProductLotFromBatch } = await import("./db/productOutboundManagement");
+      const tenantId = existingBatch.tenantId;
+    if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
+      const batchCode = existingBatch.batchCode || `B${batchId}`;
+      await createProductLotFromBatch({
+        batchId,
+        batchCode,
+        productId: existingBatch.productId,
+        productName: "제품",
+        quantity: actualQuantity,
+        unit: "kg",
+        lotNumber: `PROD-${batchCode}`,
+        userId: 1,
+      }, tenantId);
+    }
+  } catch (skuLotErr) {
+    console.error(`[completeBatch] SKU LOT 생성 실패:`, skuLotErr);
   }
   
   // 3-1. 원가 확정 업데이트
@@ -6309,7 +6428,7 @@ export async function completeBatch(params: {
     // 6-1. 문서 자동 생성
     autoGeneratedDocs = await autoGenerateDocumentsForBatch(
       batchId,
-      existingBatch.siteId || 1,
+      existingBatch.siteId,
       existingBatch.productId,
       new Date(),
       1
@@ -6324,7 +6443,7 @@ export async function completeBatch(params: {
         const now2 = new Date().toISOString().replace('T', ' ').split('.')[0];
         await rawConn2.execute(
           "INSERT IGNORE INTO h_daily_reports (site_id, report_date, report_type, summary, status, created_at, updated_at) VALUES (?, ?, 'production', ?, 'completed', ?, ?)",
-          [existingBatch.siteId || 1, today, JSON.stringify({ batchId, actualQuantity, autoGenerated: true }), now2, now2]
+          [existingBatch.siteId, today, JSON.stringify({ batchId, actualQuantity, autoGenerated: true }), now2, now2]
         );
         console.log(`[Batch Completion] 일일일지 자동 생성 완료`);
       }
@@ -6338,7 +6457,7 @@ export async function completeBatch(params: {
         for (const doc of autoGeneratedDocs) {
           await db.insert(hApprovalRequests).values({
             batchId,
-            siteId: existingBatch.siteId || 1,
+            siteId: existingBatch.siteId,
             documentInstanceId: doc.id,
             requestType: 'document_approval',
             title: `[자동] ${doc.documentTypeName} 승인 요청`,
@@ -6530,7 +6649,7 @@ export async function createEquipment(equipment: {
   rowsPerBatch?: number;
   status?: string;
   notes?: string;
-}) {
+}, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -6547,7 +6666,8 @@ export async function createEquipment(equipment: {
     monitoringInterval: equipment.monitoringInterval || 10,
     rowsPerBatch: equipment.rowsPerBatch || 4,
     status: equipment.status || "active",
-    notes: equipment.notes || null
+    notes: equipment.notes || null,
+    ...(tenantId ? { tenantId } : {}),
   } as any);
 
   return Number(result.insertId);
@@ -6562,43 +6682,37 @@ export async function getAllEquipments(filters?: {
   status?: string;
   page?: number;
   limit?: number;
-}) {
+}, tenantId?: number) {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, limit: 50 };
 
   const { equipments } = await import("../drizzle/schema");
-  const { count } = await import("drizzle-orm");
+  const { count, and: andOp } = await import("drizzle-orm");
   
-  let query = db.select().from(equipments).$dynamic();
-  
+  // ✅ P0 FIX: tenant_id 필터 강제
+  const conditions: any[] = [];
+  if (tenantId) {
+    conditions.push(eq(equipments.tenantId, tenantId));
+  }
   if (filters?.type) {
-    query = query.where(eq(equipments.type, filters.type));
+    conditions.push(eq(equipments.type, filters.type));
   }
   if (filters?.ccpType) {
-    query = query.where(eq(equipments.ccpType, filters.ccpType));
+    conditions.push(eq(equipments.ccpType, filters.ccpType));
   }
   if (filters?.status) {
-    query = query.where(eq(equipments.status, filters.status));
+    conditions.push(eq(equipments.status, filters.status));
   }
   
   const page = filters?.page || 1;
   const limit = filters?.limit || 50;
   const offset = (page - 1) * limit;
   
-  const items = await query.limit(limit).offset(offset);
+  const whereClause = conditions.length > 0 ? andOp(...conditions) : undefined;
   
-  let countQuery = db.select({ count: count() }).from(equipments).$dynamic();
-  if (filters?.type) {
-    countQuery = countQuery.where(eq(equipments.type, filters.type));
-  }
-  if (filters?.ccpType) {
-    countQuery = countQuery.where(eq(equipments.ccpType, filters.ccpType));
-  }
-  if (filters?.status) {
-    countQuery = countQuery.where(eq(equipments.status, filters.status));
-  }
+  const items = await db.select().from(equipments).where(whereClause).limit(limit).offset(offset);
   
-  const [{ count: total }] = await countQuery;
+  const [{ count: total }] = await db.select({ count: count() }).from(equipments).where(whereClause);
   
   return { items, total, page, limit };
 }
@@ -6606,13 +6720,20 @@ export async function getAllEquipments(filters?: {
 /**
  * 설비 프로필 상세 조회
  */
-export async function getEquipmentById(equipmentId: number) {
+export async function getEquipmentById(equipmentId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { equipments } = await import("../drizzle/schema");
+  const { and: andOp } = await import("drizzle-orm");
   
-  const result = await db.select().from(equipments).where(eq(equipments.id, equipmentId)).limit(1);
+  // ✅ P0 FIX: tenant_id 필터 강제
+  const conditions: any[] = [eq(equipments.id, equipmentId)];
+  if (tenantId) {
+    conditions.push(eq(equipments.tenantId, tenantId));
+  }
+  
+  const result = await db.select().from(equipments).where(andOp(...conditions)).limit(1);
   
   return result.length > 0 ? result[0] : undefined;
 }
@@ -6645,7 +6766,8 @@ export async function updateEquipment(
     rowsPerBatch?: number;
     status?: string;
     notes?: string;
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6664,7 +6786,14 @@ export async function updateEquipment(
     return { success: true };
   }
   
-  await db.update(equipments).set(cleanUpdates as any).where(eq(equipments.id, equipmentId));
+  // ✅ P0 FIX: tenant_id 필터 강제
+  const { and: andOp } = await import("drizzle-orm");
+  const conditions: any[] = [eq(equipments.id, equipmentId)];
+  if (tenantId) {
+    conditions.push(eq(equipments.tenantId, tenantId));
+  }
+  
+  await db.update(equipments).set(cleanUpdates as any).where(andOp(...conditions));
   
   return { success: true };
 }
@@ -6672,13 +6801,20 @@ export async function updateEquipment(
 /**
  * 설비 프로필 삭제
  */
-export async function deleteEquipment(equipmentId: number) {
+export async function deleteEquipment(equipmentId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { equipments } = await import("../drizzle/schema");
+  const { and: andOp } = await import("drizzle-orm");
   
-  await db.delete(equipments).where(eq(equipments.id, equipmentId));
+  // ✅ P0 FIX: tenant_id 필터 강제
+  const conditions: any[] = [eq(equipments.id, equipmentId)];
+  if (tenantId) {
+    conditions.push(eq(equipments.tenantId, tenantId));
+  }
+  
+  await db.delete(equipments).where(andOp(...conditions));
   
   return { success: true };
 }
@@ -6686,7 +6822,7 @@ export async function deleteEquipment(equipmentId: number) {
 /**
  * CCP 유형별 설비 목록 조회
  */
-export async function getEquipmentsByCcpType(ccpType: string) {
+export async function getEquipmentsByCcpType(ccpType: string, tenantId?: number) {
   const db = await getDb();
   if (!db) return [];
 
@@ -6694,13 +6830,19 @@ export async function getEquipmentsByCcpType(ccpType: string) {
   
   const { and } = await import("drizzle-orm");
   
+  // ✅ P0 FIX: tenant_id 필터 강제
+  const conditions: any[] = [
+    eq(equipments.ccpType, ccpType),
+    eq(equipments.status, "active")
+  ];
+  if (tenantId) {
+    conditions.push(eq(equipments.tenantId, tenantId));
+  }
+  
   const result = await db
     .select()
     .from(equipments)
-    .where(and(
-      eq(equipments.ccpType, ccpType),
-      eq(equipments.status, "active")
-    ));
+    .where(and(...conditions));
   
   return result;
 }
@@ -7060,7 +7202,7 @@ export async function getBatchSchedule(params: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
-  const { hBatches, hProducts } = await import("../drizzle/schema");
+  const { hBatches, hProductsV2 } = await import("../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
   
   const conditions = [
@@ -7080,10 +7222,10 @@ export async function getBatchSchedule(params: {
   const batches = await db
     .select({
       batch: hBatches,
-      product: hProducts
+      product: hProductsV2
     })
     .from(hBatches)
-    .leftJoin(hProducts, and(eq(hBatches.productId, hProducts.id), eq(hProducts.tenantId, params.tenantId)))
+    .leftJoin(hProductsV2, and(eq(hBatches.productId, hProductsV2.id), eq(hProductsV2.tenantId, params.tenantId)))
     .where(and(...conditions))
     .orderBy(hBatches.plannedDate);
   
@@ -7214,7 +7356,7 @@ export async function analyzeProductionCapacity(params: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
-  const { hBatches, hProducts } = await import("../drizzle/schema");
+  const { hBatches, hProductsV2 } = await import("../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
   
   const conditions = [
@@ -7265,7 +7407,7 @@ export async function analyzeProductionCapacityByProduct(params: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
-  const { hBatches, hProducts } = await import("../drizzle/schema");
+  const { hBatches, hProductsV2 } = await import("../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
   
   const conditions = [
@@ -7281,17 +7423,17 @@ export async function analyzeProductionCapacityByProduct(params: {
   const result = await db
     .select({
       productId: hBatches.productId,
-      productName: hProducts.productName,
-      productCode: hProducts.productCode,
+      productName: hProductsV2.productName,
+      productCode: hProductsV2.productCode,
       batchCount: sql<number>`COUNT(*)`,
       totalPlannedQuantity: sql<number>`SUM(${hBatches.plannedQuantity})`,
       totalActualQuantity: sql<number>`SUM(${hBatches.actualQuantity})`,
       completedCount: sql<number>`SUM(CASE WHEN ${hBatches.status} = 'completed' THEN 1 ELSE 0 END)`
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
-    .groupBy(hBatches.productId, hProducts.productName, hProducts.productCode)
+    .groupBy(hBatches.productId, hProductsV2.productName, hProductsV2.productCode)
     .orderBy(sql`SUM(${hBatches.plannedQuantity}) DESC`);
   
   return result.map((row) => ({
@@ -7411,7 +7553,7 @@ export async function getInventoryTrend(params: {
   endDate?: string;
   siteId?: number;
   materialId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7470,7 +7612,7 @@ export async function getInventoryTurnoverAnalysis(params: {
   endDate?: string;
   siteId?: number;
   materialId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7558,19 +7700,19 @@ export async function optimizeProductionSchedule(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  // 1. 기간 내 계획된 배치 조회
+  // 1. 기간 내 계획된 배치 조회 (★ hProductsV2 사용)
   const batches = await db
     .select({
       id: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       plannedDate: hBatches.plannedDate,
       plannedQuantity: hBatches.plannedQuantity,
       status: hBatches.status
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(
       and(
         eq(hBatches.tenantId, params.tenantId),
@@ -7770,7 +7912,7 @@ export async function applyScheduleOptimization(params: {
 export async function predictInventoryShortage(params: {
   materialId: number;
   days: number; // 예측 기간 (일)
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7888,7 +8030,7 @@ export async function predictAllInventoryShortage(days: number, tenantId?: numbe
  */
 export async function generatePurchaseOrderSuggestions(params: {
   days: number; // 예측 기간 (일)
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -7956,7 +8098,7 @@ export async function generatePurchaseOrderSuggestions(params: {
  */
 export async function predictAllMaterialsShortage(params: {
   days: number; // 예측 기간 (일)
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8016,7 +8158,7 @@ export async function getBatchCostAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8039,7 +8181,7 @@ export async function getBatchCostAnalysis(params: {
       id: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       plannedQuantity: hBatches.plannedQuantity,
       actualQuantity: hBatches.actualQuantity,
       startTime: hBatches.startTime,
@@ -8048,7 +8190,7 @@ export async function getBatchCostAnalysis(params: {
       actualCost: hBatches.actualCost
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
     .orderBy(hBatches.startTime);
   
@@ -8118,7 +8260,7 @@ export async function getProductionTimeAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8162,7 +8304,7 @@ export async function getDefectRateAnalysis(params: {
   endDate?: string;
   siteId?: number;
   productId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -8182,15 +8324,15 @@ export async function getDefectRateAnalysis(params: {
   const result = await db
     .select({
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       totalPlanned: sql<number>`SUM(${hBatches.plannedQuantity})`,
       totalActual: sql<number>`SUM(${hBatches.actualQuantity})`,
       batchCount: sql<number>`COUNT(*)`
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
-    .groupBy(hBatches.productId, hProducts.productName);
+    .groupBy(hBatches.productId, hProductsV2.productName);
   
   return result.map((r: any) => {
     const totalPlanned = Number(r.totalPlanned || 0);
@@ -8421,7 +8563,7 @@ export async function getInventoryTrendData(params: {
   startDate?: string;
   endDate?: string;
   materialId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const [inventoryTrend, turnoverAnalysis, expiringMaterials] = await Promise.all([
     getInventoryTrend(params),

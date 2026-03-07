@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -102,6 +103,7 @@ export default function FinancialReports() {
   const isExporting = exportTrialBalanceMut.isPending || exportBalanceSheetMut.isPending || exportIncomeStatementMut.isPending;
 
   return (
+    <DashboardLayout>
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
@@ -500,6 +502,7 @@ export default function FinancialReports() {
         </TabsContent>
       </Tabs>
     </div>
+    </DashboardLayout>
   );
 }
 

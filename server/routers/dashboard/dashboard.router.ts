@@ -10,7 +10,7 @@ export const dashboardRouter = router({
     getStats: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getDashboardStats } = await import("../../db");
-        return await getDashboardStats(ctx.user.tenantId);
+        return await getDashboardStats(ctx.tenantId ?? undefined);
       }),
     
     // 회계 요약 데이터 조회
@@ -146,7 +146,7 @@ export const dashboardRouter = router({
     getWidgetSettings: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getUserWidgetSettings } = await import("../../db/widgetSettings");
-        return await getUserWidgetSettings(ctx.user.id, ctx.user.tenantId);
+        return await getUserWidgetSettings(ctx.user.id, ctx.tenantId ?? undefined);
       }),
     
     // 위젯 표시/숨김 업데이트

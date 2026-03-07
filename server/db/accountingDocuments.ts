@@ -14,7 +14,7 @@ export async function createDocument(data: NewAccountingDocument, tenantId?: num
   const db = await getDb();
   
   const result = await db.insert(accountingDocuments).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   const documentId = Number(result[0].insertId);
 
   // 초기 워크플로우 상태 생성 (uploaded)

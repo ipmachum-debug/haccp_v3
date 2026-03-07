@@ -133,6 +133,6 @@ export async function createSystemAuditLog(
   await createAuditLog({
     ...params,
     actorType: 'system',
-    actorId: null
+    actorId: undefined
   });
 }

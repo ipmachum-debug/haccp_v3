@@ -1,5 +1,7 @@
 // production 도메인 라우터 모음
 export { batchRouter } from "./batch.router";
+export { batchApprovalRouter } from "./batchApproval.router";
+export { batchCostRouter } from "./batchCost.router";
 export { batchScheduleRouter } from "./batchSchedule.router";
 export { costAnalysisRouter } from "./costAnalysis.router";
 export { costSavingAIRouter } from "./costSavingAI.router";
@@ -15,3 +17,4 @@ export { recipeRouter } from "./recipe.router";
 export { recipeApprovalRouter } from "./recipeApproval.router";
 export { recipeManagementRouter } from "./recipeManagement.router";
 export { scheduleOptimizationRouter } from "./scheduleOptimization.router";
+export { aiProductionParserRouter } from "./aiProductionParser.router";

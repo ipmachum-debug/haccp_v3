@@ -24,13 +24,13 @@ export const supplierRouter = router({
           search: input?.search,
           sortBy: input?.sortBy,
           sortOrder: input?.sortOrder,
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
       }),
     // 거래처 전체 내보내기 (엑셀 다운로드용)
     exportAll: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getSupplierPartners } = await import("../../partners");
-        const result = await getSupplierPartners({ page: 1, limit: 10000 }, ctx.user.tenantId);
+        const result = await getSupplierPartners({ page: 1, limit: 10000 }, ctx.tenantId ?? undefined);
         return { items: result.items, total: result.total };
       }),
     getById: tenantRequiredProcedure
@@ -56,7 +56,7 @@ export const supplierRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createSupplierPartner } = await import("../../partners");
-        return await createSupplierPartner({ ...input, tenantId: ctx.user.tenantId });
+        return await createSupplierPartner({ ...input, tenantId: ctx.tenantId ?? undefined });
       }),
     update: adminProcedure
       .input(
@@ -84,14 +84,14 @@ export const supplierRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteSupplierPartner } = await import("../../partners");
-        return await deleteSupplierPartner(input.id, ctx.user.tenantId);
+        return await deleteSupplierPartner(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 자동 코드 생성
     generateCode: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { generateSupplierCode } = await import("../../db/codeGenerator.js");
-        return await generateSupplierCode(ctx.user.tenantId);
+        return await generateSupplierCode(ctx.tenantId ?? undefined);
       }),
     
     // 거래처 일괄 등록 (UPSERT - 동일 거래처명 있으면 수정, 없으면 신규)
@@ -120,7 +120,7 @@ export const supplierRouter = router({
         const results = { successCount: 0, insertCount: 0, updateCount: 0, failureCount: 0, errors: [] as any[] };
         
         // 현재 최대 코드 번호 조회
-        const maxResult = await db.execute(sql`SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED)) as maxNum FROM h_suppliers WHERE tenant_id = ${ctx.user.tenantId} AND supplier_code REGEXP '^SUP-[0-9]+$'`);
+        const maxResult = await db.execute(sql`SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED)) as maxNum FROM h_suppliers WHERE tenant_id = ${ctx.tenantId} AND supplier_code REGEXP '^SUP-[0-9]+$'`);
         let codeCounter = Number((maxResult as any)[0]?.[0]?.maxNum || (maxResult as any)[0]?.maxNum || 0);
         
         for (let i = 0; i < input.suppliers.length; i++) {
@@ -133,7 +133,7 @@ export const supplierRouter = router({
             }
             
             const existing = await db.select().from(hSuppliers)
-              .where(and(eq(hSuppliers.tenantId, ctx.user.tenantId), eq(hSuppliers.supplierName, supplier.supplierName.trim())))
+              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined), eq(hSuppliers.supplierName, supplier.supplierName.trim())))
               .limit(1);
             
             if (existing.length > 0) {
@@ -154,7 +154,7 @@ export const supplierRouter = router({
               const supplierCode = "SUP-" + String(codeCounter).padStart(3, "0");
               
               await db.insert(hSuppliers).values({
-                tenantId: ctx.user.tenantId,
+                tenantId: ctx.tenantId ?? undefined,
                 supplierCode,
                 supplierName: supplier.supplierName.trim(),
                 businessNumber: supplier.businessNumber || null,

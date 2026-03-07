@@ -20,7 +20,7 @@ export const auditLogRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getAuditLogsByEntity } = await import("../../db");
-        return await getAuditLogsByEntity(input.entityType, input.entityId);
+        return await getAuditLogsByEntity(input.entityType, input.entityId, ctx.tenantId);
       }),
     
     // 사용자별 감사 로그 조회
@@ -31,6 +31,6 @@ export const auditLogRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getAuditLogsByUser } = await import("../../db");
-        return await getAuditLogsByUser(input.userId, input.limit);
+        return await getAuditLogsByUser(input.userId, input.limit, ctx.tenantId);
       })
 });

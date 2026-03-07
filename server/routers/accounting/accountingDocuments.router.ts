@@ -27,7 +27,7 @@ export const accountingDocumentsRouter = router({
         const documentId = await docsDb.createDocument({
           ...input,
           uploadedBy: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
 
         return {
           success: true,
@@ -60,7 +60,7 @@ export const accountingDocumentsRouter = router({
       .query(async ({ input, ctx }) => {
         const docsDb = await import("../../db/accountingDocuments");
         
-        const document = await docsDb.getDocument(input.id, ctx.user.tenantId);
+        const document = await docsDb.getDocument(input.id, ctx.tenantId ?? undefined);
         if (!document) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -69,8 +69,8 @@ export const accountingDocumentsRouter = router({
         }
 
         // 워크플로우 이력 조회
-        const workflow = await docsDb.getDocumentWorkflow(input.id, ctx.user.tenantId);
-        const latestStatus = await docsDb.getDocumentLatestStatus(input.id, ctx.user.tenantId);
+        const workflow = await docsDb.getDocumentWorkflow(input.id, ctx.tenantId ?? undefined);
+        const latestStatus = await docsDb.getDocumentLatestStatus(input.id, ctx.tenantId ?? undefined);
 
         return {
           ...document,
@@ -88,7 +88,7 @@ export const accountingDocumentsRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const docsDb = await import("../../db/accountingDocuments");
-        await docsDb.deleteDocument(input.id, ctx.user.tenantId);
+        await docsDb.deleteDocument(input.id, ctx.tenantId ?? undefined);
 
         return {
           success: true,
@@ -113,7 +113,7 @@ export const accountingDocumentsRouter = router({
           input.status,
           ctx.user.id,
           input.comment
-        , ctx.user.tenantId);
+        , ctx.tenantId ?? undefined);
 
         return {
           success: true,

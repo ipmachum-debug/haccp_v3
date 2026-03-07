@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
 import { storagePut } from "../storage";
 import { getDb } from "../db";
-import { hBatches, hProducts, hCcpInstances, hCcpRecords, hBatchInputs } from "../../drizzle/schema";
+import { hBatches, hProductsV2, hCcpInstances, hCcpRecords, hBatchInputs } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 /**
@@ -30,8 +30,8 @@ export async function generateBatchCompletionReport(batchId: number, tenantId?: 
   // 2. 제품 정보 조회
   const product = await db
     .select()
-    .from(hProducts)
-    .where(eq(hProducts.id, batch.productId))
+    .from(hProductsV2)
+    .where(eq(hProductsV2.id, batch.productId))
     .limit(1)
     .then((rows) => rows[0]);
 

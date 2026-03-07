@@ -101,7 +101,7 @@ export async function postProductionComplete(
       lotId: null, // LOT은 별도로 생성해야 함
       transactionType: "receipt",
       quantity: actualQuantity.toString(),
-      unit: "EA", // 실제로는 batch에서 가져와야 함
+      unit: "kg", // 생산 기본단위는 kg
       transactionDate: new Date().toISOString().split("T")[0],
       sourceType: "PRODUCTION",
       sourceId: `BATCH-${batchId}`,
@@ -130,7 +130,7 @@ export async function postProductionComplete(
       accountCode: "1140", // 제품재고
       debitAmount: totalCost.toFixed(2),
       creditAmount: "0.00",
-      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}EA)`,
+      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}kg)`,
       sourceType: "PRODUCTION",
       sourceId: `BATCH-${batchId}`,
       sourceLineId: `BATCH-${batchId}-1`,
@@ -151,7 +151,7 @@ export async function postProductionComplete(
       accountCode: "1130", // WIP
       debitAmount: "0.00",
       creditAmount: totalCost.toFixed(2),
-      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}EA)`,
+      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}kg)`,
       sourceType: "PRODUCTION",
       sourceId: `BATCH-${batchId}`,
       sourceLineId: `BATCH-${batchId}-1`,
@@ -165,5 +165,5 @@ export async function postProductionComplete(
     throw error;
   }
 
-  console.log(`[productionCompletePost] 배치 #${batchId} 생산 완료 (실제 수량: ${actualQuantity}EA, 수율: ${actualYield.toFixed(2)}%)`);
+  console.log(`[productionCompletePost] 배치 #${batchId} 생산 완료 (실제 수량: ${actualQuantity}kg, 수율: ${actualYield.toFixed(2)}%)`);
 }

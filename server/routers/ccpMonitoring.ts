@@ -138,8 +138,10 @@ export const ccpMonitoringRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(ccpMonitoringRecords).values({
         ...input,
+        tenantId,
         operatorId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -158,9 +160,9 @@ export const ccpMonitoringRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: 조건 없으면 전체조회 방지
-      // TODO: ccpMonitoringRecords에 tenantId 컬럼 추가 후 필터 강제
-      let conditions = [];
+      // ✅ P0 FIX: tenantId 강제 필터
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions = [eq(ccpMonitoringRecords.tenantId, tenantId)];
       
       if (input.ccpType) {
         conditions.push(eq(ccpMonitoringRecords.ccpType, input.ccpType));
@@ -178,11 +180,11 @@ export const ccpMonitoringRouter = router({
         conditions.push(eq(ccpMonitoringRecords.passFail, input.passFail));
       }
 
-      // ✅ P0 FIX v2: 조건 없으면 최근 50건 반환 (페이지 초기 로딩 지원)
+      // ✅ P0 FIX v2: tenantId 조건은 항상 포함되므로 and() 사용 (sql`1=1` 제거)
       const records = await db
         .select()
         .from(ccpMonitoringRecords)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`)
+        .where(and(...conditions))
         .orderBy(desc(ccpMonitoringRecords.recordDate))
         .limit(input.limit)
         .offset(input.offset);
@@ -199,20 +201,22 @@ export const ccpMonitoringRouter = router({
       correctiveActionBy: z.number().optional(),
       confirmedBy: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const { id, ...data } = input;
-      await db.update(ccpMonitoringRecords).set(data).where(eq(ccpMonitoringRecords.id, id));
+      await db.update(ccpMonitoringRecords).set(data).where(and(eq(ccpMonitoringRecords.id, id), eq(ccpMonitoringRecords.tenantId, tenantId)));
       return { success: true };
     }),
 
   deleteCcpMonitoringRecord: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      await db.delete(ccpMonitoringRecords).where(eq(ccpMonitoringRecords.id, input.id));
+      const tenantId = getEffectiveTenantId(ctx);
+      await db.delete(ccpMonitoringRecords).where(and(eq(ccpMonitoringRecords.id, input.id), eq(ccpMonitoringRecords.tenantId, tenantId)));
       return { success: true };
     }),
 
@@ -230,8 +234,10 @@ export const ccpMonitoringRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(metalDetectionTests).values({
         ...input,
+        tenantId,
         testerId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -244,10 +250,11 @@ export const ccpMonitoringRouter = router({
       startDate: z.date().optional(),
       endDate: z.date().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      let conditions = [];
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [eq(metalDetectionTests.tenantId, tenantId)];
       
       if (input.productCategory) {
         conditions.push(eq(metalDetectionTests.productCategory, input.productCategory));
@@ -265,7 +272,7 @@ export const ccpMonitoringRouter = router({
       return await db
         .select()
         .from(metalDetectionTests)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`)
+        .where(and(...conditions))
         .orderBy(desc(metalDetectionTests.testDate))
         .limit(50);
     }),
@@ -279,10 +286,11 @@ export const ccpMonitoringRouter = router({
       detectionRate: z.number(),
       sensitivitySetting: z.number(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      const [result] = await db.insert(metalDetectionStandards).values(input);
+      const tenantId = getEffectiveTenantId(ctx);
+      const [result] = await db.insert(metalDetectionStandards).values({ ...input, tenantId });
       return { id: result.insertId };
     }),
 
@@ -291,10 +299,11 @@ export const ccpMonitoringRouter = router({
       productCategory: z.string().optional(),
       metalType: z.enum(['Fe', 'STS']).optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      let conditions = [];
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [eq(metalDetectionStandards.tenantId, tenantId)];
       
       if (input.productCategory) {
         conditions.push(eq(metalDetectionStandards.productCategory, input.productCategory));
@@ -306,7 +315,7 @@ export const ccpMonitoringRouter = router({
       return await db
         .select()
         .from(metalDetectionStandards)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`);
+        .where(and(...conditions));
     }),
 
   // 검증 기록 관리
@@ -321,8 +330,10 @@ export const ccpMonitoringRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(verificationRecords).values({
         ...input,
+        tenantId,
         verifierId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -334,10 +345,11 @@ export const ccpMonitoringRouter = router({
       startDate: z.date().optional(),
       endDate: z.date().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      let conditions = [];
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [eq(verificationRecords.tenantId, tenantId)];
       
       if (input.verificationType) {
         conditions.push(eq(verificationRecords.verificationType, input.verificationType));
@@ -352,7 +364,7 @@ export const ccpMonitoringRouter = router({
       return await db
         .select()
         .from(verificationRecords)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`)
+        .where(and(...conditions))
         .orderBy(desc(verificationRecords.verificationDate))
         .limit(50);
     }),
@@ -365,11 +377,12 @@ export const ccpMonitoringRouter = router({
       nonconformities: z.string().optional(),
       correctiveActions: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const { id, ...data } = input;
-      await db.update(verificationRecords).set(data).where(eq(verificationRecords.id, id));
+      await db.update(verificationRecords).set(data).where(and(eq(verificationRecords.id, id), eq(verificationRecords.tenantId, tenantId)));
       return { success: true };
     }),
 
@@ -386,10 +399,11 @@ export const ccpMonitoringRouter = router({
       preventionMeasures: z.string().optional(),
       productCategory: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      const [result] = await db.insert(hazardAnalysis).values(input);
+      const tenantId = getEffectiveTenantId(ctx);
+      const [result] = await db.insert(hazardAnalysis).values({ ...input, tenantId });
       return { id: result.insertId };
     }),
 
@@ -402,8 +416,9 @@ export const ccpMonitoringRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: 조건 없으면 전체조회 방지
-      let conditions = [];
+      // ✅ P0 FIX: tenantId 강제 필터
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [eq(hazardAnalysis.tenantId, tenantId)];
       
       if (input.processName) {
         conditions.push(eq(hazardAnalysis.processName, input.processName));
@@ -415,11 +430,10 @@ export const ccpMonitoringRouter = router({
         conditions.push(eq(hazardAnalysis.productCategory, input.productCategory));
       }
       
-      // ✅ P0 FIX v2: 조건 없으면 전체 반환 (페이지 초기 로딩 지원)
       return await db
         .select()
         .from(hazardAnalysis)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`);
+        .where(and(...conditions));
     }),
 
   updateHazardAnalysis: tenantRequiredProcedure
@@ -431,11 +445,12 @@ export const ccpMonitoringRouter = router({
       riskLevel: z.number().min(1).max(3).optional(),
       preventionMeasures: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const { id, ...data } = input;
-      await db.update(hazardAnalysis).set(data).where(eq(hazardAnalysis.id, id));
+      await db.update(hazardAnalysis).set(data).where(and(eq(hazardAnalysis.id, id), eq(hazardAnalysis.tenantId, tenantId)));
       return { success: true };
     }),
 
@@ -466,8 +481,10 @@ export const ccpMonitoringRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(productSpecifications).values({
         ...input,
+        tenantId,
         authorId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -477,16 +494,17 @@ export const ccpMonitoringRouter = router({
     .input(z.object({
       productName: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      let query = db.select().from(productSpecifications);
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [eq(productSpecifications.tenantId, tenantId)];
       
       if (input.productName) {
-        query = query.where(eq(productSpecifications.productName, input.productName)) as any;
+        conditions.push(eq(productSpecifications.productName, input.productName));
       }
       
-      return await query.orderBy(desc(productSpecifications.createdAt));
+      return await db.select().from(productSpecifications).where(and(...conditions)).orderBy(desc(productSpecifications.createdAt));
     }),
 
   updateProductSpecification: tenantRequiredProcedure
@@ -511,30 +529,33 @@ export const ccpMonitoringRouter = router({
       packagingMaterial: z.string().optional(),
       labelingInfo: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const { id, ...data } = input;
-      await db.update(productSpecifications).set(data).where(eq(productSpecifications.id, id));
+      await db.update(productSpecifications).set(data).where(and(eq(productSpecifications.id, id), eq(productSpecifications.tenantId, tenantId)));
       return { success: true };
     }),
 
   deleteProductSpecification: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      await db.delete(productSpecifications).where(eq(productSpecifications.id, input.id));
+      const tenantId = getEffectiveTenantId(ctx);
+      await db.delete(productSpecifications).where(and(eq(productSpecifications.id, input.id), eq(productSpecifications.tenantId, tenantId)));
       return { success: true };
     }),
 
   // 위해요소 분석 삭제
   deleteHazardAnalysis: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      await db.delete(hazardAnalysis).where(eq(hazardAnalysis.id, input.id));
+      const tenantId = getEffectiveTenantId(ctx);
+      await db.delete(hazardAnalysis).where(and(eq(hazardAnalysis.id, input.id), eq(hazardAnalysis.tenantId, tenantId)));
       return { success: true };
     }),
 
@@ -546,11 +567,13 @@ export const ccpMonitoringRouter = router({
       endDate: z.date(),
       ccpType: z.enum(['CCP-1B', 'CCP-2B', 'CCP-3B', 'CCP-4P']).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       
-      let conditions = [
+      let conditions: any[] = [
+        eq(ccpMonitoringRecords.tenantId, tenantId),
         gte(ccpMonitoringRecords.recordDate, input.startDate),
         lte(ccpMonitoringRecords.recordDate, input.endDate),
       ];
@@ -596,10 +619,12 @@ export const ccpMonitoringRouter = router({
       startDate: z.date(),
       endDate: z.date(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      let conditions = [
+      const tenantId = getEffectiveTenantId(ctx);
+      let conditions: any[] = [
+        eq(ccpMonitoringRecords.tenantId, tenantId),
         gte(ccpMonitoringRecords.recordDate, input.startDate),
         lte(ccpMonitoringRecords.recordDate, input.endDate),
       ];
@@ -637,8 +662,9 @@ export const ccpMonitoringRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       
-      let conditions: any[] = [];
+      let conditions: any[] = [eq(ccpMonitoringRecords.tenantId, tenantId)];
       if (input.equipmentId) {
         conditions.push(eq(ccpMonitoringRecords.equipmentId, input.equipmentId));
       }
@@ -655,7 +681,7 @@ export const ccpMonitoringRouter = router({
       return await db
         .select()
         .from(ccpMonitoringRecords)
-        .where(conditions.length > 0 ? and(...conditions) : sql`1=1`)
+        .where(and(...conditions))
         .orderBy(desc(ccpMonitoringRecords.recordDate))
         .limit(input.limit)
         .offset(input.offset);
@@ -693,8 +719,10 @@ export const ccpMonitoringRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(ccpMonitoringRecords).values({
         ...input,
+        tenantId,
         operatorId: ctx.user.id,
       });
       return { id: result.insertId };
@@ -703,6 +731,11 @@ export const ccpMonitoringRouter = router({
   // ============================================================
   // 제품별 CCP 한계기준 스펙 (product_ccp_specs) CRUD
   // ============================================================
+  // stub: process_flags 업데이트 (읽기전용 전환으로 비활성화)
+  updateProductProcessFlags: tenantRequiredProcedure
+    .input(z.object({ productId: z.number(), processFlags: z.string() }))
+    .mutation(async () => ({ success: true, message: '읽기전용 모드로 전환되었습니다. CCP 매핑은 제조보고서에서 관리하세요.' })),
+
   getProductCcpSpecs: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
@@ -836,8 +869,10 @@ export const ccpMonitoringRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
+      const tenantId = getEffectiveTenantId(ctx);
       
       let conditions: any[] = [
+        eq(ccpMonitoringRecords.tenantId, tenantId),
         gte(ccpMonitoringRecords.recordDate, input.startDate),
         lte(ccpMonitoringRecords.recordDate, input.endDate),
       ];
@@ -897,7 +932,7 @@ export const ccpMonitoringRouter = router({
     }),
 
   // ============================================================
-  // 제품-CCP 매핑 조회 (마스터데이터 탭용)
+  // 제품-CCP 매핑 조회 (마스터데이터 탭용) - ccp_process_group_products 기반
   // ============================================================
   getProductCcpMappings: tenantRequiredProcedure
     .input(z.object({
@@ -908,37 +943,78 @@ export const ccpMonitoringRouter = router({
       if (!db) throw new Error('Database not available');
       const tenantId = getEffectiveTenantId(ctx);
       
+      // h_products_v2 + ccp_process_group_products → 실제 CCP 공정 그룹 매핑
       const rows = await db.execute(
-        sql`SELECT p.id, p.product_name, p.process_flags,
-            GROUP_CONCAT(DISTINCT s.ccp_type) as mapped_ccp_types
+        sql`SELECT p.id, p.product_name, p.product_code, p.process_flags,
+            GROUP_CONCAT(DISTINCT pg.ccp_type ORDER BY pg.ccp_type) as mapped_ccp_types,
+            GROUP_CONCAT(DISTINCT CONCAT(pg.name, '(', pg.ccp_type, ')') ORDER BY pg.ccp_type SEPARATOR ', ') as process_group_names,
+            COUNT(DISTINCT pgp.process_group_id) as process_group_count,
+            (SELECT rh.recipe_name FROM h_recipe_headers rh
+             JOIN item_master im ON rh.product_id = im.id AND im.tenant_id = ${tenantId}
+             WHERE im.legacy_product_id = p.id AND rh.tenant_id = ${tenantId}
+             AND rh.is_active = 1
+             ORDER BY rh.version DESC LIMIT 1
+            ) as recipe_name
           FROM h_products_v2 p
-          LEFT JOIN product_ccp_specs s ON p.id = s.product_id AND s.is_active = 1 AND s.tenant_id = ${tenantId}
+          LEFT JOIN ccp_process_group_products pgp ON pgp.product_id = p.id AND pgp.tenant_id = ${tenantId}
+          LEFT JOIN ccp_process_groups pg ON pgp.process_group_id = pg.id AND pg.tenant_id = ${tenantId} AND pg.status = 'active'
           WHERE p.tenant_id = ${tenantId}
           ${input.productId ? sql`AND p.id = ${input.productId}` : sql``}
-          GROUP BY p.id, p.product_name, p.process_flags
-          ORDER BY p.id`
+          GROUP BY p.id, p.product_name, p.product_code, p.process_flags
+          ORDER BY p.product_code`
       );
       
-      return rows[0] || [];
+      return (rows[0] as unknown as unknown as any[]) || [];
     }),
 
-  // 제품 process_flags 업데이트
-  updateProductProcessFlags: tenantRequiredProcedure
+  // 제품별 BOM 원재료 + CCP 공정그룹 상세 조회
+  getProductCcpDetail: tenantRequiredProcedure
     .input(z.object({
       productId: z.number(),
-      processFlags: z.string(),
     }))
-    .mutation(async ({ input, ctx }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
       const tenantId = getEffectiveTenantId(ctx);
-      
-      await db.execute(
-        sql`UPDATE h_products_v2 SET process_flags = ${input.processFlags} WHERE id = ${input.productId} AND tenant_id = ${tenantId}`
-      );
-      return { success: true };
-    }),
 
+      // 1. 이 제품에 매핑된 CCP 공정 그룹 목록 + 한계기준
+      const processGroupRows = await db.execute(
+        sql`SELECT pg.id, pg.name, pg.ccp_type, pg.description,
+              pg.temperature_min, pg.temperature_max, pg.time_min, pg.time_max,
+              pg.pressure_min, pg.pressure_max, pg.ph_min, pg.ph_max,
+              pg.monitoring_method, pg.corrective_action
+            FROM ccp_process_group_products pgp
+            JOIN ccp_process_groups pg ON pgp.process_group_id = pg.id AND pg.tenant_id = ${tenantId}
+            WHERE pgp.product_id = ${input.productId} AND pgp.tenant_id = ${tenantId}
+              AND pg.status = 'active'
+            ORDER BY pg.ccp_type, pg.name`
+      );
+      const processGroups = (processGroupRows[0] as unknown as unknown as any[]) || [];
+
+      // 2. BOM 원재료 목록 (h_mf_ingredients → 최신 mf_report_version)
+      const ingredientRows = await db.execute(
+        sql`SELECT mi.id, mi.line_no, mi.material_id, im.item_name as material_name,
+              mi.quantity, mi.corrected_quantity, mi.unit, mi.process_group_id,
+              pg.name as process_group_name, pg.ccp_type as ingredient_ccp_type,
+              mi.material_type
+            FROM h_mf_ingredients mi
+            JOIN h_mf_report_versions v ON mi.mf_report_version_id = v.id AND v.tenant_id = ${tenantId}
+            JOIN h_mf_reports r ON v.mf_report_id = r.id AND r.tenant_id = ${tenantId}
+            LEFT JOIN item_master im ON mi.material_id = im.id
+            LEFT JOIN ccp_process_groups pg ON mi.process_group_id = pg.id AND pg.tenant_id = ${tenantId}
+            WHERE r.product_id = ${input.productId} AND r.tenant_id = ${tenantId}
+              AND r.status = 'ACTIVE'
+              AND v.id = (
+                SELECT MAX(v2.id) FROM h_mf_report_versions v2
+                JOIN h_mf_reports r2 ON v2.mf_report_id = r2.id AND r2.tenant_id = ${tenantId}
+                WHERE r2.product_id = ${input.productId} AND r2.status = 'ACTIVE'
+              )
+            ORDER BY mi.line_no`
+      );
+      const ingredients = (ingredientRows[0] as unknown as unknown as any[]) || [];
+
+      return { processGroups, ingredients };
+    }),
 
   // ========== 공정 그룹 관리 API ==========
   
@@ -963,7 +1039,7 @@ export const ccpMonitoringRouter = router({
         ${input?.ccpType ? sql`AND g.ccp_type = ${input.ccpType}` : sql``}
         ORDER BY g.sort_order, g.name`
       );
-      return (rows as any[]).map((r: any) => ({
+      return (rows as unknown as unknown as any[]).map((r: any) => ({
         ...r,
         equipments: r.equipmentList ? (typeof r.equipmentList === 'string' ? JSON.parse(r.equipmentList) : r.equipmentList) : []
       }));
@@ -1131,7 +1207,7 @@ export const ccpMonitoringRouter = router({
         const [groupRows] = await db.execute(
           sql`SELECT id, name, ccp_type FROM ccp_process_groups WHERE id = ${input.processGroupId} AND tenant_id = ${tenantId}`
         );
-        const group = (groupRows as any[])[0];
+        const group = (groupRows as unknown as any[])[0];
         
         if (group && group.ccp_type === 'CCP-4P') {
           // ★ CCP-4P(금속검출): 수동 매핑 (ccp_process_group_products 테이블)
@@ -1145,7 +1221,7 @@ export const ccpMonitoringRouter = router({
               WHERE gp.tenant_id = ${tenantId} AND gp.process_group_id = ${input.processGroupId}
               ORDER BY p.product_name`
           );
-          return rows as any[];
+          return rows as unknown as any[];
         } else {
           // ★ CCP-1B/2B: BOM 원재료의 process_group_id 기반 자동 매핑
           const [rows] = await db.execute(
@@ -1161,7 +1237,7 @@ export const ccpMonitoringRouter = router({
                 AND r.tenant_id = ${tenantId}
               ORDER BY p.product_name`
           );
-          return (rows as any[]).map((r: any) => ({
+          return (rows as unknown as any[]).map((r: any) => ({
             ...r,
             process_group_id: input.processGroupId,
           }));
@@ -1180,7 +1256,7 @@ export const ccpMonitoringRouter = router({
               WHERE gp.tenant_id = ${tenantId} AND g.ccp_type = 'CCP-4P'
               ORDER BY g.name, p.product_name`
           );
-          return rows as any[];
+          return rows as unknown as any[];
         } else {
           // CCP-1B/2B: BOM 기반 자동
           const [rows] = await db.execute(
@@ -1200,7 +1276,7 @@ export const ccpMonitoringRouter = router({
                 AND g.ccp_type = ${input.ccpType}
               ORDER BY g.name, p.product_name`
           );
-          return rows as any[];
+          return rows as unknown as any[];
         }
       } else {
         // 전체 조회: BOM 기반(CCP-1B/2B) + 수동(CCP-4P)
@@ -1235,7 +1311,7 @@ export const ccpMonitoringRouter = router({
             ORDER BY g.name, p.product_name`
         );
         
-        return [...(bomRows as any[]), ...(manualRows as any[])];
+        return [...(bomRows as unknown as any[]), ...(manualRows as unknown as any[])];
       }
     }),
 
@@ -1296,7 +1372,7 @@ export const ccpMonitoringRouter = router({
             WHERE tp.tenant_id = ${tenantId} AND tp.is_active = 1 AND tp.process_type = ${input.processType}
             ORDER BY tp.process_type, tp.profile_name`
         );
-        return rows as any[];
+        return rows as unknown as any[];
       } else {
         const [rows] = await db.execute(
           sql`SELECT tp.*, g.name as process_group_name, g.ccp_type
@@ -1305,7 +1381,7 @@ export const ccpMonitoringRouter = router({
             WHERE tp.tenant_id = ${tenantId} AND tp.is_active = 1
             ORDER BY tp.process_type, tp.profile_name`
         );
-        return rows as any[];
+        return rows as unknown as any[];
       }
     }),
 
@@ -1328,7 +1404,7 @@ export const ccpMonitoringRouter = router({
         const [clRows] = await db.execute(
           sql`SELECT time_min, time_max FROM ccp_process_groups WHERE id = ${input.ccpProcessGroupId} AND tenant_id = ${tenantId}`
         );
-        const cl = (clRows as any[])[0];
+        const cl = (clRows as unknown as any[])[0];
         if (cl) {
           if (cl.time_min && input.timeMinutes < cl.time_min) {
             throw new TRPCError({
@@ -1375,14 +1451,14 @@ export const ccpMonitoringRouter = router({
           const [existing] = await db.execute(
             sql`SELECT ccp_process_group_id FROM ccp_time_profiles WHERE id = ${input.id} AND tenant_id = ${tenantId}`
           );
-          groupId = (existing as any[])[0]?.ccp_process_group_id;
+          groupId = (existing as unknown as any[])[0]?.ccp_process_group_id;
         }
         
         if (groupId) {
           const [clRows] = await db.execute(
             sql`SELECT time_min, time_max FROM ccp_process_groups WHERE id = ${groupId} AND tenant_id = ${tenantId}`
           );
-          const cl = (clRows as any[])[0];
+          const cl = (clRows as unknown as any[])[0];
           if (cl) {
             if (cl.time_min && input.timeMinutes < cl.time_min) {
               throw new TRPCError({
@@ -1461,7 +1537,7 @@ export const ccpMonitoringRouter = router({
           WHERE m.tenant_id = ${tenantId}${extraWhere}
           ORDER BY p.product_name, m.process_type`
       );
-      return rows as any[];
+      return rows as unknown as any[];
     }),
 
   // 제품별 시간 프로파일 매핑 저장 (upsert)
@@ -1482,7 +1558,7 @@ export const ccpMonitoringRouter = router({
           WHERE tenant_id = ${tenantId} AND product_id = ${input.productId} AND process_type = ${input.processType}`
       );
       
-      if ((existing as any[]).length > 0) {
+      if ((existing as unknown as any[]).length > 0) {
         // 업데이트
         await db.execute(
           sql`UPDATE ccp_product_time_profile_map SET time_profile_id = ${input.timeProfileId}
@@ -1533,7 +1609,7 @@ export const ccpMonitoringRouter = router({
             )
           ORDER BY p.product_name`
       );
-      return rows as any[];
+      return rows as unknown as any[];
     }),
 
   // ★ 가드레일 1: 배치 확정 전 timeProfile 매핑 검증
@@ -1552,7 +1628,7 @@ export const ccpMonitoringRouter = router({
         const [productRows] = await db.execute(
           sql`SELECT id, product_name, process_flags FROM h_products_v2 WHERE id = ${productId} AND tenant_id = ${tenantId}`
         );
-        const product = (productRows as any[])[0];
+        const product = (productRows as unknown as any[])[0];
         if (!product) continue;
         
         const hasSteam = (product.process_flags || '').includes('STEAM');
@@ -1563,7 +1639,7 @@ export const ccpMonitoringRouter = router({
             sql`SELECT id FROM ccp_product_time_profile_map 
               WHERE tenant_id = ${tenantId} AND product_id = ${productId} AND process_type = 'STEAM'`
           );
-          hasMapping = (mapRows as any[]).length > 0;
+          hasMapping = (mapRows as unknown as any[]).length > 0;
         }
         
         results.push({

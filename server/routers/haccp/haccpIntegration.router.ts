@@ -22,7 +22,7 @@ export const haccpIntegrationRouter = router({
         return await createPurchaseFromReceipt({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
       }),
 
     // 매입 거래 상세 조회
@@ -30,21 +30,21 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getPurchaseById } = await import("../../db/haccpIntegration");
-        return await getPurchaseById(input.id, ctx.user.tenantId);
+        return await getPurchaseById(input.id, ctx.tenantId ?? undefined);
       }),
 
     getSaleById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getSaleById } = await import("../../db/haccpIntegration");
-        return await getSaleById(input.id, ctx.user.tenantId);
+        return await getSaleById(input.id, ctx.tenantId ?? undefined);
       }),
 
     generatePurchasePdf: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generatePurchasePdf } = await import("../../db/haccpIntegration");
-        const pdfUrl = await generatePurchasePdf(input.id, ctx.user.tenantId);
+        const pdfUrl = await generatePurchasePdf(input.id, ctx.tenantId ?? undefined);
         return { pdfUrl };
       }),
 
@@ -52,7 +52,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generateSalePdf } = await import("../../db/haccpIntegration");
-        const pdfUrl = await generateSalePdf(input.id, ctx.user.tenantId);
+        const pdfUrl = await generateSalePdf(input.id, ctx.tenantId ?? undefined);
         return { pdfUrl };
       }),
 
@@ -75,7 +75,7 @@ export const haccpIntegrationRouter = router({
         return await createSaleFromUsage({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
       }),
 
     // 재고 거래 ID로 회계 거래 조회
@@ -83,7 +83,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ inventoryTransactionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getAccountingByInventoryTransaction } = await import("../../db/haccpIntegration");
-        return await getAccountingByInventoryTransaction(input.inventoryTransactionId, ctx.user.tenantId);
+        return await getAccountingByInventoryTransaction(input.inventoryTransactionId, ctx.tenantId ?? undefined);
       }),
 
     // 매입 거래 목록 조회
@@ -101,7 +101,7 @@ export const haccpIntegrationRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllPurchases } = await import("../../db/haccpIntegration");
-        return await getAllPurchases(input, ctx.user.tenantId);
+        return await getAllPurchases(input, ctx.tenantId ?? undefined);
       }),
 
     // 매입 거래 직접 생성 (품목 단위)
@@ -130,7 +130,7 @@ export const haccpIntegrationRouter = router({
         return await createPurchase({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
       }),
 
     // 매출 거래 목록 조회
@@ -148,7 +148,7 @@ export const haccpIntegrationRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllSales } = await import("../../db/haccpIntegration");
-        return await getAllSales(input, ctx.user.tenantId);
+        return await getAllSales(input, ctx.tenantId ?? undefined);
       }),
 
     // 매출 거래 직접 생성 (품목 단위)
@@ -162,6 +162,7 @@ export const haccpIntegrationRouter = router({
           unitPrice: z.number(),
           amount: z.number(),
           taxAmount: z.number(),
+          unit: z.string().optional(),
           memo: z.string().optional(),
           accountCategoryId: z.number().optional()
         })
@@ -171,7 +172,7 @@ export const haccpIntegrationRouter = router({
         return await createSale({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId ?? undefined);
       }),
 
     // 매입 거래 수정
@@ -204,7 +205,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deletePurchase } = await import("../../db/haccpIntegration");
-        return await deletePurchase(input.id, ctx.user.tenantId);
+        return await deletePurchase(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 매출 거래 수정
@@ -237,7 +238,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteSale } = await import("../../db/haccpIntegration");
-        return await deleteSale(input.id, ctx.user.tenantId);
+        return await deleteSale(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 매입 거래명세표 PDF 생성
@@ -245,7 +246,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ purchaseId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generatePurchaseStatementPDF } = await import("../../db/transactionStatement");
-        const pdfBuffer = await generatePurchaseStatementPDF(input.purchaseId, ctx.user.tenantId);
+        const pdfBuffer = await generatePurchaseStatementPDF(input.purchaseId, ctx.tenantId ?? undefined);
         
         // Base64로 변환하여 반환
         return {
@@ -259,12 +260,92 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ saleId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generateSaleStatementPDF } = await import("../../db/transactionStatement");
-        const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.user.tenantId);
+        const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.tenantId ?? undefined);
         
         // Base64로 변환하여 반환
         return {
           pdf: pdfBuffer.toString("base64"),
           filename: `매출거래명세표_${input.saleId}_${new Date().toISOString().split("T")[0]}.pdf`
         };
-      })
+      }),
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 엑셀 일괄 등록 API
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    // 매입 일괄 등록
+    bulkCreatePurchases: adminProcedure
+      .input(z.object({
+        items: z.array(z.object({
+          transactionDate: z.string(),
+          partnerId: z.number(),
+          itemName: z.string(),
+          itemMasterId: z.number().optional(),
+          quantity: z.number(),
+          packagingSize: z.number().optional(),
+          unitPrice: z.number(),
+          amount: z.number(),
+          taxAmount: z.number(),
+          memo: z.string().optional(),
+          unit: z.string().optional(),
+        }))
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { createPurchase } = await import("../../db/haccpIntegration");
+        let successCount = 0;
+        let failCount = 0;
+        const errors: { index: number; message: string }[] = [];
+
+        for (let i = 0; i < input.items.length; i++) {
+          try {
+            await createPurchase({
+              ...input.items[i],
+              createdBy: ctx.user.id,
+            }, ctx.tenantId ?? undefined);
+            successCount++;
+          } catch (e: any) {
+            failCount++;
+            errors.push({ index: i, message: e.message || "Unknown error" });
+          }
+        }
+
+        return { successCount, failCount, errors, total: input.items.length };
+      }),
+
+    // 매출 일괄 등록
+    bulkCreateSales: adminProcedure
+      .input(z.object({
+        items: z.array(z.object({
+          transactionDate: z.string(),
+          partnerId: z.number(),
+          itemName: z.string(),
+          quantity: z.number(),
+          unitPrice: z.number(),
+          amount: z.number(),
+          taxAmount: z.number(),
+          unit: z.string().optional(),
+          memo: z.string().optional(),
+        }))
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { createSale } = await import("../../db/haccpIntegration");
+        let successCount = 0;
+        let failCount = 0;
+        const errors: { index: number; message: string }[] = [];
+
+        for (let i = 0; i < input.items.length; i++) {
+          try {
+            await createSale({
+              ...input.items[i],
+              createdBy: ctx.user.id,
+            }, ctx.tenantId ?? undefined);
+            successCount++;
+          } catch (e: any) {
+            failCount++;
+            errors.push({ index: i, message: e.message || "Unknown error" });
+          }
+        }
+
+        return { successCount, failCount, errors, total: input.items.length };
+      }),
 });

@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Building2, ClipboardCheck, Star, BarChart3 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function SupplierAudit({ embedded }: { embedded?: boolean } = {}) {
+export default function SupplierAudit({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [activeTab, setActiveTab] = useState("suppliers");
   const [isCreateSupplierOpen, setIsCreateSupplierOpen] = useState(false);
   const [isCreateAuditOpen, setIsCreateAuditOpen] = useState(false);

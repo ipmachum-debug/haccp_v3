@@ -28,32 +28,32 @@ export const hazardAnalysisRouter = router({
       const id = await hazardAnalysisDb.createHazardAnalysis({
         ...input,
         analyzedBy: ctx.user.id,
-      });
+      }, ctx.tenantId);
       return { id };
     }),
 
   // 제품별 위험 분석 목록 조회
   listByProduct: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getHazardAnalysisByProduct(input.productId);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getHazardAnalysisByProduct(input.productId, ctx.tenantId);
     }),
 
   // 위험 분석 상세 조회
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getHazardAnalysisById(input.id);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getHazardAnalysisById(input.id, ctx.tenantId);
     }),
 
   // CCP 지정
   designateAsCcp: tenantRequiredProcedure
     .input(z.object({ id: z.number(), ccpNumber: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await hazardAnalysisDb.updateHazardAnalysis(input.id, {
         isCcp: 1,
         ccpNumber: input.ccpNumber,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -100,7 +100,7 @@ export const hazardAnalysisRouter = router({
           approvedDate: new Date().toISOString().split("T")[0],
         });
       } else {
-        await hazardAnalysisDb.updateHazardAnalysis(id, data);
+        await hazardAnalysisDb.updateHazardAnalysis(id, data, ctx.tenantId);
       }
       
       return { success: true };
@@ -109,30 +109,30 @@ export const hazardAnalysisRouter = router({
   // 위험 분석 삭제
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await hazardAnalysisDb.deleteHazardAnalysis(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await hazardAnalysisDb.deleteHazardAnalysis(input.id, ctx.tenantId);
       return { success: true };
     }),
 
   // 사업장별 위험 분석 목록
   listBySite: tenantRequiredProcedure
     .input(z.object({ siteId: z.number() }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getHazardAnalysisBySite(input.siteId);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getHazardAnalysisBySite(input.siteId, ctx.tenantId);
     }),
 
   // 상태별 위험 분석 목록
   listByStatus: tenantRequiredProcedure
     .input(z.object({ status: z.enum(["draft", "submitted", "approved", "rejected"]) }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getHazardAnalysisByStatus(input.status);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getHazardAnalysisByStatus(input.status, ctx.tenantId);
     }),
 
   // CCP로 지정된 위험 분석 목록
   listCcp: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getCcpHazardAnalysis(input.productId);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getCcpHazardAnalysis(input.productId, ctx.tenantId);
     }),
 
   // 위험 요소 관리 방법 추가
@@ -147,16 +147,16 @@ export const hazardAnalysisRouter = router({
         recordForm: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
-      const id = await hazardAnalysisDb.createHazardControl(input);
+    .mutation(async ({ input, ctx }) => {
+      const id = await hazardAnalysisDb.createHazardControl(input, ctx.tenantId);
       return { id };
     }),
 
   // 위험 분석별 관리 방법 목록
   listControls: tenantRequiredProcedure
     .input(z.object({ hazardAnalysisId: z.number() }))
-    .query(async ({ input }) => {
-      return hazardAnalysisDb.getHazardControlsByAnalysisId(input.hazardAnalysisId);
+    .query(async ({ input, ctx }) => {
+      return hazardAnalysisDb.getHazardControlsByAnalysisId(input.hazardAnalysisId, ctx.tenantId);
     }),
 
   // 관리 방법 수정
@@ -171,17 +171,17 @@ export const hazardAnalysisRouter = router({
         recordForm: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await hazardAnalysisDb.updateHazardControl(id, data);
+      await hazardAnalysisDb.updateHazardControl(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   // 관리 방법 삭제
   deleteControl: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await hazardAnalysisDb.deleteHazardControl(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await hazardAnalysisDb.deleteHazardControl(input.id, ctx.tenantId);
       return { success: true };
     }),
 });

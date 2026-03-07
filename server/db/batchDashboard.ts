@@ -59,6 +59,14 @@ export async function getPendingApprovalBatches(limit: number = 10, tenantId?: n
   if (!db) throw new Error("Database not available");
 
   // 완료 상태이면서 승인 이력이 없거나 pending 상태인 배치
+  const conditions = [
+    eq(hBatches.status, "completed"),
+    sql`(${hBatchApprovals.status} IS NULL OR ${hBatchApprovals.status} = 'pending')`
+  ];
+  if (tenantId) {
+    conditions.push(eq(hBatches.tenantId, tenantId));
+  }
+
   const batches = await db
     .select({
       id: hBatches.id,
@@ -72,12 +80,7 @@ export async function getPendingApprovalBatches(limit: number = 10, tenantId?: n
     })
     .from(hBatches)
     .leftJoin(hBatchApprovals, eq(hBatchApprovals.batchId, hBatches.id))
-    .where(
-      and(
-        eq(hBatches.status, "completed"),
-        sql`(${hBatchApprovals.status} IS NULL OR ${hBatchApprovals.status} = 'pending')`
-      )
-    )
+    .where(and(...conditions))
     .orderBy(sql`${hBatches.createdAt} DESC`)
     .limit(limit);
 
@@ -92,10 +95,10 @@ export async function getBatchDashboardData(tenantId?: number) {
   if (!db) throw new Error("Database not available");
 
   const [summary, inProgress, completed, pendingApproval] = await Promise.all([
-    getBatchStatusSummary(),
-    getInProgressBatches(5),
-    getCompletedBatches(5),
-    getPendingApprovalBatches(5),
+    getBatchStatusSummary(tenantId),
+    getInProgressBatches(5, tenantId),
+    getCompletedBatches(5, tenantId),
+    getPendingApprovalBatches(5, tenantId),
   ]);
 
   return {

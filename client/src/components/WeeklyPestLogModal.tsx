@@ -62,9 +62,9 @@ export function WeeklyPestLogModal({
   );
 
   useEffect(() => {
-    if (equipmentData?.equipment) {
+    if (equipmentData?.items) {
       // 포충등과 R-트랩만 필터링
-      const filtered = equipmentData.equipment.filter(
+      const filtered = equipmentData.items.filter(
         (eq: Equipment) => eq.type === '포충등' || eq.type === 'R-트랩'
       );
       setEquipmentList(filtered);

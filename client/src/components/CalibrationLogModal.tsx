@@ -238,7 +238,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
                 <p><strong>설비명:</strong> {selectedEquipment.name}</p>
                 <p><strong>설비코드:</strong> {selectedEquipment.code}</p>
                 <p><strong>설비유형:</strong> {selectedEquipment.equipmentType}</p>
-                <p><strong>설치위치:</strong> {selectedEquipment.location}</p>
+                <p><strong>설치위치:</strong> {(selectedEquipment as any)?.location || '-'}</p>
               </div>
             )}
 

@@ -557,7 +557,8 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
   // 카테고리 목록 조회
   const categoryType = itemType === 'subsidiary' ? 'product' : (itemType === 'own_product' || itemType === 'external_product' ? 'product' : 'material');
   const { data: categoriesData } = trpc.categories.listByType.useQuery({ type: categoryType });
-  const categories = Array.isArray(categoriesData) ? categoriesData : (categoriesData?.categories || []);
+  const rawCatData = categoriesData as any;
+  const categories = Array.isArray(rawCatData) ? rawCatData : (rawCatData?.categories ?? []);
   
   // 코드 자동 생성 (신규 등록 시)
   const { data: generatedCode } = trpc.itemMaster.generateCode.useQuery(

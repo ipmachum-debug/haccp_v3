@@ -12,6 +12,6 @@ export const productionDashboardRouter = router({
     getBatchStats: tenantRequiredProcedure
       .query(async () => {
         const { getBatchStats } = await import("../../db/productionDashboard");
-        return await getBatchStats(ctx.user.tenantId);
+        return await getBatchStats(ctx.tenantId ?? undefined);
       })
 });

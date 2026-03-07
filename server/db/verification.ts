@@ -13,7 +13,7 @@ import {
 export async function createHaccpPlanVerification(data: any, tenantId?: number) {
   const db = await getDb();
   const result = await db.insert(hHaccpPlanVerification).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result[0].insertId;
 }
 
@@ -100,7 +100,7 @@ export async function deleteHaccpPlanVerification(id: number, tenantId?: number)
 export async function createVerificationChecklistItem(data: any, tenantId?: number) {
   const db = await getDb();
   const result = await db.insert(hHaccpPlanVerificationChecklist).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId });
   return result[0].insertId;
 }
 

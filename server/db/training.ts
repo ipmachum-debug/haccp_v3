@@ -9,7 +9,7 @@ import {
 
 /**
  * 교육 훈련 관리 DB 헬퍼 함수
- * tenantId 필터링 적용
+ * ✅ P0 FIX: 모든 함수에 tenantId 필수 적용 (fallback 제거)
  */
 
 // ============================================================================
@@ -39,19 +39,15 @@ export async function createTrainingCourse(data: {
   return result.insertId;
 }
 
-export async function getTrainingCourseById(id: number, tenantId?: number) {
+// ✅ P0 FIX: tenantId 필수 (optional 제거)
+export async function getTrainingCourseById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
-  const conditions: any[] = [eq(hTrainingCourses.id, id)];
-  if (tenantId) {
-    conditions.push(eq(hTrainingCourses.tenantId, tenantId));
-  }
 
   const [result] = await db
     .select()
     .from(hTrainingCourses)
-    .where(and(...conditions));
+    .where(and(eq(hTrainingCourses.id, id), eq(hTrainingCourses.tenantId, tenantId)));
 
   return result;
 }
@@ -106,6 +102,7 @@ export async function getMandatoryTrainingCourses(tenantId: number) {
     );
 }
 
+// ✅ P0 FIX: tenantId 필수 (optional 제거)
 export async function updateTrainingCourse(
   id: number,
   data: {
@@ -122,35 +119,26 @@ export async function updateTrainingCourse(
     passingScore?: string;
     status?: "active" | "inactive" | "archived";
   },
-  tenantId?: number
+  tenantId: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions: any[] = [eq(hTrainingCourses.id, id)];
-  if (tenantId) {
-    conditions.push(eq(hTrainingCourses.tenantId, tenantId));
-  }
-
   await db
     .update(hTrainingCourses)
     .set(data)
-    .where(and(...conditions));
+    .where(and(eq(hTrainingCourses.id, id), eq(hTrainingCourses.tenantId, tenantId)));
 }
 
-export async function deleteTrainingCourse(id: number, tenantId?: number) {
+// ✅ P0 FIX: tenantId 필수 (optional 제거) + tenant 필터 적용
+export async function deleteTrainingCourse(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
-  const conditions: any[] = [eq(hTrainingCourses.id, id)];
-  if (tenantId) {
-    conditions.push(eq(hTrainingCourses.tenantId, tenantId));
-  }
 
   await db
     .update(hTrainingCourses)
     .set({ status: "archived" })
-    .where(and(...conditions));
+    .where(and(eq(hTrainingCourses.id, id), eq(hTrainingCourses.tenantId, tenantId)));
 }
 
 // ============================================================================
@@ -182,35 +170,36 @@ export async function createTrainingSchedule(data: {
   return result.insertId;
 }
 
-export async function getTrainingScheduleById(id: number) {
+// ✅ P0 FIX: tenantId 필수 추가
+export async function getTrainingScheduleById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const [result] = await db
     .select()
     .from(hTrainingSchedules)
-    .where(eq(hTrainingSchedules.id, id));
+    .where(and(eq(hTrainingSchedules.id, id), eq(hTrainingSchedules.tenantId, tenantId)));
 
   return result;
 }
 
-export async function getTrainingSchedulesByCourse(courseId: number, tenantId?: number) {
+// ✅ P0 FIX: tenantId 필수
+export async function getTrainingSchedulesByCourse(courseId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-
-  const conditions: any[] = [eq(hTrainingSchedules.courseId, courseId)];
-  if (tenantId) {
-    conditions.push(eq(hTrainingSchedules.tenantId, tenantId));
-  }
 
   return db
     .select()
     .from(hTrainingSchedules)
-    .where(and(...conditions))
+    .where(and(
+      eq(hTrainingSchedules.courseId, courseId),
+      eq(hTrainingSchedules.tenantId, tenantId)
+    ))
     .orderBy(desc(hTrainingSchedules.scheduledDate));
 }
 
-export async function getUpcomingTrainingSchedules(siteId?: number, tenantId?: number) {
+// ✅ P0 FIX: tenantId 필수
+export async function getUpcomingTrainingSchedules(siteId: number | undefined, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -219,12 +208,10 @@ export async function getUpcomingTrainingSchedules(siteId?: number, tenantId?: n
 
   const conditions: any[] = [
     gte(hTrainingSchedules.scheduledDate, today),
-    eq(hTrainingSchedules.status, "scheduled")
+    eq(hTrainingSchedules.status, "scheduled"),
+    eq(hTrainingSchedules.tenantId, tenantId)
   ];
 
-  if (tenantId) {
-    conditions.push(eq(hTrainingSchedules.tenantId, tenantId));
-  }
   if (siteId) {
     conditions.push(eq(hTrainingSchedules.siteId, siteId));
   }
@@ -236,6 +223,7 @@ export async function getUpcomingTrainingSchedules(siteId?: number, tenantId?: n
     .orderBy(hTrainingSchedules.scheduledDate);
 }
 
+// ✅ P0 FIX: tenantId 필수 추가
 export async function updateTrainingSchedule(
   id: number,
   data: {
@@ -249,7 +237,8 @@ export async function updateTrainingSchedule(
     registeredCount?: number;
     status?: "scheduled" | "in_progress" | "completed" | "cancelled";
     notes?: string;
-  }
+  },
+  tenantId: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -260,55 +249,76 @@ export async function updateTrainingSchedule(
   await db
     .update(hTrainingSchedules)
     .set(updateData)
-    .where(eq(hTrainingSchedules.id, id));
+    .where(and(eq(hTrainingSchedules.id, id), eq(hTrainingSchedules.tenantId, tenantId)));
 }
 
-export async function deleteTrainingSchedule(id: number) {
+// ✅ P0 FIX: tenantId 필수 추가
+export async function deleteTrainingSchedule(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   await db
     .delete(hTrainingSchedules)
-    .where(eq(hTrainingSchedules.id, id));
+    .where(and(eq(hTrainingSchedules.id, id), eq(hTrainingSchedules.tenantId, tenantId)));
 }
 
 // ============================================================================
 // 교육 참가자 (Training Participants)
 // ============================================================================
 
+// ✅ P0 FIX: tenantId 추가 (참가자 등록 시 스케줄 소속 검증)
 export async function registerTrainingParticipant(data: {
   scheduleId: number;
   userId: number;
-}) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // 스케줄이 현재 테넌트 소속인지 검증
+  const schedule = await getTrainingScheduleById(data.scheduleId, tenantId);
+  if (!schedule) {
+    throw new Error("교육 일정을 찾을 수 없습니다. (테넌트 소속 아님)");
+  }
 
   const [result] = await db.insert(hTrainingParticipants).values(data);
 
   // 등록 인원 증가
-  const schedule = await getTrainingScheduleById(data.scheduleId);
   await updateTrainingSchedule(data.scheduleId, {
     registeredCount: (schedule.registeredCount || 0) + 1
-  });
+  }, tenantId);
 
   return result.insertId;
 }
 
-export async function getTrainingParticipantById(id: number) {
+// ✅ P0 FIX: 참가자 조회 시 테넌트 소속 검증 (JOIN 기반)
+export async function getTrainingParticipantById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const [result] = await db
+  // 참가자 → 스케줄 → 테넌트 경로로 소속 검증
+  const results = await db
     .select()
     .from(hTrainingParticipants)
-    .where(eq(hTrainingParticipants.id, id));
+    .innerJoin(hTrainingSchedules, eq(hTrainingParticipants.scheduleId, hTrainingSchedules.id))
+    .where(and(
+      eq(hTrainingParticipants.id, id),
+      eq(hTrainingSchedules.tenantId, tenantId)
+    ));
 
-  return result;
+  if (results.length === 0) return null;
+  return results[0].h_training_participants;
 }
 
-export async function getTrainingParticipantsBySchedule(scheduleId: number) {
+// ✅ P0 FIX: 스케줄별 참가자 조회 시 테넌트 검증
+export async function getTrainingParticipantsBySchedule(scheduleId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // 스케줄 소속 먼저 검증
+  const schedule = await getTrainingScheduleById(scheduleId, tenantId);
+  if (!schedule) {
+    throw new Error("교육 일정을 찾을 수 없습니다. (테넌트 소속 아님)");
+  }
 
   return db
     .select()
@@ -316,17 +326,26 @@ export async function getTrainingParticipantsBySchedule(scheduleId: number) {
     .where(eq(hTrainingParticipants.scheduleId, scheduleId));
 }
 
-export async function getTrainingParticipantsByUser(userId: number) {
+// ✅ P0 FIX: 사용자별 참가 이력 조회 시 테넌트 필터
+export async function getTrainingParticipantsByUser(userId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return db
+  // 테넌트 소속 스케줄과 JOIN하여 필터
+  const results = await db
     .select()
     .from(hTrainingParticipants)
-    .where(eq(hTrainingParticipants.userId, userId))
+    .innerJoin(hTrainingSchedules, eq(hTrainingParticipants.scheduleId, hTrainingSchedules.id))
+    .where(and(
+      eq(hTrainingParticipants.userId, userId),
+      eq(hTrainingSchedules.tenantId, tenantId)
+    ))
     .orderBy(desc(hTrainingParticipants.createdAt));
+
+  return results.map(r => r.h_training_participants);
 }
 
+// ✅ P0 FIX: tenantId 필수 추가
 export async function updateTrainingParticipant(
   id: number,
   data: {
@@ -338,10 +357,17 @@ export async function updateTrainingParticipant(
     certificateUrl?: string;
     expiryDate?: string;
     notes?: string;
-  }
+  },
+  tenantId: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // 참가자 소속 검증
+  const participant = await getTrainingParticipantById(id, tenantId);
+  if (!participant) {
+    throw new Error("참가자 정보를 찾을 수 없습니다. (테넌트 소속 아님)");
+  }
 
   const updateData: any = { ...data };
   if (data.expiryDate) updateData.expiryDate = new Date(data.expiryDate);
@@ -352,21 +378,27 @@ export async function updateTrainingParticipant(
     .where(eq(hTrainingParticipants.id, id));
 }
 
-export async function deleteTrainingParticipant(id: number) {
+// ✅ P0 FIX: tenantId 필수 추가
+export async function deleteTrainingParticipant(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const participant = await getTrainingParticipantById(id);
-  
+  const participant = await getTrainingParticipantById(id, tenantId);
+  if (!participant) {
+    throw new Error("참가자 정보를 찾을 수 없습니다. (테넌트 소속 아님)");
+  }
+
   await db
     .delete(hTrainingParticipants)
     .where(eq(hTrainingParticipants.id, id));
 
   // 등록 인원 감소
-  const schedule = await getTrainingScheduleById(participant.scheduleId);
-  await updateTrainingSchedule(participant.scheduleId, {
-    registeredCount: Math.max(0, (schedule.registeredCount || 0) - 1)
-  });
+  const schedule = await getTrainingScheduleById(participant.scheduleId, tenantId);
+  if (schedule) {
+    await updateTrainingSchedule(participant.scheduleId, {
+      registeredCount: Math.max(0, (schedule.registeredCount || 0) - 1)
+    }, tenantId);
+  }
 }
 
 // ============================================================================
@@ -393,10 +425,30 @@ export async function createTrainingReminder(data: {
   return result.insertId;
 }
 
-export async function getTrainingRemindersByUser(userId: number) {
+// ✅ P0 FIX: tenantId 추가하여 필터 (알림 → 참가자 → 스케줄 → 테넌트)
+export async function getTrainingRemindersByUser(userId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // tenantId가 제공되면 테넌트 소속 알림만 반환
+  if (tenantId) {
+    const results = await db
+      .select()
+      .from(hTrainingReminders)
+      .innerJoin(hTrainingParticipants, eq(hTrainingReminders.participantId, hTrainingParticipants.id))
+      .innerJoin(hTrainingSchedules, eq(hTrainingParticipants.scheduleId, hTrainingSchedules.id))
+      .where(
+        and(
+          eq(hTrainingReminders.userId, userId),
+          eq(hTrainingReminders.sent, 0),
+          eq(hTrainingSchedules.tenantId, tenantId)
+        )
+      )
+      .orderBy(hTrainingReminders.reminderDate);
+    return results.map(r => r.h_training_reminders);
+  }
+
+  // tenantId 미제공 (시스템 배치 작업용 - 사용자별 필터만)
   return db
     .select()
     .from(hTrainingReminders)
@@ -409,12 +461,29 @@ export async function getTrainingRemindersByUser(userId: number) {
     .orderBy(hTrainingReminders.reminderDate);
 }
 
-export async function getPendingTrainingReminders() {
+// ✅ P0 FIX: tenantId 필터 추가 (시스템 배치 작업은 전체 반환)
+export async function getPendingTrainingReminders(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  if (tenantId) {
+    const results = await db
+      .select()
+      .from(hTrainingReminders)
+      .innerJoin(hTrainingParticipants, eq(hTrainingReminders.participantId, hTrainingParticipants.id))
+      .innerJoin(hTrainingSchedules, eq(hTrainingParticipants.scheduleId, hTrainingSchedules.id))
+      .where(
+        and(
+          lte(hTrainingReminders.reminderDate, today),
+          eq(hTrainingReminders.sent, 0),
+          eq(hTrainingSchedules.tenantId, tenantId)
+        )
+      );
+    return results.map(r => r.h_training_reminders);
+  }
 
   return db
     .select()
@@ -441,14 +510,19 @@ export async function markTrainingReminderAsSent(id: number) {
 // 교육 이수 증명서 발급
 // ============================================================================
 
-export async function issueCertificate(participantId: number, certificateUrl: string) {
+// ✅ P0 FIX: tenantId 필수 추가
+export async function issueCertificate(participantId: number, certificateUrl: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const participant = await getTrainingParticipantById(participantId);
+  const participant = await getTrainingParticipantById(participantId, tenantId);
+  if (!participant) {
+    throw new Error("참가자 정보를 찾을 수 없습니다. (테넌트 소속 아님)");
+  }
+
   const certificateNumber = `CERT-${Date.now()}-${participantId}`;
 
-  const course = await getTrainingCourseById(participant.scheduleId);
+  const course = await getTrainingCourseById(participant.scheduleId, tenantId);
   let expiryDate: Date | undefined;
   
   if (course && course.validityPeriod) {
@@ -461,7 +535,7 @@ export async function issueCertificate(participantId: number, certificateUrl: st
     certificateNumber,
     certificateUrl,
     expiryDate: expiryDate?.toISOString().split("T")[0]
-  });
+  }, tenantId);
 
   return { certificateNumber, expiryDate };
 }

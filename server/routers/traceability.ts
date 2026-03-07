@@ -24,8 +24,8 @@ export const traceabilityRouter = router({
    */
   forward: tenantRequiredProcedure
     .input(z.object({ lotId: z.number() }))
-    .query(async ({ input }) => {
-      return await traceLotForward(input.lotId);
+    .query(async ({ input, ctx }) => {
+      return await traceLotForward(input.lotId, ctx.tenantId);
     }),
 
   /**
@@ -33,8 +33,8 @@ export const traceabilityRouter = router({
    */
   backward: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
-    .query(async ({ input }) => {
-      return await traceLotBackward(input.batchId);
+    .query(async ({ input, ctx }) => {
+      return await traceLotBackward(input.batchId, ctx.tenantId);
     }),
 
   /**
@@ -42,8 +42,8 @@ export const traceabilityRouter = router({
    */
   byProductLot: tenantRequiredProcedure
     .input(z.object({ lotNumber: z.string() }))
-    .query(async ({ input }) => {
-      return await traceLotByProductLotNumber(input.lotNumber);
+    .query(async ({ input, ctx }) => {
+      return await traceLotByProductLotNumber(input.lotNumber, ctx.tenantId);
     }),
 
   /**
@@ -51,8 +51,8 @@ export const traceabilityRouter = router({
    */
   byMaterialLot: tenantRequiredProcedure
     .input(z.object({ lotNumber: z.string() }))
-    .query(async ({ input }) => {
-      return await traceLotByMaterialLotNumber(input.lotNumber);
+    .query(async ({ input, ctx }) => {
+      return await traceLotByMaterialLotNumber(input.lotNumber, ctx.tenantId);
     }),
 
   /**
@@ -68,29 +68,29 @@ export const traceabilityRouter = router({
         userName: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       return await saveLotTraceHistory(input);
     }),
 
   /**
    * LOT 추적 이력 조회
    */
-  getHistory: tenantRequiredProcedure.query(async () => {
-    return await getLotTraceHistory();
+  getHistory: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return await getLotTraceHistory(100, ctx.tenantId);
   }),
 
   /**
    * 자주 조회되는 LOT 번호 (Top 10)
    */
-  getTopSearched: tenantRequiredProcedure.query(async () => {
-    return await getTopSearchedLots();
+  getTopSearched: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return await getTopSearchedLots(ctx.tenantId);
   }),
 
   /**
    * 사용자별 추적 통계
    */
-  getUserStats: tenantRequiredProcedure.query(async () => {
-    return await getUserTraceStats();
+  getUserStats: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return await getUserTraceStats(ctx.tenantId);
   }),
 
   /**
@@ -98,8 +98,8 @@ export const traceabilityRouter = router({
    */
   getHistoryByLot: tenantRequiredProcedure
     .input(z.object({ lotNumber: z.string() }))
-    .query(async ({ input }) => {
-      return await getLotTraceHistoryByLotNumber(input.lotNumber);
+    .query(async ({ input, ctx }) => {
+      return await getLotTraceHistoryByLotNumber(input.lotNumber, ctx.tenantId);
     }),
 
   /**

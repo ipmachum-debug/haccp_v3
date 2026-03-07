@@ -39,7 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardCheck, Plus, Edit, FileText, Play, CheckCircle, AlertTriangle } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function InternalAudit({ embedded }: { embedded?: boolean } = {}) {
+export default function InternalAudit({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedAudit, setSelectedAudit] = useState<any>(null);

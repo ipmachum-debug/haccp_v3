@@ -4,9 +4,9 @@ import { z } from "zod";
 
 export const uploadHistoryRouter = router({
     // 전체 이력 조회
-    getAll: tenantRequiredProcedure.query(async () => {
+    getAll: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getAllUploadHistory } = await import("../../db/uploadHistory.js");
-      return await getAllUploadHistory();
+      return await getAllUploadHistory(ctx.tenantId);
     }),
     
     // 타입별 이력 조회
@@ -14,7 +14,7 @@ export const uploadHistoryRouter = router({
       .input(z.object({ uploadType: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getUploadHistoryByType } = await import("../../db/uploadHistory.js");
-        return await getUploadHistoryByType(input.uploadType);
+        return await getUploadHistoryByType(input.uploadType, ctx.tenantId);
       }),
     
     // 사용자별 이력 조회
@@ -22,7 +22,7 @@ export const uploadHistoryRouter = router({
       .input(z.object({ userId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getUploadHistoryByUser } = await import("../../db/uploadHistory.js");
-        return await getUploadHistoryByUser(input.userId);
+        return await getUploadHistoryByUser(input.userId, ctx.tenantId);
       }),
     
     // 이력 삭제
@@ -30,6 +30,6 @@ export const uploadHistoryRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteUploadHistory } = await import("../../db/uploadHistory.js");
-        return await deleteUploadHistory(input.id);
+        return await deleteUploadHistory(input.id, ctx.tenantId);
       })
 });

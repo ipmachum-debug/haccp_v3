@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Save, Search, FileText, Building2, X, Package } from "lucide-react";
+import { Plus, Trash2, Save, Search, FileText, Building2, X, Package, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
 /* ─── Partner inline search/autocomplete ─── */
 function PartnerInlineSearch({ selectedId, selectedName, onSelect, onClear, partnerType, label = "거래처 *" }: {
@@ -80,40 +81,92 @@ function PartnerInlineSearch({ selectedId, selectedName, onSelect, onClear, part
   );
 }
 
-/* ─── Item inline search/autocomplete ─── */
-function ItemInlineSearch({ onSelect, allItems }: {
+/* ─── Item inline search/autocomplete (SKU 지원) ─── */
+function ItemInlineSearch({ onSelect, allItems, skuList }: {
   onSelect: (item: any) => void;
   allItems: any[];
+  skuList: any[];
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+
+  // SKU가 있는 품목(own_product)은 SKU 단위로 표시, 나머지는 품목 단위로 표시
+  const combinedItems = useMemo(() => {
+    const result: any[] = [];
+    // SKU가 있는 품목ID 수집
+    const itemIdsWithSku = new Set(skuList.map((s: any) => s.itemId));
+
+    // SKU 항목을 먼저 추가 (품목명 [SKU명] 형태)
+    for (const sku of skuList) {
+      result.push({
+        id: sku.itemId,
+        skuId: sku.id,
+        skuCode: sku.skuCode,
+        skuName: sku.skuName,
+        itemName: sku.itemName,
+        itemType: sku.itemType,
+        displayName: `${sku.itemName} [${sku.skuName}]`,
+        salesUnit: sku.salesUnit || "box",
+        unitPrice: sku.unitPrice ? Number(sku.unitPrice) : 0,
+        _displayType: "SKU",
+        _isSku: true,
+      });
+    }
+
+    // SKU가 없는 품목 추가 (기존 방식)
+    for (const item of allItems) {
+      if (!itemIdsWithSku.has(item.id)) {
+        result.push({
+          ...item,
+          displayName: item.itemName || item.name || "-",
+          _isSku: false,
+        });
+      }
+    }
+    return result;
+  }, [allItems, skuList]);
+
   const filtered = useMemo(() => {
-    if (!search) return allItems.slice(0, 20);
+    if (!search) return combinedItems.slice(0, 30);
     const q = search.toLowerCase();
-    return allItems.filter((m: any) =>
-      (m.itemName || "").toLowerCase().includes(q) || (m.category || "").toLowerCase().includes(q) || (m._displayType || "").toLowerCase().includes(q)
-    ).slice(0, 20);
-  }, [search, allItems]);
+    return combinedItems.filter((m: any) =>
+      (m.displayName || "").toLowerCase().includes(q) ||
+      (m.skuCode || "").toLowerCase().includes(q) ||
+      (m.category || "").toLowerCase().includes(q) ||
+      (m._displayType || "").toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [search, combinedItems]);
+
   return (
     <div className="relative">
       <Search className="absolute left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
-      <input type="text" value={search} placeholder="품목 검색"
+      <input type="text" value={search} placeholder="품목/SKU 검색"
         onChange={e => { setSearch(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         className="w-full h-7 pl-6 pr-2 border-0 shadow-none text-sm bg-transparent hover:bg-muted/50 focus:ring-0 focus:bg-muted/30 rounded transition" />
       {open && (
-        <div className="absolute z-[9999] top-full left-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-xl max-h-56 overflow-y-auto min-w-[320px]" style={{ width: 'max-content', maxWidth: '420px' }}>
-          {filtered.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground text-center">{search ? "검색 결과 없음" : "품목을 검색하세요"}</div>}
-          {filtered.map((m: any) => (
-            <button key={`${m.id}-${m.itemType}`} type="button"
+        <div className="absolute z-[9999] top-full left-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-xl max-h-64 overflow-y-auto min-w-[360px]" style={{ width: 'max-content', maxWidth: '480px' }}>
+          {filtered.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground text-center">{search ? "검색 결과 없음" : "품목/SKU를 검색하세요"}</div>}
+          {filtered.map((m: any, idx: number) => (
+            <button key={`${m.id}-${m.skuId || 'item'}-${idx}`} type="button"
               className="w-full text-left px-3 py-1.5 hover:bg-muted text-xs flex items-center gap-2 border-b last:border-0"
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(m); setSearch(""); setOpen(false); }}>
               <Package className="w-3 h-3 text-muted-foreground shrink-0" />
-              <span className="font-medium truncate">{m.itemName || m.name || "-"}</span>
-              {m._displayType && <span className="text-[10px] px-1 py-0 rounded bg-muted shrink-0">{m._displayType}</span>}
-              {m.defaultUnitPrice && <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{Number(m.defaultUnitPrice || 0).toLocaleString()}원</span>}
+              <span className="font-medium truncate">{m.displayName}</span>
+              {m._isSku ? (
+                <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0 bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                  {m.salesUnit || "SKU"}
+                </Badge>
+              ) : (
+                m._displayType && <span className="text-[10px] px-1 py-0 rounded bg-muted shrink-0">{m._displayType}</span>
+              )}
+              {(m.unitPrice > 0 || m.defaultUnitPrice) && (
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                  {Number(m.unitPrice || m.defaultUnitPrice || 0).toLocaleString()}원
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -147,6 +200,9 @@ type SaleItem = {
   itemMasterId?: number;
   itemType?: string;
   itemName: string;
+  skuId?: number;
+  skuCode?: string;
+  skuName?: string;
   packagingSize?: number;
   packagingUnit?: string;
   quantity: number;
@@ -167,6 +223,7 @@ export default function SalesManagement() {
 
 function SalesManagementContent() {
   const { toast } = useToast();
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>("");
@@ -213,6 +270,9 @@ function SalesManagementContent() {
     isActive: 1,
     limit: 500,
   });
+
+  // SKU 전체 목록 조회 (매출 등록용 - SKU 단위 품목 선택)
+  const { data: allSkuList } = trpc.productSku.listAll.useQuery({});
 
   // 모든 판매 가능 품목 통합
   const allSaleItems = [
@@ -384,6 +444,7 @@ function SalesManagementContent() {
           unitPrice: item.unitPrice,
           amount: item.amount,
           taxAmount: item.taxAmount,
+          unit: item.packagingUnit || undefined,
           memo: memo || undefined,
         },
         {
@@ -427,14 +488,20 @@ function SalesManagementContent() {
   return (
     <div className="space-y-0">
       {/* 헤더 - 컴팩트 */}
-      <div className="mb-3">
-        <h1 className="text-lg font-bold flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          매출 등록
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Ctrl+S (저장)
-        </p>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-bold flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            매출 등록
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Ctrl+S (저장)
+          </p>
+        </div>
+        <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-1.5 text-xs">
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          엑셀 일괄등록
+        </Button>
       </div>
 
       {/* 거래 정보 - 한 줄 */}
@@ -528,19 +595,25 @@ function SalesManagementContent() {
                         <button type="button" onClick={() => handleItemChange(item.id, "itemName", "")} className="text-muted-foreground hover:text-red-500 shrink-0"><X className="h-3 w-3" /></button>
                       </div>
                     ) : (
-                      <ItemInlineSearch allItems={allSaleItems} onSelect={(m) => {
+                      <ItemInlineSearch allItems={allSaleItems} skuList={allSkuList ?? []} onSelect={(m) => {
                         setItems(prev => prev.map(row => {
                           if (row.id !== item.id) return row;
-                          const unitPrice = m.defaultUnitPrice ? Number(m.defaultUnitPrice) : row.unitPrice;
+                          const isSku = !!m._isSku;
+                          const unitPrice = isSku
+                            ? (m.unitPrice || row.unitPrice)
+                            : (m.defaultUnitPrice ? Number(m.defaultUnitPrice) : row.unitPrice);
                           const amount = row.quantity * unitPrice;
                           const taxAmount = row.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
                           return {
                             ...row,
                             itemMasterId: m.id,
                             itemType: m.itemType,
-                            itemName: m.itemName || m.name || "",
+                            itemName: isSku ? m.displayName : (m.itemName || m.name || ""),
+                            skuId: isSku ? m.skuId : undefined,
+                            skuCode: isSku ? m.skuCode : undefined,
+                            skuName: isSku ? m.skuName : undefined,
                             unitPrice,
-                            packagingUnit: m.baseUnit || row.packagingUnit,
+                            packagingUnit: isSku ? (m.salesUnit || "box") : (m.baseUnit || row.packagingUnit),
                             amount,
                             taxAmount,
                             totalAmount: amount + taxAmount,
@@ -635,7 +708,12 @@ function SalesManagementContent() {
         </Button>
       </div>
 
-
+      {/* 엑셀 일괄등록 모달 */}
+      <ExcelBulkUploadModal
+        open={bulkUploadOpen}
+        onOpenChange={setBulkUploadOpen}
+        mode="sale"
+      />
     </div>
   );
 }

@@ -27,7 +27,7 @@ export const internalAuditRouter = router({
       const id = await auditDb.createAuditPlan({
         ...input,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -43,7 +43,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAuditPlans({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAuditPlans({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 내부 감사 계획 상세 조회
@@ -117,7 +117,7 @@ export const internalAuditRouter = router({
         auditAreas: input.auditAreas ? JSON.stringify(input.auditAreas) : undefined,
         auditTeam: input.auditTeam ? JSON.stringify(input.auditTeam) : undefined,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -137,7 +137,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAudits({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAudits({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 내부 감사 상세 조회
@@ -466,7 +466,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAuditStatistics({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAuditStatistics({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 예정된 감사 목록
@@ -478,7 +478,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getUpcomingAudits({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getUpcomingAudits({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 미해결 발견 사항 통계

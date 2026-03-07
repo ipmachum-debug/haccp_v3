@@ -14,7 +14,7 @@ export const ccpScheduleRouter = router({
       .query(async ({ input, ctx }) => {
         const { getCcpSchedules } = await import("../../db");
         return await getCcpSchedules({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           ccpInstanceId: input.ccpInstanceId,
           status: input.status,
           startDate: input.startDate ? new Date(input.startDate) : undefined,

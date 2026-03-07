@@ -30,10 +30,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Database, Package, Leaf, Building2, Shield, GitBranch, Plus, Pencil, Trash2, Upload, FileSpreadsheet, FileDown, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
+import { Database, Package, Leaf, Building2, GitBranch, Plus, Pencil, Trash2, Upload, FileSpreadsheet, FileDown, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import CategoryManagement from "@/pages/CategoryManagement";
-import CcpTemplateManagement from "@/pages/CcpTemplateManagement";
+
 import ProductCcpMapping from "@/pages/ProductCcpMapping";
 import MaterialBulkUploadModal from "@/components/MaterialBulkUploadModal";
 import SupplierBulkUploadModal from "@/components/SupplierBulkUploadModal";
@@ -70,7 +70,7 @@ export default function MasterDataManagement() {
   
   // 거래처 필터/정렬/페이지네이션 state
   const [supSearchQuery, setSupSearchQuery] = useState("");
-  const [supSortBy, setSupSortBy] = useState<"businessNumber" | "supplierName" | "supplierType">("supplierName");
+  const [supSortBy, setSupSortBy] = useState<"supplierCode" | "supplierName" | "supplierType">("supplierName");
   const [supSortOrder, setSupSortOrder] = useState<"asc" | "desc">("asc");
   const [supPage, setSupPage] = useState(1);
   const supPageSize = 30;
@@ -431,7 +431,7 @@ export default function MasterDataManagement() {
   };
   
   // 거래처 정렬 토글
-  const handleSupSort = (field: "businessNumber" | "supplierName" | "supplierType") => {
+  const handleSupSort = (field: "supplierCode" | "supplierName" | "supplierType") => {
     if (supSortBy === field) { setSupSortOrder(supSortOrder === "asc" ? "desc" : "asc"); }
     else { setSupSortBy(field); setSupSortOrder("asc"); }
     setSupPage(1);
@@ -538,7 +538,7 @@ export default function MasterDataManagement() {
         </div>
 
         <Tabs defaultValue="products" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
               <span>제품</span>
@@ -550,10 +550,6 @@ export default function MasterDataManagement() {
             <TabsTrigger value="suppliers" className="flex items-center gap-2">
               <Building2 className="h-4 w-4" />
               <span>거래처</span>
-            </TabsTrigger>
-            <TabsTrigger value="ccp-templates" className="flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              <span>CCP 템플릿</span>
             </TabsTrigger>
             <TabsTrigger value="mapping" className="flex items-center gap-2">
               <GitBranch className="h-4 w-4" />
@@ -1408,8 +1404,8 @@ export default function MasterDataManagement() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="cursor-pointer select-none" onClick={() => handleSupSort("businessNumber")}>
-                        <div className="flex items-center gap-1">사업자번호 <ArrowUpDown className="h-3 w-3" />{supSortBy === "businessNumber" && <span className="text-xs">({supSortOrder === "asc" ? "▲" : "▼"})</span>}</div>
+                      <TableHead className="cursor-pointer select-none" onClick={() => handleSupSort("supplierCode")}>
+                        <div className="flex items-center gap-1">사업자번호 <ArrowUpDown className="h-3 w-3" />{supSortBy === "supplierCode" && <span className="text-xs">({supSortOrder === "asc" ? "▲" : "▼"})</span>}</div>
                       </TableHead>
                       <TableHead className="cursor-pointer select-none" onClick={() => handleSupSort("supplierName")}>
                         <div className="flex items-center gap-1">거래처명 <ArrowUpDown className="h-3 w-3" />{supSortBy === "supplierName" && <span className="text-xs">({supSortOrder === "asc" ? "▲" : "▼"})</span>}</div>
@@ -1554,11 +1550,6 @@ export default function MasterDataManagement() {
                       </form>
                     </DialogContent>
                   </Dialog>
-          </TabsContent>
-
-          {/* CCP 템플릿 관리 탭 */}
-          <TabsContent value="ccp-templates" className="space-y-4">
-            <CcpTemplateManagement embedded />
           </TabsContent>
 
           {/* 제품-CCP 매핑 탭 */}

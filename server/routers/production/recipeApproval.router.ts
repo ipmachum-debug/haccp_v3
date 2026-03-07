@@ -5,9 +5,9 @@ import { z } from "zod";
 export const recipeApprovalRouter = router({
     // 승인 대기 중인 품목제조보고 목록 조회
     getPending: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getPendingRecipes } = await import("../../api/recipeApproval");
-        return await getPendingRecipes();
+        return await getPendingRecipes(ctx.tenantId);
       }),
     
     // 품목제조보고 승인
@@ -27,7 +27,7 @@ export const recipeApprovalRouter = router({
       }).optional())
       .query(async ({ input, ctx }) => {
         const { getRecipeApprovalHistory } = await import("../../api/recipeApproval");
-        return await getRecipeApprovalHistory(input);
+        return await getRecipeApprovalHistory(input, ctx.tenantId);
       }),
     
     // 품목제조보고 반려
@@ -50,6 +50,6 @@ export const recipeApprovalRouter = router({
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipeWithApprovalInfo } = await import("../../api/recipeApproval");
-        return await getRecipeWithApprovalInfo(input.recipeId);
+        return await getRecipeWithApprovalInfo(input.recipeId, ctx.tenantId);
       })
 });

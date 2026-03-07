@@ -620,15 +620,58 @@ function AccountingManagementContent() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  리포트 기능은 향후 업데이트 예정입니다.
-                </p>
-                <ul className="list-disc list-inside space-y-2 text-sm">
-                  <li>월간 재무제표 PDF 생성</li>
-                  <li>연간 손익계산서</li>
-                  <li>세무 신고용 자료</li>
-                  <li>투자자 리포트</li>
-                </ul>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="h-5 w-5 text-blue-600" />
+                        시산표 (Trial Balance)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">계정 과목별 차변/대변 합계와 잔액을 확인합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-green-600" />
+                        재무상태표 (Balance Sheet)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">자산, 부채, 자본의 현재 상태를 확인합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5 text-purple-600" />
+                        손익계산서 (Income Statement)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">수익과 비용을 비교하여 순이익을 산출합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Download className="h-5 w-5 text-orange-600" />
+                        엑셀 내보내기
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">시산표, 재무상태표, 손익계산서를 Excel로 다운로드합니다</p>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="pt-2">
+                  <Button onClick={() => window.location.href = '/dashboard/accounting/financial-reports'} className="w-full">
+                    <FileText className="h-4 w-4 mr-2" />
+                    재무 리포트 전체 보기
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

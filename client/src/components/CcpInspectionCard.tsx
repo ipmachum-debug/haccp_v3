@@ -435,6 +435,7 @@ export function CcpInspectionCard({
       instanceId: ccp.id,
       sortOrder: allRows.length + 1,
       rowType: "measurement",
+      measuredAt: new Date(),
       tempC: newTempC || undefined,
       pressureBar: newPressureBar || undefined,
       durationMin: newDurationMin ? Number(newDurationMin) : undefined,

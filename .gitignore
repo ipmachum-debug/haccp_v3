@@ -53,3 +53,4 @@ fix_new_batches.mjs
 *.pdf
 core
 tmp/
+screenshot_ccp.png

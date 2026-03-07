@@ -46,6 +46,8 @@ export default function Login() {
         console.log('[Login] User role:', response?.role);
         if (response?.role === 'super_admin') {
           setLocation("/dashboard/super-admin");
+        } else if (response?.role === 'employee') {
+          setLocation("/board");
         } else {
           setLocation("/dashboard");
         }

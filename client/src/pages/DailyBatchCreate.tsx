@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import AIProductionParser from "@/components/AIProductionParser";
 import {
   Loader2, Plus, Trash2, Package, FlaskConical,
-  Calendar, CheckCircle2, GripVertical, Shuffle, ArrowDown, ArrowUp
+  Calendar, CheckCircle2, GripVertical, Shuffle, ArrowDown, ArrowUp, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -71,6 +72,9 @@ export default function DailyBatchCreate() {
 
   // Equipment allocation mode for same-day mixed processes
   const [equipAllocation, setEquipAllocation] = useState<"RANDOM" | "SEQUENTIAL">("RANDOM");
+
+  // AI Parser visibility
+  const [showAIParser, setShowAIParser] = useState(false);
 
   // Batch items
   const [items, setItems] = useState<BatchItem[]>([
@@ -207,6 +211,34 @@ export default function DailyBatchCreate() {
     bulkCreateMutation.mutate(payload as any);
   };
 
+  // AI Parser: 확인된 항목을 배치 아이템으로 변환
+  const handleAIConfirm = useCallback((confirmedItems: Array<{ productId: number; productName: string; quantityKg: number }>) => {
+    const newItems: BatchItem[] = confirmedItems.map(ci => ({
+      id: generateId(),
+      productId: String(ci.productId),
+      plannedQuantityKg: String(ci.quantityKg),
+      mode: defaultMode,
+      skuOutputs: {},
+    }));
+
+    // 기존 빈 항목 제거 후 추가
+    const existingFilled = items.filter(i => i.productId);
+    // 중복 제품 제거 (이미 있는 productId는 수량만 업데이트)
+    const merged = [...existingFilled];
+    for (const newItem of newItems) {
+      const existing = merged.find(m => m.productId === newItem.productId);
+      if (existing) {
+        existing.plannedQuantityKg = String(
+          parseFloat(existing.plannedQuantityKg || "0") + parseFloat(newItem.plannedQuantityKg || "0")
+        );
+      } else {
+        merged.push(newItem);
+      }
+    }
+    setItems(merged.length > 0 ? merged : [{ id: generateId(), productId: "", plannedQuantityKg: "", mode: defaultMode, skuOutputs: {} }]);
+    setShowAIParser(false);
+  }, [items, defaultMode]);
+
   // Calculate total
   const totalKg = items.reduce((sum, item) => sum + (parseFloat(item.plannedQuantityKg) || 0), 0);
 
@@ -224,10 +256,28 @@ export default function DailyBatchCreate() {
               작업일자를 선택하고 생산할 품목을 한 번에 등록합니다. 드래그로 순서를 변경하세요.
             </p>
           </div>
-          <Button variant="outline" onClick={() => setLocation("/dashboard/batch")}>
-            배치 목록으로
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setShowAIParser(!showAIParser)}
+              variant={showAIParser ? "default" : "outline"}
+              className={showAIParser ? "bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white" : "border-indigo-300 text-indigo-600 hover:bg-indigo-50"}
+            >
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              AI 자동입력
+            </Button>
+            <Button variant="outline" onClick={() => setLocation("/dashboard/batch")}>
+              배치 목록으로
+            </Button>
+          </div>
         </div>
+
+        {/* AI Production Parser */}
+        {showAIParser && (
+          <AIProductionParser
+            onConfirm={handleAIConfirm}
+            onClose={() => setShowAIParser(false)}
+          />
+        )}
 
         {/* Global Settings Card */}
         <Card>

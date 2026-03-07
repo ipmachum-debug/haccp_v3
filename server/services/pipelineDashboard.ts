@@ -369,7 +369,8 @@ export async function checkMaterialAvailability(db: any, batchId: number, siteId
   
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
 
-  const batchTenantId = Number(batch.tenant_id) || tenantId || 1;
+  const batchTenantId = Number(batch.tenant_id) || tenantId;
+  if (!batchTenantId) throw new Error('[P0 보안] tenantId is required for pipeline');
   
   // h_batch_inputs에서 원재료 투입 계획 조회 (MF report 기반 - 신규 스키마)
   const inputsQuery = sql`

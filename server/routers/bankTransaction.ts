@@ -1,4 +1,4 @@
-import { router, protectedTenantProcedure } from "../trpc";
+import { router, protectedTenantProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { bankTransactions } from "../../drizzle/schema";
@@ -26,7 +26,7 @@ export const bankTransactionRouter = router({
       const limit = input?.limit || 50;
       const offset = (page - 1) * limit;
 
-      const conditions = [eq(bankTransactions.tenantId, ctx.user.tenantId)];
+      const conditions = [eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)];
 
       if (input?.bankAccountId) {
         conditions.push(eq(bankTransactions.bankAccountId, input.bankAccountId));
@@ -90,7 +90,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         )
         .limit(1);
@@ -120,7 +120,7 @@ export const bankTransactionRouter = router({
       const isLargeAmount = input.amount >= 5000000;
 
       const result = await db.insert(bankTransactions).values({
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
         bankAccountId: input.bankAccountId,
         transactionDate: input.transactionDate,
         transactionType: input.transactionType,
@@ -163,7 +163,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -180,7 +180,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -208,7 +208,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -231,7 +231,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -255,7 +255,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         )
         .limit(1);
@@ -280,7 +280,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -301,7 +301,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -318,7 +318,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             inArray(bankTransactions.id, input.ids),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 
@@ -335,7 +335,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.bankAccountId, input.bankAccountId),
-            eq(bankTransactions.tenantId, ctx.user.tenantId)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
           )
         );
 

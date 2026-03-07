@@ -26,7 +26,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
     onSuccess: (result) => {
       setUploadResult(result);
       setStep("result");
-      if (result.success) {
+      if (result.failureCount === 0) {
         toast.success(`${result.successCount}개 거래처가 등록되었습니다`);
         onSuccess();
       } else {

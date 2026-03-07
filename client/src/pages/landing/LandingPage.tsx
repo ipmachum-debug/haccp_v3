@@ -327,18 +327,18 @@ const iconMap: Record<string, React.ComponentType<any>> = {
 };
 
 // ─── Animation variants ───
-const fadeUp = {
+const fadeUp: Record<string, any> = {
   hidden: { opacity: 0, y: 24 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.7, ease: [0.25, 0.46, 0.45, 0.94] } },
 };
-const fadeIn = {
+const fadeIn: Record<string, any> = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.6 } },
 };
-const stagger = {
+const stagger: Record<string, any> = {
   visible: { transition: { staggerChildren: 0.12 } },
 };
-const scaleIn = {
+const scaleIn: Record<string, any> = {
   hidden: { opacity: 0, scale: 0.95 },
   visible: { opacity: 1, scale: 1, transition: { duration: 0.5 } },
 };

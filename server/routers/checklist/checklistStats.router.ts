@@ -8,12 +8,12 @@ export const checklistStatsRouter = router({
       .input(z.object({ category: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getChecklistStatsByCategory } = await import("../../db/checklistStats");
-        return await getChecklistStatsByCategory(input.category, ctx.user.tenantId);
+        return await getChecklistStatsByCategory(input.category, ctx.tenantId ?? undefined);
       }),
 
     // 오늘 전체 상태 조회
     getToday: tenantRequiredProcedure.query(async () => {
       const { getTodayChecklistStats } = await import("../../db/checklistStats");
-      return await getTodayChecklistStats(ctx.user.tenantId);
+      return await getTodayChecklistStats(ctx.tenantId ?? undefined);
     })
 });
