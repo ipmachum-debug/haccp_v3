@@ -410,6 +410,10 @@ function InternalBoardTab() {
   const [editType, setEditType] = useState<string>("notice");
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
+  // 완료 목록 페이지네이션 & 드롭다운
+  const [completedPage, setCompletedPage] = useState(1);
+  const [expandedCompletedId, setExpandedCompletedId] = useState<number | null>(null);
+  const COMPLETED_PER_PAGE = 15;
 
   const { data: items = [], refetch, isLoading } = trpc.board.getBoardItems.useQuery(
     { type: selectedType as any },
@@ -453,9 +457,24 @@ function InternalBoardTab() {
     onError: (error: any) => toast.error("삭제 실패: " + error.message),
   });
 
+  const updateStatusMutation = trpc.board.updateBoardStatus.useMutation({
+    onSuccess: () => {
+      toast.success("완료 처리되었습니다");
+      refetch(); refetchStats();
+    },
+    onError: (error: any) => toast.error("상태 변경 실패: " + error.message),
+  });
+
   const isCreatePending = "isPending" in createNoticeMutation ? (createNoticeMutation as any).isPending : (createNoticeMutation as any).isLoading;
 
   const allItems = items as any[];
+  // 접수/진행중 (상단 카드), 완료 (하단 리스트)
+  const activeItems = allItems.filter((item: any) => item.status !== "completed");
+  const completedItems = allItems.filter((item: any) => item.status === "completed");
+  // 완료 목록 페이지네이션
+  const completedTotalPages = Math.max(1, Math.ceil(completedItems.length / COMPLETED_PER_PAGE));
+  const completedPageItems = completedItems.slice((completedPage - 1) * COMPLETED_PER_PAGE, completedPage * COMPLETED_PER_PAGE);
+
   const stats = boardStats || { total: 0, notice: 0, work: 0, handover: 0, received: 0, inProgress: 0, completed: 0 };
 
   const startEdit = (item: any) => {
@@ -473,6 +492,10 @@ function InternalBoardTab() {
       title: editTitle.trim() || undefined,
       content: editContent.trim(),
     });
+  };
+
+  const handleComplete = (id: number) => {
+    updateStatusMutation.mutate({ id, status: "completed" });
   };
 
   return (
@@ -573,13 +596,15 @@ function InternalBoardTab() {
         </div>
       )}
 
-      {/* 공지보드 목록 */}
+      {/* ══════════════════════════════════════ */}
+      {/* 접수/진행중 글 - 상단 카드 형태 */}
+      {/* ══════════════════════════════════════ */}
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-blue-400 mb-3" />
           <p className="text-sm text-gray-400">로딩 중...</p>
         </div>
-      ) : allItems.length === 0 ? (
+      ) : activeItems.length === 0 && completedItems.length === 0 ? (
         <div className="text-center py-16 bg-white border border-stone-200/80 rounded-xl shadow-sm">
           <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-3">
             <Megaphone className="h-7 w-7 text-blue-300" />
@@ -588,50 +613,177 @@ function InternalBoardTab() {
           {isAdmin && <p className="text-xs text-stone-400 mt-1">"+ 새 글" 버튼을 눌러 작성해보세요</p>}
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {allItems.map((item: any) => {
-            const isEditMode = editingId === item.id;
-            return isEditMode ? (
-              /* 수정 모드 인라인 폼 */
-              <div key={item.id} className="bg-blue-50/50 border border-blue-200 rounded-xl p-4 space-y-2.5">
-                <div className="flex items-center gap-2">
-                  <Pencil className="h-4 w-4 text-blue-500" />
-                  <span className="text-sm font-bold text-stone-800">수정하기</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[11px] font-medium text-stone-500">분류</Label>
-                    <Select value={editType} onValueChange={setEditType}>
-                      <SelectTrigger className="bg-white border-blue-200/60 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="notice">📢 공지</SelectItem>
-                        <SelectItem value="work">📋 작업지시</SelectItem>
-                        <SelectItem value="handover">📌 전달사항</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="md:col-span-2 space-y-1">
-                    <Label className="text-[11px] font-medium text-stone-500">제목</Label>
-                    <Input value={editTitle} onChange={(e: any) => setEditTitle(e.target.value)} placeholder="제목" className="bg-white border-blue-200/60 h-8 text-xs" />
-                  </div>
-                </div>
-                <Textarea value={editContent} onChange={(e: any) => setEditContent(e.target.value)} rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
-                <div className="flex gap-2 justify-end">
-                  <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-7 px-3 text-xs text-stone-500">취소</Button>
-                  <Button size="sm" onClick={submitEdit} className="h-7 px-4 text-xs bg-blue-500 text-white rounded-lg">저장</Button>
-                </div>
+        <>
+          {/* 접수/진행중 카드 목록 */}
+          {activeItems.length > 0 && (
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 text-rose-500" />
+                <span className="text-xs font-bold text-stone-700">접수/진행중</span>
+                <Badge variant="secondary" className="text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0">{activeItems.length}건</Badge>
               </div>
-            ) : (
-              <BoardItemCard key={item.id} item={item}
-                onAck={(id) => ackMutation.mutate({ logId: id })}
-                onEdit={isAdmin ? startEdit : undefined}
-                onDelete={isAdmin ? (id) => { if (confirm("정말 삭제하시겠습니까?")) deleteNoticeMutation.mutate({ id }); } : undefined}
-                canComment={isWorker}
-                currentUserId={user?.id || null}
-              />
-            );
-          })}
-        </div>
+              {activeItems.map((item: any) => {
+                const isEditMode = editingId === item.id;
+                return isEditMode ? (
+                  /* 수정 모드 인라인 폼 */
+                  <div key={item.id} className="bg-blue-50/50 border border-blue-200 rounded-xl p-4 space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <Pencil className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm font-bold text-stone-800">수정하기</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[11px] font-medium text-stone-500">분류</Label>
+                        <Select value={editType} onValueChange={setEditType}>
+                          <SelectTrigger className="bg-white border-blue-200/60 h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="notice">📢 공지</SelectItem>
+                            <SelectItem value="work">📋 작업지시</SelectItem>
+                            <SelectItem value="handover">📌 전달사항</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="md:col-span-2 space-y-1">
+                        <Label className="text-[11px] font-medium text-stone-500">제목</Label>
+                        <Input value={editTitle} onChange={(e: any) => setEditTitle(e.target.value)} placeholder="제목" className="bg-white border-blue-200/60 h-8 text-xs" />
+                      </div>
+                    </div>
+                    <Textarea value={editContent} onChange={(e: any) => setEditContent(e.target.value)} rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
+                    <div className="flex gap-2 justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-7 px-3 text-xs text-stone-500">취소</Button>
+                      <Button size="sm" onClick={submitEdit} className="h-7 px-4 text-xs bg-blue-500 text-white rounded-lg">저장</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <BoardItemCard key={item.id} item={item}
+                    onAck={(id) => ackMutation.mutate({ logId: id })}
+                    onEdit={isAdmin ? startEdit : undefined}
+                    onDelete={isAdmin ? (id) => { if (confirm("정말 삭제하시겠습니까?")) deleteNoticeMutation.mutate({ id }); } : undefined}
+                    onComplete={isAdmin ? handleComplete : undefined}
+                    canComment={isWorker}
+                    currentUserId={user?.id || null}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* ══════════════════════════════════════ */}
+          {/* 완료 처리된 글 - 하단 리스트 (제목만, 15줄 페이지네이션, 클릭시 드롭다운) */}
+          {/* ══════════════════════════════════════ */}
+          {completedItems.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 pt-2 border-t border-stone-200">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <span className="text-xs font-bold text-stone-700">완료 처리됨</span>
+                <Badge variant="secondary" className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0">{completedItems.length}건</Badge>
+              </div>
+
+              <div className="bg-white border border-stone-200/80 rounded-xl overflow-hidden shadow-sm">
+                {/* 리스트 헤더 */}
+                <div className="flex items-center gap-3 px-4 py-2 bg-stone-50 border-b border-stone-100 text-[11px] font-semibold text-stone-500">
+                  <span className="w-12 text-center">분류</span>
+                  <span className="flex-1">제목 / 내용</span>
+                  <span className="w-24 text-center hidden sm:block">작성자</span>
+                  <span className="w-28 text-center hidden sm:block">작성일</span>
+                  {isAdmin && <span className="w-14 text-center">관리</span>}
+                </div>
+
+                {/* 리스트 아이템 */}
+                {completedPageItems.map((item: any) => {
+                  const config = typeConfig[item.logType] || typeConfig.notice;
+                  const isExpanded = expandedCompletedId === item.id;
+                  return (
+                    <div key={item.id} className="border-b border-stone-100 last:border-b-0">
+                      {/* 리스트 행 - 클릭시 드롭다운 */}
+                      <div
+                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-stone-50/80 ${isExpanded ? "bg-emerald-50/30" : ""}`}
+                        onClick={() => setExpandedCompletedId(isExpanded ? null : item.id)}
+                      >
+                        <span className={`w-12 text-center text-[10px] font-bold px-1.5 py-0.5 rounded ${config.bgColor} ${config.textColor}`}>
+                          {config.emoji}{config.label}
+                        </span>
+                        <div className="flex-1 flex items-center gap-2 min-w-0">
+                          <span className="text-sm text-stone-700 truncate font-medium">
+                            {item.title || (item.content?.substring(0, 40) + (item.content?.length > 40 ? "..." : ""))}
+                          </span>
+                          <BoardCommentCountBadge logId={item.id} />
+                        </div>
+                        <span className="w-24 text-center text-[11px] text-stone-500 hidden sm:block truncate">{item.authorName || "관리자"}</span>
+                        <span className="w-28 text-center text-[10px] text-stone-400 hidden sm:block">
+                          {new Date(item.createdAt).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" })}
+                        </span>
+                        {isAdmin && (
+                          <div className="w-14 flex justify-center" onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-rose-500"
+                              onClick={() => { if (confirm("정말 삭제하시겠습니까?")) deleteNoticeMutation.mutate({ id: item.id }); }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                        <ChevronDown className={`h-4 w-4 text-stone-400 transition-transform shrink-0 ${isExpanded ? "rotate-180" : ""}`} />
+                      </div>
+
+                      {/* 드롭다운 내용 */}
+                      {isExpanded && (
+                        <div className="px-4 pb-3 pt-1 bg-stone-50/50 border-t border-stone-100">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">
+                              <CheckCircle2 className="h-2.5 w-2.5" />완료
+                            </span>
+                            <span className="text-[11px] text-stone-500 flex items-center gap-0.5">
+                              <User className="h-2.5 w-2.5" />{item.authorName || "관리자"}
+                            </span>
+                            <span className="text-[10px] text-stone-400">
+                              {new Date(item.createdAt).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          {item.title && <h4 className="text-sm font-bold text-stone-800 mb-1">{item.title}</h4>}
+                          <p className="text-sm text-stone-600 leading-relaxed whitespace-pre-wrap mb-2">{item.content}</p>
+
+                          {/* 확인 카운트 */}
+                          <div className="flex items-center gap-3 pt-2 border-t border-stone-200/60">
+                            <span className="text-xs text-stone-400 font-medium">확인 {Number(item.ackCount) || 0}/{Number(item.totalUsers) || 0}</span>
+                          </div>
+
+                          {/* 댓글 섹션 */}
+                          <BoardCommentSection logId={item.id} currentUserId={user?.id || null} canWrite={isWorker || false} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 페이지네이션 */}
+              {completedTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-1 pt-1">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-stone-700"
+                    disabled={completedPage <= 1}
+                    onClick={() => setCompletedPage(p => Math.max(1, p - 1))}>
+                    <ChevronUp className="h-4 w-4 -rotate-90" />
+                  </Button>
+                  {Array.from({ length: completedTotalPages }, (_, i) => i + 1).map((page) => (
+                    <button key={page}
+                      onClick={() => setCompletedPage(page)}
+                      className={`h-7 min-w-[28px] px-1.5 rounded text-xs font-medium transition-all ${
+                        completedPage === page
+                          ? "bg-emerald-500 text-white shadow-sm"
+                          : "text-stone-500 hover:bg-stone-100"
+                      }`}>
+                      {page}
+                    </button>
+                  ))}
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-stone-400 hover:text-stone-700"
+                    disabled={completedPage >= completedTotalPages}
+                    onClick={() => setCompletedPage(p => Math.min(completedTotalPages, p + 1))}>
+                    <ChevronUp className="h-4 w-4 rotate-90" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -719,11 +871,12 @@ function BoardCommentCountBadge({ logId }: { logId: number }) {
 // ═══════════════════════════════════════════
 // 공지보드 아이템 카드 (확인 + 수정/삭제 + 댓글)
 // ═══════════════════════════════════════════
-function BoardItemCard({ item, onAck, onEdit, onDelete, canComment, currentUserId }: {
+function BoardItemCard({ item, onAck, onEdit, onDelete, onComplete, canComment, currentUserId }: {
   item: any;
   onAck: (id: number) => void;
   onEdit?: (item: any) => void;
   onDelete?: (id: number) => void;
+  onComplete?: (id: number) => void;
   canComment?: boolean;
   currentUserId?: number | null;
 }) {
@@ -735,7 +888,7 @@ function BoardItemCard({ item, onAck, onEdit, onDelete, canComment, currentUserI
 
   return (
     <div className={`bg-white border border-stone-200/80 rounded-xl p-4 transition-all hover:shadow-md border-l-4 ${config.borderColor}`}>
-      {/* 상단: 타입 + 시간 + 수정/삭제 */}
+      {/* 상단: 타입 + 시간 + 완료/수정/삭제 */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${config.bgColor} ${config.textColor}`}>
@@ -748,6 +901,12 @@ function BoardItemCard({ item, onAck, onEdit, onDelete, canComment, currentUserI
           <span className="text-[10px] text-stone-400 mr-1">
             {new Date(item.createdAt).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
           </span>
+          {onComplete && item.status === "received" && (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] text-emerald-600 hover:bg-emerald-50 rounded-md font-medium"
+              onClick={() => onComplete(item.id)}>
+              <CheckCircle2 className="h-3 w-3 mr-0.5" />완료처리
+            </Button>
+          )}
           {onEdit && (
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-stone-300 hover:text-blue-500" onClick={() => onEdit(item)}>
               <Pencil className="h-3 w-3" />

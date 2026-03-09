@@ -597,6 +597,28 @@ export const boardRouter = router({
     }),
 
   // ══════════════════════════════════════
+  // 공지보드 글 상태 변경 (접수 → 완료 등)
+  // ══════════════════════════════════════
+  updateBoardStatus: tenantRequiredProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        status: z.enum(["received", "in_progress", "completed"]),
+      })
+    )
+    .mutation(async ({ input, ctx }: any) => {
+      const pool = await getRawConnection();
+      const tenantId = Number(ctx.tenantId ?? undefined);
+
+      await pool.execute(
+        `UPDATE communication_logs SET status = ? WHERE id = ? AND tenant_id = ? AND (partner_id = 0 OR partner_id IS NULL)`,
+        [input.status, Number(input.id), tenantId]
+      );
+
+      return { success: true };
+    }),
+
+  // ══════════════════════════════════════
   // DB 마이그레이션: log_type, title 컬럼 + acks 테이블 생성
   // ══════════════════════════════════════
   migrateBoard: tenantRequiredProcedure
