@@ -122,7 +122,7 @@ async function startServer() {
       secure: process.env.NODE_ENV === 'production', // HTTPS에서만 secure 쿠키
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7일
-      domain: process.env.NODE_ENV === 'production' ? '.haccpone.co.kr' : undefined,
+      domain: process.env.NODE_ENV === 'production' ? '.haccpone.com' : undefined,
     },
   }));
   
