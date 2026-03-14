@@ -5,8 +5,9 @@ import { z } from "zod";
 export const accountingRouter = router({
     // 계정 과목 목록 조회
     getCategories: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getAllCategories } = await import("../../accounting");
-      return await getAllCategories();
+      return await getAllCategories(tenantId);
     }),
 
     // 거래 등록
@@ -23,12 +24,13 @@ export const accountingRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createTransaction } = await import("../../accounting");
         const transactionId = await createTransaction({
           ...input,
-          tenantId: ctx.tenantId ?? undefined,
+          tenantId: tenantId ?? undefined,
           createdBy: ctx.user.id
-        });
+        }, tenantId);
         return { success: true, transactionId };
       }),
 
@@ -45,16 +47,18 @@ export const accountingRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getTransactions } = await import("../../accounting");
-        return await getTransactions(input);
+        return await getTransactions(input, tenantId);
       }),
 
     // 거래 상세 조회
     getTransaction: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getTransactionById } = await import("../../accounting");
-        return await getTransactionById(input.id);
+        return await getTransactionById(input.id, tenantId);
       }),
 
     // 거래 수정
@@ -70,13 +74,14 @@ export const accountingRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateTransaction } = await import("../../accounting");
         const { id, transactionDate, ...rest } = input;
         const data: any = { ...rest };
         if (transactionDate) {
           data.transactionDate = transactionDate;
         }
-        await updateTransaction(id, data);
+        await updateTransaction(id, data, tenantId);
         return { success: true };
       }),
 

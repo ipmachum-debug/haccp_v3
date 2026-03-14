@@ -24,7 +24,7 @@ export async function createPurchase(params: {
   productionDate?: string; // 생산일자
   unit?: string; // 단위
   createdBy: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -193,7 +193,7 @@ export async function createSale(params: {
   memo?: string;
   accountCategoryId?: number;
   createdBy: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -232,7 +232,7 @@ export async function createPurchaseFromReceipt(params: {
   taxRate?: string;
   notes?: string;
   createdBy: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -274,7 +274,7 @@ export async function createSaleFromUsage(params: {
   taxRate?: string;
   notes?: string;
   createdBy: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -306,19 +306,19 @@ export async function createSaleFromUsage(params: {
 /**
  * 재고 거래 ID로 연결된 회계 거래 조회
  */
-export async function getAccountingByInventoryTransaction(inventoryTransactionId: number, tenantId?: number) {
+export async function getAccountingByInventoryTransaction(inventoryTransactionId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
   const purchases = await db
     .select()
     .from(accountingPurchases)
-    .where(eq(accountingPurchases.sourceId, inventoryTransactionId));
+    .where(and(eq(accountingPurchases.sourceId, inventoryTransactionId), eq(accountingPurchases.tenantId, tenantId)));
 
   const sales = await db
     .select()
     .from(accountingSales)
-    .where(eq(accountingSales.sourceId, inventoryTransactionId));
+    .where(and(eq(accountingSales.sourceId, inventoryTransactionId), eq(accountingSales.tenantId, tenantId)));
 
   return { purchases, sales };
 }
@@ -332,7 +332,7 @@ export async function getAllPurchases(filters?: {
   partnerId?: number;
   itemName?: string;
   status?: string;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
   const { partners } = await import("../../drizzle/schema");
@@ -358,8 +358,7 @@ export async function getAllPurchases(filters?: {
     .from(accountingPurchases)
     .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id));
 
-  const conditions = [];
-  if (tenantId) conditions.push(eq(accountingPurchases.tenantId, tenantId));
+  const conditions = [eq(accountingPurchases.tenantId, tenantId)];
   if (filters?.startDate) {
     conditions.push(gte(accountingPurchases.transactionDate, filters.startDate));
   }
@@ -392,7 +391,7 @@ export async function getAllSales(filters?: {
   partnerId?: number;
   itemName?: string;
   status?: string;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
   const { partners } = await import("../../drizzle/schema");
@@ -418,8 +417,7 @@ export async function getAllSales(filters?: {
     .from(accountingSales)
     .leftJoin(partners, eq(accountingSales.partnerId, partners.id));
 
-  const conditions = [];
-  if (tenantId) conditions.push(eq(accountingSales.tenantId, tenantId));
+  const conditions = [eq(accountingSales.tenantId, tenantId)];
   if (filters?.startDate) {
     conditions.push(gte(accountingSales.transactionDate, filters.startDate));
   }
@@ -452,11 +450,14 @@ export async function getPurchaseById(id: number, tenantId?: number) {
   
   const { partners } = await import("../../drizzle/schema");
 
+  const purchaseConditions = [eq(accountingPurchases.id, id)];
+  if (tenantId) purchaseConditions.push(eq(accountingPurchases.tenantId, tenantId));
+
   const purchase = await db
     .select()
     .from(accountingPurchases)
     .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id))
-    .where(eq(accountingPurchases.id, id))
+    .where(and(...purchaseConditions))
     .limit(1);
 
   if (purchase.length === 0) {
@@ -478,11 +479,14 @@ export async function getSaleById(id: number, tenantId?: number) {
   
   const { partners } = await import("../../drizzle/schema");
 
+  const saleConditions = [eq(accountingSales.id, id)];
+  if (tenantId) saleConditions.push(eq(accountingSales.tenantId, tenantId));
+
   const sale = await db
     .select()
     .from(accountingSales)
     .leftJoin(partners, eq(accountingSales.partnerId, partners.id))
-    .where(eq(accountingSales.id, id))
+    .where(and(...saleConditions))
     .limit(1);
 
   if (sale.length === 0) {
@@ -499,7 +503,7 @@ export async function getSaleById(id: number, tenantId?: number) {
  * 매입 거래명세서 PDF 생성 (HTML 형식)
  */
 export async function generatePurchasePdf(id: number, tenantId?: number): Promise<string> {
-  const purchase = await getPurchaseById(id);
+  const purchase = await getPurchaseById(id, tenantId);
   const { storagePut } = await import("../storage");
 
   const html = `
@@ -563,7 +567,7 @@ export async function generatePurchasePdf(id: number, tenantId?: number): Promis
  * 매출 거래명세서 PDF 생성 (HTML 형식)
  */
 export async function generateSalePdf(id: number, tenantId?: number): Promise<string> {
-  const sale = await getSaleById(id);
+  const sale = await getSaleById(id, tenantId);
   const { storagePut } = await import("../storage");
 
   const html = `
@@ -651,10 +655,13 @@ export async function updatePurchase(
   if (updateData.totalAmount !== undefined) updateData.totalAmount = updateData.totalAmount.toString();
   if (updateData.taxAmount !== undefined) updateData.taxAmount = updateData.taxAmount.toString();
 
+  const updateConditions = [eq(accountingPurchases.id, id)];
+  if (tenantId) updateConditions.push(eq(accountingPurchases.tenantId, tenantId));
+
   await db
     .update(accountingPurchases)
     .set(updateData)
-    .where(eq(accountingPurchases.id, id));
+    .where(and(...updateConditions));
 
   return { success: true };
 }
@@ -666,9 +673,12 @@ export async function deletePurchase(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
+  const deleteConditions = [eq(accountingPurchases.id, id)];
+  if (tenantId) deleteConditions.push(eq(accountingPurchases.tenantId, tenantId));
+
   await db
     .delete(accountingPurchases)
-    .where(eq(accountingPurchases.id, id));
+    .where(and(...deleteConditions));
 
   return { success: true };
 }
@@ -701,10 +711,13 @@ export async function updateSale(
   if (updateData.totalAmount !== undefined) updateData.totalAmount = updateData.totalAmount.toString();
   if (updateData.taxAmount !== undefined) updateData.taxAmount = updateData.taxAmount.toString();
 
+  const updateConditions = [eq(accountingSales.id, id)];
+  if (tenantId) updateConditions.push(eq(accountingSales.tenantId, tenantId));
+
   await db
     .update(accountingSales)
     .set(updateData)
-    .where(eq(accountingSales.id, id));
+    .where(and(...updateConditions));
 
   return { success: true };
 }
@@ -716,9 +729,12 @@ export async function deleteSale(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
+  const deleteConditions = [eq(accountingSales.id, id)];
+  if (tenantId) deleteConditions.push(eq(accountingSales.tenantId, tenantId));
+
   await db
     .delete(accountingSales)
-    .where(eq(accountingSales.id, id));
+    .where(and(...deleteConditions));
 
   return { success: true };
 }

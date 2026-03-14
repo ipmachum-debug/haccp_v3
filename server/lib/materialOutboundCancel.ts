@@ -2,18 +2,18 @@ import { getDb } from "../db";
 
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
 import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 /**
  * 원재료 출고 CANCEL 로직 (역거래 패턴)
- * 
+ *
  * **워크플로우:**
  * 1. 출고 문서 상태 검증 (POSTED만 CANCEL 가능)
  * 2. 원본 재고 원장 조회
  * 3. 재고 역거래 생성 (h_inventory_transactions - 양수)
  * 4. 회계 역거래 생성 (accounting_transactions - DR/CR 반대)
  * 5. 출고 문서 상태 전환 (POSTED → CANCELED)
- * 
+ *
  * **멱등성 보장:**
  * - actionType: "REVERSAL"로 중복 방지
  */
@@ -25,17 +25,20 @@ interface MaterialOutboundDocument {
 
 export async function cancelMaterialOutbound(
   outboundId: number,
-  userId: number
+  userId: number,
+  tenantId: number
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
-  if (!db) throw new Error("Database connection not available");
 
-  // 1. 출고 문서 조회 및 상태 검증
+  // 1. 출고 문서 조회 및 상태 검증 (tenant_id 필터 적용)
   const outbound = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.id, outboundId))
+    .where(and(
+      eq(hInventoryTransactions.id, outboundId),
+      eq(hInventoryTransactions.tenantId, tenantId)
+    ))
     .limit(1)
     .then((rows) => rows[0] as unknown as MaterialOutboundDocument);
 
@@ -47,11 +50,14 @@ export async function cancelMaterialOutbound(
     throw new Error("확정된 출고 문서만 취소할 수 있습니다");
   }
 
-  // 2. 원본 재고 원장 조회
+  // 2. 원본 재고 원장 조회 (tenant_id 필터)
   const originalInventoryTxs = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.sourceId, `OUTBOUND-${outboundId}` as any) );
+    .where(and(
+      eq(hInventoryTransactions.sourceId, `OUTBOUND-${outboundId}` as any),
+      eq(hInventoryTransactions.tenantId, tenantId)
+    ));
 
   if (originalInventoryTxs.length === 0) {
     throw new Error("원본 재고 거래를 찾을 수 없습니다");
@@ -63,6 +69,7 @@ export async function cancelMaterialOutbound(
 
     try {
       await db.insert(hInventoryTransactions).values({
+        tenantId,
         inventoryId: originalTx.inventoryId,
         lotId: originalTx.lotId,
         transactionType: "adjustment", // 조정
@@ -88,11 +95,14 @@ export async function cancelMaterialOutbound(
     }
   }
 
-  // 4. 원본 회계 원장 조회
+  // 4. 원본 회계 원장 조회 (tenant_id 필터)
   const originalAccountingTxs = await db
     .select()
     .from(accountingTransactions)
-    .where(eq(accountingTransactions.sourceId, `OUTBOUND-${outboundId}`));
+    .where(and(
+      eq(accountingTransactions.sourceId, `OUTBOUND-${outboundId}`),
+      eq(accountingTransactions.tenantId, tenantId)
+    ));
 
   if (originalAccountingTxs.length === 0) {
     throw new Error("원본 회계 거래를 찾을 수 없습니다");
@@ -106,6 +116,7 @@ export async function cancelMaterialOutbound(
 
     try {
       await db.insert(accountingTransactions).values({
+        tenantId,
         transactionDate,
         accountCode: originalTx.accountCode,
         debitAmount: originalTx.creditAmount, // DR ↔ CR 반대
@@ -125,16 +136,6 @@ export async function cancelMaterialOutbound(
       throw error;
     }
   }
-
-  // 6. 출고 문서 상태 전환 (실제로는 h_outbound_headers 테이블 업데이트)
-  // await db.update(hOutboundHeaders)
-  //   .set({
-  //     status: "cancelled",
-  //     canceledAt: new Date(),
-  //     canceledBy: userId,
-  //
-  //   })
-  //   .where(eq(hOutboundHeaders.id, outboundId));
 
   console.log(`[materialOutboundCancel] 원재료 출고 #${outboundId} 취소 완료`);
 }

@@ -54,7 +54,7 @@ export async function postProductSale(
     .from(accountingSales)
     .where(eq(accountingSales.id, saleId))
     .limit(1)
-    .then((rows) => rows[0] as unknown as SalesDocument);
+    .then((rows) => rows[0]);
 
   if (!sale) {
     throw new Error("판매 문서를 찾을 수 없습니다");
@@ -68,21 +68,26 @@ export async function postProductSale(
   const unitPrice = parseFloat(sale.unitPrice);
   const totalAmount = parseFloat(sale.totalAmount);
 
-  // 2. FEFO 로트 할당
+  // 2. FEFO 로트 할당 (tenant_id 전달)
+  const tenantId = (sale as any).tenantId;
+  if (!tenantId) throw new Error('[P0 보안] tenantId is required for productSalePost');
+
   const allocations = await allocateLotsFEFO(
     sale.inventoryId,
     quantity,
-    sale.unit
+    sale.unit,
+    tenantId
   );
 
-  // 3. LOT 할당 저장
+  // 3. LOT 할당 저장 (tenant_id 전달)
   await saveLotAllocations(
     "SALE",
     saleId.toString(),
     "1", // line_id (단일 품목이면 1)
     allocations,
     sale.unit,
-    sale.createdBy
+    sale.createdBy,
+    tenantId
   );
 
   // 4. 재고 원장 생성 (각 LOT별로)
@@ -119,10 +124,7 @@ export async function postProductSale(
     (sum, a) => sum + a.quantity * a.unitCost,
     0
   );
-  const tenantId = (sale as any).tenantId;
-  if (!tenantId) throw new Error('[P0 보안] tenantId is required for productSalePost');
-
-  // system_code 기반 계정 조회
+  // system_code 기반 계정 조회 (tenantId는 위에서 이미 추출)
   const receivableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금");
   const salesRevenueAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.SALES_REVENUE, "4010", "상품매출");
   const cogsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가");

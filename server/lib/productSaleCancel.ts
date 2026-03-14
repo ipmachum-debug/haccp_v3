@@ -3,18 +3,18 @@ import { getDb } from "../db";
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
 import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { accountingSales } from "../../drizzle/schema_accounting_extended";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 /**
  * 제품 출고/판매 CANCEL 로직 (역거래 패턴)
- * 
+ *
  * **워크플로우:**
  * 1. 판매 문서 상태 검증 (POSTED만 CANCEL 가능)
  * 2. 원본 재고 원장 조회
  * 3. 재고 역거래 생성 (h_inventory_transactions - 양수)
  * 4. 회계 역거래 생성 (accounting_transactions - DR/CR 반대)
  * 5. 판매 문서 상태 전환 (POSTED → CANCELED)
- * 
+ *
  * **멱등성 보장:**
  * - actionType: "REVERSAL"로 중복 방지
  */
@@ -26,17 +26,20 @@ interface SalesDocument {
 
 export async function cancelProductSale(
   saleId: number,
-  userId: number
+  userId: number,
+  tenantId: number
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
-  if (!db) throw new Error("Database connection not available");
 
-  // 1. 판매 문서 조회 및 상태 검증
+  // 1. 판매 문서 조회 및 상태 검증 (tenant_id 필터 적용)
   const sale = await db
     .select()
     .from(accountingSales)
-    .where(eq(accountingSales.id, saleId))
+    .where(and(
+      eq(accountingSales.id, saleId),
+      eq(accountingSales.tenantId, tenantId)
+    ))
     .limit(1)
     .then((rows) => rows[0] as unknown as SalesDocument);
 
@@ -48,11 +51,14 @@ export async function cancelProductSale(
     throw new Error("확정된 판매 문서만 취소할 수 있습니다");
   }
 
-  // 2. 원본 재고 원장 조회
+  // 2. 원본 재고 원장 조회 (tenant_id 필터)
   const originalInventoryTxs = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.sourceId, `SALE-${saleId}` as any) );
+    .where(and(
+      eq(hInventoryTransactions.sourceId, `SALE-${saleId}` as any),
+      eq(hInventoryTransactions.tenantId, tenantId)
+    ));
 
   if (originalInventoryTxs.length === 0) {
     throw new Error("원본 재고 거래를 찾을 수 없습니다");
@@ -64,6 +70,7 @@ export async function cancelProductSale(
 
     try {
       await db.insert(hInventoryTransactions).values({
+        tenantId,
         inventoryId: originalTx.inventoryId,
         lotId: originalTx.lotId,
         transactionType: "adjustment",
@@ -89,11 +96,14 @@ export async function cancelProductSale(
     }
   }
 
-  // 4. 원본 회계 원장 조회
+  // 4. 원본 회계 원장 조회 (tenant_id 필터)
   const originalAccountingTxs = await db
     .select()
     .from(accountingTransactions)
-    .where(eq(accountingTransactions.sourceId, `SALE-${saleId}`));
+    .where(and(
+      eq(accountingTransactions.sourceId, `SALE-${saleId}`),
+      eq(accountingTransactions.tenantId, tenantId)
+    ));
 
   if (originalAccountingTxs.length === 0) {
     throw new Error("원본 회계 거래를 찾을 수 없습니다");
@@ -107,6 +117,7 @@ export async function cancelProductSale(
 
     try {
       await db.insert(accountingTransactions).values({
+        tenantId,
         transactionDate,
         accountCode: originalTx.accountCode,
         debitAmount: originalTx.creditAmount, // DR ↔ CR 반대
@@ -132,7 +143,10 @@ export async function cancelProductSale(
     status: "cancelled",
     canceledAt: new Date(),
     canceledBy: userId
-  }).where(eq(accountingSales.id, saleId));
+  }).where(and(
+    eq(accountingSales.id, saleId),
+    eq(accountingSales.tenantId, tenantId)
+  ));
 
   console.log(`[productSaleCancel] 판매 #${saleId} 취소 완료`);
 }

@@ -23,7 +23,11 @@ export async function getMaterialPriceHistory(materialId: number, tenantId?: num
       supplierName: hInventoryLots.supplierName
     })
     .from(hInventoryLots)
-    .where(eq(hInventoryLots.materialId, materialId))
+    .where(
+      tenantId
+        ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId))
+        : eq(hInventoryLots.materialId, materialId)
+    )
     .orderBy(desc(hInventoryLots.receiptDate))
     .limit(30);
 
@@ -48,7 +52,7 @@ export async function getMaterialPriceHistory(materialId: number, tenantId?: num
 export async function getMultipleMaterialPriceHistory(materialIds: number[], tenantId?: number) {
   const results = await Promise.all(
     materialIds.map(async (materialId) => {
-      const history = await getMaterialPriceHistory(materialId);
+      const history = await getMaterialPriceHistory(materialId, tenantId);
       return {
         materialId,
         history

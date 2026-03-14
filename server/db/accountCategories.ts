@@ -24,31 +24,24 @@ type AccountCategory = {
  * P0: tenantId 필수
  * tenant_id IS NULL인 글로벌 카테고리도 포함
  */
-export async function getAllAccountCategories(tenantId?: number) {
+export async function getAllAccountCategories(tenantId: number) {
   const db = await getRawConnection();
 
-  const params: any[] = [];
-  let tenantWhere = "";
-  if (tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    params.push(tenantId);
-  }
-
   const [result] = await db.execute(
-    `SELECT 
-      id, 
-      code, 
-      name, 
-      major_category as majorCategory, 
-      minor_category as minorCategory, 
-      description, 
-      is_active as isActive, 
-      created_at as createdAt, 
+    `SELECT
+      id,
+      code,
+      name,
+      major_category as majorCategory,
+      minor_category as minorCategory,
+      description,
+      is_active as isActive,
+      created_at as createdAt,
       updated_at as updatedAt
-    FROM account_categories 
-    WHERE is_active = 1${tenantWhere}
+    FROM account_categories
+    WHERE is_active = 1 AND (tenant_id = ? OR tenant_id IS NULL)
     ORDER BY code ASC`,
-    params
+    [tenantId]
   );
 
   return result as AccountCategory[];
@@ -58,31 +51,24 @@ export async function getAllAccountCategories(tenantId?: number) {
  * 대분류별 계정 과목 조회
  * P0: tenantId 필수
  */
-export async function getAccountCategoriesByMajor(majorCategory: string, tenantId?: number) {
+export async function getAccountCategoriesByMajor(majorCategory: string, tenantId: number) {
   const db = await getRawConnection();
 
-  const params: any[] = [majorCategory];
-  let tenantWhere = "";
-  if (tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    params.push(tenantId);
-  }
-
   const [result] = await db.execute(
-    `SELECT 
-      id, 
-      code, 
-      name, 
-      major_category as majorCategory, 
-      minor_category as minorCategory, 
-      description, 
-      is_active as isActive, 
-      created_at as createdAt, 
+    `SELECT
+      id,
+      code,
+      name,
+      major_category as majorCategory,
+      minor_category as minorCategory,
+      description,
+      is_active as isActive,
+      created_at as createdAt,
       updated_at as updatedAt
-    FROM account_categories 
-    WHERE is_active = 1 AND major_category = ?${tenantWhere}
+    FROM account_categories
+    WHERE is_active = 1 AND major_category = ? AND (tenant_id = ? OR tenant_id IS NULL)
     ORDER BY code ASC`,
-    params
+    [majorCategory, tenantId]
   );
 
   return result as AccountCategory[];
@@ -98,43 +84,30 @@ export async function createAccountCategory(data: {
   majorCategory: string;
   minorCategory?: string;
   description?: string;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getRawConnection();
 
   // 코드 중복 체크 (테넌트 범위 내 + 글로벌)
-  const dupParams: any[] = [data.code];
-  let tenantWhere = "";
-  if (data.tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    dupParams.push(data.tenantId);
-  }
-
   const [existing] = await db.execute(
-    `SELECT id FROM account_categories WHERE code = ?${tenantWhere} LIMIT 1`,
-    dupParams
+    `SELECT id FROM account_categories WHERE code = ? AND (tenant_id = ? OR tenant_id IS NULL) LIMIT 1`,
+    [data.code, data.tenantId]
   );
 
   if (existing && (existing as any[]).length > 0) {
     throw new Error("이미 존재하는 계정 코드입니다");
   }
 
-  const cols = ["code", "name", "major_category", "minor_category", "description"];
-  const vals: any[] = [
-    data.code,
-    data.name,
-    data.majorCategory,
-    data.minorCategory || null,
-    data.description || null,
-  ];
-  if (data.tenantId) {
-    cols.push("tenant_id");
-    vals.push(data.tenantId);
-  }
-
   const [result] = await db.execute(
-    `INSERT INTO account_categories (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`,
-    vals
+    `INSERT INTO account_categories (code, name, major_category, minor_category, description, tenant_id) VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      data.code,
+      data.name,
+      data.majorCategory,
+      data.minorCategory || null,
+      data.description || null,
+      data.tenantId,
+    ]
   );
 
   return { id: (result as any).insertId };
@@ -153,21 +126,15 @@ export async function updateAccountCategory(
     minorCategory?: string;
     description?: string;
   },
-  tenantId?: number
+  tenantId: number
 ) {
   const db = await getRawConnection();
 
   // 코드 변경 시 중복 체크
   if (data.code) {
-    const dupParams: any[] = [data.code, id];
-    let tenantWhere = "";
-    if (tenantId) {
-      tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-      dupParams.push(tenantId);
-    }
     const [existing] = await db.execute(
-      `SELECT id FROM account_categories WHERE code = ? AND id != ?${tenantWhere} LIMIT 1`,
-      dupParams
+      `SELECT id FROM account_categories WHERE code = ? AND id != ? AND (tenant_id = ? OR tenant_id IS NULL) LIMIT 1`,
+      [data.code, id, tenantId]
     );
 
     if (existing && (existing as any[]).length > 0) {
@@ -204,14 +171,10 @@ export async function updateAccountCategory(
   }
 
   values.push(id);
-  let tenantWhere = "";
-  if (tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    values.push(tenantId);
-  }
+  values.push(tenantId);
 
   await db.execute(
-    `UPDATE account_categories SET ${updates.join(", ")} WHERE id = ?${tenantWhere}`,
+    `UPDATE account_categories SET ${updates.join(", ")} WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)`,
     values
   );
 
@@ -222,19 +185,12 @@ export async function updateAccountCategory(
  * 계정 과목 삭제 (소프트 삭제)
  * P0: tenantId 필수
  */
-export async function deleteAccountCategory(id: number, tenantId?: number) {
+export async function deleteAccountCategory(id: number, tenantId: number) {
   const db = await getRawConnection();
 
-  const params: any[] = [id];
-  let tenantWhere = "";
-  if (tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    params.push(tenantId);
-  }
-
   await db.execute(
-    `UPDATE account_categories SET is_active = 0 WHERE id = ?${tenantWhere}`,
-    params
+    `UPDATE account_categories SET is_active = 0 WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL)`,
+    [id, tenantId]
   );
 
   return { success: true };
@@ -244,30 +200,23 @@ export async function deleteAccountCategory(id: number, tenantId?: number) {
  * 계정 과목 ID로 조회
  * P0: tenantId 필수
  */
-export async function getAccountCategoryById(id: number, tenantId?: number) {
+export async function getAccountCategoryById(id: number, tenantId: number) {
   const db = await getRawConnection();
 
-  const params: any[] = [id];
-  let tenantWhere = "";
-  if (tenantId) {
-    tenantWhere = " AND (tenant_id = ? OR tenant_id IS NULL)";
-    params.push(tenantId);
-  }
-
   const [result] = await db.execute(
-    `SELECT 
-      id, 
-      code, 
-      name, 
-      major_category as majorCategory, 
-      minor_category as minorCategory, 
-      description, 
-      is_active as isActive, 
-      created_at as createdAt, 
+    `SELECT
+      id,
+      code,
+      name,
+      major_category as majorCategory,
+      minor_category as minorCategory,
+      description,
+      is_active as isActive,
+      created_at as createdAt,
       updated_at as updatedAt
-    FROM account_categories 
-    WHERE id = ?${tenantWhere} LIMIT 1`,
-    params
+    FROM account_categories
+    WHERE id = ? AND (tenant_id = ? OR tenant_id IS NULL) LIMIT 1`,
+    [id, tenantId]
   );
 
   const rows = result as AccountCategory[];

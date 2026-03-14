@@ -8,6 +8,7 @@ import { join } from "path";
  * CCP 점검 리포트 데이터 조회
  */
 export async function getCcpReportData(params: {
+  tenantId: number;
   startDate: Date;
   endDate: Date;
   ccpType?: string;
@@ -39,6 +40,7 @@ export async function getCcpReportData(params: {
     .leftJoin(hCcpRows, eq(hCcpRows.instanceId, hCcpInstances.id))
     .where(
       and(
+        eq(hCcpInstances.tenantId, params.tenantId),
         hCcpRows.measuredAt ? gte(hCcpRows.measuredAt, params.startDate) : undefined,
         hCcpRows.measuredAt ? lte(hCcpRows.measuredAt, params.endDate) : undefined,
         params.ccpType ? eq(hCcpInstances.ccpType, params.ccpType) : undefined
@@ -255,6 +257,7 @@ export function generateReportHtml(params: {
  * PDF 보고서 생성
  */
 export async function generatePdfReport(params: {
+  tenantId: number;
   title: string;
   period: string;
   startDate: Date;
@@ -263,6 +266,7 @@ export async function generatePdfReport(params: {
 }) {
   // 데이터 조회
   const data = await getCcpReportData({
+    tenantId: params.tenantId,
     startDate: params.startDate,
     endDate: params.endDate,
     ccpType: params.ccpType,

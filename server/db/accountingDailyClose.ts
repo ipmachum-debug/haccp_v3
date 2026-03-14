@@ -15,7 +15,7 @@ export async function executeDailyClose(data: {
   closeDate: Date;
   largeAmountChecked: boolean;
   userId: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const { closeDate, largeAmountChecked, userId } = data;
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
@@ -59,7 +59,7 @@ export async function executeDailyClose(data: {
 /**
  * 일일 마감 통계 조회
  */
-export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
+export async function getDailyCloseStats(targetDate: Date, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -68,9 +68,11 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
   const endOfDay = dateStr;
 
   // 매입 거래 통계
-  const purchaseConditions: any[] = [eq(schema.accountingPurchases.transactionDate, dateStr)];
-  if (tenantId) purchaseConditions.push(eq(schema.accountingPurchases.tenantId, tenantId));
-  
+  const purchaseConditions: any[] = [
+    eq(schema.accountingPurchases.transactionDate, dateStr),
+    eq(schema.accountingPurchases.tenantId, tenantId),
+  ];
+
   const [purchaseStats] = await db
     .select({
       count: sql<number>`count(*)`,
@@ -80,9 +82,11 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
     .where(and(...purchaseConditions));
 
   // 매출 거래 통계
-  const salesConditions: any[] = [eq(schema.accountingSales.transactionDate, dateStr)];
-  if (tenantId) salesConditions.push(eq(schema.accountingSales.tenantId, tenantId));
-  
+  const salesConditions: any[] = [
+    eq(schema.accountingSales.transactionDate, dateStr),
+    eq(schema.accountingSales.tenantId, tenantId),
+  ];
+
   const [salesStats] = await db
     .select({
       count: sql<number>`count(*)`,
@@ -99,9 +103,9 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
     const expenseConditions: any[] = [
       eq(expenseVouchers.expenseDate, dateStr),
       eq(expenseVouchers.status, "posted"),
+      eq(expenseVouchers.tenantId, tenantId),
     ];
-    if (tenantId) expenseConditions.push(eq(expenseVouchers.tenantId, tenantId));
-    
+
     const [expenseStats] = await db
       .select({
         count: sql<number>`count(*)`,
@@ -136,21 +140,14 @@ export async function getDailyCloseStats(targetDate: Date, tenantId?: number) {
 /**
  * 마감 이력 조회
  */
-export async function getDailyCloseHistory(limit = 30, tenantId?: number) {
+export async function getDailyCloseHistory(limit = 30, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
-  if (tenantId) {
-    return await db
-      .select()
-      .from(schema.accountingDailyClose)
-      .where(eq(schema.accountingDailyClose.tenantId, tenantId))
-      .orderBy(sql`${schema.accountingDailyClose.closeDate} DESC`)
-      .limit(limit);
-  }
   return await db
     .select()
     .from(schema.accountingDailyClose)
+    .where(eq(schema.accountingDailyClose.tenantId, tenantId))
     .orderBy(sql`${schema.accountingDailyClose.closeDate} DESC`)
     .limit(limit);
 }
@@ -158,14 +155,16 @@ export async function getDailyCloseHistory(limit = 30, tenantId?: number) {
 /**
  * 특정 날짜 마감 여부 확인
  */
-export async function isDayClosed(targetDate: Date, tenantId?: number) {
+export async function isDayClosed(targetDate: Date, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
   const closeDateStr = targetDate.toISOString().split("T")[0];
-  const conditions: any[] = [eq(schema.accountingDailyClose.closeDate, closeDateStr)];
-  if (tenantId) conditions.push(eq(schema.accountingDailyClose.tenantId, tenantId));
-  
+  const conditions: any[] = [
+    eq(schema.accountingDailyClose.closeDate, closeDateStr),
+    eq(schema.accountingDailyClose.tenantId, tenantId)
+  ];
+
   const [result] = await db
     .select()
     .from(schema.accountingDailyClose)

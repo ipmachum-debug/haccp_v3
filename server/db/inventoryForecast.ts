@@ -13,10 +13,14 @@ export async function getInventoryForecast(days: number = 30, tenantId?: number)
   pastDate.setDate(pastDate.getDate() - days);
 
   // 원재료별 현재 재고 조회
-  const materials = await db
+  const inventoryQuery = db
     .select()
     .from(hInventory)
     .leftJoin(hMaterials, eq(hInventory.materialId, hMaterials.id));
+
+  const materials = tenantId
+    ? await inventoryQuery.where(eq(hInventory.tenantId, tenantId))
+    : await inventoryQuery;
 
   const forecasts = await Promise.all(
     materials.map(async (row) => {

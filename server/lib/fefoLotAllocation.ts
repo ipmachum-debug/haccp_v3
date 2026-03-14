@@ -5,23 +5,25 @@ import { and, eq, gte, sql } from "drizzle-orm";
 
 /**
  * FEFO (First Expired, First Out) 로트 할당 함수
- * 
+ *
  * 출고 시 유통기한이 가장 빠른 LOT부터 자동 할당
- * 
+ *
  * @param inventoryId 재고 ID
  * @param requestedQuantity 요청 수량
  * @param unit 단위
+ * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
  * @returns 할당된 LOT 목록 [{ lotId, quantity, unitCost }]
  */
 export async function allocateLotsFEFO(
   inventoryId: number,
   requestedQuantity: number,
-  unit: string
+  unit: string,
+  tenantId: number
 ): Promise<Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }>> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
-  // 1. 유통기한 순으로 사용 가능한 LOT 조회 (재고 > 0, 유통기한 빠른 순)
+  // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
   const availableLots = await db
     .select({
       id: hInventoryLots.id,
@@ -33,6 +35,7 @@ export async function allocateLotsFEFO(
     .where(
       and(
         eq(hInventoryLots.inventoryId, inventoryId),
+        eq(hInventoryLots.tenantId, tenantId),
         gte(hInventoryLots.availableQuantity, 0.001 as any)  // 재고 > 0
       )
     )
@@ -76,13 +79,14 @@ export async function allocateLotsFEFO(
 
 /**
  * LOT 할당 결과를 doc_line_lots 테이블에 저장
- * 
+ *
  * @param docType 문서 타입 (PURCHASE, SALE, MATERIAL_ISSUE, BATCH, OTHER)
  * @param docId 문서 ID
  * @param docLineId 문서 라인 ID
  * @param allocations FEFO 할당 결과
  * @param unit 단위
  * @param createdBy 생성자 ID
+ * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
  */
 export async function saveLotAllocations(
   docType: "PURCHASE" | "SALE" | "MATERIAL_ISSUE" | "BATCH" | "OTHER",
@@ -90,7 +94,8 @@ export async function saveLotAllocations(
   docLineId: string,
   allocations: Array<{ lotId: number; quantity: number; unitCost: number }>,
   unit: string,
-  createdBy: number
+  createdBy: number,
+  tenantId: number
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");

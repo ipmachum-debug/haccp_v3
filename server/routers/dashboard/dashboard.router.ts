@@ -15,23 +15,26 @@ export const dashboardRouter = router({
     
     // 회계 요약 데이터 조회
     getAccountingSummary: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getMonthlyAccountingSummary } = await import("../../db/accountingSummary");
-        return await getMonthlyAccountingSummary();
+        return await getMonthlyAccountingSummary(tenantId);
       }),
     
     // 계정 과목별 지출 집계
     getExpensesByCategory: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getExpensesByCategory } = await import("../../db/accountingSummary");
-        return await getExpensesByCategory();
+        return await getExpensesByCategory(tenantId);
       }),
     
     // 오늘 점검 예정 CCP 일정 조회
     getTodaySchedules: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getTodayCcpSchedules } = await import("../../db");
-        return await getTodayCcpSchedules();
+        return await getTodayCcpSchedules(tenantId);
       }),
     
     // 검사 통계
