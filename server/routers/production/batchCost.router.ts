@@ -10,77 +10,87 @@ export const batchCostRouter = router({
   // 여러 배치 비용 요약 조회
   getCostSummary: tenantRequiredProcedure
     .input(z.object({ batchIds: z.array(z.number()) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getBatchCostSummary } = await import("../../db");
-      return await getBatchCostSummary(input.batchIds);
+      return await getBatchCostSummary(input.batchIds, tenantId ?? undefined);
     }),
 
   // 배치 수익성 조회
   getProfitability: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getBatchProfitability } = await import("../../db");
-      return await getBatchProfitability(input.batchId);
+      return await getBatchProfitability(input.batchId, tenantId ?? undefined);
     }),
 
   // 제품별 수익성 통계 조회
   getProfitabilityByProduct: tenantRequiredProcedure
     .input(z.object({ startDate: z.date().optional(), endDate: z.date().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getProfitabilityByProduct } = await import("../../db");
-      return await getProfitabilityByProduct(input);
+      return await getProfitabilityByProduct(input, tenantId ?? undefined);
     }),
 
   // 배치 매출액 업데이트
   updateRevenue: workerProcedure
     .input(z.object({ batchId: z.number(), revenue: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { updateBatchRevenue } = await import("../../db");
-      return await updateBatchRevenue(input.batchId, input.revenue);
+      return await updateBatchRevenue(input.batchId, input.revenue, tenantId ?? undefined);
     }),
 
   // 월별 수익률 추이
   getProfitabilityTrendByMonth: tenantRequiredProcedure
     .input(z.object({ startDate: z.date().optional(), endDate: z.date().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getProfitabilityTrendByMonth } = await import("../../db");
-      return await getProfitabilityTrendByMonth(input.startDate, input.endDate);
+      return await getProfitabilityTrendByMonth(input.startDate, input.endDate, tenantId ?? undefined);
     }),
 
   // 분기별 수익률 추이
   getProfitabilityTrendByQuarter: tenantRequiredProcedure
     .input(z.object({ startDate: z.date().optional(), endDate: z.date().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getProfitabilityTrendByQuarter } = await import("../../db");
-      return await getProfitabilityTrendByQuarter(input.startDate, input.endDate);
+      return await getProfitabilityTrendByQuarter(input.startDate, input.endDate, tenantId ?? undefined);
     }),
 
   // 배치 수익성 예측
-  getProfitabilityForecast: tenantRequiredProcedure.query(async () => {
+  getProfitabilityForecast: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.tenantId;
     const { getProfitabilityForecast } = await import("../../db");
-    return await getProfitabilityForecast();
+    return await getProfitabilityForecast(tenantId ?? undefined);
   }),
 
   // 예측값 저장
   saveForecast: tenantRequiredProcedure
     .input(z.object({ targetMonth: z.string(), predictedRevenue: z.number(), predictedCost: z.number(), predictedProfitMargin: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { saveProfitabilityForecast } = await import("../../db");
-      return await saveProfitabilityForecast(input);
+      return await saveProfitabilityForecast(input, tenantId ?? undefined);
     }),
 
   // 과거 예측값 조회
-  getForecastHistory: tenantRequiredProcedure.query(async () => {
+  getForecastHistory: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.tenantId;
     const { getProfitabilityForecastHistory } = await import("../../db");
-    return await getProfitabilityForecastHistory();
+    return await getProfitabilityForecastHistory(tenantId ?? undefined);
   }),
 
   // 실제값 업데이트
   updateActualProfitability: tenantRequiredProcedure
     .input(z.object({ targetMonth: z.string(), actualRevenue: z.number(), actualCost: z.number(), actualProfitMargin: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { updateActualProfitability } = await import("../../db");
-      return await updateActualProfitability(input);
+      return await updateActualProfitability(input, tenantId ?? undefined);
     }),
 
   // 원재료별 원가 비중 집계
@@ -137,6 +147,6 @@ export const batchCostRouter = router({
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
       const { calculateBatchCost } = await import("../../db/batchCostCalculation");
-      return await calculateBatchCost(input.batchId, ctx.tenantId ?? undefined);
+      return await calculateBatchCost(input.batchId, ctx.tenantId!);
     }),
 });

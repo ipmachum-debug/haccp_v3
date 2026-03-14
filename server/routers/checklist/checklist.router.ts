@@ -15,18 +15,20 @@ export const checklistRouter = router({
             .optional()
         )
         .query(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { getChecklistTemplates } = await import("../../db");
           return await getChecklistTemplates({
             category: input?.category as any,
-            tenantId: ctx.tenantId
-          });
+            tenantId: tenantId
+          }, tenantId);
         }),
       // 템플릿 상세 조회
       getById: tenantRequiredProcedure
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { getChecklistTemplateById } = await import("../../db");
-          return await getChecklistTemplateById(input.id);
+          return await getChecklistTemplateById(input.id, tenantId);
         }),
       // 템플릿 생성
       create: workerProcedure
@@ -46,11 +48,12 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { createChecklistTemplate } = await import("../../db");
           return await createChecklistTemplate({
             ...input,
             category: input.category as any
-          });
+          }, tenantId);
         }),
       // 템플릿 수정
       update: workerProcedure
@@ -74,19 +77,21 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { updateChecklistTemplate } = await import("../../db");
           const { id, ...data } = input;
           return await updateChecklistTemplate(id, {
             ...data,
             category: data.category as any
-          });
+          }, tenantId);
         }),
       // 템플릿 삭제
       delete: workerProcedure
         .input(z.object({ id: z.number() }))
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { deleteChecklistTemplate } = await import("../../db");
-          return await deleteChecklistTemplate(input.id);
+          return await deleteChecklistTemplate(input.id, tenantId);
         })
     }),
     // 인스턴스 관리
@@ -104,6 +109,7 @@ export const checklistRouter = router({
             .optional()
         )
         .query(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { getChecklistInstancesByBatch } = await import("../../db");
           // 기존 함수는 batchId만 지원하므로 모든 인스턴스 조회는 별도 구현 필요
           // 임시로 빈 배열 반환
@@ -113,8 +119,9 @@ export const checklistRouter = router({
       getById: tenantRequiredProcedure
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { getChecklistInstanceById } = await import("../../db");
-          return await getChecklistInstanceById(input.id);
+          return await getChecklistInstanceById(input.id, tenantId);
         }),
       // 인스턴스 생성
       create: workerProcedure
@@ -137,6 +144,7 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { createChecklistInstanceFromTemplate } = await import("../../db");
           return await createChecklistInstanceFromTemplate({
             templateId: input.templateId,
@@ -144,7 +152,7 @@ export const checklistRouter = router({
             ccpRecordId: undefined,
             scheduledDate: input.checkDate,
             createdBy: 0, // 사용자 ID는 추후 ctx.user.id로 대체
-          });
+          }, tenantId);
         }),
       // 인스턴스 항목 업데이트
       updateItem: workerProcedure
@@ -156,9 +164,10 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { updateChecklistInstanceItem } = await import("../../db");
           const { itemId, ...data } = input;
-          return await updateChecklistInstanceItem(itemId, data);
+          return await updateChecklistInstanceItem(itemId, data, tenantId);
         }),
       // 인스턴스 상태 변경
       updateStatus: workerProcedure
@@ -169,9 +178,10 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { completeChecklistInstance } = await import("../../db");
           if (input.status === "completed") {
-            return await completeChecklistInstance(input.id, 0); // 사용자 ID는 추후 ctx.user.id로 대체
+            return await completeChecklistInstance(input.id, 0, tenantId); // 사용자 ID는 추후 ctx.user.id로 대체
           }
           return { success: true };
         })

@@ -162,7 +162,7 @@ export async function createPurchase(params: {
   }
 
   // === 원료수불부 입고 연동 ===
-  if (resolvedMaterialId && tenantId) {
+  if (resolvedMaterialId) {
     try {
       await onPurchaseCreated({
         materialId: resolvedMaterialId,
@@ -444,20 +444,17 @@ export async function getAllSales(filters?: {
 /**
  * 매입 거래 상세 조회
  */
-export async function getPurchaseById(id: number, tenantId?: number) {
+export async function getPurchaseById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
-  
-  const { partners } = await import("../../drizzle/schema");
 
-  const purchaseConditions = [eq(accountingPurchases.id, id)];
-  if (tenantId) purchaseConditions.push(eq(accountingPurchases.tenantId, tenantId));
+  const { partners } = await import("../../drizzle/schema");
 
   const purchase = await db
     .select()
     .from(accountingPurchases)
     .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id))
-    .where(and(...purchaseConditions))
+    .where(and(eq(accountingPurchases.id, id), eq(accountingPurchases.tenantId, tenantId)))
     .limit(1);
 
   if (purchase.length === 0) {
@@ -473,20 +470,17 @@ export async function getPurchaseById(id: number, tenantId?: number) {
 /**
  * 매출 거래 상세 조회
  */
-export async function getSaleById(id: number, tenantId?: number) {
+export async function getSaleById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
-  
-  const { partners } = await import("../../drizzle/schema");
 
-  const saleConditions = [eq(accountingSales.id, id)];
-  if (tenantId) saleConditions.push(eq(accountingSales.tenantId, tenantId));
+  const { partners } = await import("../../drizzle/schema");
 
   const sale = await db
     .select()
     .from(accountingSales)
     .leftJoin(partners, eq(accountingSales.partnerId, partners.id))
-    .where(and(...saleConditions))
+    .where(and(eq(accountingSales.id, id), eq(accountingSales.tenantId, tenantId)))
     .limit(1);
 
   if (sale.length === 0) {
@@ -502,7 +496,7 @@ export async function getSaleById(id: number, tenantId?: number) {
 /**
  * 매입 거래명세서 PDF 생성 (HTML 형식)
  */
-export async function generatePurchasePdf(id: number, tenantId?: number): Promise<string> {
+export async function generatePurchasePdf(id: number, tenantId: number): Promise<string> {
   const purchase = await getPurchaseById(id, tenantId);
   const { storagePut } = await import("../storage");
 
@@ -557,7 +551,7 @@ export async function generatePurchasePdf(id: number, tenantId?: number): Promis
 
   const pdfBuffer = Buffer.from(html, "utf-8");
   const fileName = `purchase_${id}_${Date.now()}.html`;
-  const tenantPrefix = tenantId ? `tenant-${tenantId}/` : "";
+  const tenantPrefix = `tenant-${tenantId}/`;
   const { url } = await storagePut(`${tenantPrefix}pdfs/${fileName}`, pdfBuffer, "text/html");
 
   return url;
@@ -566,7 +560,7 @@ export async function generatePurchasePdf(id: number, tenantId?: number): Promis
 /**
  * 매출 거래명세서 PDF 생성 (HTML 형식)
  */
-export async function generateSalePdf(id: number, tenantId?: number): Promise<string> {
+export async function generateSalePdf(id: number, tenantId: number): Promise<string> {
   const sale = await getSaleById(id, tenantId);
   const { storagePut } = await import("../storage");
 
@@ -621,7 +615,7 @@ export async function generateSalePdf(id: number, tenantId?: number): Promise<st
 
   const pdfBuffer = Buffer.from(html, "utf-8");
   const fileName = `sale_${id}_${Date.now()}.html`;
-  const tenantPrefix = tenantId ? `tenant-${tenantId}/` : "";
+  const tenantPrefix = `tenant-${tenantId}/`;
   const { url } = await storagePut(`${tenantPrefix}pdfs/${fileName}`, pdfBuffer, "text/html");
 
   return url;
@@ -645,7 +639,7 @@ export async function updatePurchase(
     status?: string;
     notes?: string;
     accountCategoryId?: number;
-  }, tenantId?: number) {
+  }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -655,13 +649,10 @@ export async function updatePurchase(
   if (updateData.totalAmount !== undefined) updateData.totalAmount = updateData.totalAmount.toString();
   if (updateData.taxAmount !== undefined) updateData.taxAmount = updateData.taxAmount.toString();
 
-  const updateConditions = [eq(accountingPurchases.id, id)];
-  if (tenantId) updateConditions.push(eq(accountingPurchases.tenantId, tenantId));
-
   await db
     .update(accountingPurchases)
     .set(updateData)
-    .where(and(...updateConditions));
+    .where(and(eq(accountingPurchases.id, id), eq(accountingPurchases.tenantId, tenantId)));
 
   return { success: true };
 }
@@ -669,16 +660,13 @@ export async function updatePurchase(
 /**
  * 매입 거래 삭제
  */
-export async function deletePurchase(id: number, tenantId?: number) {
+export async function deletePurchase(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
-  const deleteConditions = [eq(accountingPurchases.id, id)];
-  if (tenantId) deleteConditions.push(eq(accountingPurchases.tenantId, tenantId));
-
   await db
     .delete(accountingPurchases)
-    .where(and(...deleteConditions));
+    .where(and(eq(accountingPurchases.id, id), eq(accountingPurchases.tenantId, tenantId)));
 
   return { success: true };
 }
@@ -701,7 +689,7 @@ export async function updateSale(
     status?: string;
     notes?: string;
     accountCategoryId?: number;
-  }, tenantId?: number) {
+  }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
@@ -711,13 +699,10 @@ export async function updateSale(
   if (updateData.totalAmount !== undefined) updateData.totalAmount = updateData.totalAmount.toString();
   if (updateData.taxAmount !== undefined) updateData.taxAmount = updateData.taxAmount.toString();
 
-  const updateConditions = [eq(accountingSales.id, id)];
-  if (tenantId) updateConditions.push(eq(accountingSales.tenantId, tenantId));
-
   await db
     .update(accountingSales)
     .set(updateData)
-    .where(and(...updateConditions));
+    .where(and(eq(accountingSales.id, id), eq(accountingSales.tenantId, tenantId)));
 
   return { success: true };
 }
@@ -725,16 +710,13 @@ export async function updateSale(
 /**
  * 매출 거래 삭제
  */
-export async function deleteSale(id: number, tenantId?: number) {
+export async function deleteSale(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
 
-  const deleteConditions = [eq(accountingSales.id, id)];
-  if (tenantId) deleteConditions.push(eq(accountingSales.tenantId, tenantId));
-
   await db
     .delete(accountingSales)
-    .where(and(...deleteConditions));
+    .where(and(eq(accountingSales.id, id), eq(accountingSales.tenantId, tenantId)));
 
   return { success: true };
 }

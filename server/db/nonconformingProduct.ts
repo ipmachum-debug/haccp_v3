@@ -335,10 +335,10 @@ export async function generateNonconformingProductReport(filters: {
     siteId: filters.siteId,
     dateFrom: filters.dateFrom,
     dateTo: filters.dateTo,
-  });
+  }, tenantId);
 
-  const dashboard = await getNonconformingProductDashboard(filters.siteId);
-  const rate = await calculateNonconformityRate(filters);
+  const dashboard = await getNonconformingProductDashboard(filters.siteId, tenantId);
+  const rate = await calculateNonconformityRate(filters, tenantId);
 
   return {
     period: {

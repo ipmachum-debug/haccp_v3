@@ -22,7 +22,8 @@ export async function saveLotTraceHistory(data: {
       searchLotNumber: data.searchLotNumber,
       resultData: data.resultData,
       userId: data.userId,
-      userName: data.userName
+      userName: data.userName,
+      tenantId,
     } as any);
 
   return { success: true };

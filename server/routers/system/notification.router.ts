@@ -73,9 +73,10 @@ export const notificationRouter = router({
       }),
     
     // 재고 만료 알림 자동 생성 (테스트용)
-    checkExpiry: tenantRequiredProcedure.mutation(async () => {
+    checkExpiry: tenantRequiredProcedure.mutation(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { checkAndCreateExpiryNotifications } = await import("../../db");
-      const count = await checkAndCreateExpiryNotifications();
+      const count = await checkAndCreateExpiryNotifications(tenantId ?? undefined);
       return { success: true, count, message: `${count}개의 알림이 생성되었습니다.` };
     }),
     
@@ -83,17 +84,19 @@ export const notificationRouter = router({
     markMultipleAsRead: tenantRequiredProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { markMultipleNotificationsAsRead } = await import("../../db");
-        await markMultipleNotificationsAsRead(input.notificationIds);
+        await markMultipleNotificationsAsRead(input.notificationIds, tenantId ?? undefined);
         return { success: true, count: input.notificationIds.length };
       }),
-    
+
     // 선택한 알림 삭제
     deleteMultiple: tenantRequiredProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deleteMultipleNotifications } = await import("../../db");
-        await deleteMultipleNotifications(input.notificationIds);
+        await deleteMultipleNotifications(input.notificationIds, tenantId ?? undefined);
         return { success: true, count: input.notificationIds.length };
       }),
        // 알림 삭제

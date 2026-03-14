@@ -21,7 +21,8 @@ export const batchApprovalRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
       }
 
-      await updateBatchStatus(input.batchId, "under_review");
+      const tenantId = ctx.tenantId;
+      await updateBatchStatus(input.batchId, "under_review", tenantId ?? undefined);
 
       await createAuditLog({
         action: "batch.requestApproval",
@@ -34,8 +35,8 @@ export const batchApprovalRouter = router({
         changes: { status: "under_review", notes: input.notes },
       });
 
-      const admins = await getUsersByRole("admin");
-      const inspectors = await getUsersByRole("inspector");
+      const admins = await getUsersByRole("admin", tenantId ?? undefined);
+      const inspectors = await getUsersByRole("inspector", tenantId ?? undefined);
       const recipients = [...admins, ...inspectors];
 
       for (const recipient of recipients) {
@@ -64,8 +65,9 @@ export const batchApprovalRouter = router({
       const { approveBatch } = await import("../../db/batchApprovals");
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
-      await approveBatch({ batchId: input.batchId, approverId: ctx.user.id, notes: input.notes });
-      await updateBatchStatus(input.batchId, "approved");
+      const tenantId = ctx.tenantId;
+      await approveBatch({ batchId: input.batchId, approverId: ctx.user.id, notes: input.notes }, tenantId ?? undefined);
+      await updateBatchStatus(input.batchId, "approved", tenantId ?? undefined);
 
       await createAuditLog({
         action: "batch.approve",
@@ -92,8 +94,9 @@ export const batchApprovalRouter = router({
       const { rejectBatch } = await import("../../db/batchApprovals");
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
-      await rejectBatch({ batchId: input.batchId, approverId: ctx.user.id, rejectionReason: input.rejectionReason, notes: input.notes });
-      await updateBatchStatus(input.batchId, "rejected");
+      const tenantId = ctx.tenantId;
+      await rejectBatch({ batchId: input.batchId, approverId: ctx.user.id, rejectionReason: input.rejectionReason, notes: input.notes }, tenantId ?? undefined);
+      await updateBatchStatus(input.batchId, "rejected", tenantId ?? undefined);
 
       await createAuditLog({
         action: "batch.reject",

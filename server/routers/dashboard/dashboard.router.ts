@@ -50,8 +50,9 @@ export const dashboardRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getInspectionStatistics } = await import("../../db");
-        return await getInspectionStatistics(input);
+        return await getInspectionStatistics(input, tenantId);
       }),
     
     // 검사 통계 대시보드
@@ -63,14 +64,16 @@ export const dashboardRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getInspectionDashboardStatistics } = await import("../../db");
-        return await getInspectionDashboardStatistics(input);
+        return await getInspectionDashboardStatistics(input, tenantId);
       })
   }),
     // 배치 진행 현황
-    batchProgress: tenantRequiredProcedure.query(async () => {
+    batchProgress: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getBatchProgress } = await import("../../db");
-      return await getBatchProgress();
+      return await getBatchProgress(tenantId);
     }),
     // CCP 이탈 알림
     ccpDeviations: tenantRequiredProcedure
@@ -84,8 +87,9 @@ export const dashboardRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpDeviations } = await import("../../db");
-        return await getCcpDeviations(input);
+        return await getCcpDeviations(input, tenantId);
       }),
     // 최근 활동
     recentActivities: tenantRequiredProcedure
@@ -97,20 +101,23 @@ export const dashboardRouter = router({
           .optional()
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getRecentActivities } = await import("../../db");
-        return await getRecentActivities(input?.limit);
+        return await getRecentActivities(input?.limit, tenantId);
       }),
     
     // CCP 이탈 추이 (최근 7일)
-    getCcpDeviationTrend: tenantRequiredProcedure.query(async () => {
+    getCcpDeviationTrend: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getCcpDeviationTrend } = await import("../../db");
-      return await getCcpDeviationTrend();
+      return await getCcpDeviationTrend(tenantId);
     }),
 
     // 재고 부족 경고
-    getLowStockWarnings: tenantRequiredProcedure.query(async () => {
+    getLowStockWarnings: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getLowStockWarnings } = await import("../../db");
-      return await getLowStockWarnings();
+      return await getLowStockWarnings(tenantId);
     }),
 
     // 유통기한 임박 원재료
@@ -126,14 +133,14 @@ export const dashboardRouter = router({
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
         const { getProductionTrend } = await import("../../db");
-        return await getProductionTrend(input?.days || 7);
+        return await getProductionTrend(input?.days || 7, tenantId);
       }),
 
     // 원재료 소비 통계
     getMaterialConsumption: tenantRequiredProcedure.query(async ({ ctx }) => {
       const tenantId = requireTenantId(ctx);
       const { getMaterialConsumption } = await import("../../db");
-      return await getMaterialConsumption();
+      return await getMaterialConsumption(tenantId);
     }),
 
     // 월별 CCP 이탈 비율 (기간 선택 가능)
@@ -142,7 +149,7 @@ export const dashboardRouter = router({
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
         const { getMonthlyCcpDeviationRate } = await import("../../db");
-        return await getMonthlyCcpDeviationRate(input?.days || 30);
+        return await getMonthlyCcpDeviationRate(input?.days || 30, tenantId);
       }),
     
     // 위젯 설정 조회
@@ -163,7 +170,8 @@ export const dashboardRouter = router({
         return await updateWidgetVisibility({
           userId: ctx.user.id,
           widgetId: input.widgetId,
-          isVisible: input.isVisible
+          isVisible: input.isVisible,
+          tenantId: ctx.tenantId
         });
       }),
 

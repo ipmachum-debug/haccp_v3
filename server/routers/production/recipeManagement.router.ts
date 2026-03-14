@@ -102,6 +102,7 @@ export const recipeManagementRouter = router({
         const { updateRecipe, createRecipeVersion } = await import("../../db/recipe");
         const { id, lines, ...recipeData } = input;
         
+        const tenantId = ctx.tenantId;
         // 버전 이력 생성
         if (input.version) {
           await createRecipeVersion({
@@ -109,10 +110,10 @@ export const recipeManagementRouter = router({
             version: input.version,
             changeDescription: "레시피 수정",
             createdBy: ctx.user.id
-          });
+          }, tenantId ?? undefined);
         }
-        
-        return await updateRecipe(id, recipeData, lines);
+
+        return await updateRecipe(id, recipeData, lines, tenantId ?? undefined);
       }),
     
     // 레시피 삭제 (소프트 삭제)
@@ -142,8 +143,9 @@ export const recipeManagementRouter = router({
     getVersions: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getRecipeVersions } = await import("../../db/recipe");
-        return await getRecipeVersions(input.recipeId);
+        return await getRecipeVersions(input.recipeId, tenantId ?? undefined);
       }),
     
     // 레시피 복제
@@ -164,8 +166,9 @@ export const recipeManagementRouter = router({
         isActive: z.boolean()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateRecipe } = await import("../../db/recipe");
-        await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 });
+        await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 }, undefined, tenantId ?? undefined);
         return { success: true };
       })
 });

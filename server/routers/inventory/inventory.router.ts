@@ -793,7 +793,7 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { calculateUsagePattern } = await import("../../api/inventoryForecast");
-        return await calculateUsagePattern(input.materialId, input.days);
+        return await calculateUsagePattern(input.materialId, ctx.tenantId!, input.days);
       }),
     
     // 재고 소진 예상 일자
@@ -805,7 +805,7 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { predictStockout } = await import("../../api/inventoryForecast");
-        return await predictStockout(input.materialId);
+        return await predictStockout(input.materialId, ctx.tenantId!);
       }),
     
     // 구매 추천
@@ -817,25 +817,25 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { recommendPurchase } = await import("../../api/inventoryForecast");
-        return await recommendPurchase(input.materialId);
+        return await recommendPurchase(input.materialId, ctx.tenantId!);
       }),
     
     // 모든 원재료 구매 추천
     getAllPurchaseRecommendations: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getAllPurchaseRecommendations } = await import("../../api/inventoryForecast");
-      return await getAllPurchaseRecommendations();
+      return await getAllPurchaseRecommendations(ctx.tenantId!);
     }),
 
     // 재고 부족 예상 감지
     checkLowStockPrediction: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { checkLowStockPrediction } = await import("../../api/inventoryForecast");
-      return await checkLowStockPrediction();
+      return await checkLowStockPrediction(ctx.tenantId!);
     }),
 
     // 재고 부족 알림 생성
     createLowStockNotifications: tenantRequiredProcedure.mutation(async ({ ctx }) => {
       const { createLowStockNotifications } = await import("../../api/inventoryForecast");
-      return await createLowStockNotifications();
+      return await createLowStockNotifications(ctx.tenantId!);
     }),
     
     // 원재료 ID로 조회

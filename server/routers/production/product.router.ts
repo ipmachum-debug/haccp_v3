@@ -84,8 +84,9 @@ export const productRouter = router({
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getProductById } = await import("../../db.js");
-        return await getProductById(input.id);
+        return await getProductById(input.id, tenantId ?? undefined);
       }),
     updateCcpMapping: tenantRequiredProcedure
       .input(
@@ -95,8 +96,9 @@ export const productRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateProductCcpMapping } = await import("../../db.js");
-        await updateProductCcpMapping(input.productId, input.ccpTypes);
+        await updateProductCcpMapping(input.productId, input.ccpTypes, tenantId ?? undefined);
         return { success: true };
       }),
     create: adminProcedure

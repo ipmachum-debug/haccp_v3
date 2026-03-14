@@ -348,8 +348,8 @@ export const trainingRouter = router({
   // 알림 발송 완료 처리
   markReminderAsSent: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await trainingDb.markTrainingReminderAsSent(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await trainingDb.markTrainingReminderAsSent(input.id, ctx.tenantId);
       return { success: true };
     }),
 });

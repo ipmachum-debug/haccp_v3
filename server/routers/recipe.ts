@@ -107,7 +107,7 @@ export const recipeRouter = router({
           version: input.version,
           changeDescription: "레시피 수정",
           createdBy: ctx.user.id,
-        });
+        }, ctx.tenantId!);
       }
       
       return await updateRecipe(id, recipeData, lines, ctx.tenantId!);
@@ -141,7 +141,7 @@ export const recipeRouter = router({
     .input(z.object({ recipeId: z.number() }))
     .query(async ({ input, ctx }) => {
       const { getRecipeVersions } = await import("../db/recipe");
-      return await getRecipeVersions(input.recipeId);
+      return await getRecipeVersions(input.recipeId, ctx.tenantId!);
     }),
   
   // 레시피 복제

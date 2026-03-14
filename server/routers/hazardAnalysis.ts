@@ -65,7 +65,7 @@ export const hazardAnalysisRouter = router({
         status: "approved",
         approvedBy: ctx.user.id,
         approvedDate: new Date().toISOString().split("T")[0],
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -98,7 +98,7 @@ export const hazardAnalysisRouter = router({
           ...data,
           approvedBy: ctx.user.id,
           approvedDate: new Date().toISOString().split("T")[0],
-        });
+        }, ctx.tenantId);
       } else {
         await hazardAnalysisDb.updateHazardAnalysis(id, data, ctx.tenantId);
       }

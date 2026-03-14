@@ -8,14 +8,16 @@ export const costAnalysisRouter = router({
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { calculateRecipeCost } = await import("../../api/costAnalysis");
-        return await calculateRecipeCost(input.recipeId);
+        const tenantId = ctx.tenantId;
+        return await calculateRecipeCost(input.recipeId, tenantId ?? undefined);
       }),
-    
+
     // 제품별 원가 통계
     getProductCostStats: tenantRequiredProcedure
       .input(z.object({ productId: z.number().optional() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { calculateProductCostStats } = await import("../../api/costAnalysis");
-        return await calculateProductCostStats(input.productId);
+        return await calculateProductCostStats(input.productId, tenantId ?? undefined);
       })
 });

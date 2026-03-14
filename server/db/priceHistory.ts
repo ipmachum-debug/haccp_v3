@@ -11,7 +11,7 @@ import { eq, desc, and} from "drizzle-orm";
  * @param materialId 원재료 ID
  * @returns 입고 날짜별 단가 목록
  */
-export async function getMaterialPriceHistory(materialId: number, tenantId?: number) {
+export async function getMaterialPriceHistory(materialId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -24,9 +24,7 @@ export async function getMaterialPriceHistory(materialId: number, tenantId?: num
     })
     .from(hInventoryLots)
     .where(
-      tenantId
-        ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId))
-        : eq(hInventoryLots.materialId, materialId)
+      and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId))
     )
     .orderBy(desc(hInventoryLots.receiptDate))
     .limit(30);
@@ -49,7 +47,7 @@ export async function getMaterialPriceHistory(materialId: number, tenantId?: num
  * 여러 원재료의 가격 변동 추이 조회
  * @param materialIds 원재료 ID 목록
  */
-export async function getMultipleMaterialPriceHistory(materialIds: number[], tenantId?: number) {
+export async function getMultipleMaterialPriceHistory(materialIds: number[], tenantId: number) {
   const results = await Promise.all(
     materialIds.map(async (materialId) => {
       const history = await getMaterialPriceHistory(materialId, tenantId);

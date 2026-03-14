@@ -12,7 +12,7 @@ import { eq, and} from "drizzle-orm";
  * @param batchId 배치 ID
  * @returns 총 원재료 비용, 제품 판매가, 원가율
  */
-export async function calculateBatchCost(batchId: number, tenantId?: number) {
+export async function calculateBatchCost(batchId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -39,7 +39,7 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
       const [lot] = await db
         .select()
         .from(hInventoryLots)
-        .where(eq(hInventoryLots.id, material.lotId));
+        .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, material.lotId)));
       if (lot && lot.unitPrice) {
         const unitPrice = parseFloat(lot.unitPrice);
         const quantityUsed = parseFloat(material.quantityUsed);
@@ -76,9 +76,9 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
  * 여러 배치의 원가 일괄 계산
  * @param batchIds 배치 ID 목록
  */
-export async function calculateBatchCosts(batchIds: number[], tenantId?: number) {
+export async function calculateBatchCosts(batchIds: number[], tenantId: number) {
   const results = await Promise.all(
-    batchIds.map((batchId) => calculateBatchCost(batchId))
+    batchIds.map((batchId) => calculateBatchCost(batchId, tenantId))
   );
   return results;
 }
@@ -86,14 +86,14 @@ export async function calculateBatchCosts(batchIds: number[], tenantId?: number)
 /**
  * 모든 배치의 원가 계산 (최근 100건)
  */
-export async function calculateAllBatchCosts(tenantId?: number) {
+export async function calculateAllBatchCosts(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const batches = await db
     .select()
-    .from(hBatches).where(eq(hBatches.tenantId, tenantId as any) ).limit(100);
+    .from(hBatches).where(eq(hBatches.tenantId, tenantId)).limit(100);
 
   const batchIds = batches.map((batch) => batch.id);
-  return await calculateBatchCosts(batchIds);
+  return await calculateBatchCosts(batchIds, tenantId);
 }

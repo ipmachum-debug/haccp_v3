@@ -8,28 +8,28 @@ import { eq, and, desc } from "drizzle-orm";
  */
 
 // 승인 대기 중인 품목제조보고 목록 조회
-export async function getPendingRecipes() {
+export async function getPendingRecipes(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   const pendingRecipes = await db
     .select()
     .from(recipes)
-    .where(eq(recipes.approvalStatus, "DRAFT"))
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.approvalStatus, "DRAFT")))
     .orderBy(recipes.createdAt);
 
   return pendingRecipes;
 }
 
 // 품목제조보고 승인
-export async function approveRecipe(input: { recipeId: number; userId: number }) {
+export async function approveRecipe(tenantId: number, input: { recipeId: number; userId: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   const [recipe] = await db
     .select()
     .from(recipes)
-    .where(eq(recipes.id, input.recipeId))
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.id, input.recipeId)))
     .limit(1);
 
   if (!recipe) {
@@ -47,13 +47,13 @@ export async function approveRecipe(input: { recipeId: number; userId: number })
       approvedBy: input.userId,
       approvedAt: new Date(),
     })
-    .where(eq(recipes.id, input.recipeId));
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.id, input.recipeId)));
 
   return { success: true, message: "품목제조보고가 승인되었습니다." };
 }
 
 // 품목제조보고 반려
-export async function rejectRecipe(input: {
+export async function rejectRecipe(tenantId: number, input: {
   recipeId: number;
   userId: number;
   reason: string;
@@ -64,7 +64,7 @@ export async function rejectRecipe(input: {
   const [recipe] = await db
     .select()
     .from(recipes)
-    .where(eq(recipes.id, input.recipeId))
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.id, input.recipeId)))
     .limit(1);
 
   if (!recipe) {
@@ -83,20 +83,20 @@ export async function rejectRecipe(input: {
       rejectedAt: new Date(),
       rejectionReason: input.reason,
     })
-    .where(eq(recipes.id, input.recipeId));
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.id, input.recipeId)));
 
   return { success: true, message: "품목제조보고가 반려되었습니다." };
 }
 
 // 품목제조보고 상세 조회 (승인 정보 포함)
-export async function getRecipeWithApprovalInfo(recipeId: number) {
+export async function getRecipeWithApprovalInfo(tenantId: number, recipeId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   const [recipe] = await db
     .select()
     .from(recipes)
-    .where(eq(recipes.id, recipeId))
+    .where(and(eq(recipes.tenantId, tenantId), eq(recipes.id, recipeId)))
     .limit(1);
 
   if (!recipe) {
@@ -107,7 +107,7 @@ export async function getRecipeWithApprovalInfo(recipeId: number) {
 }
 
 // 품목제조보고 승인 이력 조회
-export async function getRecipeApprovalHistory(filters?: {
+export async function getRecipeApprovalHistory(tenantId: number, filters?: {
   approvalStatus?: string;
   startDate?: string;
   endDate?: string;
@@ -115,13 +115,17 @@ export async function getRecipeApprovalHistory(filters?: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  let query = db.select().from(recipes);
+  const conditions = [eq(recipes.tenantId, tenantId)];
 
   if (filters?.approvalStatus) {
-    query = query.where(eq(recipes.approvalStatus, filters.approvalStatus as "DRAFT" | "APPROVED" | "REJECTED")) as any;
+    conditions.push(eq(recipes.approvalStatus, filters.approvalStatus as "DRAFT" | "APPROVED" | "REJECTED"));
   }
 
-  const results = await query.orderBy(desc(recipes.createdAt));
+  const results = await db
+    .select()
+    .from(recipes)
+    .where(and(...conditions))
+    .orderBy(desc(recipes.createdAt));
 
   // DRAFT 상태 제외 (이미 승인/반려된 것만)
   return results.filter(

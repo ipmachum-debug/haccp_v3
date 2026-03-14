@@ -47,8 +47,9 @@ export const accountingDocumentsRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const docsDb = await import("../../db/accountingDocuments");
-        return await docsDb.listDocuments(input);
+        return await docsDb.listDocuments(input, tenantId);
       }),
 
     // 문서 상세 조회
@@ -130,8 +131,9 @@ export const accountingDocumentsRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const docsDb = await import("../../db/accountingDocuments");
-        return await docsDb.getDocumentWorkflow(input.documentId);
+        return await docsDb.getDocumentWorkflow(input.documentId, tenantId);
       }),
     // HACCP 연동 자동화: 재료 입고 시 매입 거래 자동 생성
     autoCreatePurchaseFromReceipt: adminProcedure

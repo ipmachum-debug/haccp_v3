@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import * as batchPdfLogsDb from "../db/batchPdfLogs";
 import { getDb } from "../db";
 import { hBackups } from "../../drizzle/schema";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and } from "drizzle-orm";
 import { storageGet } from "../storage";
 
 /**
@@ -88,9 +88,11 @@ export const adminRouter = router({
       });
     }
 
+    const tenantId = ctx.tenantId;
     const backups = await db
       .select()
       .from(hBackups)
+      .where(eq(hBackups.tenantId, tenantId))
       .orderBy(desc(hBackups.createdAt))
       .limit(50);
 
@@ -120,10 +122,11 @@ export const adminRouter = router({
         });
       }
 
+      const tenantId = ctx.tenantId;
       const backup = await db
         .select()
         .from(hBackups)
-        .where(eq(hBackups.id, input.backupId))
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)))
         .limit(1);
 
       if (backup.length === 0) {
@@ -220,10 +223,11 @@ export const adminRouter = router({
         });
       }
 
+      const tenantId = ctx.tenantId;
       const backup = await db
         .select()
         .from(hBackups)
-        .where(eq(hBackups.id, input.backupId))
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)))
         .limit(1);
 
       if (backup.length === 0) {
@@ -234,7 +238,7 @@ export const adminRouter = router({
       }
 
       // 데이터베이스에서 백업 메타데이터 삭제
-      await db.delete(hBackups).where(eq(hBackups.id, input.backupId));
+      await db.delete(hBackups).where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)));
 
       // TODO: S3에서 파일 삭제 (현재는 메타데이터만 삭제)
       // S3 삭제 API가 필요하면 추가 구현

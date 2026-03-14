@@ -8,10 +8,11 @@ export const auditLogRouter = router({
     list: adminProcedure
       .input(z.object({ limit: z.number().optional().default(100) }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getAuditLogs } = await import("../../db");
-        return await getAuditLogs(input.limit);
+        return await getAuditLogs(input.limit, tenantId ?? undefined);
       }),
-    
+
     // 특정 엔티티의 감사 로그 조회
     getByEntity: tenantRequiredProcedure
       .input(z.object({
@@ -19,10 +20,11 @@ export const auditLogRouter = router({
         entityId: z.number()
       }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getAuditLogsByEntity } = await import("../../db");
-        return await getAuditLogsByEntity(input.entityType, input.entityId);
+        return await getAuditLogsByEntity(input.entityType, input.entityId, tenantId ?? undefined);
       }),
-    
+
     // 사용자별 감사 로그 조회
     getByUser: tenantRequiredProcedure
       .input(z.object({
@@ -30,7 +32,8 @@ export const auditLogRouter = router({
         limit: z.number().optional().default(50)
       }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getAuditLogsByUser } = await import("../../db");
-        return await getAuditLogsByUser(input.userId, input.limit);
+        return await getAuditLogsByUser(input.userId, input.limit, tenantId ?? undefined);
       })
 });

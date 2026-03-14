@@ -12,7 +12,7 @@ import { eq, and, gte, sql, desc } from "drizzle-orm";
  * @param materialId 원재료 ID
  * @param days 분석 기간 (일)
  */
-export async function calculateUsagePattern(materialId: number, days: number = 30) {
+export async function calculateUsagePattern(materialId: number, tenantId: number, days: number = 30) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -29,6 +29,7 @@ export async function calculateUsagePattern(materialId: number, days: number = 3
     .innerJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(
       and(
+        eq(hInventoryTransactions.tenantId, tenantId),
         eq(hInventoryLots.materialId, materialId),
         eq(hInventoryTransactions.transactionType, "usage"),
         gte(hInventoryTransactions.createdAt, startDate)
@@ -70,7 +71,7 @@ export async function calculateUsagePattern(materialId: number, days: number = 3
  * 재고 소진 예상 일자 계산
  * @param materialId 원재료 ID
  */
-export async function predictStockout(materialId: number) {
+export async function predictStockout(materialId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -80,7 +81,7 @@ export async function predictStockout(materialId: number) {
       availableQuantity: hInventory.availableQuantity,
     })
     .from(hInventory)
-    .where(eq(hInventory.materialId, materialId))
+    .where(and(eq(hInventory.tenantId, tenantId), eq(hInventory.materialId, materialId)))
     .limit(1);
 
   if (inventory.length === 0) {
@@ -105,7 +106,7 @@ export async function predictStockout(materialId: number) {
   }
 
   // 사용량 패턴 조회 (최근 30일)
-  const usagePattern = await calculateUsagePattern(materialId, 30);
+  const usagePattern = await calculateUsagePattern(materialId, tenantId, 30);
 
   if (usagePattern.dailyAverage === 0) {
     return {
@@ -135,7 +136,7 @@ export async function predictStockout(materialId: number) {
  * 구매 추천
  * @param materialId 원재료 ID
  */
-export async function recommendPurchase(materialId: number) {
+export async function recommendPurchase(materialId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -147,7 +148,7 @@ export async function recommendPurchase(materialId: number) {
       safetyStockLevel: hMaterials.safetyStockLevel,
     })
     .from(hMaterials)
-    .where(eq(hMaterials.id, materialId))
+    .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, materialId)))
     .limit(1);
 
   if (material.length === 0) {
@@ -155,10 +156,10 @@ export async function recommendPurchase(materialId: number) {
   }
 
   // 재고 소진 예상 정보 조회
-  const stockoutInfo = await predictStockout(materialId);
+  const stockoutInfo = await predictStockout(materialId, tenantId);
 
   // 사용량 패턴 조회 (최근 30일)
-  const usagePattern = await calculateUsagePattern(materialId, 30);
+  const usagePattern = await calculateUsagePattern(materialId, tenantId, 30);
 
   // 안전 재고 수준
   const safetyStock = material[0].safetyStockLevel || 0;
@@ -203,22 +204,23 @@ export async function recommendPurchase(materialId: number) {
 /**
  * 모든 원재료에 대한 구매 추천 목록 조회
  */
-export async function getAllPurchaseRecommendations() {
+export async function getAllPurchaseRecommendations(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  // 모든 원재료 조회
+  // 해당 테넌트의 원재료 조회
   const materials = await db
     .select({
       materialId: hMaterials.id,
     })
-    .from(hMaterials);
+    .from(hMaterials)
+    .where(eq(hMaterials.tenantId, tenantId));
 
   // 각 원재료에 대한 구매 추천 계산
   const recommendations = await Promise.all(
     materials.map(async (m) => {
       try {
-        return await recommendPurchase(m.materialId);
+        return await recommendPurchase(m.materialId, tenantId);
       } catch (error) {
         console.error(`Failed to get recommendation for material ${m.materialId}:`, error);
         return null;
@@ -241,11 +243,11 @@ export async function getAllPurchaseRecommendations() {
 /**
  * 재고 부족 예상 감지 및 알림 생성
  */
-export async function checkLowStockPrediction() {
+export async function checkLowStockPrediction(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const recommendations = await getAllPurchaseRecommendations();
+  const recommendations = await getAllPurchaseRecommendations(tenantId);
   const notifications: Array<{
     materialId: number;
     materialName: string;
@@ -275,11 +277,11 @@ export async function checkLowStockPrediction() {
 /**
  * 재고 부족 알림 생성
  */
-export async function createLowStockNotifications() {
+export async function createLowStockNotifications(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const notifications = await checkLowStockPrediction();
+  const notifications = await checkLowStockPrediction(tenantId);
   const createdNotifications: Array<{
     materialId: number;
     materialName: string;
@@ -294,6 +296,7 @@ export async function createLowStockNotifications() {
     
     // hNotifications 테이블에 알림 생성
     await db.insert(hNotifications).values({
+      tenantId,
       userId: 1, // 시스템 관리자 (TODO: 동적으로 변경)
       notificationType: "INVENTORY_LOW_STOCK",
       title: "재고 부족 예상 알림",

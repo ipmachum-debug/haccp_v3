@@ -5,7 +5,7 @@ import { hInventory, hInventoryTransactions, hInventoryLots, hMaterials } from "
 /**
  * 재고 예측: 과거 사용 패턴 분석하여 소진 예상 시점 계산
  */
-export async function getInventoryForecast(days: number = 30, tenantId?: number) {
+export async function getInventoryForecast(days: number = 30, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -13,14 +13,11 @@ export async function getInventoryForecast(days: number = 30, tenantId?: number)
   pastDate.setDate(pastDate.getDate() - days);
 
   // 원재료별 현재 재고 조회
-  const inventoryQuery = db
+  const materials = await db
     .select()
     .from(hInventory)
-    .leftJoin(hMaterials, eq(hInventory.materialId, hMaterials.id));
-
-  const materials = tenantId
-    ? await inventoryQuery.where(eq(hInventory.tenantId, tenantId))
-    : await inventoryQuery;
+    .leftJoin(hMaterials, eq(hInventory.materialId, hMaterials.id))
+    .where(eq(hInventory.tenantId, tenantId));
 
   const forecasts = await Promise.all(
     materials.map(async (row) => {
@@ -38,6 +35,7 @@ export async function getInventoryForecast(days: number = 30, tenantId?: number)
           and(
             eq(hInventoryTransactions.transactionType, "usage"),
             eq(hInventoryLots.materialId, material.materialId),
+            eq(hInventoryLots.tenantId, tenantId),
             gte(hInventoryTransactions.createdAt, pastDate)
           )
         );
@@ -88,11 +86,11 @@ export async function getInventoryForecast(days: number = 30, tenantId?: number)
 /**
  * 발주 제안: 재고 부족 예상 원재료에 대한 발주 제안
  */
-export async function getPurchaseRecommendations(tenantId?: number) {
+export async function getPurchaseRecommendations(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const forecasts = await getInventoryForecast(30);
+  const forecasts = await getInventoryForecast(30, tenantId);
 
   // 14일 이내 소진 예상 또는 안전 재고 이하인 원재료
   const recommendations = forecasts

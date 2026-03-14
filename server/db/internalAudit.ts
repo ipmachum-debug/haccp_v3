@@ -48,30 +48,39 @@ export async function getAuditPlans(params: {
     .offset(offset);
 }
 
-export async function getAuditPlanById(id: number) {
+export async function getAuditPlanById(id: number, tenantId?: number) {
   const db = await getDb();
+  const conditions: any[] = [eq(hInternalAuditPlans.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAuditPlans.tenantId, tenantId));
+
   const results = await db
     .select()
     .from(hInternalAuditPlans)
-    .where(eq(hInternalAuditPlans.id, id))
+    .where(and(...conditions))
     .limit(1);
 
   return results.length > 0 ? results[0] : null;
 }
 
-export async function updateAuditPlan(id: number, data: any) {
+export async function updateAuditPlan(id: number, data: any, tenantId?: number) {
   const db = await getDb();
+  const conditions: any[] = [eq(hInternalAuditPlans.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAuditPlans.tenantId, tenantId));
+
   await db
     .update(hInternalAuditPlans)
     .set(data)
-    .where(eq(hInternalAuditPlans.id, id));
+    .where(and(...conditions));
 }
 
-export async function deleteAuditPlan(id: number) {
+export async function deleteAuditPlan(id: number, tenantId?: number) {
   const db = await getDb();
+  const conditions: any[] = [eq(hInternalAuditPlans.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAuditPlans.tenantId, tenantId));
+
   await db
     .delete(hInternalAuditPlans)
-    .where(eq(hInternalAuditPlans.id, id));
+    .where(and(...conditions));
 }
 
 // ============================================================================
@@ -118,12 +127,15 @@ export async function getAudits(params: {
     .offset(offset);
 }
 
-export async function getAuditById(id: number) {
+export async function getAuditById(id: number, tenantId?: number) {
   const db = await getDb();
+  const conditions: any[] = [eq(hInternalAudits.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAudits.tenantId, tenantId));
+
   const results = await db
     .select()
     .from(hInternalAudits)
-    .where(eq(hInternalAudits.id, id))
+    .where(and(...conditions))
     .limit(1);
 
   if (results.length === 0) return null;
@@ -145,15 +157,18 @@ export async function getAuditById(id: number) {
   };
 }
 
-export async function updateAudit(id: number, data: any) {
+export async function updateAudit(id: number, data: any, tenantId?: number) {
   const db = await getDb();
+  const conditions: any[] = [eq(hInternalAudits.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAudits.tenantId, tenantId));
+
   await db
     .update(hInternalAudits)
     .set(data)
-    .where(eq(hInternalAudits.id, id));
+    .where(and(...conditions));
 }
 
-export async function deleteAudit(id: number) {
+export async function deleteAudit(id: number, tenantId?: number) {
   const db = await getDb();
   
   // 관련 데이터 먼저 삭제
@@ -161,21 +176,24 @@ export async function deleteAudit(id: number) {
   await db.delete(hInternalAuditFindings).where(eq(hInternalAuditFindings.auditId, id));
   await db.delete(hInternalAuditAttachments).where(eq(hInternalAuditAttachments.auditId, id));
   
-  // 감사 기록 삭제
-  await db.delete(hInternalAudits).where(eq(hInternalAudits.id, id));
+  // 감사 기록 삭제 (tenant_id 필터 적용)
+  const conditions: any[] = [eq(hInternalAudits.id, id)];
+  if (tenantId) conditions.push(eq(hInternalAudits.tenantId, tenantId));
+
+  await db.delete(hInternalAudits).where(and(...conditions));
 }
 
 // ============================================================================
 // 내부 감사 체크리스트
 // ============================================================================
 
-export async function createChecklistItem(data: any) {
+export async function createChecklistItem(data: any, tenantId?: number) {
   const db = await getDb();
   const result = await db.insert(hInternalAuditChecklist).values(data);
   return result[0].insertId;
 }
 
-export async function getChecklistItems(auditId: number) {
+export async function getChecklistItems(auditId: number, tenantId?: number) {
   const db = await getDb();
   return await db
     .select()
@@ -183,7 +201,7 @@ export async function getChecklistItems(auditId: number) {
     .where(eq(hInternalAuditChecklist.auditId, auditId));
 }
 
-export async function getChecklistItemById(id: number) {
+export async function getChecklistItemById(id: number, tenantId?: number) {
   const db = await getDb();
   const results = await db
     .select()
@@ -194,7 +212,7 @@ export async function getChecklistItemById(id: number) {
   return results.length > 0 ? results[0] : null;
 }
 
-export async function updateChecklistItem(id: number, data: any) {
+export async function updateChecklistItem(id: number, data: any, tenantId?: number) {
   const db = await getDb();
   await db
     .update(hInternalAuditChecklist)
@@ -202,7 +220,7 @@ export async function updateChecklistItem(id: number, data: any) {
     .where(eq(hInternalAuditChecklist.id, id));
 }
 
-export async function deleteChecklistItem(id: number) {
+export async function deleteChecklistItem(id: number, tenantId?: number) {
   const db = await getDb();
   await db
     .delete(hInternalAuditChecklist)
@@ -210,7 +228,7 @@ export async function deleteChecklistItem(id: number) {
 }
 
 // 감사 통계 업데이트 (체크리스트 결과 기반)
-export async function updateAuditStatistics(auditId: number) {
+export async function updateAuditStatistics(auditId: number, tenantId?: number) {
   const db = await getDb();
   
   const checklistItems = await getChecklistItems(auditId);
@@ -237,7 +255,7 @@ export async function updateAuditStatistics(auditId: number) {
 // 내부 감사 발견 사항
 // ============================================================================
 
-export async function createFinding(data: any) {
+export async function createFinding(data: any, tenantId?: number) {
   const db = await getDb();
   const result = await db.insert(hInternalAuditFindings).values(data);
   return result[0].insertId;
@@ -249,6 +267,7 @@ export async function getFindings(params: {
   severity?: string;
   limit?: number;
   offset?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   const { auditId, status, severity, limit = 50, offset = 0 } = params;
@@ -270,7 +289,7 @@ export async function getFindings(params: {
     .offset(offset);
 }
 
-export async function getFindingById(id: number) {
+export async function getFindingById(id: number, tenantId?: number) {
   const db = await getDb();
   const results = await db
     .select()
@@ -281,7 +300,7 @@ export async function getFindingById(id: number) {
   return results.length > 0 ? results[0] : null;
 }
 
-export async function updateFinding(id: number, data: any) {
+export async function updateFinding(id: number, data: any, tenantId?: number) {
   const db = await getDb();
   await db
     .update(hInternalAuditFindings)
@@ -289,7 +308,7 @@ export async function updateFinding(id: number, data: any) {
     .where(eq(hInternalAuditFindings.id, id));
 }
 
-export async function deleteFinding(id: number) {
+export async function deleteFinding(id: number, tenantId?: number) {
   const db = await getDb();
   await db
     .delete(hInternalAuditFindings)
@@ -300,13 +319,13 @@ export async function deleteFinding(id: number) {
 // 첨부 파일
 // ============================================================================
 
-export async function createAttachment(data: any) {
+export async function createAttachment(data: any, tenantId?: number) {
   const db = await getDb();
   const result = await db.insert(hInternalAuditAttachments).values(data);
   return result[0].insertId;
 }
 
-export async function getAttachments(auditId: number) {
+export async function getAttachments(auditId: number, tenantId?: number) {
   const db = await getDb();
   return await db
     .select()
@@ -314,7 +333,7 @@ export async function getAttachments(auditId: number) {
     .where(eq(hInternalAuditAttachments.auditId, auditId));
 }
 
-export async function deleteAttachment(id: number) {
+export async function deleteAttachment(id: number, tenantId?: number) {
   const db = await getDb();
   await db
     .delete(hInternalAuditAttachments)
@@ -417,9 +436,10 @@ export async function getUpcomingAudits(params: {
 
 export async function getOpenFindingsStatistics(params: {
   siteId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
-  const { siteId } = params;
+  const { siteId, tenantId } = params;
 
   let query = db.select().from(hInternalAuditFindings);
 
@@ -427,12 +447,16 @@ export async function getOpenFindingsStatistics(params: {
     inArray(hInternalAuditFindings.status, ["open", "in_progress"]),
   ];
 
-  if (siteId) {
-    // 사업장 필터링을 위해 감사 테이블과 조인 필요
+  if (siteId || tenantId) {
+    // 사업장/테넌트 필터링을 위해 감사 테이블과 조인 필요
+    const auditConditions: any[] = [];
+    if (siteId) auditConditions.push(eq(hInternalAudits.siteId, siteId));
+    if (tenantId) auditConditions.push(eq(hInternalAudits.tenantId, tenantId));
+
     const audits = await db
       .select()
       .from(hInternalAudits)
-      .where(eq(hInternalAudits.siteId, siteId));
+      .where(and(...auditConditions));
     
     const auditIds = audits.map((a: any) => a.id);
     if (auditIds.length > 0) {

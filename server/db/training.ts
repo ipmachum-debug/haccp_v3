@@ -496,14 +496,14 @@ export async function getPendingTrainingReminders(tenantId?: number) {
     );
 }
 
-export async function markTrainingReminderAsSent(id: number) {
+export async function markTrainingReminderAsSent(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   await db
     .update(hTrainingReminders)
     .set({ sent: 1, sentAt: new Date() })
-    .where(eq(hTrainingReminders.id, id));
+    .where(and(eq(hTrainingReminders.tenantId, tenantId as any), eq(hTrainingReminders.id, id)) as any);
 }
 
 // ============================================================================

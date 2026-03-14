@@ -97,8 +97,9 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createMfReportVersion } = await import("../../db/mfReportAPI");
-        return await createMfReportVersion(input);
+        return await createMfReportVersion(input, tenantId ?? undefined);
       }),
     
     // 품목제조보고 버전 승인
@@ -156,8 +157,9 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createMfFlavor } = await import("../../db/mfReportAPI");
-        return await createMfFlavor(input);
+        return await createMfFlavor(input, tenantId ?? undefined);
       }),
     
     // 원재료 구성 추가
@@ -174,8 +176,9 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { addMfIngredient } = await import("../../db/mfReportAPI");
-        return await addMfIngredient(input);
+        return await addMfIngredient(input, tenantId ?? undefined);
       }),
     
     // 원재료 구성 수정
@@ -191,9 +194,10 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateMfIngredient } = await import("../../db/mfReportAPI");
         const { ingredientId, ...data } = input;
-        return await updateMfIngredient(ingredientId, data);
+        return await updateMfIngredient(ingredientId, data, tenantId ?? undefined);
       }),
     
     // 원재료 구성 삭제
@@ -269,7 +273,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { approveMfReportVersion } = await import("../../db/mfReportAPI");
-        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment);
+        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId ?? undefined);
       }),
     // 반려 처리
     reject: adminProcedure
@@ -296,16 +300,18 @@ export const mfReportRouter = router({
     recalculateCorrectedRatios: adminProcedure
       .input(z.object({ versionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { calculateAndSaveCorrectedRatios } = await import("../../db/mfReportAPI");
-        return await calculateAndSaveCorrectedRatios(input.versionId);
+        return await calculateAndSaveCorrectedRatios(input.versionId, tenantId ?? undefined);
       }),
 
     // 오차 분석 (배치 학습 기반)
     getDeviationAnalysis: tenantRequiredProcedure
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getDeviationAnalysis } = await import("../../db/mfReportAPI");
-        return await getDeviationAnalysis(input.versionId);
+        return await getDeviationAnalysis(input.versionId, tenantId ?? undefined);
       }),
 
     // 재고 차감 (원재료/중간재/부재료 정책 적용)
@@ -320,11 +326,12 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deductInventoryByMfReport } = await import("../../db/mfReportAPI");
         return await deductInventoryByMfReport({
           ...input,
           createdBy: ctx.user.id
-        });
+        }, tenantId ?? undefined);
       }),
     
     // 표시사항 출력 (요약형/상세형)
@@ -352,7 +359,7 @@ export const mfReportRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getProductionLogsByVersionId } = await import("../../db/productionLogAPI");
-        return await getProductionLogsByVersionId(input.versionId);
+        return await getProductionLogsByVersionId(ctx.tenantId!, input.versionId);
       }),
     
     // 재고 차감 이력 조회
@@ -364,7 +371,7 @@ export const mfReportRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllInventoryDeductionLogsByVersionId } = await import("../../db/productionLogAPI");
-        return await getAllInventoryDeductionLogsByVersionId(input.versionId);
+        return await getAllInventoryDeductionLogsByVersionId(ctx.tenantId!, input.versionId);
       }),
     // === 공정그룹 재료 매핑 & 배치 배합비 조정 API ===
     

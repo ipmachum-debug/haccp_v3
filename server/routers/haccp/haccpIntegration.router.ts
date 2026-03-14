@@ -22,7 +22,7 @@ export const haccpIntegrationRouter = router({
         return await createPurchaseFromReceipt({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId!);
       }),
 
     // 매입 거래 상세 조회
@@ -30,21 +30,21 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getPurchaseById } = await import("../../db/haccpIntegration");
-        return await getPurchaseById(input.id, ctx.tenantId ?? undefined);
+        return await getPurchaseById(input.id, ctx.tenantId!);
       }),
 
     getSaleById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getSaleById } = await import("../../db/haccpIntegration");
-        return await getSaleById(input.id, ctx.tenantId ?? undefined);
+        return await getSaleById(input.id, ctx.tenantId!);
       }),
 
     generatePurchasePdf: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generatePurchasePdf } = await import("../../db/haccpIntegration");
-        const pdfUrl = await generatePurchasePdf(input.id, ctx.tenantId ?? undefined);
+        const pdfUrl = await generatePurchasePdf(input.id, ctx.tenantId!);
         return { pdfUrl };
       }),
 
@@ -52,7 +52,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generateSalePdf } = await import("../../db/haccpIntegration");
-        const pdfUrl = await generateSalePdf(input.id, ctx.tenantId ?? undefined);
+        const pdfUrl = await generateSalePdf(input.id, ctx.tenantId!);
         return { pdfUrl };
       }),
 
@@ -75,7 +75,7 @@ export const haccpIntegrationRouter = router({
         return await createSaleFromUsage({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId!);
       }),
 
     // 재고 거래 ID로 회계 거래 조회
@@ -83,7 +83,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ inventoryTransactionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getAccountingByInventoryTransaction } = await import("../../db/haccpIntegration");
-        return await getAccountingByInventoryTransaction(input.inventoryTransactionId, ctx.tenantId ?? undefined);
+        return await getAccountingByInventoryTransaction(input.inventoryTransactionId, ctx.tenantId!);
       }),
 
     // 매입 거래 목록 조회
@@ -101,7 +101,7 @@ export const haccpIntegrationRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllPurchases } = await import("../../db/haccpIntegration");
-        return await getAllPurchases(input, ctx.tenantId ?? undefined);
+        return await getAllPurchases(input, ctx.tenantId!);
       }),
 
     // 매입 거래 직접 생성 (품목 단위)
@@ -130,7 +130,7 @@ export const haccpIntegrationRouter = router({
         return await createPurchase({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId!);
       }),
 
     // 매출 거래 목록 조회
@@ -148,7 +148,7 @@ export const haccpIntegrationRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllSales } = await import("../../db/haccpIntegration");
-        return await getAllSales(input, ctx.tenantId ?? undefined);
+        return await getAllSales(input, ctx.tenantId!);
       }),
 
     // 매출 거래 직접 생성 (품목 단위)
@@ -172,7 +172,7 @@ export const haccpIntegrationRouter = router({
         return await createSale({
           ...input,
           createdBy: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId!);
       }),
 
     // 매입 거래 수정
@@ -197,7 +197,7 @@ export const haccpIntegrationRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { updatePurchase } = await import("../../db/haccpIntegration");
         const { id, ...data } = input;
-        return await updatePurchase(id, data);
+        return await updatePurchase(id, data, ctx.tenantId!);
       }),
 
     // 매입 거래 삭제
@@ -205,7 +205,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deletePurchase } = await import("../../db/haccpIntegration");
-        return await deletePurchase(input.id, ctx.tenantId ?? undefined);
+        return await deletePurchase(input.id, ctx.tenantId!);
       }),
 
     // 매출 거래 수정
@@ -230,7 +230,7 @@ export const haccpIntegrationRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { updateSale } = await import("../../db/haccpIntegration");
         const { id, ...data } = input;
-        return await updateSale(id, data);
+        return await updateSale(id, data, ctx.tenantId!);
       }),
 
     // 매출 거래 삭제
@@ -238,7 +238,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteSale } = await import("../../db/haccpIntegration");
-        return await deleteSale(input.id, ctx.tenantId ?? undefined);
+        return await deleteSale(input.id, ctx.tenantId!);
       }),
 
     // 매입 거래명세표 PDF 생성
@@ -246,7 +246,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ purchaseId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generatePurchaseStatementPDF } = await import("../../db/transactionStatement");
-        const pdfBuffer = await generatePurchaseStatementPDF(input.purchaseId, ctx.tenantId ?? undefined);
+        const pdfBuffer = await generatePurchaseStatementPDF(input.purchaseId, ctx.tenantId!);
         
         // Base64로 변환하여 반환
         return {
@@ -260,7 +260,7 @@ export const haccpIntegrationRouter = router({
       .input(z.object({ saleId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { generateSaleStatementPDF } = await import("../../db/transactionStatement");
-        const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.tenantId ?? undefined);
+        const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.tenantId!);
         
         // Base64로 변환하여 반환
         return {
@@ -301,7 +301,7 @@ export const haccpIntegrationRouter = router({
             await createPurchase({
               ...input.items[i],
               createdBy: ctx.user.id,
-            }, ctx.tenantId ?? undefined);
+            }, ctx.tenantId!);
             successCount++;
           } catch (e: any) {
             failCount++;
@@ -338,7 +338,7 @@ export const haccpIntegrationRouter = router({
             await createSale({
               ...input.items[i],
               createdBy: ctx.user.id,
-            }, ctx.tenantId ?? undefined);
+            }, ctx.tenantId!);
             successCount++;
           } catch (e: any) {
             failCount++;

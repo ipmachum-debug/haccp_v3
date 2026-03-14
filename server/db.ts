@@ -1188,21 +1188,22 @@ export async function createInventoryLot(data: {
 /**
  * 재고 LOT 조회 (FEFO 원칙 적용 - 유통기한 가까운 순)
  */
-export async function getInventoryLotsByMaterialId(materialId: number) {
+export async function getInventoryLotsByMaterialId(materialId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hInventoryLots } = await import("../drizzle/schema.js");
   const { eq, and, asc } = await import("drizzle-orm");
-  
+
+  const conditions: any[] = [
+    eq(hInventoryLots.materialId, materialId),
+    eq(hInventoryLots.status, "available")
+  ];
+  if (tenantId) conditions.push(eq(hInventoryLots.tenantId, tenantId as any));
+
   return await db
     .select()
     .from(hInventoryLots)
-    .where(
-      and(
-        eq(hInventoryLots.materialId, materialId),
-        eq(hInventoryLots.status, "available")
-      )
-    )
+    .where(and(...conditions))
     .orderBy(asc(hInventoryLots.expiryDate)); // FEFO: 유통기한 가까운 순
 }
 
@@ -1216,6 +1217,7 @@ export async function addMaterialInputToBatch(data: {
   quantity: string;
   unit: string;
   userId: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1278,7 +1280,8 @@ export async function updateMaterialInput(
   data: {
     quantity?: string;
     lotId?: number;
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1295,7 +1298,7 @@ export async function updateMaterialInput(
     .where(eq(hBatchInputs.id, inputId));
 }
 
-export async function deleteMaterialInput(inputId: number) {
+export async function deleteMaterialInput(inputId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -1336,7 +1339,7 @@ export async function deleteMaterialInput(inputId: number) {
     .where(eqOp(hBatchInputs.id, inputId));
 }
 
-export async function getBatchMaterialInputs(batchId: number) {
+export async function getBatchMaterialInputs(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hBatchInputs, itemMaster } = await import("../drizzle/schema.js");
@@ -1385,7 +1388,7 @@ export async function getAllMaterials(tenantId?: number) {
 /**
  * 원재료 ID로 조회
  */
-export async function getMaterialById(id: number) {
+export async function getMaterialById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hMaterials } = await import("../drizzle/schema.js");
@@ -1534,7 +1537,7 @@ export async function getLowStockMaterials(tenantId?: number) {
 /**
  * 재고 부족 알림 발송
  */
-export async function notifyLowStock(materialId: number) {
+export async function notifyLowStock(materialId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hMaterials, hInventoryLots } = await import("../drizzle/schema.js");
@@ -1913,7 +1916,7 @@ export async function getTodayCcpSchedules() {
 }
 
 // ==================== PDF 보고서 생성 ====================
-export async function generateBatchReport(batchId: number) {
+export async function generateBatchReport(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -2054,7 +2057,7 @@ export async function deleteNotification(notificationId: number, tenantId?: numb
     .where(and(...conditions));
 }
 
-export async function checkAndCreateExpiryNotifications() {
+export async function checkAndCreateExpiryNotifications(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const sevenDaysFromNow = new Date();
@@ -2070,7 +2073,8 @@ export async function checkAndCreateExpiryNotifications() {
     .where(
       and(
         lte(hInventoryLots.expiryDate, sevenDaysFromNow),
-        eq(hInventoryLots.status, "available")
+        eq(hInventoryLots.status, "available"),
+        ...(tenantId ? [eq((hInventoryLots as any).tenantId, tenantId)] : [])
       )
     );
 
@@ -2234,41 +2238,51 @@ export async function createAuditLog(input: CreateAuditLogInput) {
   return;
 }
 
-export async function getAuditLogs(limit: number = 100) {
+export async function getAuditLogs(limit: number = 100, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
-  return await db
-    .select()
-    .from(auditLogs)
+
+  const conditions: any[] = [];
+  if (tenantId) conditions.push(eq(auditLogs.tenantId, tenantId));
+
+  let query = db.select().from(auditLogs);
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions)) as any;
+  }
+
+  return await query
     .orderBy(desc(auditLogs.createdAt))
     .limit(limit);
 }
 
-export async function getAuditLogsByEntity(entityType: string, entityId: number) {
+export async function getAuditLogsByEntity(entityType: string, entityId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
+  const conditions: any[] = [
+    eq(auditLogs.entityType, entityType),
+    eq(auditLogs.entityId, entityId)
+  ];
+  if (tenantId) conditions.push(eq(auditLogs.tenantId, tenantId));
+
   return await db
     .select()
     .from(auditLogs)
-    .where(
-      and(
-        eq(auditLogs.entityType, entityType),
-        eq(auditLogs.entityId, entityId)
-      )
-    )
+    .where(and(...conditions))
     .orderBy(desc(auditLogs.createdAt));
 }
 
-export async function getAuditLogsByUser(userId: number, limit: number = 50) {
+export async function getAuditLogsByUser(userId: number, limit: number = 50, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
+  const conditions: any[] = [eq(auditLogs.userId, userId)];
+  if (tenantId) conditions.push(eq(auditLogs.tenantId, tenantId));
+
   return await db
     .select()
     .from(auditLogs)
-    .where(eq(auditLogs.userId, userId))
+    .where(and(...conditions))
     .orderBy(desc(auditLogs.createdAt))
     .limit(limit);
 }
@@ -3603,10 +3617,12 @@ export async function getAllSuppliers(tenantId?: number) {
   return await db.select().from(hSuppliers).where(and(...conditions));
 }
 
-export async function getSupplierById(id: number) {
+export async function getSupplierById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return null;
-  const [supplier] = await db.select().from(hSuppliers).where(eq(hSuppliers.id, id));
+  const conditions: any[] = [eq(hSuppliers.id, id)];
+  if (tenantId) conditions.push(eq(hSuppliers.tenantId, tenantId as any));
+  const [supplier] = await db.select().from(hSuppliers).where(and(...conditions));
   return supplier;
 }
 
@@ -3943,10 +3959,12 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
 /**
  * 승인 이력 조회
  */
-export async function getApprovalHistory(requestId: number) {
+export async function getApprovalHistory(requestId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // tenantId is accepted for tenant isolation at the router level;
+  // the history is scoped via requestId which is already tenant-scoped.
   return await db.select()
     .from(hApprovalHistory)
     .where(eq(hApprovalHistory.requestId, requestId))
@@ -5068,7 +5086,7 @@ export async function getInventoryTurnoverRate(filters?: {
 /**
  * 장기 재고 항목 식별
  */
-export async function getSlowMovingItems(thresholdDays: number = 90) {
+export async function getSlowMovingItems(thresholdDays: number = 90, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -5100,7 +5118,7 @@ export async function getSlowMovingItems(thresholdDays: number = 90) {
 }
 
 // 원재료 단가 업데이트 (이력 자동 저장)
-export async function updateMaterialPrice(id: number, unitPrice: number, changedBy?: number, reason?: string) {
+export async function updateMaterialPrice(id: number, unitPrice: number, changedBy?: number, reason?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -5134,7 +5152,7 @@ export async function updateMaterialPrice(id: number, unitPrice: number, changed
 }
 
 // 재고 회전율 알림 생성
-export async function createInventoryTurnoverAlert(materialId: number, turnoverRate: number, thresholdRate: number) {
+export async function createInventoryTurnoverAlert(materialId: number, turnoverRate: number, thresholdRate: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -5279,7 +5297,7 @@ export async function getMaterialPriceHistory(materialId: number) {
 }
 
 // 재고 회전율 임계값 설정
-export async function setInventoryTurnoverThreshold(materialId: number, thresholdRate: number, alertEnabled: boolean = true) {
+export async function setInventoryTurnoverThreshold(materialId: number, thresholdRate: number, alertEnabled: boolean = true, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -5314,7 +5332,7 @@ export async function setInventoryTurnoverThreshold(materialId: number, threshol
 }
 
 // 재고 회전율 임계값 조회
-export async function getInventoryTurnoverSettings() {
+export async function getInventoryTurnoverSettings(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -5473,7 +5491,7 @@ export async function getProfitabilityForecast() {
 }
 
 // 재고 회전율 임계값 기반 자동 알림 생성
-export async function checkAndCreateTurnoverAlerts() {
+export async function checkAndCreateTurnoverAlerts(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -6503,7 +6521,7 @@ export async function completeBatch(params: {
  * @param expiryWarningDays 기본 유통기한 알림 기준일 (일)
  * @returns 업데이트된 원재료 개수
  */
-export async function batchUpdateExpiryWarningDays(expiryWarningDays: number): Promise<number> {
+export async function batchUpdateExpiryWarningDays(expiryWarningDays: number, tenantId?: number): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -6550,32 +6568,38 @@ export async function getNotificationCountsByType(userId?: number, tenantId?: nu
 /**
  * 선택한 알림 읽음 처리
  */
-export async function markMultipleNotificationsAsRead(notificationIds: number[]) {
+export async function markMultipleNotificationsAsRead(notificationIds: number[], tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결 실패");
 
-  const { inArray } = await import("drizzle-orm");
+  const { inArray, and: andOp, eq: eqOp } = await import("drizzle-orm");
   const { hNotifications } = await import("../drizzle/schema.js");
+
+  const conditions: any[] = [inArray(hNotifications.id, notificationIds)];
+  if (tenantId) conditions.push(eqOp(hNotifications.tenantId, tenantId));
 
   await db
     .update(hNotifications)
     .set({ isRead: 1 })
-    .where(inArray(hNotifications.id, notificationIds));
+    .where(andOp(...conditions));
 }
 
 /**
  * 선택한 알림 삭제
  */
-export async function deleteMultipleNotifications(notificationIds: number[]) {
+export async function deleteMultipleNotifications(notificationIds: number[], tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결 실패");
 
-  const { inArray } = await import("drizzle-orm");
+  const { inArray, and: andOp, eq: eqOp } = await import("drizzle-orm");
   const { hNotifications } = await import("../drizzle/schema.js");
+
+  const conditions: any[] = [inArray(hNotifications.id, notificationIds)];
+  if (tenantId) conditions.push(eqOp(hNotifications.tenantId, tenantId));
 
   await db
     .delete(hNotifications)
-    .where(inArray(hNotifications.id, notificationIds));
+    .where(andOp(...conditions));
 }
 
 // 읽은 알림 자동 삭제 (30일 경과)
@@ -6615,7 +6639,7 @@ export async function archiveNotificationsByType(notificationType: string, tenan
 }
 
 // 재고 LOT 삭제
-export async function deleteInventoryLot(lotId: number) {
+export async function deleteInventoryLot(lotId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -8608,6 +8632,7 @@ export async function createGroup(data: {
   description?: string;
   groupType: "department" | "team" | "project" | "custom";
   createdBy: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
@@ -8627,7 +8652,7 @@ export async function createGroup(data: {
 /**
  * 모든 그룹 조회
  */
-export async function getAllGroups() {
+export async function getAllGroups(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
@@ -8660,7 +8685,8 @@ export async function updateGroup(
     name?: string;
     description?: string;
     groupType?: "department" | "team" | "project" | "custom";
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
@@ -8678,7 +8704,7 @@ export async function updateGroup(
 /**
  * 그룹 삭제
  */
-export async function deleteGroup(groupId: number) {
+export async function deleteGroup(groupId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
@@ -8715,7 +8741,7 @@ export async function addGroupMember(data: {
 /**
  * 그룹에서 멤버 제거
  */
-export async function removeGroupMember(groupId: number, userId: number) {
+export async function removeGroupMember(groupId: number, userId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
@@ -8736,7 +8762,7 @@ export async function removeGroupMember(groupId: number, userId: number) {
 /**
  * 그룹 멤버 목록 조회
  */
-export async function getGroupMembers(groupId: number) {
+export async function getGroupMembers(groupId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
@@ -8764,7 +8790,7 @@ export async function getGroupMembers(groupId: number) {
 /**
  * 사용자가 속한 그룹 목록 조회
  */
-export async function getUserGroups(userId: number) {
+export async function getUserGroups(userId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 

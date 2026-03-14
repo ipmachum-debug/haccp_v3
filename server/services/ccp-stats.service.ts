@@ -38,7 +38,7 @@ export interface CcpStatsTrend {
 interface StatsArgs {
   startDate?: string;
   endDate?: string;
-  tenantId?: number;
+  tenantId: number;
 }
 
 /**
@@ -53,9 +53,7 @@ export async function getCcpStatsOverview(args: StatsArgs): Promise<CcpStatsOver
 
   // 날짜 + 테넌트 필터 조건
   const conditions: any[] = [];
-  if (args.tenantId) {
-    conditions.push(eq(hBatches.tenantId, args.tenantId));
-  }
+  conditions.push(eq(hBatches.tenantId, args.tenantId));
   if (args.startDate) {
     conditions.push(gte(hBatches.plannedDate, new Date(args.startDate)));
   }
@@ -116,9 +114,7 @@ export async function getCcpStatsByProduct(args: StatsArgs): Promise<CcpStatsByP
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");
 
   const conditions: any[] = [];
-  if (args.tenantId) {
-    conditions.push(eq(hBatches.tenantId, args.tenantId));
-  }
+  conditions.push(eq(hBatches.tenantId, args.tenantId));
   if (args.startDate) {
     conditions.push(gte(hBatches.plannedDate, new Date(args.startDate)));
   }
@@ -164,9 +160,7 @@ export async function getCcpStatsByCcpType(args: StatsArgs): Promise<CcpStatsByC
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");
 
   const conditions: any[] = [];
-  if (args.tenantId) {
-    conditions.push(eq(hBatches.tenantId, args.tenantId));
-  }
+  conditions.push(eq(hBatches.tenantId, args.tenantId));
   if (args.startDate) {
     conditions.push(gte(hBatches.plannedDate, new Date(args.startDate)));
   }
@@ -202,7 +196,7 @@ export async function getCcpStatsByCcpType(args: StatsArgs): Promise<CcpStatsByC
 export async function getCcpStatsTrend(args: {
   startDate: string;
   endDate: string;
-  tenantId?: number;
+  tenantId: number;
 }): Promise<CcpStatsTrend[]> {
   const dbInstance = await db.getDb();
   if (!dbInstance) throw new Error("Database not available");
@@ -214,9 +208,7 @@ export async function getCcpStatsTrend(args: {
     gte(hBatches.plannedDate, new Date(args.startDate)),
     lte(hBatches.plannedDate, new Date(args.endDate)),
   ];
-  if (args.tenantId) {
-    conditions.push(eq(hBatches.tenantId, args.tenantId));
-  }
+  conditions.push(eq(hBatches.tenantId, args.tenantId));
 
   const { hCcpRows } = await import("../../drizzle/schema.js");
   const results = await dbInstance

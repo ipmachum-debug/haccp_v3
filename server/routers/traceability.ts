@@ -69,7 +69,7 @@ export const traceabilityRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      return await saveLotTraceHistory(input);
+      return await saveLotTraceHistory(input, ctx.tenantId);
     }),
 
   /**

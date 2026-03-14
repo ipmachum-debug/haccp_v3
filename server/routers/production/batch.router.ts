@@ -56,7 +56,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(input.productId);
+        const product = await getProductById(input.productId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -663,12 +663,13 @@ export const batchRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateBatchSchedule, createAuditLog } = await import("../../db");
         await updateBatchSchedule(input.id, {
           plannedDate: input.plannedDate,
           startTime: input.startTime,
           endTime: input.endTime
-        });
+        }, tenantId ?? undefined);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -892,8 +893,9 @@ export const batchRouter = router({
     generateBatchCode: tenantRequiredProcedure
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { generateBatchCode } = await import("../../db");
-        const batchCode = await generateBatchCode(input.productId);
+        const batchCode = await generateBatchCode(input.productId, tenantId ?? undefined);
         return { batchCode };
       }),
     
@@ -907,7 +909,8 @@ export const batchRouter = router({
         const { getBatchById, getProductById } = await import("../../db");
 
         // 배치 정보 조회
-        const batch = await getBatchById(input.batchId);
+        const tenantId = ctx.tenantId;
+        const batch = await getBatchById(input.batchId, tenantId ?? undefined);
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
 
         // 이미 CCP 인스턴스가 있는지 확인
@@ -927,7 +930,7 @@ export const batchRouter = router({
           };
         }
 
-        const product = await getProductById(batch.productId);
+        const product = await getProductById(batch.productId, tenantId ?? undefined);
         const workDate = batch.plannedDate
           ? new Date(batch.plannedDate).toISOString().split("T")[0]
           : new Date().toISOString().split("T")[0];
@@ -960,8 +963,9 @@ export const batchRouter = router({
     getCost: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getBatchCost } = await import("../../db");
-        return await getBatchCost(input.batchId);
+        return await getBatchCost(input.batchId, tenantId ?? undefined);
       }),
     
     // 배치 대시보드 데이터 조회

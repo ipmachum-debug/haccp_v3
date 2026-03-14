@@ -7,17 +7,17 @@ export const recipeApprovalRouter = router({
     getPending: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getPendingRecipes } = await import("../../api/recipeApproval");
-        return await getPendingRecipes();
+        return await getPendingRecipes(ctx.tenantId!);
       }),
-    
+
     // 품목제조보고 승인
     approve: adminProcedure
       .input(z.object({ recipeId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { approveRecipe } = await import("../../api/recipeApproval");
-        return await approveRecipe({ recipeId: input.recipeId, userId: ctx.user.id });
+        return await approveRecipe(ctx.tenantId!, { recipeId: input.recipeId, userId: ctx.user.id });
       }),
-    
+
     // 품목제조보고 승인 이력 조회
     getHistory: tenantRequiredProcedure
       .input(z.object({
@@ -27,9 +27,9 @@ export const recipeApprovalRouter = router({
       }).optional())
       .query(async ({ input, ctx }) => {
         const { getRecipeApprovalHistory } = await import("../../api/recipeApproval");
-        return await getRecipeApprovalHistory(input);
+        return await getRecipeApprovalHistory(ctx.tenantId!, input);
       }),
-    
+
     // 품목제조보고 반려
     reject: adminProcedure
       .input(z.object({
@@ -38,18 +38,18 @@ export const recipeApprovalRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { rejectRecipe } = await import("../../api/recipeApproval");
-        return await rejectRecipe({
+        return await rejectRecipe(ctx.tenantId!, {
           recipeId: input.recipeId,
           userId: ctx.user.id,
           reason: input.reason
         });
       }),
-    
+
     // 품목제조보고 상세 조회 (승인 정보 포함)
     getDetail: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipeWithApprovalInfo } = await import("../../api/recipeApproval");
-        return await getRecipeWithApprovalInfo(input.recipeId);
+        return await getRecipeWithApprovalInfo(ctx.tenantId!, input.recipeId);
       })
 });

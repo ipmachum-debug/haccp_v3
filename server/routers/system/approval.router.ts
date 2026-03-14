@@ -235,8 +235,9 @@ export const approvalRouter = router({
     getHistory: tenantRequiredProcedure
       .input(z.object({ requestId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getApprovalHistory } = await import("../../db");
-        return await getApprovalHistory(input.requestId);
+        return await getApprovalHistory(input.requestId, tenantId ?? undefined);
       }),
 
     // 대기 중인 승인 요청 개수
@@ -328,6 +329,7 @@ export const approvalRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const db = (await import("../../db")).getDb();
         const dbConn = await db;
         if (!dbConn) throw new Error("Database not available");
@@ -338,10 +340,10 @@ export const approvalRouter = router({
 
         const { sql: sqlTag } = await import("drizzle-orm");
         const idList = input.requestIds.join(",");
-        // 승인 이력 삭제
-        await dbConn.execute(sqlTag`DELETE FROM h_approval_history WHERE request_id IN (${sqlTag.raw(idList)})`);
-        // 승인 요청 삭제
-        await dbConn.execute(sqlTag`DELETE FROM h_approval_requests WHERE id IN (${sqlTag.raw(idList)})`);
+        // 승인 이력 삭제 (tenant_id 필터 적용)
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_history WHERE request_id IN (${sqlTag.raw(idList)}) AND request_id IN (SELECT id FROM h_approval_requests WHERE tenant_id = ${tenantId})`);
+        // 승인 요청 삭제 (tenant_id 필터 적용)
+        await dbConn.execute(sqlTag`DELETE FROM h_approval_requests WHERE id IN (${sqlTag.raw(idList)}) AND tenant_id = ${tenantId}`);
 
         return { success: true, deletedCount: input.requestIds.length, message: `${input.requestIds.length}건의 승인 요청이 삭제되었습니다.` };
       }),

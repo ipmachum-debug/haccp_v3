@@ -8,7 +8,8 @@ export const ccpRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getCcpInstancesByBatchId } = await import("../../db");
-        const instances = await getCcpInstancesByBatchId(input.batchId);
+        const tenantId = ctx.tenantId;
+        const instances = await getCcpInstancesByBatchId(input.batchId, tenantId);
         // tenant_id 보안 검증: 해당 배치가 현재 테넌트 소속인지 확인
         if (instances.length > 0 && (ctx.tenantId ?? undefined)) {
           // 인스턴스 반환 (rows 포함)
@@ -20,16 +21,18 @@ export const ccpRouter = router({
     getInstanceById: tenantRequiredProcedure
       .input(z.object({ instanceId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpInstanceById } = await import("../../db");
-        return await getCcpInstanceById(input.instanceId);
+        return await getCcpInstanceById(input.instanceId, tenantId);
       }),
     
     // CCP 인스턴스별 점검 행 조회
     getRowsByInstanceId: tenantRequiredProcedure
       .input(z.object({ instanceId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpRowsByInstanceId } = await import("../../db");
-        return await getCcpRowsByInstanceId(input.instanceId);
+        return await getCcpRowsByInstanceId(input.instanceId, tenantId);
       }),
     
     // CCP 템플릿 조회 (ccpType으로)
@@ -41,7 +44,7 @@ export const ccpRouter = router({
         if (templates.length === 0) return null;
         
         const template = templates[0];
-        const rows = await getCcpTemplateRows(template.id);
+        const rows = await getCcpTemplateRows(template.id, ctx.tenantId);
         
         return {
           ...template,
@@ -66,9 +69,10 @@ export const ccpRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateCcpRow } = await import("../../db");
         const { rowId, ...data } = input;
-        return await updateCcpRow(rowId, data);
+        return await updateCcpRow(rowId, data, tenantId);
       }),
 
     // CCP 점검 행 생성
@@ -91,11 +95,12 @@ export const ccpRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createCcpRow, getCcpInstanceById, createCcpDeviation, createNotification, getBatchById } = await import("../../db");
         
+        const tenantId = ctx.tenantId;
         // CCP 점검 행 생성
-        const newRow = await createCcpRow(input);
+        const newRow = await createCcpRow(input, tenantId);
         
         // 한계기준 검사는 클라이언트 측에서 수행
-        const instance = await getCcpInstanceById(input.instanceId);
+        const instance = await getCcpInstanceById(input.instanceId, tenantId);
         let deviationDetected = false;
         let deviationMessage = "";
         
@@ -142,9 +147,10 @@ export const ccpRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createCcpRecord } = await import("../../db/ccpRecords");
         const { getCcpInstanceById, getBatchById, createNotification } = await import("../../db");
-        
+
         const recordData = {
           measuredValue: input.measuredValue,
           result: input.result,
@@ -157,12 +163,12 @@ export const ccpRouter = router({
         await createCcpRecord({
           instanceId: input.instanceId,
           recordData
-        });
+        }, tenantId);
         
         // CCP 점검 완료 알림 발송
-        const instance = await getCcpInstanceById(input.instanceId);
+        const instance = await getCcpInstanceById(input.instanceId, tenantId);
         if (instance && instance.batchId !== null) {
-          const batch = await getBatchById(instance.batchId);
+          const batch = await getBatchById(instance.batchId, tenantId);
           
           // 관리자에게 알림 발송
           await createNotification({
@@ -197,8 +203,9 @@ export const ccpRouter = router({
         scheduledTime: z.date()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createInspectionAlert } = await import("../../db/ccpInspectionAlerts");
-        return await createInspectionAlert(input);
+        return await createInspectionAlert(input, tenantId);
       }),
     
     // 사용자별 대기 중인 알림 조회
@@ -219,11 +226,13 @@ export const ccpRouter = router({
     // CCP 점검 완료 여부 확인
     checkInspectionComplete: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
-      .query(async ({ input }) => {        const { getCcpInstancesByBatchId } = await import("../../db");
+      .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
+        const { getCcpInstancesByBatchId } = await import("../../db");
         const { getCcpRecordsByInstanceId } = await import("../../db/ccpRecords");
-        
+
         // 배치의 모든 CCP 인스턴스 조회
-        const instances = await getCcpInstancesByBatchId(input.batchId);
+        const instances = await getCcpInstancesByBatchId(input.batchId, tenantId);
         
         if (!instances || instances.length === 0) {
           return {
@@ -244,7 +253,7 @@ export const ccpRouter = router({
         
         // 각 CCP 인스턴스의 점검 기록 확인
         for (const instance of instances) {
-          const records = await getCcpRecordsByInstanceId(instance.id);
+          const records = await getCcpRecordsByInstanceId(instance.id, tenantId);
           
           if (!records || records.length === 0) {
             incompleteCcps.push({
@@ -295,8 +304,9 @@ export const ccpRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateCcpInstanceStatus, createAuditLog } = await import("../../db");
-        await updateCcpInstanceStatus(input.instanceId, input.status, ctx.user?.id);
+        await updateCcpInstanceStatus(input.instanceId, input.status, ctx.user?.id, tenantId);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -333,16 +343,18 @@ export const ccpRouter = router({
     getDeviationCount: tenantRequiredProcedure
       .input(z.object({ instanceId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpDeviationCount } = await import("../../db");
-        return await getCcpDeviationCount(input.instanceId);
+        return await getCcpDeviationCount(input.instanceId, tenantId);
       }),
     
     // CCP 일괄 삭제
     bulkDelete: workerProcedure
       .input(z.object({ instanceIds: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deleteCcpInstances, createAuditLog } = await import("../../db");
-        const result = await deleteCcpInstances(input.instanceIds);
+        const result = await deleteCcpInstances(input.instanceIds, tenantId);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -409,10 +421,11 @@ export const ccpRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpInspectionHistory } = await import("../../db");
         const { exportCcpInspectionToExcel } = await import("../../services/excel-export");
-        
-        const data = await getCcpInspectionHistory(input);
+
+        const data = await getCcpInspectionHistory(input, tenantId);
         const buffer = await exportCcpInspectionToExcel(data);
         
         // Buffer를 Base64로 변환하여 반환
@@ -436,16 +449,17 @@ export const ccpRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const {
           getCcpDeviationStatsByMonth,
           getCcpDeviationStatsByProduct,
           getCcpDeviationStatsByCcpType
         } = await import("../../db");
-        
+
         const [byMonth, byProduct, byCcpType] = await Promise.all([
-          getCcpDeviationStatsByMonth(input),
-          getCcpDeviationStatsByProduct(input),
-          getCcpDeviationStatsByCcpType(input),
+          getCcpDeviationStatsByMonth(input, tenantId),
+          getCcpDeviationStatsByProduct(input, tenantId),
+          getCcpDeviationStatsByCcpType(input, tenantId),
         ]);
         
         return {
@@ -465,8 +479,9 @@ export const ccpRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpComplianceStats } = await import("../../db/ccpStats");
-        return await getCcpComplianceStats(input);
+        return await getCcpComplianceStats(input, tenantId);
       }),
     
     // CCP 이탈 건수 추이 (월별/주별)
@@ -479,7 +494,8 @@ export const ccpRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCcpDeviationTrend } = await import("../../db/ccpStats");
-        return await getCcpDeviationTrend(input);
+        return await getCcpDeviationTrend(input, tenantId);
       })
 });

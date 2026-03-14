@@ -29,11 +29,13 @@ export const ccpScheduleRouter = router({
         note: z.string().optional()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { completeCcpSchedule } = await import("../../db");
         await completeCcpSchedule(
           input.scheduleId,
           ctx.user?.id || 0,
-          input.note
+          input.note,
+          tenantId
         );
         return { success: true, message: "점검이 완료되었습니다." };
       }),
@@ -45,10 +47,12 @@ export const ccpScheduleRouter = router({
         newDate: z.string()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateCcpScheduleDate } = await import("../../db");
         await updateCcpScheduleDate(
           input.scheduleId,
-          new Date(input.newDate)
+          new Date(input.newDate),
+          tenantId
         );
         return { success: true, message: "일정이 변경되었습니다." };
       })

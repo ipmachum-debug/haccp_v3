@@ -13,16 +13,18 @@ export const checklistTemplateRouter = router({
         isActive: z.boolean().optional()
       }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getChecklistTemplates } = await import("../../db");
-        return await getChecklistTemplates({ ...input, tenantId: ctx.tenantId ?? undefined });
+        return await getChecklistTemplates({ ...input, tenantId: tenantId ?? undefined }, tenantId);
       }),
     
     // 템플릿 상세 조회 (항목 포함)
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getChecklistTemplateById } = await import("../../db");
-        const template = await getChecklistTemplateById(input.id);
+        const template = await getChecklistTemplateById(input.id, tenantId);
         if (!template) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -54,12 +56,13 @@ export const checklistTemplateRouter = router({
         )
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createChecklistTemplateWithItems, createAuditLog } = await import("../../db");
         const template = await createChecklistTemplateWithItems({
           ...input,
           createdBy: ctx.user.id
-        });
-        
+        }, tenantId);
+
         // 감사 로그 기록
         await createAuditLog({
           userId: ctx.user.id,
@@ -69,7 +72,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 생성: ${input.name}`
-        });
+        }, tenantId);
         
         return template;
       }),
@@ -100,10 +103,11 @@ export const checklistTemplateRouter = router({
         ).optional()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateChecklistTemplate, createAuditLog } = await import("../../db");
         const { id, items, ...templateData } = input;
-        const template = await updateChecklistTemplate(id, templateData, items);
-        
+        const template = await updateChecklistTemplate(id, templateData, items, tenantId);
+
         // 감사 로그 기록
         await createAuditLog({
           userId: ctx.user.id,
@@ -113,8 +117,8 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 수정: ${input.name || id}`
-        });
-        
+        }, tenantId);
+
         return template;
       }),
     
@@ -122,9 +126,10 @@ export const checklistTemplateRouter = router({
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deleteChecklistTemplate, createAuditLog } = await import("../../db");
-        const result = await deleteChecklistTemplate(input.id);
-        
+        const result = await deleteChecklistTemplate(input.id, tenantId);
+
         // 감사 로그 기록
         await createAuditLog({
           userId: ctx.user.id,
@@ -134,8 +139,8 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 삭제: ${input.id}`
-        });
-        
+        }, tenantId);
+
         return result;
       }),
     
@@ -146,8 +151,9 @@ export const checklistTemplateRouter = router({
         newName: z.string().min(1)
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getChecklistTemplateById, createChecklistTemplateWithItems, createAuditLog } = await import("../../db");
-        const template = await getChecklistTemplateById(input.id);
+        const template = await getChecklistTemplateById(input.id, tenantId);
         if (!template) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -172,8 +178,8 @@ export const checklistTemplateRouter = router({
             defaultValue: item.defaultValue || undefined,
             helpText: item.helpText || undefined
           }))
-        });
-        
+        }, tenantId);
+
         // 감사 로그 기록
         await createAuditLog({
           userId: ctx.user.id,
@@ -183,7 +189,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 복제: ${input.newName}`
-        });
+        }, tenantId);
         
         return newTemplate;
       })

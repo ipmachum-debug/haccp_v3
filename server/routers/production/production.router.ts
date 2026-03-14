@@ -21,12 +21,13 @@ export const productionRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createSupplierEvaluation } = await import("../../db");
         const evaluationId = await createSupplierEvaluation({
           ...input,
           evaluationDate: new Date(input.evaluationDate),
           evaluatedBy: ctx.user.id
-        });
+        }, tenantId ?? undefined);
         return { success: true, evaluationId };
       }),
 
@@ -34,15 +35,17 @@ export const productionRouter = router({
     list: tenantRequiredProcedure
       .input(z.object({ supplierId: z.number().optional() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getSupplierEvaluations } = await import("../../db");
-        return await getSupplierEvaluations(input.supplierId);
+        return await getSupplierEvaluations(input.supplierId, tenantId ?? undefined);
       }),
 
     // 평가 통계 조회
     getStats: tenantRequiredProcedure
       .input(z.object({ supplierId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getSupplierEvaluationStats } = await import("../../db");
-        return await getSupplierEvaluationStats(input.supplierId);
+        return await getSupplierEvaluationStats(input.supplierId, tenantId ?? undefined);
       })
 });

@@ -15,14 +15,15 @@ export const accountingMonthlyRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
 
         // 1. 월간 집계 계산
-        const calculated = await summaryDb.calculateMonthlySummary(input.year, input.month, ctx.tenantId ?? undefined);
+        const calculated = await summaryDb.calculateMonthlySummary(input.year, input.month, tenantId);
 
         // 2. 월 마감 요약 저장/업데이트
         const summaryId = await summaryDb.upsertMonthlySummary({
-          tenantId: ctx.tenantId!,
+          tenantId: tenantId!,
           year: input.year,
           month: input.month,
           totalDeposit: calculated.totalDeposit,
@@ -33,7 +34,7 @@ export const accountingMonthlyRouter = router({
           missingDays: calculated.missingDays,
           highAmountThreshold: input.highAmountThreshold.toFixed(2),
           status: "draft"
-        }, ctx.tenantId ?? undefined);
+        }, tenantId);
 
         // 3. 고액 거래 추출
         const highAmountCount = await summaryDb.extractHighAmountTransactions(
@@ -41,12 +42,12 @@ export const accountingMonthlyRouter = router({
           input.year,
           input.month,
           input.highAmountThreshold,
-          ctx.tenantId ?? undefined
+          tenantId
         );
 
         // 4. 고액 거래 건수 업데이트
         await summaryDb.upsertMonthlySummary({
-          tenantId: ctx.tenantId!,
+          tenantId: tenantId!,
           year: input.year,
           month: input.month,
           totalDeposit: calculated.totalDeposit,
@@ -58,7 +59,7 @@ export const accountingMonthlyRouter = router({
           highAmountCount,
           highAmountThreshold: input.highAmountThreshold.toFixed(2),
           status: "draft"
-        }, ctx.tenantId ?? undefined);
+        }, tenantId);
 
         return {
           success: true,
@@ -81,9 +82,10 @@ export const accountingMonthlyRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
 
-        const summary = await summaryDb.getMonthlySummary(input.year, input.month);
+        const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -98,7 +100,7 @@ export const accountingMonthlyRouter = router({
           });
         }
 
-        await summaryDb.updateMonthlySummaryStatus(summary.id, "confirmed", ctx.user.id, ctx.tenantId ?? undefined);
+        await summaryDb.updateMonthlySummaryStatus(summary.id, "confirmed", ctx.user.id, tenantId);
 
         return {
           success: true,
@@ -114,9 +116,10 @@ export const accountingMonthlyRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
 
-        const summary = await summaryDb.getMonthlySummary(input.year, input.month);
+        const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -131,7 +134,7 @@ export const accountingMonthlyRouter = router({
           });
         }
 
-        await summaryDb.updateMonthlySummaryStatus(summary.id, "locked", ctx.user.id);
+        await summaryDb.updateMonthlySummaryStatus(summary.id, "locked", ctx.user.id, tenantId);
 
         return {
           success: true,
@@ -146,8 +149,9 @@ export const accountingMonthlyRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
-        return await summaryDb.listMonthlySummaries(input.limit, ctx.tenantId ?? undefined);
+        return await summaryDb.listMonthlySummaries(input.limit, tenantId);
       }),
 
     // 월 마감 상세 조회
@@ -159,18 +163,19 @@ export const accountingMonthlyRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
-        
-        const summary = await summaryDb.getMonthlySummary(input.year, input.month);
+
+        const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
           return null;
         }
 
         // 고액 거래 목록 조회
-        const highAmountTransactions = await summaryDb.getHighAmountTransactions(summary.id, ctx.tenantId ?? undefined);
+        const highAmountTransactions = await summaryDb.getHighAmountTransactions(summary.id, tenantId);
 
         // 리포트 목록 조회
-        const reports = await summaryDb.getMonthlyReports(summary.id, ctx.tenantId ?? undefined);
+        const reports = await summaryDb.getMonthlyReports(summary.id, tenantId);
 
         return {
           ...summary,
@@ -188,10 +193,11 @@ export const accountingMonthlyRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const summaryDb = await import("../../db/accountingMonthlySummary");
         const { generatePDF, generateMonthlyReportHTML } = await import("../../_core/pdfGenerator");
 
-        const summary = await summaryDb.getMonthlySummary(input.year, input.month);
+        const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -200,7 +206,7 @@ export const accountingMonthlyRouter = router({
         }
 
         // 고액 거래 데이터 조회
-        const highAmountTransactions = await summaryDb.getHighAmountTransactions(summary.id);
+        const highAmountTransactions = await summaryDb.getHighAmountTransactions(summary.id, tenantId);
 
         // HTML 템플릿 생성
         const html = generateMonthlyReportHTML({
@@ -225,19 +231,19 @@ export const accountingMonthlyRouter = router({
           filename: fileName,
           format: "A4",
           landscape: false,
-          tenantId: ctx.tenantId ?? undefined
+          tenantId: tenantId ?? undefined
         });
 
         // 리포트 메타데이터 저장
         const reportId = await summaryDb.saveMonthlyReport({
-          tenantId: ctx.tenantId!,
+          tenantId: tenantId!,
           summaryId: summary.id,
           fileKey,
           fileUrl,
           fileName: `${fileName}.pdf`,
           fileSize: null, // puppeteer는 파일 크기를 반환하지 않음
           generatedBy: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, tenantId);
 
         return {
           success: true,
@@ -249,7 +255,8 @@ export const accountingMonthlyRouter = router({
     // 월 마감 재오픈 (stub)
     reopen: adminProcedure
       .input(z.object({ year: z.number(), month: z.number(), reason: z.string().optional() }))
-      .mutation(async () => {
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         return { success: true, message: '재오픈 기능은 준비중입니다.' };
       }),
 });
