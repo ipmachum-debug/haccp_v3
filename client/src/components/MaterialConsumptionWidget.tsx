@@ -40,7 +40,7 @@ export function MaterialConsumptionWidget() {
       </div>
 
       <div className="space-y-3">
-        {data.map((item) => (
+        {data.map((item: any) => (
           <div key={item.materialId} className="flex justify-between items-center">
             <span className="text-xs md:text-sm text-muted-foreground truncate flex-1">
               {item.materialName}

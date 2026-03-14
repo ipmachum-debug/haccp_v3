@@ -66,10 +66,12 @@ export async function postMaterialOutbound(
 
   // 3. LOT 할당 저장
   await saveLotAllocations(
-    "OUTBOUND",
-    outboundId,
-    1, // line_id (단일 품목이면 1)
-    allocations
+    "OTHER",
+    `OUTBOUND-${outboundId}`,
+    `OUTBOUND-${outboundId}-1`,
+    allocations,
+    outbound.unit,
+    userId
   );
 
   // 4. 재고 원장 생성 (각 LOT별로)

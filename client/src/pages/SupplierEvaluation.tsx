@@ -102,7 +102,7 @@ export default function SupplierEvaluation() {
 
   // 평가 추이 차트 데이터
   const trendData = evaluations
-    ? evaluations.slice(0, 10).reverse().map((e) => ({
+    ? evaluations.slice(0, 10).reverse().map((e: any) => ({
         date: format(new Date(e.evaluationDate), "MM/dd", { locale: ko }),
         품질: e.qualityScore,
         납기: e.deliveryScore,

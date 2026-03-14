@@ -40,14 +40,14 @@ export default function UserApproval() {
 
   // 승인/거부 mutation
   const approveMutation = trpc.superadminApproval.approveClientAdmin.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       utils.superadminApproval.getPendingClientAdmins.invalidate();
       setSelectedUser(null);
       setAction(null);
       setAdminMemo("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "처리 중 오류가 발생했습니다.");
     },
   });

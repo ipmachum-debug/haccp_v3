@@ -57,7 +57,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const updateMutation = trpc.support.adminUpdate.useMutation({
@@ -67,7 +67,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const deleteMutation = trpc.support.adminDelete.useMutation({
@@ -76,7 +76,7 @@ function TicketModal({
       onClose();
       utils.support.adminList.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const statusMutation = trpc.support.updateStatus.useMutation({
@@ -85,7 +85,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const handleReply = () => {
@@ -336,7 +336,7 @@ export default function SupportManagePage() {
       toast.success("삭제되었습니다.");
       refetch();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const handleQuickDelete = (id: number, subject: string) => {

@@ -57,7 +57,7 @@ export default function InternalAuditPlan({ embedded, ..._ }: { embedded?: boole
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -69,7 +69,7 @@ export default function InternalAuditPlan({ embedded, ..._ }: { embedded?: boole
       setIsEditOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

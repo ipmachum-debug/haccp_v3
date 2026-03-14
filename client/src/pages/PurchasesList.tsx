@@ -68,7 +68,7 @@ function PurchasesListContent() {
 
   // 거래명세표 PDF 생성 (다운로드)
   const generatePDFMutation = trpc.haccpIntegration.generatePurchasePDF.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const linkSource = `data:application/pdf;base64,${data.pdf}`;
       const downloadLink = document.createElement("a");
       downloadLink.href = linkSource;
@@ -76,14 +76,14 @@ function PurchasesListContent() {
       downloadLink.click();
       toast({ title: "인쇄 성공", description: "거래명세표가 다운로드되었습니다." });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
 
   // 거래명세표 PDF 미리보기
   const previewPDFMutation = trpc.haccpIntegration.generatePurchasePDF.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const byteCharacters = atob(data.pdf);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -94,7 +94,7 @@ function PurchasesListContent() {
       window.open(URL.createObjectURL(blob), "_blank");
       toast({ title: "미리보기", description: "거래명세표가 새 탭에서 열렸습니다." });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -113,7 +113,7 @@ function PurchasesListContent() {
       toast({ title: "매입 확정 성공", description: "매입이 확정되어 재고 및 회계 원장에 반영되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "확정 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -124,7 +124,7 @@ function PurchasesListContent() {
       toast({ title: "매입 취소 성공", description: "매입이 취소되어 재고 및 회계 원장이 롤백되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "취소 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -136,7 +136,7 @@ function PurchasesListContent() {
       refetch();
       setSelectedIds([]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

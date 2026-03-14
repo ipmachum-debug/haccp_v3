@@ -393,7 +393,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
   });
   
   const bulkExportPdfMutation = trpc.mfReport.bulkExportPdf.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("PDF가 생성되었습니다");
       // PDF 다운로드 처리
       const blob = new Blob([data as any], { type: "application/pdf" });
@@ -422,7 +422,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
   );
 
   // 필터링된 목록
-  const filteredReports = reports?.filter((report) => {
+  const filteredReports = reports?.filter((report: any) => {
     // 검색어 필터
     const matchesSearch = report.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       report.reportNo?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -453,7 +453,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
     if (selectedIds.length === filteredReports?.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(filteredReports?.map(r => r.id) || []);
+      setSelectedIds(filteredReports?.map((r: any) => r.id) || []);
     }
   };
   
@@ -556,7 +556,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
       toast.success("재고 차감이 완료되었습니다");
       utils.mfReport.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`재고 차감 실패: ${error.message}`);
     },
   });
@@ -745,7 +745,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredReports.map((report) => (
+                {filteredReports.map((report: any) => (
                   <TableRow key={report.id}>
                     <TableCell>
                       <Checkbox
@@ -1012,7 +1012,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
                 <div className="border rounded-lg p-4">
                   <h3 className="font-semibold mb-3">버전 이력 ({versions.length}개)</h3>
                   <div className="space-y-2">
-                    {versions.map((version) => (
+                    {versions.map((version: any) => (
                       <div
                         key={version.id}
                         className="flex justify-between items-center p-2 bg-muted/50 rounded"

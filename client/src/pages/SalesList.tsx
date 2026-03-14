@@ -66,7 +66,7 @@ function SalesListContent() {
 
   // 거래명세표 PDF 생성
   const generatePDFMutation = trpc.haccpIntegration.generateSalePDF.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const linkSource = `data:application/pdf;base64,${data.pdf}`;
       const downloadLink = document.createElement("a");
       downloadLink.href = linkSource;
@@ -74,7 +74,7 @@ function SalesListContent() {
       downloadLink.click();
       toast({ title: "인쇄 성공", description: "거래명세표가 다운로드되었습니다." });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -90,7 +90,7 @@ function SalesListContent() {
       refetch();
       setSelectedIds([]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

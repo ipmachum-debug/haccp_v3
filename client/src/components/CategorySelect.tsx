@@ -25,14 +25,14 @@ export default function CategorySelect({ type, value, onChange, placeholder = "�
   });
 
   const createMutation = trpc.categories.create.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("카테고리가 등록되었습니다.");
       setIsDialogOpen(false);
       setNewCategory({ name: "", code: "", color: "#3b82f6" });
       refetch();
       onChange(data.id); // 새로 생성된 카테고리 자동 선택 (ID)
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "카테고리 등록에 실패했습니다.");
     },
   });
@@ -67,7 +67,7 @@ export default function CategorySelect({ type, value, onChange, placeholder = "�
             <SelectValue placeholder={isLoading ? "로딩 중..." : placeholder} />
           </SelectTrigger>
           <SelectContent>
-            {categories.map((category) => (
+            {categories.map((category: any) => (
               <SelectItem key={category.id} value={category.id.toString()}>
                 <div className="flex items-center gap-2">
                   {category.color && (

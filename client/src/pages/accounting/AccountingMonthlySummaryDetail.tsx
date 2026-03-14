@@ -36,7 +36,7 @@ export default function AccountingMonthlySummaryDetail() {
       toast.success("월 마감이 확정되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`확정 실패: ${error.message}`);
     },
   });
@@ -46,19 +46,19 @@ export default function AccountingMonthlySummaryDetail() {
       toast.success("월 마감이 잠금되었습니다. 더 이상 수정할 수 없습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`잠금 실패: ${error.message}`);
     },
   });
 
   const generatePDFMutation = trpc.accountingMonthly.generatePDF.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("PDF 리포트가 생성되었습니다.");
       refetch();
       // TODO: 실제 PDF 다운로드 로직
       window.open(data.fileUrl, "_blank");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`PDF 생성 실패: ${error.message}`);
     },
   });
@@ -267,7 +267,7 @@ export default function AccountingMonthlySummaryDetail() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {detail.highAmountTransactions.map((tx) => (
+                  {detail.highAmountTransactions.map((tx: any) => (
                     <TableRow key={tx.id}>
                       <TableCell>{tx.transactionDate}</TableCell>
                       <TableCell>
@@ -300,7 +300,7 @@ export default function AccountingMonthlySummaryDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {detail.reports.map((report) => (
+                {detail.reports.map((report: any) => (
                   <div key={report.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex items-center gap-3">
                       <FileText className="h-5 w-5 text-muted-foreground" />

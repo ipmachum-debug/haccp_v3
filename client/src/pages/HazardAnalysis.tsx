@@ -59,7 +59,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -71,7 +71,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
       setEditingHazard(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });
@@ -252,7 +252,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
               <SelectValue placeholder="제품 선택" />
             </SelectTrigger>
             <SelectContent>
-              {products?.map((product) => (
+              {products?.map((product: any) => (
                 <SelectItem key={product.id} value={product.id.toString()}>
                   {product.productName}
                 </SelectItem>
@@ -421,7 +421,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
                     <SelectValue placeholder="제품 선택" />
                   </SelectTrigger>
                   <SelectContent>
-                    {products?.map((product) => (
+                    {products?.map((product: any) => (
                       <SelectItem key={product.id} value={product.id.toString()}>
                         {product.productName}
                       </SelectItem>

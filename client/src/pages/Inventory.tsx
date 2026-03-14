@@ -32,7 +32,7 @@ export default function Inventory() {
   const exportInventory = trpc.excel.exportInventory.useMutation();
 
   const createLotMutation = trpc.inventory.createLot.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetch();
       setIsDialogOpen(false);
@@ -44,7 +44,7 @@ export default function Inventory() {
       setExpiryDate("");
       setReceiptDate(new Date().toISOString().split("T")[0]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -54,7 +54,7 @@ export default function Inventory() {
       toast.success("재고 LOT가 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

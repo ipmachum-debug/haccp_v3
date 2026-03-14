@@ -30,7 +30,7 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
       });
       
       // 각 연결마다 character set 강제 설정
-      connection.on('connection', (conn) => {
+      connection.on('connection', (conn: any) => {
         conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset:', err);
         });
@@ -64,7 +64,7 @@ export async function getRawConnection(): Promise<mysql.Pool> {
       });
       
       // 각 연결마다 character set 강제 설정
-      _rawConnection.on('connection', (conn) => {
+      _rawConnection.on('connection', (conn: any) => {
         conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset on raw connection:', err);
         });

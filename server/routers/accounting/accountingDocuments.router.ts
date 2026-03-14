@@ -137,7 +137,7 @@ export const accountingDocumentsRouter = router({
       .input(z.object({ transactionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { createPurchaseFromReceipt } = await import("../../db/haccpAccountingIntegration");
-        return await createPurchaseFromReceipt(input.transactionId);
+        return await createPurchaseFromReceipt(ctx.tenantId, input.transactionId);
       }),
 
     // HACCP 연동 자동화: 제품 출고 시 매출 거래 자동 생성
@@ -145,13 +145,13 @@ export const accountingDocumentsRouter = router({
       .input(z.object({ transactionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { createSaleFromUsage } = await import("../../db/haccpAccountingIntegration");
-        return await createSaleFromUsage(input.transactionId);
+        return await createSaleFromUsage(ctx.tenantId, input.transactionId);
       }),
 
     // HACCP 연동 자동화: 기존 재고 거래 일괄 처리 (마이그레이션용)
     batchCreateAccountingTransactions: adminProcedure
       .mutation(async () => {
         const { batchCreateAccountingTransactions } = await import("../../db/haccpAccountingIntegration");
-        return await batchCreateAccountingTransactions();
+        return await batchCreateAccountingTransactions(ctx.tenantId);
       })
 });

@@ -32,15 +32,15 @@ export default function ProductionStatus() {
 
   // 제품 정보 매칭
   const batchesWithProduct = useMemo(() => {
-    if (!products) return batches.map((batch) => ({
+    if (!products) return batches.map((batch: any) => ({
       ...batch,
       productName: "알 수 없음" as string,
       productCode: "-" as string,
       unit: "EA" as string,
     }));
     
-    return batches.map((batch) => {
-      const product = products.find((p) => p.id === batch.productId);
+    return batches.map((batch: any) => {
+      const product = products.find((p: any) => p.id === batch.productId);
       return {
         ...batch,
         productName: product?.productName || "알 수 없음",
@@ -74,15 +74,15 @@ export default function ProductionStatus() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
-  const todayBatches = batchesWithProduct.filter((batch) => {
+  const todayBatches = batchesWithProduct.filter((batch: any) => {
     const batchDate = new Date(batch.plannedDate);
     batchDate.setHours(0, 0, 0, 0);
     return batchDate.getTime() === today.getTime();
   });
 
-  const inProgressBatches = batchesWithProduct.filter((batch) => batch.status === "in_progress");
+  const inProgressBatches = batchesWithProduct.filter((batch: any) => batch.status === "in_progress");
   
-  const completedTodayBatches = batchesWithProduct.filter((batch) => {
+  const completedTodayBatches = batchesWithProduct.filter((batch: any) => {
     if (batch.status !== "completed" || !batch.completedAt) return false;
     const completedDate = new Date(batch.completedAt);
     completedDate.setHours(0, 0, 0, 0);
@@ -91,7 +91,7 @@ export default function ProductionStatus() {
 
   // 차트 데이터 생성
   const chartData = useMemo(() => {
-    const completedBatches = batchesWithProduct.filter((batch) => batch.status === "completed" && batch.completedAt);
+    const completedBatches = batchesWithProduct.filter((batch: any) => batch.status === "completed" && batch.completedAt);
     
     if (chartPeriod === "daily") {
       // 일별 데이터 (최근 30일)
@@ -99,7 +99,7 @@ export default function ProductionStatus() {
       const last30Days = new Date();
       last30Days.setDate(last30Days.getDate() - 30);
       
-      completedBatches.forEach((batch) => {
+      completedBatches.forEach((batch: any) => {
         const date = new Date(batch.completedAt!);
         if (date >= last30Days) {
           const dateKey = date.toISOString().split("T")[0];
@@ -118,7 +118,7 @@ export default function ProductionStatus() {
       const last12Weeks = new Date();
       last12Weeks.setDate(last12Weeks.getDate() - 84);
       
-      completedBatches.forEach((batch) => {
+      completedBatches.forEach((batch: any) => {
         const date = new Date(batch.completedAt!);
         if (date >= last12Weeks) {
           const weekStart = new Date(date);
@@ -140,7 +140,7 @@ export default function ProductionStatus() {
       const last12Months = new Date();
       last12Months.setMonth(last12Months.getMonth() - 12);
       
-      completedBatches.forEach((batch) => {
+      completedBatches.forEach((batch: any) => {
         const date = new Date(batch.completedAt!);
         if (date >= last12Months) {
           const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -299,7 +299,7 @@ export default function ProductionStatus() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {todayBatches.map((batch) => (
+                    {todayBatches.map((batch: any) => (
                       <TableRow key={batch.id}>
                         <TableCell className="font-medium">{batch.batchCode}</TableCell>
                         <TableCell>
@@ -354,7 +354,7 @@ export default function ProductionStatus() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {inProgressBatches.map((batch) => (
+                    {inProgressBatches.map((batch: any) => (
                       <TableRow key={batch.id}>
                         <TableCell className="font-medium">{batch.batchCode}</TableCell>
                         <TableCell>
@@ -409,7 +409,7 @@ export default function ProductionStatus() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {completedTodayBatches.map((batch) => (
+                    {completedTodayBatches.map((batch: any) => (
                       <TableRow key={batch.id}>
                         <TableCell className="font-medium">{batch.batchCode}</TableCell>
                         <TableCell>
@@ -466,7 +466,7 @@ export default function ProductionStatus() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {batchesWithProduct.map((batch) => (
+                    {batchesWithProduct.map((batch: any) => (
                       <TableRow key={batch.id}>
                         <TableCell className="font-medium">{batch.batchCode}</TableCell>
                         <TableCell>

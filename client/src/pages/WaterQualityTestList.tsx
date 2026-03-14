@@ -30,7 +30,7 @@ export default function WaterQualityTestList() {
       toast({ title: "삭제 완료", description: "수질 검사 기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -122,7 +122,7 @@ export default function WaterQualityTestList() {
               </TableHeader>
               <TableBody>
                 {records && records.length > 0 ? (
-                  records.map((record) => (
+                  records.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>{new Date(record.testDate).toLocaleDateString()}</TableCell>
                       <TableCell>{record.testLocation}</TableCell>

@@ -46,7 +46,7 @@ export default function ChecklistDetail() {
   );
 
   const saveItemMutation = trpc.qualityChecklist.saveInstanceItem.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success("항목이 저장되었습니다.");
       // 저장 성공 시 lastModifiedAt 업데이트
       if (result.updatedAt) {

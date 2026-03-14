@@ -71,7 +71,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 등록 실패: ${error.message}`);
     },
   });
@@ -84,7 +84,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 수정 실패: ${error.message}`);
     },
   });
@@ -94,7 +94,7 @@ function AccountingManagementContent() {
       toast.success("거래가 삭제되었습니다");
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 삭제 실패: ${error.message}`);
     },
   });
@@ -104,7 +104,7 @@ function AccountingManagementContent() {
       toast.success("기본 계정 과목이 초기화되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`초기화 실패: ${error.message}`);
     },
   });
@@ -160,7 +160,7 @@ function AccountingManagementContent() {
   };
 
   const handleExportExcel = () => {
-    const exportData = transactions.map((t) => ({
+    const exportData = transactions.map((t: any) => ({
       거래일자: t.transactionDate,
       구분: t.type === "income" ? "수입" : "지출",
       계정과목: `[${t.categoryCode}] ${t.categoryName}`,
@@ -177,8 +177,8 @@ function AccountingManagementContent() {
 
   // 계정 과목별 지출 비율 계산
   const expenseChartData = useMemo(() => {
-    const total = expenseBreakdown.reduce((sum, item) => sum + (item.totalAmount || 0), 0);
-    return expenseBreakdown.map((item) => ({
+    const total = expenseBreakdown.reduce((sum: any, item: any) => sum + (item.totalAmount || 0), 0);
+    return expenseBreakdown.map((item: any) => ({
       ...item,
       percentage: total > 0 ? ((item.totalAmount || 0) / total * 100).toFixed(1) : "0",
     }));
@@ -186,7 +186,7 @@ function AccountingManagementContent() {
 
   // 카테고리 필터링 (수입/지출 구분)
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => cat.type === transactionForm.type);
+    return categories.filter((cat: any) => cat.type === transactionForm.type);
   }, [categories, transactionForm.type]);
 
   return (
@@ -258,7 +258,7 @@ function AccountingManagementContent() {
                       <SelectValue placeholder="계정 과목 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredCategories.map((cat) => (
+                      {filteredCategories.map((cat: any) => (
                         <SelectItem key={cat.id} value={String(cat.id)}>
                           [{cat.code}] {cat.name}
                         </SelectItem>
@@ -426,7 +426,7 @@ function AccountingManagementContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">전체</SelectItem>
-                      {categories.map((cat) => (
+                      {categories.map((cat: any) => (
                         <SelectItem key={cat.id} value={String(cat.id)}>
                           [{cat.code}] {cat.name}
                         </SelectItem>
@@ -472,7 +472,7 @@ function AccountingManagementContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((transaction) => (
+                    transactions.map((transaction: any) => (
                       <TableRow key={transaction.id}>
                         <TableCell>{transaction.transactionDate}</TableCell>
                         <TableCell>
@@ -545,7 +545,7 @@ function AccountingManagementContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    expenseChartData.map((item) => (
+                    expenseChartData.map((item: any) => (
                       <TableRow key={item.categoryId}>
                         <TableCell>
                           <div className="flex flex-col">
@@ -589,7 +589,7 @@ function AccountingManagementContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.slice(0, 10).map((transaction) => (
+                  {transactions.slice(0, 10).map((transaction: any) => (
                     <TableRow key={transaction.id}>
                       <TableCell>{transaction.transactionDate}</TableCell>
                       <TableCell>

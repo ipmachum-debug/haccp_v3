@@ -353,7 +353,7 @@ export default function ApprovalManagement() {
 
   // 검토 완료 (pending_review -> pending_approval)
   const reviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("검토 완료", { description: data.message || "검토가 완료되어 승인 대기로 이동했습니다." });
       setReviewDialogOpen(false);
       setComment("");
@@ -364,14 +364,14 @@ export default function ApprovalManagement() {
       refetchApproval();
       setActiveTab("approval");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("검토 실패", { description: error.message });
     },
   });
 
   // 최종 승인 (pending_approval -> approved)
   const approveMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("승인 완료", { description: data.message || "최종 승인이 완료되었습니다." });
       setApproveDialogOpen(false);
       setComment("");
@@ -381,14 +381,14 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
 
   // 반려 처리
   const rejectReviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("반려 완료", { description: data.message || "요청이 반려되었습니다." });
       setRejectDialogOpen(false);
       setComment("");
@@ -399,13 +399,13 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
 
   const rejectApprovalMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("반려 완료", { description: data.message || "승인이 반려되었습니다." });
       setRejectDialogOpen(false);
       setComment("");
@@ -416,7 +416,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
@@ -433,14 +433,14 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("삭제 실패", { description: error.message });
     },
   });
 
   // 일괄 삭제 처리
   const deleteMultipleMutation = trpc.approval.deleteMultipleRequests.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("일괄 삭제 완료", { description: data.message });
       setSelectedIds([]);
       refetchReview();
@@ -448,7 +448,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("일괄 삭제 실패", { description: error.message });
     },
   });
@@ -461,7 +461,7 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
@@ -474,14 +474,14 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
 
   // 일괄 검토 완료
   const batchReviewMutation = trpc.genericChecklist.batchReviewChecklists.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("일괄 검토 완료", { description: data.message });
       setSelectedIds([]);
       setBatchConfirmDialogOpen(false);
@@ -489,14 +489,14 @@ export default function ApprovalManagement() {
       refetchPending();
       refetchApproval();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("일괄 검토 실패", { description: error.message });
     },
   });
 
   // 일괄 최종 승인
   const batchApproveMutation = trpc.genericChecklist.batchApproveChecklists.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("일괄 승인 완료", { description: data.message });
       setSelectedIds([]);
       setBatchConfirmDialogOpen(false);
@@ -504,14 +504,14 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("일괄 승인 실패", { description: error.message });
     },
   });
 
   // 승인자 자동 검토+승인
   const autoReviewApproveMutation = trpc.genericChecklist.approveWithAutoReview.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("검토 및 승인 완료", { description: data.message });
       setSelectedIds([]);
       setReviewDialogOpen(false);
@@ -522,7 +522,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("처리 실패", { description: error.message });
     },
   });

@@ -411,7 +411,7 @@ function DashboardLayoutContent({
   const { data: favorites = [] } = trpc.favorites.list.useQuery();
   const utils = trpc.useUtils();
   const addFavoriteMutation = trpc.favorites.add.useMutation({
-    onMutate: async (newFavorite) => {
+    onMutate: async (newFavorite: any) => {
       // 낙관적 업데이트: 즉시 UI에 반영
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
@@ -431,7 +431,7 @@ function DashboardLayoutContent({
       
       return { previousFavorites };
     },
-    onError: (err, newFavorite, context: any) => {
+    onError: (err: any, newFavorite: any, context: any) => {
       // 에러 발생 시 롤백
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
@@ -443,7 +443,7 @@ function DashboardLayoutContent({
     },
   });
   const removeFavoriteMutation = trpc.favorites.remove.useMutation({
-    onMutate: async (variables) => {
+    onMutate: async (variables: any) => {
       // 낙관적 업데이트: 즉시 UI에서 제거
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
@@ -454,7 +454,7 @@ function DashboardLayoutContent({
       
       return { previousFavorites };
     },
-    onError: (err, variables, context: any) => {
+    onError: (err: any, variables: any, context: any) => {
       // 에러 발생 시 롤백
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
@@ -465,7 +465,7 @@ function DashboardLayoutContent({
     },
   });
   const updateFavoriteOrderMutation = trpc.favorites.updateOrder.useMutation({
-    onMutate: async (variables) => {
+    onMutate: async (variables: any) => {
       // 낙관적 업데이트: 드래그 순서 즉시 반영
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
@@ -482,7 +482,7 @@ function DashboardLayoutContent({
       
       return { previousFavorites };
     },
-    onError: (err, variables, context: any) => {
+    onError: (err: any, variables: any, context: any) => {
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
       }
@@ -571,7 +571,7 @@ function DashboardLayoutContent({
   })();
   
   // 즐겨찾기 메뉴 항목 생성
-  const favoriteMenuItems = favorites.map(fav => {
+  const favoriteMenuItems = favorites.map((fav: any) => {
     const menuItem = allMenuItems.find(item => item.path === fav.menuPath);
     return menuItem ? { ...menuItem, favoriteId: fav.id } : null;
    }).filter(Boolean);

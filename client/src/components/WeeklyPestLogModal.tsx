@@ -101,7 +101,7 @@ export function WeeklyPestLogModal({
       handleClose();
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,

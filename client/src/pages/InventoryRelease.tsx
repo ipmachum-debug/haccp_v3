@@ -37,7 +37,7 @@ export default function InventoryRelease() {
 
   // 매출 거래 생성 mutation
   const createSaleMutation = trpc.haccpIntegration.createSaleFromUsage.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("매출 거래가 자동 생성되었습니다.", {
         action: {
           label: "보기",
@@ -45,14 +45,14 @@ export default function InventoryRelease() {
         },
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`매출 거래 생성 실패: ${error.message}`);
     },
   });
 
   // 출고 mutation
   const releaseStockMutation = trpc.inventory.releaseStock.useMutation({
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       toast.success("재고가 성공적으로 출고되었습니다.");
       
       // 자동 매출 거래 생성
@@ -82,7 +82,7 @@ export default function InventoryRelease() {
       setReleaseDate(new Date().toISOString().split("T")[0]);
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`출고 실패: ${error.message}`);
     },
   });

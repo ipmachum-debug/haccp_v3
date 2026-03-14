@@ -30,7 +30,7 @@ export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?
   }
 
   // 회사 정보 조회
-  const companyInfo = await getCompanyInfo();
+  const companyInfo = await getCompanyInfo(tenantId!);
 
   // PDF 데이터 구성
   const pdfData = {
@@ -102,7 +102,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
   }
 
   // 회사 정보 조회
-  const companyInfo = await getCompanyInfo();
+  const companyInfo = await getCompanyInfo(tenantId!);
 
   // 대표 계좌 조회
   const primaryAccount = await getPrimaryBankAccount();

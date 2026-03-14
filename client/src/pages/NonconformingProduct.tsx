@@ -57,7 +57,7 @@ export default function NonconformingProduct({ embedded, ..._ }: { embedded?: bo
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -68,7 +68,7 @@ export default function NonconformingProduct({ embedded, ..._ }: { embedded?: bo
       alert("부적합 제품이 성공적으로 수정되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

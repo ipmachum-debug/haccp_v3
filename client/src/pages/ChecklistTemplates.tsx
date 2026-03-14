@@ -62,7 +62,7 @@ export default function ChecklistTemplates() {
       alert("템플릿이 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`삭제 실패: ${error.message}`);
     },
   });
@@ -72,7 +72,7 @@ export default function ChecklistTemplates() {
       alert("템플릿이 복사되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`복사 실패: ${error.message}`);
     },
   });

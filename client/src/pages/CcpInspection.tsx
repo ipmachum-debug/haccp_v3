@@ -96,7 +96,7 @@ export default function CcpInspection() {
   }, [formData.tempC, formData.durationMin, formData.pressureBar, template]);
 
   const createRowMutation = trpc.ccp.createRow.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       if (data.deviation || deviationWarning) {
         toast.warning("⚠️ CCP 한계기준 이탈 발생! 조치가 필요합니다.", { duration: 5000 });
       } else {
@@ -113,7 +113,7 @@ export default function CcpInspection() {
       });
       setDeviationWarning(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });
@@ -131,7 +131,7 @@ export default function CcpInspection() {
       toast.success("CCP 점검이 완료되었습니다!");
       setLocation(`/dashboard/batch`);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`제출 실패: ${error.message}`);
     },
   });
@@ -140,7 +140,7 @@ export default function CcpInspection() {
     onSuccess: () => {
       toast.success("CCP 검토 요청이 전송되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`검토 요청 실패: ${error.message}`);
     },
   });
@@ -382,7 +382,7 @@ export default function CcpInspection() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
+                    {rows.map((row: any) => (
                       <tr key={row.id} className="border-b">
                         <td className="p-2">{row.sortOrder}</td>
                         <td className="p-2">

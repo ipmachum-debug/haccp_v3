@@ -34,7 +34,7 @@ export default function TemplateManagement() {
       toast.success("템플릿이 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`템플릿 삭제 실패: ${error.message}`);
     },
   });
@@ -45,7 +45,7 @@ export default function TemplateManagement() {
       toast.success("템플릿 상태가 성공적으로 변경되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`템플릿 상태 변경 실패: ${error.message}`);
     },
   });
@@ -56,7 +56,7 @@ export default function TemplateManagement() {
       toast.success("템플릿이 성공적으로 복제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`템플릿 복제 실패: ${error.message}`);
     },
   });
@@ -211,7 +211,7 @@ export default function TemplateManagement() {
           transition={{ delay: 0.2 }}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
         >
-          {templates.map((template, index) => (
+          {templates.map((template: any, index: any) => (
             <motion.div
               key={template.id}
               initial={{ opacity: 0, y: 20 }}

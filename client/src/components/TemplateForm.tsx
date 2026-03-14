@@ -65,7 +65,7 @@ export default function TemplateForm({ template, onSuccess, onCancel }: Template
       toast.success("새 템플릿이 성공적으로 생성되었습니다.");
       onSuccess();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`템플릿 생성 실패: ${error.message}`);
     },
   });
@@ -76,7 +76,7 @@ export default function TemplateForm({ template, onSuccess, onCancel }: Template
       toast.success("템플릿이 성공적으로 수정되었습니다.");
       onSuccess();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`템플릿 수정 실패: ${error.message}`);
     },
   });

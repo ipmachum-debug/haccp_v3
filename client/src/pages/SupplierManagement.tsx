@@ -70,7 +70,7 @@ export default function SupplierManagement() {
       setIsCreateDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 생성 실패: ${error.message}`);
     },
   });
@@ -83,7 +83,7 @@ export default function SupplierManagement() {
       setSelectedSupplier(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 수정 실패: ${error.message}`);
     },
   });
@@ -94,7 +94,7 @@ export default function SupplierManagement() {
       toast.success("거래처가 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 삭제 실패: ${error.message}`);
     },
   });
@@ -295,7 +295,7 @@ export default function SupplierManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSuppliers.map((supplier) => (
+                  {filteredSuppliers.map((supplier: any) => (
                     <TableRow key={supplier.id}>
                       <TableCell className="font-mono">{supplier.supplierCode || "-"}</TableCell>
                       <TableCell className="font-medium">{supplier.supplierName}</TableCell>

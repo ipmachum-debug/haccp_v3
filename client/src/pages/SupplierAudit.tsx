@@ -36,17 +36,17 @@ export default function SupplierAudit({ embedded, ..._ }: { embedded?: boolean; 
   // 뮤테이션
   const createSupplierMut = trpc.supplierAudit.createSupplier.useMutation({
     onSuccess: () => { alert("공급업체가 등록되었습니다."); setIsCreateSupplierOpen(false); refetchSuppliers(); },
-    onError: (err) => alert(`등록 실패: ${err.message}`),
+    onError: (err: any) => alert(`등록 실패: ${err.message}`),
   });
 
   const createAuditMut = trpc.supplierAudit.createAudit.useMutation({
     onSuccess: () => { alert("감사가 등록되었습니다."); setIsCreateAuditOpen(false); refetchAudits(); },
-    onError: (err) => alert(`등록 실패: ${err.message}`),
+    onError: (err: any) => alert(`등록 실패: ${err.message}`),
   });
 
   const createEvalMut = trpc.supplierAudit.createEvaluation.useMutation({
     onSuccess: () => { alert("평가가 등록되었습니다."); setIsCreateEvalOpen(false); refetchEvals(); },
-    onError: (err) => alert(`등록 실패: ${err.message}`),
+    onError: (err: any) => alert(`등록 실패: ${err.message}`),
   });
 
   const handleCreateSupplier = (e: React.FormEvent<HTMLFormElement>) => {

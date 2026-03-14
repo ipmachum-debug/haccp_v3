@@ -43,17 +43,17 @@ export default function InventoryTurnoverDashboard() {
       setThresholdRate("");
       setAlertEnabled(true);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`설정 실패: ${error.message}`);
     },
   });
   
   // 재고 회전율 자동 알림 생성 mutation
   const checkAlertsMutation = trpc.inventory.checkAndCreateTurnoverAlerts.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       alert(`재고 회전율 자동 알림 생성 완료: ${data.alertsCreated}개 생성`);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`알림 생성 실패: ${error.message}`);
     },
   });
@@ -112,7 +112,7 @@ export default function InventoryTurnoverDashboard() {
                 onChange={(e) => setSelectedMaterialId(Number(e.target.value))}
               >
                 <option value="">원재료를 선택하세요</option>
-                {turnoverData?.map((item) => (
+                {turnoverData?.map((item: any) => (
                   <option key={item.materialId} value={item.materialId}>
                     {item.materialName}
                   </option>
@@ -239,7 +239,7 @@ export default function InventoryTurnoverDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">
                 {turnoverData && turnoverData.length > 0
-                  ? (turnoverData.reduce((sum, item) => sum + item.turnoverRate, 0) / turnoverData.length).toFixed(2)
+                  ? (turnoverData.reduce((sum: any, item: any) => sum + item.turnoverRate, 0) / turnoverData.length).toFixed(2)
                   : "0.00"}
               </div>
               <p className="text-xs text-muted-foreground">회/기간</p>
@@ -294,7 +294,7 @@ export default function InventoryTurnoverDashboard() {
                 </ResponsiveContainer>
                 
                 <div className="mt-6 space-y-2">
-                  {top10Materials.map((item, index) => (
+                  {top10Materials.map((item: any, index: any) => (
                     <div key={item.materialId} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center gap-3">
                         <div className="font-semibold text-muted-foreground">#{index + 1}</div>
@@ -348,7 +348,7 @@ export default function InventoryTurnoverDashboard() {
                 </ResponsiveContainer>
                 
                 <div className="mt-6 space-y-2">
-                  {bottom10Materials.map((item, index) => (
+                  {bottom10Materials.map((item: any, index: any) => (
                     <div key={item.materialId} className="flex items-center justify-between p-3 border rounded-lg bg-red-50">
                       <div className="flex items-center gap-3">
                         <div className="font-semibold text-muted-foreground">#{index + 1}</div>
@@ -392,7 +392,7 @@ export default function InventoryTurnoverDashboard() {
               <div className="text-center py-12 text-muted-foreground">장기 재고 항목이 없습니다</div>
             ) : (
               <div className="space-y-2">
-                {slowMovingItems.map((item) => (
+                {slowMovingItems.map((item: any) => (
                   <div key={item.lotId} className="flex items-center justify-between p-3 border rounded-lg bg-orange-50">
                     <div>
                       <div className="font-medium">{item.materialName}</div>

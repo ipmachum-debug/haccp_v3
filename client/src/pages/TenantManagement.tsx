@@ -129,7 +129,7 @@ export default function TenantManagement() {
       setFormData({ name: "", slug: "", status: "trial" });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -149,7 +149,7 @@ export default function TenantManagement() {
       setSelectedTenant(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -169,7 +169,7 @@ export default function TenantManagement() {
       setSelectedTenant(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -190,7 +190,7 @@ export default function TenantManagement() {
         setSubscriptionDialogOpen(false);
       }, 500);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "❌ 오류 발생",
         description: error.message,
@@ -208,7 +208,7 @@ export default function TenantManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -226,7 +226,7 @@ export default function TenantManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,

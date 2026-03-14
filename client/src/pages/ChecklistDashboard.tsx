@@ -621,7 +621,7 @@ export default function ChecklistDashboard() {
 
         // 로컬스토리지에 순서 저장
         const orderMap: Record<string, number> = {};
-        newItems.forEach((item, index) => {
+        newItems.forEach((item: any, index: any) => {
           orderMap[item.id] = index;
         });
         localStorage.setItem("checklistOrder", JSON.stringify(orderMap));

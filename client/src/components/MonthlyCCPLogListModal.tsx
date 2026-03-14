@@ -59,7 +59,7 @@ export function MonthlyCCPLogListModal({
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,
@@ -76,7 +76,7 @@ export function MonthlyCCPLogListModal({
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,
@@ -93,7 +93,7 @@ export function MonthlyCCPLogListModal({
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,
@@ -110,7 +110,7 @@ export function MonthlyCCPLogListModal({
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,

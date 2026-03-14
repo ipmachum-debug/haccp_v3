@@ -187,7 +187,7 @@ function EquipmentRowEdit({
       setEditing(false);
       onSaved();
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(`저장 실패: ${err.message}`);
     },
   });
@@ -415,7 +415,7 @@ export function CcpInspectionCard({
       setSelectedEquipmentId("none");
       onRecordSaved();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });

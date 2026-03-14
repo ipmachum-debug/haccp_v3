@@ -24,7 +24,7 @@ export default function CcpDeviationDashboard() {
   };
   
   // 월별 데이터 변환
-  const monthlyData = stats?.byMonth.map(item => ({
+  const monthlyData = stats?.byMonth.map((item: any) => ({
     month: item.month,
     고위험: item.highSeverityCount,
     중위험: item.mediumSeverityCount,
@@ -33,7 +33,7 @@ export default function CcpDeviationDashboard() {
   })) || [];
   
   // 제품별 데이터 변환
-  const productData = stats?.byProduct.map(item => ({
+  const productData = stats?.byProduct.map((item: any) => ({
     name: item.productName || `제품 ${item.productId}`,
     고위험: item.highSeverityCount,
     중위험: item.mediumSeverityCount,
@@ -42,16 +42,16 @@ export default function CcpDeviationDashboard() {
   })) || [];
   
   // CCP 유형별 데이터 변환
-  const ccpTypeData = stats?.byCcpType.map(item => ({
+  const ccpTypeData = stats?.byCcpType.map((item: any) => ({
     name: item.ccpType,
     value: item.totalCount,
   })) || [];
   
   // 총 이탈 건수 계산
-  const totalDeviations = stats?.byMonth.reduce((sum, item) => sum + item.totalCount, 0) || 0;
-  const highSeverityTotal = stats?.byMonth.reduce((sum, item) => sum + item.highSeverityCount, 0) || 0;
-  const mediumSeverityTotal = stats?.byMonth.reduce((sum, item) => sum + item.mediumSeverityCount, 0) || 0;
-  const lowSeverityTotal = stats?.byMonth.reduce((sum, item) => sum + item.lowSeverityCount, 0) || 0;
+  const totalDeviations = stats?.byMonth.reduce((sum: any, item: any) => sum + item.totalCount, 0) || 0;
+  const highSeverityTotal = stats?.byMonth.reduce((sum: any, item: any) => sum + item.highSeverityCount, 0) || 0;
+  const mediumSeverityTotal = stats?.byMonth.reduce((sum: any, item: any) => sum + item.mediumSeverityCount, 0) || 0;
+  const lowSeverityTotal = stats?.byMonth.reduce((sum: any, item: any) => sum + item.lowSeverityCount, 0) || 0;
   
   return (
     
@@ -241,7 +241,7 @@ export default function CcpDeviationDashboard() {
                     fill="#8884d8"
                     dataKey="value"
                   >
-                    {ccpTypeData.map((entry, index) => (
+                    {ccpTypeData.map((entry: any, index: any) => (
                       <Cell key={`cell-${index}`} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][index % 5]} />
                     ))}
                   </Pie>

@@ -52,25 +52,25 @@ export default function EmployeeApproval() {
 
   // 승인/거부 mutation
   const approveMutation = trpc.adminEmployee.approveEmployee.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       utils.adminEmployee.getPendingEmployees.invalidate();
       utils.adminEmployee.getActiveEmployees.invalidate();
       closeDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "처리 중 오류가 발생했습니다.");
     },
   });
 
   // 삭제 mutation
   const deleteMutation = trpc.adminEmployee.deleteEmployee.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       utils.adminEmployee.getActiveEmployees.invalidate();
       closeDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "삭제 중 오류가 발생했습니다.");
     },
   });

@@ -151,7 +151,7 @@ export default function EmployeeHealthCheckForm() {
   );
 
   const gcSaveMutation = trpc.genericChecklist.create.useMutation({
-    onSuccess: (result) => { setSavedRecordId(result.id); },
+    onSuccess: (result: any) => { setSavedRecordId(result.id); },
   });
   const gcUpdateMutation = trpc.genericChecklist.update.useMutation({});
 

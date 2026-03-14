@@ -39,7 +39,7 @@ export default function InventoryReceipt() {
 
   // 매입 거래 생성 mutation
   const createPurchaseMutation = trpc.haccpIntegration.createPurchaseFromReceipt.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("매입 거래가 자동 생성되었습니다.", {
         action: {
           label: "보기",
@@ -47,14 +47,14 @@ export default function InventoryReceipt() {
         },
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`매입 거래 생성 실패: ${error.message}`);
     },
   });
 
   // 수동 LOT 입고 mutation
   const createLotMutation = trpc.inventory.createLot.useMutation({
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       toast.success("재고가 성공적으로 입고되었습니다.");
       
       if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
@@ -81,7 +81,7 @@ export default function InventoryReceipt() {
       setReceiptDate(new Date().toISOString().split("T")[0]);
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -115,7 +115,7 @@ export default function InventoryReceipt() {
       setReceiptDate(new Date().toISOString().split("T")[0]);
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -334,7 +334,7 @@ export default function InventoryReceipt() {
                           <SelectValue placeholder="거래처 선택" />
                         </SelectTrigger>
                         <SelectContent>
-                          {suppliers?.map((supplier) => (
+                          {suppliers?.map((supplier: any) => (
                             <SelectItem key={supplier.id} value={supplier.id.toString()}>
                               {supplier.companyName}
                             </SelectItem>

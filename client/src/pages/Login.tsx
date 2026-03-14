@@ -32,7 +32,7 @@ export default function Login() {
   const utils = trpc.useUtils();
   
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       try {
         await utils.auth.me.invalidate();
         await new Promise(resolve => setTimeout(resolve, 300));

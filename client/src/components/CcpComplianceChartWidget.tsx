@@ -42,7 +42,7 @@ export function CcpComplianceChartWidget() {
   }
   
   // 차트 데이터 병합
-  const chartData = complianceData?.map((c, index) => ({
+  const chartData = complianceData?.map((c: any, index: any) => ({
     period: c.period,
     complianceRate: parseFloat(c.complianceRate),
     deviationCount: deviationData?.[index]?.deviationCount || 0,
@@ -112,19 +112,19 @@ export function CcpComplianceChartWidget() {
             <div className="grid grid-cols-3 gap-4 pt-4 border-t">
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {(chartData.reduce((sum, d) => sum + d.complianceRate, 0) / chartData.length).toFixed(1)}%
+                  {(chartData.reduce((sum: any, d: any) => sum + d.complianceRate, 0) / chartData.length).toFixed(1)}%
                 </div>
                 <div className="text-xs text-muted-foreground">평균 준수율</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-red-600">
-                  {chartData.reduce((sum, d) => sum + d.deviationCount, 0)}
+                  {chartData.reduce((sum: any, d: any) => sum + d.deviationCount, 0)}
                 </div>
                 <div className="text-xs text-muted-foreground">총 이탈 건수</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
-                  {chartData.reduce((sum, d) => sum + d.totalChecks, 0)}
+                  {chartData.reduce((sum: any, d: any) => sum + d.totalChecks, 0)}
                 </div>
                 <div className="text-xs text-muted-foreground">총 점검 건수</div>
               </div>

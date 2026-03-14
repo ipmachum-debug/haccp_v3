@@ -32,7 +32,7 @@ export default function HazardAnalysisManagement() {
       setIsDialogOpen(false);
       setEditingAnalysis(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });
@@ -45,7 +45,7 @@ export default function HazardAnalysisManagement() {
       setIsDialogOpen(false);
       setEditingAnalysis(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -56,7 +56,7 @@ export default function HazardAnalysisManagement() {
       toast.success("위해요소 분석이 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

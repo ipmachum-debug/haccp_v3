@@ -29,11 +29,11 @@ export default function Register() {
   const { data: tenantsData } = trpc.tenantsPublic.getAll.useQuery();
 
   const registerMutation = trpc.auth.register.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message || "회원가입이 완료되었습니다!");
       setLocation("/login");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "회원가입에 실패했습니다.");
     },
   });
@@ -329,7 +329,7 @@ export default function Register() {
                       <SelectValue placeholder="소속 회사를 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      {tenantsData?.tenants?.map((tenant) => (
+                      {tenantsData?.tenants?.map((tenant: any) => (
                         <SelectItem key={tenant.id} value={tenant.id.toString()}>{tenant.name}</SelectItem>
                       ))}
                     </SelectContent>

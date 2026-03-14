@@ -31,7 +31,7 @@ export default function RecipeList() {
       toast.success("레시피 상태가 변경되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -41,7 +41,7 @@ export default function RecipeList() {
       toast.success("레시피가 복제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -60,7 +60,7 @@ export default function RecipeList() {
     }
   };
 
-  const filteredRecipes = recipes?.filter((recipe) =>
+  const filteredRecipes = recipes?.filter((recipe: any) =>
     recipe.recipeName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -146,7 +146,7 @@ export default function RecipeList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRecipes.map((recipe) => (
+                  {filteredRecipes.map((recipe: any) => (
                     <TableRow key={recipe.id}>
                       <TableCell className="font-medium">{recipe.recipeName}</TableCell>
                       <TableCell>

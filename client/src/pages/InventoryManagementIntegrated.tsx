@@ -319,7 +319,7 @@ export default function InventoryManagement() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {trend.map((r) => (
+                        {trend.map((r: any) => (
                           <TableRow key={r.date} className="hover:bg-muted/30">
                             <TD className="font-mono">{r.date}</TD>
                             <TD className="text-emerald-600 dark:text-emerald-400 font-medium">+{fmt(r.receiptQuantity)}</TD>
@@ -364,7 +364,7 @@ export default function InventoryManagement() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {turnoverAnalysis.map((m) => (
+                        {turnoverAnalysis.map((m: any) => (
                           <TableRow key={m.materialId} className="hover:bg-muted/30">
                             <TD>
                               <span className="font-medium">{m.materialName}</span>
@@ -534,9 +534,9 @@ function ProductStockView() {
     });
   }, [batches, skuList, itemList]);
 
-  const totalProduced = productInventory.reduce((s, p) => s + p.totalProduced, 0);
-  const totalBatches = productInventory.reduce((s, p) => s + p.lotCount, 0);
-  const oemCount = productInventory.filter(p => p.isOem).length;
+  const totalProduced = productInventory.reduce((s: any, p: any) => s + p.totalProduced, 0);
+  const totalBatches = productInventory.reduce((s: any, p: any) => s + p.lotCount, 0);
+  const oemCount = productInventory.filter((p: any) => p.isOem).length;
 
   return (
     <div className="space-y-5">
@@ -560,7 +560,7 @@ function ProductStockView() {
                 <TH className="text-center">유형</TH><TH>최근생산</TH>
               </TableRow></TableHeader>
               <TableBody>
-                {productInventory.map((p, i) => (
+                {productInventory.map((p: any, i: any) => (
                   <TableRow key={i} className="hover:bg-muted/30">
                     <TD className="font-medium">{p.productName}</TD>
                     <TD className="text-muted-foreground font-mono text-xs">{p.productCode}</TD>
@@ -1071,7 +1071,7 @@ function ProductTrendCard({ trendDates, trendPeriod, setTrendPeriod }: { trendDa
               </TableRow>
             </TableHeader>
             <TableBody>
-              {productTrend.map((r) => (
+              {productTrend.map((r: any) => (
                 <TableRow key={r.date} className="hover:bg-muted/30">
                   <TD className="font-mono">{r.date}</TD>
                   <TD className="text-blue-600 dark:text-blue-400 font-medium">{fmt(r.saleQuantity)}</TD>
@@ -1172,7 +1172,7 @@ function PredictionTab() {
               <TH>부족일</TH><TH className="text-center">D-day</TH><TH className="text-center">우선</TH>
             </TableRow></TableHeader>
             <TableBody>
-              {preds.map((p) => (
+              {preds.map((p: any) => (
                 <TableRow key={p.materialId} className="hover:bg-muted/30">
                   <TD>
                     <span className="font-medium">{p.materialName}</span>
@@ -1230,7 +1230,7 @@ function PurchaseOrderTab() {
               <TH className="text-right">비용</TH><TH className="text-center">우선</TH><TH className="text-center w-32">작업</TH>
             </TableRow></TableHeader>
             <TableBody>
-              {suggs.map((s) => (
+              {suggs.map((s: any) => (
                 <TableRow key={s.materialId} className="hover:bg-muted/30">
                   <TD>
                     <span className="font-medium">{s.materialName}</span>
@@ -1759,7 +1759,7 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
   const { data: lots } = trpc.inventory.list.useQuery();
   const mut = trpc.inventory.adjustStock.useMutation({
     onSuccess: (r: any) => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); alert(r?.message || "조정 완료"); setLotId(null); setQty(""); setReason(""); },
-    onError: (e) => alert(`실패: ${e.message}`),
+    onError: (e: any) => alert(`실패: ${e.message}`),
   });
 
   const selectedLot = lots?.find((l: any) => l.id === lotId) as any;

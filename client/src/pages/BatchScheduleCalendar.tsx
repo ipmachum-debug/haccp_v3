@@ -76,7 +76,7 @@ export default function BatchScheduleCalendar() {
       toast.success("일정이 변경되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });

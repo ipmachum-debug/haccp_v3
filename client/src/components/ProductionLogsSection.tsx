@@ -39,7 +39,7 @@ export default function ProductionLogsSection({ versionId }: ProductionLogsSecti
               </TableRow>
             </TableHeader>
             <TableBody>
-              {productionLogs.map((log) => (
+              {productionLogs.map((log: any) => (
                 <TableRow key={log.id}>
                   <TableCell>
                     {log.productionDate

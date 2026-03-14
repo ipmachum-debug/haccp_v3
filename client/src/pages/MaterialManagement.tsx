@@ -588,7 +588,7 @@ export default function MaterialManagement() {
           <DialogHeader>
             <DialogTitle>단가 변경 이력</DialogTitle>
             <DialogDescription>
-              {materials?.find(m => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
+              {materials?.find((m: any) => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

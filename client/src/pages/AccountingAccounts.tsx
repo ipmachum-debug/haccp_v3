@@ -324,7 +324,7 @@ function AccountStructureTab() {
       resetGroupForm();
       refetchCategories();
     },
-    onError: (error) => toast.error(`등록 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`등록 실패: ${error.message}`),
   });
 
   const updateGroupMutation = trpc.accountCategories.update.useMutation({
@@ -335,7 +335,7 @@ function AccountStructureTab() {
       resetGroupForm();
       refetchCategories();
     },
-    onError: (error) => toast.error(`수정 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`수정 실패: ${error.message}`),
   });
 
   const deleteGroupMutation = trpc.accountCategories.delete.useMutation({
@@ -343,7 +343,7 @@ function AccountStructureTab() {
       toast.success("상위계정(그룹)이 삭제되었습니다.");
       refetchCategories();
     },
-    onError: (error) => toast.error(`삭제 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`삭제 실패: ${error.message}`),
   });
 
   const resetGroupForm = () => {
@@ -912,7 +912,7 @@ function AccountListTab() {
       setIsDialogOpen(false);
       resetForm();
     },
-    onError: (error) => toast.error(`생성 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`생성 실패: ${error.message}`),
   });
 
   const updateMutation = trpc.accountingAccounts.update.useMutation({
@@ -923,7 +923,7 @@ function AccountListTab() {
       setIsDialogOpen(false);
       resetForm();
     },
-    onError: (error) => toast.error(`수정 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`수정 실패: ${error.message}`),
   });
 
   const deleteMutation = trpc.accountingAccounts.delete.useMutation({
@@ -932,7 +932,7 @@ function AccountListTab() {
       utils.accountingAccounts.getStats.invalidate();
       toast.success("계정 과목이 비활성화되었습니다.");
     },
-    onError: (error) => toast.error(`비활성화 실패: ${error.message}`),
+    onError: (error: any) => toast.error(`비활성화 실패: ${error.message}`),
   });
 
   const resetForm = () => {

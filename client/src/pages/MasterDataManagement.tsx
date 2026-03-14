@@ -138,7 +138,7 @@ export default function MasterDataManagement() {
       setProductDialogOpen(false);
       refetchProducts();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`제품 추가 실패: ${error.message}`);
     },
   });
@@ -148,7 +148,7 @@ export default function MasterDataManagement() {
       toast.success("제품이 삭제되었습니다");
       refetchProducts();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`제품 삭제 실패: ${error.message}`);
     },
   });
@@ -160,7 +160,7 @@ export default function MasterDataManagement() {
       setEditingProduct(null);
       refetchProducts();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`제품 수정 실패: ${error.message}`);
     },
   });
@@ -182,7 +182,7 @@ export default function MasterDataManagement() {
       setMaterialDialogOpen(false);
       refetchMaterials();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`원재료 추가 실패: ${error.message}`);
     },
   });
@@ -192,7 +192,7 @@ export default function MasterDataManagement() {
       toast.success("원재료가 삭제되었습니다");
       refetchMaterials();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`원재료 삭제 실패: ${error.message}`);
     },
   });
@@ -203,7 +203,7 @@ export default function MasterDataManagement() {
       setEditingMaterial(null);
       refetchMaterials();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`원재료 수정 실패: ${error.message}`);
     },
   });
@@ -225,7 +225,7 @@ export default function MasterDataManagement() {
       setSupplierDialogOpen(false);
       refetchSuppliers();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 추가 실패: ${error.message}`);
     },
   });
@@ -235,7 +235,7 @@ export default function MasterDataManagement() {
       toast.success("거래처가 삭제되었습니다");
       refetchSuppliers();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 삭제 실패: ${error.message}`);
     },
   });
@@ -246,7 +246,7 @@ export default function MasterDataManagement() {
       setEditingSupplier(null);
       refetchSuppliers();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래처 수정 실패: ${error.message}`);
     },
   });

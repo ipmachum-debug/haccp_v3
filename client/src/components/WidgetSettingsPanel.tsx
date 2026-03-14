@@ -41,7 +41,7 @@ export default function WidgetSettingsPanel() {
       });
       
       // 저장된 설정 적용
-      settings.forEach((setting) => {
+      settings.forEach((setting: any) => {
         settingsMap[setting.widgetId] = setting.isVisible === 1;
       });
       
@@ -56,7 +56,7 @@ export default function WidgetSettingsPanel() {
       toast.success("위젯 설정이 저장되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`설정 저장 실패: ${error.message}`);
     },
   });

@@ -405,7 +405,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
       alert("설비가 등록되었습니다");
       onSuccess();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -603,7 +603,7 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
       onSuccess?.();
       onClose();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

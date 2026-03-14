@@ -66,7 +66,7 @@ export default function BannerManagement() {
       resetForm();
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 생성 실패",
         description: error.message,
@@ -85,7 +85,7 @@ export default function BannerManagement() {
       resetForm();
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 수정 실패",
         description: error.message,
@@ -102,7 +102,7 @@ export default function BannerManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 삭제 실패",
         description: error.message,

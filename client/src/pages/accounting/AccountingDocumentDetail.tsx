@@ -48,7 +48,7 @@ export default function AccountingDocumentDetail() {
       refetch();
       setStatusForm({ status: "uploaded", comment: "" });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });
@@ -247,7 +247,7 @@ export default function AccountingDocumentDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {detail.workflow.map((wf, index) => (
+                {detail.workflow.map((wf: any, index: any) => (
                   <div
                     key={wf.id}
                     className={`flex gap-4 pb-4 ${index !== detail.workflow.length - 1 ? "border-b" : ""}`}

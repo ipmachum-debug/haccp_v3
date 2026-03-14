@@ -73,7 +73,7 @@ export default function ProductFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "제품 등록에 실패했습니다.");
     },
   });
@@ -84,7 +84,7 @@ export default function ProductFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "제품 수정에 실패했습니다.");
     },
   });

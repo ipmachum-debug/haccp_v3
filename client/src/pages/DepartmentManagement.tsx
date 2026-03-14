@@ -27,7 +27,7 @@ export default function DepartmentManagement() {
       utils.organization.departments.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`부서 생성 실패: ${error.message}`);
     },
   });
@@ -38,7 +38,7 @@ export default function DepartmentManagement() {
       utils.organization.departments.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`부서 수정 실패: ${error.message}`);
     },
   });
@@ -48,7 +48,7 @@ export default function DepartmentManagement() {
       toast.success("부서가 삭제되었습니다.");
       utils.organization.departments.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`부서 삭제 실패: ${error.message}`);
     },
   });

@@ -25,7 +25,7 @@ export default function CcpReportGenerator() {
 
   // Excel export mutation
   const exportMutation = trpc.ccp.exportInspectionHistory.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       const byteCharacters = atob(result.file);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -43,21 +43,21 @@ export default function CcpReportGenerator() {
       URL.revokeObjectURL(url);
       toast.success("Excel 보고서가 다운로드되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`Excel 보고서 생성 실패: ${error.message}`);
     },
   });
 
   // PDF 보고서 mutation
   const pdfMutation = trpc.report.generateCcpReport.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       const link = document.createElement("a");
       link.href = `data:application/pdf;base64,${data.pdf}`;
       link.download = data.filename;
       link.click();
       toast.success("PDF 보고서가 다운로드되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`PDF 보고서 생성 실패: ${error.message}`);
     },
   });
@@ -86,7 +86,7 @@ export default function CcpReportGenerator() {
   };
 
   // 기록 필터링
-  const filteredRecords = ccpRecords?.filter((record) => {
+  const filteredRecords = ccpRecords?.filter((record: any) => {
     if (dateRange.startDate && record.workDate) {
       if (new Date(record.workDate) < new Date(dateRange.startDate)) return false;
     }
@@ -102,9 +102,9 @@ export default function CcpReportGenerator() {
 
   // 요약 통계 계산
   const totalRecords = filteredRecords.length;
-  const approvedRecords = filteredRecords.filter(r => r.status === 'approved').length;
-  const deviationRecords = filteredRecords.filter(r => r.status === 'rejected').length;
-  const pendingRecords = filteredRecords.filter(r => r.status === 'draft' || r.status === 'submitted').length;
+  const approvedRecords = filteredRecords.filter((r: any) => r.status === 'approved').length;
+  const deviationRecords = filteredRecords.filter((r: any) => r.status === 'rejected').length;
+  const pendingRecords = filteredRecords.filter((r: any) => r.status === 'draft' || r.status === 'submitted').length;
 
   const reportTypes = [
     { value: "daily", label: "일일 보고서", icon: Calendar, description: "일별 CCP 모니터링 결과 요약", color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20" },
@@ -284,7 +284,7 @@ export default function CcpReportGenerator() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRecords.slice(0, 20).map((record) => (
+                  {filteredRecords.slice(0, 20).map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>{record.workDate ? new Date(record.workDate).toLocaleDateString('ko-KR') : '-'}</TableCell>
                       <TableCell><Badge variant="outline">{record.ccpType}</Badge></TableCell>

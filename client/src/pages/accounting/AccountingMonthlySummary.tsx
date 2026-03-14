@@ -68,7 +68,7 @@ export default function AccountingMonthlySummary() {
         {/* 월 마감 목록 */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {summaries && summaries.length > 0 ? (
-            summaries.map((summary) => (
+            summaries.map((summary: any) => (
               <Link key={summary.id} href={`/accounting/monthly-summary/${summary.year}/${summary.month}`}>
                 <Card className="hover:shadow-lg transition-shadow cursor-pointer">
                   <CardHeader>

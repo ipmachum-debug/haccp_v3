@@ -49,7 +49,7 @@ export default function NotificationCenter() {
   const handleMarkMultipleAsRead = async () => { if (selectedIds.length === 0) return; try { await markMultipleAsReadMutation.mutateAsync({ notificationIds: selectedIds }); toast.success(`${selectedIds.length}개 읽음`); setSelectedIds([]); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleDeleteMultiple = async () => { if (selectedIds.length === 0) return; try { await deleteMultipleMutation.mutateAsync({ notificationIds: selectedIds }); toast.success(`${selectedIds.length}개 삭제`); setSelectedIds([]); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleToggleSelect = (id: number) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  const handleToggleSelectAll = () => { if (!filteredNotifications) return; setSelectedIds(selectedIds.length === filteredNotifications.length ? [] : filteredNotifications.map(n => n.id)); };
+  const handleToggleSelectAll = () => { if (!filteredNotifications) return; setSelectedIds(selectedIds.length === filteredNotifications.length ? [] : filteredNotifications.map((n: any) => n.id)); };
   const handleDeleteAll = async () => { if (!confirm("모든 알림을 삭제하시겠습니까?")) return; try { await deleteAllMutation.mutateAsync(); toast.success("모두 삭제"); refetch(); } catch { toast.error("실패"); } };
   const handleMarkAsResolved = async (id: number) => { try { await resolvedMutation.mutateAsync({ notificationId: id }); toast.success("조치 완료"); refetch(); } catch { toast.error("실패"); } };
 
@@ -101,18 +101,18 @@ export default function NotificationCenter() {
   };
 
   const filteredNotifications = notifications
-    ?.filter(n => {
+    ?.filter((n: any) => {
       const typeOk = filterType === "all" || n.notificationType === filterType;
       const statusOk = filterStatus === "all" || (filterStatus === "read" && n.isRead === 1) || (filterStatus === "unread" && n.isRead === 0);
       return typeOk && statusOk;
     })
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       const po: Record<string, number> = { urgent: 4, high: 3, medium: 2, low: 1 };
       const d = (po[b.priority || "medium"] || 2) - (po[a.priority || "medium"] || 2);
       return d !== 0 ? d : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-  const unreadCount = notifications?.filter(n => n.isRead === 0).length || 0;
+  const unreadCount = notifications?.filter((n: any) => n.isRead === 0).length || 0;
 
   return (
     <div className="space-y-4">
@@ -194,7 +194,7 @@ export default function NotificationCenter() {
       <Card>
         <CardContent className="p-0">
           {filteredNotifications && filteredNotifications.length > 0 ? (
-            filteredNotifications.map(n => (
+            filteredNotifications.map((n: any) => (
               <div key={n.id}
                 className={`flex items-start gap-2 px-3 py-2 border-b last:border-b-0 hover:bg-accent/40 transition-colors ${n.isRead === 0 ? "bg-accent/30 border-l-2 border-l-primary" : "opacity-80"}`}
               >

@@ -60,20 +60,20 @@ export default function CcpRecords() {
 
   // 삭제 mutation
   const bulkDeleteMutation = trpc.ccp.bulkDelete.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("삭제 완료", { description: data.message });
       setSelectedIds([]);
       setDeleteDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("삭제 실패", { description: error.message });
     },
   });
 
   // Excel export mutation
   const exportMutation = trpc.ccp.exportInspectionHistory.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       const byteCharacters = atob(result.file);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -91,7 +91,7 @@ export default function CcpRecords() {
       URL.revokeObjectURL(url);
       toast.success("Excel 파일이 다운로드되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`Export 실패: ${error.message}`);
     },
   });

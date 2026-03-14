@@ -49,7 +49,7 @@ export default function AccountingDailyClose() {
       refetchIsClosed();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "일일 마감 실패",
         description: error.message,
@@ -220,7 +220,7 @@ export default function AccountingDailyClose() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {history.map((record) => (
+                  {history.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell className="font-medium">
                         {typeof record.closeDate === "string"

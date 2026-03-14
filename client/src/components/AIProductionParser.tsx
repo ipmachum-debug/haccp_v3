@@ -164,7 +164,7 @@ function ProductSearchInline({ onSelect }: { onSelect: (productId: number, produ
       {searchQuery.length >= 1 && searchResults.data && (
         <div className="space-y-0.5 max-h-[120px] overflow-y-auto">
           {searchResults.data.length > 0 ? (
-            searchResults.data.map((r) => (
+            searchResults.data.map((r: any) => (
               <button
                 key={r.productId}
                 className="w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
@@ -211,7 +211,7 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
 
   // Save corrections mutation
   const saveCorrectionsMutation = trpc.aiProductionParser.saveCorrections.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       if (data.success) {
         if (data.correctionCount > 0) {
           toast.success(data.message, {
@@ -221,14 +221,14 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
         }
       }
     },
-    onError: (err) => {
+    onError: (err: any) => {
       console.error("[AI Parser] 학습 저장 실패:", err.message);
     },
   });
 
   // Parse mutation
   const parseMutation = trpc.aiProductionParser.parseProductionText.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setParsedItems(data.items as ParsedItem[]);
       setParseMethod(data.parseMethod as "ai" | "regex" | "learned");
       setUnparsedText(data.unparsedText || "");
@@ -271,7 +271,7 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
         toast.info(`${matchedCount}/${data.items.length}개 항목 매칭 완료. 나머지를 확인해주세요.`);
       }
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(`파싱 실패: ${err.message}`);
     },
   });
@@ -457,7 +457,7 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
                   자주 사용되는 매칭
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {statsQuery.data.topAliases.slice(0, 5).map((a, i) => (
+                  {statsQuery.data.topAliases.slice(0, 5).map((a: any, i: any) => (
                     <Badge key={i} variant="outline" className="text-[9px] bg-white dark:bg-gray-900 gap-0.5">
                       {a.alias} → {a.productName}
                       <span className="text-violet-500">({a.useCount})</span>

@@ -130,7 +130,7 @@ function ContactModal({
       utils.support.list.invalidate();
       setForm({ authorName: "", authorEmail: "", authorPhone: "", companyName: "", category: "general", subject: "", content: "", isPublic: false, password: "", editPassword: "" });
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(err.message || "문의 등록에 실패했습니다.");
     },
   });
@@ -141,7 +141,7 @@ function ContactModal({
       onClose();
       utils.support.list.invalidate();
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(err.message || "문의 수정에 실패했습니다.");
     },
   });

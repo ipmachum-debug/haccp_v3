@@ -23,7 +23,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
   const [editValue, setEditValue] = useState<string>("");
 
   const bulkCreateMutation = trpc.supplier.bulkCreate.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       setUploadResult(result);
       setStep("result");
       if (result.failureCount === 0) {
@@ -33,7 +33,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
         toast.warning(`${result.successCount}개 성공, ${result.failureCount}개 실패`);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`업로드 실패: ${error.message}`);
     },
   });

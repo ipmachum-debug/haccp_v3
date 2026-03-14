@@ -81,13 +81,13 @@ export default function FinancialReports() {
 
   // Excel 내보내기 뮤테이션
   const exportTrialBalanceMut = trpc.financialReports.exportTrialBalance.useMutation({
-    onSuccess: (result) => downloadBase64File(result.data, result.filename, result.mimeType),
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
   });
   const exportBalanceSheetMut = trpc.financialReports.exportBalanceSheet.useMutation({
-    onSuccess: (result) => downloadBase64File(result.data, result.filename, result.mimeType),
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
   });
   const exportIncomeStatementMut = trpc.financialReports.exportIncomeStatement.useMutation({
-    onSuccess: (result) => downloadBase64File(result.data, result.filename, result.mimeType),
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
   });
 
   const handleExportExcel = () => {
@@ -228,7 +228,7 @@ export default function FinancialReports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {trialBalance.data.rows.map((row) => (
+                    {trialBalance.data.rows.map((row: any) => (
                       <TableRow key={row.accountCode}>
                         <TableCell className="font-mono text-sm">{row.accountCode}</TableCell>
                         <TableCell>{row.accountName}</TableCell>
@@ -298,7 +298,7 @@ export default function FinancialReports() {
                   <CardContent>
                     <div className="text-2xl font-bold text-blue-900 mb-3">{formatCurrency(balanceSheet.data.totals.totalAssets)}원</div>
                     <div className="space-y-1.5">
-                      {balanceSheet.data.assets.map((row) => (
+                      {balanceSheet.data.assets.map((row: any) => (
                         <div key={row.accountCode} className="flex justify-between text-sm">
                           <span className="text-muted-foreground">{row.accountName}</span>
                           <span className="font-mono">{formatCurrency(row.debitTotal - row.creditTotal)}</span>
@@ -315,7 +315,7 @@ export default function FinancialReports() {
                   <CardContent>
                     <div className="text-2xl font-bold text-red-900 mb-3">{formatCurrency(balanceSheet.data.totals.totalLiabilities)}원</div>
                     <div className="space-y-1.5">
-                      {balanceSheet.data.liabilities.map((row) => (
+                      {balanceSheet.data.liabilities.map((row: any) => (
                         <div key={row.accountCode} className="flex justify-between text-sm">
                           <span className="text-muted-foreground">{row.accountName}</span>
                           <span className="font-mono">{formatCurrency(row.creditTotal - row.debitTotal)}</span>
@@ -332,7 +332,7 @@ export default function FinancialReports() {
                   <CardContent>
                     <div className="text-2xl font-bold text-purple-900 mb-3">{formatCurrency(balanceSheet.data.totals.totalEquity)}원</div>
                     <div className="space-y-1.5">
-                      {balanceSheet.data.equity.map((row) => (
+                      {balanceSheet.data.equity.map((row: any) => (
                         <div key={row.accountCode} className="flex justify-between text-sm">
                           <span className="text-muted-foreground">{row.accountName}</span>
                           <span className="font-mono">{formatCurrency(row.creditTotal - row.debitTotal)}</span>
@@ -436,7 +436,7 @@ export default function FinancialReports() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {incomeStatement.data.revenue.map((row) => (
+                      {incomeStatement.data.revenue.map((row: any) => (
                         <TableRow key={row.accountCode}>
                           <TableCell className="font-mono text-sm">{row.accountCode}</TableCell>
                           <TableCell>{row.accountName}</TableCell>
@@ -472,7 +472,7 @@ export default function FinancialReports() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {incomeStatement.data.expenses.map((row) => (
+                      {incomeStatement.data.expenses.map((row: any) => (
                         <TableRow key={row.accountCode}>
                           <TableCell className="font-mono text-sm">{row.accountCode}</TableCell>
                           <TableCell>{row.accountName}</TableCell>

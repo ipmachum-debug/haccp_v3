@@ -19,7 +19,7 @@ export default function WaterUsageCheckList() {
       toast({ title: "삭제 완료", description: "용수 사용 점검 기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

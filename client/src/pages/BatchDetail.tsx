@@ -55,7 +55,7 @@ export default function BatchDetail() {
   const utils = trpc.useUtils();
 
   const updateStatusMutation = trpc.batch.updateStatus.useMutation({
-    onSuccess: async (data, variables) => {
+    onSuccess: async (data: any, variables: any) => {
       toast.success("배치 상태가 변경되었습니다");
 
       // 배치 완료 시 승인 요청 자동 생성
@@ -75,14 +75,14 @@ export default function BatchDetail() {
         }
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
   // ── CCP 자동 생성 뮤테이션 ──
   const generateCcpMutation = trpc.batch.generateCcp.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       if (result.alreadyExists) {
         // 이미 있는 경우 조용히 refetch만
         refetchCcps();
@@ -111,7 +111,7 @@ export default function BatchDetail() {
         setTimeout(() => setLocation("/dashboard/approval"), 2000);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`CCP 생성 실패: ${error.message}`);
     },
   });
@@ -135,7 +135,7 @@ export default function BatchDetail() {
   }, [ccpLoading, isLoading, batch, ccpList]);
 
   const generateHaccpReportMutation = trpc.batch.generateHaccpReport.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       const byteCharacters = atob(result.pdf);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -151,13 +151,13 @@ export default function BatchDetail() {
       URL.revokeObjectURL(url);
       toast.success("HACCP 보고서가 다운로드되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`HACCP 보고서 생성 실패: ${error.message}`);
     },
   });
 
   const addMaterialInputMutation = trpc.inventory.addMaterialInput.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
@@ -165,7 +165,7 @@ export default function BatchDetail() {
       setSelectedLotId(null);
       setInputQuantity("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`투입 실패: ${error.message}`);
     },
   });
@@ -176,18 +176,18 @@ export default function BatchDetail() {
       setRevenueInput("");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
   const deleteMaterialInputMutation = trpc.inventory.deleteMaterialInput.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -196,7 +196,7 @@ export default function BatchDetail() {
     onSuccess: () => {
       toast.success("배치 승인 요청이 전송되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`승인 요청 실패: ${error.message}`);
     },
   });
@@ -206,7 +206,7 @@ export default function BatchDetail() {
       toast.success("배치가 승인되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
@@ -216,7 +216,7 @@ export default function BatchDetail() {
       toast.success("배치가 반려되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`반려 실패: ${error.message}`);
     },
   });
@@ -238,14 +238,14 @@ export default function BatchDetail() {
   };
 
   const bulkDeleteCcpMutation = trpc.ccp.bulkDelete.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchCcps();
       setSelectedCcpIds([]);
       // 삭제 후 자동 재생성 허용 (ref 리셋)
       autoCreateAttempted.current = false;
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -712,7 +712,7 @@ export default function BatchDetail() {
                     <div className="space-y-2">
                       <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
                       <div className="space-y-2">
-                        {batchCost.materialCosts.map((item, index) => (
+                        {batchCost.materialCosts.map((item: any, index: any) => (
                           <div key={item.materialId} className="p-3 border rounded-lg">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium text-sm">{item.materialName}</span>
@@ -743,7 +743,7 @@ export default function BatchDetail() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={batchCost.materialCosts.map(item => ({
+                            data={batchCost.materialCosts.map((item: any) => ({
                               name: item.materialName,
                               value: item.totalCost,
                             }))}
@@ -755,7 +755,7 @@ export default function BatchDetail() {
                             fill="#8884d8"
                             dataKey="value"
                           >
-                            {batchCost.materialCosts.map((entry, index) => (
+                            {batchCost.materialCosts.map((entry: any, index: any) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>

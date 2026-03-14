@@ -33,7 +33,7 @@ export default function RecallSimulation({ embedded, ..._ }: { embedded?: boolea
 
   const createMutation = trpc.recallSimulation.create.useMutation({
     onSuccess: () => { alert("회수 시뮬레이션이 등록되었습니다."); setIsCreateOpen(false); refetch(); },
-    onError: (err) => { alert(`등록 실패: ${err.message}`); },
+    onError: (err: any) => { alert(`등록 실패: ${err.message}`); },
   });
 
   const startMutation = trpc.recallSimulation.start.useMutation({
@@ -42,7 +42,7 @@ export default function RecallSimulation({ embedded, ..._ }: { embedded?: boolea
 
   const completeMutation = trpc.recallSimulation.complete.useMutation({
     onSuccess: () => { alert("시뮬레이션이 완료되었습니다."); setIsCompleteOpen(false); refetch(); },
-    onError: (err) => { alert(`완료 실패: ${err.message}`); },
+    onError: (err: any) => { alert(`완료 실패: ${err.message}`); },
   });
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
