@@ -108,7 +108,7 @@ export const materialLedgerRouter = router({
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
         const { generateMonthlyExcel } = await import("../../db/materialLedgerExcel");
-        const buffer = await generateMonthlyExcel(input.yearMonth, tenantId, ctx.tenantId);
+        const buffer = await generateMonthlyExcel(input.yearMonth, tenantId);
         return { base64: buffer.toString("base64"), filename: `원료수불부_${input.yearMonth}.xlsx` };
       }),
     // 대시보드 요약 통계

@@ -18,7 +18,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
-      await postPurchase(input.purchaseId, ctx.user.id, ctx.tenantId);
+      await postPurchase(input.purchaseId, ctx.user.id);
       return { success: true, message: "매입이 확정되었습니다." };
     }),
 
@@ -30,7 +30,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
-      await cancelPurchase(input.purchaseId, ctx.user.id, ctx.tenantId);
+      await cancelPurchase(input.purchaseId, ctx.user.id);
       return { success: true, message: "매입이 취소되었습니다." };
     }),
 
@@ -42,7 +42,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { outboundId: number }, ctx: any }) => {
-      await postMaterialOutbound(input.outboundId, ctx.user.id, ctx.tenantId);
+      await postMaterialOutbound(input.outboundId, ctx.user.id);
       return { success: true, message: "원재료 출고가 확정되었습니다." };
     }),
 
@@ -54,7 +54,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { outboundId: number }, ctx: any }) => {
-      await cancelMaterialOutbound(input.outboundId, ctx.user.id, ctx.tenantId);
+      await cancelMaterialOutbound(input.outboundId, ctx.user.id);
       return { success: true, message: "원재료 출고가 취소되었습니다." };
     }),
 
@@ -67,7 +67,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { batchId: number, actualQuantity: number }, ctx: any }) => {
-      await postProductionComplete(input.batchId, input.actualQuantity, ctx.user.id, ctx.tenantId);
+      await postProductionComplete(input.batchId, input.actualQuantity, ctx.user.id);
       return { success: true, message: "생산이 완료되었습니다." };
     }),
 
@@ -79,7 +79,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { batchId: number }, ctx: any }) => {
-      await cancelProductionComplete(input.batchId, ctx.user.id, ctx.tenantId);
+      await cancelProductionComplete(input.batchId, ctx.user.id);
       return { success: true, message: "생산 완료가 취소되었습니다." };
     }),
 
@@ -91,7 +91,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      await postProductSale(input.saleId, ctx.user.id, ctx.tenantId);
+      await postProductSale(input.saleId, ctx.user.id);
       return { success: true, message: "제품 출고/판매가 확정되었습니다." };
     }),
 
@@ -103,7 +103,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      await cancelProductSale(input.saleId, ctx.user.id, ctx.tenantId);
+      await cancelProductSale(input.saleId, ctx.user.id);
       return { success: true, message: "제품 출고/판매가 취소되었습니다." };
     }),
 });

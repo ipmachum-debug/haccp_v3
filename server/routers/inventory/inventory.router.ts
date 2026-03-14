@@ -116,7 +116,7 @@ export const inventoryRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getInventoryLotsByMaterialId } = await import("../../db");
-        return await getInventoryLotsByMaterialId(input.materialId, ctx.tenantId ?? undefined);
+        return await getInventoryLotsByMaterialId(input.materialId);
       }),
     
     // 원재료 투입
@@ -259,7 +259,7 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getSlowMovingItems } = await import("../../db");
-        return await getSlowMovingItems(input.thresholdDays, ctx.tenantId ?? undefined);
+        return await getSlowMovingItems(input.thresholdDays);
       }),
     
     // 재고 회전율 알림 생성
@@ -301,13 +301,13 @@ export const inventoryRouter = router({
     // 재고 회전율 임계값 조회
     getTurnoverSettings: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getInventoryTurnoverSettings } = await import("../../db.js");
-      return await getInventoryTurnoverSettings(ctx.tenantId ?? undefined);
+      return await getInventoryTurnoverSettings();
     }),
     
     // 재고 회전율 임계값 기반 자동 알림 생성
     checkAndCreateTurnoverAlerts: tenantRequiredProcedure.mutation(async ({ ctx }) => {
       const { checkAndCreateTurnoverAlerts } = await import("../../db.js");
-      return await checkAndCreateTurnoverAlerts(ctx.tenantId ?? undefined);
+      return await checkAndCreateTurnoverAlerts();
     }),
     
     // 재고 LOT 삭제
@@ -793,7 +793,7 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { calculateUsagePattern } = await import("../../api/inventoryForecast");
-        return await calculateUsagePattern(input.materialId, input.days, ctx.tenantId ?? undefined);
+        return await calculateUsagePattern(input.materialId, input.days);
       }),
     
     // 재고 소진 예상 일자
@@ -805,7 +805,7 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { predictStockout } = await import("../../api/inventoryForecast");
-        return await predictStockout(input.materialId, ctx.tenantId ?? undefined);
+        return await predictStockout(input.materialId);
       }),
     
     // 구매 추천
@@ -817,25 +817,25 @@ export const inventoryRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { recommendPurchase } = await import("../../api/inventoryForecast");
-        return await recommendPurchase(input.materialId, ctx.tenantId ?? undefined);
+        return await recommendPurchase(input.materialId);
       }),
     
     // 모든 원재료 구매 추천
     getAllPurchaseRecommendations: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getAllPurchaseRecommendations } = await import("../../api/inventoryForecast");
-      return await getAllPurchaseRecommendations(ctx.tenantId ?? undefined);
+      return await getAllPurchaseRecommendations();
     }),
 
     // 재고 부족 예상 감지
     checkLowStockPrediction: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { checkLowStockPrediction } = await import("../../api/inventoryForecast");
-      return await checkLowStockPrediction(ctx.tenantId ?? undefined);
+      return await checkLowStockPrediction();
     }),
 
     // 재고 부족 알림 생성
     createLowStockNotifications: tenantRequiredProcedure.mutation(async ({ ctx }) => {
       const { createLowStockNotifications } = await import("../../api/inventoryForecast");
-      return await createLowStockNotifications(ctx.tenantId ?? undefined);
+      return await createLowStockNotifications();
     }),
     
     // 원재료 ID로 조회
@@ -843,7 +843,7 @@ export const inventoryRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMaterialById } = await import("../../db.js");
-        return await getMaterialById(input.id, ctx.tenantId ?? undefined);
+        return await getMaterialById(input.id);
       }),
     create: adminProcedure
       .input(

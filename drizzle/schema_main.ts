@@ -1448,11 +1448,17 @@ export const bankTransactions = mysqlTable("bank_transactions", {
   // 거래 유형
   transactionType: mysqlEnum("transaction_type", ["deposit", "withdrawal"]).notNull(), // 입금/출금
   
+  // 상대방 정보
+  counterpartyText: varchar("counterparty_text", { length: 255 }), // 거래 상대방 이름
+
   // 회계 연동 (계정 과목 매칭)
   accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // 매칭된 계정 과목
   matchingStatus: mysqlEnum("match_status", ["unmatched", "partial", "matched"]).default("unmatched").notNull(), // 매칭 상태
   matchedBy: bigint("matched_by", { mode: "number" }), // 매칭 작업자 ID
   matchedAt: timestamp("matched_at"), // 매칭 일시
+  matchedPartnerId: bigint("matched_partner_id", { mode: "number" }), // 매칭된 거래처 ID
+  matchedLedgerType: varchar("matched_ledger_type", { length: 50 }), // 'ap', 'ar', 'manual'
+  matchedLedgerId: bigint("matched_ledger_id", { mode: "number" }), // apLedger.id, arLedger.id, etc.
   
   // 고액 거래 플래그
   isLargeAmount: mysqlEnum("is_high_amount", ["Y", "N"]).default("N").notNull(), // 고액 거래 여부

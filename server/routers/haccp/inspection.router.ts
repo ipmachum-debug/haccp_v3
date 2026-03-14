@@ -78,7 +78,7 @@ export const inspectionRouter = router({
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
           const { getMaterialInspectionRecordById } = await import("../../db");
-          return await getMaterialInspectionRecordById(input.id, ctx.tenantId);
+          return await getMaterialInspectionRecordById(input.id);
         }),
 
       // 원재료 검사 기록 상태 변경
@@ -200,7 +200,7 @@ export const inspectionRouter = router({
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
           const { getShippingInspectionRecordById } = await import("../../db");
-          return await getShippingInspectionRecordById(input.id, ctx.tenantId);
+          return await getShippingInspectionRecordById(input.id);
         }),
 
       // 출하 검사 기록 상태 변경
@@ -313,7 +313,7 @@ export const inspectionRouter = router({
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
           const { getHygieneInspectionRecordById } = await import("../../db");
-          return await getHygieneInspectionRecordById(input.id, ctx.tenantId);
+          return await getHygieneInspectionRecordById(input.id);
         }),
 
       // 위생 검사 기록 상태 변경

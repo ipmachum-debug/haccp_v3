@@ -8,7 +8,7 @@ export const ccpTemplateRouter = router({
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const tenantId = requireTenantId(ctx);
       const { getAllCcpTemplates } = await import("../../db");
-      return await getAllCcpTemplates(tenantId, ctx.tenantId);
+      return await getAllCcpTemplates(tenantId);
     }),
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
@@ -31,7 +31,7 @@ export const ccpTemplateRouter = router({
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
         const { createCcpTemplate } = await import("../../db");
-        return await createCcpTemplate({ ...input, tenantId }, ctx.tenantId);
+        return await createCcpTemplate({ ...input, tenantId });
       }),
     update: adminProcedure
       .input(
