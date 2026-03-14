@@ -17,7 +17,7 @@ export const batchScheduleRouter = router({
         const { createBatchSchedule } = await import("../../db/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
-        const schedule = await createBatchSchedule(input);
+        const schedule = await createBatchSchedule({ ...input, tenantId: ctx.tenantId! });
         
         // 감사 로그 기록
         await createAuditLog({
@@ -48,7 +48,7 @@ export const batchScheduleRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByDateRange } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByDateRange(ctx.tenantId ?? undefined, input.startDate, input.endDate);
+        return await getBatchSchedulesByDateRange(ctx.tenantId!, input.startDate, input.endDate);
       }),
     
     // 배치 ID로 일정 조회
@@ -56,7 +56,7 @@ export const batchScheduleRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchSchedulesByBatchId } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByBatchId(ctx.tenantId ?? undefined, input.batchId);
+        return await getBatchSchedulesByBatchId(ctx.tenantId!, input.batchId);
       }),
     
     // 배치 일정 수정
@@ -74,7 +74,7 @@ export const batchScheduleRouter = router({
         const { createAuditLog } = await import("../../db");
         
         const { id, ...updateData } = input;
-        await updateBatchSchedule(ctx.tenantId ?? undefined, id, updateData);
+        await updateBatchSchedule(ctx.tenantId!, id, updateData);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -101,7 +101,7 @@ export const batchScheduleRouter = router({
         const { deleteBatchSchedule } = await import("../../db/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
-        await deleteBatchSchedule(ctx.tenantId ?? undefined, input.id);
+        await deleteBatchSchedule(ctx.tenantId!, input.id);
         
         // 감사 로그 기록
         await createAuditLog({

@@ -9,7 +9,7 @@ export const approvalRouter = router({
     // 승인 대시보드 - 전체 승인 대기 항목 조회
     getPendingApprovals: tenantRequiredProcedure.query(async () => {
       const { getPendingApprovals } = await import("../../db");
-      return await getPendingApprovals(ctx.tenantId ?? undefined);
+      return await getPendingApprovals(ctx.tenantId!);
     }),
     
     // 범용 승인 요청 생성
@@ -27,8 +27,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId ?? undefined,
-          siteId: ctx.user.siteId || ctx.tenantId,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: input.requestType,
           referenceType: input.referenceType,
           referenceId: input.referenceId,
@@ -50,10 +50,10 @@ export const approvalRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getApprovalRequests } = await import("../../db");
-        if (!ctx.tenantId ?? undefined) {
+        if (!ctx.tenantId!) {
           throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
         }
-        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId ?? undefined });
+        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId! });
       }),
 
     // 승인 요청 상세 조회
@@ -63,7 +63,7 @@ export const approvalRouter = router({
         const { getApprovalRequestById } = await import("../../db");
         const result = await getApprovalRequestById(input.id);
         // P1: 테넌트 소유권 검증
-        if (result && result.tenantId !== (ctx.tenantId ?? undefined) && ctx.user.role !== 'super_admin') {
+        if (result && result.tenantId !== (ctx.tenantId!) && ctx.user.role !== 'super_admin') {
           throw new TRPCError({ code: "FORBIDDEN", message: "다른 테넌트의 승인 요청을 조회할 수 없습니다." });
         }
         return result;
@@ -82,8 +82,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId ?? undefined,
-          siteId: ctx.user.siteId || ctx.tenantId,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "batch_approval",
           referenceType: "batch",
           referenceId: input.batchId,
@@ -108,8 +108,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId ?? undefined,
-          siteId: ctx.user.siteId || ctx.tenantId,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "ccp_review",
           referenceType: "ccp_instance",
           referenceId: input.ccpInstanceId,
@@ -239,7 +239,7 @@ export const approvalRouter = router({
     // 대기 중인 승인 요청 개수
     getPendingCount: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getPendingApprovalCount } = await import("../../db");
-      return await getPendingApprovalCount(ctx.tenantId ?? undefined);
+      return await getPendingApprovalCount(ctx.tenantId!);
     }),
 
     // 재고 조정 승인 요청
@@ -255,8 +255,8 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId ?? undefined,
-          siteId: ctx.user.siteId || ctx.tenantId,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "inventory_adjustment",
           referenceType: "inventory_adjustment",
           referenceId: input.adjustmentId,
