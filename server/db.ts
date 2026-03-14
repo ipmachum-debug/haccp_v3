@@ -8696,6 +8696,7 @@ export async function addGroupMember(data: {
   groupId: number;
   userId: number;
   role: "member" | "leader" | "admin";
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");

@@ -74,7 +74,7 @@ export const batchScheduleRouter = router({
         const { createAuditLog } = await import("../../db");
         
         const { id, ...updateData } = input;
-        await updateBatchSchedule(id, updateData);
+        await updateBatchSchedule(ctx.tenantId ?? undefined, id, updateData);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -101,7 +101,7 @@ export const batchScheduleRouter = router({
         const { deleteBatchSchedule } = await import("../../db/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
-        await deleteBatchSchedule(input.id);
+        await deleteBatchSchedule(ctx.tenantId ?? undefined, input.id);
         
         // 감사 로그 기록
         await createAuditLog({

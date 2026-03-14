@@ -25,7 +25,7 @@ export const groupRouter = router({
     // 그룹 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getAllGroups } = await import("../../db");
-      return await getAllGroups(ctx.tenantId);
+      return await getAllGroups();
     }),
 
     // 그룹 정보 수정

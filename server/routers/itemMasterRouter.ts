@@ -297,7 +297,7 @@ export const itemMasterRouter = router({
       }
       // 과세유형, 상태 드롭다운 제거 (DB 스키마에 없음)
       const buffer = await workbook.xlsx.writeBuffer();
-      const base64 = buffer.toString('base64');
+      const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
       return { success: true, filename: `${filename}_템플릿_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64 };
     }),
@@ -376,7 +376,7 @@ export const itemMasterRouter = router({
       }
       // 과세유형, 상태 드롭다운 제거 (DB 스키마에 없음)
       const buffer = await workbook.xlsx.writeBuffer();
-      const base64 = buffer.toString('base64');
+      const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
       const count = input.itemType === 'supplier' ? 0 : items.length;
       return { success: true, filename: `${filename}_전체_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64, count };

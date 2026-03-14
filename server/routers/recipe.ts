@@ -11,7 +11,7 @@ export const recipeRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       const { getRecipes } = await import("../db/recipe");
-      return await getRecipes(input, ctx.tenantId);
+      return await getRecipes({ ...input, tenantId: ctx.tenantId });
     }),
   
   // 레시피 상세 조회 (라인 포함)
@@ -66,7 +66,8 @@ export const recipeRouter = router({
       return await createRecipe({
         ...input,
         createdBy: ctx.user.id,
-      }, ctx.tenantId);
+        tenantId: ctx.tenantId,
+      });
     }),
   
   // 레시피 수정
