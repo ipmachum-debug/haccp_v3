@@ -1,4 +1,5 @@
 import { getDb, getRawConnection } from "./connection";
+import { createNotification } from "./notificationFunctions";
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
 import {
   hBatches,
@@ -143,30 +144,6 @@ export async function getDashboardStats(tenantId?: number) {
     ccpPending: ccpTotalResult.count - ccpCompletedResult.count,
     lowStockCount: lowStockMaterials.length
   };
-}
-
-// Helper: createNotification (used by checkAndCreateReorderAlerts)
-export async function createNotification(data: {
-  tenantId: number;
-  userId?: number;
-  notificationType: string;
-  title: string;
-  message: string;
-  referenceId?: number;
-  referenceType?: string;
-  actionUrl?: string;
-  priority?: string;
-  metadata?: string;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const [notification] = await db.insert(hNotifications).values({
-    ...data,
-    tenantId: data.tenantId,
-    userId: data.userId || 1, // 기본값: 1 (시스템 알림)
-    priority: data.priority as "low" | "medium" | "high" | "urgent" | undefined
-  });
-  return notification;
 }
 
 // 대시보드 통계
