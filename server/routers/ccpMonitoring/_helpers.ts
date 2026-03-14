@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
-// ✅ P0 FIX: 테넌트 격리 헬퍼 (fallback 제거 - ctx.tenantId만 인정)
+// P0 FIX: tenant isolation helper (no fallback - only ctx.tenantId accepted)
 export function getEffectiveTenantId(ctx: any): number {
   const tenantId = ctx.tenantId;
   if (!tenantId) {

@@ -194,9 +194,7 @@ export const productSpecsRouter = router({
       return { success: true };
     }),
 
-  // ============================================================
   // 제품-CCP 매핑 조회 (마스터데이터 탭용) - ccp_process_group_products 기반
-  // ============================================================
   getProductCcpMappings: tenantRequiredProcedure
     .input(z.object({
       productId: z.number().optional(),
@@ -206,7 +204,7 @@ export const productSpecsRouter = router({
       if (!db) throw new Error('Database not available');
       const tenantId = getEffectiveTenantId(ctx);
 
-      // h_products_v2 + ccp_process_group_products → 실제 CCP 공정 그룹 매핑
+      // h_products_v2 + ccp_process_group_products -> 실제 CCP 공정 그룹 매핑
       const rows = await db.execute(
         sql`SELECT p.id, p.product_name, p.product_code, p.process_flags,
             GROUP_CONCAT(DISTINCT pg.ccp_type ORDER BY pg.ccp_type) as mapped_ccp_types,
@@ -254,7 +252,7 @@ export const productSpecsRouter = router({
       );
       const processGroups = (processGroupRows[0] as unknown as unknown as any[]) || [];
 
-      // 2. BOM 원재료 목록 (h_mf_ingredients → 최신 mf_report_version)
+      // 2. BOM 원재료 목록 (h_mf_ingredients -> 최신 mf_report_version)
       const ingredientRows = await db.execute(
         sql`SELECT mi.id, mi.line_no, mi.material_id, im.item_name as material_name,
               mi.quantity, mi.corrected_quantity, mi.unit, mi.process_group_id,

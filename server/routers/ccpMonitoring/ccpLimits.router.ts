@@ -20,7 +20,7 @@ export const ccpLimitsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 강제 주입
+      // P0 FIX: tenantId 강제 주입
       const tenantId = getEffectiveTenantId(ctx);
       const [result] = await db.insert(ccpLimits).values({ ...input, tenantId });
       return { id: result.insertId };
@@ -34,7 +34,7 @@ export const ccpLimitsRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 강제 필터
+      // P0 FIX: tenantId 강제 필터
       const tenantId = getEffectiveTenantId(ctx);
       const conditions = [eq(ccpLimits.tenantId, tenantId)];
 
@@ -60,7 +60,7 @@ export const ccpLimitsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 소유권 검증
+      // P0 FIX: tenantId 소유권 검증
       const tenantId = getEffectiveTenantId(ctx);
       const { id, ...data } = input;
       await db.update(ccpLimits).set(data).where(and(eq(ccpLimits.id, id), eq(ccpLimits.tenantId, tenantId)));
@@ -72,7 +72,7 @@ export const ccpLimitsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 소유권 검증
+      // P0 FIX: tenantId 소유권 검증
       const tenantId = getEffectiveTenantId(ctx);
       await db.delete(ccpLimits).where(and(eq(ccpLimits.id, input.id), eq(ccpLimits.tenantId, tenantId)));
       return { success: true };
