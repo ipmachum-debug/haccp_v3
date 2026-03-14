@@ -4,7 +4,7 @@ import sgMail from '@sendgrid/mail';
  * SendGrid 기반 이메일 발송 설정
  */
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
-const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@haccpone.co.kr';
+const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@haccpone.com';
 const SENDGRID_FROM_NAME = process.env.SENDGRID_FROM_NAME || 'HACCP ONE';
 
 if (SENDGRID_API_KEY) {
@@ -19,7 +19,7 @@ export async function sendPasswordResetEmail(
   resetToken: string,
   userName: string
 ): Promise<void> {
-  const resetUrl = `${process.env.FRONTEND_URL || "https://haccpone.co.kr"}/reset-password?token=${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || "https://haccpone.com"}/reset-password?token=${resetToken}`;
 
   if (!SENDGRID_API_KEY) {
     console.log('=== 비밀번호 재설정 이메일 (SendGrid 미설정) ===');
