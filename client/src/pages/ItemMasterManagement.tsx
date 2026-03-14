@@ -271,7 +271,7 @@ function ItemMasterContent() {
           <Card>
             <CardContent className="pt-4">
               <div className="text-2xl font-bold">
-                {[...new Set(items.map((i: any) => i.category).filter(Boolean))].length}
+                {Array.from(new Set(items.map((i: any) => i.category).filter(Boolean))).length}
               </div>
               <p className="text-sm text-muted-foreground">카테고리 수</p>
             </CardContent>

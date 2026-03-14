@@ -164,7 +164,7 @@ export async function generateTrialBalance(
 
   // 5. 잔액 계산
   const rows: TrialBalanceRow[] = [];
-  for (const row of mergedMap.values()) {
+  for (const row of Array.from(mergedMap.values())) {
     const diff = row.debitTotal - row.creditTotal;
     // 자산/비용: 차변 잔액, 부채/자본/수익: 대변 잔액
     if (["assets", "expenses"].includes(row.category)) {

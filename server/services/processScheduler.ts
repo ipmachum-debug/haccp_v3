@@ -134,7 +134,7 @@ export async function createProcessScheduleForDay(args: {
   }
 
   // 공정그룹 순서 정렬 (defaultSequenceOrder 기준)
-  const sortedGroups = [...tasksByGroup.entries()].sort((a, b) => {
+  const sortedGroups = Array.from(tasksByGroup.entries()).sort((a, b) => {
     const pa = policies.get(a[0])?.defaultSequenceOrder ?? 999;
     const pb = policies.get(b[0])?.defaultSequenceOrder ?? 999;
     return pa - pb;

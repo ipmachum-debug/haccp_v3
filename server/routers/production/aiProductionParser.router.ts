@@ -407,7 +407,7 @@ export const aiProductionParserRouter = router({
           // 제품명 자체도 alias로 등록 (정확 매치 보장)
           aliases.add(normalizeAlias(correction.productName));
 
-          for (const alias of aliases) {
+          for (const alias of Array.from(aliases)) {
             if (!alias || alias.length < 2) continue;
             try {
               await pool.execute(

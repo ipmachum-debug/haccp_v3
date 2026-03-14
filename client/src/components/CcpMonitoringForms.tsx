@@ -935,7 +935,7 @@ export function CcpMonitoringForms({
       toast({ title: "CCP 인스턴스 없음", description: "먼저 CCP를 자동 생성해주세요.", variant: "destructive" });
       return;
     }
-    const uniqueTypes = [...new Set((ccpInstances as any[]).map((c: any) => c.ccpType as string))];
+    const uniqueTypes = Array.from(new Set((ccpInstances as any[]).map((c: any) => c.ccpType as string)));
     for (const ccpType of uniqueTypes) {
       const inst = (ccpInstances as any[]).find((c: any) => c.ccpType === ccpType);
       const cl = CCP_CL_DEFAULTS[ccpType] ?? {};

@@ -93,7 +93,7 @@ export const accountCategoriesRouter = router({
    */
   getMajorCategories: tenantRequiredProcedure.query(async ({ ctx }) => {
     const all = await getAllAccountCategories(ctx.tenantId);
-    const majors = [...new Set(all.map((c: any) => c.majorCategory))];
+    const majors = Array.from(new Set(all.map((c: any) => c.majorCategory)));
     return majors;
   }),
 

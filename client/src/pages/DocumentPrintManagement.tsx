@@ -165,7 +165,7 @@ export default function DocumentPrintManagement() {
   const handleRefresh = () => { refetchApproved(); toast({ title: "새로고침 완료" }); };
 
   const handlePrint = async (request: any) => {
-    const newPrintedIds = new Set([...printedIds, request.id]);
+    const newPrintedIds = new Set([...Array.from(printedIds), request.id]);
     savePrintedIds(newPrintedIds);
     savePrintHistory([{ date: new Date().toISOString(), ids: [request.id], count: 1 }, ...printHistory]);
     window.open(`/print-preview?ids=${request.id}`, '_blank');
@@ -180,7 +180,7 @@ export default function DocumentPrintManagement() {
   const executeBatchPrint = async (requests: any[]) => {
     setIsPrinting(true);
     const ids = requests.map((r: any) => r.id);
-    savePrintedIds(new Set([...printedIds, ...ids]));
+    savePrintedIds(new Set([...Array.from(printedIds), ...ids]));
     savePrintHistory([{ date: new Date().toISOString(), ids, count: ids.length }, ...printHistory]);
     window.open(`/print-preview?ids=${ids.join(",")}`, '_blank');
     setIsPrinting(false);
