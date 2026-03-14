@@ -20,6 +20,7 @@ declare module '@dnd-kit/sortable' {
   export const sortableKeyboardCoordinates: any;
   export const verticalListSortingStrategy: any;
   export const horizontalListSortingStrategy: any;
+  export const rectSortingStrategy: any;
   export function arrayMove<T>(array: T[], from: number, to: number): T[];
 }
 

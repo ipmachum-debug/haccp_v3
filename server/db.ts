@@ -1,11 +1,11 @@
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, aliasedTable } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import mysql, { Pool } from "mysql2/promise";
 import { InsertUser, users, hInventoryLots, hInventory, hInventoryTransactions, hMaterials, hNotifications, materialInspectionRecords, materialInspectionItems, shippingInspectionRecords, shippingInspectionItems, hygieneInspectionRecords, hygieneInspectionItems, hSuppliers, hApprovalRequests, hApprovalHistory, hSupplierEvaluations, hNotificationSettings, hCcpDeviations, hCcpInstances, hCcpRows, hBatchInputs, hBatches, hCcpRecords, hProducts, hProductsV2, hGenericChecklistRecords } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
-let _rawConnection: mysql.Pool | null = null;
+let _rawConnection: Pool | null = null;
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb(): Promise<ReturnType<typeof drizzle>> {
@@ -50,7 +50,7 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
 }
 
 // Get raw MySQL2 connection for parameterized queries
-export async function getRawConnection(): Promise<mysql.Pool> {
+export async function getRawConnection(): Promise<Pool> {
   if (!_rawConnection && process.env.DATABASE_URL) {
     try {
       const url = new URL(process.env.DATABASE_URL);
