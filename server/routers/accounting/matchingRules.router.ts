@@ -119,7 +119,7 @@ export const matchingRulesRouter = router({
 
         // 기존 규칙 조회
         const existing = await db.select().from(matchingRules).where(
-          and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined) as any)
+          and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
         ).limit(1);
         if (!existing.length) {
           throw new Error("규칙을 찾을 수 없습니다.");
@@ -164,7 +164,7 @@ export const matchingRulesRouter = router({
 
         if (Object.keys(dataToUpdate).length > 0) {
           await db.update(matchingRules).set(dataToUpdate).where(
-            and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined) as any)
+            and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
           );
         }
 
@@ -178,7 +178,7 @@ export const matchingRulesRouter = router({
         const db = await getDb();
         const { matchingRules } = await import("../../../drizzle/schema_main");
         await db.delete(matchingRules).where(
-          and(eq(matchingRules.id, input.id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined) as any)
+          and(eq(matchingRules.id, input.id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
         );
         return { success: true };
       }),

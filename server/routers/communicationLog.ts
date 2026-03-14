@@ -159,7 +159,7 @@ export async function getCommunicationLogs(filters: {
       gt(communicationLogs.partnerId, 0),
     ];
     if (filters.partnerId) conditions.push(eq(communicationLogs.partnerId, filters.partnerId));
-    if (filters.status) conditions.push(eq(communicationLogs.status, filters.status) as any);
+    if (filters.status) conditions.push(eq(communicationLogs.status, filters.status as any) );
     if (filters.authorId) conditions.push(eq(communicationLogs.authorId, filters.authorId));
     
     return await db.select().from(communicationLogs).where(and(...conditions)).orderBy(desc(communicationLogs.createdAt));

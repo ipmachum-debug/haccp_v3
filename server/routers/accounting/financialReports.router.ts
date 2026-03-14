@@ -75,11 +75,11 @@ export const financialReportsRouter = router({
         period: `${year}년 ${parseInt(month)}월`,
         startDate,
         endDate,
-        totalRevenue: income.totalRevenue || 0,
-        totalExpenses: income.totalExpenses || 0,
-        netIncome: income.netIncome || 0,
-        revenueItems: income.revenueRows?.length || 0,
-        expenseItems: income.expenseRows?.length || 0,
+        totalRevenue: income.totals.totalRevenue || 0,
+        totalExpenses: income.totals.totalExpenses || 0,
+        netIncome: income.totals.netIncome || 0,
+        revenueItems: income.revenue?.length || 0,
+        expenseItems: income.expenses?.length || 0,
       };
     } catch (error: any) {
       // 데이터가 없으면 기본값 반환

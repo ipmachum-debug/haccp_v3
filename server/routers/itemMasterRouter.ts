@@ -219,7 +219,7 @@ export const itemMasterRouter = router({
         .set(cleanData)
         .where(and(
           eq(itemMaster.id, id),
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       
       return { success: true, message: "품목이 수정되었습니다." };
@@ -234,7 +234,7 @@ export const itemMasterRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(itemMaster.id, input.id),
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       return { success: true, message: "품목이 비활성화되었습니다." };
     }),
@@ -315,7 +315,7 @@ export const itemMasterRouter = router({
       const categoryMap = Object.fromEntries(categories.map(c => [c.id, c.name]));
       const categoryNames = categories.map(c => c.name);
       const items = await db.select().from(itemMaster)
-        .where(and(eq(itemMaster.tenantId, ctx.tenantId ?? undefined), eq(itemMaster.itemType, input.itemType) as any) as any)
+        .where(and(eq(itemMaster.tenantId, ctx.tenantId ?? undefined), eq(itemMaster.itemType, input.itemType as any) ) as any)
         .orderBy(itemMaster.itemCode);
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet(input.itemType === 'own_product' ? '제품 목록' : input.itemType === 'raw_material' ? '원재료 목록' : '거래처 목록');
@@ -490,7 +490,7 @@ export const productSkuRouter = router({
           .set({ isDefault: 0 })
           .where(and(
             eq(productSkus.itemId, input.itemId),
-            eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
+            eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
           ));
       }
       
@@ -563,7 +563,7 @@ export const productSkuRouter = router({
             .set({ isDefault: 0 })
             .where(and(
               eq(productSkus.itemId, sku.itemId),
-              eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
+              eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
             ));
         }
       }
@@ -572,7 +572,7 @@ export const productSkuRouter = router({
         .set(cleanData)
         .where(and(
           eq(productSkus.id, id),
-          eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       
       return { success: true, message: "SKU가 수정되었습니다." };
@@ -587,7 +587,7 @@ export const productSkuRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(productSkus.id, input.id),
-          eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       return { success: true, message: "SKU가 비활성화되었습니다." };
     }),

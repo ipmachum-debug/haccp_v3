@@ -133,7 +133,7 @@ export const supplierRouter = router({
             }
             
             const existing = await db.select().from(hSuppliers)
-              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined) as any, eq(hSuppliers.supplierName, supplier.supplierName.trim())) as any)
+              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined as any) , eq(hSuppliers.supplierName, supplier.supplierName.trim())) as any)
               .limit(1);
             
             if (existing.length > 0) {

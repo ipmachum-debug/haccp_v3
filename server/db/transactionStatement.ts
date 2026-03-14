@@ -23,7 +23,7 @@ export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?
   const [partner] = await db
     .select()
     .from(partners)
-    .where(and(eq(partners.tenantId, tenantId) as any, eq(partners.id, purchase.partnerId) as any) as any)    .limit(1);
+    .where(and(eq(partners.tenantId, tenantId as any) , eq(partners.id, purchase.partnerId as any) ) as any)    .limit(1);
 
   if (!partner) {
     throw new Error("거래처 정보를 찾을 수 없습니다");
@@ -95,7 +95,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
   const [partner] = await db
     .select()
     .from(partners)
-    .where(and(eq(partners.tenantId, tenantId) as any, eq(partners.id, sale.partnerId) as any) as any)    .limit(1);
+    .where(and(eq(partners.tenantId, tenantId as any) , eq(partners.id, sale.partnerId as any) ) as any)    .limit(1);
 
   if (!partner) {
     throw new Error("거래처 정보를 찾을 수 없습니다");

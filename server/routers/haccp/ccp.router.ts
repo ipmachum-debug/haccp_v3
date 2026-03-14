@@ -117,6 +117,7 @@ export const ccpRouter = router({
           
           // 관리자 알림 생성
           await createNotification({
+            tenantId: ctx.tenantId ?? 1,
             userId: ctx.user.id, // 실제로는 관리자 ID를 사용해야 함
             notificationType: "ccp_deviation",
             title: "CCP 한계기준 이탈 발생",
@@ -165,6 +166,7 @@ export const ccpRouter = router({
           
           // 관리자에게 알림 발송
           await createNotification({
+            tenantId: ctx.tenantId ?? 1,
             userId: ctx.user.id, // 실제로는 관리자 ID를 사용해야 함
             notificationType: "ccp_inspection_complete",
             title: "CCP 점검 완료",
@@ -211,7 +213,7 @@ export const ccpRouter = router({
       .input(z.object({ alertId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { updateAlertStatus } = await import("../../db/ccpInspectionAlerts");
-        return await updateAlertStatus(input.alertId, "completed", ctx.tenantId ?? undefined);
+        return await updateAlertStatus(input.alertId, "completed", new Date(), ctx.tenantId ?? undefined);
       }),
     
     // CCP 점검 완료 여부 확인

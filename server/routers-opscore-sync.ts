@@ -510,7 +510,7 @@ async function syncProducts(db: any, direction: string, tenantId: number, opscor
             if ((existing as unknown as any[]).length === 0) {
               await db.execute(sql`
                 INSERT INTO h_products_v2 (product_name, product_code, unit, is_active, tenant_id)
-                VALUES (${p.name}, ${p.sku}, ${p.unit || 'EA'}, 1, ${tenantId})
+                VALUES (${p.name}, ${p.sku}, ${(p as any).unit || 'EA'}, 1, ${tenantId})
               `);
               synced++;
             }

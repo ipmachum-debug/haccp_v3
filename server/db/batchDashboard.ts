@@ -14,7 +14,7 @@ export async function getBatchStatusSummary(tenantId?: number) {
       status: hBatches.status,
       count: sql<number>`COUNT(*)`
     })
-    .from(hBatches).where(eq(hBatches.tenantId, tenantId) as any).groupBy(hBatches.status);
+    .from(hBatches).where(eq(hBatches.tenantId, tenantId as any) ).groupBy(hBatches.status);
 
   return summary;
 }
@@ -29,7 +29,7 @@ export async function getInProgressBatches(limit: number = 10, tenantId?: number
   const batches = await db
     .select()
     .from(hBatches)
-    .where(and(eq(hBatches.tenantId, tenantId) as any, eq(hBatches.status, "in_progress")) as any)    .orderBy(sql`${hBatches.createdAt} DESC`)
+    .where(and(eq(hBatches.tenantId, tenantId as any) , eq(hBatches.status, "in_progress")) as any)    .orderBy(sql`${hBatches.createdAt} DESC`)
     .limit(limit);
 
   return batches;
@@ -45,7 +45,7 @@ export async function getCompletedBatches(limit: number = 10, tenantId?: number)
   const batches = await db
     .select()
     .from(hBatches)
-    .where(and(eq(hBatches.tenantId, tenantId) as any, eq(hBatches.status, "completed")) as any)    .orderBy(sql`${hBatches.createdAt} DESC`)
+    .where(and(eq(hBatches.tenantId, tenantId as any) , eq(hBatches.status, "completed")) as any)    .orderBy(sql`${hBatches.createdAt} DESC`)
     .limit(limit);
 
   return batches;

@@ -73,8 +73,8 @@ export async function generateExpiredAlerts(): Promise<void> {
     .from(hInventoryLots)
     .where(
       and(
-        eq(hInventoryLots.status, "active") as any,
-        lte(hInventoryLots.expiryDate, todayStr) as any,
+        eq(hInventoryLots.status, "active" as any) ,
+        lte(hInventoryLots.expiryDate, todayStr as any) ,
         isNull(hInventoryLots.expiryDate)
       )
     );

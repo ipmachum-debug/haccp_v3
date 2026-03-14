@@ -24,7 +24,7 @@ export async function getProductionPredictionData(productId?: number, tenantId?:
     .select()
     .from(hBatches)
     .where(
-      and(eq(hBatches.tenantId, tenantId) as any, 
+      and(eq(hBatches.tenantId, tenantId as any) , 
         eq(hBatches.status, "completed"),
         gte(hBatches.plannedDate, thirtyDaysAgo),
         productId ? eq(hBatches.productId, productId) : sql`1=1`

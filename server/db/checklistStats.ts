@@ -17,7 +17,7 @@ export async function getChecklistStatsByCategory(category: string, tenantId?: n
   const templates = await db
     .select({ id: hChecklistTemplates.id })
     .from(hChecklistTemplates)
-    .where(and(eq(hChecklistTemplates.tenantId, tenantId) as any, eq(hChecklistTemplates.category, category)) as any);
+    .where(and(eq(hChecklistTemplates.tenantId, tenantId as any) , eq(hChecklistTemplates.category, category)) as any);
   const templateIds = templates.map((t: any) => t.id);
 
   if (templateIds.length === 0) {
@@ -34,7 +34,7 @@ export async function getChecklistStatsByCategory(category: string, tenantId?: n
     .select()
     .from(hChecklistInstances)
     .where(
-      and(eq(hChecklistInstances.tenantId, tenantId) as any, 
+      and(eq(hChecklistInstances.tenantId, tenantId as any) , 
         sql`${hChecklistInstances.templateId} IN (${sql.join(templateIds, sql`, `)})`,
         gte(hChecklistInstances.createdAt, today),
         lte(hChecklistInstances.createdAt, tomorrow)
@@ -72,7 +72,7 @@ export async function getTodayChecklistStats(tenantId?: number) {
     .select()
     .from(hChecklistInstances)
     .where(
-      and(eq(hChecklistInstances.tenantId, tenantId) as any, 
+      and(eq(hChecklistInstances.tenantId, tenantId as any) , 
         gte(hChecklistInstances.createdAt, today),
         lte(hChecklistInstances.createdAt, tomorrow)
       ) as any

@@ -775,11 +775,11 @@ export const batchRouter = router({
         if (input.status === 'in_progress') {
           try {
             const { autoIssueMaterialsForBatch } = await import('./lib/autoMaterialIssue');
-            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1);
-            if (!autoIssueResult.success) {
-              console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult.errors);
+            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1) as any;
+            if (!autoIssueResult?.success) {
+              console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult?.errors);
             } else {
-              console.log('[파이프라인] 원료 자동 출고 완료:', autoIssueResult.issuedMaterials.length, '건');
+              console.log('[파이프라인] 원료 자동 출고 완료:', autoIssueResult?.issuedMaterials?.length, '건');
             }
           } catch (autoIssueError) {
             console.error('[파이프라인] 원료 자동 출고 오류:', autoIssueError);

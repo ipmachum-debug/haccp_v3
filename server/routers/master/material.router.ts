@@ -176,7 +176,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.materialCode, input.materialCode),
-              eq(hMaterials.tenantId, ctx.tenantId ?? undefined) as any
+              eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
             )
           )
           .limit(1);
@@ -254,7 +254,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.id, id),
-              eq(hMaterials.tenantId, ctx.tenantId ?? undefined) as any
+              eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
             )
           );
         
@@ -270,7 +270,7 @@ export const materialRouter = router({
           if (data.description) syncData.description = data.description;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any)
+              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
             );
           }
         } catch (syncErr) {
@@ -295,14 +295,14 @@ export const materialRouter = router({
           .where(
             and(
               eq(itemMaster.id, input.id),
-              eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any
+              eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
             )
           )
           .limit(1);
         
         // itemMaster 비활성화
         await db.update(itemMaster).set({ isActive: 0 }).where(
-          and(eq(itemMaster.id, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any)
+          and(eq(itemMaster.id, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
         );
         
         // hMaterials도 비활성화 (legacyMaterialId로 연결)
@@ -313,7 +313,7 @@ export const materialRouter = router({
             .where(
               and(
                 eq(hMaterials.id, item.legacyMaterialId),
-                eq(hMaterials.tenantId, ctx.tenantId ?? undefined) as any
+                eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
               )
             );
         }
@@ -374,7 +374,7 @@ export const materialRouter = router({
               .where(
                 and(
                   eq(hMaterials.materialName, trimmedName),
-                  eq(hMaterials.tenantId, ctx.tenantId ?? undefined) as any
+                  eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
                 )
               )
               .limit(1);

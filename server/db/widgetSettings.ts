@@ -13,7 +13,7 @@ export async function getUserWidgetSettings(userId: number, tenantId?: number) {
   const result = await db
     .select()
     .from(hUserWidgetSettings)
-    .where(and(eq(hUserWidgetSettings.tenantId, tenantId) as any, eq(hUserWidgetSettings.userId, userId)) as any);
+    .where(and(eq(hUserWidgetSettings.tenantId, tenantId as any) , eq(hUserWidgetSettings.userId, userId)) as any);
   return result;
 }
 
@@ -30,7 +30,7 @@ export async function updateWidgetVisibility(data: {
     .select()
     .from(hUserWidgetSettings)
     .where(
-      and(eq(hUserWidgetSettings.tenantId, tenantId) as any, 
+      and(eq(hUserWidgetSettings.tenantId, tenantId as any) , 
         eq(hUserWidgetSettings.userId, data.userId),
         eq(hUserWidgetSettings.widgetId, data.widgetId)
       ) as any

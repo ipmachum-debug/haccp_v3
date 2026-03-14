@@ -52,7 +52,7 @@ export async function cancelProductionComplete(
   const originalInventoryTxs = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.sourceId, `BATCH-${batchId}`) as any);
+    .where(eq(hInventoryTransactions.sourceId, `BATCH-${batchId}` as any) );
 
   if (originalInventoryTxs.length === 0) {
     throw new Error("원본 재고 거래를 찾을 수 없습니다");

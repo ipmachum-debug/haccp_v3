@@ -33,7 +33,7 @@ export async function allocateLotsFEFO(
     .where(
       and(
         eq(hInventoryLots.inventoryId, inventoryId),
-        gte(hInventoryLots.availableQuantity, 0.001) as any // 재고 > 0
+        gte(hInventoryLots.availableQuantity, 0.001 as any)  // 재고 > 0
       )
     )
     .orderBy(

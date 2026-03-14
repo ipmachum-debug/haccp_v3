@@ -454,7 +454,7 @@ export async function upsertCcpEquipBatchSettings(
     .from(hCcpEquipBatchSettings)
     .where(
       and(
-        eq(hCcpEquipBatchSettings.tenantId, data.tenantId) as any,
+        eq(hCcpEquipBatchSettings.tenantId, data.tenantId as any) ,
         eq(hCcpEquipBatchSettings.processGroupId, data.processGroupId)
       )
     )

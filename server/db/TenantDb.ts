@@ -72,7 +72,7 @@ export class TenantDb {
     const db = await getDb();
     const conditions: SQL[] = [eq(hBatches.tenantId, this.tenantId)];
 
-    if (filters?.status) conditions.push(eq(hBatches.status, filters.status) as any);
+    if (filters?.status) conditions.push(eq(hBatches.status, filters.status as any) );
     if (filters?.productId) conditions.push(eq(hBatches.productId, filters.productId));
     if (filters?.startDate) conditions.push(gte((hBatches as any).productionDate, filters.startDate));
     if (filters?.endDate) conditions.push(lte((hBatches as any).productionDate, filters.endDate));
@@ -233,7 +233,7 @@ export class TenantDb {
     const conditions: SQL[] = [];
 
     if (filters?.materialId) conditions.push(eq(hInventoryLots.materialId, filters.materialId));
-    if (filters?.status) conditions.push(eq(hInventoryLots.status, filters.status) as any);
+    if (filters?.status) conditions.push(eq(hInventoryLots.status, filters.status as any) );
 
     const page = filters?.page || 1;
     const limit = filters?.limit || 50;
@@ -305,7 +305,7 @@ export class TenantDb {
     const conditions: SQL[] = [eq(hApprovalRequests.tenantId, this.tenantId)];
 
     if (filters?.status) {
-      conditions.push(eq(hApprovalRequests.status, filters.status) as any);
+      conditions.push(eq(hApprovalRequests.status, filters.status as any) );
     }
 
     return db.select().from(hApprovalRequests)

@@ -24,7 +24,7 @@ export async function getDailyClosesForMonth(year: number, month: number, tenant
     .select()
     .from(accountingDailyClose)
     .where(
-      and(eq(accountingDailyClose.tenantId, tenantId) as any, 
+      and(eq(accountingDailyClose.tenantId, tenantId as any) , 
         gte(accountingDailyClose.closeDate, startDate),
         lte(accountingDailyClose.closeDate, endDate)
       ) as any
@@ -111,7 +111,7 @@ export async function upsertMonthlyClose(params: {
     .select()
     .from(accountingMonthlyClose)
     .where(
-      and(eq(accountingMonthlyClose.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlyClose.tenantId, tenantId as any) , 
         eq(accountingMonthlyClose.year, year),
         eq(accountingMonthlyClose.month, month)
       ) as any
@@ -125,7 +125,7 @@ export async function upsertMonthlyClose(params: {
         missingCloseDates,
         summary
       })
-      .where(and(eq(accountingMonthlyClose.tenantId, tenantId) as any, eq(accountingMonthlyClose.id, existing.id)) as any);
+      .where(and(eq(accountingMonthlyClose.tenantId, tenantId as any) , eq(accountingMonthlyClose.id, existing.id)) as any);
     return existing.id;
   } else {
     // 생성
@@ -160,7 +160,7 @@ export async function closeMonthlyClose(params: {
     .select()
     .from(accountingMonthlyClose)
     .where(
-      and(eq(accountingMonthlyClose.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlyClose.tenantId, tenantId as any) , 
         eq(accountingMonthlyClose.year, year),
         eq(accountingMonthlyClose.month, month)
       ) as any
@@ -190,7 +190,7 @@ export async function closeMonthlyClose(params: {
       closedBy: userId,
       closedAt: new Date()
     })
-    .where(and(eq(accountingMonthlyClose.tenantId, tenantId) as any, eq(accountingMonthlyClose.id, existing.id)) as any);
+    .where(and(eq(accountingMonthlyClose.tenantId, tenantId as any) , eq(accountingMonthlyClose.id, existing.id)) as any);
   return existing.id;
 }
 
@@ -210,7 +210,7 @@ export async function reopenMonthlyClose(params: {
     .select()
     .from(accountingMonthlyClose)
     .where(
-      and(eq(accountingMonthlyClose.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlyClose.tenantId, tenantId as any) , 
         eq(accountingMonthlyClose.year, year),
         eq(accountingMonthlyClose.month, month)
       ) as any
@@ -232,7 +232,7 @@ export async function reopenMonthlyClose(params: {
       closedBy: null,
       closedAt: null
     })
-    .where(and(eq(accountingMonthlyClose.tenantId, tenantId) as any, eq(accountingMonthlyClose.id, existing.id)) as any);
+    .where(and(eq(accountingMonthlyClose.tenantId, tenantId as any) , eq(accountingMonthlyClose.id, existing.id)) as any);
   return existing.id;
 }
 
@@ -270,7 +270,7 @@ export async function getMonthlyClose(year: number, month: number, tenantId?: nu
     .select()
     .from(accountingMonthlyClose)
     .where(
-      and(eq(accountingMonthlyClose.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlyClose.tenantId, tenantId as any) , 
         eq(accountingMonthlyClose.year, year),
         eq(accountingMonthlyClose.month, month)
       ) as any

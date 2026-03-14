@@ -105,8 +105,8 @@ export async function getAudits(params: {
   if (siteId) conditions.push(eq(hInternalAudits.siteId, siteId));
   if (auditType) conditions.push(eq(hInternalAudits.auditType, auditType as any));
   if (status) conditions.push(eq(hInternalAudits.status, status as any));
-  if (startDate) conditions.push(gte(hInternalAudits.scheduledDate, startDate) as any);
-  if (endDate) conditions.push(lte(hInternalAudits.scheduledDate, endDate) as any);
+  if (startDate) conditions.push(gte(hInternalAudits.scheduledDate, startDate as any) );
+  if (endDate) conditions.push(lte(hInternalAudits.scheduledDate, endDate as any) );
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -336,8 +336,8 @@ export async function getAuditStatistics(params: {
 
   const conditions: any[] = [eq(hInternalAudits.tenantId, tenantId)];
   if (siteId) conditions.push(eq(hInternalAudits.siteId, siteId));
-  if (startDate) conditions.push(gte(hInternalAudits.scheduledDate, startDate) as any);
-  if (endDate) conditions.push(lte(hInternalAudits.scheduledDate, endDate) as any);
+  if (startDate) conditions.push(gte(hInternalAudits.scheduledDate, startDate as any) );
+  if (endDate) conditions.push(lte(hInternalAudits.scheduledDate, endDate as any) );
 
   let query = db.select().from(hInternalAudits);
   if (conditions.length > 0) {
@@ -399,8 +399,8 @@ export async function getUpcomingAudits(params: {
 
   const conditions: any[] = [
     eq(hInternalAudits.tenantId, tenantId),
-    gte(hInternalAudits.scheduledDate, today) as any,
-    lte(hInternalAudits.scheduledDate, futureDateStr) as any,
+    gte(hInternalAudits.scheduledDate, today as any) ,
+    lte(hInternalAudits.scheduledDate, futureDateStr as any) ,
     eq(hInternalAudits.status, "scheduled"),
   ];
 

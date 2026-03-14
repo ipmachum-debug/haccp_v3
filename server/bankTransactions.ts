@@ -70,7 +70,7 @@ export async function getAllBankAccounts() {
   return await db
     .select()
     .from(bankAccounts)
-    .where(eq(bankAccounts.isActive, 1) as any)
+    .where(eq(bankAccounts.isActive, 1 as any) )
     .orderBy(desc(bankAccounts.isPrimary), desc(bankAccounts.createdAt));
 }
 
@@ -161,7 +161,7 @@ export async function getPrimaryBankAccount() {
   const [account] = await db
     .select()
     .from(bankAccounts)
-    .where(and(eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1) as any) as any)
+    .where(and(eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1 as any) ) as any)
     .limit(1);
 
   return account || null;

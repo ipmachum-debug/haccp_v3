@@ -373,7 +373,7 @@ export async function getAllPurchases(filters?: {
     conditions.push(like(accountingPurchases.itemName, `%${filters.itemName}%`));
   }
   if (filters?.status) {
-    conditions.push(eq(accountingPurchases.status, filters.status) as any);
+    conditions.push(eq(accountingPurchases.status, filters.status as any) );
   }
 
   if (conditions.length > 0) {
@@ -433,7 +433,7 @@ export async function getAllSales(filters?: {
     conditions.push(like(accountingSales.itemName, `%${filters.itemName}%`));
   }
   if (filters?.status) {
-    conditions.push(eq(accountingSales.status, filters.status) as any);
+    conditions.push(eq(accountingSales.status, filters.status as any) );
   }
 
   if (conditions.length > 0) {

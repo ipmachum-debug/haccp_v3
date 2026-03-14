@@ -3984,7 +3984,7 @@ export async function cancelApprovalRequest(requestId: number, cancelledBy: numb
   if (!request) {
     throw new Error("Approval request not found");
   }
-  if (!["pending", "pending_review", "pending_approval"].includes(request.status)) {
+  if (!["pending", "pending_review", "pending_approval"].includes(request.status || "")) {
     throw new Error("승인완료/거부/취소된 요청은 취소할 수 없습니다");
   }
 
@@ -6048,6 +6048,7 @@ export async function checkAndCreateReorderAlerts() {
           
           for (const user of usersList as any[]) {
             await createNotification({
+              tenantId: 1,
               userId: user.id,
               notificationType: "reorder",
               title: `재고 발주 필요: ${materialName}`,
@@ -8010,7 +8011,7 @@ export async function predictAllInventoryShortage(days: number, tenantId?: numbe
         const prediction = await predictInventoryShortage({
           materialId: material.id,
           days,
-          tenantId
+          tenantId: tenantId!
         });
         return {
           ...prediction,
@@ -8546,6 +8547,7 @@ export async function getProductionEfficiencyData(params: {
   startDate?: string;
   endDate?: string;
   productId?: number;
+  tenantId: number;
 }) {
   const [costAnalysis, timeAnalysis, defectAnalysis] = await Promise.all([
     getBatchCostAnalysis(params),

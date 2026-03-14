@@ -97,7 +97,7 @@ export async function getFailedTasks(tenantId?: number): Promise<RetryTaskRecord
   return await db
     .select()
     .from(hBatchCompletionRetries)
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.status, "failed")) as any)    .orderBy(desc(hBatchCompletionRetries.createdAt));
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId as any) , eq(hBatchCompletionRetries.status, "failed")) as any)    .orderBy(desc(hBatchCompletionRetries.createdAt));
 }
 
 /**
@@ -111,7 +111,7 @@ export async function retryFailedTask(taskId: number, tenantId?: number): Promis
   const task = await db
     .select()
     .from(hBatchCompletionRetries)
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, taskId)) as any)    .limit(1);
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId as any) , eq(hBatchCompletionRetries.id, taskId)) as any)    .limit(1);
   
   if (task.length === 0) {
     throw new Error("작업을 찾을 수 없습니다");
@@ -125,7 +125,7 @@ export async function retryFailedTask(taskId: number, tenantId?: number): Promis
       status: "retrying",
       lastRetryAt: new Date()
     })
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, taskId)) as any);  
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId as any) , eq(hBatchCompletionRetries.id, taskId)) as any);  
   // TODO: 실제 재시도 로직 구현 (PDF 생성, 알림 전송 등)
   // 현재는 상태만 업데이트
   
@@ -144,7 +144,7 @@ export async function deleteFailedTask(taskId: number, tenantId?: number): Promi
   
   await db
     .delete(hBatchCompletionRetries)
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, taskId)) as any);  
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId as any) , eq(hBatchCompletionRetries.id, taskId)) as any);  
   return {
     success: true,
     message: "작업이 삭제되었습니다"

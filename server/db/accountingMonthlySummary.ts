@@ -21,7 +21,7 @@ export async function upsertMonthlySummary(data: NewAccountingMonthlySummary, te
     .select()
     .from(accountingMonthlySummary)
     .where(
-      and(eq(accountingMonthlySummary.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlySummary.tenantId, tenantId as any) , 
         eq(accountingMonthlySummary.year, data.year),
         eq(accountingMonthlySummary.month, data.month)
       ) as any
@@ -35,7 +35,7 @@ export async function upsertMonthlySummary(data: NewAccountingMonthlySummary, te
       .set({
         ...data
       })
-      .where(and(eq(accountingMonthlySummary.tenantId, tenantId) as any, eq(accountingMonthlySummary.id, existing[0].id)) as any);    
+      .where(and(eq(accountingMonthlySummary.tenantId, tenantId as any) , eq(accountingMonthlySummary.id, existing[0].id)) as any);    
     return existing[0].id;
   } else {
     // 생성
@@ -55,7 +55,7 @@ export async function getMonthlySummary(year: number, month: number, tenantId?: 
     .select()
     .from(accountingMonthlySummary)
     .where(
-      and(eq(accountingMonthlySummary.tenantId, tenantId) as any, 
+      and(eq(accountingMonthlySummary.tenantId, tenantId as any) , 
         eq(accountingMonthlySummary.year, year),
         eq(accountingMonthlySummary.month, month)
       ) as any
@@ -73,7 +73,7 @@ export async function listMonthlySummaries(limit = 12, tenantId?: number) {
   
   return db
     .select()
-    .from(accountingMonthlySummary).where(eq(accountingMonthlySummary.tenantId, tenantId) as any).orderBy(desc(accountingMonthlySummary.year), desc(accountingMonthlySummary.month))
+    .from(accountingMonthlySummary).where(eq(accountingMonthlySummary.tenantId, tenantId as any) ).orderBy(desc(accountingMonthlySummary.year), desc(accountingMonthlySummary.month))
     .limit(limit);
 }
 
@@ -101,7 +101,7 @@ export async function updateMonthlySummaryStatus(
   await db
     .update(accountingMonthlySummary)
     .set(updateData)
-    .where(and(eq(accountingMonthlySummary.tenantId, tenantId) as any, eq(accountingMonthlySummary.id, id)) as any);}
+    .where(and(eq(accountingMonthlySummary.tenantId, tenantId as any) , eq(accountingMonthlySummary.id, id)) as any);}
 
 /**
  * 일일 마감 데이터 기반 월간 집계 계산
@@ -121,7 +121,7 @@ export async function calculateMonthlySummary(year: number, month: number, tenan
     .select()
     .from(accountingDailyClose)
     .where(
-      and(eq(accountingDailyClose.tenantId, tenantId) as any, 
+      and(eq(accountingDailyClose.tenantId, tenantId as any) , 
         gte(accountingDailyClose.closeDate, startDateStr),
         lte(accountingDailyClose.closeDate, endDateStr)
       ) as any
@@ -189,7 +189,7 @@ export async function extractHighAmountTransactions(
     .select()
     .from(accountingDailyClose)
     .where(
-      and(eq(accountingDailyClose.tenantId, tenantId) as any, 
+      and(eq(accountingDailyClose.tenantId, tenantId as any) , 
         gte(accountingDailyClose.closeDate, startDateStr),
         lte(accountingDailyClose.closeDate, endDateStr)
       ) as any
@@ -198,7 +198,7 @@ export async function extractHighAmountTransactions(
   // 기존 고액 거래 삭제
   await db
     .delete(accountingHighAmountTransactions)
-    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId) as any, eq(accountingHighAmountTransactions.summaryId, summaryId)) as any);
+    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId as any) , eq(accountingHighAmountTransactions.summaryId, summaryId)) as any);
   // 고액 거래 추출
   const highAmountList: NewAccountingHighAmountTransaction[] = [];
   
@@ -249,7 +249,7 @@ export async function getHighAmountTransactions(summaryId: number, tenantId?: nu
   return db
     .select()
     .from(accountingHighAmountTransactions)
-    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId) as any, eq(accountingHighAmountTransactions.summaryId, summaryId)) as any)    .orderBy(desc(accountingHighAmountTransactions.transactionDate));
+    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId as any) , eq(accountingHighAmountTransactions.summaryId, summaryId)) as any)    .orderBy(desc(accountingHighAmountTransactions.transactionDate));
 }
 
 /**
@@ -262,7 +262,7 @@ export async function saveMonthlyReport(data: NewAccountingMonthlyReport, tenant
   const existing = await db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId) as any, eq(accountingMonthlyReport.summaryId, data.summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, data.summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
     .limit(1);
 
   const version = existing.length > 0 ? existing[0].version + 1 : 1;
@@ -285,7 +285,7 @@ export async function getMonthlyReports(summaryId: number, tenantId?: number) {
   return db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId) as any, eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version));
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version));
 }
 
 /**
@@ -297,7 +297,7 @@ export async function getLatestMonthlyReport(summaryId: number, tenantId?: numbe
   const result = await db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId) as any, eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
     .limit(1);
 
   return result[0] || null;

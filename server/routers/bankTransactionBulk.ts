@@ -241,7 +241,7 @@ export const bankTransactionBulkRouter = router({
                 eq(bankTransactions.tenantId, tenantId),
                 eq(bankTransactions.bankAccountId, input.bankAccountId),
                 eq(bankTransactions.transactionDate, transactionDate),
-                eq(bankTransactions.amount, amount) as any
+                eq(bankTransactions.amount, amount as any) 
               )
             )
             .limit(1);

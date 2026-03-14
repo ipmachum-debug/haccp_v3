@@ -93,7 +93,7 @@ export async function getMaterialInventory(materialId: number, tenantId?: number
   const [result] = await db
     .select()
     .from(hInventory)
-    .where(and(eq(hInventory.tenantId, tenantId) as any, eq(hInventory.materialId, materialId)) as any);
+    .where(and(eq(hInventory.tenantId, tenantId as any) , eq(hInventory.materialId, materialId)) as any);
   if (!result) {
     return {
       totalQuantity: 0,

@@ -492,7 +492,7 @@ export const inventoryRouter = router({
         const [lot] = await db.select().from(hInventoryLots).where(
           and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined as any) 
           )
         );
         if (!lot) {
@@ -512,7 +512,7 @@ export const inventoryRouter = router({
           })
           .where(and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined as any) 
           ));
         
         // 거래 내역 기록 (h_inventory_transactions)
@@ -552,7 +552,7 @@ export const inventoryRouter = router({
         const [lot] = await db.select().from(hInventoryLots).where(
           and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined as any) 
           )
         );
         if (!lot) {
@@ -576,7 +576,7 @@ export const inventoryRouter = router({
           })
           .where(and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined as any) 
           ));
         
         // 재고 조정 거래 내역 기록
