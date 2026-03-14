@@ -35,7 +35,7 @@ export const productionRouter = router({
       .input(z.object({ supplierId: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         const { getSupplierEvaluations } = await import("../../db");
-        return await getSupplierEvaluations(input.supplierId, ctx.tenantId);
+        return await getSupplierEvaluations(input.supplierId);
       }),
 
     // 평가 통계 조회
@@ -43,6 +43,6 @@ export const productionRouter = router({
       .input(z.object({ supplierId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getSupplierEvaluationStats } = await import("../../db");
-        return await getSupplierEvaluationStats(input.supplierId, ctx.tenantId);
+        return await getSupplierEvaluationStats(input.supplierId);
       })
 });

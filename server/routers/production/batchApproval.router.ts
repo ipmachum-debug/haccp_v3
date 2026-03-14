@@ -21,7 +21,7 @@ export const batchApprovalRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
       }
 
-      await updateBatchStatus(input.batchId, "under_review", undefined, ctx.tenantId ?? undefined);
+      await updateBatchStatus(input.batchId, "under_review");
 
       await createAuditLog({
         action: "batch.requestApproval",
@@ -64,7 +64,7 @@ export const batchApprovalRouter = router({
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
       await approveBatch({ batchId: input.batchId, approverId: ctx.user.id, notes: input.notes });
-      await updateBatchStatus(input.batchId, "approved", undefined, ctx.tenantId ?? undefined);
+      await updateBatchStatus(input.batchId, "approved");
 
       await createAuditLog({
         action: "batch.approve",
@@ -92,7 +92,7 @@ export const batchApprovalRouter = router({
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
       await rejectBatch({ batchId: input.batchId, approverId: ctx.user.id, rejectionReason: input.rejectionReason, notes: input.notes });
-      await updateBatchStatus(input.batchId, "rejected", undefined, ctx.tenantId ?? undefined);
+      await updateBatchStatus(input.batchId, "rejected");
 
       await createAuditLog({
         action: "batch.reject",

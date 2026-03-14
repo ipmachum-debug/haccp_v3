@@ -492,6 +492,13 @@ export const hBatches = mysqlTable("h_batches", {
   recipeId: bigint("recipe_id", { mode: "number" }),
   plannedQuantity: decimal("planned_quantity", { precision: 10, scale: 2 }).notNull(),
   actualQuantity: decimal("actual_quantity", { precision: 10, scale: 2 }),
+  actualYield: decimal("actual_yield", { precision: 10, scale: 2 }), // 실제 수율
+  lossQuantity: decimal("loss_quantity", { precision: 10, scale: 2 }), // 손실 수량
+  materialCost: decimal("material_cost", { precision: 15, scale: 2 }), // 재료비
+  laborCost: decimal("labor_cost", { precision: 15, scale: 2 }), // 노무비
+  overheadCost: decimal("overhead_cost", { precision: 15, scale: 2 }), // 경비
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }), // 총 원가
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }), // 단위 원가
   plannedDate: date("planned_date").notNull(),
   startTime: timestamp("start_time"),
   endTime: timestamp("end_time"),

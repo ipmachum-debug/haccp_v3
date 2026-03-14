@@ -768,7 +768,7 @@ export const batchRouter = router({
           });
         }
         
-        await updateBatchStatus(input.id, input.status, undefined, ctx.tenantId ?? undefined);
+        await updateBatchStatus(input.id, input.status);
         
         // === 파이프라인 자동화: 배치 시작 시 원료 자동 출고 ===
         let autoIssueResult = null;
@@ -892,7 +892,7 @@ export const batchRouter = router({
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { generateBatchCode } = await import("../../db");
-        const batchCode = await generateBatchCode(input.productId, ctx.tenantId ?? undefined);
+        const batchCode = await generateBatchCode(input.productId);
         return { batchCode };
       }),
     
@@ -1042,7 +1042,7 @@ export const batchRouter = router({
         }
         
         // 배치 상태를 under_review로 변경
-        await updateBatchStatus(input.batchId, "under_review", undefined, ctx.tenantId ?? undefined);
+        await updateBatchStatus(input.batchId, "under_review");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1098,7 +1098,7 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 approved로 변경
-        await updateBatchStatus(input.batchId, "approved", undefined, ctx.tenantId ?? undefined);
+        await updateBatchStatus(input.batchId, "approved");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1139,7 +1139,7 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 rejected로 변경
-        await updateBatchStatus(input.batchId, "rejected", undefined, ctx.tenantId ?? undefined);
+        await updateBatchStatus(input.batchId, "rejected");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1286,7 +1286,7 @@ export const batchRouter = router({
     // 활성 배치 목록 조회 (실시간 모니터링용)
     getActiveBatches: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getActiveBatches } = await import("../../db");
-      return await getActiveBatches(ctx.tenantId ?? undefined);
+      return await getActiveBatches();
     }),
     
     // 배치 완성도 체크 (미작성 문서 추적)

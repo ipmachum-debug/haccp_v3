@@ -67,6 +67,7 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
   skuId: bigint("sku_id", { mode: "number" }),
   skuName: varchar("sku_name", { length: 200 }),
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(),
+  currentQuantity: decimal("current_quantity", { precision: 10, scale: 3 }), // 현재 재고 수량
   availableQuantity: decimal("available_quantity", { precision: 10, scale: 3 }).notNull(),
   unit: varchar("unit", { length: 20 }).notNull(),
   unitPrice: decimal("unit_price", { precision: 10, scale: 2 }),

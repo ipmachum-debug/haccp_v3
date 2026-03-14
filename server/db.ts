@@ -1145,6 +1145,7 @@ export async function createInventoryLot(data: {
   supplierId?: number;
   receiptDate?: Date;
   userId: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1801,6 +1802,7 @@ export async function getCcpSchedules(filters?: {
   status?: "pending" | "completed" | "skipped";
   startDate?: Date;
   endDate?: Date;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
@@ -2288,6 +2290,7 @@ export async function getChecklistTemplates(filters: {
   category?: string;
   ccpType?: string;
   isActive?: boolean;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -3545,6 +3548,7 @@ export async function updateMaterial(
     unit?: string;
     safetyStock?: number;
     isActive?: number;
+    tenantId?: number;
   }
 ) {
   const db = await getDb();
@@ -4912,6 +4916,7 @@ export async function upsertSystemSetting(
 export async function getMaterialTransactionHistory(materialId: number, filters?: {
   startDate?: Date;
   endDate?: Date;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -4969,6 +4974,7 @@ export async function getMaterialTransactionHistory(materialId: number, filters?
 export async function getInventoryTurnoverRate(filters?: {
   startDate?: Date;
   endDate?: Date;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -6979,6 +6985,7 @@ export async function receiveMaterial(params: {
   expiryDate?: string;
   lotNumber?: string;
   location?: string;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7033,6 +7040,7 @@ export async function receiveMaterial(params: {
 export async function getLotsByMaterialFefo(params: {
   materialId: number;
   siteId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -7143,6 +7151,7 @@ export async function getInventoryTransactions(params: {
   transactionType?: string;
   limit?: number;
   offset?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -8437,6 +8446,7 @@ export async function getPurchaseProposalHistory(params: {
   endDate?: string;
   status?: "draft" | "submitted" | "approved" | "received" | "cancelled";
   materialId?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
