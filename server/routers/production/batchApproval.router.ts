@@ -40,6 +40,7 @@ export const batchApprovalRouter = router({
 
       for (const recipient of recipients) {
         await createNotification({
+          tenantId: ctx.tenantId!,
           userId: recipient.id,
           notificationType: "batch_approval_request",
           title: "배치 승인 요청",
