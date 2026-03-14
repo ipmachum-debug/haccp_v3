@@ -89,7 +89,7 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
     .limit(1);
   
   // 원재료 함량(배합비) 조회
-  let ingredients = [];
+  let ingredients: any[] = [];
   if (latestVersion.length > 0) {
     const ingredientsData = await db
       .select({

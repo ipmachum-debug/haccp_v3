@@ -45,7 +45,7 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
     const updatedData = [...parsedData];
     const value = editValue.trim();
 
-    if (field === "unitPrice") {
+    if (field === ("unitPrice" as any)) {
       (updatedData[rowIndex] as any)[field] = value ? parseFloat(value) : undefined;
     } else {
       (updatedData[rowIndex] as any)[field] = value || undefined;

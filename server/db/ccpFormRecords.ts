@@ -862,13 +862,13 @@ export async function syncCcpRowsToFormRows(params: {
     // 모든 공정(교반, 증숙, 오븐, 금속검출)에 작업시작 시점으로부터 0-10분 랜덤 오프셋
     // 일괄적이면 외부점검시 이상하게 생각하므로 자연스럽게 분산
     // seed: batchId + processGroupId + ccpType hash → 동일 배치에 대해 동일 오프셋 (재현성)
-    function seededRandom(seed: number): number {
+    const seededRandom = (seed: number): number => {
       let s = seed;
       s = ((s ^ 0xDEADBEEF) + (s << 1)) & 0x7FFFFFFF;
       s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
       s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
       return (s & 0x7FFFFFFF) / 0x7FFFFFFF;
-    }
+    };
     const randomSeed = batchId * 1000 + (processGroupId || 0) * 100 + ccpType.charCodeAt(4);
     const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
     const adjustedStartTime = batchStartTime ? addMinutesToTime(batchStartTime, randomOffsetMin) : batchStartTime;

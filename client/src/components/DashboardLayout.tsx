@@ -473,7 +473,7 @@ function DashboardLayoutContent({
       utils.favorites.list.setData(undefined, (old: any) => {
         if (!old) return old;
         const updated = [...old];
-        variables.updates.forEach(({ favoriteId, displayOrder }) => {
+        variables.updates.forEach(({ favoriteId, displayOrder }: { favoriteId: any; displayOrder: any }) => {
           const fav = updated.find((f: any) => f.id === favoriteId);
           if (fav) fav.sortOrder = displayOrder;
         });

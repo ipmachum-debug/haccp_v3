@@ -129,9 +129,9 @@ export async function cancelProductionComplete(
 
   // 6. 배치 상태 전환
   await db.update(hBatches).set({
-    status: "canceled",
+    status: "cancelled",
     canceledAt: new Date()
-  }).where(eq(hBatches.id, batchId));
+  } as any).where(eq(hBatches.id, batchId));
 
   console.log(`[productionCompleteCancel] 배치 #${batchId} 생산 완료 취소`);
 }

@@ -574,6 +574,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
 
 // 일지 작성 모달 컴포넌트 (완전 버전)
 function LogModal({ open, onClose, onSuccess, equipment }: any) {
+  const { toast } = useToast();
   const [formData, setFormData] = useState({
     equipmentId: equipment?.id || "",
     calibrationDate: format(new Date(), "yyyy-MM-dd"),
@@ -610,8 +611,8 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
 
   const handleSubmit = (status: "draft" | "pending_review") => {
     createRecord.mutate({
-      equipmentId: Number(formData.equipmentId),
       ...formData,
+      equipmentId: Number(formData.equipmentId),
       status,
       results: formData.results.map(r => ({ ...r, calibrationValue: Number(r.calibrationValue), panelValue: Number(r.panelValue) })),
     });

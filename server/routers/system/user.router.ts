@@ -34,7 +34,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.tenantId ?? undefined) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 관리할 수 없습니다.'
@@ -98,7 +98,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.tenantId ?? undefined) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 승인할 수 없습니다.'
@@ -106,7 +106,7 @@ export const userRouter = router({
         }
         
         // 사용자 승인
-        await approveUser(input.userId, input.role);
+        await approveUser(input.userId, input.role as "admin" | "worker" | "monitor");
         
         // 감사 로그 생성
         await createAuditLog({
@@ -147,7 +147,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.tenantId ?? undefined) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 관리할 수 없습니다.'
@@ -168,7 +168,7 @@ export const userRouter = router({
         const { batchApproveUsers, createAuditLog } = await import("../../db");
         
         // 일괄 승인
-        await batchApproveUsers(input.userIds, input.role);
+        await batchApproveUsers(input.userIds, input.role as "admin" | "worker" | "monitor");
         
         // 감사 로그 생성
         await createAuditLog({
@@ -206,7 +206,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.tenantId ?? undefined) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 거부할 수 없습니다.'
@@ -276,7 +276,7 @@ export const userRouter = router({
         const { userId, tempPassword } = await inviteUser(
           input.email,
           input.name,
-          input.role,
+          input.role as "admin" | "worker" | "monitor",
           ctx.user.id,
           input.userMemo
         );
@@ -330,7 +330,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.tenantId ?? undefined) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 삭제할 수 없습니다.'

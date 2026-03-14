@@ -185,7 +185,7 @@ export const subscriptionRouter = router({
       const db = await getDb();
       const notifications = await (db.query as any).subscriptionNotifications.findMany({
         where: eq(subscriptionNotifications.tenantId, ctx.tenantId),
-        orderBy: (notifications: any, { desc }) => [desc(notifications.createdAt)],
+        orderBy: (notifications: any, { desc }: any) => [desc(notifications.createdAt)],
       });
 
       return notifications;
@@ -381,12 +381,12 @@ export const subscriptionRouter = router({
       if (tenant.subscriptionPackage === 'basic') package_basic++;
       else if (tenant.subscriptionPackage === 'pro') package_pro++;
 
-      if (tenant.subscriptionStatus === 'suspended') {
+      if ((tenant.status as string) === 'suspended') {
         suspended++;
-      } else if (tenant.subscriptionStatus === 'grace_period') {
+      } else if ((tenant.status as string) === 'grace_period') {
         grace_period++;
-      } else if (tenant.subscriptionExpiryDate) {
-        const expiryDate = new Date(tenant.subscriptionExpiryDate);
+      } else if (tenant.subscriptionEndDate) {
+        const expiryDate = new Date(tenant.subscriptionEndDate);
         const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         
         if (daysRemaining <= 7) {
@@ -425,9 +425,9 @@ export const subscriptionRouter = router({
         .from(tenants)
         .where(
           and(
-            sql`${tenants.subscriptionExpiryDate} IS NOT NULL`,
-            sql`${tenants.subscriptionExpiryDate} <= ${targetDate.toISOString().split('T')[0]}`,
-            sql`${tenants.subscriptionExpiryDate} >= ${today.toISOString().split('T')[0]}`
+            sql`${tenants.subscriptionEndDate} IS NOT NULL`,
+            sql`${tenants.subscriptionEndDate} <= ${targetDate.toISOString().split('T')[0]}`,
+            sql`${tenants.subscriptionEndDate} >= ${today.toISOString().split('T')[0]}`
           )
         );
 

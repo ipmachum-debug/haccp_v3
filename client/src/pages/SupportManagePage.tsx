@@ -137,7 +137,7 @@ function TicketModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
+        onClick={(e: any) => e.stopPropagation()}
       >
         {isLoading ? (
           <div className="p-12 text-center">

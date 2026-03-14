@@ -12,7 +12,7 @@ export const checklistStatsRouter = router({
       }),
 
     // 오늘 전체 상태 조회
-    getToday: tenantRequiredProcedure.query(async () => {
+    getToday: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getTodayChecklistStats } = await import("../../db/checklistStats");
       return await getTodayChecklistStats(ctx.tenantId ?? undefined);
     })

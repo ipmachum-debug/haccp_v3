@@ -43,7 +43,7 @@ export async function createBankAccount(data: {
     .where(
       and(
         eq(bankAccounts.bankName, data.bankName),
-        eq(bankAccounts.accountNumber, data.accountNumber)
+        eq(bankAccounts.accountNo, data.accountNumber as any)
       )
     )
     .limit(1);

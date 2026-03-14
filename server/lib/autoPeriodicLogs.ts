@@ -524,7 +524,7 @@ async function isFirstBatchOfPeriod(
   workDate: string,
 ): Promise<boolean> {
   // workDate 이전에 해당 기간 내 배치가 있었는지 확인
-  const [priorBatches] = await conn.execute<any[]>(
+  const [priorBatches] = await (conn as any).execute(
     `SELECT COUNT(*) as cnt FROM h_batches
      WHERE tenant_id = ?
        AND planned_date >= ?
@@ -537,7 +537,7 @@ async function isFirstBatchOfPeriod(
   if (priorCount === 0) return true;
 
   // 이전 배치가 있지만 모두 휴무일(h_holidays)이었으면 → 영업일 기준 첫 배치
-  const [holidayBatches] = await conn.execute<any[]>(
+  const [holidayBatches] = await (conn as any).execute(
     `SELECT COUNT(*) as cnt FROM h_batches b
      INNER JOIN h_holidays h ON h.holiday_date = b.planned_date AND h.tenant_id = b.tenant_id
      WHERE b.tenant_id = ?

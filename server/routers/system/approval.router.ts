@@ -7,7 +7,7 @@ import { getDb } from "../../db";
 
 export const approvalRouter = router({
     // 승인 대시보드 - 전체 승인 대기 항목 조회
-    getPendingApprovals: tenantRequiredProcedure.query(async () => {
+    getPendingApprovals: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getPendingApprovals } = await import("../../db");
       return await getPendingApprovals(ctx.tenantId!);
     }),

@@ -54,7 +54,7 @@ function PasswordModal({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           className="w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden"
-          onClick={e => e.stopPropagation()}
+          onClick={(e: any) => e.stopPropagation()}
         >
           <div className="p-6">
             <div className="flex items-center gap-3 mb-4">
@@ -199,7 +199,7 @@ function ContactModal({
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ duration: 0.3 }}
           className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e: any) => e.stopPropagation()}
         >
           {/* Header */}
           <div className="px-6 py-5 border-b border-stone-100 flex items-center justify-between">
@@ -389,7 +389,7 @@ function TicketDetailModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[85vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e: any) => e.stopPropagation()}
       >
         {isLoading ? (
           <div className="p-12 text-center">

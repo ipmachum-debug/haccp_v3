@@ -45,10 +45,10 @@ export async function checkInventoryForecastAlerts() {
         console.log(`[재고 예측 스케줄러] [tenant:${tenantId}] ${predictions.length}개 원재료 재고 부족 예상 감지`);
 
         // TODO: createLowStockNotifications(tenantId)로 변경 필요
-        const notificationCount = await createLowStockNotifications();
-        totalNotificationCount += notificationCount;
+        const notificationResult = await createLowStockNotifications();
+        totalNotificationCount += notificationResult.count;
 
-        console.log(`[재고 예측 스케줄러] [tenant:${tenantId}] ${notificationCount}개 알림 생성 완료`);
+        console.log(`[재고 예측 스케줄러] [tenant:${tenantId}] ${notificationResult.count}개 알림 생성 완료`);
       } catch (tenantError) {
         console.error(`[재고 예측 스케줄러] [tenant:${tenantId}] 처리 오류:`, tenantError);
       }

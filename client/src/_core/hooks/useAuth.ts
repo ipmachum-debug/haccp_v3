@@ -27,7 +27,7 @@ export function useAuth(options?: UseAuthOptions) {
   const logout = useCallback(async () => {
     try {
       await logoutMutation.mutateAsync();
-    } catch (error: unknown) {
+    } catch (error: any) {
       if (
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"

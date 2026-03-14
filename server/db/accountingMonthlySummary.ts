@@ -270,10 +270,10 @@ export async function saveMonthlyReport(data: NewAccountingMonthlyReport, tenant
   const version = existing.length > 0 ? existing[0].version + 1 : 1;
 
   const result = await db.insert(accountingMonthlyReport).values({
-      tenantId,
     ...data,
+    tenantId: tenantId!,
     version
-  });
+  } as any);
 
   return Number(result[0].insertId);
 }

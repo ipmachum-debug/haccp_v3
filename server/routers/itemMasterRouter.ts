@@ -351,7 +351,7 @@ export const itemMasterRouter = router({
         }
       } else {
         for (const item of items) {
-          const categoryName = item.categoryId ? categoryMap[item.categoryId] : item.category || '';
+          const categoryName = item.category ? categoryMap[item.category] : item.category || '';
           const row = input.itemType === 'own_product'
             ? [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, Math.round((item.shelfLifeDays || 0) / 30), item.description || '']
             : [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, item.shelfLifeDays || (item as any).expiryWarningDays || 0, item.description || ''];
@@ -461,7 +461,7 @@ export const productSkuRouter = router({
   // SKU 코드 자동 생성
   generateCode: tenantRequiredProcedure
     .input(z.object({ parentItemCode: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const code = await generateSkuCode(input.parentItemCode, ctx.tenantId ?? undefined);
       return { code };
     }),

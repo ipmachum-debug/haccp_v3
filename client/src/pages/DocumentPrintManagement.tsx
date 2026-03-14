@@ -135,7 +135,7 @@ export default function DocumentPrintManagement() {
 
   const savePrintedIds = useCallback((ids: Set<number>) => {
     setPrintedIds(ids);
-    try { localStorage.setItem(printedIdsKey, JSON.stringify([...ids])); } catch {}
+    try { localStorage.setItem(printedIdsKey, JSON.stringify(Array.from(ids))); } catch {}
   }, [printedIdsKey]);
 
   const savePrintHistory = useCallback((history: Array<{ date: string; ids: number[]; count: number }>) => {

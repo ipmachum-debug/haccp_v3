@@ -152,7 +152,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
     // 입금 계좌 정보 (대표 계좌)
     bankAccount: primaryAccount ? {
       bankName: primaryAccount.bankName,
-      accountNumber: primaryAccount.accountNumber,
+      accountNumber: primaryAccount.accountNo,
       ownerName: (primaryAccount as any).ownerName || "예금주 미설정"
     } : undefined
   };

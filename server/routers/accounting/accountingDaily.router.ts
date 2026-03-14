@@ -18,7 +18,7 @@ export const accountingDailyRouter = router({
           closeDate: input.closeDate,
           largeAmountChecked: input.largeAmountChecked,
           userId: ctx.user.id
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId as any);
         
         // === 원료수불부 일일 마감 연동 ===
         try {

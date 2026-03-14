@@ -614,4 +614,3 @@ export default function ChecklistFormLayout({
 // Export 공통 컴포넌트들 (각 폼에서 사용)
 // ============================================================================
 export { ApprovalStampTable, WriterSelectField };
-export type { ChecklistFormConfig };

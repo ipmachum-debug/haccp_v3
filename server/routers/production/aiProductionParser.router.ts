@@ -258,7 +258,7 @@ export const aiProductionParserRouter = router({
 
         // (B) 학습 사전 부분 매칭 (normalized alias가 포함관계)
         let bestLearned: { productId: number; productName: string; score: number } | null = null;
-        for (const [alias, data] of learnedAliases) {
+        for (const [alias, data] of Array.from(learnedAliases)) {
           if (alias.includes(normalizedInput) || normalizedInput.includes(alias)) {
             const score = alias === normalizedInput ? 100 : 85;
             if (!bestLearned || score > bestLearned.score) {

@@ -10,7 +10,7 @@ export const productionDashboardRouter = router({
       }),
     // 배치 상태별 통계 조회
     getBatchStats: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getBatchStats } = await import("../../db/productionDashboard");
         return await getBatchStats(ctx.tenantId ?? undefined);
       })

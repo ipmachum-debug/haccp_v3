@@ -243,7 +243,7 @@ export default function MaterialBulkUploadModal({ open, onClose, onSuccess }: Ma
                           material.unit
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "safetyStock", material.safetyStock.toString())}>
+                      <TableCell onClick={() => handleCellClick(index, "safetyStock", (material.safetyStock ?? 0).toString())}>
                         {editingCell?.rowIndex === index && editingCell?.field === "safetyStock" ? (
                           <input
                             type="number"

@@ -427,9 +427,9 @@ async function syncSuppliers(db: any, direction: string, tenantId: number, opsco
       let errors = 0;
       for (const p of opscorePartners) {
         try {
-          if (p.businessNumber) {
+          if (p.business_number) {
             const [existing] = await db.execute(sql`
-              SELECT id FROM h_suppliers WHERE business_number = ${p.businessNumber} AND tenant_id = ${tenantId} LIMIT 1
+              SELECT id FROM h_suppliers WHERE business_number = ${p.business_number} AND tenant_id = ${tenantId} LIMIT 1
             `);
             if ((existing as unknown as any[]).length === 0) {
               await db.execute(sql`

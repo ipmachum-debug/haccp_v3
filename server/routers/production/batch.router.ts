@@ -517,6 +517,7 @@ export const batchRouter = router({
 
           // 3.7 개별 배치별 batch_production 승인요청 생성 (CCP 기록지 인쇄용)
           try {
+            const db2 = await (await import("../../db")).getDb();
             for (const r of successResults) {
               if (r.ccpCreated && r.ccpCount > 0) {
                 const ccpGroupNames = (r.ccpGroups || []).map((g: any) => `${g.name || g.ccp_type}(${g.ccp_type})`).join(", ");
@@ -524,7 +525,7 @@ export const batchRouter = router({
                 const modeLabel = (item as any)?.mode === "manual" ? "[수동]" : "[자동]";
                 const indivTitle = `${modeLabel} 배치 CCP 승인 - ${r.batchCode} (${r.productName || ""})`;
                 const indivDesc = `제품: ${r.productName || ""}\n계획일: ${input.workDate}\nCCP ${r.ccpCount}건 자동 생성 완료\n배치코드: ${r.batchCode}\nCCP 공정: ${ccpGroupNames}\n그룹: ${dayBatchGroup}`;
-                await db.execute(sql`
+                await db2.execute(sql`
                   INSERT INTO h_approval_requests
                     (site_id, tenant_id, request_type, reference_type, reference_id,
                      title, description, status, priority, requested_by, created_at)
@@ -1446,6 +1447,7 @@ export const batchRouter = router({
           // 단절 4-1: 법적 선행 체크리스트 자동생성
           let checklistResult = null;
           try {
+            const { getBatchById } = await import("../../db");
             const batch = await getBatchById(input.batchId, ctx.tenantId!);
             if (batch) {
               const today = new Date().toISOString().split('T')[0];

@@ -14,7 +14,7 @@ const config: ChecklistFormConfig = {
   documentTitle: "소비자 불만 관리 일지",
 };
 
-const initialRows = [
+const initialRows: Record<string, any>[] = [
   { id: 1, 접수일: '', 접수경로: '', 고객명: '', 제품명: '', 불만내용: '', 원인분석: '', 조치내용: '', 조치일: '', 결과: '적합' },
 ];
 

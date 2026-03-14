@@ -151,8 +151,8 @@ export const accountingDocumentsRouter = router({
 
     // HACCP 연동 자동화: 기존 재고 거래 일괄 처리 (마이그레이션용)
     batchCreateAccountingTransactions: adminProcedure
-      .mutation(async () => {
+      .mutation(async ({ ctx }) => {
         const { batchCreateAccountingTransactions } = await import("../../db/haccpAccountingIntegration");
-        return await batchCreateAccountingTransactions(ctx.tenantId);
+        return await batchCreateAccountingTransactions(ctx.tenantId!);
       })
 });

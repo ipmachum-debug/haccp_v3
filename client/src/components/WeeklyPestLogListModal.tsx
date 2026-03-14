@@ -134,7 +134,7 @@ export function WeeklyPestLogListModal({
 
   const handleApprove = (id: number) => {
     if (confirm('승인하시겠습니까?')) {
-      approveMutation.mutate({ id, approved_by: currentUser?.name || '관리자' });
+      approveMutation.mutate({ id, approved_by: '관리자' });
     }
   };
 

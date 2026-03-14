@@ -268,7 +268,7 @@ export const bankTransactionRouter = router({
         throw new Error("고액 거래는 금액 재확인이 필요합니다.");
       }
 
-      if (input.confirmedAmount && Math.abs(transaction[0].amount - input.confirmedAmount) > 0.01) {
+      if (input.confirmedAmount && Math.abs(Number(transaction[0].amount) - input.confirmedAmount) > 0.01) {
         throw new Error("확인된 금액이 일치하지 않습니다.");
       }
 
