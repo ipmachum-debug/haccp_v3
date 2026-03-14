@@ -36,7 +36,7 @@ export const hazardAnalysisCcpRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 강제 필터
+      // P0 FIX: tenantId 강제 필터
       const tenantId = getEffectiveTenantId(ctx);
       let conditions: any[] = [eq(hazardAnalysis.tenantId, tenantId)];
 

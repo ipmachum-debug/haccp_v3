@@ -95,9 +95,7 @@ export const ccpStatsRouter = router({
       return stats;
     }),
 
-  // ============================================================
   // 설비 기준 CCP 모니터링 기록 (설비별 조회)
-  // ============================================================
   getCcpRecordsByEquipment: tenantRequiredProcedure
     .input(z.object({
       equipmentId: z.number().optional(),
@@ -176,9 +174,7 @@ export const ccpStatsRouter = router({
       return { id: result.insertId };
     }),
 
-  // ============================================================
   // CCP 설비 목록 (ccp_type 기반) - raw SQL로 equipment_master 조회
-  // ============================================================
   getCcpEquipments: tenantRequiredProcedure
     .input(z.object({
       ccpType: z.string().optional(),
@@ -207,9 +203,7 @@ export const ccpStatsRouter = router({
       }
     }),
 
-  // ============================================================
   // 강화된 통계 - 설비별/제품별/기간별 통계
-  // ============================================================
   getCcpDetailedStats: tenantRequiredProcedure
     .input(z.object({
       startDate: z.date(),

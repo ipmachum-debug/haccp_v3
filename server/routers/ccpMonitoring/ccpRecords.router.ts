@@ -63,7 +63,7 @@ export const ccpRecordsRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error('Database not available');
-      // ✅ P0 FIX: tenantId 강제 필터
+      // P0 FIX: tenantId 강제 필터
       const tenantId = getEffectiveTenantId(ctx);
       let conditions = [eq(ccpMonitoringRecords.tenantId, tenantId)];
 
@@ -83,7 +83,7 @@ export const ccpRecordsRouter = router({
         conditions.push(eq(ccpMonitoringRecords.passFail, input.passFail));
       }
 
-      // ✅ P0 FIX v2: tenantId 조건은 항상 포함되므로 and() 사용 (sql`1=1` 제거)
+      // P0 FIX v2: tenantId 조건은 항상 포함되므로 and() 사용 (sql`1=1` 제거)
       const records = await db
         .select()
         .from(ccpMonitoringRecords)
