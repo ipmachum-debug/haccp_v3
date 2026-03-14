@@ -16,7 +16,7 @@ export async function getUserTemplateSettings(userId: number, templateType: stri
     .select()
     .from(hTemplateSettings)
     .where(and(
-      eq(hTemplateSettings.tenantId, tenantId),
+      eq(hTemplateSettings.tenantId, tenantId) as any,
       eq(hTemplateSettings.userId, userId),
       eq(hTemplateSettings.templateType, templateType)
     ));
@@ -53,7 +53,7 @@ export async function deleteTemplateSetting(id: number, userId: number, tenantId
   await db
     .delete(hTemplateSettings)
     .where(and(
-      eq(hTemplateSettings.tenantId, tenantId),
+      eq(hTemplateSettings.tenantId, tenantId) as any,
       eq(hTemplateSettings.id, id),
       eq(hTemplateSettings.userId, userId)
     ));
@@ -69,7 +69,7 @@ export async function getTemplateSetting(id: number, userId: number, tenantId?: 
     .select()
     .from(hTemplateSettings)
     .where(and(
-      eq(hTemplateSettings.tenantId, tenantId),
+      eq(hTemplateSettings.tenantId, tenantId) as any,
       eq(hTemplateSettings.id, id),
       eq(hTemplateSettings.userId, userId)
     ));

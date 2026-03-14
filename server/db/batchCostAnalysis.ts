@@ -169,10 +169,10 @@ export async function getCostAnalysisPeriodSummary(params: {
     })
     .from(hBatches)
     .where(
-      and(eq(hBatches.tenantId, tenantId), 
+      and(eq(hBatches.tenantId, tenantId) as any, 
         gte(hBatches.plannedDate, startDate),
         lte(hBatches.plannedDate, endDate)
-      )
+      ) as any
     );
 
   // 기간별 그룹화

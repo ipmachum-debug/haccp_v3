@@ -95,7 +95,7 @@ export async function createPurchase(params: {
       productionDate: params.productionDate || null,
       status: "available", // enum: available, reserved, used, expired, disposed
       createdBy: params.createdBy
-    });
+    } as any);
     
     // h_material_inspections에 육안검사일지 자동 생성
     // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
@@ -106,7 +106,7 @@ export async function createPurchase(params: {
       status: "pending", // enum: pending, passed, failed, conditional - 초기 상태는 pending
       result: "pass", // enum: pass, fail, conditional
       notes: params.memo || null
-    });
+    } as any);
     
     // 카테고리의 alertDays 조회 및 알람 자동 생성
     const { categories, hStockAlerts } = await import("../../drizzle/schema");
@@ -253,7 +253,7 @@ export async function createPurchaseFromReceipt(params: {
     taxRate: params.taxRate || "10.00",
     sourceType: "inventory_receipt",
     sourceId: params.inventoryTransactionId,
-    notes: params.memo,
+    notes: params.notes,
     status: "pending",
     createdBy: params.createdBy
   });
@@ -295,7 +295,7 @@ export async function createSaleFromUsage(params: {
     taxRate: params.taxRate || "10.00",
     sourceType: "inventory_usage",
     sourceId: params.inventoryTransactionId,
-    notes: params.memo,
+    notes: params.notes,
     status: "pending",
     createdBy: params.createdBy
   });
@@ -373,7 +373,7 @@ export async function getAllPurchases(filters?: {
     conditions.push(like(accountingPurchases.itemName, `%${filters.itemName}%`));
   }
   if (filters?.status) {
-    conditions.push(eq(accountingPurchases.status, filters.status));
+    conditions.push(eq(accountingPurchases.status, filters.status) as any);
   }
 
   if (conditions.length > 0) {
@@ -433,7 +433,7 @@ export async function getAllSales(filters?: {
     conditions.push(like(accountingSales.itemName, `%${filters.itemName}%`));
   }
   if (filters?.status) {
-    conditions.push(eq(accountingSales.status, filters.status));
+    conditions.push(eq(accountingSales.status, filters.status) as any);
   }
 
   if (conditions.length > 0) {

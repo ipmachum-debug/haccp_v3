@@ -280,7 +280,7 @@ export async function registerTrainingParticipant(data: {
     throw new Error("교육 일정을 찾을 수 없습니다. (테넌트 소속 아님)");
   }
 
-  const [result] = await db.insert(hTrainingParticipants).values(data);
+  const [result] = await db.insert(hTrainingParticipants).values(data as any);
 
   // 등록 인원 증가
   await updateTrainingSchedule(data.scheduleId, {
@@ -420,7 +420,7 @@ export async function createTrainingReminder(data: {
     ...data,
     reminderDate: new Date(data.reminderDate),
     expiryDate: new Date(data.expiryDate)
-  });
+  } as any);
 
   return result.insertId;
 }

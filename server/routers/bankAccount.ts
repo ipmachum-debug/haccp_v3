@@ -14,7 +14,7 @@ export const bankAccountRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      const conditions = [eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)];
+      const conditions = [eq(bankAccounts.tenantId, ctx.tenantId ?? undefined) as any];
       
       if (input?.isActive) {
         conditions.push(eq(bankAccounts.isActive, input.isActive));
@@ -40,7 +40,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, input.id),
-            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined) as any
           )
         )
         .limit(1);
@@ -107,7 +107,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, id),
-            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -125,7 +125,7 @@ export const bankAccountRouter = router({
         .where(
           and(
             eq(bankAccounts.id, input.id),
-            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined)
+            eq(bankAccounts.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 

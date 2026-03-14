@@ -58,6 +58,10 @@ interface ChecklistFormLayoutProps {
   extraActions?: ReactNode;
   // 문서 양식 + 입력 폼 영역
   children: ReactNode;
+  // 문서 제목 (인쇄/PDF용)
+  documentTitle?: string;
+  // 작성자 필드명
+  writerField?: string;
 }
 
 // ============================================================================

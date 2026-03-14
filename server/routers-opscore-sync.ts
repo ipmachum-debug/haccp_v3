@@ -434,7 +434,7 @@ async function syncSuppliers(db: any, direction: string, tenantId: number, opsco
             if ((existing as unknown as any[]).length === 0) {
               await db.execute(sql`
                 INSERT INTO h_suppliers (name, business_number, contact_person, phone, email, address, is_active, tenant_id)
-                VALUES (${p.name}, ${p.businessNumber}, ${p.contactPerson || null}, ${p.phone || null}, ${p.email || null}, ${p.address || null}, 1, ${tenantId})
+                VALUES (${p.company_name}, ${p.business_number}, ${p.ceo_name || null}, ${p.phone || null}, ${p.email || null}, ${p.address || null}, 1, ${tenantId})
               `);
               synced++;
             }

@@ -37,6 +37,7 @@ interface SalesDocument {
   unit: string;
   unitPrice: string;
   totalAmount: string;
+  createdBy: number;
 }
 
 export async function postProductSale(
@@ -103,7 +104,7 @@ export async function postProductSale(
         amount: (-allocation.quantity * allocation.unitCost).toString(),
         performedBy: userId,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 확정된 판매 문서입니다 (재고 원장 중복)");

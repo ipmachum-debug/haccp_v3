@@ -90,7 +90,7 @@ async function generateInstancesForFrequency(frequencyType: string, periodKeyFn:
         .where(
           and(
             eq(checklistSchedules.tenantId, tenantId),
-            eq(checklistSchedules.frequencyType, frequencyType),
+            eq(checklistSchedules.frequencyType, frequencyType) as any,
             eq(checklistSchedules.active, 1),
             eq(checklistSchedules.autoGenerate, 1)
           )

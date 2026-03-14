@@ -220,8 +220,8 @@ export default function ProductManagement() {
                 <Label htmlFor="category">카테고리</Label>
                 <CategorySelect
                   type="product"
-                  value={formData.category}
-                  onChange={(value) => setFormData({ ...formData, category: value })}
+                  value={formData.category as any}
+                  onChange={(value) => setFormData({ ...formData, category: value as any })}
                   placeholder="카테고리를 선택하세요"
                 />
               </div>
@@ -398,8 +398,8 @@ export default function ProductManagement() {
               <Label htmlFor="edit-category">카테고리</Label>
               <CategorySelect
                 type="product"
-                value={formData.category}
-                onChange={(value) => setFormData({ ...formData, category: value })}
+                value={formData.category as any}
+                onChange={(value) => setFormData({ ...formData, category: value as any })}
                 placeholder="카테고리를 선택하세요"
               />
             </div>

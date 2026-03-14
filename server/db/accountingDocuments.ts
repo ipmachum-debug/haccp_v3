@@ -14,7 +14,7 @@ export async function createDocument(data: NewAccountingDocument, tenantId?: num
   const db = await getDb();
   
   const result = await db.insert(accountingDocuments).values({
-      ...data, tenantId });
+      ...data, tenantId } as any);
   const documentId = Number(result[0].insertId);
 
   // 초기 워크플로우 상태 생성 (uploaded)
@@ -26,7 +26,7 @@ export async function createDocument(data: NewAccountingDocument, tenantId?: num
     changedAt: new Date(),
     comment: "문서 업로드 완료",
     notificationSent: 0
-  });
+  } as any);
 
   return documentId;
 }
@@ -42,7 +42,7 @@ export async function listDocuments(filters?: {
 }, tenantId?: number) {
   const db = await getDb();
   
-  let query = db.select().from(accountingDocuments).where(eq(accountingDocuments.tenantId, tenantId));
+  let query: any = db.select().from(accountingDocuments).where(eq(accountingDocuments.tenantId, tenantId) as any);
 
   const conditions: any[] = [];
   if (tenantId) conditions.push(eq(accountingDocumentWorkflow.tenantId, tenantId));
@@ -81,7 +81,7 @@ export async function getDocument(id: number, tenantId?: number) {
   const result = await db
     .select()
     .from(accountingDocuments)
-    .where(and(eq(accountingDocuments.tenantId, tenantId), eq(accountingDocuments.id, id)))    .limit(1);
+    .where(and(eq(accountingDocuments.tenantId, tenantId) as any, eq(accountingDocuments.id, id)) as any)    .limit(1);
 
   return result[0] || null;
 }
@@ -95,10 +95,10 @@ export async function deleteDocument(id: number, tenantId?: number) {
   // 워크플로우 이력도 함께 삭제
   await db
     .delete(accountingDocumentWorkflow)
-    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId), eq(accountingDocumentWorkflow.documentId, id)));
+    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId) as any, eq(accountingDocumentWorkflow.documentId, id)) as any);
   await db
     .delete(accountingDocuments)
-    .where(and(eq(accountingDocuments.tenantId, tenantId), eq(accountingDocuments.id, id)));}
+    .where(and(eq(accountingDocuments.tenantId, tenantId) as any, eq(accountingDocuments.id, id)) as any);}
 
 /**
  * 문서 상태 변경
@@ -118,7 +118,7 @@ export async function updateDocumentStatus(
     changedAt: new Date(),
     comment: comment || null,
     notificationSent: 0
-  });
+  } as any);
 }
 
 /**
@@ -130,7 +130,7 @@ export async function getDocumentWorkflow(documentId: number, tenantId?: number)
   return db
     .select()
     .from(accountingDocumentWorkflow)
-    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId), eq(accountingDocumentWorkflow.documentId, documentId)))    .orderBy(desc(accountingDocumentWorkflow.changedAt));
+    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId) as any, eq(accountingDocumentWorkflow.documentId, documentId)) as any)    .orderBy(desc(accountingDocumentWorkflow.changedAt));
 }
 
 /**
@@ -142,7 +142,7 @@ export async function getDocumentLatestStatus(documentId: number, tenantId?: num
   const result = await db
     .select()
     .from(accountingDocumentWorkflow)
-    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId), eq(accountingDocumentWorkflow.documentId, documentId)))    .orderBy(desc(accountingDocumentWorkflow.changedAt))
+    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId) as any, eq(accountingDocumentWorkflow.documentId, documentId)) as any)    .orderBy(desc(accountingDocumentWorkflow.changedAt))
     .limit(1);
 
   return result[0] || null;
@@ -157,7 +157,7 @@ export async function getPendingNotifications(limit = 100, tenantId?: number) {
   return db
     .select()
     .from(accountingDocumentWorkflow)
-    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId), eq(accountingDocumentWorkflow.notificationSent, 0)))    .orderBy(desc(accountingDocumentWorkflow.changedAt))
+    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId) as any, eq(accountingDocumentWorkflow.notificationSent, 0)) as any)    .orderBy(desc(accountingDocumentWorkflow.changedAt))
     .limit(limit);
 }
 
@@ -170,4 +170,4 @@ export async function markNotificationSent(workflowId: number, tenantId?: number
   await db
     .update(accountingDocumentWorkflow)
     .set({ notificationSent: 1 })
-    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId), eq(accountingDocumentWorkflow.id, workflowId)));}
+    .where(and(eq(accountingDocumentWorkflow.tenantId, tenantId) as any, eq(accountingDocumentWorkflow.id, workflowId)) as any);}

@@ -207,7 +207,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
                           supplier.supplierName
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "businessNumber", supplier.businessNumber)}>
+                      <TableCell onClick={() => handleCellClick(index, "businessNumber", supplier.businessNumber || "")}>
                         {editingCell?.rowIndex === index && editingCell?.field === "businessNumber" ? (
                           <input
                             type="text"

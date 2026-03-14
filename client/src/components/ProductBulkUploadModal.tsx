@@ -264,14 +264,14 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
                           product.unit || "-"
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "unitPrice", (product as any).unitPrice?.toString() || "")}>
-                        {editingCell?.rowIndex === index && editingCell?.field === "unitPrice" ? (
+                      <TableCell onClick={() => handleCellClick(index, "unitPrice" as any, (product as any).unitPrice?.toString() || "")}>
+                        {editingCell?.rowIndex === index && editingCell?.field === ("unitPrice" as any) ? (
                           <input
                             type="number"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={() => handleCellBlur(index, "unitPrice")}
-                            onKeyDown={(e) => e.key === "Enter" && handleCellBlur(index, "unitPrice")}
+                            onBlur={() => handleCellBlur(index, "unitPrice" as any)}
+                            onKeyDown={(e) => e.key === "Enter" && handleCellBlur(index, "unitPrice" as any)}
                             className="w-full px-2 py-1 border rounded"
                             autoFocus
                           />

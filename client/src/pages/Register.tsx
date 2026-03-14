@@ -7,7 +7,8 @@ import { trpc } from "@/lib/trpc";
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import {
   CheckCircle2, Shield, TrendingUp, Users, Building2,
   ShieldCheck, Factory, Calculator, Package, FileText,

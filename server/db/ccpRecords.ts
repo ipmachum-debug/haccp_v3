@@ -36,7 +36,7 @@ export async function getCcpRecordsByInstanceId(instanceId: number, tenantId?: n
   const records = await db
     .select()
     .from(hCcpRecords)
-    .where(and(eq(hCcpRecords.tenantId, tenantId), eq(hCcpRecords.instanceId, instanceId)))    .orderBy(hCcpRecords.createdAt);
+    .where(and(eq(hCcpRecords.tenantId, tenantId) as any, eq(hCcpRecords.instanceId, instanceId)) as any)    .orderBy(hCcpRecords.createdAt);
 
   return records.map((record: any) => ({
     id: record.id,

@@ -228,7 +228,7 @@ export default function MaterialBulkUploadModal({ open, onClose, onSuccess }: Ma
                           material.category || "-"
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "unit", material.unit)}>
+                      <TableCell onClick={() => handleCellClick(index, "unit", material.unit || "")}>
                         {editingCell?.rowIndex === index && editingCell?.field === "unit" ? (
                           <input
                             type="text"

@@ -56,7 +56,8 @@ import {
   Link2,
   Unlink
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { useToast } from "@/hooks/use-toast";
 
 export default function TenantManagement() {

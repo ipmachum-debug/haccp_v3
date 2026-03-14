@@ -152,8 +152,7 @@ export const qualityChecklistRouter = router({
             sortOrder: item.sortOrder,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: templateId };
@@ -272,7 +271,7 @@ export const qualityChecklistRouter = router({
         sortOrder: input.sortOrder,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      } as any);
       
       return { id: Number(result[0].insertId) };
     }),
@@ -386,8 +385,7 @@ export const qualityChecklistRouter = router({
             sortOrder: item.sortOrder,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: newTemplateId };
@@ -456,8 +454,7 @@ export const qualityChecklistRouter = router({
             value: null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: instanceId };
@@ -643,7 +640,7 @@ export const qualityChecklistRouter = router({
         oldValue: oldValue,
         newValue: input.value,
         changedAt: new Date().toISOString(),
-      });
+      } as any);
       
       // 인스턴스 상태 업데이트
       const item = currentItem[0];
@@ -1043,7 +1040,7 @@ export const qualityChecklistRouter = router({
         changeDescription: input.changeDescription || "템플릿 수정",
         templateSnapshot: templateSnapshot as any,
         createdBy: ctx.user.id,
-      });
+      } as any);
 
       return {
         id: Number(newVersion.insertId),
@@ -1129,7 +1126,7 @@ export const qualityChecklistRouter = router({
         changeDescription: `롤백 전 백업 (버전 ${version[0].version}로 롤백)`,
         templateSnapshot: currentSnapshot as any,
         createdBy: ctx.user.id,
-      });
+      } as any);
 
       // 템플릿 복원
       await db

@@ -26,7 +26,7 @@ export const bankTransactionRouter = router({
       const limit = input?.limit || 50;
       const offset = (page - 1) * limit;
 
-      const conditions = [eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)];
+      const conditions = [eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any];
 
       if (input?.bankAccountId) {
         conditions.push(eq(bankTransactions.bankAccountId, input.bankAccountId));
@@ -90,7 +90,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         )
         .limit(1);
@@ -131,7 +131,7 @@ export const bankTransactionRouter = router({
         matchingStatus: "unmatched",
         approvalStatus: "pending",
         isLargeAmount: isLargeAmount ? "Y" : "N",
-      });
+      } as any);
 
       return { id: Number(result.insertId), message: "거래가 등록되었습니다." };
     }),
@@ -163,7 +163,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -180,7 +180,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -208,7 +208,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -231,7 +231,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -255,7 +255,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         )
         .limit(1);
@@ -280,7 +280,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -301,7 +301,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -318,7 +318,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             inArray(bankTransactions.id, input.ids),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 
@@ -335,7 +335,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.bankAccountId, input.bankAccountId),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined)
+            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as _motion, AnimatePresence } from "framer-motion";
+const motion = _motion as any;
 import { 
   ChevronDown, Search, ShieldCheck, ArrowLeft, 
   HelpCircle, CreditCard, Wrench, Rocket, Package, FileText, Users

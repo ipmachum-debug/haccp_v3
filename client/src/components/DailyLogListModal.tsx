@@ -29,7 +29,7 @@ export function DailyLogListModal({ onViewDetail }: DailyLogListModalProps) {
       case "pending_approval":
         return <Badge variant="default" className="gap-1"><Eye className="w-3 h-3" /> 승인 대기</Badge>;
       case "approved":
-        return <Badge variant="success" className="gap-1 bg-green-600 text-white"><CheckCircle className="w-3 h-3" /> 승인됨</Badge>;
+        return <Badge variant={"default" as any} className="gap-1 bg-green-600 text-white"><CheckCircle className="w-3 h-3" /> 승인됨</Badge>;
       case "rejected":
         return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" /> 반려됨</Badge>;
       default:

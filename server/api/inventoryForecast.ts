@@ -301,7 +301,7 @@ export async function createLowStockNotifications() {
       priority: notif.priority === "high" ? "high" : "medium",
       isRead: 0,
       createdAt: new Date(),
-    });
+    } as any);
 
     createdNotifications.push({
       materialId: notif.materialId,

@@ -52,7 +52,7 @@ export async function cancelProductSale(
   const originalInventoryTxs = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.sourceId, `SALE-${saleId}`));
+    .where(eq(hInventoryTransactions.sourceId, `SALE-${saleId}`) as any);
 
   if (originalInventoryTxs.length === 0) {
     throw new Error("원본 재고 거래를 찾을 수 없습니다");
@@ -80,7 +80,7 @@ export async function cancelProductSale(
         reversalOfId: originalTx.id,
         performedBy: userId,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 취소된 판매 문서입니다 (재고 원장 중복)");
@@ -118,7 +118,7 @@ export async function cancelProductSale(
         actionType: "REVERSAL",
         reversalOfId: originalTx.id,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 취소된 판매 문서입니다 (회계 원장 중복)");

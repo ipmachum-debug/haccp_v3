@@ -133,7 +133,7 @@ export const supplierRouter = router({
             }
             
             const existing = await db.select().from(hSuppliers)
-              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined), eq(hSuppliers.supplierName, supplier.supplierName.trim())))
+              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined) as any, eq(hSuppliers.supplierName, supplier.supplierName.trim())) as any)
               .limit(1);
             
             if (existing.length > 0) {
@@ -163,7 +163,7 @@ export const supplierRouter = router({
                 email: (supplier.email && supplier.email !== "") ? supplier.email : null,
                 address: supplier.address || null,
                 supplierType: supplier.supplierType || null,
-              });
+              } as any);
               results.insertCount++;
             }
             results.successCount++;

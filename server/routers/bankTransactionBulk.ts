@@ -241,7 +241,7 @@ export const bankTransactionBulkRouter = router({
                 eq(bankTransactions.tenantId, tenantId),
                 eq(bankTransactions.bankAccountId, input.bankAccountId),
                 eq(bankTransactions.transactionDate, transactionDate),
-                eq(bankTransactions.amount, amount)
+                eq(bankTransactions.amount, amount) as any
               )
             )
             .limit(1);
@@ -279,7 +279,7 @@ export const bankTransactionBulkRouter = router({
             isLargeAmount: isLargeAmount ? "Y" : "N",
             matchedBy: isMatched ? ctx.user.id : null,
             matchedAt: isMatched ? new Date() : null,
-          });
+          } as any);
 
           results.success++;
           if (isMatched) {

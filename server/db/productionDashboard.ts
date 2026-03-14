@@ -14,10 +14,10 @@ export async function getActiveBatches(tenantId?: number) {
     .select()
     .from(hBatches)
     .where(
-      and(eq(hBatches.tenantId, tenantId), 
+      and(eq(hBatches.tenantId, tenantId) as any, 
         eq(hBatches.status, "in_progress"),
         lte(hBatches.startTime, now)
-      )
+      ) as any
     )
     .orderBy(hBatches.startTime);
 
@@ -55,7 +55,7 @@ export async function getBatchStats(tenantId?: number) {
       status: hBatches.status,
       count: sql<number>`COUNT(*)`
     })
-    .from(hBatches).where(eq(hBatches.tenantId, tenantId)).groupBy(hBatches.status);
+    .from(hBatches).where(eq(hBatches.tenantId, tenantId) as any).groupBy(hBatches.status);
 
   const result = {
     planned: 0,

@@ -155,7 +155,7 @@ export async function createInboundReceipt(params: {
     referenceId: lotId,
     notes: params.notes || null,
     createdBy: params.createdBy
-  });
+  } as any);
 
   // h_inventory 테이블 업데이트 (총 재고량 증가)
   await updateInventoryQuantity({

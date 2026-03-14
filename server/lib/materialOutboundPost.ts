@@ -93,7 +93,7 @@ export async function postMaterialOutbound(
         amount: (-allocation.quantity * allocation.unitCost).toString(),
         performedBy: userId,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 확정된 출고 문서입니다 (재고 원장 중복)");
@@ -123,7 +123,7 @@ export async function postMaterialOutbound(
       sourceLineId: `OUTBOUND-${outboundId}-1`,
       actionType: "POST",
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error("이미 확정된 출고 문서입니다 (회계 원장 중복 - WIP)");
@@ -144,7 +144,7 @@ export async function postMaterialOutbound(
       sourceLineId: `OUTBOUND-${outboundId}-1`,
       actionType: "POST",
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error("이미 확정된 출고 문서입니다 (회계 원장 중복 - 원재료)");

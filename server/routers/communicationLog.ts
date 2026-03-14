@@ -74,7 +74,7 @@ export async function createCommunicationLog(data: {
         status: data.status || "received",
         authorId: data.authorId,
         mentions: data.mentions || null,
-      });
+      } as any);
       
       try {
         await db.execute(sql.raw(`UPDATE communication_logs SET log_type = 'partner' WHERE id = ${Number(result.insertId)}`));
@@ -159,7 +159,7 @@ export async function getCommunicationLogs(filters: {
       gt(communicationLogs.partnerId, 0),
     ];
     if (filters.partnerId) conditions.push(eq(communicationLogs.partnerId, filters.partnerId));
-    if (filters.status) conditions.push(eq(communicationLogs.status, filters.status));
+    if (filters.status) conditions.push(eq(communicationLogs.status, filters.status) as any);
     if (filters.authorId) conditions.push(eq(communicationLogs.authorId, filters.authorId));
     
     return await db.select().from(communicationLogs).where(and(...conditions)).orderBy(desc(communicationLogs.createdAt));

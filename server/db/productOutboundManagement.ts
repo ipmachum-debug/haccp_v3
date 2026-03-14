@@ -129,7 +129,7 @@ export async function createProductLotFromBatch(params: {
     createdBy: params.userId,
     performedBy: params.userId,
     transactionDate: new Date().toISOString().slice(0, 10),
-  });
+  } as any);
 
   return { lotId, lotNumber, isNew: true };
 }
@@ -293,7 +293,7 @@ export async function createProductOutbound(params: {
         createdBy: params.createdBy,
         performedBy: params.createdBy,
         transactionDate: params.releaseDate,
-      });
+      } as any);
     }
 
     // 배치 코드 조회
@@ -516,7 +516,7 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
         createdBy: userId,
         performedBy: userId,
         transactionDate: new Date().toISOString().slice(0, 10),
-      });
+      } as any);
     }
   }
   // 레거시: 배치 상태 복원

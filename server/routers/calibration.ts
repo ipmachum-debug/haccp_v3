@@ -39,7 +39,7 @@ export const calibrationRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
     const { calibrationDate, nextCalibrationDate, regularCalibrationDate, results, ...restInput } = input;
-    const [record] = await db.insert(calibrationRecords).values({ ...restInput, calibrationDate: new Date(calibrationDate), ...(nextCalibrationDate && { nextCalibrationDate: new Date(nextCalibrationDate) }), ...(regularCalibrationDate && { regularCalibrationDate: new Date(regularCalibrationDate) }), results: JSON.stringify(results), tenantId: Number(ctx.tenantId ?? undefined), createdBy: Number(ctx.user.id) });
+    const [record] = await db.insert(calibrationRecords).values({ ...restInput, calibrationDate: new Date(calibrationDate), ...(nextCalibrationDate && { nextCalibrationDate: new Date(nextCalibrationDate) } as any), ...(regularCalibrationDate && { regularCalibrationDate: new Date(regularCalibrationDate) }), results: JSON.stringify(results), tenantId: Number(ctx.tenantId ?? undefined), createdBy: Number(ctx.user.id) });
     return { success: true, id: record.insertId };
   }),
 });

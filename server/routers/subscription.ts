@@ -65,7 +65,7 @@ export const subscriptionRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, input.tenantId),
       });
 
@@ -111,7 +111,7 @@ export const subscriptionRouter = router({
   getSubscription: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, ctx.tenantId),
       });
 
@@ -147,7 +147,7 @@ export const subscriptionRouter = router({
     .input(z.object({ tenantId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, input.tenantId),
       });
 
@@ -183,7 +183,7 @@ export const subscriptionRouter = router({
   getNotifications: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
-      const notifications = await db.query.subscriptionNotifications.findMany({
+      const notifications = await (db.query as any).subscriptionNotifications.findMany({
         where: eq(subscriptionNotifications.tenantId, ctx.tenantId),
         orderBy: (notifications: any, { desc }) => [desc(notifications.createdAt)],
       });
@@ -219,7 +219,7 @@ export const subscriptionRouter = router({
     .input(z.object({ packageName: z.enum(["basic", "pro"]) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const features = await db.query.packageFeatures.findMany({
+      const features = await (db.query as any).packageFeatures.findMany({
         where: eq(packageFeatures.packageName, input.packageName),
       });
 
@@ -278,7 +278,7 @@ export const subscriptionRouter = router({
         };
       }
 
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, ctx.tenantId),
       });
 
@@ -297,7 +297,7 @@ export const subscriptionRouter = router({
         };
       }
 
-      const feature = await db.query.packageFeatures.findFirst({
+      const feature = await (db.query as any).packageFeatures.findFirst({
         where: and(
           eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
           eq(packageFeatures.featureName, input.featureName)
@@ -332,7 +332,7 @@ export const subscriptionRouter = router({
       };
     }
 
-    const tenant = await db.query.tenants.findFirst({
+    const tenant = await (db.query as any).tenants.findFirst({
       where: eq(tenants.id, ctx.tenantId),
     });
 
@@ -351,7 +351,7 @@ export const subscriptionRouter = router({
       };
     }
 
-    const features = await db.query.packageFeatures.findMany({
+    const features = await (db.query as any).packageFeatures.findMany({
       where: and(
         eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
         eq(packageFeatures.isEnabled, true)
@@ -469,7 +469,7 @@ export const subscriptionRouter = router({
         featureName: input.featureName,
         featureDisplayName: input.featureDisplayName,
         isEnabled: input.isEnabled,
-      });
+      } as any);
 
       return { success: true };
     }),

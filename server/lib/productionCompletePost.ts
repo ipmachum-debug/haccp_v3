@@ -112,7 +112,7 @@ export async function postProductionComplete(
       amount: totalCost.toFixed(2),
       performedBy: userId,
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error("이미 완료된 배치입니다 (재고 원장 중복)");
@@ -136,7 +136,7 @@ export async function postProductionComplete(
       sourceLineId: `BATCH-${batchId}-1`,
       actionType: "POST",
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error("이미 완료된 배치입니다 (회계 원장 중복 - 제품재고)");
@@ -157,7 +157,7 @@ export async function postProductionComplete(
       sourceLineId: `BATCH-${batchId}-1`,
       actionType: "POST",
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error("이미 완료된 배치입니다 (회계 원장 중복 - WIP)");

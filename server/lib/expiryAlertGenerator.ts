@@ -45,7 +45,7 @@ export async function generateExpiryAlerts(
       resolvedAt: null,
       resolvedBy: null,
       createdBy: userId
-    });
+    } as any);
 
     console.log(`[ALERT] 소비기한 임박 알람 생성 (LOT: ${lotId}, 만료일: ${expiryDate})`);
   }
@@ -73,8 +73,8 @@ export async function generateExpiredAlerts(): Promise<void> {
     .from(hInventoryLots)
     .where(
       and(
-        eq(hInventoryLots.status, "active"),
-        lte(hInventoryLots.expiryDate, todayStr),
+        eq(hInventoryLots.status, "active") as any,
+        lte(hInventoryLots.expiryDate, todayStr) as any,
         isNull(hInventoryLots.expiryDate)
       )
     );
@@ -108,7 +108,7 @@ export async function generateExpiredAlerts(): Promise<void> {
         resolvedAt: null,
         resolvedBy: null,
         createdBy: 1, // 시스템 자동 생성
-      });
+      } as any);
 
       console.log(`[ALERT] 소비기한 만료 알람 생성 (LOT: ${lot.id}, 만료일: ${lot.expiryDate})`);
     }

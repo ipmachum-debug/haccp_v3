@@ -52,7 +52,7 @@ export async function addUserFavorite(userId: number, menuPath: string, menuLabe
   let resolvedTenantId = tenantId;
   if (!resolvedTenantId) {
     try {
-      const { users } = await import("../../drizzle/schema/auth");
+      const { users } = await import("../../drizzle/schema/auth") as any;
       const [user] = await db.select({ tenantId: users.tenantId }).from(users).where(eq(users.id, userId)).limit(1);
       resolvedTenantId = user?.tenantId ?? undefined;
     } catch {
@@ -129,7 +129,7 @@ export async function createDefaultFavorites(userId: number, tenantId?: number) 
   let resolvedTenantId = tenantId;
   if (!resolvedTenantId) {
     try {
-      const { users } = await import("../../drizzle/schema/auth");
+      const { users } = await import("../../drizzle/schema/auth") as any;
       const [user] = await db.select({ tenantId: users.tenantId }).from(users).where(eq(users.id, userId)).limit(1);
       resolvedTenantId = user?.tenantId ?? undefined;
     } catch {

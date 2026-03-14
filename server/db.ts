@@ -1162,7 +1162,7 @@ export async function createInventoryLot(data: {
     receiptDate: data.receiptDate || new Date(),
     supplierName: data.supplierId ? `Supplier ${data.supplierId}` : null,
     status: "available"
-  });
+  } as any);
   
   const lotId = result.insertId;
   
@@ -1176,7 +1176,7 @@ export async function createInventoryLot(data: {
     referenceId: data.supplierId || null,
     notes: `재고 입고 - LOT ${data.lotNumber}`,
     createdBy: data.userId
-  });
+  } as any);
   
   return {
     success: true,
@@ -1249,7 +1249,7 @@ export async function addMaterialInputToBatch(data: {
     referenceId: data.batchId,
     notes: `배치 ${data.batchId}에 원재료 투입`,
     createdBy: data.userId
-  });
+  } as any);
   
   // 5. 배치 원재료 투입 기록 생성
   await db.insert(hBatchInputs).values({
@@ -2083,6 +2083,7 @@ export async function checkAndCreateExpiryNotifications() {
     );
 
     await createNotification({
+      tenantId: (lot as any).tenantId || 1,
       notificationType: "inventory_expiry",
       title: `재고 유통기한 임박`,
       message: `${material.materialName} (LOT: ${lot.lotNumber}) 유통기한이 ${daysUntilExpiry}일 남았습니다.`,
@@ -2366,7 +2367,7 @@ export async function createChecklistTemplate(data: {
     autoTriggerRules: data.autoTriggerRules,
     createdBy: data.createdBy,
     isActive: 1
-  });
+  } as any);
 
   return Number(result.insertId);
 }
@@ -2391,7 +2392,7 @@ export async function createChecklistTemplateItem(data: {
   const [result] = await db.insert(checklistTemplateItems).values({
     ...data,
     required: data.required ? 1 : 0
-  });
+  } as any);
 
   return Number(result.insertId);
 }
@@ -2556,7 +2557,7 @@ export async function createChecklistInstanceFromTemplate(data: {
     scheduledDate: data.scheduledDate,
     dueDate: data.dueDate,
     createdBy: data.createdBy
-  });
+  } as any);
 
   const instanceId = Number(instanceResult.insertId);
 
@@ -2570,7 +2571,7 @@ export async function createChecklistInstanceFromTemplate(data: {
       itemType: item.itemType,
       value: item.defaultValue || null,
       isCompleted: 0
-    });
+    } as any);
   }
 
   return instanceId;
@@ -2702,7 +2703,7 @@ export async function createMaterialInspectionRecord(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const [record] = await db.insert(materialInspectionRecords).values(data).$returningId();
+  const [record] = await db.insert(materialInspectionRecords).values(data as any).$returningId();
   return record.id;
 }
 
@@ -2720,7 +2721,7 @@ export async function addMaterialInspectionItem(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  await db.insert(materialInspectionItems).values(data);
+  await db.insert(materialInspectionItems).values(data as any);
   return { success: true };
 }
 
@@ -2826,7 +2827,7 @@ export async function createShippingInspectionRecord(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const [record] = await db.insert(shippingInspectionRecords).values(data).$returningId();
+  const [record] = await db.insert(shippingInspectionRecords).values(data as any).$returningId();
   return record.id;
 }
 
@@ -2844,7 +2845,7 @@ export async function addShippingInspectionItem(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  await db.insert(shippingInspectionItems).values(data);
+  await db.insert(shippingInspectionItems).values(data as any);
   return { success: true };
 }
 
@@ -2946,7 +2947,7 @@ export async function createHygieneInspectionRecord(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const [record] = await db.insert(hygieneInspectionRecords).values(data).$returningId();
+  const [record] = await db.insert(hygieneInspectionRecords).values(data as any).$returningId();
   return record.id;
 }
 
@@ -2964,7 +2965,7 @@ export async function addHygieneInspectionItem(data: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  await db.insert(hygieneInspectionItems).values(data);
+  await db.insert(hygieneInspectionItems).values(data as any);
   return { success: true };
 }
 
@@ -3232,8 +3233,7 @@ export async function updateMaterialInspectionRecord(
             result: item.result,
             passed: (item.passed ? 'pass' : 'fail') as 'pass' | 'fail' | 'na',
             sortOrder: item.sortOrder
-          }))
-        );
+          })) as any);
       }
     }
   });
@@ -3292,8 +3292,7 @@ export async function updateShippingInspectionRecord(
             result: item.result,
             passed: (item.passed ? 'pass' : 'fail') as 'pass' | 'fail' | 'na',
             sortOrder: item.sortOrder
-          }))
-        );
+          })) as any);
       }
     }
   });
@@ -3348,8 +3347,7 @@ export async function updateHygieneInspectionRecord(
             result: item.result,
             passed: (item.passed ? 'pass' : 'fail') as 'pass' | 'fail' | 'na',
             sortOrder: item.sortOrder
-          }))
-        );
+          })) as any);
       }
     }
   });
@@ -3868,7 +3866,7 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     actionBy: approvedBy,
     actionAt: new Date(),
     comments: notes
-  });
+  } as any);
   
   // 4. [후처리] 관련 document_instances 상태 자동 업데이트
   if (request) {
@@ -3937,7 +3935,7 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
     actionBy: rejectedBy,
     actionAt: new Date(),
     comments: rejectionReason
-  });
+  } as any);
 
   return { success: true };
 }
@@ -4005,7 +4003,7 @@ export async function cancelApprovalRequest(requestId: number, cancelledBy: numb
     actionBy: cancelledBy,
     actionAt: new Date(),
     comments: reason
-  });
+  } as any);
 
   return { success: true };
 }
@@ -4046,7 +4044,7 @@ export async function createSupplierEvaluation(data: {
   const [result] = await db.insert(hSupplierEvaluations).values({
     ...data,
     overallScore: overallScore.toFixed(2)
-  });
+  } as any);
 
   // 거래처 등급 자동 업데이트
   await updateSupplierRating(data.supplierId);
@@ -4184,7 +4182,7 @@ export async function saveNotificationSettings(data: {
       .where(eq(hNotificationSettings.userId, data.userId));
   } else {
     // 생성
-    await db.insert(hNotificationSettings).values(data);
+    await db.insert(hNotificationSettings).values(data as any);
   }
   
   return getNotificationSettings(data.userId);
@@ -4303,7 +4301,7 @@ export async function createCcpDeviation(data: {
     severity: data.severity,
     createdBy: data.createdBy,
     notes: data.notes
-  });
+  } as any);
   return result;
 }
 
@@ -4896,7 +4894,7 @@ export async function upsertSystemSetting(
       settingValue: value,
       description,
       updatedBy: userId
-    });
+    } as any);
   }
   
   return true;
@@ -5164,7 +5162,7 @@ export async function createInventoryTurnoverAlert(materialId: number, turnoverR
     message: `원재료 "${materialName}"의 회전율이 ${turnoverRate.toFixed(2)}회로, 설정된 임계값 ${thresholdRate}회 이하입니다. 재고 최적화가 필요합니다.`,
     priority: "high",
     isRead: 0
-  });
+  } as any);
   
   return { success: true };
 }
@@ -5535,7 +5533,7 @@ export async function checkAndCreateTurnoverAlerts() {
           priority: "high",
           actionUrl: `/materials?materialId=${setting.materialId}`,
           isRead: 0
-        });
+        } as any);
         
         alertsCreated.push({
           materialId: setting.materialId,
@@ -5572,7 +5570,7 @@ export async function saveProfitabilityForecast(data: {
     predictedRevenue: data.predictedRevenue.toString(),
     predictedCost: data.predictedCost.toString(),
     predictedProfitMargin: data.predictedProfitMargin.toString()
-  });
+  } as any);
   
   return { success: true };
 }
@@ -5721,7 +5719,7 @@ export async function checkAndCreateInspectionFailureAlerts() {
         priority: "urgent",
         actionUrl: `/inspections?recordId=${inspection.id}`,
         isRead: 0
-      });
+      } as any);
       createdCount++;
     }
   }
@@ -7023,7 +7021,7 @@ export async function receiveMaterial(params: {
       referenceId: null,
       createdBy: 0, // 시스템 자동 입고
       notes: ""
-    });
+    } as any);
     
     // 3. hMaterialReceipts 대신 hInventoryLots의 notes에 입고 정보 기록
     // (hMaterialReceipts 테이블이 스키마에 없으므로 생략)
@@ -7114,7 +7112,7 @@ export async function deductLotQuantity(params: {
       referenceId: params.batchId,
       createdBy: params.performedBy,
       notes: params.notes || `배치 ${params.batchId}에 투입`
-    });
+    } as any);
     
     // 4. hInventory 총 재고 업데이트
     if (lot.materialId) {
@@ -8401,7 +8399,7 @@ export async function approvePurchaseOrderSuggestion(params: {
       expiryDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000), // 90일 후 유통기한
       receiptDate: now,
       status: "available"
-    })
+    } as any)
     .$returningId();
   
   // 4. 거래 내역 기록
@@ -8412,7 +8410,7 @@ export async function approvePurchaseOrderSuggestion(params: {
     unit: material.unit || "kg",
     createdBy: params.approvedBy,
     notes: `발주 제안 승인 - 자동 생성`
-  });
+  } as any);
   
   return {
     success: true,
@@ -8831,7 +8829,7 @@ export async function releaseInventoryStock(params: {
     transactionDate: new Date(),
     reason: params.reason || "재고 출고",
     userId: params.userId
-  });
+  } as any);
   
   return { success: true, message: "재고 출고가 완료되었습니다" };
 }
@@ -8912,7 +8910,7 @@ export async function adjustInventoryStock(params: {
     transactionDate: new Date(),
     reason: params.reason,
     userId: params.userId
-  });
+  } as any);
   
   return { success: true, message: "재고 조정이 완료되었습니다" };
 }

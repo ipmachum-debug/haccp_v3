@@ -492,7 +492,7 @@ export const inventoryRouter = router({
         const [lot] = await db.select().from(hInventoryLots).where(
           and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined)
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
         if (!lot) {
@@ -512,7 +512,7 @@ export const inventoryRouter = router({
           })
           .where(and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined)
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
           ));
         
         // 거래 내역 기록 (h_inventory_transactions)
@@ -526,7 +526,7 @@ export const inventoryRouter = router({
           createdBy: ctx.user.id,
           performedBy: ctx.user.id,
           transactionDate: input.releaseDate
-        });
+        } as any);
         
         return { 
           success: true, 
@@ -552,7 +552,7 @@ export const inventoryRouter = router({
         const [lot] = await db.select().from(hInventoryLots).where(
           and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined)
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
           )
         );
         if (!lot) {
@@ -576,7 +576,7 @@ export const inventoryRouter = router({
           })
           .where(and(
             eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined)
+            eq(hInventoryLots.tenantId, ctx.tenantId ?? undefined) as any
           ));
         
         // 재고 조정 거래 내역 기록
@@ -590,7 +590,7 @@ export const inventoryRouter = router({
           createdBy: ctx.user.id,
           performedBy: ctx.user.id,
           transactionDate: new Date().toISOString().split("T")[0]
-        });
+        } as any);
         
         return { success: true, message: `재고가 조정되었습니다. (${oldQty} → ${finalQty})` };
       }),

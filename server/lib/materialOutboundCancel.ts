@@ -51,7 +51,7 @@ export async function cancelMaterialOutbound(
   const originalInventoryTxs = await db
     .select()
     .from(hInventoryTransactions)
-    .where(eq(hInventoryTransactions.sourceId, `OUTBOUND-${outboundId}`));
+    .where(eq(hInventoryTransactions.sourceId, `OUTBOUND-${outboundId}`) as any);
 
   if (originalInventoryTxs.length === 0) {
     throw new Error("원본 재고 거래를 찾을 수 없습니다");
@@ -79,7 +79,7 @@ export async function cancelMaterialOutbound(
         reversalOfId: originalTx.id,
         performedBy: userId,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 취소된 출고 문서입니다 (재고 원장 중복)");
@@ -117,7 +117,7 @@ export async function cancelMaterialOutbound(
         actionType: "REVERSAL",
         reversalOfId: originalTx.id,
         createdBy: userId
-      });
+      } as any);
     } catch (error: any) {
       if (error.code === "ER_DUP_ENTRY") {
         throw new Error("이미 취소된 출고 문서입니다 (회계 원장 중복)");

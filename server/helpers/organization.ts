@@ -90,7 +90,7 @@ export async function createPosition(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [result] = await db.insert(hPositions).values(data);
+  const [result] = await db.insert(hPositions).values(data as any);
   return result;
 }
 
@@ -307,7 +307,7 @@ export async function createDocumentApprovalSetting(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [result] = await db.insert(hDocumentApprovalSettings).values(data);
+  const [result] = await db.insert(hDocumentApprovalSettings).values(data as any);
   return result;
 }
 

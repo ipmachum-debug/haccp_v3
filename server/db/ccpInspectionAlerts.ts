@@ -17,7 +17,7 @@ export async function createInspectionAlert(data: {
     instanceId: data.instanceId,
     scheduledTime: data.scheduledTime,
     status: "pending"
-  });
+  } as any);
   return alert;
 }
 
@@ -31,7 +31,7 @@ export async function getInspectionAlertsByBatch(batchId: number, tenantId?: num
   const alerts = await db
     .select()
     .from(hCcpInspectionAlerts)
-    .where(and(eq(hCcpInspectionAlerts.tenantId, tenantId), eq(hCcpInspectionAlerts.status, "pending")));  return alerts;
+    .where(and(eq(hCcpInspectionAlerts.tenantId, tenantId) as any, eq(hCcpInspectionAlerts.status, "pending")) as any);  return alerts;
 }
 
 /**
@@ -45,10 +45,10 @@ export async function getPendingAlerts(currentTime: Date, tenantId?: number) {
     .select()
     .from(hCcpInspectionAlerts)
     .where(
-      and(eq(hCcpInspectionAlerts.tenantId, tenantId), 
+      and(eq(hCcpInspectionAlerts.tenantId, tenantId) as any, 
         eq(hCcpInspectionAlerts.status, "pending"),
         lte(hCcpInspectionAlerts.scheduledTime, currentTime)
-      )
+      ) as any
     );
   return alerts;
 }
@@ -74,7 +74,7 @@ export async function updateAlertStatus(
   await db
     .update(hCcpInspectionAlerts)
     .set(updateData)
-    .where(and(eq(hCcpInspectionAlerts.tenantId, tenantId), eq(hCcpInspectionAlerts.id, alertId)));}
+    .where(and(eq(hCcpInspectionAlerts.tenantId, tenantId) as any, eq(hCcpInspectionAlerts.id, alertId)) as any);}
 
 /**
  * 사용자별 대기 중인 알림 조회

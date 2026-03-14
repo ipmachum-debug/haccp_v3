@@ -48,15 +48,15 @@ export const auditLogsRouter = router({
       }
 
       if (entityType) {
-        conditions.push(eq(auditLogs.entityType, entityType));
+        conditions.push(eq((auditLogs as any).entityType, entityType));
       }
 
       if (userId) {
-        conditions.push(eq(auditLogs.userId, userId));
+        conditions.push(eq((auditLogs as any).userId, userId));
       }
 
       if (userEmail) {
-        conditions.push(like(auditLogs.userEmail, `%${userEmail}%`));
+        conditions.push(like((auditLogs as any).userEmail, `%${userEmail}%`));
       }
 
       if (startDate) {
@@ -70,7 +70,7 @@ export const auditLogsRouter = router({
       }
 
       if (search) {
-        conditions.push(like(auditLogs.description, `%${search}%`));
+        conditions.push(like((auditLogs as any).description, `%${search}%`));
       }
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -136,11 +136,11 @@ export const auditLogsRouter = router({
     // 엔티티 타입별 통계
     const entityStats = await db
       .select({
-        entityType: auditLogs.entityType,
+        entityType: (auditLogs as any).entityType,
         count: sql<number>`count(*)`,
       })
       .from(auditLogs)
-      .groupBy(auditLogs.entityType)
+      .groupBy((auditLogs as any).entityType)
       .orderBy(desc(sql`count(*)`))
       .limit(10);
 
@@ -177,7 +177,7 @@ export const auditLogsRouter = router({
       const logs = await db
         .select()
         .from(auditLogs)
-        .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+        .where(and(eq((auditLogs as any).entityType, entityType), eq((auditLogs as any).entityId, entityId)))
         .orderBy(desc(auditLogs.createdAt))
         .limit(limit);
 

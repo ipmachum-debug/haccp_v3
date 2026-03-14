@@ -48,32 +48,33 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   const actionType = "POST";
 
   // 4. LOT 생성 (매입은 항상 새 LOT 생성)
+  const p = purchase as any;
   const lotNumber = `LOT-${Date.now()}-${purchaseId}`;
   const [newLot] = await db.insert(hInventoryLots).values({
-    inventoryId: purchase.inventoryId!,
+    inventoryId: p.inventoryId!,
     lotNumber,
     initialQuantity: purchase.quantity?.toString() || "0",
     currentQuantity: purchase.quantity?.toString() || "0",
     unit: purchase.unit || "EA",
     unitCost: purchase.unitPrice?.toString() || "0",
     receivedDate: purchase.transactionDate,
-    expiryDate: purchase.expiryDate || null,
-    supplierId: purchase.supplierId || null,
+    expiryDate: p.expiryDate || null,
+    supplierId: p.supplierId || null,
     status: "active",
     createdBy: userId
-  });
+  } as any);
 
   const lotId = newLot.insertId;
 
   // 4.5. 소비기한 알람 자동 생성
-  if (purchase.expiryDate) {
-    await generateExpiryAlerts(lotId, purchase.inventoryId!, purchase.expiryDate, userId);
+  if (p.expiryDate) {
+    await generateExpiryAlerts(lotId, p.inventoryId!, p.expiryDate, userId);
   }
 
   // 5. 재고 원장 생성 (h_inventory_transactions)
   try {
     await db.insert(hInventoryTransactions).values({
-      inventoryId: purchase.inventoryId!,
+      inventoryId: p.inventoryId!,
       lotId,
       transactionType: "receipt",
       quantity: purchase.quantity?.toString() || "0",
@@ -87,7 +88,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       unitCost: purchase.unitPrice?.toString() || "0",
       amount: purchase.totalAmount?.toString() || "0",
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     // 멱등성 키 중복 오류 처리
     if (error.code === "ER_DUP_ENTRY") {

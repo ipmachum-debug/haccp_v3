@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { Link, useRoute } from "wouter";
 import {
   ShieldCheck, ArrowLeft, FileText, Lock, CreditCard,

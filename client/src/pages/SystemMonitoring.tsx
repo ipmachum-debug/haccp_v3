@@ -12,7 +12,8 @@ import {
   CheckCircle,
   Clock
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 
 export default function SystemMonitoring() {
   // 모든 테넌트 조회

@@ -403,7 +403,7 @@ function AccountingManagementContent() {
                   <Label htmlFor="filterType">구분</Label>
                   <Select
                     value={filters.type}
-                    onValueChange={(value: "" | "income" | "expense") => setFilters({ ...filters, type: value })}
+                    onValueChange={(value: "all" | "income" | "expense") => setFilters({ ...filters, type: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="전체" />

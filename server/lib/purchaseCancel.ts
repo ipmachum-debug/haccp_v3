@@ -63,7 +63,7 @@ export async function cancelPurchase(purchaseId: number, userId: number): Promis
   // 5. 재고 원장에 역거래 추가 (quantity 음수)
   try {
     await db.insert(hInventoryTransactions).values({
-      inventoryId: purchase.inventoryId!,
+      inventoryId: (purchase as any).inventoryId!,
       lotId,
       transactionType: "adjustment", // 취소는 조정으로 처리
       quantity: (-Number(purchase.quantity || 0)).toString(),
@@ -77,7 +77,7 @@ export async function cancelPurchase(purchaseId: number, userId: number): Promis
       unitCost: purchase.unitPrice?.toString() || "0",
       amount: (-Number(purchase.totalAmount || 0)).toString(),
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     // 멱등성 키 중복 오류 처리
     if (error.code === "ER_DUP_ENTRY") {
@@ -90,7 +90,7 @@ export async function cancelPurchase(purchaseId: number, userId: number): Promis
   await db
     .update(hInventoryLots)
     .set({
-      currentQuantity: (Number(originalInventoryTx.currentQuantity || 0) - Number(purchase.quantity || 0)).toString()
+      currentQuantity: (Number((originalInventoryTx as any).currentQuantity || 0) - Number(purchase.quantity || 0)).toString()
     })
     .where(eq(hInventoryLots.id, lotId));
 
@@ -130,7 +130,7 @@ export async function cancelPurchase(purchaseId: number, userId: number): Promis
       reversalOfId: originalDebitTx?.id || null,
       postedAt: new Date(),
       createdBy: userId
-    });
+    } as any);
 
     // (B) 역거래: 매입채무 감소 (차변)
     await db.insert(accountingTransactions).values({
@@ -147,7 +147,7 @@ export async function cancelPurchase(purchaseId: number, userId: number): Promis
       reversalOfId: originalCreditTx?.id || null,
       postedAt: new Date(),
       createdBy: userId
-    });
+    } as any);
   } catch (error: any) {
     // 멱등성 키 중복 오류 처리
     if (error.code === "ER_DUP_ENTRY") {

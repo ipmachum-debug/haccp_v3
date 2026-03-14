@@ -11,7 +11,7 @@ export async function getIntermediates(tenantId?: number) {
   return db
     .select()
     .from(hMaterials)
-    .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.kind, "MIXED")))
+    .where(and(eq(hMaterials.tenantId, tenantId) as any, eq(hMaterials.kind, "MIXED")) as any)
     .orderBy(desc(hMaterials.createdAt));
 }
 
@@ -27,7 +27,7 @@ export async function getIntermediateDetail(intermediateId: number, tenantId?: n
     .select()
     .from(hMaterials)
     .where(and(
-      eq(hMaterials.tenantId, tenantId),
+      eq(hMaterials.tenantId, tenantId) as any,
       eq(hMaterials.id, intermediateId),
       eq(hMaterials.kind, "MIXED")
     ))
@@ -103,7 +103,7 @@ export async function addIntermediateComponent(data: {
     .select()
     .from(hMaterials)
     .where(and(
-      eq(hMaterials.tenantId, tenantId),
+      eq(hMaterials.tenantId, tenantId) as any,
       eq(hMaterials.id, data.intermediateMaterialId),
       eq(hMaterials.kind, "MIXED")
     ))
@@ -117,14 +117,14 @@ export async function addIntermediateComponent(data: {
   const component = await db
     .select()
     .from(hMaterials)
-    .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, data.componentMaterialId)))
+    .where(and(eq(hMaterials.tenantId, tenantId) as any, eq(hMaterials.id, data.componentMaterialId)) as any)
     .limit(1);
   
   if (component.length === 0) {
     throw new Error("구성 재료를 찾을 수 없습니다.");
   }
   
-  const [result] = await db.insert(hMixedMaterialComponents).values(data);
+  const [result] = await db.insert(hMixedMaterialComponents).values(data as any);
   
   return result.insertId;
 }
@@ -186,7 +186,7 @@ export async function updateIntermediate(
     .update(hMaterials)
     .set(data)
     .where(and(
-      eq(hMaterials.tenantId, tenantId),
+      eq(hMaterials.tenantId, tenantId) as any,
       eq(hMaterials.id, intermediateId),
       eq(hMaterials.kind, "MIXED")
     ));
@@ -210,7 +210,7 @@ export async function deleteIntermediate(intermediateId: number, tenantId?: numb
   await db
     .delete(hMaterials)
     .where(and(
-      eq(hMaterials.tenantId, tenantId),
+      eq(hMaterials.tenantId, tenantId) as any,
       eq(hMaterials.id, intermediateId),
       eq(hMaterials.kind, "MIXED")
     ));

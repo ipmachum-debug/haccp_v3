@@ -42,7 +42,7 @@ export async function getNonconformingProducts(filters: {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결 실패");
 
-  const conditions: any[] = [eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.siteId, filters.siteId)];
+  const conditions: any[] = [eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.siteId, filters.siteId)];
 
   if (filters.status) {
     conditions.push(eq(h_nonconforming_products.status, filters.status as any));
@@ -54,16 +54,16 @@ export async function getNonconformingProducts(filters: {
     conditions.push(eq(h_nonconforming_products.nonconformityType, filters.nonconformityType as any));
   }
   if (filters.dateFrom) {
-    conditions.push(gte(h_nonconforming_products.detectionDate, filters.dateFrom));
+    conditions.push(gte(h_nonconforming_products.detectionDate, filters.dateFrom) as any);
   }
   if (filters.dateTo) {
-    conditions.push(lte(h_nonconforming_products.detectionDate, filters.dateTo));
+    conditions.push(lte(h_nonconforming_products.detectionDate, filters.dateTo) as any);
   }
 
   const query = db
     .select()
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), ...conditions))
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, ...conditions) as any)
     .orderBy(desc(h_nonconforming_products.detectionDate));
 
   if (filters.limit) {
@@ -86,7 +86,7 @@ export async function getNonconformingProductById(id: number, tenantId?: number)
   const [result] = await db
     .select()
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.id, id)));
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.id, id)) as any);
   return result;
 }
 
@@ -100,7 +100,7 @@ export async function updateNonconformingProduct(id: number, data: any, tenantId
   await db
     .update(h_nonconforming_products)
     .set(data)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.id, id)));}
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.id, id)) as any);}
 
 /**
  * 부적합 제품 삭제
@@ -111,7 +111,7 @@ export async function deleteNonconformingProduct(id: number, tenantId?: number) 
 
   await db
     .delete(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.id, id)));}
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.id, id)) as any);}
 
 /**
  * 부적합 제품 상태 변경
@@ -123,7 +123,7 @@ export async function updateNonconformingProductStatus(id: number, status: strin
   await db
     .update(h_nonconforming_products)
     .set({ status: status as any })
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.id, id)));}
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.id, id)) as any);}
 
 /**
  * 부적합 제품 승인
@@ -139,7 +139,7 @@ export async function approveNonconformingProduct(id: number, approvedBy: number
       approvedAt: new Date(),
       status: "disposed" as any,
     })
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.id, id)));}
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.id, id)) as any);}
 
 // ============================================================================
 // 첨부 파일 관리
@@ -167,7 +167,7 @@ export async function getAttachments(ncpId: number, tenantId?: number) {
   return await db
     .select()
     .from(h_nonconforming_product_attachments)
-    .where(and(eq(h_nonconforming_product_attachments.tenantId, tenantId), eq(h_nonconforming_product_attachments.ncpId, ncpId)))    .orderBy(desc(h_nonconforming_product_attachments.uploadedAt));
+    .where(and(eq(h_nonconforming_product_attachments.tenantId, tenantId) as any, eq(h_nonconforming_product_attachments.ncpId, ncpId)) as any)    .orderBy(desc(h_nonconforming_product_attachments.uploadedAt));
 }
 
 /**
@@ -179,7 +179,7 @@ export async function deleteAttachment(id: number, tenantId?: number) {
 
   await db
     .delete(h_nonconforming_product_attachments)
-    .where(and(eq(h_nonconforming_product_attachments.tenantId, tenantId), eq(h_nonconforming_product_attachments.id, id)));}
+    .where(and(eq(h_nonconforming_product_attachments.tenantId, tenantId) as any, eq(h_nonconforming_product_attachments.id, id)) as any);}
 
 // ============================================================================
 // 통계 및 보고서
@@ -196,7 +196,7 @@ export async function getNonconformingProductStats(filters: {
   const db = await getDb();
   if (!db) throw new Error("데이터베이스 연결 실패");
 
-  const conditions: any[] = [eq(h_nonconforming_product_stats.tenantId, tenantId), eq(h_nonconforming_product_stats.siteId, filters.siteId)];
+  const conditions: any[] = [eq(h_nonconforming_product_stats.tenantId, tenantId) as any, eq(h_nonconforming_product_stats.siteId, filters.siteId)];
 
   if (filters.year) {
     conditions.push(eq(h_nonconforming_product_stats.year, filters.year));
@@ -208,7 +208,7 @@ export async function getNonconformingProductStats(filters: {
   return await db
     .select()
     .from(h_nonconforming_product_stats)
-    .where(and(eq(h_nonconforming_product_stats.tenantId, tenantId), ...conditions))
+    .where(and(eq(h_nonconforming_product_stats.tenantId, tenantId) as any, ...conditions) as any)
     .orderBy(
       desc(h_nonconforming_product_stats.year),
       desc(h_nonconforming_product_stats.month)
@@ -233,7 +233,7 @@ export async function getNonconformingProductDashboard(siteId: number, tenantId?
       closed: sql<number>`SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END)`,
     })
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.siteId, siteId)));
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.siteId, siteId)) as any);
   // 발견 경로별 통계
   const detectionSourceStats = await db
     .select({
@@ -241,7 +241,7 @@ export async function getNonconformingProductDashboard(siteId: number, tenantId?
       count: sql<number>`COUNT(*)`,
     })
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.siteId, siteId)))    .groupBy(h_nonconforming_products.detectionSource);
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.siteId, siteId)) as any)    .groupBy(h_nonconforming_products.detectionSource);
 
   // 부적합 유형별 통계
   const nonconformityTypeStats = await db
@@ -250,7 +250,7 @@ export async function getNonconformingProductDashboard(siteId: number, tenantId?
       count: sql<number>`COUNT(*)`,
     })
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.siteId, siteId)))    .groupBy(h_nonconforming_products.nonconformityType);
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.siteId, siteId)) as any)    .groupBy(h_nonconforming_products.nonconformityType);
 
   // 처리 방법별 통계
   const disposalMethodStats = await db
@@ -259,7 +259,7 @@ export async function getNonconformingProductDashboard(siteId: number, tenantId?
       count: sql<number>`COUNT(*)`,
     })
     .from(h_nonconforming_products)
-    .where(and(eq(h_nonconforming_products.tenantId, tenantId), eq(h_nonconforming_products.siteId, siteId)))    .groupBy(h_nonconforming_products.disposalMethod);
+    .where(and(eq(h_nonconforming_products.tenantId, tenantId) as any, eq(h_nonconforming_products.siteId, siteId)) as any)    .groupBy(h_nonconforming_products.disposalMethod);
 
   // 월별 추세 (최근 12개월)
   const monthlyTrend = await db
@@ -269,10 +269,10 @@ export async function getNonconformingProductDashboard(siteId: number, tenantId?
     })
     .from(h_nonconforming_products)
     .where(
-      and(eq(h_nonconforming_products.tenantId, tenantId), 
+      and(eq(h_nonconforming_products.tenantId, tenantId) as any, 
         eq(h_nonconforming_products.siteId, siteId),
         gte(h_nonconforming_products.detectionDate, sql`DATE_SUB(CURDATE(), INTERVAL 12 MONTH)`)
-      )
+      ) as any
     )
     .groupBy(sql`DATE_FORMAT(detection_date, '%Y-%m')`)
     .orderBy(sql`DATE_FORMAT(detection_date, '%Y-%m')`);
@@ -305,11 +305,11 @@ export async function calculateNonconformityRate(filters: {
     })
     .from(h_nonconforming_products)
     .where(
-      and(eq(h_nonconforming_products.tenantId, tenantId), 
+      and(eq(h_nonconforming_products.tenantId, tenantId) as any, 
         eq(h_nonconforming_products.siteId, filters.siteId),
-        gte(h_nonconforming_products.detectionDate, filters.dateFrom),
-        lte(h_nonconforming_products.detectionDate, filters.dateTo)
-      )
+        gte(h_nonconforming_products.detectionDate, filters.dateFrom) as any,
+        lte(h_nonconforming_products.detectionDate, filters.dateTo) as any
+      ) as any
     );
 
   // TODO: 전체 생산량 조회 (배치 테이블에서)

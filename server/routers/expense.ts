@@ -45,7 +45,7 @@ export const expenseRouter = router({
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
       const db = await getDb();
-      const p = input || {};
+      const p = input || {} as any;
       const page = p.page || 1;
       const limit = p.limit || 30;
 

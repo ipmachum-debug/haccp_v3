@@ -66,8 +66,8 @@ const StyledTable = ({ children }: { children: React.ReactNode }) => (
 const TH = ({ children, className = "" }: { children?: React.ReactNode; className?: string }) => (
   <TableHead className={`text-xs h-9 font-semibold bg-muted/50 px-3 ${className}`}>{children}</TableHead>
 );
-const TD = ({ children, className = "" }: { children?: React.ReactNode; className?: string }) => (
-  <TableCell className={`text-xs py-2 px-3 ${className}`}>{children}</TableCell>
+const TD = ({ children, className = "", colSpan }: { children?: React.ReactNode; className?: string; colSpan?: number }) => (
+  <TableCell className={`text-xs py-2 px-3 ${className}`} colSpan={colSpan}>{children}</TableCell>
 );
 
 /* ─────────── 섹션 제목 ─────────── */

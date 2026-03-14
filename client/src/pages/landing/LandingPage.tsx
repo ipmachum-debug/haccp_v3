@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { motion as _motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+const motion = _motion as any;
 import {
   Factory, ShieldCheck, Package, BarChart3, FileText, Users,
   CheckCircle2, ArrowRight, ChevronDown, Menu, X, Star,

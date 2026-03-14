@@ -1,7 +1,7 @@
 // .env 파일에서 OPENAI_API_KEY를 직접 읽기 (시스템 환경변수 빈값 문제 우회)
-let _cachedOpenAIKey: string | null = null;
+let _cachedOpenAIKey: string | undefined = undefined;
 function getOpenAIKeyFromDotenv(): string {
-  if (_cachedOpenAIKey !== null) return _cachedOpenAIKey;
+  if (_cachedOpenAIKey !== undefined) return _cachedOpenAIKey;
   try {
     const fs = require("fs");
     const path = require("path");

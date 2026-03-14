@@ -59,7 +59,7 @@ export async function createBankAccount(data: {
     accountType: data.accountType,
     isActive: 1,
     isPrimary: 0
-  });
+  } as any);
 
   return { accountId: Number(result.insertId) };
 }
@@ -70,7 +70,7 @@ export async function getAllBankAccounts() {
   return await db
     .select()
     .from(bankAccounts)
-    .where(eq(bankAccounts.isActive, 1))
+    .where(eq(bankAccounts.isActive, 1) as any)
     .orderBy(desc(bankAccounts.isPrimary), desc(bankAccounts.createdAt));
 }
 
@@ -161,7 +161,7 @@ export async function getPrimaryBankAccount() {
   const [account] = await db
     .select()
     .from(bankAccounts)
-    .where(and(eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1)))
+    .where(and(eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1) as any) as any)
     .limit(1);
 
   return account || null;
@@ -199,7 +199,7 @@ export async function uploadBankTransactions(data: {
     const [existing] = await db
       .select()
       .from(bankTransactions)
-      .where(eq(bankTransactions.hashKey, hashKey))
+      .where(eq((bankTransactions as any).hashKey, hashKey))
       .limit(1);
 
     if (existing) {
@@ -215,7 +215,7 @@ export async function uploadBankTransactions(data: {
       counterpartyText: tx.counterpartyText || null,
       memo: tx.memo || null,
       hashKey
-    });
+    } as any);
 
     inserted++;
   }
@@ -238,8 +238,8 @@ export async function getBankTransactions(filters?: {
     .select({
       id: bankTransactions.id,
       bankAccountId: bankTransactions.bankAccountId,
-      occurredAt: bankTransactions.occurredAt,
-      direction: bankTransactions.bankDirection,
+      occurredAt: (bankTransactions as any).occurredAt,
+      direction: (bankTransactions as any).bankDirection,
       amount: bankTransactions.amount,
       counterpartyText: bankTransactions.counterpartyText,
       memo: bankTransactions.memo,
@@ -257,13 +257,13 @@ export async function getBankTransactions(filters?: {
     conditions.push(eq(bankTransactions.bankAccountId, filters.bankAccountId));
   }
   if (filters?.startDate) {
-    conditions.push(gte(bankTransactions.occurredAt, filters.startDate));
+    conditions.push(gte((bankTransactions as any).occurredAt, filters.startDate));
   }
   if (filters?.endDate) {
-    conditions.push(lte(bankTransactions.occurredAt, filters.endDate));
+    conditions.push(lte((bankTransactions as any).occurredAt, filters.endDate));
   }
   if (filters?.direction) {
-    conditions.push(eq(bankTransactions.bankDirection, filters.direction));
+    conditions.push(eq((bankTransactions as any).bankDirection, filters.direction));
   }
   if (filters?.matchedOnly) {
     conditions.push(sql`${bankTransactions.matchedPartnerId} IS NOT NULL`);
@@ -276,7 +276,7 @@ export async function getBankTransactions(filters?: {
     query = query.where(and(...conditions)) as any;
   }
 
-  return await query.orderBy(desc(bankTransactions.occurredAt));
+  return await query.orderBy(desc((bankTransactions as any).occurredAt));
 }
 
 export async function autoMatchBankTransactions(bankAccountId: number) {
@@ -307,12 +307,12 @@ export async function autoMatchBankTransactions(bankAccountId: number) {
     const searchText = `${tx.counterpartyText || ""} ${tx.memo || ""}`.toLowerCase();
 
     for (const rule of rules) {
-      if (searchText.includes(rule.keyword.toLowerCase())) {
+      if (searchText.includes((rule as any).keyword.toLowerCase())) {
         // 매칭 성공
         await db
           .update(bankTransactions)
           .set({
-            matchedPartnerId: rule.partnerId,
+            matchedPartnerId: (rule as any).partnerId,
             matchedAt: new Date()
           })
           .where(eq(bankTransactions.id, tx.id));
@@ -354,8 +354,8 @@ export async function getBankTransactionStats(bankAccountId: number) {
 
   const [stats] = await db
     .select({
-      totalIn: sql<string>`SUM(CASE WHEN ${bankTransactions.bankDirection} = 'in' THEN ${bankTransactions.amount} ELSE 0 END)`,
-      totalOut: sql<string>`SUM(CASE WHEN ${bankTransactions.bankDirection} = 'out' THEN ${bankTransactions.amount} ELSE 0 END)`,
+      totalIn: sql<string>`SUM(CASE WHEN ${(bankTransactions as any).bankDirection} = 'in' THEN ${bankTransactions.amount} ELSE 0 END)`,
+      totalOut: sql<string>`SUM(CASE WHEN ${(bankTransactions as any).bankDirection} = 'out' THEN ${bankTransactions.amount} ELSE 0 END)`,
       matchedCount: sql<number>`COUNT(CASE WHEN ${bankTransactions.matchedPartnerId} IS NOT NULL THEN 1 END)`,
       unmatchedCount: sql<number>`COUNT(CASE WHEN ${bankTransactions.matchedPartnerId} IS NULL THEN 1 END)`
     })

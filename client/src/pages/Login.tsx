@@ -6,7 +6,8 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { getGreetingMessage } from "@/lib/greetings";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { 
   CheckCircle2, 
   Shield, 

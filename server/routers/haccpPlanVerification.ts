@@ -25,7 +25,7 @@ export const haccpPlanVerificationRouter = router({
     .mutation(async ({ input, ctx }) => {
       const id = await verificationDb.createHaccpPlanVerification({
         ...input,
-        productIds: input.productIds ? JSON.stringify(input.productIds, ctx.tenantId) : undefined,
+        productIds: input.productIds ? JSON.stringify(input.productIds) : undefined,
         verificationTeam: input.verificationTeam ? JSON.stringify(input.verificationTeam) : undefined,
         verificationLeader: ctx.user.id,
         createdBy: ctx.user.id,
@@ -91,7 +91,7 @@ export const haccpPlanVerificationRouter = router({
       
       await verificationDb.updateHaccpPlanVerification(id, {
         ...data,
-        productIds: productIds ? JSON.stringify(productIds, ctx.tenantId) : undefined,
+        productIds: productIds ? JSON.stringify(productIds) : undefined,
         verificationTeam: verificationTeam ? JSON.stringify(verificationTeam) : undefined,
         findings: findings ? JSON.stringify(findings) : undefined,
         attachments: attachments ? JSON.stringify(attachments) : undefined,

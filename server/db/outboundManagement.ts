@@ -115,7 +115,7 @@ export async function createOutboundRecord(params: {
     referenceId: params.batchId || null,
     notes: params.notes || null,
     createdBy: params.createdBy
-  });
+  } as any);
 
   // h_inventory 테이블 재고 차감
   await decreaseInventoryQuantity({

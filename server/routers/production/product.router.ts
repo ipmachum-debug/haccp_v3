@@ -180,7 +180,7 @@ export const productRouter = router({
           if (shelfLifeDays !== undefined) syncData.shelfLifeDays = shelfLifeDays;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyProductId, id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
+              and(eq(itemMaster.legacyProductId, id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any)
             );
           }
         } catch (syncErr) {
@@ -195,13 +195,13 @@ export const productRouter = router({
         const db = await getDb();
         if (!db) throw new Error("Database connection failed");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
-        await db.update(hProductsV2).set({ isActive: 0 }).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId ?? undefined)));
+        await db.update(hProductsV2).set({ isActive: 0 } as any).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId ?? undefined) as any));
         
         // item_master 동기화 (비활성화)
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.update(itemMaster).set({ isActive: 0 }).where(
-            and(eq(itemMaster.legacyProductId, input.id), eq(itemMaster.tenantId, ctx.tenantId ?? undefined))
+            and(eq(itemMaster.legacyProductId, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any)
           );
         } catch (syncErr) {
           console.error('item_master 동기화 실패:', syncErr);
@@ -255,7 +255,7 @@ export const productRouter = router({
             }
             
             const existing = await db.select().from(hProductsV2)
-              .where(and(eq(hProductsV2.tenantId, ctx.tenantId ?? undefined), eq(hProductsV2.productName, product.productName.trim())))
+              .where(and(eq(hProductsV2.tenantId, ctx.tenantId ?? undefined) as any, eq(hProductsV2.productName, product.productName.trim())) as any)
               .limit(1);
             
             const shelfLifeDays = product.shelfLifeMonths ? product.shelfLifeMonths * 30 : undefined;

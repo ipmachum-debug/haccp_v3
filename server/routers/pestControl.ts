@@ -49,8 +49,7 @@ export const pestControlRouter = router({
           items.map((item) => ({
             checklistId: checklist.insertId,
             ...item,
-          }))
-        );
+          })) as any);
       }
 
       return { success: true, id: checklist.insertId };
@@ -95,8 +94,7 @@ export const pestControlRouter = router({
             items.map((item) => ({
               checklistId: id,
               ...item,
-            }))
-          );
+            })) as any);
         }
       }
 

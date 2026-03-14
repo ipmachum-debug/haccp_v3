@@ -99,7 +99,7 @@ router.post("/users/:userId/approve", async (req, res) => {
       details: JSON.stringify({ role }),
       ipAddress: req.ip ?? null,
       userAgent: req.headers["user-agent"] ?? null
-    });
+    } as any);
 
     res.json({ success: true, message: "사용자가 승인되었습니다" });
   } catch (error) {
@@ -128,7 +128,7 @@ router.post("/users/:userId/reject", async (req, res) => {
       details: JSON.stringify({ reason }),
       ipAddress: req.ip ?? null,
       userAgent: req.headers["user-agent"] ?? null
-    });
+    } as any);
 
     res.json({ success: true, message: "사용자가 거부되었습니다" });
   } catch (error) {
@@ -216,7 +216,7 @@ router.post("/tenants", async (req, res) => {
       details: JSON.stringify({ name, slug }),
       ipAddress: req.ip ?? null,
       userAgent: req.headers["user-agent"] ?? null
-    });
+    } as any);
 
     res.json({ success: true, tenantId: (result[0] as any).insertId });
   } catch (error) {
@@ -257,7 +257,7 @@ router.patch("/tenants/:tenantId/toggle", async (req, res) => {
       details: JSON.stringify({ status: newStatus }),
       ipAddress: req.ip ?? null,
       userAgent: req.headers["user-agent"] ?? null
-    });
+    } as any);
 
     res.json({ success: true, status: newStatus });
   } catch (error) {

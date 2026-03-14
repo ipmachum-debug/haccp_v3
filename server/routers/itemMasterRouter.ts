@@ -219,7 +219,7 @@ export const itemMasterRouter = router({
         .set(cleanData)
         .where(and(
           eq(itemMaster.id, id),
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined)
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any
         ));
       
       return { success: true, message: "품목이 수정되었습니다." };
@@ -234,7 +234,7 @@ export const itemMasterRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(itemMaster.id, input.id),
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined)
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined) as any
         ));
       return { success: true, message: "품목이 비활성화되었습니다." };
     }),
@@ -315,7 +315,7 @@ export const itemMasterRouter = router({
       const categoryMap = Object.fromEntries(categories.map(c => [c.id, c.name]));
       const categoryNames = categories.map(c => c.name);
       const items = await db.select().from(itemMaster)
-        .where(and(eq(itemMaster.tenantId, ctx.tenantId ?? undefined), eq(itemMaster.itemType, input.itemType)))
+        .where(and(eq(itemMaster.tenantId, ctx.tenantId ?? undefined), eq(itemMaster.itemType, input.itemType) as any) as any)
         .orderBy(itemMaster.itemCode);
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet(input.itemType === 'own_product' ? '제품 목록' : input.itemType === 'raw_material' ? '원재료 목록' : '거래처 목록');
@@ -334,16 +334,17 @@ export const itemMasterRouter = router({
         const suppliers = await db.select().from(sql`h_suppliers`)
           .where(sql`tenant_id = ${ctx.tenantId}`);
         for (const supplier of suppliers) {
+          const s = supplier as any;
           const row = [
-            supplier.supplier_code || '',
-            supplier.business_number || '',
-            supplier.contact_person || '',
-            supplier.phone || '',
-            supplier.address || '',
-            supplier.supplier_type || '',
-            supplier.certifications || '',
-            supplier.rating || '',
-            supplier.email || '',
+            s.supplier_code || '',
+            s.business_number || '',
+            s.contact_person || '',
+            s.phone || '',
+            s.address || '',
+            s.supplier_type || '',
+            s.certifications || '',
+            s.rating || '',
+            s.email || '',
             '' // 비고
           ];
           worksheet.addRow(row);
@@ -352,8 +353,8 @@ export const itemMasterRouter = router({
         for (const item of items) {
           const categoryName = item.categoryId ? categoryMap[item.categoryId] : item.category || '';
           const row = input.itemType === 'own_product'
-            ? [item.itemCode, item.itemName, categoryName, item.baseUnit || item.unit, Math.round((item.shelfLifeDays || 0) / 30), item.description || '']
-            : [item.itemCode, item.itemName, categoryName, item.baseUnit || item.unit, item.shelfLifeDays || item.expiryWarningDays || 0, item.description || ''];
+            ? [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, Math.round((item.shelfLifeDays || 0) / 30), item.description || '']
+            : [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, item.shelfLifeDays || (item as any).expiryWarningDays || 0, item.description || ''];
           worksheet.addRow(row);
         }
       }
@@ -489,7 +490,7 @@ export const productSkuRouter = router({
           .set({ isDefault: 0 })
           .where(and(
             eq(productSkus.itemId, input.itemId),
-            eq(productSkus.tenantId, ctx.tenantId ?? undefined)
+            eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
           ));
       }
       
@@ -562,7 +563,7 @@ export const productSkuRouter = router({
             .set({ isDefault: 0 })
             .where(and(
               eq(productSkus.itemId, sku.itemId),
-              eq(productSkus.tenantId, ctx.tenantId ?? undefined)
+              eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
             ));
         }
       }
@@ -571,7 +572,7 @@ export const productSkuRouter = router({
         .set(cleanData)
         .where(and(
           eq(productSkus.id, id),
-          eq(productSkus.tenantId, ctx.tenantId ?? undefined)
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
         ));
       
       return { success: true, message: "SKU가 수정되었습니다." };
@@ -586,7 +587,7 @@ export const productSkuRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(productSkus.id, input.id),
-          eq(productSkus.tenantId, ctx.tenantId ?? undefined)
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined) as any
         ));
       return { success: true, message: "SKU가 비활성화되었습니다." };
     }),

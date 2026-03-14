@@ -1,6 +1,7 @@
 import { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { fadeIn } from "@/lib/animations";
 
 interface EmptyStateProps {

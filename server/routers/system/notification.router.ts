@@ -153,7 +153,7 @@ export const notificationRouter = router({
             description: "알림 자동 삭제 기준일 (읽은 알림)",
             isEditable: 1,
             updatedBy: Number(ctx.user.id)
-          });
+          } as any);
         }
         
         return { message: `알림 보관 기간이 ${input.days}일로 설정되었습니다` };

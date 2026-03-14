@@ -38,10 +38,10 @@ export async function getPendingRetryTasks(tenantId?: number) {
     .select()
     .from(hBatchCompletionRetries)
     .where(
-      and(eq(hBatchCompletionRetries.tenantId, tenantId), 
+      and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, 
         eq(hBatchCompletionRetries.status, "pending"),
         lt(hBatchCompletionRetries.retryCount, hBatchCompletionRetries.maxRetries)
-      )
+      ) as any
     )
     .orderBy(hBatchCompletionRetries.createdAt);
 }
@@ -63,7 +63,7 @@ export async function updateRetryTaskStatus(
       errorMessage: errorMessage || undefined,
       lastRetryAt: new Date()
     })
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId), eq(hBatchCompletionRetries.id, id)));}
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, id)) as any);}
 
 /**
  * 재시도 횟수 증가
@@ -75,7 +75,7 @@ export async function incrementRetryCount(id: number, tenantId?: number) {
   const [retry] = await db
     .select()
     .from(hBatchCompletionRetries)
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId), eq(hBatchCompletionRetries.id, id)));
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, id)) as any);
   if (!retry) {
     throw new Error(`재시도 작업을 찾을 수 없습니다: ${id}`);
   }
@@ -90,7 +90,7 @@ export async function incrementRetryCount(id: number, tenantId?: number) {
       status: newStatus,
       lastRetryAt: new Date()
     })
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId), eq(hBatchCompletionRetries.id, id)));
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, id)) as any);
   return newRetryCount >= retry.maxRetries;
 }
 
@@ -104,7 +104,7 @@ export async function getFailedRetryTasks(tenantId?: number) {
   return await db
     .select()
     .from(hBatchCompletionRetries)
-    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId), eq(hBatchCompletionRetries.status, "failed")))    .orderBy(hBatchCompletionRetries.createdAt);
+    .where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.status, "failed")) as any)    .orderBy(hBatchCompletionRetries.createdAt);
 }
 
 /**
@@ -114,4 +114,4 @@ export async function deleteRetryTask(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
-  await db.delete(hBatchCompletionRetries).where(and(eq(hBatchCompletionRetries.tenantId, tenantId), eq(hBatchCompletionRetries.id, id)));}
+  await db.delete(hBatchCompletionRetries).where(and(eq(hBatchCompletionRetries.tenantId, tenantId) as any, eq(hBatchCompletionRetries.id, id)) as any);}

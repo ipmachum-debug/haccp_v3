@@ -29,14 +29,14 @@ export async function getHaccpPlanVerifications(params: {
   const db = await getDb();
   const { siteId, verificationType, startDate, endDate, limit = 50, offset = 0 } = params;
 
-  let query = db.select().from(hHaccpPlanVerification).where(eq(hHaccpPlanVerification.tenantId, tenantId));
+  let query: any = db.select().from(hHaccpPlanVerification).where(eq(hHaccpPlanVerification.tenantId, tenantId) as any);
 
   const conditions: any[] = [];
   if (tenantId) conditions.push(eq(hHaccpPlanVerification.tenantId, tenantId));
   if (siteId) conditions.push(eq(hHaccpPlanVerification.siteId, siteId));
   if (verificationType) conditions.push(eq(hHaccpPlanVerification.verificationType, verificationType as any));
-  if (startDate) conditions.push(gte(hHaccpPlanVerification.verificationDate, startDate));
-  if (endDate) conditions.push(lte(hHaccpPlanVerification.verificationDate, endDate));
+  if (startDate) conditions.push(gte(hHaccpPlanVerification.verificationDate, startDate) as any);
+  if (endDate) conditions.push(lte(hHaccpPlanVerification.verificationDate, endDate) as any);
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -56,7 +56,7 @@ export async function getHaccpPlanVerificationById(id: number, tenantId?: number
   const results = await db
     .select()
     .from(hHaccpPlanVerification)
-    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId), eq(hHaccpPlanVerification.id, id)))    .limit(1);
+    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId) as any, eq(hHaccpPlanVerification.id, id)) as any)    .limit(1);
 
   if (results.length === 0) return null;
 
@@ -81,7 +81,7 @@ export async function updateHaccpPlanVerification(id: number, data: any, tenantI
   await db
     .update(hHaccpPlanVerification)
     .set(data)
-    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId), eq(hHaccpPlanVerification.id, id)));}
+    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId) as any, eq(hHaccpPlanVerification.id, id)) as any);}
 
 // HACCP 계획 검증 삭제
 export async function deleteHaccpPlanVerification(id: number, tenantId?: number) {
@@ -90,11 +90,11 @@ export async function deleteHaccpPlanVerification(id: number, tenantId?: number)
   // 체크리스트 항목 먼저 삭제
   await db
     .delete(hHaccpPlanVerificationChecklist)
-    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId), eq(hHaccpPlanVerificationChecklist.verificationId, id)));  
+    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId) as any, eq(hHaccpPlanVerificationChecklist.verificationId, id)) as any);  
   // 검증 기록 삭제
   await db
     .delete(hHaccpPlanVerification)
-    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId), eq(hHaccpPlanVerification.id, id)));}
+    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId) as any, eq(hHaccpPlanVerification.id, id)) as any);}
 
 // 검증 체크리스트 항목 생성
 export async function createVerificationChecklistItem(data: any, tenantId?: number) {
@@ -110,7 +110,7 @@ export async function getVerificationChecklistItems(verificationId: number, tena
   return await db
     .select()
     .from(hHaccpPlanVerificationChecklist)
-    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId), eq(hHaccpPlanVerificationChecklist.verificationId, verificationId)));}
+    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId) as any, eq(hHaccpPlanVerificationChecklist.verificationId, verificationId)) as any);}
 
 // 검증 체크리스트 항목 수정
 export async function updateVerificationChecklistItem(id: number, data: any, tenantId?: number) {
@@ -118,14 +118,14 @@ export async function updateVerificationChecklistItem(id: number, data: any, ten
   await db
     .update(hHaccpPlanVerificationChecklist)
     .set(data)
-    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId), eq(hHaccpPlanVerificationChecklist.id, id)));}
+    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId) as any, eq(hHaccpPlanVerificationChecklist.id, id)) as any);}
 
 // 검증 체크리스트 항목 삭제
 export async function deleteVerificationChecklistItem(id: number, tenantId?: number) {
   const db = await getDb();
   await db
     .delete(hHaccpPlanVerificationChecklist)
-    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId), eq(hHaccpPlanVerificationChecklist.id, id)));}
+    .where(and(eq(hHaccpPlanVerificationChecklist.tenantId, tenantId) as any, eq(hHaccpPlanVerificationChecklist.id, id)) as any);}
 
 // 검증 통계 조회
 export async function getVerificationStatistics(params: {
@@ -139,10 +139,10 @@ export async function getVerificationStatistics(params: {
   const conditions: any[] = [];
   if (tenantId) conditions.push(eq(hHaccpPlanVerification.tenantId, tenantId));
   if (siteId) conditions.push(eq(hHaccpPlanVerification.siteId, siteId));
-  if (startDate) conditions.push(gte(hHaccpPlanVerification.verificationDate, startDate));
-  if (endDate) conditions.push(lte(hHaccpPlanVerification.verificationDate, endDate));
+  if (startDate) conditions.push(gte(hHaccpPlanVerification.verificationDate, startDate) as any);
+  if (endDate) conditions.push(lte(hHaccpPlanVerification.verificationDate, endDate) as any);
 
-  let query = db.select().from(hHaccpPlanVerification).where(eq(hHaccpPlanVerification.tenantId, tenantId));
+  let query: any = db.select().from(hHaccpPlanVerification).where(eq(hHaccpPlanVerification.tenantId, tenantId) as any);
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
   }
@@ -187,8 +187,8 @@ export async function getUpcomingVerifications(params: {
   const futureDateStr = futureDate.toISOString().split("T")[0];
 
   const conditions: any[] = [
-    gte(hHaccpPlanVerification.nextVerificationDate, today),
-    lte(hHaccpPlanVerification.nextVerificationDate, futureDateStr),
+    gte(hHaccpPlanVerification.nextVerificationDate, today) as any,
+    lte(hHaccpPlanVerification.nextVerificationDate, futureDateStr) as any,
   ];
 
   if (siteId) {
@@ -198,6 +198,6 @@ export async function getUpcomingVerifications(params: {
   return await db
     .select()
     .from(hHaccpPlanVerification)
-    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId), ...conditions))
+    .where(and(eq(hHaccpPlanVerification.tenantId, tenantId) as any, ...conditions) as any)
     .orderBy(hHaccpPlanVerification.nextVerificationDate);
 }

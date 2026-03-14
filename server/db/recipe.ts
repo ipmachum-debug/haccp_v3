@@ -113,8 +113,7 @@ export async function createRecipe(data: {
       lines.map(line => ({
         ...line,
         recipeId
-      }))
-    );
+      })) as any);
   }
   
   return { id: recipeId, success: true };
@@ -170,8 +169,7 @@ export async function updateRecipe(
         lines.map(line => ({
           ...line,
           recipeId
-        }))
-      );
+        })) as any);
     }
   }
   
@@ -212,7 +210,7 @@ export async function createRecipeVersion(data: {
   await db.insert(recipeVersions).values({
     ...data,
     snapshotData: JSON.stringify(recipe)
-  });
+  } as any);
   
   return { success: true };
 }

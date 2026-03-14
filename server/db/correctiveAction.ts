@@ -24,7 +24,7 @@ export async function generateRequestNumber(tenantId?: number): Promise<string> 
   const [lastRequest] = await db
     .select()
     .from(hCorrectiveActionRequests)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.requestNumber, prefix)))    .orderBy(desc(hCorrectiveActionRequests.id))
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.requestNumber, prefix)) as any)    .orderBy(desc(hCorrectiveActionRequests.id))
     .limit(1);
 
   if (!lastRequest) {
@@ -57,7 +57,7 @@ export async function createCorrectiveActionRequest(data: {
     requestNumber,
     ...data,
     priority: data.priority || "medium"
-  });
+  } as any);
 
   return result.insertId;
 }
@@ -69,7 +69,7 @@ export async function getCorrectiveActionRequestById(id: number, tenantId?: numb
   const [result] = await db
     .select()
     .from(hCorrectiveActionRequests)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.id, id)));  
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.id, id)) as any);  
   return result;
 }
 
@@ -80,7 +80,7 @@ export async function getCorrectiveActionRequestsByBatch(batchId: number, tenant
   return db
     .select()
     .from(hCorrectiveActionRequests)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.batchId, batchId)))    .orderBy(desc(hCorrectiveActionRequests.createdAt));
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.batchId, batchId)) as any)    .orderBy(desc(hCorrectiveActionRequests.createdAt));
 }
 
 export async function getCorrectiveActionRequestsByStatus(
@@ -91,7 +91,7 @@ export async function getCorrectiveActionRequestsByStatus(
   return db
     .select()
     .from(hCorrectiveActionRequests)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.status, status)))    .orderBy(desc(hCorrectiveActionRequests.createdAt));
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.status, status)) as any)    .orderBy(desc(hCorrectiveActionRequests.createdAt));
 }
 
 export async function getAllCorrectiveActionRequests(tenantId?: number) {
@@ -100,7 +100,7 @@ export async function getAllCorrectiveActionRequests(tenantId?: number) {
   
   return db
     .select()
-    .from(hCorrectiveActionRequests).where(eq(hCorrectiveActionRequests.tenantId, tenantId)).orderBy(desc(hCorrectiveActionRequests.createdAt));
+    .from(hCorrectiveActionRequests).where(eq(hCorrectiveActionRequests.tenantId, tenantId) as any).orderBy(desc(hCorrectiveActionRequests.createdAt));
 }
 
 export async function updateCorrectiveActionRequest(
@@ -137,7 +137,7 @@ export async function updateCorrectiveActionRequest(
   await db
     .update(hCorrectiveActionRequests)
     .set(updateData)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.id, id)));}
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.id, id)) as any);}
 
 export async function deleteCorrectiveActionRequest(id: number, tenantId?: number) {
   const db = await getDb();
@@ -146,10 +146,10 @@ export async function deleteCorrectiveActionRequest(id: number, tenantId?: numbe
   // 첨부 파일도 함께 삭제
   await db
     .delete(hCorrectiveActionAttachments)
-    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId), eq(hCorrectiveActionAttachments.requestId, id)));  
+    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId) as any, eq(hCorrectiveActionAttachments.requestId, id)) as any);  
   await db
     .delete(hCorrectiveActionRequests)
-    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId), eq(hCorrectiveActionRequests.id, id)));}
+    .where(and(eq(hCorrectiveActionRequests.tenantId, tenantId) as any, eq(hCorrectiveActionRequests.id, id)) as any);}
 
 // ============================================================================
 // 시정 조치 첨부 파일 (Corrective Action Attachments)
@@ -167,7 +167,7 @@ export async function addCorrectiveActionAttachment(data: {
   if (!db) throw new Error("Database not available");
   
   const [result] = await db.insert(hCorrectiveActionAttachments).values({
-      ...data, tenantId });
+      ...data, tenantId } as any);
   return result.insertId;
 }
 
@@ -178,7 +178,7 @@ export async function getCorrectiveActionAttachments(requestId: number, tenantId
   return db
     .select()
     .from(hCorrectiveActionAttachments)
-    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId), eq(hCorrectiveActionAttachments.requestId, requestId)));}
+    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId) as any, eq(hCorrectiveActionAttachments.requestId, requestId)) as any);}
 
 export async function deleteCorrectiveActionAttachment(id: number, tenantId?: number) {
   const db = await getDb();
@@ -186,7 +186,7 @@ export async function deleteCorrectiveActionAttachment(id: number, tenantId?: nu
   
   await db
     .delete(hCorrectiveActionAttachments)
-    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId), eq(hCorrectiveActionAttachments.id, id)));}
+    .where(and(eq(hCorrectiveActionAttachments.tenantId, tenantId) as any, eq(hCorrectiveActionAttachments.id, id)) as any);}
 
 // ============================================================================
 // CCP 이탈 시 자동 시정 조치 생성

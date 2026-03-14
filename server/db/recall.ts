@@ -44,8 +44,8 @@ export async function getRecallSimulations(tenantId: number, filters: {
   ];
   if (filters.status) conditions.push(eq(h_recall_simulations.status, filters.status as any));
   if (filters.simulationType) conditions.push(eq(h_recall_simulations.simulationType, filters.simulationType as any));
-  if (filters.dateFrom) conditions.push(gte(h_recall_simulations.simulationDate, filters.dateFrom));
-  if (filters.dateTo) conditions.push(lte(h_recall_simulations.simulationDate, filters.dateTo));
+  if (filters.dateFrom) conditions.push(gte(h_recall_simulations.simulationDate, filters.dateFrom) as any);
+  if (filters.dateTo) conditions.push(lte(h_recall_simulations.simulationDate, filters.dateTo) as any);
 
   const query = db.select().from(h_recall_simulations).where(and(...conditions)).orderBy(desc(h_recall_simulations.simulationDate));
   if (filters.limit) query.limit(filters.limit);
