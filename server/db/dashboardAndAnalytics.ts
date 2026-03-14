@@ -32,7 +32,7 @@ import {
   recipeLines,
 } from "../../drizzle/schema";
 
-export async function getLowStockMaterials(tenantId?: number) {
+async function getLowStockMaterials(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const { hMaterials, hInventoryLots } = await import("../../drizzle/schema.js");
@@ -152,7 +152,7 @@ export async function getDashboardStats(tenantId?: number) {
 /**
  * 검사 통계 조회
  */
-export async function getInspectionStatistics(filters?: {
+async function getInspectionStatistics(filters?: {
   startDate?: string;
   endDate?: string;
 }) {
@@ -511,7 +511,7 @@ export async function getMaterialConsumption() {
   }));
 }
 
-export async function getMonthlyCcpDeviationRate(days: number = 30) {
+async function getMonthlyCcpDeviationRate(days: number = 30) {
   const db = await getDb();
   if (!db) return { total: 0, deviations: 0, rate: 0 };
   
@@ -692,7 +692,7 @@ export async function getCcpInspectionHistory(filters?: {
 /**
  * 월별 CCP 이탈 통계 조회
  */
-export async function getCcpDeviationStatsByMonth(filters?: {
+async function getCcpDeviationStatsByMonth(filters?: {
   startDate?: Date;
   endDate?: Date;
 }) {
@@ -729,7 +729,7 @@ export async function getCcpDeviationStatsByMonth(filters?: {
 /**
  * 제품별 CCP 이탈 통계 조회
  */
-export async function getCcpDeviationStatsByProduct(filters?: {
+async function getCcpDeviationStatsByProduct(filters?: {
   startDate?: Date;
   endDate?: Date;
 }) {
@@ -768,7 +768,7 @@ export async function getCcpDeviationStatsByProduct(filters?: {
 /**
  * CCP 유형별 이탈 통계 조회
  */
-export async function getCcpDeviationStatsByCcpType(filters?: {
+async function getCcpDeviationStatsByCcpType(filters?: {
   startDate?: Date;
   endDate?: Date;
 }) {
@@ -1210,7 +1210,7 @@ export async function getSlowMovingItems(thresholdDays: number = 90, tenantId?: 
 // 원재료 단가 업데이트 (이력 자동 저장)
 
 // 원재료 단가 업데이트 (이력 자동 저장)
-export async function updateMaterialPrice(id: number, unitPrice: number, changedBy?: number, reason?: string, tenantId?: number) {
+async function updateMaterialPrice(id: number, unitPrice: number, changedBy?: number, reason?: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   
@@ -2005,7 +2005,7 @@ export async function getMaterialCostBreakdown(params: {
   return result;
 }
 
-export async function calculateMaterialRequirements(batchId: number, tenantId?: number) {
+async function calculateMaterialRequirements(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -2109,7 +2109,7 @@ export async function calculateMaterialRequirements(batchId: number, tenantId?: 
   };
 }
 
-export async function getInventoryTrend(params: {
+async function getInventoryTrend(params: {
   startDate?: string;
   endDate?: string;
   siteId?: number;
@@ -2165,7 +2165,7 @@ export async function getInventoryTrend(params: {
   }));
 }
 
-export async function getInventoryTurnoverAnalysis(params: {
+async function getInventoryTurnoverAnalysis(params: {
   startDate?: string;
   endDate?: string;
   siteId?: number;
