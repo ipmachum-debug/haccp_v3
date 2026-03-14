@@ -24,7 +24,7 @@ export const correctiveActionRouter = router({
     .mutation(async ({ input, ctx }) => {
       const id = await correctiveActionDb.createCorrectiveActionRequest({
         ...input,
-        occurredAt: new Date(input.occurredAt, ctx.tenantId),
+        occurredAt: new Date(input.occurredAt),
         detectedBy: ctx.user.id,
       }, ctx.tenantId);
       return { id };

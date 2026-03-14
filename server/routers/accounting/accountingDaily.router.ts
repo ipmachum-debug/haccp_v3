@@ -23,7 +23,7 @@ export const accountingDailyRouter = router({
         // === 원료수불부 일일 마감 연동 ===
         try {
           const { autoUpdateFromDailyClose } = await import("../../db/materialLedger");
-          await autoUpdateFromDailyClose(input.closeDate, ctx.tenantId ?? undefined);
+          await autoUpdateFromDailyClose(input.closeDate.toISOString().split('T')[0], ctx.tenantId ?? undefined);
           console.log("[원료수불부] 일일 마감 자동 업데이트 완료:", input.closeDate);
         } catch (ledgerError) {
           console.error("[원료수불부] 일일 마감 연동 실패:", ledgerError);

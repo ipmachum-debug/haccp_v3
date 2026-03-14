@@ -2124,7 +2124,7 @@ export async function getAllUsers(tenantId?: number) {
   return await query.orderBy(users.createdAt);
 }
 
-export async function updateUserRole(userId: number, role: "admin" | "worker" | "monitor") {
+export async function updateUserRole(userId: number, role: "admin" | "worker" | "monitor" | "employee") {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   await db.update(users)

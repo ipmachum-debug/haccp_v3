@@ -67,7 +67,7 @@ export const stockAlertsRouter = router({
           .update(hStockAlerts)
           .set({
             resolvedAt: new Date(),
-            resolvedBy: ctx.user.name
+            resolvedBy: ctx.user.id
           })
           .where(and(eq(hStockAlerts.id, input.id), eq(hStockAlerts.tenantId, ctx.tenantId ?? undefined)));
 

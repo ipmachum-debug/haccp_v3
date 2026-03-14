@@ -65,7 +65,7 @@ export const groupRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { addGroupMember } = await import("../../db");
-        await addGroupMember({ ...input, tenantId: ctx.tenantId });
+        await addGroupMember({ ...input, tenantId: ctx.tenantId ?? undefined });
         return { success: true };
       }),
 

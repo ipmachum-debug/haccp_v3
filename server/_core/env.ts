@@ -16,8 +16,9 @@ function getOpenAIKeyFromDotenv(): string {
         const content = fs.readFileSync(envPath, "utf-8");
         const match = content.match(/^OPENAI_API_KEY=(.+)$/m);
         if (match) {
-          _cachedOpenAIKey = match[1].trim();
-          return _cachedOpenAIKey;
+          const key = match[1].trim();
+          _cachedOpenAIKey = key;
+          return key;
         }
       }
     }

@@ -24,13 +24,13 @@ export const supplierRouter = router({
           search: input?.search,
           sortBy: input?.sortBy,
           sortOrder: input?.sortOrder,
-        }, ctx.tenantId ?? undefined);
+        }, ctx.tenantId!);
       }),
     // 거래처 전체 내보내기 (엑셀 다운로드용)
     exportAll: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getSupplierPartners } = await import("../../partners");
-        const result = await getSupplierPartners({ page: 1, limit: 10000 }, ctx.tenantId ?? undefined);
+        const result = await getSupplierPartners({ page: 1, limit: 10000 }, ctx.tenantId!);
         return { items: result.items, total: result.total };
       }),
     getById: tenantRequiredProcedure
@@ -56,7 +56,7 @@ export const supplierRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createSupplierPartner } = await import("../../partners");
-        return await createSupplierPartner({ ...input, tenantId: ctx.tenantId ?? undefined });
+        return await createSupplierPartner({ ...input, tenantId: ctx.tenantId! });
       }),
     update: adminProcedure
       .input(
@@ -84,14 +84,14 @@ export const supplierRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteSupplierPartner } = await import("../../partners");
-        return await deleteSupplierPartner(input.id, ctx.tenantId ?? undefined);
+        return await deleteSupplierPartner(input.id, ctx.tenantId!);
       }),
 
     // 자동 코드 생성
     generateCode: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { generateSupplierCode } = await import("../../db/codeGenerator.js");
-        return await generateSupplierCode(ctx.tenantId ?? undefined);
+        return await generateSupplierCode(ctx.tenantId!);
       }),
     
     // 거래처 일괄 등록 (UPSERT - 동일 거래처명 있으면 수정, 없으면 신규)
@@ -133,7 +133,7 @@ export const supplierRouter = router({
             }
             
             const existing = await db.select().from(hSuppliers)
-              .where(and(eq(hSuppliers.tenantId, ctx.tenantId ?? undefined as any) , eq(hSuppliers.supplierName, supplier.supplierName.trim())) as any)
+              .where(and(eq(hSuppliers.tenantId, ctx.tenantId! as any) , eq(hSuppliers.supplierName, supplier.supplierName.trim())) as any)
               .limit(1);
             
             if (existing.length > 0) {
@@ -154,7 +154,7 @@ export const supplierRouter = router({
               const supplierCode = "SUP-" + String(codeCounter).padStart(3, "0");
               
               await db.insert(hSuppliers).values({
-                tenantId: ctx.tenantId ?? undefined,
+                tenantId: ctx.tenantId!,
                 supplierCode,
                 supplierName: supplier.supplierName.trim(),
                 businessNumber: supplier.businessNumber || null,

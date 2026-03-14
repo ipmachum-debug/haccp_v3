@@ -182,7 +182,7 @@ export const dashboardRouter = router({
         const { getProductionEfficiencyData } = await import("../../db");
         const siteId = input.siteId || ctx.user.siteId;
         if (!siteId) throw new Error("사이트 ID가 필요합니다");
-        return await getProductionEfficiencyData({ ...input, siteId });
+        return await getProductionEfficiencyData({ ...input, siteId, tenantId: ctx.tenantId! });
       }),
 
     // 재고 추이 탭 통합 데이터 조회
@@ -199,6 +199,6 @@ export const dashboardRouter = router({
         const { getInventoryTrendData } = await import("../../db");
         const siteId = input.siteId || ctx.user.siteId;
         if (!siteId) throw new Error("사이트 ID가 필요합니다");
-        return await getInventoryTrendData({ ...input, siteId });
+        return await getInventoryTrendData({ ...input, siteId, tenantId: ctx.tenantId! });
       })
 });

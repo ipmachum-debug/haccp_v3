@@ -218,7 +218,7 @@ export async function updateDistributionRecallStatus(tenantId: number, id: numbe
     ...data,
     recallStatus: data.recallStatus as any,
     notificationMethod: data.notificationMethod as any,
-  }).where(
+  } as any).where(
     and(
       eq(h_recall_distribution_tracking.id, id),
       eq(h_recall_distribution_tracking.tenantId, tenantId)

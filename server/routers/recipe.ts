@@ -19,7 +19,7 @@ export const recipeRouter = router({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const { getRecipeById } = await import("../db/recipe");
-      const recipe = await getRecipeById(input.id, ctx.tenantId);
+      const recipe = await getRecipeById(input.id, ctx.tenantId!);
       if (!recipe) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -34,7 +34,7 @@ export const recipeRouter = router({
     .input(z.object({ productId: z.number() }))
     .query(async ({ input, ctx }) => {
       const { getRecipesByProductId } = await import("../db/recipe");
-      return await getRecipesByProductId(input.productId, ctx.tenantId);
+      return await getRecipesByProductId(input.productId, ctx.tenantId!);
     }),
   
   // 레시피 생성
@@ -66,7 +66,7 @@ export const recipeRouter = router({
       return await createRecipe({
         ...input,
         createdBy: ctx.user.id,
-        tenantId: ctx.tenantId,
+        tenantId: ctx.tenantId!,
       });
     }),
   
@@ -110,7 +110,7 @@ export const recipeRouter = router({
         });
       }
       
-      return await updateRecipe(id, recipeData, lines, ctx.tenantId);
+      return await updateRecipe(id, recipeData, lines, ctx.tenantId!);
     }),
   
   // 레시피 삭제 (소프트 삭제)
@@ -118,7 +118,7 @@ export const recipeRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const { deleteRecipe, createAuditLog } = await import("../db/recipe");
-      await deleteRecipe(input.id, ctx.tenantId);
+      await deleteRecipe(input.id, ctx.tenantId!);
       
       // 감사 로그 기록
       const { createAuditLog: createLog } = await import("../db");
@@ -152,7 +152,7 @@ export const recipeRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { duplicateRecipe } = await import("../db/recipe");
-      return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId);
+      return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId!);
     }),
   
   // 레시피 활성화/비활성화
@@ -163,7 +163,7 @@ export const recipeRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const { updateRecipe } = await import("../db/recipe");
-      await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 }, ctx.tenantId);
+      await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 }, undefined, ctx.tenantId!);
       return { success: true };
     }),
 });

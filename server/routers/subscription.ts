@@ -35,8 +35,8 @@ export const subscriptionRouter = router({
         .update(tenants)
         .set({
           subscriptionPackage: input.subscriptionPackage,
-          subscriptionStartDate: startDate.toISOString().split('T')[0],
-          subscriptionEndDate: endDate.toISOString().split('T')[0],
+          subscriptionStartDate: startDate,
+          subscriptionEndDate: endDate,
           subscriptionDays: input.subscriptionDays,
           status: "active",
           isReadOnly: false,
@@ -88,7 +88,7 @@ export const subscriptionRouter = router({
       await db
         .update(tenants)
         .set({
-          subscriptionEndDate: newEndDate.toISOString().split('T')[0],
+          subscriptionEndDate: newEndDate,
           subscriptionDays: newTotalDays,
           status: "active",
           isReadOnly: false,

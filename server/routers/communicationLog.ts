@@ -274,7 +274,7 @@ export async function updateCommunicationLogStatus(data: {
 
   await db
     .update(communicationLogs)
-    .set({ status: data.status })
+    .set({ status: data.status } as any)
     .where(and(eq(communicationLogs.id, data.id), eq(communicationLogs.tenantId, data.tenantId)));
 
   // 작성자에게 알림 생성

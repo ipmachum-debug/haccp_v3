@@ -159,7 +159,7 @@ export const bankTransactionRouter = router({
 
       await db
         .update(bankTransactions)
-        .set(updateData)
+        .set(updateData as any)
         .where(
           and(
             eq(bankTransactions.id, id),

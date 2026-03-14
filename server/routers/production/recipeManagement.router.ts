@@ -13,7 +13,7 @@ export const recipeManagementRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getRecipes } = await import("../../db/recipe");
-        return await getRecipes({ ...input, tenantId: ctx.tenantId ?? undefined });
+        return await getRecipes({ ...input, tenantId: ctx.tenantId! });
       }),
     
     // 레시피 상세 조회 (라인 포함)
@@ -21,7 +21,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipeById } = await import("../../db/recipe");
-        const recipe = await getRecipeById(input.id, ctx.tenantId ?? undefined);
+        const recipe = await getRecipeById(input.id, ctx.tenantId!);
         if (!recipe) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -36,7 +36,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipesByProductId } = await import("../../db/recipe");
-        return await getRecipesByProductId(input.productId, ctx.tenantId ?? undefined);
+        return await getRecipesByProductId(input.productId, ctx.tenantId!);
       }),
     
     // 레시피 생성
@@ -68,7 +68,7 @@ export const recipeManagementRouter = router({
         return await createRecipe({
           ...input,
           createdBy: ctx.user.id,
-          tenantId: ctx.tenantId ?? undefined
+          tenantId: ctx.tenantId!
         });
       }),
     
@@ -120,7 +120,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteRecipe } = await import("../../db/recipe");
-        await deleteRecipe(input.id, ctx.tenantId ?? undefined);
+        await deleteRecipe(input.id, ctx.tenantId!);
         
         // 감사 로그 기록
         const { createAuditLog } = await import("../../db");
@@ -154,7 +154,7 @@ export const recipeManagementRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { duplicateRecipe } = await import("../../db/recipe");
-        return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId ?? undefined);
+        return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId!);
       }),
     
     // 레시피 활성화/비활성화

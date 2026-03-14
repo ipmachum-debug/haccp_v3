@@ -107,11 +107,11 @@ export async function updateBankAccount(
     .update(bankAccounts)
     .set({
       ...(data.bankName && { bankName: data.bankName }),
-      ...(data.accountNumber && { accountNumber: data.accountNumber }),
+      ...(data.accountNumber && { accountNo: data.accountNumber }),
       ...(data.ownerName !== undefined && { ownerName: data.ownerName }),
       ...(data.accountType && { accountType: data.accountType }),
-      ...(data.isActive !== undefined && { isActive: data.isActive ? 1 : 0 })
-    })
+      ...(data.isActive !== undefined && { isActive: data.isActive ? "Y" : "N" })
+    } as any)
     .where(eq(bankAccounts.id, id));
 
   return { success: true };
@@ -124,7 +124,7 @@ export async function deleteBankAccount(id: number) {
   // soft delete
   await db
     .update(bankAccounts)
-    .set({ isActive: 0 })
+    .set({ isActive: "N" } as any)
     .where(eq(bankAccounts.id, id));
 
   return { success: true };

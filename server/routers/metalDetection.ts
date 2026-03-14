@@ -77,7 +77,7 @@ export const metalDetectionRouter = router({
 
       const result = await generateMetalRecordFrame({
         tenantId,
-        siteId: ctx.user.siteId ?? ctx.tenantId,
+        siteId: (ctx.user.siteId ?? ctx.tenantId) as number,
         batchId: input.batchId,
         workDate: input.workDate,
         processGroupId: input.processGroupId,

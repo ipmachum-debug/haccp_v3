@@ -144,7 +144,7 @@ export async function upsertMonthlyClose(params: {
       .set({
         missingCloseDates: JSON.stringify(missingCloseDates),
         summary: JSON.stringify(summary),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date()
       })
       .where(eq(schema.accountingMonthlyClose.id, existing.id));
 
@@ -213,7 +213,7 @@ export async function closeMonthlyClose(params: {
     .set({
       status: "closed",
       closedBy: userId,
-      closedAt: new Date().toISOString()
+      closedAt: new Date()
     })
     .where(eq(schema.accountingMonthlyClose.id, existing.id));
 

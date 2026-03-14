@@ -250,7 +250,7 @@ export const materialRouter = router({
         
         await db
           .update(hMaterials)
-          .set(data)
+          .set(data as any)
           .where(
             and(
               eq(hMaterials.id, id),

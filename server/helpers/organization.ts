@@ -106,7 +106,7 @@ export async function updatePosition(id: number, data: {
   const conditions = [eq(hPositions.id, id)];
   if (data.tenantId) conditions.push(eq(hPositions.tenantId, data.tenantId));
   const { tenantId, ...updateData } = data;
-  await db.update(hPositions).set(updateData).where(and(...conditions));
+  await db.update(hPositions).set(updateData as any).where(and(...conditions));
   return await getPositionById(id, tenantId);
 }
 

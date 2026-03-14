@@ -22,6 +22,7 @@ export const accountingMonthlyRouter = router({
 
         // 2. 월 마감 요약 저장/업데이트
         const summaryId = await summaryDb.upsertMonthlySummary({
+          tenantId: ctx.tenantId!,
           year: input.year,
           month: input.month,
           totalDeposit: calculated.totalDeposit,
@@ -45,6 +46,7 @@ export const accountingMonthlyRouter = router({
 
         // 4. 고액 거래 건수 업데이트
         await summaryDb.upsertMonthlySummary({
+          tenantId: ctx.tenantId!,
           year: input.year,
           month: input.month,
           totalDeposit: calculated.totalDeposit,
@@ -228,6 +230,7 @@ export const accountingMonthlyRouter = router({
 
         // 리포트 메타데이터 저장
         const reportId = await summaryDb.saveMonthlyReport({
+          tenantId: ctx.tenantId!,
           summaryId: summary.id,
           fileKey,
           fileUrl,

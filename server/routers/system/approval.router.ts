@@ -140,6 +140,7 @@ export const approvalRouter = router({
         if (request) {
           // 요청자에게 알림 전송
           await createNotification({
+            tenantId: ctx.tenantId!,
             userId: request.requestedBy,
             notificationType: "approval_completed",
             title: "승인 완료",
@@ -174,7 +175,8 @@ export const approvalRouter = router({
             const request = await getApprovalRequestById(requestId);
             if (request) {
               await createNotification({
-                userId: request.requestedBy,
+                tenantId: ctx.tenantId!,
+            userId: request.requestedBy,
                 notificationType: "approval_completed",
                 title: "승인 완료",
                 message: `"${request.title}" 요청이 승인되었습니다. 승인자: ${ctx.user.name}${input.notes ? ` (코멘트: ${input.notes})` : ""}`,
@@ -216,6 +218,7 @@ export const approvalRouter = router({
         if (request) {
           // 요청자에게 알림 전송
           await createNotification({
+            tenantId: ctx.tenantId!,
             userId: request.requestedBy,
             notificationType: "approval_rejected",
             title: "승인 거부",
@@ -300,7 +303,7 @@ export const approvalRouter = router({
 
         // 관리자가 아니면 pending/cancelled 상태만 삭제 가능
         if (ctx.user.role !== 'admin') {
-          if (!['pending', 'cancelled', 'rejected'].includes(request.status)) {
+          if (!['pending', 'cancelled', 'rejected'].includes(request.status || "")) {
             throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 승인완료 문서를 삭제할 수 있습니다" });
           }
           if (request.requestedBy !== ctx.user.id) {
@@ -376,7 +379,8 @@ export const approvalRouter = router({
             const request = await getApprovalRequestById(input.requestId);
             if (request) {
               await createNotification({
-                userId: request.requestedBy,
+                tenantId: ctx.tenantId!,
+            userId: request.requestedBy,
                 notificationType: "approval_completed",
                 title: "최종 승인 완료",
                 message: `"${request.title}" 승인이 완료되었습니다.${result.inventoryTriggered ? " 제품재고 이동 및 회계연동이 처리되었습니다." : ""}`,

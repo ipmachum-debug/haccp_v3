@@ -208,6 +208,7 @@ export async function extractHighAmountTransactions(
     
     if (deposit >= threshold) {
       highAmountList.push({
+        tenantId: tenantId!,
         summaryId,
         dailyCloseId: close.id,
         transactionDate: close.closeDate as any,
@@ -217,9 +218,10 @@ export async function extractHighAmountTransactions(
         counterparty: null
       });
     }
-    
+
     if (withdrawal >= threshold) {
       highAmountList.push({
+        tenantId: tenantId!,
         summaryId,
         dailyCloseId: close.id,
         transactionDate: close.closeDate as any,

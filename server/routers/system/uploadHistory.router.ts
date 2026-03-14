@@ -30,6 +30,6 @@ export const uploadHistoryRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteUploadHistory } = await import("../../db/uploadHistory.js");
-        return await deleteUploadHistory(input.id, ctx.tenantId);
+        return await deleteUploadHistory(input.id, ctx.tenantId ?? undefined);
       })
 });

@@ -139,7 +139,7 @@ export async function getOrCreateCcpFormRecord(params: {
     siteId: params.siteId,
     batchId: params.batchId,
     ccpType: params.ccpType,
-    workDate: params.workDate,
+    workDate: new Date(params.workDate),
     productId: params.productId,
     productName: params.productName,
     processGroupId: params.processGroupId,

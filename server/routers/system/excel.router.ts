@@ -15,7 +15,7 @@ export const excelRouter = router({
         const { exportBatchesToExcel } = await import("../../excel");
         
         // 배치 목록 조회
-        const batchData = await getAllBatches(ctx.tenantId);
+        const batchData = await getAllBatches({ tenantId: ctx.tenantId! });
         const batches = batchData.items;
         
         // Excel 파일 생성
@@ -37,7 +37,7 @@ export const excelRouter = router({
         const { exportInventoryToExcel } = await import("../../excel");
         
         // 재고 목록 조회
-        const inventory = await getAllInventoryLots(ctx.tenantId);
+        const inventory = await getAllInventoryLots({ tenantId: ctx.tenantId! } as any);
         
         // Excel 파일 생성
         const buffer = await exportInventoryToExcel(inventory);
