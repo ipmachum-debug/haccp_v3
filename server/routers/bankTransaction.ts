@@ -1,12 +1,37 @@
-import { router, protectedTenantProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
-import { bankTransactions } from "../../drizzle/schema";
+import { bankAccounts, bankTransactions } from "../../drizzle/schema";
 import { eq, and, gte, lte, like, or, sql, desc, inArray } from "drizzle-orm";
+
+/**
+ * bankAccountId가 현재 tenant 소유인지 검증
+ */
+async function assertBankAccountOwned(db: any, tenantId: number, bankAccountId: number) {
+  const [row] = await db
+    .select({ id: bankAccounts.id })
+    .from(bankAccounts)
+    .where(
+      and(
+        eq(bankAccounts.id, bankAccountId),
+        eq(bankAccounts.tenantId, tenantId),
+        eq(bankAccounts.isActive, "Y")
+      )
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "해당 계좌에 접근할 수 없습니다.",
+    });
+  }
+}
 
 export const bankTransactionRouter = router({
   // 거래 내역 조회
-  list: protectedTenantProcedure
+  list: tenantRequiredProcedure
     .input(
       z.object({
         bankAccountId: z.number().optional(),
@@ -26,7 +51,7 @@ export const bankTransactionRouter = router({
       const limit = input?.limit || 50;
       const offset = (page - 1) * limit;
 
-      const conditions = [eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) ];
+      const conditions = [eq(bankTransactions.tenantId, ctx.tenantId!)];
 
       if (input?.bankAccountId) {
         conditions.push(eq(bankTransactions.bankAccountId, input.bankAccountId));
@@ -65,7 +90,6 @@ export const bankTransactionRouter = router({
         .limit(limit)
         .offset(offset);
 
-      // count 쿼리 - $count 대신 sql raw 사용 (호환성)
       const countResult = await db
         .select({ cnt: sql<number>`count(*)` })
         .from(bankTransactions)
@@ -80,7 +104,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 거래 상세 조회
-  getById: protectedTenantProcedure
+  getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -90,20 +114,20 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         )
         .limit(1);
 
       if (!transaction || transaction.length === 0) {
-        throw new Error("거래 내역을 찾을 수 없습니다.");
+        throw new TRPCError({ code: "NOT_FOUND", message: "거래 내역을 찾을 수 없습니다." });
       }
 
       return transaction[0];
     }),
 
   // 거래 등록
-  create: protectedTenantProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         bankAccountId: z.number(),
@@ -117,10 +141,14 @@ export const bankTransactionRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+
+      // 계좌 소유권 검증
+      await assertBankAccountOwned(db, ctx.tenantId!, input.bankAccountId);
+
       const isLargeAmount = input.amount >= 5000000;
 
       const result = await db.insert(bankTransactions).values({
-        tenantId: ctx.tenantId ?? undefined,
+        tenantId: ctx.tenantId!,
         bankAccountId: input.bankAccountId,
         transactionDate: input.transactionDate,
         transactionType: input.transactionType,
@@ -137,7 +165,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 거래 수정
-  update: protectedTenantProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -163,7 +191,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -171,7 +199,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 거래 삭제
-  delete: protectedTenantProcedure
+  delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -180,7 +208,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -188,7 +216,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 수동 매칭
-  match: protectedTenantProcedure
+  match: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -208,7 +236,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -216,7 +244,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 매칭 해제
-  unmatch: protectedTenantProcedure
+  unmatch: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -231,7 +259,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -239,7 +267,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 거래 승인
-  approve: protectedTenantProcedure
+  approve: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -248,28 +276,27 @@ export const bankTransactionRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      // 고액 거래인 경우 금액 재확인 필수
       const transaction = await db
         .select()
         .from(bankTransactions)
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         )
         .limit(1);
 
       if (!transaction || transaction.length === 0) {
-        throw new Error("거래 내역을 찾을 수 없습니다.");
+        throw new TRPCError({ code: "NOT_FOUND", message: "거래 내역을 찾을 수 없습니다." });
       }
 
       if (transaction[0].isLargeAmount === "Y" && !input.confirmedAmount) {
-        throw new Error("고액 거래는 금액 재확인이 필요합니다.");
+        throw new TRPCError({ code: "BAD_REQUEST", message: "고액 거래는 금액 재확인이 필요합니다." });
       }
 
       if (input.confirmedAmount && Math.abs(Number(transaction[0].amount) - input.confirmedAmount) > 0.01) {
-        throw new Error("확인된 금액이 일치하지 않습니다.");
+        throw new TRPCError({ code: "BAD_REQUEST", message: "확인된 금액이 일치하지 않습니다." });
       }
 
       await db
@@ -280,7 +307,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -288,7 +315,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 거래 반려
-  reject: protectedTenantProcedure
+  reject: tenantRequiredProcedure
     .input(z.object({ id: z.number(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -301,7 +328,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             eq(bankTransactions.id, input.id),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -309,7 +336,7 @@ export const bankTransactionRouter = router({
     }),
 
   // 선택 삭제 (여러 건)
-  bulkDelete: protectedTenantProcedure
+  bulkDelete: tenantRequiredProcedure
     .input(z.object({ ids: z.array(z.number()).min(1) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -318,7 +345,7 @@ export const bankTransactionRouter = router({
         .where(
           and(
             inArray(bankTransactions.id, input.ids),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 
@@ -326,16 +353,20 @@ export const bankTransactionRouter = router({
     }),
 
   // 계좌별 전체 삭제
-  deleteAll: protectedTenantProcedure
+  deleteAll: tenantRequiredProcedure
     .input(z.object({ bankAccountId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+
+      // 계좌 소유권 검증
+      await assertBankAccountOwned(db, ctx.tenantId!, input.bankAccountId);
+
       const result: any = await db
         .delete(bankTransactions)
         .where(
           and(
             eq(bankTransactions.bankAccountId, input.bankAccountId),
-            eq(bankTransactions.tenantId, ctx.tenantId ?? undefined as any) 
+            eq(bankTransactions.tenantId, ctx.tenantId!)
           )
         );
 

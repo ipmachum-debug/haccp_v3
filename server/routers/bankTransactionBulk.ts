@@ -1,19 +1,20 @@
-import { router, protectedTenantProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
-import { bankTransactions, matchingRules } from "../../drizzle/schema";
+import { bankAccounts, bankTransactions, matchingRules } from "../../drizzle/schema";
 import { eq, and, or, like, between, sql, asc } from "drizzle-orm";
 import * as XLSX from "xlsx";
 
 // 안전한 날짜 파싱 (Date 객체 반환 - Drizzle timestamp 컬럼 호환)
 function parseExcelDate(value: any): Date | null {
   if (!value) return null;
-  
+
   // Excel 일련번호 (숫자)
   if (typeof value === "number") {
     return new Date((value - 25569) * 86400 * 1000);
   }
-  
+
   // 문자열 날짜
   if (typeof value === "string") {
     const date = new Date(value);
@@ -21,37 +22,33 @@ function parseExcelDate(value: any): Date | null {
       return date;
     }
   }
-  
+
   // Date 객체
   if (value instanceof Date && !isNaN(value.getTime())) {
     return value;
   }
-  
+
   return null;
 }
 
 // 안전한 금액 파싱
 function parseAmount(value: any): number | null {
   if (value === null || value === undefined) return null;
-  
+
   if (typeof value === "number") return value;
-  
+
   if (typeof value === "string") {
     // 쉼표, 통화 기호 제거
     const cleaned = value.replace(/[,₩$]/g, "").trim();
     const parsed = parseFloat(cleaned);
     return isNaN(parsed) ? null : parsed;
   }
-  
+
   return null;
 }
 
 /**
  * 매칭 규칙 검색 - matching_rules 테이블 사용
- * 
- * matching_rules 스키마:
- *   conditions: text (JSON) - 매칭 조건 (예: {"keyword":"급여", "amountMin":1000000, "amountMax":5000000})
- *   actions: text (JSON) - 매칭 액션 (예: {"accountingAccountId":123, "partnerId":456})
  */
 function parseJsonSafe(text: string | null | undefined): any {
   if (!text) return null;
@@ -163,9 +160,33 @@ async function findMatchingRule(
   return noMatch;
 }
 
+/**
+ * bankAccountId가 현재 tenant 소유인지 검증
+ */
+async function assertBankAccountOwned(db: any, tenantId: number, bankAccountId: number) {
+  const [row] = await db
+    .select({ id: bankAccounts.id })
+    .from(bankAccounts)
+    .where(
+      and(
+        eq(bankAccounts.id, bankAccountId),
+        eq(bankAccounts.tenantId, tenantId),
+        eq(bankAccounts.isActive, "Y")
+      )
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "해당 계좌에 접근할 수 없습니다.",
+    });
+  }
+}
+
 export const bankTransactionBulkRouter = router({
   // Excel 일괄 업로드 (프론트엔드에서 파싱된 JSON 배열 수신)
-  bulkUploadFromExcel: protectedTenantProcedure
+  bulkUploadFromExcel: tenantRequiredProcedure
     .input(
       z.object({
         bankAccountId: z.number(),
@@ -174,8 +195,11 @@ export const bankTransactionBulkRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const tenantId = (ctx as any).tenantId;
+      const tenantId = ctx.tenantId!;
       const data = input.transactions;
+
+      // 계좌 소유권 검증
+      await assertBankAccountOwned(db, tenantId, input.bankAccountId);
 
       const results = {
         success: 0,
@@ -241,7 +265,7 @@ export const bankTransactionBulkRouter = router({
                 eq(bankTransactions.tenantId, tenantId),
                 eq(bankTransactions.bankAccountId, input.bankAccountId),
                 eq(bankTransactions.transactionDate, transactionDate),
-                eq(bankTransactions.amount, amount as any) 
+                eq(bankTransactions.amount, amount as any)
               )
             )
             .limit(1);
@@ -301,7 +325,7 @@ export const bankTransactionBulkRouter = router({
     }),
 
   // 자동 매칭 실행
-  runAutoMatch: protectedTenantProcedure
+  runAutoMatch: tenantRequiredProcedure
     .input(
       z.object({
         bankAccountId: z.number().optional(),
@@ -309,13 +333,15 @@ export const bankTransactionBulkRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const tenantId = (ctx as any).tenantId;
+      const tenantId = ctx.tenantId!;
       const conditions = [
         eq(bankTransactions.tenantId, tenantId),
         eq(bankTransactions.matchingStatus, "unmatched"),
       ];
 
       if (input?.bankAccountId) {
+        // 계좌 소유권 검증
+        await assertBankAccountOwned(db, tenantId, input.bankAccountId);
         conditions.push(eq(bankTransactions.bankAccountId, input.bankAccountId));
       }
 
@@ -344,7 +370,12 @@ export const bankTransactionBulkRouter = router({
               matchedBy: ctx.user.id,
               matchedAt: new Date(),
             })
-            .where(eq(bankTransactions.id, transaction.id));
+            .where(
+              and(
+                eq(bankTransactions.id, transaction.id),
+                eq(bankTransactions.tenantId, tenantId)
+              )
+            );
 
           matchedCount++;
         }
