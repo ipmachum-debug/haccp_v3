@@ -1,1 +1,0 @@
-const i={hidden:{opacity:0},visible:{opacity:1,transition:{duration:.3,ease:"easeOut"}}},a={hidden:{opacity:0},visible:{opacity:1,transition:{staggerChildren:.1,delayChildren:.1}}},t={hidden:{opacity:0,y:10},visible:{opacity:1,y:0,transition:{duration:.3,ease:"easeOut"}}};export{t as a,i as f,a as s};
