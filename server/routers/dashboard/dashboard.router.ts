@@ -156,7 +156,7 @@ export const dashboardRouter = router({
     getWidgetSettings: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getUserWidgetSettings } = await import("../../db/widgetSettings");
-        return await getUserWidgetSettings(ctx.user.id, ctx.tenantId ?? undefined);
+        return await getUserWidgetSettings(ctx.user.id, ctx.tenantId!);
       }),
     
     // 위젯 표시/숨김 업데이트

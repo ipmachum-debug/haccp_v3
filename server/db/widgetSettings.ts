@@ -6,14 +6,14 @@ import { getDb } from "../db";
 import { hUserWidgetSettings } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 
-export async function getUserWidgetSettings(userId: number, tenantId?: number) {
+export async function getUserWidgetSettings(userId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const result = await db
     .select()
     .from(hUserWidgetSettings)
-    .where(and(eq(hUserWidgetSettings.tenantId, tenantId as any) , eq(hUserWidgetSettings.userId, userId)) as any);
+    .where(and(eq(hUserWidgetSettings.tenantId, tenantId), eq(hUserWidgetSettings.userId, userId)));
   return result;
 }
 
@@ -21,7 +21,8 @@ export async function updateWidgetVisibility(data: {
   userId: number;
   widgetId: string;
   isVisible: number;
-}, tenantId?: number) {
+  tenantId: number;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -30,20 +31,22 @@ export async function updateWidgetVisibility(data: {
     .select()
     .from(hUserWidgetSettings)
     .where(
-      and(eq(hUserWidgetSettings.tenantId, tenantId as any) , 
+      and(
+        eq(hUserWidgetSettings.tenantId, data.tenantId),
         eq(hUserWidgetSettings.userId, data.userId),
         eq(hUserWidgetSettings.widgetId, data.widgetId)
-      ) as any
+      )
     )
     .limit(1);
 
   if (existing.length > 0) {
-    // 업데이트
+    // 업데이트 - tenantId를 WHERE에 포함
     await db
       .update(hUserWidgetSettings)
       .set({ isVisible: data.isVisible, updatedAt: new Date() })
       .where(
         and(
+          eq(hUserWidgetSettings.tenantId, data.tenantId),
           eq(hUserWidgetSettings.userId, data.userId),
           eq(hUserWidgetSettings.widgetId, data.widgetId)
         )
@@ -51,7 +54,7 @@ export async function updateWidgetVisibility(data: {
   } else {
     // 삽입
     await db.insert(hUserWidgetSettings).values({
-      tenantId,
+      tenantId: data.tenantId,
       userId: data.userId,
       widgetId: data.widgetId,
       isVisible: data.isVisible
@@ -64,7 +67,7 @@ export async function updateWidgetVisibility(data: {
 export async function batchUpdateWidgetSettings(data: {
   userId: number;
   widgets: Array<{ widgetId: string; isVisible: number }>;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -72,7 +75,8 @@ export async function batchUpdateWidgetSettings(data: {
     await updateWidgetVisibility({
       userId: data.userId,
       widgetId: widget.widgetId,
-      isVisible: widget.isVisible
+      isVisible: widget.isVisible,
+      tenantId
     });
   }
 
