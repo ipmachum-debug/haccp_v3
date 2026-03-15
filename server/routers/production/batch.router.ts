@@ -644,7 +644,7 @@ export const batchRouter = router({
         }
         
         // 최신 PDF URL 조회
-        const latestPdfUrl = await getLatestSuccessPdfUrl(input.id, ctx.tenantId!);
+        const latestPdfUrl = await getLatestSuccessPdfUrl(input.id);
         
         return {
           ...batch,
@@ -1403,7 +1403,7 @@ export const batchRouter = router({
             if (pdfUrl) {
               try {
                 const { logPdfSuccess } = await import("../../db/batchPdfLogs");
-                await logPdfSuccess(input.batchId, pdfUrl, ctx.tenantId!);
+                await logPdfSuccess(input.batchId, pdfUrl);
               } catch (logError) {
                 console.error("[배치 완료] PDF 성공 로그 저장 실패:", logError);
               }
@@ -1417,7 +1417,7 @@ export const batchRouter = router({
               await logPdfFailure(
                 input.batchId,
                 pdfError instanceof Error ? pdfError.message : "PDF 생성 실패"
-              , ctx.tenantId!);
+              );
             } catch (logError) {
               console.error("[배치 완료] PDF 실패 로그 저장 실패:", logError);
             }

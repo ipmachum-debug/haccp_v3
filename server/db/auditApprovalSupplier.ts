@@ -87,21 +87,16 @@ export async function getAuditLogsByUser(userId: number, limit: number = 50, ten
 // 거래처 CRUD 함수
 // ============================================================================
 
-export async function getAllSuppliers(tenantId?: number) {
+export async function getAllSuppliers(tenantId: number) {
   const db = await getDb();
   if (!db) return [];
-  const { and } = await import("drizzle-orm");
-  const conditions: any[] = [eq(hSuppliers.isActive, 1)];
-  if (tenantId) conditions.push(eq(hSuppliers.tenantId, tenantId));
-  return await db.select().from(hSuppliers).where(and(...conditions));
+  return await db.select().from(hSuppliers).where(and(eq(hSuppliers.isActive, 1), eq(hSuppliers.tenantId, tenantId)));
 }
 
-export async function getSupplierById(id: number, tenantId?: number) {
+export async function getSupplierById(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) return null;
-  const conditions: any[] = [eq(hSuppliers.id, id)];
-  if (tenantId) conditions.push(eq(hSuppliers.tenantId, tenantId as any));
-  const [supplier] = await db.select().from(hSuppliers).where(and(...conditions));
+  const [supplier] = await db.select().from(hSuppliers).where(and(eq(hSuppliers.id, id), eq(hSuppliers.tenantId, tenantId)));
   return supplier;
 }
 
@@ -116,6 +111,7 @@ export async function createSupplier(data: {
   supplierType?: string;
   certifications?: string;
   rating?: string;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -135,19 +131,16 @@ export async function updateSupplier(id: number, data: {
   certifications?: string;
   rating?: string;
   isActive?: number;
-}) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(hSuppliers).set(data).where(eq(hSuppliers.id, id));
+  await db.update(hSuppliers).set(data).where(and(eq(hSuppliers.id, id), eq(hSuppliers.tenantId, tenantId)));
 }
 
-export async function deleteSupplier(id: number, tenantId?: number) {
+export async function deleteSupplier(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { and } = await import("drizzle-orm");
-  const conditions: any[] = [eq(hSuppliers.id, id)];
-  if (tenantId) conditions.push(eq(hSuppliers.tenantId, tenantId));
-  await db.update(hSuppliers).set({ isActive: 0 }).where(and(...conditions));
+  await db.update(hSuppliers).set({ isActive: 0 }).where(and(eq(hSuppliers.id, id), eq(hSuppliers.tenantId, tenantId)));
 }
 
 // ============================================================================
@@ -626,6 +619,8 @@ async function updateSupplierRating(supplierId: number) {
     rating = "C+";
   }
 
+  // Note: supplierId is already validated in getSupplierEvaluationStats,
+  // and this is an internal helper called after evaluation creation.
   await db
     .update(hSuppliers)
     .set({ rating })
