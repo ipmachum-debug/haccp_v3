@@ -2,6 +2,9 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { ENV } from "./_core/env";
+import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
+import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
+import { getRawConnection } from "./db";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -424,5 +427,453 @@ export const aiRouter = router({
         console.error("[AI Inspection Error]", error?.message || error);
         return { success: false, result: "검사 결과 분석 중 오류가 발생했습니다." };
       }
+    }),
+
+  // ============================================================================
+  // AI 규칙엔진: 전체 규칙 평가 실행
+  // ============================================================================
+  evaluateRules: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const tenantId = ctx.tenantId;
+        const date = input?.date || new Date().toISOString().split("T")[0];
+
+        const results = await evaluateAllRules(tenantId, date);
+        const savedCount = await saveAlerts(tenantId, results);
+
+        // 감사 로그 저장
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs (tenant_id, action_type, input_data, output_data, user_id, created_at)
+             VALUES (?, 'rule_evaluation', ?, ?, ?, NOW())`,
+            [tenantId, JSON.stringify({ date }), JSON.stringify({ totalRules: results.length, savedAlerts: savedCount }), ctx.user?.id || null]
+          );
+        } catch { /* 감사 로그 실패 무시 */ }
+
+        return {
+          success: true,
+          date,
+          totalTriggered: results.length,
+          savedAlerts: savedCount,
+          results: results.map(r => ({
+            ruleCode: r.ruleCode,
+            severity: r.severity,
+            title: r.title,
+            message: r.message,
+            entityType: r.entityType,
+            entityCode: r.entityCode,
+          })),
+          bySeverity: {
+            critical: results.filter(r => r.severity === "critical").length,
+            high: results.filter(r => r.severity === "high").length,
+            medium: results.filter(r => r.severity === "medium").length,
+            low: results.filter(r => r.severity === "low").length,
+          },
+        };
+      } catch (error: any) {
+        console.error("[AI Rules Error]", error?.message || error);
+        return { success: false, totalTriggered: 0, savedAlerts: 0, results: [], bySeverity: { critical: 0, high: 0, medium: 0, low: 0 } };
+      }
+    }),
+
+  // ============================================================================
+  // AI 대시보드 요약 조회
+  // ============================================================================
+  dashboardSummary: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const summary = await getAIDashboardSummary(ctx.tenantId, input?.date);
+        return { success: true, ...summary };
+      } catch (error: any) {
+        console.error("[AI Dashboard Error]", error?.message || error);
+        return {
+          success: false,
+          date: input?.date || new Date().toISOString().split("T")[0],
+          activeAlerts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+          recentAlerts: [],
+          batchRiskSummary: { high: 0, medium: 0, low: 0 },
+        };
+      }
+    }),
+
+  // ============================================================================
+  // 알림 목록 조회
+  // ============================================================================
+  listAlerts: tenantRequiredProcedure
+    .input(z.object({
+      status: z.enum(["active", "acknowledged", "resolved", "dismissed"]).optional(),
+      severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+      entityType: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.status) { conditions.push("status = ?"); params.push(input.status); }
+        if (input?.severity) { conditions.push("severity = ?"); params.push(input.severity); }
+        if (input?.entityType) { conditions.push("entity_type = ?"); params.push(input.entityType); }
+
+        const limit = input?.limit || 50;
+        const offset = input?.offset || 0;
+
+        const [rows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, entity_type, entity_id, entity_code,
+                  context_data, status, acknowledged_by, acknowledged_at, resolved_by, resolved_at,
+                  resolved_note, created_at, expires_at
+           FROM ai_alerts
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY FIELD(severity, 'critical', 'high', 'medium', 'low'), created_at DESC
+           LIMIT ? OFFSET ?`,
+          [...params, limit, offset]
+        );
+
+        const [countResult] = await conn.execute(
+          `SELECT COUNT(*) as total FROM ai_alerts WHERE ${conditions.join(" AND ")}`,
+          params
+        );
+
+        return {
+          success: true,
+          alerts: (rows as any[]).map(r => ({
+            ...r,
+            contextData: typeof r.context_data === "string" ? JSON.parse(r.context_data) : r.context_data,
+          })),
+          total: (countResult as any[])[0]?.total || 0,
+        };
+      } catch (error: any) {
+        console.error("[AI Alerts Error]", error?.message || error);
+        return { success: false, alerts: [], total: 0 };
+      }
+    }),
+
+  // ============================================================================
+  // 알림 상태 업데이트 (확인/해결/무시)
+  // ============================================================================
+  updateAlert: tenantRequiredProcedure
+    .input(z.object({
+      alertId: z.number(),
+      status: z.enum(["acknowledged", "resolved", "dismissed"]),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await updateAlertStatus(ctx.tenantId, input.alertId, input.status, ctx.user?.id || 0, input.note);
+        return { success: true };
+      } catch (error: any) {
+        console.error("[AI Alert Update Error]", error?.message || error);
+        return { success: false };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 업로드 및 파싱
+  // ============================================================================
+  uploadStandard: tenantRequiredProcedure
+    .input(z.object({
+      name: z.string().min(1).max(300),
+      standardType: z.enum([
+        "haccp_plan", "prerequisite", "operational_prp", "ccp_standard",
+        "sanitation", "quality_standard", "facility_standard",
+        "training_standard", "recall_plan", "custom",
+      ]),
+      content: z.string().min(10).max(50000),
+      version: z.string().optional(),
+      additionalContext: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 1. 기준서 저장
+        const [result] = await conn.execute(
+          `INSERT INTO ai_standards
+           (tenant_id, name, standard_type, content, status, version, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'uploaded', ?, ?, NOW(), NOW())`,
+          [ctx.tenantId, input.name, input.standardType, input.content, input.version || null, ctx.user?.id || null]
+        );
+        const standardId = (result as any).insertId;
+
+        // 2. AI 파싱 실행
+        const startTime = Date.now();
+        const { items, rawResponse } = await parseStandardToCheckItems(
+          input.content,
+          input.standardType,
+          input.additionalContext
+        );
+        const latencyMs = Date.now() - startTime;
+
+        // 3. 파싱 결과 저장
+        await conn.execute(
+          `UPDATE ai_standards SET parsed_items = ?, status = 'parsed', updated_at = NOW() WHERE id = ?`,
+          [JSON.stringify(items), standardId]
+        );
+
+        // 4. 감사 로그
+        try {
+          await conn.execute(
+            `INSERT INTO ai_audit_logs
+             (tenant_id, action_type, input_data, reference_data, output_data, output_text, model_used, latency_ms, user_id, created_at)
+             VALUES (?, 'checklist_generation', ?, ?, ?, ?, 'gpt-4o-mini', ?, ?, NOW())`,
+            [
+              ctx.tenantId,
+              JSON.stringify({ name: input.name, type: input.standardType, contentLength: input.content.length }),
+              JSON.stringify({ standardIds: [standardId] }),
+              JSON.stringify({ itemCount: items.length }),
+              rawResponse,
+              latencyMs,
+              ctx.user?.id || null,
+            ]
+          );
+        } catch { /* 감사 로그 실패 무시 */ }
+
+        return {
+          success: true,
+          standardId,
+          parsedItems: items,
+          itemCount: items.length,
+        };
+      } catch (error: any) {
+        console.error("[AI Standard Upload Error]", error?.message || error);
+        return { success: false, standardId: 0, parsedItems: [], itemCount: 0, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 파싱 결과로 체크리스트 템플릿 생성
+  // ============================================================================
+  createChecklistFromStandard: tenantRequiredProcedure
+    .input(z.object({
+      standardId: z.number(),
+      templateName: z.string().min(1).max(200),
+      category: z.string(),
+      items: z.array(z.object({
+        id: z.string(),
+        category: z.string(),
+        checkItem: z.string(),
+        standard: z.string(),
+        frequency: z.string(),
+        method: z.string().optional(),
+        responsibleRole: z.string().optional(),
+        itemType: z.string().optional(),
+        validationRules: z.object({
+          min: z.number().nullable().optional(),
+          max: z.number().nullable().optional(),
+          options: z.array(z.string()).nullable().optional(),
+        }).optional(),
+        importance: z.enum(["required", "recommended", "optional"]).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await createTemplateFromStandard(
+          ctx.tenantId,
+          input.standardId,
+          input.templateName,
+          input.category,
+          input.items,
+          ctx.user?.id
+        );
+        return { success: true, ...result };
+      } catch (error: any) {
+        console.error("[AI Checklist Create Error]", error?.message || error);
+        return { success: false, templateId: 0, itemCount: 0, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 목록 조회
+  // ============================================================================
+  listStandards: tenantRequiredProcedure
+    .input(z.object({
+      standardType: z.string().optional(),
+      status: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.standardType) { conditions.push("standard_type = ?"); params.push(input.standardType); }
+        if (input?.status) { conditions.push("status = ?"); params.push(input.status); }
+
+        const [rows] = await conn.execute(
+          `SELECT id, name, standard_type, status, version, effective_date, is_active,
+                  generated_template_id, created_by, created_at, updated_at,
+                  JSON_LENGTH(parsed_items) as item_count
+           FROM ai_standards
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY created_at DESC`,
+          params
+        );
+
+        return { success: true, standards: rows as any[] };
+      } catch (error: any) {
+        console.error("[AI Standards List Error]", error?.message || error);
+        return { success: false, standards: [] };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 상세 조회 (파싱된 항목 포함)
+  // ============================================================================
+  getStandard: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [rows] = await conn.execute(
+          `SELECT * FROM ai_standards WHERE id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId]
+        );
+
+        const standard = (rows as any[])[0];
+        if (!standard) return { success: false, standard: null };
+
+        if (typeof standard.parsed_items === "string") {
+          standard.parsed_items = JSON.parse(standard.parsed_items);
+        }
+        return { success: true, standard };
+      } catch (error: any) {
+        return { success: false, standard: null };
+      }
+    }),
+
+  // ============================================================================
+  // 시정조치서 초안 AI 생성
+  // ============================================================================
+  generateCorrectiveAction: tenantRequiredProcedure
+    .input(z.object({
+      type: z.string(),
+      description: z.string(),
+      location: z.string().optional(),
+      batchCode: z.string().optional(),
+      actualValue: z.string().optional(),
+      standardValue: z.string().optional(),
+      ccpType: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const startTime = Date.now();
+        const { draft, rawResponse } = await generateCorrectiveActionDraft(input);
+        const latencyMs = Date.now() - startTime;
+
+        // 감사 로그
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs
+             (tenant_id, action_type, input_data, output_data, output_text, model_used, latency_ms, user_id, created_at)
+             VALUES (?, 'document_draft', ?, ?, ?, 'gpt-4o-mini', ?, ?, NOW())`,
+            [ctx.tenantId, JSON.stringify(input), JSON.stringify(draft), rawResponse, latencyMs, ctx.user?.id || null]
+          );
+        } catch { /* ignore */ }
+
+        return { success: true, draft };
+      } catch (error: any) {
+        console.error("[AI Corrective Action Error]", error?.message || error);
+        return { success: false, draft: {}, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 점검결과 AI 요약
+  // ============================================================================
+  summarizeInspection: tenantRequiredProcedure
+    .input(z.object({
+      type: z.string(),
+      date: z.string(),
+      items: z.array(z.object({
+        name: z.string(),
+        standard: z.string(),
+        result: z.string(),
+        passed: z.boolean(),
+      })),
+      additionalInfo: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const { summary } = await generateInspectionSummary(input);
+        return { success: true, summary };
+      } catch (error: any) {
+        console.error("[AI Inspection Summary Error]", error?.message || error);
+        return { success: false, summary: "" };
+      }
+    }),
+
+  // ============================================================================
+  // 감사 대응 자료 자동 묶기
+  // ============================================================================
+  gatherAuditDocs: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string(),
+      endDate: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await gatherAuditDocuments(ctx.tenantId, input.startDate, input.endDate);
+        return { success: true, ...result };
+      } catch (error: any) {
+        console.error("[AI Audit Docs Error]", error?.message || error);
+        return { success: false, period: { startDate: input.startDate, endDate: input.endDate }, summary: {} };
+      }
+    }),
+
+  // ============================================================================
+  // AI 판단 로그 조회
+  // ============================================================================
+  listAuditLogs: tenantRequiredProcedure
+    .input(z.object({
+      actionType: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.actionType) { conditions.push("action_type = ?"); params.push(input.actionType); }
+
+        const [rows] = await conn.execute(
+          `SELECT id, action_type, input_data, reference_data, output_data, output_text,
+                  user_modified, model_used, tokens_used, latency_ms, user_id, created_at
+           FROM ai_audit_logs
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`,
+          [...params, input?.limit || 50, input?.offset || 0]
+        );
+
+        return { success: true, logs: rows as any[] };
+      } catch (error: any) {
+        return { success: false, logs: [] };
+      }
+    }),
+
+  // ============================================================================
+  // 시스템 규칙 목록 조회 (어떤 규칙이 있는지)
+  // ============================================================================
+  listSystemRules: tenantRequiredProcedure
+    .query(async () => {
+      return {
+        success: true,
+        rules: Object.values(SYSTEM_RULES).map(rule => ({
+          code: rule.code,
+          name: rule.name,
+          ruleType: rule.ruleType,
+          entityType: rule.entityType,
+          severity: rule.severity,
+          description: rule.description,
+        })),
+      };
     }),
 });

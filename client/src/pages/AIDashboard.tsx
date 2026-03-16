@@ -1,0 +1,833 @@
+import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertTriangle, Bell, CheckCircle, Clock, FileText, PlayCircle,
+  RefreshCw, Shield, Upload, ChevronRight, Brain, Loader2,
+  XCircle, Eye, FileCheck,
+} from "lucide-react";
+
+// ============================================================================
+// 타입
+// ============================================================================
+type AlertItem = {
+  id: number;
+  rule_code: string;
+  title: string;
+  message: string;
+  severity: string;
+  entity_type: string;
+  entity_code?: string;
+  status: string;
+  created_at: string;
+  contextData?: Record<string, any>;
+};
+
+type ParsedItem = {
+  id: string;
+  category: string;
+  checkItem: string;
+  standard: string;
+  frequency: string;
+  method?: string;
+  responsibleRole?: string;
+  itemType?: string;
+  importance?: string;
+  validationRules?: { min?: number | null; max?: number | null; options?: string[] | null };
+};
+
+// ============================================================================
+// 헬퍼
+// ============================================================================
+const SEVERITY_CONFIG: Record<string, { color: string; icon: any; label: string }> = {
+  critical: { color: "bg-red-100 text-red-800 border-red-200", icon: XCircle, label: "위험" },
+  high: { color: "bg-orange-100 text-orange-800 border-orange-200", icon: AlertTriangle, label: "높음" },
+  medium: { color: "bg-yellow-100 text-yellow-800 border-yellow-200", icon: Bell, label: "보통" },
+  low: { color: "bg-blue-100 text-blue-800 border-blue-200", icon: Eye, label: "낮음" },
+};
+
+const STANDARD_TYPE_LABELS: Record<string, string> = {
+  haccp_plan: "HACCP 관리계획",
+  prerequisite: "선행요건 (PRP)",
+  operational_prp: "운영선행요건 (OPRP)",
+  ccp_standard: "CCP 기준",
+  sanitation: "위생관리기준",
+  quality_standard: "품질기준",
+  facility_standard: "시설기준",
+  training_standard: "교육훈련기준",
+  recall_plan: "리콜 계획",
+  custom: "사용자 정의",
+};
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const config = SEVERITY_CONFIG[severity] || SEVERITY_CONFIG.low;
+  const Icon = config.icon;
+  return (
+    <Badge variant="outline" className={`${config.color} text-xs font-medium gap-1`}>
+      <Icon className="w-3 h-3" />
+      {config.label}
+    </Badge>
+  );
+}
+
+function formatDate(dateStr: string) {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+// ============================================================================
+// 메인 컴포넌트
+// ============================================================================
+export default function AIDashboard() {
+  const [activeTab, setActiveTab] = useState("overview");
+
+  return (
+    <DashboardLayout>
+      <div className="p-4 md:p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Brain className="w-7 h-7 text-indigo-600" />
+          <div>
+            <h1 className="text-2xl font-bold">AI HACCP Assistant</h1>
+            <p className="text-sm text-muted-foreground">규칙엔진 + AI 기반 식품안전 관리 시스템</p>
+          </div>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="grid grid-cols-5 w-full max-w-3xl">
+            <TabsTrigger value="overview">대시보드</TabsTrigger>
+            <TabsTrigger value="alerts">알림 관리</TabsTrigger>
+            <TabsTrigger value="standards">기준서 관리</TabsTrigger>
+            <TabsTrigger value="corrective">시정조치 AI</TabsTrigger>
+            <TabsTrigger value="audit">감사 자료</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview"><OverviewTab /></TabsContent>
+          <TabsContent value="alerts"><AlertsTab /></TabsContent>
+          <TabsContent value="standards"><StandardsTab /></TabsContent>
+          <TabsContent value="corrective"><CorrectiveActionTab /></TabsContent>
+          <TabsContent value="audit"><AuditTab /></TabsContent>
+        </Tabs>
+      </div>
+    </DashboardLayout>
+  );
+}
+
+// ============================================================================
+// Tab 1: 대시보드 개요
+// ============================================================================
+function OverviewTab() {
+  const summary = trpc.ai.dashboardSummary.useQuery();
+  const evaluateMutation = trpc.ai.evaluateRules.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleEvaluate = async () => {
+    await evaluateMutation.mutateAsync({});
+    utils.ai.dashboardSummary.invalidate();
+  };
+
+  const data = summary.data;
+  const alerts = data?.activeAlerts || { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
+
+  return (
+    <div className="space-y-4">
+      {/* 규칙 평가 실행 버튼 */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">오늘의 현황</h2>
+        <Button onClick={handleEvaluate} disabled={evaluateMutation.isPending} size="sm">
+          {evaluateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+          규칙 평가 실행
+        </Button>
+      </div>
+
+      {/* 평가 결과 */}
+      {evaluateMutation.data?.success && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-2 text-green-800">
+              <CheckCircle className="w-5 h-5" />
+              <span className="font-medium">
+                규칙 평가 완료: {evaluateMutation.data.totalTriggered}건 탐지,
+                {evaluateMutation.data.savedAlerts}건 새 알림 저장
+              </span>
+            </div>
+            {evaluateMutation.data.totalTriggered > 0 && (
+              <div className="mt-2 flex gap-3 text-sm">
+                {evaluateMutation.data.bySeverity.critical > 0 && (
+                  <span className="text-red-600 font-medium">위험 {evaluateMutation.data.bySeverity.critical}</span>
+                )}
+                {evaluateMutation.data.bySeverity.high > 0 && (
+                  <span className="text-orange-600 font-medium">높음 {evaluateMutation.data.bySeverity.high}</span>
+                )}
+                {evaluateMutation.data.bySeverity.medium > 0 && (
+                  <span className="text-yellow-600 font-medium">보통 {evaluateMutation.data.bySeverity.medium}</span>
+                )}
+                {evaluateMutation.data.bySeverity.low > 0 && (
+                  <span className="text-blue-600 font-medium">낮음 {evaluateMutation.data.bySeverity.low}</span>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 요약 카드 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className={alerts.critical > 0 ? "border-red-300 bg-red-50" : ""}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">위험 경고</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-red-600">{alerts.critical}</div>
+          </CardContent>
+        </Card>
+        <Card className={alerts.high > 0 ? "border-orange-300 bg-orange-50" : ""}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">높은 경고</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-orange-600">{alerts.high}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">보통 경고</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-yellow-600">{alerts.medium}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">전체 활성 알림</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold">{alerts.total}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* 최근 알림 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bell className="w-5 h-5" /> 최근 알림
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {summary.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (data?.recentAlerts || []).length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Shield className="w-12 h-12 mx-auto mb-2 opacity-30" />
+              <p>활성 알림이 없습니다. "규칙 평가 실행"을 눌러 점검하세요.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(data?.recentAlerts || []).map((alert: any) => (
+                <div key={alert.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition">
+                  <SeverityBadge severity={alert.severity} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{alert.title}</p>
+                    <p className="text-xs text-muted-foreground">{alert.entityType} | {formatDate(alert.createdAt)}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 시스템 규칙 목록 */}
+      <SystemRulesCard />
+    </div>
+  );
+}
+
+function SystemRulesCard() {
+  const rules = trpc.ai.listSystemRules.useQuery();
+  const [expanded, setExpanded] = useState(false);
+
+  if (!rules.data?.success) return null;
+
+  const ruleList = rules.data.rules;
+  const displayRules = expanded ? ruleList : ruleList.slice(0, 5);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Shield className="w-5 h-5" /> 시스템 규칙 ({ruleList.length}개)
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[180px]">규칙 코드</TableHead>
+              <TableHead>이름</TableHead>
+              <TableHead className="w-[80px]">유형</TableHead>
+              <TableHead className="w-[80px]">대상</TableHead>
+              <TableHead className="w-[80px]">심각도</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {displayRules.map((rule: any) => (
+              <TableRow key={rule.code}>
+                <TableCell className="font-mono text-xs">{rule.code}</TableCell>
+                <TableCell className="text-sm">{rule.name}</TableCell>
+                <TableCell><Badge variant="outline" className="text-xs">{rule.ruleType}</Badge></TableCell>
+                <TableCell className="text-xs">{rule.entityType}</TableCell>
+                <TableCell><SeverityBadge severity={rule.severity} /></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {ruleList.length > 5 && (
+          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setExpanded(!expanded)}>
+            {expanded ? "접기" : `나머지 ${ruleList.length - 5}개 더보기`}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============================================================================
+// Tab 2: 알림 관리
+// ============================================================================
+function AlertsTab() {
+  const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [severityFilter, setSeverityFilter] = useState<string>("");
+
+  const alerts = trpc.ai.listAlerts.useQuery({
+    status: statusFilter as any || undefined,
+    severity: severityFilter as any || undefined,
+    limit: 100,
+  });
+
+  const updateMutation = trpc.ai.updateAlert.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleUpdateStatus = async (alertId: number, status: "acknowledged" | "resolved" | "dismissed") => {
+    await updateMutation.mutateAsync({ alertId, status });
+    utils.ai.listAlerts.invalidate();
+    utils.ai.dashboardSummary.invalidate();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="상태 필터" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">활성</SelectItem>
+            <SelectItem value="acknowledged">확인됨</SelectItem>
+            <SelectItem value="resolved">해결됨</SelectItem>
+            <SelectItem value="dismissed">무시됨</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value={severityFilter} onValueChange={setSeverityFilter}>
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="심각도 필터" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">전체</SelectItem>
+            <SelectItem value="critical">위험</SelectItem>
+            <SelectItem value="high">높음</SelectItem>
+            <SelectItem value="medium">보통</SelectItem>
+            <SelectItem value="low">낮음</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="text-sm text-muted-foreground ml-auto">
+          총 {alerts.data?.total || 0}건
+        </div>
+      </div>
+
+      {alerts.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+      ) : (alerts.data?.alerts || []).length === 0 ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-30" />
+            <p>해당 조건의 알림이 없습니다.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {(alerts.data?.alerts || []).map((alert: AlertItem) => (
+            <Card key={alert.id} className="hover:shadow-sm transition">
+              <CardContent className="pt-4">
+                <div className="flex items-start gap-3">
+                  <SeverityBadge severity={alert.severity} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm">{alert.title}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{alert.message}</p>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                      <span>{alert.entity_type}</span>
+                      {alert.entity_code && <span>| {alert.entity_code}</span>}
+                      <span>| {formatDate(alert.created_at)}</span>
+                    </div>
+                  </div>
+                  {alert.status === "active" && (
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="outline" size="sm" className="text-xs h-7"
+                        onClick={() => handleUpdateStatus(alert.id, "acknowledged")}>
+                        확인
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-xs h-7 text-green-600"
+                        onClick={() => handleUpdateStatus(alert.id, "resolved")}>
+                        해결
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground"
+                        onClick={() => handleUpdateStatus(alert.id, "dismissed")}>
+                        무시
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Tab 3: 기준서 관리 (기준서 → 체크리스트 자동생성)
+// ============================================================================
+function StandardsTab() {
+  const [showUpload, setShowUpload] = useState(false);
+  const [name, setName] = useState("");
+  const [standardType, setStandardType] = useState("sanitation");
+  const [content, setContent] = useState("");
+  const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [currentStandardId, setCurrentStandardId] = useState<number | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const standards = trpc.ai.listStandards.useQuery();
+  const uploadMutation = trpc.ai.uploadStandard.useMutation();
+  const createMutation = trpc.ai.createChecklistFromStandard.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleUploadAndParse = async () => {
+    if (!name.trim() || !content.trim()) return;
+    const result = await uploadMutation.mutateAsync({
+      name, standardType: standardType as any, content,
+    });
+    if (result.success) {
+      setParsedItems(result.parsedItems as ParsedItem[]);
+      setCurrentStandardId(result.standardId);
+      setShowUpload(false);
+      setShowPreview(true);
+    }
+  };
+
+  const handleCreateTemplate = async () => {
+    if (!currentStandardId || parsedItems.length === 0) return;
+    const result = await createMutation.mutateAsync({
+      standardId: currentStandardId,
+      templateName: `${name} 체크리스트`,
+      category: "QUALITY",
+      items: parsedItems,
+    });
+    if (result.success) {
+      setShowPreview(false);
+      setParsedItems([]);
+      setName("");
+      setContent("");
+      utils.ai.listStandards.invalidate();
+    }
+  };
+
+  const removeItem = (id: string) => {
+    setParsedItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">기준서 → 체크리스트 자동생성</h2>
+        <Button onClick={() => setShowUpload(true)} size="sm">
+          <Upload className="w-4 h-4 mr-2" /> 기준서 업로드
+        </Button>
+      </div>
+
+      <Card className="bg-indigo-50 border-indigo-200">
+        <CardContent className="pt-4">
+          <p className="text-sm text-indigo-800">
+            <strong>사용법:</strong> HACCP 기준서(관리기준, 위생관리기준 등)를 붙여넣으면 AI가 자동으로 점검항목을 추출하여
+            체크리스트 템플릿을 생성합니다. 회사마다 기준이 비슷하므로 기준서만 주면 바로 쓸 수 있는 체크리스트가 나옵니다.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 기준서 업로드 다이얼로그 */}
+      <Dialog open={showUpload} onOpenChange={setShowUpload}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>기준서 업로드</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>기준서 이름</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 위생관리기준서 v2.0" />
+            </div>
+            <div>
+              <Label>기준서 유형</Label>
+              <Select value={standardType} onValueChange={setStandardType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(STANDARD_TYPE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>기준서 내용 (붙여넣기)</Label>
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="기준서 전체 내용을 붙여넣으세요. AI가 자동으로 점검항목을 추출합니다."
+                className="min-h-[300px] font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground mt-1">{content.length}/50,000자</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUpload(false)}>취소</Button>
+            <Button onClick={handleUploadAndParse} disabled={uploadMutation.isPending || !name.trim() || !content.trim()}>
+              {uploadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
+              AI 분석 시작
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 파싱 결과 미리보기 및 편집 */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>AI 추출 결과 - {parsedItems.length}개 항목</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            AI가 기준서에서 추출한 점검항목입니다. 불필요한 항목은 삭제하고, 확인 후 체크리스트를 생성하세요.
+          </p>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[50px]">#</TableHead>
+                <TableHead className="w-[100px]">분류</TableHead>
+                <TableHead>점검항목</TableHead>
+                <TableHead className="w-[150px]">기준</TableHead>
+                <TableHead className="w-[80px]">주기</TableHead>
+                <TableHead className="w-[80px]">유형</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {parsedItems.map((item, idx) => (
+                <TableRow key={item.id}>
+                  <TableCell className="text-xs">{idx + 1}</TableCell>
+                  <TableCell><Badge variant="outline" className="text-xs">{item.category}</Badge></TableCell>
+                  <TableCell className="text-sm">{item.checkItem}</TableCell>
+                  <TableCell className="text-xs">{item.standard}</TableCell>
+                  <TableCell className="text-xs">{item.frequency}</TableCell>
+                  <TableCell className="text-xs">{item.itemType}</TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                      onClick={() => removeItem(item.id)}>
+                      <XCircle className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreview(false)}>취소</Button>
+            <Button onClick={handleCreateTemplate} disabled={createMutation.isPending || parsedItems.length === 0}>
+              {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileCheck className="w-4 h-4 mr-2" />}
+              체크리스트 템플릿 생성 ({parsedItems.length}개 항목)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 기존 기준서 목록 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">등록된 기준서</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {standards.isLoading ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+          ) : (standards.data?.standards || []).length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <FileText className="w-12 h-12 mx-auto mb-2 opacity-30" />
+              <p>등록된 기준서가 없습니다. 위 "기준서 업로드" 버튼으로 시작하세요.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>이름</TableHead>
+                  <TableHead className="w-[150px]">유형</TableHead>
+                  <TableHead className="w-[100px]">상태</TableHead>
+                  <TableHead className="w-[80px]">항목 수</TableHead>
+                  <TableHead className="w-[120px]">등록일</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(standards.data?.standards || []).map((std: any) => (
+                  <TableRow key={std.id}>
+                    <TableCell className="font-medium">{std.name}</TableCell>
+                    <TableCell><Badge variant="outline" className="text-xs">{STANDARD_TYPE_LABELS[std.standard_type] || std.standard_type}</Badge></TableCell>
+                    <TableCell>
+                      <Badge variant={std.status === "applied" ? "default" : "outline"} className="text-xs">
+                        {std.status === "uploaded" ? "업로드" : std.status === "parsed" ? "파싱완료" : std.status === "reviewed" ? "검토완료" : "적용됨"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">{std.item_count || "-"}</TableCell>
+                    <TableCell className="text-xs">{formatDate(std.created_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// Tab 4: 시정조치 AI
+// ============================================================================
+function CorrectiveActionTab() {
+  const [deviationType, setDeviationType] = useState("CCP 온도 이탈");
+  const [description, setDescription] = useState("");
+  const [location, setLocation] = useState("");
+  const [batchCode, setBatchCode] = useState("");
+  const [actualValue, setActualValue] = useState("");
+  const [standardValue, setStandardValue] = useState("");
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+
+  const mutation = trpc.ai.generateCorrectiveAction.useMutation();
+
+  const handleGenerate = async () => {
+    if (!description.trim()) return;
+    const result = await mutation.mutateAsync({
+      type: deviationType,
+      description,
+      location: location || undefined,
+      batchCode: batchCode || undefined,
+      actualValue: actualValue || undefined,
+      standardValue: standardValue || undefined,
+    });
+    if (result.success) {
+      setDraft(result.draft as Record<string, string>);
+    }
+  };
+
+  const FIELD_LABELS: Record<string, string> = {
+    immediateAction: "즉시 조치사항",
+    rootCauseAnalysis: "근본원인 분석",
+    rootCauseCategory: "원인 분류",
+    correctiveAction: "시정조치 내용",
+    preventiveAction: "재발방지 대책",
+    verificationMethod: "효과 검증 방법",
+    timeline: "조치 기한",
+    responsiblePerson: "담당부서/담당자",
+    additionalNotes: "기타 참고사항",
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="w-5 h-5" /> 시정조치서 AI 초안 생성
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>이탈/부적합 유형</Label>
+              <Select value={deviationType} onValueChange={setDeviationType}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CCP 온도 이탈">CCP 온도 이탈</SelectItem>
+                  <SelectItem value="CCP 시간 이탈">CCP 시간 이탈</SelectItem>
+                  <SelectItem value="CCP 압력 이탈">CCP 압력 이탈</SelectItem>
+                  <SelectItem value="금속검출 부적합">금속검출 부적합</SelectItem>
+                  <SelectItem value="위생점검 불량">위생점검 불량</SelectItem>
+                  <SelectItem value="원재료 검사 부적합">원재료 검사 부적합</SelectItem>
+                  <SelectItem value="출하검사 부적합">출하검사 부적합</SelectItem>
+                  <SelectItem value="보관온도 이상">보관온도 이상</SelectItem>
+                  <SelectItem value="기타">기타</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>발생 장소</Label>
+              <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="예: 가열실, 냉각실, 포장실" />
+            </div>
+          </div>
+          <div>
+            <Label>상세 설명</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder="이탈/부적합의 상세 내용을 입력하세요. 예: 증숙 공정에서 중심온도 78°C로 한계기준(85°C) 미달..."
+              className="min-h-[100px]" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <Label>관련 배치코드</Label>
+              <Input value={batchCode} onChange={(e) => setBatchCode(e.target.value)} placeholder="예: B-2026-0316-001" />
+            </div>
+            <div>
+              <Label>실측값</Label>
+              <Input value={actualValue} onChange={(e) => setActualValue(e.target.value)} placeholder="예: 78°C" />
+            </div>
+            <div>
+              <Label>기준값</Label>
+              <Input value={standardValue} onChange={(e) => setStandardValue(e.target.value)} placeholder="예: 85°C 이상" />
+            </div>
+          </div>
+          <Button onClick={handleGenerate} disabled={mutation.isPending || !description.trim()}>
+            {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
+            시정조치서 초안 생성
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* 생성된 초안 */}
+      {draft && (
+        <Card className="border-green-200">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2 text-green-800">
+              <CheckCircle className="w-5 h-5" /> AI 생성 시정조치서 초안
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {Object.entries(draft)
+                .filter(([key]) => FIELD_LABELS[key])
+                .map(([key, value]) => (
+                  <div key={key} className="border-b pb-2">
+                    <Label className="text-xs text-muted-foreground">{FIELD_LABELS[key]}</Label>
+                    <p className="text-sm mt-1">{value}</p>
+                  </div>
+                ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-4 border-t pt-2">
+              * 이 내용은 AI가 생성한 초안입니다. 반드시 담당자가 검토 후 수정/확정하세요.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Tab 5: 감사 자료 자동 묶기
+// ============================================================================
+function AuditTab() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const [startDate, setStartDate] = useState(`${year}-${month}-01`);
+  const [endDate, setEndDate] = useState(`${year}-${month}-${String(now.getDate()).padStart(2, "0")}`);
+  const [enabled, setEnabled] = useState(false);
+
+  const auditDocs = trpc.ai.gatherAuditDocs.useQuery(
+    { startDate, endDate },
+    { enabled }
+  );
+
+  const handleGather = () => setEnabled(true);
+
+  const summary = auditDocs.data?.summary as any;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="w-5 h-5" /> 감사/점검 대응 자료 현황
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            HACCP 인증 심사 또는 내부 점검 시 필요한 기록 현황을 기간별로 확인합니다.
+          </p>
+          <div className="flex items-end gap-3">
+            <div>
+              <Label>시작일</Label>
+              <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setEnabled(false); }} />
+            </div>
+            <div>
+              <Label>종료일</Label>
+              <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setEnabled(false); }} />
+            </div>
+            <Button onClick={handleGather} disabled={auditDocs.isLoading}>
+              {auditDocs.isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              현황 조회
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {summary && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <AuditCard title="체크리스트" total={summary.checklists?.cnt || 0} detail={`완료 ${summary.checklists?.completed || 0}건`} icon={<CheckCircle className="w-5 h-5 text-green-600" />} />
+          <AuditCard title="CCP 모니터링" total={summary.ccpMonitoring?.cnt || 0} detail={`승인 ${summary.ccpMonitoring?.approved || 0}건`} icon={<Shield className="w-5 h-5 text-blue-600" />} />
+          <AuditCard title="시정조치" total={summary.correctiveActions?.cnt || 0} detail={`해결 ${summary.correctiveActions?.resolved || 0}건`} icon={<AlertTriangle className="w-5 h-5 text-orange-600" />} />
+          <AuditCard title="검교정" total={summary.calibrations?.cnt || 0} detail="실시 기록" icon={<Clock className="w-5 h-5 text-purple-600" />} />
+          <AuditCard title="위생점검" total={summary.hygieneInspections?.cnt || 0} detail="실시 기록" icon={<Shield className="w-5 h-5 text-teal-600" />} />
+          <AuditCard title="교육훈련" total={summary.trainings?.cnt || 0} detail="실시 기록" icon={<FileText className="w-5 h-5 text-indigo-600" />} />
+          <AuditCard title="수입검사" total={summary.inspections?.material || 0} detail="실시 기록" icon={<Eye className="w-5 h-5 text-yellow-600" />} />
+          <AuditCard title="출하검사" total={summary.inspections?.shipping || 0} detail="실시 기록" icon={<FileCheck className="w-5 h-5 text-red-600" />} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuditCard({ title, total, detail, icon }: { title: string; total: number; detail: string; icon: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <div className="flex items-center gap-2 mb-2">
+          {icon}
+          <span className="text-sm font-medium">{title}</span>
+        </div>
+        <div className="text-2xl font-bold">{total}건</div>
+        <p className="text-xs text-muted-foreground">{detail}</p>
+      </CardContent>
+    </Card>
+  );
+}

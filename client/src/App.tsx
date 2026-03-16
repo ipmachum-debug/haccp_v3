@@ -471,6 +471,9 @@ function Router() {
       <Route path="/dashboard/approval" component={ApprovalManagement} />
       <Route path="/dashboard/audit-logs" component={AuditLogs} />
 
+      {/* AI HACCP Assistant */}
+      <Route path="/dashboard/ai-assistant" component={lazy(() => import("@/pages/AIDashboard"))} />
+
       {/* 11개 미구현 HACCP 체크리스트 */}
       <Route path="/water-quality-test" component={WaterQualityTestList} />
       <Route path="/water-quality-test/new" component={WaterQualityTestForm} />
