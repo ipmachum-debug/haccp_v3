@@ -5,6 +5,8 @@ import { ENV } from "./_core/env";
 import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
 import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
 import { getRawConnection } from "./db";
+import { processUserQuery, classifyIntent } from "./db/aiActionEngine";
+import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -262,7 +264,7 @@ const conversationHistory = new Map<string, Array<{ role: string; content: strin
 
 export const aiRouter = router({
   // ============================================================================
-  // AI 채팅 (메인 챗봇 기능)
+  // AI 채팅 (스마트 챗봇 - Action Engine 기반)
   // ============================================================================
   chat: tenantRequiredProcedure
     .input(
@@ -274,62 +276,75 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.user?.id?.toString() || "anonymous";
       const convId = input.conversationId || userId;
+      const tenantId = ctx.tenantId;
 
-      // API 키 확인
-      if (!ENV.forgeApiKey) {
-        return {
-          success: false,
-          response: "AI 서비스가 아직 설정되지 않았습니다. 관리자에게 문의해 주세요.",
-          conversationId: convId,
-        };
-      }
-
-      // 대화 히스토리 가져오기 또는 새로 생성
+      // 대화 히스토리 가져오기
       let history = conversationHistory.get(convId) || [];
-
-      // 사용자 메시지 추가
       history.push({ role: "user", content: input.message });
 
-      // 최근 20개 메시지만 유지 (토큰 절약)
-      const recentHistory = history.slice(-20);
-
       try {
-        const result = await invokeLLM({
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...recentHistory.map((msg) => ({
-              role: msg.role as "user" | "assistant",
-              content: msg.content,
-            })),
-          ],
-          maxTokens: 2000,
-        });
+        // 의도 분류
+        const intent = classifyIntent(input.message);
 
-        const assistantMessage =
-          (typeof result.choices[0]?.message?.content === 'string'
+        let assistantMessage: string;
+
+        if (intent === "general") {
+          // 일반 질문: 기존 시스템 매뉴얼 기반 응답 (SYSTEM_PROMPT 사용)
+          if (!ENV.forgeApiKey) {
+            return { success: false, response: "AI 서비스가 아직 설정되지 않았습니다.", conversationId: convId };
+          }
+
+          const recentHistory = history.slice(-20);
+          const result = await invokeLLM({
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              ...recentHistory.map((msg) => ({
+                role: msg.role as "user" | "assistant",
+                content: msg.content,
+              })),
+            ],
+            maxTokens: 2000,
+          });
+
+          assistantMessage = typeof result.choices[0]?.message?.content === 'string'
             ? result.choices[0].message.content
-            : '죄송합니다. 응답을 생성하지 못했습니다. 다시 시도해 주세요.');
+            : '응답을 생성하지 못했습니다.';
+        } else {
+          // 데이터 기반 질문: Action Engine 사용 (DB 조회 → LLM)
+          const actionResult = await processUserQuery(
+            tenantId,
+            input.message,
+            history.slice(-10)
+          );
 
-        // 어시스턴트 응답 히스토리에 추가
-        history.push({ role: "assistant", content: assistantMessage });
+          assistantMessage = actionResult.response;
+
+          // 감사 로그 저장
+          try {
+            const conn = await getRawConnection();
+            await conn.execute(
+              `INSERT INTO ai_audit_logs
+               (tenant_id, action_type, input_data, reference_data, output_text, user_id, created_at)
+               VALUES (?, 'chat_response', ?, ?, ?, ?, NOW())`,
+              [
+                tenantId,
+                JSON.stringify({ message: input.message, intent: actionResult.intent }),
+                JSON.stringify({ dataSources: actionResult.dataSources }),
+                assistantMessage.slice(0, 5000),
+                ctx.user?.id || null,
+              ]
+            );
+          } catch { /* 감사 로그 실패 무시 */ }
+        }
 
         // 히스토리 업데이트
+        history.push({ role: "assistant", content: assistantMessage });
         conversationHistory.set(convId, history.slice(-20));
 
-        return {
-          success: true,
-          response: assistantMessage,
-          conversationId: convId,
-        };
+        return { success: true, response: assistantMessage, conversationId: convId };
       } catch (error: any) {
         console.error("[AI Chat Error]", error?.message || error);
-
-        return {
-          success: false,
-          response:
-            "AI 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-          conversationId: convId,
-        };
+        return { success: false, response: "AI 응답 생성 중 오류가 발생했습니다.", conversationId: convId };
       }
     }),
 
@@ -875,5 +890,117 @@ export const aiRouter = router({
           description: rule.description,
         })),
       };
+    }),
+
+  // ============================================================================
+  // AI Context Layer API (AI가 직접 접근하는 데이터 API)
+  // ============================================================================
+
+  /** 일일 종합 현황 */
+  dailyOverview: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getDailyOverview(ctx.tenantId, input?.date);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 배치 요약 + 리스크 점수 */
+  batchSummary: tenantRequiredProcedure
+    .input(z.object({
+      batchId: z.number().optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      limit: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getBatchSummary(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** CCP 이벤트 요약 */
+  ccpEvents: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      ccpType: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getCcpEventSummary(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** 체크리스트 현황 */
+  checklistStatus: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getChecklistStatus(ctx.tenantId, input?.date);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 이탈/부적합 이력 */
+  deviationHistory: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      limit: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getDeviationHistory(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** 설비 상태 */
+  equipmentHealth: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const data = await getEquipmentHealth(ctx.tenantId);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 생산 분석 (배치별 수율 원인 분석) */
+  productionAnalysis: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getProductionAnalysis(ctx.tenantId, input.batchId);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 감사 대비 상태 */
+  auditReadiness: tenantRequiredProcedure
+    .input(z.object({ periodDays: z.number().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getAuditReadiness(ctx.tenantId, input?.periodDays || 90);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
     }),
 });
