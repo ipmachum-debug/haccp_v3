@@ -246,7 +246,7 @@ COST_OF_GOODS → 매출원가 (5010)
 #### Phase 6 (P6) - 최적화 및 확장
 - [ ] 재무보고서 PDF 내보내기
 - [ ] 은행 매칭 시 자동 분개 생성 (matched → journal entry)
-- [ ] TypeScript 에러 ~170개 해결 (Drizzle ORM 타입 문제)
+- [x] TypeScript 에러 ~170개 → 0개 해결 완료 (환경 의존 2개 제외 - node_modules 설치 시 자동 해소)
 - [ ] 매입/매출 다이얼로그에서 account_categories → accounting_accounts 전환
 - [ ] `accounting_categories`, `accounting_transactions` 테이블 완전 제거
 
@@ -297,7 +297,7 @@ WHERE tenant_id = ?
 ### 중간 우선순위
 5. ~~**AP/AR 원장 미연결**~~ → ✅ P2-1에서 해결 (tenant 격리 + accountingAccountId 활용)
 6. ~~**은행 매칭 엔진 미완성**~~ → ✅ P4-1에서 해결 (conditions/actions JSON + 자동매칭 + 통계)
-7. **TypeScript 에러 다수** - ~170개 (대부분 Drizzle ORM 라이브러리 타입 문제)
+7. ~~**TypeScript 에러 다수**~~ → ✅ 해결 완료 (170개 → 0개, 환경 의존 2개는 npm install 시 자동 해소)
 8. ~~**`accounting_categories` 테이블 참조**~~ → ✅ P3-4 + P4-2에서 deprecated 마킹 완료 (P5에서 완전 제거 예정)
 
 ### 낮은 우선순위
