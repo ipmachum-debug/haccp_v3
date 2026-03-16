@@ -815,7 +815,39 @@ function DashboardLayoutContent({
                   </DndContext>
                 </>
               )}
-            </SidebarMenu>          </SidebarContent>
+            </SidebarMenu>
+            
+            {/* AI 어시스턴트 - 모든 탭에서 항상 표시 */}
+            {user && ["super_admin", "admin", "inspector"].includes(user.role) && (
+              <div className="px-3 py-2 mt-auto border-t border-sidebar-border">
+                <button
+                  onClick={() => setLocation("/dashboard/ai-assistant")}
+                  className={`w-full group flex items-center gap-2.5 rounded-lg px-3 py-2.5 transition-all ${
+                    location === "/dashboard/ai-assistant" || location.startsWith("/dashboard/ai-assistant/")
+                      ? "bg-gradient-to-r from-violet-500/15 to-indigo-500/15 border border-violet-400/30"
+                      : "bg-gradient-to-r from-violet-500/5 to-indigo-500/5 border border-violet-300/20 hover:from-violet-500/10 hover:to-indigo-500/10 hover:border-violet-400/30"
+                  }`}
+                >
+                  <div className="w-7 h-7 rounded-md bg-gradient-to-br from-violet-500/20 to-indigo-500/20 flex items-center justify-center shrink-0">
+                    <Brain className={`h-3.5 w-3.5 ${location.startsWith("/dashboard/ai-assistant") ? "text-violet-600" : "text-violet-500"}`} />
+                  </div>
+                  {!isCollapsed && (
+                    <div className="flex flex-col items-start flex-1 min-w-0">
+                      <span className="text-[13px] font-semibold text-sidebar-foreground">
+                        AI 어시스턴트
+                      </span>
+                      <span className="text-[10px] text-sidebar-foreground/50">
+                        HACCP 규칙엔진 · 기준서 AI
+                      </span>
+                    </div>
+                  )}
+                  {!isCollapsed && (
+                    <span className="text-[9px] bg-violet-500 text-white px-1.5 py-0.5 rounded-full font-bold">NEW</span>
+                  )}
+                </button>
+              </div>
+            )}
+          </SidebarContent>
 
           <SidebarFooter className="p-3">
             {/* 구독 정보 (슈퍼관리자 제외) */}
