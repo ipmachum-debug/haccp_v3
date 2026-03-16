@@ -817,9 +817,12 @@ function DashboardLayoutContent({
               )}
             </SidebarMenu>
             
-            {/* AI 어시스턴트 - 모든 탭에서 항상 표시 */}
+          </SidebarContent>
+
+          <SidebarFooter className="p-3">
+            {/* AI 어시스턴트 - 모든 탭에서 항상 고정 표시 */}
             {user && ["super_admin", "admin", "inspector"].includes(user.role) && (
-              <div className="px-3 py-2 mt-auto border-t border-sidebar-border">
+              <div className="mb-2">
                 <button
                   onClick={() => setLocation("/dashboard/ai-assistant")}
                   className={`w-full group flex items-center gap-2.5 rounded-lg px-3 py-2.5 transition-all ${
@@ -847,9 +850,6 @@ function DashboardLayoutContent({
                 </button>
               </div>
             )}
-          </SidebarContent>
-
-          <SidebarFooter className="p-3">
             {/* 구독 정보 (슈퍼관리자 제외) */}
             {user?.role !== "super_admin" && (
               <SubscriptionInfo isCollapsed={isCollapsed} />
