@@ -180,4 +180,53 @@ export function initScheduler() {
   });
   console.log("[Scheduler] 원료수불부 일일 마감 스케줄러 초기화 완료 (매일 오후 11시 30분 실행)");
 
+  // ===== AI 규칙엔진 자동 평가 (매일 오전 7시, 오후 2시) =====
+  const runAIRuleEvaluation = async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 시작`);
+
+    try {
+      const { evaluateAllRules, saveAlerts } = await import("./db/rulesEngine");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) {
+        console.error("[AI Scheduler] DB 연결 실패");
+        return;
+      }
+
+      // 활성 테넌트 목록 조회
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      let totalAlerts = 0;
+      for (const tenant of activeTenants) {
+        try {
+          const results = await evaluateAllRules(tenant.id);
+          const triggered = results.filter(r => r.triggered);
+          if (triggered.length > 0) {
+            const saved = await saveAlerts(tenant.id, triggered);
+            totalAlerts += saved;
+            console.log(`[AI Scheduler] 테넌트 ${tenant.id}: ${triggered.length}건 탐지, ${saved}건 저장`);
+          }
+        } catch (tenantError) {
+          console.error(`[AI Scheduler] 테넌트 ${tenant.id} 처리 실패:`, tenantError);
+        }
+      }
+
+      console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 완료 (${activeTenants.length}개 테넌트, ${totalAlerts}건 알림)`);
+    } catch (error) {
+      console.error(`[AI Scheduler] ${timestamp} - AI 규칙 평가 실패:`, error);
+    }
+  };
+
+  // 매일 오전 7시
+  cron.schedule("0 7 * * *", runAIRuleEvaluation);
+  // 매일 오후 2시
+  cron.schedule("0 14 * * *", runAIRuleEvaluation);
+  console.log("[Scheduler] AI 규칙엔진 자동 평가 스케줄러 초기화 완료 (매일 오전 7시, 오후 2시 실행)");
+
 }

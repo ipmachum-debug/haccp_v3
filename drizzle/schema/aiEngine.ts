@@ -339,6 +339,101 @@ export type RuleEvaluationResult = {
   contextData?: Record<string, any>;
 };
 
+// ============================================================================
+// 6. AI 지식베이스 문서 테이블 (ai_knowledge_documents)
+// ============================================================================
+export const aiKnowledgeDocuments = mysqlTable(
+  "ai_knowledge_documents",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+    tenantId: int("tenant_id").notNull().references(() => tenants.id),
+
+    // 문서 기본 정보
+    title: varchar("title", { length: 500 }).notNull(),
+    description: text("description"),
+
+    // 분류
+    docType: mysqlEnum("doc_type", [
+      "regulation",        // 법규/규정 (식품위생법, HACCP 기준원 고시 등)
+      "standard",          // 기준서/표준 (CODEX, ISO 22000 등)
+      "sop",               // 표준작업절차서
+      "manual",            // 매뉴얼/지침서
+      "guideline",         // 가이드라인
+      "training",          // 교육 자료
+      "template",          // 양식/서식
+      "faq",               // FAQ/Q&A
+      "internal",          // 사내 문서
+      "custom",            // 기타
+    ]).notNull(),
+
+    // 원본 콘텐츠
+    content: text("content").notNull(),     // 원문 전문
+    sourceUrl: varchar("source_url", { length: 1000 }),
+    sourceFile: varchar("source_file", { length: 500 }),
+
+    // 메타
+    chunkCount: int("chunk_count").default(0),
+    totalTokens: int("total_tokens").default(0),
+    language: varchar("language", { length: 10 }).default("ko"),
+
+    // 상태
+    status: mysqlEnum("status", [
+      "uploaded",     // 업로드됨
+      "chunking",     // 청크 분할 중
+      "embedding",    // 임베딩 생성 중
+      "ready",        // 검색 가능
+      "error",        // 오류
+    ]).notNull().default("uploaded"),
+
+    isActive: tinyint("is_active").default(1).notNull(),
+    isGlobal: tinyint("is_global").default(0).notNull(), // 모든 테넌트 공유
+
+    createdBy: int("created_by"),
+    createdAt: datetime("created_at").default(sql`NOW()`).notNull(),
+    updatedAt: datetime("updated_at").default(sql`NOW()`).notNull(),
+  },
+  (table) => [
+    index("idx_ai_kb_docs_tenant").on(table.tenantId),
+    index("idx_ai_kb_docs_type").on(table.tenantId, table.docType),
+    index("idx_ai_kb_docs_status").on(table.status),
+  ]
+);
+
+// ============================================================================
+// 7. AI 지식베이스 청크 테이블 (ai_knowledge_chunks) - 임베딩 벡터 저장
+// ============================================================================
+export const aiKnowledgeChunks = mysqlTable(
+  "ai_knowledge_chunks",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+    tenantId: int("tenant_id").notNull().references(() => tenants.id),
+    documentId: bigint("document_id", { mode: "number" }).notNull().references(() => aiKnowledgeDocuments.id),
+
+    // 청크 내용
+    chunkIndex: int("chunk_index").notNull(),          // 문서 내 순서
+    content: text("content").notNull(),                // 청크 텍스트
+    tokenCount: int("token_count").default(0),
+
+    // 임베딩 벡터 (JSON 배열로 저장 - MySQL에는 vector 타입 없음)
+    embedding: json("embedding").$type<number[]>(),    // float[] (1536 dim for text-embedding-3-small)
+
+    // 메타데이터 (검색 필터용)
+    metadata: json("metadata").$type<{
+      section?: string;       // 섹션/장 제목
+      pageNumber?: number;    // 페이지 번호
+      keywords?: string[];    // 핵심 키워드
+      category?: string;      // 세부 카테고리
+    }>(),
+
+    createdAt: datetime("created_at").default(sql`NOW()`).notNull(),
+  },
+  (table) => [
+    index("idx_ai_kb_chunks_tenant").on(table.tenantId),
+    index("idx_ai_kb_chunks_doc").on(table.documentId),
+    index("idx_ai_kb_chunks_idx").on(table.documentId, table.chunkIndex),
+  ]
+);
+
 /** AI 대시보드 요약 */
 export type AIDashboardSummary = {
   date: string;

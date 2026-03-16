@@ -40,6 +40,7 @@ import {
 } from "./aiContextLayer";
 import { evaluateAllRules } from "./rulesEngine";
 import { getRawConnection } from "../db";
+import { buildKnowledgeContext } from "./knowledgeBase";
 
 // ============================================================================
 // 의도 분류
@@ -104,6 +105,7 @@ export type ActionResult = {
   context: Record<string, any>;
   response: string;
   dataSources: string[];
+  knowledgeSources?: Array<{ title: string; docType: string; score: number }>;
   tokensUsed?: number;
 };
 
@@ -123,8 +125,13 @@ export async function processUserQuery(
   // 1. 의도 분류
   const intent = classifyIntent(message);
 
-  // 2. 데이터 수집 (의도에 따라)
-  const { context, dataSources } = await gatherContext(tenantId, intent, message);
+  // 2. 데이터 수집 + 지식베이스 검색 (병렬)
+  const [{ context, dataSources }, knowledgeResult] = await Promise.all([
+    gatherContext(tenantId, intent, message),
+    buildKnowledgeContext(tenantId, message).catch(() => ({
+      hasContext: false, contextText: "", sources: [],
+    })),
+  ]);
 
   // 3. LLM 응답 생성
   if (!ENV.forgeApiKey) {
@@ -136,7 +143,7 @@ export async function processUserQuery(
     };
   }
 
-  const systemPrompt = buildSystemPrompt(intent, context);
+  const systemPrompt = buildSystemPrompt(intent, context, knowledgeResult.contextText);
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "system", content: systemPrompt },
   ];
@@ -169,6 +176,7 @@ export async function processUserQuery(
       context,
       response,
       dataSources,
+      knowledgeSources: knowledgeResult.sources.length > 0 ? knowledgeResult.sources : undefined,
       tokensUsed: result.usage?.total_tokens,
     };
   } catch (error: any) {
@@ -178,6 +186,7 @@ export async function processUserQuery(
       context,
       response: `데이터 조회는 완료했으나 AI 응답 생성 중 오류가 발생했습니다.\n\n**조회된 데이터:**\n${formatContextAsText(intent, context)}`,
       dataSources,
+      knowledgeSources: knowledgeResult.sources.length > 0 ? knowledgeResult.sources : undefined,
     };
   }
 }
@@ -348,8 +357,8 @@ async function gatherContext(
 // 시스템 프롬프트 빌더
 // ============================================================================
 
-function buildSystemPrompt(intent: UserIntent, context: Record<string, any>): string {
-  const base = `당신은 HACCP-ONE 시스템의 AI 어시스턴트 "하나"입니다.
+function buildSystemPrompt(intent: UserIntent, context: Record<string, any>, knowledgeContext?: string): string {
+  let base = `당신은 HACCP-ONE 시스템의 AI 어시스턴트 "하나"입니다.
 식품공장의 HACCP 관리, 생산, 품질, 안전을 담당하는 전문 AI입니다.
 
 ## 중요 규칙
@@ -359,10 +368,21 @@ function buildSystemPrompt(intent: UserIntent, context: Record<string, any>): st
 4. 수치 데이터는 정확히 인용하세요.
 5. 핵심을 먼저 말하고, 상세 설명을 이어가세요.
 6. 답변은 한국어로, 마크다운 형식으로 작성하세요.
+7. 참고자료가 제공된 경우, 해당 내용을 인용하여 근거를 제시하세요.
 
 ## 현재 시스템 데이터
 ${JSON.stringify(context, null, 2)}
 `;
+
+  // 지식베이스 참고자료가 있으면 추가
+  if (knowledgeContext) {
+    base += `
+## 참고자료 (Knowledge Base)
+아래는 질문과 관련된 HACCP 규정/기준서/매뉴얼 내용입니다. 답변 시 참고하세요.
+
+${knowledgeContext}
+`;
+  }
 
   const intentInstructions: Record<UserIntent, string> = {
     risk_check: `

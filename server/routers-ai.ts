@@ -7,6 +7,7 @@ import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrecti
 import { getRawConnection } from "./db";
 import { processUserQuery, classifyIntent } from "./db/aiActionEngine";
 import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
+import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -1001,6 +1002,139 @@ export const aiRouter = router({
         return { success: true, data };
       } catch (error: any) {
         return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // Knowledge Base (RAG) API - 지식베이스 문서 관리 + 시맨틱 검색
+  // ============================================================================
+
+  /** 문서 업로드 (자동 청크 + 임베딩 생성) */
+  kbUploadDocument: tenantRequiredProcedure
+    .input(z.object({
+      title: z.string().min(1).max(500),
+      description: z.string().optional(),
+      docType: z.enum([
+        "regulation", "standard", "sop", "manual", "guideline",
+        "training", "template", "faq", "internal", "custom",
+      ]),
+      content: z.string().min(10),
+      sourceUrl: z.string().optional(),
+      sourceFile: z.string().optional(),
+      isGlobal: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await uploadDocument(ctx.tenantId, {
+          ...input,
+          createdBy: ctx.userId,
+        });
+
+        // 감사 로그
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs (tenant_id, action_type, input_data, output_data, user_id, created_at)
+             VALUES (?, 'summary_generation', ?, ?, ?, NOW())`,
+            [
+              ctx.tenantId,
+              JSON.stringify({ title: input.title, docType: input.docType, contentLength: input.content.length }),
+              JSON.stringify(result),
+              ctx.userId,
+            ]
+          );
+        } catch {}
+
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, error: error?.message, documentId: 0, chunkCount: 0, status: "error" };
+      }
+    }),
+
+  /** 문서 목록 조회 */
+  kbListDocuments: tenantRequiredProcedure
+    .input(z.object({
+      docType: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await listDocuments(ctx.tenantId, input || {});
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, documents: [], total: 0, error: error?.message };
+      }
+    }),
+
+  /** 문서 상세 조회 */
+  kbGetDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const doc = await getDocument(ctx.tenantId, input.documentId);
+        return { success: true, document: doc };
+      } catch (error: any) {
+        return { success: false, document: null, error: error?.message };
+      }
+    }),
+
+  /** 문서 삭제 */
+  kbDeleteDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const deleted = await deleteDocument(ctx.tenantId, input.documentId);
+        return { success: deleted };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 지식베이스 검색 (RAG) */
+  kbSearch: tenantRequiredProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      topK: z.number().min(1).max(20).optional(),
+      minScore: z.number().min(0).max(1).optional(),
+      docType: z.string().optional(),
+      documentIds: z.array(z.number()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const results = await searchKnowledge(ctx.tenantId, input.query, {
+          topK: input.topK,
+          minScore: input.minScore,
+          docType: input.docType,
+          documentIds: input.documentIds,
+        });
+        return { success: true, results };
+      } catch (error: any) {
+        return { success: false, results: [], error: error?.message };
+      }
+    }),
+
+  /** 문서 재인덱싱 (임베딩 재생성) */
+  kbReindexDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await reindexDocument(ctx.tenantId, input.documentId);
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, error: error?.message, chunksUpdated: 0 };
+      }
+    }),
+
+  /** 지식베이스 통계 */
+  kbStats: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const stats = await getKBStats(ctx.tenantId);
+        return { success: true, ...stats };
+      } catch (error: any) {
+        return { success: false, error: error?.message, totalDocuments: 0, readyDocuments: 0, totalChunks: 0, totalTokens: 0, byDocType: [] };
       }
     }),
 });
