@@ -13,6 +13,7 @@
  */
 
 import { getRawConnection } from "../db";
+import { createNotification } from "./notificationFunctions";
 import type { RuleEvaluationResult } from "../../drizzle/schema/aiEngine";
 
 // ============================================================================
@@ -879,6 +880,28 @@ export async function saveAlerts(tenantId: number, results: RuleEvaluationResult
         ]
       );
       savedCount++;
+
+      // high/critical 알림은 h_notifications에도 연동
+      if (result.severity === "critical" || result.severity === "high") {
+        try {
+          const priorityMap: Record<string, "urgent" | "high" | "medium" | "low"> = {
+            critical: "urgent",
+            high: "high",
+          };
+          await createNotification({
+            tenantId,
+            notificationType: "ai_alert",
+            title: `[AI] ${result.title}`,
+            message: result.message,
+            referenceType: result.entityType,
+            referenceId: result.entityId,
+            priority: priorityMap[result.severity] || "medium",
+            actionUrl: "/dashboard/ai-assistant",
+          });
+        } catch {
+          // 알림 연동 실패 시 무시 (ai_alerts에는 이미 저장됨)
+        }
+      }
     } catch {
       // 개별 저장 실패 시 계속 진행
     }

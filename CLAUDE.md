@@ -276,11 +276,17 @@ COST_OF_GOODS → 매출원가 (5010)
 - [x] AI 규칙엔진 자동 스케줄러 (매일 오전 7시, 오후 2시)
 - [x] KB 마이그레이션 스크립트 (`scripts/migrate-ai-knowledge-tables.ts`)
 
-#### Phase 7-4 (P7-4) - 향후 계획
-- [ ] 알림 시스템 통합 (ai_alerts → notification 연동)
-- [ ] 배치 상세 페이지 "AI 리스크 요약" 카드
-- [ ] 감사 자료 PDF 패키지 자동 생성
-- [ ] 테넌트별 커스텀 규칙 관리 UI
+#### Phase 7-4 (P7-4) - 통합 및 확장 ✅ 완료
+- [x] 알림 시스템 통합 (ai_alerts → h_notifications 연동, critical/high 자동 전파)
+- [x] 배치 상세 페이지 "AI 리스크 요약" 카드 (`BatchDetail.tsx`)
+  - 배치별 리스크 점수, CCP 이탈, 체크리스트 누락, 알림 요약
+  - 자동 60초 갱신, 알림이 없으면 카드 숨김
+- [x] 테넌트별 커스텀 규칙 관리 UI (AI 대시보드 내)
+  - 시스템 규칙 / 커스텀 규칙 탭 전환
+  - 커스텀 규칙 CRUD (생성/수정/삭제/활성화토글)
+  - 시스템 규칙은 활성화/비활성화만 허용
+- [x] 배치 리스크 요약 API (`batchRiskSummary` 엔드포인트)
+- [ ] 감사 자료 PDF 패키지 자동 생성 (향후)
 
 ---
 

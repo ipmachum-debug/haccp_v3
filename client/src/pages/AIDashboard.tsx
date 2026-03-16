@@ -15,7 +15,7 @@ import {
   AlertTriangle, Bell, CheckCircle, Clock, FileText, PlayCircle,
   RefreshCw, Shield, Upload, ChevronRight, Brain, Loader2,
   XCircle, Eye, FileCheck, BookOpen, Search, Trash2, RotateCcw,
-  Database,
+  Database, Plus,
 } from "lucide-react";
 
 // ============================================================================
@@ -260,49 +260,279 @@ function OverviewTab() {
   );
 }
 
+const RULE_TYPES = [
+  { value: "threshold", label: "임계값" },
+  { value: "missing", label: "누락 탐지" },
+  { value: "overdue", label: "기한 초과" },
+  { value: "anomaly", label: "이상 패턴" },
+  { value: "recurrence", label: "반복 탐지" },
+];
+
+const ENTITY_TYPES = [
+  { value: "ccp", label: "CCP" },
+  { value: "checklist", label: "체크리스트" },
+  { value: "equipment", label: "설비" },
+  { value: "batch", label: "배치" },
+  { value: "lot", label: "LOT" },
+  { value: "inspection", label: "검사" },
+  { value: "hygiene", label: "위생" },
+  { value: "calibration", label: "검교정" },
+  { value: "document", label: "문서" },
+  { value: "training", label: "교육" },
+];
+
 function SystemRulesCard() {
-  const rules = trpc.ai.listSystemRules.useQuery();
+  const systemRules = trpc.ai.listSystemRules.useQuery();
+  const customRules = trpc.ai.listCustomRules.useQuery();
   const [expanded, setExpanded] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [tab, setTab] = useState<"system" | "custom">("system");
 
-  if (!rules.data?.success) return null;
+  // 새 규칙 생성 폼
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [ruleType, setRuleType] = useState("threshold");
+  const [entityType, setEntityType] = useState("ccp");
+  const [severity, setSeverity] = useState("medium");
+  const [condField, setCondField] = useState("");
+  const [condOperator, setCondOperator] = useState("gt");
+  const [condValue, setCondValue] = useState("");
 
-  const ruleList = rules.data.rules;
-  const displayRules = expanded ? ruleList : ruleList.slice(0, 5);
+  const createMutation = trpc.ai.createCustomRule.useMutation();
+  const updateMutation = trpc.ai.updateCustomRule.useMutation();
+  const deleteMutation = trpc.ai.deleteCustomRule.useMutation();
+  const utils = trpc.useUtils();
+
+  const handleCreate = async () => {
+    if (!code.trim() || !name.trim()) return;
+    const result = await createMutation.mutateAsync({
+      code: code.toUpperCase().replace(/\s+/g, "_"),
+      name,
+      ruleType: ruleType as any,
+      entityType: entityType as any,
+      severity: severity as any,
+      conditions: {
+        field: condField || undefined,
+        operator: condOperator,
+        value: condValue ? parseFloat(condValue) || condValue : undefined,
+      },
+    });
+    if (result.success) {
+      setShowAdd(false);
+      setCode(""); setName(""); setCondField(""); setCondValue("");
+      utils.ai.listCustomRules.invalidate();
+    }
+  };
+
+  const handleToggle = async (ruleId: number, isActive: boolean) => {
+    await updateMutation.mutateAsync({ ruleId, isActive: !isActive });
+    utils.ai.listCustomRules.invalidate();
+  };
+
+  const handleDelete = async (ruleId: number) => {
+    if (!confirm("이 규칙을 삭제하시겠습니까?")) return;
+    await deleteMutation.mutateAsync({ ruleId });
+    utils.ai.listCustomRules.invalidate();
+  };
+
+  const sysRules = systemRules.data?.rules || [];
+  const custRules = (customRules.data?.rules || []) as any[];
+  const displaySysRules = expanded ? sysRules : sysRules.slice(0, 5);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
-          <Shield className="w-5 h-5" /> 시스템 규칙 ({ruleList.length}개)
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Shield className="w-5 h-5" /> 규칙 관리
+          </CardTitle>
+          <div className="flex gap-2">
+            <Button
+              variant={tab === "system" ? "default" : "outline"}
+              size="sm" onClick={() => setTab("system")}
+            >
+              시스템 ({sysRules.length})
+            </Button>
+            <Button
+              variant={tab === "custom" ? "default" : "outline"}
+              size="sm" onClick={() => setTab("custom")}
+            >
+              커스텀 ({custRules.length})
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[180px]">규칙 코드</TableHead>
-              <TableHead>이름</TableHead>
-              <TableHead className="w-[80px]">유형</TableHead>
-              <TableHead className="w-[80px]">대상</TableHead>
-              <TableHead className="w-[80px]">심각도</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {displayRules.map((rule: any) => (
-              <TableRow key={rule.code}>
-                <TableCell className="font-mono text-xs">{rule.code}</TableCell>
-                <TableCell className="text-sm">{rule.name}</TableCell>
-                <TableCell><Badge variant="outline" className="text-xs">{rule.ruleType}</Badge></TableCell>
-                <TableCell className="text-xs">{rule.entityType}</TableCell>
-                <TableCell><SeverityBadge severity={rule.severity} /></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {ruleList.length > 5 && (
-          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setExpanded(!expanded)}>
-            {expanded ? "접기" : `나머지 ${ruleList.length - 5}개 더보기`}
-          </Button>
+        {tab === "system" ? (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[180px]">규칙 코드</TableHead>
+                  <TableHead>이름</TableHead>
+                  <TableHead className="w-[80px]">유형</TableHead>
+                  <TableHead className="w-[80px]">대상</TableHead>
+                  <TableHead className="w-[80px]">심각도</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {displaySysRules.map((rule: any) => (
+                  <TableRow key={rule.code}>
+                    <TableCell className="font-mono text-xs">{rule.code}</TableCell>
+                    <TableCell className="text-sm">{rule.name}</TableCell>
+                    <TableCell><Badge variant="outline" className="text-xs">{rule.ruleType}</Badge></TableCell>
+                    <TableCell className="text-xs">{rule.entityType}</TableCell>
+                    <TableCell><SeverityBadge severity={rule.severity} /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {sysRules.length > 5 && (
+              <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setExpanded(!expanded)}>
+                {expanded ? "접기" : `나머지 ${sysRules.length - 5}개 더보기`}
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex justify-end mb-3">
+              <Button size="sm" onClick={() => setShowAdd(true)}>
+                <Plus className="w-4 h-4 mr-1" /> 커스텀 규칙 추가
+              </Button>
+            </div>
+
+            {custRules.length === 0 ? (
+              <div className="text-center py-6 text-muted-foreground">
+                <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">커스텀 규칙이 없습니다. 우리 회사만의 규칙을 추가하세요.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[150px]">코드</TableHead>
+                    <TableHead>이름</TableHead>
+                    <TableHead className="w-[80px]">유형</TableHead>
+                    <TableHead className="w-[80px]">심각도</TableHead>
+                    <TableHead className="w-[60px]">활성</TableHead>
+                    <TableHead className="w-[80px]">작업</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {custRules.map((rule: any) => (
+                    <TableRow key={rule.id} className={rule.isActive ? "" : "opacity-50"}>
+                      <TableCell className="font-mono text-xs">{rule.code}</TableCell>
+                      <TableCell className="text-sm">{rule.name}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-xs">{rule.ruleType}</Badge></TableCell>
+                      <TableCell><SeverityBadge severity={rule.severity} /></TableCell>
+                      <TableCell>
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs"
+                          onClick={() => handleToggle(rule.id, !!rule.isActive)}>
+                          {rule.isActive ? "ON" : "OFF"}
+                        </Button>
+                      </TableCell>
+                      <TableCell>
+                        {!rule.isSystem && (
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                            onClick={() => handleDelete(rule.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {/* 새 규칙 생성 다이얼로그 */}
+            <Dialog open={showAdd} onOpenChange={setShowAdd}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>커스텀 규칙 추가</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>규칙 코드</Label>
+                      <Input value={code} onChange={e => setCode(e.target.value)}
+                        placeholder="CUSTOM_RULE_01" className="font-mono text-sm" />
+                    </div>
+                    <div>
+                      <Label>규칙 이름</Label>
+                      <Input value={name} onChange={e => setName(e.target.value)}
+                        placeholder="냉장고 온도 15°C 초과" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>규칙 유형</Label>
+                      <Select value={ruleType} onValueChange={setRuleType}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {RULE_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>대상 엔티티</Label>
+                      <Select value={entityType} onValueChange={setEntityType}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ENTITY_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>심각도</Label>
+                      <Select value={severity} onValueChange={setSeverity}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">낮음</SelectItem>
+                          <SelectItem value="medium">보통</SelectItem>
+                          <SelectItem value="high">높음</SelectItem>
+                          <SelectItem value="critical">위험</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>조건 필드</Label>
+                      <Input value={condField} onChange={e => setCondField(e.target.value)}
+                        placeholder="temperature" />
+                    </div>
+                    <div>
+                      <Label>연산자</Label>
+                      <Select value={condOperator} onValueChange={setCondOperator}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gt">초과 (&gt;)</SelectItem>
+                          <SelectItem value="lt">미만 (&lt;)</SelectItem>
+                          <SelectItem value="eq">같음 (=)</SelectItem>
+                          <SelectItem value="ne">다름 (≠)</SelectItem>
+                          <SelectItem value="missing">누락</SelectItem>
+                          <SelectItem value="overdue">기한초과</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>기준값</Label>
+                      <Input value={condValue} onChange={e => setCondValue(e.target.value)}
+                        placeholder="15" />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowAdd(false)}>취소</Button>
+                  <Button onClick={handleCreate} disabled={createMutation.isPending || !code.trim() || !name.trim()}>
+                    {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+                    규칙 추가
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </>
         )}
       </CardContent>
     </Card>

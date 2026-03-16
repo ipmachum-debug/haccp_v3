@@ -1137,4 +1137,222 @@ export const aiRouter = router({
         return { success: false, error: error?.message, totalDocuments: 0, readyDocuments: 0, totalChunks: 0, totalTokens: 0, byDocType: [] };
       }
     }),
+
+  // ============================================================================
+  // 배치 AI 리스크 요약 (BatchDetail 페이지용)
+  // ============================================================================
+
+  /** 특정 배치의 AI 리스크 요약 (알림 + 점수 + 추천) */
+  batchRiskSummary: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 1. 이 배치에 관련된 활성 AI 알림 조회
+        const [alertRows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, entity_type, entity_code, context_data, status, created_at
+           FROM ai_alerts
+           WHERE tenant_id = ? AND entity_type = 'batch' AND entity_id = ? AND status IN ('active', 'acknowledged')
+           ORDER BY FIELD(severity, 'critical', 'high', 'medium', 'low'), created_at DESC
+           LIMIT 20`,
+          [ctx.tenantId, input.batchId]
+        );
+
+        // 2. 배치 관련 CCP 이탈 알림
+        const [ccpAlertRows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, context_data, created_at
+           FROM ai_alerts
+           WHERE tenant_id = ? AND entity_type = 'ccp'
+             AND status IN ('active', 'acknowledged')
+             AND JSON_CONTAINS(context_data, CAST(? AS JSON), '$.relatedBatchIds')
+           ORDER BY created_at DESC LIMIT 10`,
+          [ctx.tenantId, JSON.stringify(input.batchId)]
+        );
+
+        // 3. 리스크 점수 계산 (Context Layer 활용)
+        let riskData = null;
+        try {
+          const summaries = await getBatchSummary(ctx.tenantId, { batchId: input.batchId });
+          if (summaries.length > 0) riskData = summaries[0];
+        } catch {}
+
+        const alerts = (alertRows as any[]).concat(ccpAlertRows as any[]);
+        const bySeverity = {
+          critical: alerts.filter(a => a.severity === "critical").length,
+          high: alerts.filter(a => a.severity === "high").length,
+          medium: alerts.filter(a => a.severity === "medium").length,
+          low: alerts.filter(a => a.severity === "low").length,
+        };
+
+        return {
+          success: true,
+          batchId: input.batchId,
+          riskScore: riskData?.riskScore ?? null,
+          riskLevel: riskData?.riskLevel ?? (bySeverity.critical > 0 ? "critical" : bySeverity.high > 0 ? "high" : "low"),
+          alertCount: alerts.length,
+          bySeverity,
+          alerts: alerts.map((a: any) => ({
+            id: a.id,
+            ruleCode: a.rule_code,
+            title: a.title,
+            message: a.message,
+            severity: a.severity,
+            createdAt: a.created_at,
+          })),
+          yieldDeviation: riskData?.yieldDeviation ?? null,
+          ccpDeviationCount: riskData?.ccpDeviationCount ?? 0,
+          checklistMissing: riskData?.checklistMissing ?? 0,
+        };
+      } catch (error: any) {
+        return {
+          success: false, batchId: input.batchId, riskScore: null, riskLevel: null,
+          alertCount: 0, bySeverity: { critical: 0, high: 0, medium: 0, low: 0 },
+          alerts: [], yieldDeviation: null, ccpDeviationCount: 0, checklistMissing: 0,
+          error: error?.message,
+        };
+      }
+    }),
+
+  // ============================================================================
+  // 커스텀 규칙 관리 CRUD (테넌트별)
+  // ============================================================================
+
+  /** 커스텀 규칙 목록 조회 */
+  listCustomRules: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const conn = await getRawConnection();
+        const [rows] = await conn.execute(
+          `SELECT id, code, name, description, rule_type, entity_type, conditions,
+                  severity, notify_roles, is_active, is_system, created_at, updated_at
+           FROM ai_rules
+           WHERE tenant_id = ?
+           ORDER BY is_system DESC, severity DESC, created_at DESC`,
+          [ctx.tenantId]
+        );
+        return { success: true, rules: (rows as any[]).map(r => ({
+          ...r,
+          conditions: typeof r.conditions === "string" ? JSON.parse(r.conditions) : r.conditions,
+          notifyRoles: typeof r.notify_roles === "string" ? JSON.parse(r.notify_roles) : r.notify_roles,
+          isActive: r.is_active,
+          isSystem: r.is_system,
+          ruleType: r.rule_type,
+          entityType: r.entity_type,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })) };
+      } catch (error: any) {
+        return { success: false, rules: [], error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 생성 */
+  createCustomRule: tenantRequiredProcedure
+    .input(z.object({
+      code: z.string().min(1).max(100),
+      name: z.string().min(1).max(200),
+      description: z.string().optional(),
+      ruleType: z.enum(["threshold", "missing", "overdue", "anomaly", "recurrence"]),
+      entityType: z.enum(["ccp", "checklist", "equipment", "batch", "lot", "inspection", "hygiene", "calibration", "document", "training"]),
+      conditions: z.record(z.any()),
+      severity: z.enum(["low", "medium", "high", "critical"]),
+      notifyRoles: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [result] = await conn.execute(
+          `INSERT INTO ai_rules
+           (tenant_id, code, name, description, rule_type, entity_type, conditions, severity, notify_roles, is_active, is_system, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NOW(), NOW())`,
+          [
+            ctx.tenantId,
+            input.code,
+            input.name,
+            input.description || null,
+            input.ruleType,
+            input.entityType,
+            JSON.stringify(input.conditions),
+            input.severity,
+            JSON.stringify(input.notifyRoles || []),
+          ]
+        );
+        return { success: true, ruleId: (result as any).insertId };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 수정 */
+  updateCustomRule: tenantRequiredProcedure
+    .input(z.object({
+      ruleId: z.number(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      conditions: z.record(z.any()).optional(),
+      severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+      notifyRoles: z.array(z.string()).optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 시스템 규칙은 수정 불가
+        const [existing] = await conn.execute(
+          `SELECT is_system FROM ai_rules WHERE id = ? AND tenant_id = ?`,
+          [input.ruleId, ctx.tenantId]
+        );
+        if ((existing as any[]).length === 0) {
+          return { success: false, error: "규칙을 찾을 수 없습니다." };
+        }
+        if ((existing as any[])[0].is_system === 1) {
+          // 시스템 규칙은 활성화/비활성화만 허용
+          if (input.isActive !== undefined) {
+            await conn.execute(
+              `UPDATE ai_rules SET is_active = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+              [input.isActive ? 1 : 0, input.ruleId, ctx.tenantId]
+            );
+            return { success: true };
+          }
+          return { success: false, error: "시스템 규칙은 활성화/비활성화만 변경할 수 있습니다." };
+        }
+
+        const sets: string[] = ["updated_at = NOW()"];
+        const params: any[] = [];
+
+        if (input.name) { sets.push("name = ?"); params.push(input.name); }
+        if (input.description !== undefined) { sets.push("description = ?"); params.push(input.description); }
+        if (input.conditions) { sets.push("conditions = ?"); params.push(JSON.stringify(input.conditions)); }
+        if (input.severity) { sets.push("severity = ?"); params.push(input.severity); }
+        if (input.notifyRoles) { sets.push("notify_roles = ?"); params.push(JSON.stringify(input.notifyRoles)); }
+        if (input.isActive !== undefined) { sets.push("is_active = ?"); params.push(input.isActive ? 1 : 0); }
+
+        params.push(input.ruleId, ctx.tenantId);
+        await conn.execute(
+          `UPDATE ai_rules SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`,
+          params
+        );
+        return { success: true };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 삭제 (시스템 규칙은 삭제 불가) */
+  deleteCustomRule: tenantRequiredProcedure
+    .input(z.object({ ruleId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [result] = await conn.execute(
+          `DELETE FROM ai_rules WHERE id = ? AND tenant_id = ? AND is_system = 0`,
+          [input.ruleId, ctx.tenantId]
+        );
+        return { success: (result as any).affectedRows > 0 };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
 });
