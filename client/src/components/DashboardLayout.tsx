@@ -262,9 +262,6 @@ const menuItems = [
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector"] },
 
-  // AI HACCP Assistant
-  { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
-
   // 시스템
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
@@ -502,6 +499,7 @@ function DashboardLayoutContent({
   const workMenuItems = [
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
@@ -527,6 +525,7 @@ function DashboardLayoutContent({
     // 일반 WORK 탭 메뉴 (슈퍼관리자도 접근 가능)
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
+    { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin"], highlight: true },
   ];
   
   // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
