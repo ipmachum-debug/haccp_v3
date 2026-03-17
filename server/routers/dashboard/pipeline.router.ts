@@ -33,10 +33,9 @@ export const pipelineRouter = router({
         return await runDailyClosing(db, input.siteId, input.workDate, ctx.tenantId ?? undefined);
       }),
     
-    // 수동 일일 마감 실행 (스케줄러와 동일한 전체 프로세스)
+    // 수동 일일 마감 실행 (전체 활성 테넌트 대상 - 관리자 전용)
     runManualClosing: tenantRequiredProcedure
-      .input(z.object({ tenantId: z.number().optional() }))
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ ctx }) => {
         const { runDailyClosingProcess } = await import("../../services/dailyClosingScheduler");
         const summaries = await runDailyClosingProcess();
         return { success: true, summaries };
