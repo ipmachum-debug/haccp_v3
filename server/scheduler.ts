@@ -229,4 +229,53 @@ export function initScheduler() {
   cron.schedule("0 14 * * *", runAIRuleEvaluation);
   console.log("[Scheduler] AI 규칙엔진 자동 평가 스케줄러 초기화 완료 (매일 오전 7시, 오후 2시 실행)");
 
+  // ===== ERP AI: 비용 이상탐지 + AP 결제 알림 =====
+  const runERPAIChecks = async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[ERP AI Scheduler] ${timestamp} - ERP AI 점검 시작`);
+
+    try {
+      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accountingEventTriggers");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) {
+        console.error("[ERP AI Scheduler] DB 연결 실패");
+        return;
+      }
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      let totalAlerts = 0;
+      for (const tenant of activeTenants) {
+        try {
+          const [paymentAlerts, anomalyAlerts] = await Promise.all([
+            checkUpcomingPayments(tenant.id),
+            runDailyExpenseAnomalyScan(tenant.id),
+          ]);
+          totalAlerts += paymentAlerts + anomalyAlerts;
+          if (paymentAlerts + anomalyAlerts > 0) {
+            console.log(`[ERP AI Scheduler] 테넌트 ${tenant.id}: 결제알림 ${paymentAlerts}건, 이상탐지 ${anomalyAlerts}건`);
+          }
+        } catch (tenantError) {
+          console.error(`[ERP AI Scheduler] 테넌트 ${tenant.id} 처리 실패:`, tenantError);
+        }
+      }
+
+      console.log(`[ERP AI Scheduler] ${timestamp} - 완료 (${activeTenants.length}개 테넌트, ${totalAlerts}건 알림)`);
+    } catch (error) {
+      console.error(`[ERP AI Scheduler] ${timestamp} - 실패:`, error);
+    }
+  };
+
+  // 매일 오전 9시: 비용 이상탐지 스캔
+  cron.schedule("0 9 * * *", runERPAIChecks);
+  // 매일 오후 4시: AP 결제 기한 점검
+  cron.schedule("0 16 * * *", runERPAIChecks);
+  console.log("[Scheduler] ERP AI 비용 이상탐지/결제 알림 스케줄러 초기화 완료 (매일 오전 9시, 오후 4시 실행)");
+
 }

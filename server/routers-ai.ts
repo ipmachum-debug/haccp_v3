@@ -1630,4 +1630,13 @@ export const aiRouter = router({
 
       return { csv: [header, ...csvRows].join("\n"), count: (rows as any[]).length };
     }),
+
+  // ============================================================================
+  // ERP AI: 비용 이상탐지
+  // ============================================================================
+  detectExpenseAnomalies: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");
+      return detectExpenseAnomalies(ctx.tenantId);
+    }),
 });
