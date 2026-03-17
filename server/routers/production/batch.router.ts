@@ -299,7 +299,7 @@ export const batchRouter = router({
         // STEP 8.5. 주간/월간/연간 일지 자동 생성 (auto 모드만)
         let periodicLogsResult: any = null;
         try {
-          const { autoGenerateAllPeriodicLogs } = await import('./lib/autoPeriodicLogs');
+          const { autoGenerateAllPeriodicLogs } = await import('../../lib/autoPeriodicLogs');
           periodicLogsResult = await autoGenerateAllPeriodicLogs(
             input.mode,
             ctx.tenantId!,
