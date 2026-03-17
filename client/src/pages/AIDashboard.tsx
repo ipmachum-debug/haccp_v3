@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertTriangle, Bell, CheckCircle, Clock, FileText, PlayCircle,
-  RefreshCw, Shield, Upload, ChevronRight, Brain, Loader2,
+  RefreshCw, Shield, Upload, ChevronRight, Sparkles, Loader2,
   XCircle, Eye, FileCheck, BookOpen, Search, Trash2, RotateCcw,
   Database, Plus,
 } from "lucide-react";
@@ -97,7 +97,7 @@ export default function AIDashboard() {
     <DashboardLayout>
       <div className="p-4 md:p-6 space-y-4">
         <div className="flex items-center gap-3">
-          <Brain className="w-7 h-7 text-indigo-600" />
+          <Sparkles className="w-7 h-7 text-indigo-600" />
           <div>
             <h1 className="text-2xl font-bold">AI HACCP Assistant</h1>
             <p className="text-sm text-muted-foreground">규칙엔진 + AI 기반 식품안전 관리 시스템</p>
@@ -554,11 +554,11 @@ function SystemRulesCard() {
 // ============================================================================
 function AlertsTab() {
   const [statusFilter, setStatusFilter] = useState<string>("active");
-  const [severityFilter, setSeverityFilter] = useState<string>("");
+  const [severityFilter, setSeverityFilter] = useState<string>("all");
 
   const alerts = trpc.ai.listAlerts.useQuery({
     status: statusFilter as any || undefined,
-    severity: severityFilter as any || undefined,
+    severity: (severityFilter === "all" ? undefined : severityFilter) as any,
     limit: 100,
   });
 
@@ -591,7 +591,7 @@ function AlertsTab() {
             <SelectValue placeholder="심각도 필터" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">전체</SelectItem>
+            <SelectItem value="all">전체</SelectItem>
             <SelectItem value="critical">위험</SelectItem>
             <SelectItem value="high">높음</SelectItem>
             <SelectItem value="medium">보통</SelectItem>
@@ -1028,11 +1028,11 @@ function KnowledgeBaseTab() {
   const [content, setContent] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
-  const [docTypeFilter, setDocTypeFilter] = useState<string>("");
+  const [docTypeFilter, setDocTypeFilter] = useState<string>("all");
 
   const stats = trpc.ai.kbStats.useQuery();
   const documents = trpc.ai.kbListDocuments.useQuery({
-    docType: docTypeFilter || undefined,
+    docType: (docTypeFilter === "all" ? undefined : docTypeFilter) as any,
     limit: 50,
   });
   const uploadMutation = trpc.ai.kbUploadDocument.useMutation();
@@ -1253,12 +1253,12 @@ function KnowledgeBaseTab() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">등록된 문서</CardTitle>
-            <Select value={docTypeFilter} onValueChange={(v) => { setDocTypeFilter(v); }}>
+            <Select value={docTypeFilter} onValueChange={(v) => { setDocTypeFilter(v === "all" ? "all" : v); }}>
               <SelectTrigger className="w-[150px]">
                 <SelectValue placeholder="유형 필터" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">전체</SelectItem>
+                <SelectItem value="all">전체</SelectItem>
                 {Object.entries(DOC_TYPE_LABELS).map(([key, label]) => (
                   <SelectItem key={key} value={key}>{label}</SelectItem>
                 ))}
