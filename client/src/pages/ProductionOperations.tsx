@@ -19,7 +19,7 @@ export default function ProductionOperations() {
         <div>
           <h1 className="text-3xl font-bold">생산운영</h1>
           <p className="text-muted-foreground mt-2">
-            생산 일보, 현황, 일정 관리 및 분석
+            생산 일지, 현황, 일정 관리 및 분석
           </p>
         </div>
 
@@ -27,7 +27,7 @@ export default function ProductionOperations() {
           <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="daily-logs" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              생산일보
+              생산일지
             </TabsTrigger>
             <TabsTrigger value="status" className="flex items-center gap-2">
               <Activity className="h-4 w-4" />

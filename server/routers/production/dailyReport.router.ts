@@ -125,6 +125,11 @@ export const dailyReportRouter = router({
         `);
         const batches = Array.isArray(batchResult) && Array.isArray(batchResult[0]) ? batchResult[0] : batchResult;
 
+        // 배치가 없으면 생성하지 않음
+        if (!(batches as any[]).length) {
+          return { success: true, message: `${dateStr}: 배치가 없어 생산일지를 생성하지 않았습니다.` };
+        }
+
         // 배치별 CCP 상세 정보
         const ccpDetailResult = await db.execute(sql`
           SELECT fr.batch_id, fr.ccp_type, fr.status as ccp_status,

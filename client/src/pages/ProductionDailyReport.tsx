@@ -819,7 +819,7 @@ export function ProductionDailyReportContent() {
                   <TableHead className="text-center">이상</TableHead>
                   <TableHead className="text-center">승인상태</TableHead>
                   <TableHead className="text-center">생성시각</TableHead>
-                  <TableHead className="text-center w-20">보기</TableHead>
+                  <TableHead className="text-center w-28">관리</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -865,9 +865,18 @@ export function ProductionDailyReportContent() {
                       {r.generatedAt ? format(new Date(r.generatedAt), "MM-dd HH:mm") : "-"}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedReportId(r.id)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-center gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedReportId(r.id)} title="상세보기">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`${r.reportDate} 생산일지를 삭제하시겠습니까?`))
+                            deleteMutation.mutate({ ids: [r.id] });
+                        }} title="삭제">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
