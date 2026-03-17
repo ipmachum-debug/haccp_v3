@@ -59,6 +59,12 @@ export type UserIntent =
   | "production_analysis"
   | "prediction"
   | "anomaly_detection"
+  // ERP AI intents
+  | "expense_query"
+  | "cashflow_query"
+  | "payment_risk_query"
+  | "journal_query"
+  | "financial_summary"
   | "general";
 
 /** 키워드 기반 의도 분류 (폴백용) */
@@ -77,6 +83,13 @@ export function classifyIntentKeyword(message: string): UserIntent {
   if (/수율.*떨어|수율.*하락|생산.*분석|왜.*수율|production/.test(msg)) return "production_analysis";
   if (/예측|forecast|전망|추세|트렌드|앞으로/.test(msg)) return "prediction";
   if (/이상.*탐지|anomal|패턴.*이상|비정상/.test(msg)) return "anomaly_detection";
+
+  // ERP intents
+  if (/비용|지출|경비|전표|expense|매입.*비용/.test(msg)) return "expense_query";
+  if (/현금.*흐름|캐시.*플로|자금|현금.*잔고|cashflow|통장.*잔고/.test(msg)) return "cashflow_query";
+  if (/연체|미수|미지급|ap.*ar|외상|결제.*기한|수금/.test(msg)) return "payment_risk_query";
+  if (/분개|journal|회계.*오류|대차|차변|대변|전기/.test(msg)) return "journal_query";
+  if (/매출|수익|손익|재무|이익|margin|profit|매출.*현황/.test(msg)) return "financial_summary";
 
   return "general";
 }
@@ -121,7 +134,12 @@ export async function classifyIntentAI(message: string): Promise<{
 - production_analysis: 생산/수율 분석
 - prediction: 예측/전망/트렌드
 - anomaly_detection: 이상 패턴 탐지
-- general: 일반 HACCP 질문
+- expense_query: 비용/지출/경비/전표 관련
+- cashflow_query: 현금흐름/자금/잔고 관련
+- payment_risk_query: 연체/미수/미지급/외상 관련
+- journal_query: 분개/회계오류/대차 관련
+- financial_summary: 매출/수익/손익/재무 관련
+- general: 일반 HACCP/ERP 질문
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {"intent":"...","confidence":0.0~1.0,"entities":{"dateRange":null,"batchCode":null,"productName":null,"equipmentName":null,"temperature":null}}`,
@@ -139,7 +157,9 @@ export async function classifyIntentAI(message: string): Promise<{
     const validIntents: UserIntent[] = [
       "risk_check", "ccp_summary", "checklist_status", "batch_analysis",
       "deviation_history", "equipment_status", "audit_prep", "corrective_draft",
-      "temperature_check", "production_analysis", "prediction", "anomaly_detection", "general",
+      "temperature_check", "production_analysis", "prediction", "anomaly_detection",
+      "expense_query", "cashflow_query", "payment_risk_query", "journal_query", "financial_summary",
+      "general",
     ];
 
     const intent = validIntents.includes(parsed.intent) ? parsed.intent : classifyIntentKeyword(message);
@@ -411,11 +431,52 @@ async function gatherContext(
       }
 
       case "anomaly_detection": {
-        // 이상탐지: 최근 데이터에서 이상 패턴 검출
         const { detectAnomalies } = await import("./aiAnomalyDetection");
         const anomalies = await detectAnomalies(tenantId);
         context = { anomalies };
         dataSources.push("anomaly_detection", "sensor_data");
+        break;
+      }
+
+      // ── ERP AI intents ──
+      case "expense_query": {
+        const { detectExpenseAnomalies } = await import("./aiExpenseAnomaly");
+        const expReport = await detectExpenseAnomalies(tenantId);
+        context = { expenseAnomalies: expReport };
+        dataSources.push("expense_vouchers", "journal_lines");
+        break;
+      }
+
+      case "cashflow_query": {
+        const { forecastCashFlow } = await import("./aiCashFlowForecast");
+        const forecast = await forecastCashFlow(tenantId, 30);
+        context = { cashFlowForecast: { summary: forecast.summary, recommendations: forecast.recommendations, currentBalance: forecast.currentBalance } };
+        dataSources.push("cash_balance", "ap_ledger", "ar_ledger");
+        break;
+      }
+
+      case "payment_risk_query": {
+        const { analyzePaymentRisk } = await import("./aiPaymentRiskAnalysis");
+        const payRisk = await analyzePaymentRisk(tenantId);
+        context = { paymentRisk: { apSummary: payRisk.apSummary, arSummary: payRisk.arSummary, topApPartners: payRisk.apProfiles.slice(0, 5), topArPartners: payRisk.arProfiles.slice(0, 5), recommendations: payRisk.recommendations } };
+        dataSources.push("ap_ledger", "ar_ledger", "partners");
+        break;
+      }
+
+      case "journal_query": {
+        const { validateJournalEntries } = await import("./aiJournalValidation");
+        const validation = await validateJournalEntries(tenantId);
+        context = { journalValidation: validation };
+        dataSources.push("journal_entries", "journal_lines");
+        break;
+      }
+
+      case "financial_summary": {
+        const { generatePredictions } = await import("./aiPrediction");
+        const preds = await generatePredictions(tenantId);
+        const financialPreds = preds.predictions.filter((p) => p.type === "financial_trend");
+        context = { financialPredictions: financialPreds, aiNarrative: preds.aiNarrative };
+        dataSources.push("journal_lines", "financial_reports");
         break;
       }
 
@@ -441,7 +502,7 @@ async function gatherContext(
 
 function buildSystemPrompt(intent: UserIntent, context: Record<string, any>, knowledgeContext?: string): string {
   let base = `당신은 HACCP-ONE 시스템의 AI 어시스턴트 "하나"입니다.
-식품공장의 HACCP 관리, 생산, 품질, 안전을 담당하는 전문 AI입니다.
+식품공장의 HACCP 관리, 생산, 품질, 안전은 물론 회계/ERP(비용, 현금흐름, AP/AR, 분개)도 담당하는 통합 AI입니다.
 
 ## 중요 규칙
 1. 반드시 아래 제공된 실제 데이터를 기반으로 답변하세요.

@@ -15,7 +15,8 @@ import {
   AlertTriangle, Bell, CheckCircle, Clock, FileText, PlayCircle,
   RefreshCw, Shield, Upload, ChevronRight, Sparkles, Loader2,
   XCircle, Eye, FileCheck, BookOpen, Search, Trash2, RotateCcw,
-  Database, Plus, Download, TrendingUp,
+  Database, Plus, Download, TrendingUp, Brain, DollarSign,
+  AlertOctagon, BookCheck,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -122,6 +123,10 @@ export default function AIDashboard() {
             <TabsTrigger value="training">교육 추천</TabsTrigger>
             <TabsTrigger value="reports">AI 보고서</TabsTrigger>
             <TabsTrigger value="chatbot">AI 챗봇</TabsTrigger>
+            <TabsTrigger value="erp-expense" className="text-blue-600">비용 분석</TabsTrigger>
+            <TabsTrigger value="erp-cashflow" className="text-blue-600">현금흐름</TabsTrigger>
+            <TabsTrigger value="erp-payment" className="text-blue-600">AP/AR 리스크</TabsTrigger>
+            <TabsTrigger value="erp-journal" className="text-blue-600">분개 검증</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview"><OverviewTab /></TabsContent>
@@ -136,6 +141,10 @@ export default function AIDashboard() {
           <TabsContent value="training"><TrainingTab /></TabsContent>
           <TabsContent value="reports"><ReportsTab /></TabsContent>
           <TabsContent value="chatbot"><ChatbotTab /></TabsContent>
+          <TabsContent value="erp-expense"><ExpenseAnomalyTab /></TabsContent>
+          <TabsContent value="erp-cashflow"><CashFlowTab /></TabsContent>
+          <TabsContent value="erp-payment"><PaymentRiskTab /></TabsContent>
+          <TabsContent value="erp-journal"><JournalValidationTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
@@ -2091,5 +2100,360 @@ function CsvExportButton({ statusFilter, severityFilter }: { statusFilter: strin
       {exportMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
       <span className="ml-1 hidden sm:inline">CSV</span>
     </Button>
+  );
+}
+
+// ============================================================================
+// ERP AI Tab 1: 비용 이상탐지
+// ============================================================================
+function ExpenseAnomalyTab() {
+  const data = trpc.ai.detectExpenseAnomalies.useQuery();
+  const report = data.data;
+
+  const sevColor: Record<string, string> = {
+    critical: "text-red-600 bg-red-50 border-red-200",
+    high: "text-orange-600 bg-orange-50 border-orange-200",
+    medium: "text-yellow-600 bg-yellow-50 border-yellow-200",
+    low: "text-blue-600 bg-blue-50 border-blue-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <AlertOctagon className="w-5 h-5 text-red-500" /> 비용 이상탐지
+      </h2>
+
+      {data.isLoading ? (
+        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+      ) : !report || report.anomalies.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">
+          <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500 opacity-50" />
+          <p>비용 이상 항목이 없습니다.</p>
+        </CardContent></Card>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            <Card className="border-red-200 bg-red-50"><CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-red-600">{report.criticalCount}</div>
+              <div className="text-xs text-muted-foreground">위험</div>
+            </CardContent></Card>
+            <Card className="border-orange-200 bg-orange-50"><CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold text-orange-600">{report.highCount}</div>
+              <div className="text-xs text-muted-foreground">높음</div>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-2xl font-bold">{report.anomalies.length}</div>
+              <div className="text-xs text-muted-foreground">전체</div>
+            </CardContent></Card>
+          </div>
+
+          <div className="space-y-2">
+            {report.anomalies.map((a: any, i: number) => (
+              <Card key={i} className={`border ${sevColor[a.severity] || ""}`}>
+                <CardContent className="pt-4">
+                  <div className="flex items-start gap-3">
+                    <Badge variant="outline" className={sevColor[a.severity]}>{a.severity}</Badge>
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{a.title}</p>
+                      <p className="text-sm text-muted-foreground mt-1">{a.description}</p>
+                      {a.recommendations?.length > 0 && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          {a.recommendations.map((r: string, j: number) => <span key={j} className="mr-2">• {r}</span>)}
+                        </div>
+                      )}
+                    </div>
+                    {a.amount && <span className="text-sm font-mono font-medium shrink-0">{Number(a.amount).toLocaleString()}원</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// ERP AI Tab 2: 현금흐름 예측
+// ============================================================================
+function CashFlowTab() {
+  const data = trpc.ai.forecastCashFlow.useQuery({ days: 30 });
+  const forecast = data.data;
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <DollarSign className="w-5 h-5 text-green-600" /> 현금흐름 30일 예측
+      </h2>
+
+      {data.isLoading ? (
+        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+      ) : !forecast ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+      ) : (
+        <>
+          {/* 요약 카드 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card><CardContent className="pt-4">
+              <div className="text-xs text-muted-foreground">현재 잔고</div>
+              <div className="text-xl font-bold">{forecast.currentBalance.toLocaleString()}원</div>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4">
+              <div className="text-xs text-muted-foreground">30일 후 예상</div>
+              <div className={`text-xl font-bold ${forecast.summary.endingBalance < 0 ? "text-red-600" : ""}`}>
+                {forecast.summary.endingBalance.toLocaleString()}원
+              </div>
+            </CardContent></Card>
+            <Card className={forecast.summary.dangerDays > 0 ? "border-red-300 bg-red-50" : ""}>
+              <CardContent className="pt-4">
+                <div className="text-xs text-muted-foreground">위험일</div>
+                <div className="text-xl font-bold text-red-600">{forecast.summary.dangerDays}일</div>
+              </CardContent></Card>
+            <Card><CardContent className="pt-4">
+              <div className="text-xs text-muted-foreground">최저 잔고일</div>
+              <div className="text-sm font-medium">{forecast.summary.lowestDate}</div>
+              <div className="text-xs">{forecast.summary.lowestBalance.toLocaleString()}원</div>
+            </CardContent></Card>
+          </div>
+
+          {/* 차트 */}
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">일별 캐시 포지션</CardTitle></CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={forecast.dailyForecast}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} />
+                  <Tooltip labelFormatter={(v: string) => v} formatter={(v: number) => `${v.toLocaleString()}원`} contentStyle={{ fontSize: 12 }} />
+                  <Area type="monotone" dataKey="closingBalance" fill="#3b82f6" stroke="#3b82f6" fillOpacity={0.2} name="잔고" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* AP/AR 흐름 */}
+          <div className="grid grid-cols-3 gap-3">
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">AP 지출 예정</div>
+              <div className="text-lg font-bold text-red-600">{forecast.summary.totalApOutflow.toLocaleString()}원</div>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">AR 회수 예상</div>
+              <div className="text-lg font-bold text-green-600">{forecast.summary.totalArInflow.toLocaleString()}원</div>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">운영비 합계</div>
+              <div className="text-lg font-bold">{forecast.summary.totalOperating.toLocaleString()}원</div>
+            </CardContent></Card>
+          </div>
+
+          {/* 권고사항 */}
+          {forecast.recommendations.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">AI 권고사항</CardTitle></CardHeader>
+              <CardContent className="text-sm">
+                {forecast.recommendations.map((r: string, i: number) => <div key={i} className="mb-1">• {r}</div>)}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// ERP AI Tab 3: AP/AR 연체 리스크
+// ============================================================================
+function PaymentRiskTab() {
+  const data = trpc.ai.analyzePaymentRisk.useQuery();
+  const report = data.data;
+
+  const riskColor: Record<string, string> = {
+    critical: "text-red-600",
+    high: "text-orange-600",
+    medium: "text-yellow-600",
+    low: "text-green-600",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <AlertTriangle className="w-5 h-5 text-orange-500" /> AP/AR 연체 리스크 분석
+      </h2>
+
+      {data.isLoading ? (
+        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+      ) : !report ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+      ) : (
+        <>
+          {/* Aging 요약 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-red-600">AP (미지급금) Aging</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead className="text-xs">구간</TableHead><TableHead className="text-xs text-right">금액</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    <TableRow><TableCell className="text-xs">정상</TableCell><TableCell className="text-xs text-right">{report.apSummary.current.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-yellow-600">30일</TableCell><TableCell className="text-xs text-right">{report.apSummary.days30.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-orange-600">60일</TableCell><TableCell className="text-xs text-right">{report.apSummary.days60.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-red-600">90일+</TableCell><TableCell className="text-xs text-right">{(report.apSummary.days90 + report.apSummary.days120plus).toLocaleString()}</TableCell></TableRow>
+                    <TableRow className="font-bold"><TableCell className="text-xs">합계</TableCell><TableCell className="text-xs text-right">{report.apSummary.total.toLocaleString()}</TableCell></TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-600">AR (미수금) Aging</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead className="text-xs">구간</TableHead><TableHead className="text-xs text-right">금액</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    <TableRow><TableCell className="text-xs">정상</TableCell><TableCell className="text-xs text-right">{report.arSummary.current.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-yellow-600">30일</TableCell><TableCell className="text-xs text-right">{report.arSummary.days30.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-orange-600">60일</TableCell><TableCell className="text-xs text-right">{report.arSummary.days60.toLocaleString()}</TableCell></TableRow>
+                    <TableRow><TableCell className="text-xs text-red-600">90일+</TableCell><TableCell className="text-xs text-right">{(report.arSummary.days90 + report.arSummary.days120plus).toLocaleString()}</TableCell></TableRow>
+                    <TableRow className="font-bold"><TableCell className="text-xs">합계</TableCell><TableCell className="text-xs text-right">{report.arSummary.total.toLocaleString()}</TableCell></TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 거래처별 리스크 */}
+          {report.apProfiles.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">AP 거래처별 리스크 (상위)</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader><TableRow>
+                    <TableHead className="text-xs">거래처</TableHead>
+                    <TableHead className="text-xs text-right">미지급액</TableHead>
+                    <TableHead className="text-xs text-right">최장 연체</TableHead>
+                    <TableHead className="text-xs text-right">기한준수</TableHead>
+                    <TableHead className="text-xs text-center">리스크</TableHead>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {report.apProfiles.slice(0, 10).map((p: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-xs">{p.partnerName}</TableCell>
+                        <TableCell className="text-xs text-right font-mono">{p.totalOutstanding.toLocaleString()}</TableCell>
+                        <TableCell className="text-xs text-right">{p.oldestOverdueDays > 0 ? `${p.oldestOverdueDays}일` : "-"}</TableCell>
+                        <TableCell className="text-xs text-right">{p.onTimeRate}%</TableCell>
+                        <TableCell className="text-xs text-center">
+                          <Badge variant="outline" className={riskColor[p.riskLevel]}>{p.riskScore}점</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* AI 분석 + 권고 */}
+          {report.aiAnalysis && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-indigo-700 flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
+              <CardContent className="text-sm whitespace-pre-wrap">{report.aiAnalysis}</CardContent>
+            </Card>
+          )}
+          {report.recommendations.length > 0 && (
+            <Card className="border-blue-200 bg-blue-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">권고사항</CardTitle></CardHeader>
+              <CardContent className="text-sm">
+                {report.recommendations.map((r: string, i: number) => <div key={i} className="mb-1">• {r}</div>)}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// ERP AI Tab 4: 분개 검증
+// ============================================================================
+function JournalValidationTab() {
+  const data = trpc.ai.validateJournals.useQuery({});
+  const report = data.data;
+
+  const typeLabel: Record<string, string> = {
+    imbalance: "대차 불균형",
+    unusual_pair: "비정상 계정조합",
+    round_number: "라운드 넘버",
+    off_hours: "비업무시간",
+    sequence_gap: "번호 누락",
+  };
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        <BookCheck className="w-5 h-5 text-indigo-600" /> 분개 검증 AI
+      </h2>
+
+      {data.isLoading ? (
+        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+      ) : !report ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+      ) : (
+        <>
+          {/* 요약 */}
+          <div className="grid grid-cols-4 gap-3">
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">검증 기간</div>
+              <div className="text-sm font-medium">{report.period}</div>
+            </CardContent></Card>
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">총 분개</div>
+              <div className="text-xl font-bold">{report.stats.totalEntries}건</div>
+            </CardContent></Card>
+            <Card className={report.stats.criticalCount > 0 ? "border-red-300 bg-red-50" : ""}>
+              <CardContent className="pt-4 text-center">
+                <div className="text-xs text-muted-foreground">위험 이슈</div>
+                <div className="text-xl font-bold text-red-600">{report.stats.criticalCount}</div>
+              </CardContent></Card>
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-xs text-muted-foreground">전체 이슈</div>
+              <div className="text-xl font-bold">{report.stats.issueCount}</div>
+            </CardContent></Card>
+          </div>
+
+          {report.issues.length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-muted-foreground">
+              <CheckCircle className="w-10 h-10 mx-auto mb-2 text-green-500" />
+              <p>분개 이상 항목이 발견되지 않았습니다.</p>
+            </CardContent></Card>
+          ) : (
+            <div className="space-y-2">
+              {report.issues.map((issue: any, i: number) => (
+                <Card key={i} className={issue.severity === "critical" ? "border-red-200" : issue.severity === "high" ? "border-orange-200" : ""}>
+                  <CardContent className="pt-4">
+                    <div className="flex items-start gap-3">
+                      <Badge variant="outline" className="shrink-0">{typeLabel[issue.type] || issue.type}</Badge>
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">{issue.title}</p>
+                        <p className="text-sm text-muted-foreground mt-1">{issue.description}</p>
+                      </div>
+                      <SeverityBadge severity={issue.severity} />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
