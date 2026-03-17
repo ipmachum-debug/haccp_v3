@@ -16,6 +16,7 @@ import { trpc } from "@/lib/trpc";
 import { Calendar, Save, Send, FileText, ArrowLeft, Loader2, Copy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import DashboardLayout from "@/components/DashboardLayout";
 
 // 일반위생관리 주간 점검항목
 const DEFAULT_WEEKLY_HYGIENE = [
@@ -148,6 +149,7 @@ export default function WeeklyLogForm() {
   const isSaving = saveMutation.isPending;
 
   return (
+    <DashboardLayout>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -294,6 +296,7 @@ export default function WeeklyLogForm() {
         </Tabs>
       )}
     </div>
+    </DashboardLayout>
   );
 }
 

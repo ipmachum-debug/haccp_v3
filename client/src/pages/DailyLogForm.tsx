@@ -17,6 +17,7 @@ import { trpc } from "@/lib/trpc";
 import { Calendar, Save, Send, FileText, ArrowLeft, Loader2, Copy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import DashboardLayout from "@/components/DashboardLayout";
 
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
@@ -237,6 +238,7 @@ export default function DailyLogForm() {
   const isSaving = saveMutation.isPending;
 
   return (
+    <DashboardLayout>
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -500,6 +502,7 @@ export default function DailyLogForm() {
         </Tabs>
       )}
     </div>
+    </DashboardLayout>
   );
 }
 

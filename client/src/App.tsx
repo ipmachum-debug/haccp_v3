@@ -50,6 +50,8 @@ const SelfQualityInspectionList = lazy(() => import("./pages/SelfQualityInspecti
 const SelfQualityInspectionForm = lazy(() => import("./pages/SelfQualityInspectionForm"));
 const ProductCcpMapping = lazy(() => import("./pages/ProductCcpMapping"));
 const DailyLogForm = lazy(() => import("./pages/DailyLogForm"));
+const WeeklyLogForm = lazy(() => import("./pages/WeeklyLogForm"));
+const MonthlyLogForm = lazy(() => import("./pages/MonthlyLogForm"));
 const EquipmentManagement = lazy(() => import("./pages/EquipmentManagement"));
 const DocumentApprovalManagement = lazy(() => import("./pages/DocumentApprovalManagement"));
 const DocumentApprovalSettingsPage = lazy(() => import("./pages/DocumentApprovalSettingsPage"));
@@ -383,6 +385,8 @@ function Router() {
       <Route path="/dashboard/notification-settings" component={NotificationSettings} />
       <Route path="/dashboard/daily-logs" component={DailyLogs} />
       <Route path="/daily-log/daily" component={DailyLogForm} />
+      <Route path="/weekly-log/form" component={WeeklyLogForm} />
+      <Route path="/monthly-log/form" component={MonthlyLogForm} />
       <Route path="/dashboard/production-performance" component={ProductionPerformance} />
       <Route path="/dashboard/inventory" component={Inventory} />
       <Route path="/dashboard/users" component={UserManagement} />
