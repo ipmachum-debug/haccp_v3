@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -154,22 +154,22 @@ export default function AIDashboard() {
 
   return (
     <DashboardLayout>
-      <div className="p-4 md:p-6 space-y-4">
+      <div className="p-3 md:p-4 space-y-2.5">
         {/* 헤더 */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-indigo-600" />
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-md bg-indigo-100 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-indigo-600" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">AI 관제 센터</h1>
-              <p className="text-xs text-muted-foreground">HACCP + ERP 통합 AI 분석</p>
+              <h1 className="text-base font-bold leading-tight">AI 관제 센터</h1>
+              <p className="text-[11px] text-muted-foreground">HACCP + ERP 통합 AI 분석</p>
             </div>
           </div>
         </div>
 
         {/* 섹션 선택 */}
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           {(Object.entries(SECTION_CONFIG) as [Section, typeof SECTION_CONFIG[Section]][]).map(([key, cfg]) => {
             const Icon = cfg.icon;
             const isActive = section === key;
@@ -177,13 +177,13 @@ export default function AIDashboard() {
               <button
                 key={key}
                 onClick={() => handleSectionChange(key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border-2 transition-all text-xs font-medium ${
                   isActive
                     ? `${cfg.color} border-current shadow-sm`
                     : "border-transparent text-muted-foreground hover:bg-muted/50"
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-3.5 h-3.5" />
                 {cfg.label}
               </button>
             );
@@ -199,8 +199,8 @@ export default function AIDashboard() {
         />
 
         {/* 탭 */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="flex flex-wrap gap-1 h-auto">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-2.5">
+          <TabsList className="flex flex-wrap gap-0.5 h-auto">
             {SECTION_TABS[section].map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
             ))}
@@ -244,12 +244,12 @@ function OverviewTab() {
   const alerts = data?.activeAlerts || { critical: 0, high: 0, medium: 0, low: 0, total: 0 };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       {/* 규칙 평가 실행 버튼 */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">오늘의 현황</h2>
-        <Button onClick={handleEvaluate} disabled={evaluateMutation.isPending} size="sm">
-          {evaluateMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+        <h2 className="text-sm font-semibold">오늘의 현황</h2>
+        <Button onClick={handleEvaluate} disabled={evaluateMutation.isPending} size="sm" className="h-7 text-xs px-2.5">
+          {evaluateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5 mr-1" />}
           규칙 평가 실행
         </Button>
       </div>
@@ -257,16 +257,16 @@ function OverviewTab() {
       {/* 평가 결과 */}
       {evaluateMutation.data?.success && (
         <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-green-800">
-              <CheckCircle className="w-5 h-5" />
+          <CardContent className="py-2.5 px-3">
+            <div className="flex items-center gap-2 text-green-800 text-sm">
+              <CheckCircle className="w-4 h-4" />
               <span className="font-medium">
                 규칙 평가 완료: {evaluateMutation.data.totalTriggered}건 탐지,
                 {evaluateMutation.data.savedAlerts}건 새 알림 저장
               </span>
             </div>
             {evaluateMutation.data.totalTriggered > 0 && (
-              <div className="mt-2 flex gap-3 text-sm">
+              <div className="mt-1.5 flex gap-2 text-xs">
                 {evaluateMutation.data.bySeverity.critical > 0 && (
                   <span className="text-red-600 font-medium">위험 {evaluateMutation.data.bySeverity.critical}</span>
                 )}
@@ -286,66 +286,56 @@ function OverviewTab() {
       )}
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <Card className={alerts.critical > 0 ? "border-red-300 bg-red-50" : ""}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">위험 경고</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-red-600">{alerts.critical}</div>
+          <CardContent className="py-2.5 px-3">
+            <p className="text-xs text-muted-foreground mb-1">위험 경고</p>
+            <div className="text-lg font-bold text-red-600">{alerts.critical}</div>
           </CardContent>
         </Card>
         <Card className={alerts.high > 0 ? "border-orange-300 bg-orange-50" : ""}>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">높은 경고</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-orange-600">{alerts.high}</div>
+          <CardContent className="py-2.5 px-3">
+            <p className="text-xs text-muted-foreground mb-1">높은 경고</p>
+            <div className="text-lg font-bold text-orange-600">{alerts.high}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">보통 경고</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-yellow-600">{alerts.medium}</div>
+          <CardContent className="py-2.5 px-3">
+            <p className="text-xs text-muted-foreground mb-1">보통 경고</p>
+            <div className="text-lg font-bold text-yellow-600">{alerts.medium}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-muted-foreground">전체 활성 알림</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{alerts.total}</div>
+          <CardContent className="py-2.5 px-3">
+            <p className="text-xs text-muted-foreground mb-1">전체 활성 알림</p>
+            <div className="text-lg font-bold">{alerts.total}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* 최근 알림 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Bell className="w-5 h-5" /> 최근 알림
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="py-2.5 px-3">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+            <Bell className="w-4 h-4" /> 최근 알림
+          </h3>
           {summary.isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
           ) : (data?.recentAlerts || []).length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Shield className="w-12 h-12 mx-auto mb-2 opacity-30" />
-              <p>활성 알림이 없습니다. "규칙 평가 실행"을 눌러 점검하세요.</p>
+            <div className="text-center py-6 text-muted-foreground">
+              <Shield className="w-10 h-10 mx-auto mb-1.5 opacity-30" />
+              <p className="text-sm">활성 알림이 없습니다. "규칙 평가 실행"을 눌러 점검하세요.</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {(data?.recentAlerts || []).map((alert: any) => (
-                <div key={alert.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-muted/50 transition">
+                <div key={alert.id} className="flex items-center gap-2 p-2 rounded-md border hover:bg-muted/50 transition">
                   <SeverityBadge severity={alert.severity} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{alert.title}</p>
-                    <p className="text-xs text-muted-foreground">{alert.entityType} | {formatDate(alert.createdAt)}</p>
+                    <p className="text-xs font-medium truncate">{alert.title}</p>
+                    <p className="text-[11px] text-muted-foreground">{alert.entityType} | {formatDate(alert.createdAt)}</p>
                   </div>
                   <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                 </div>
@@ -364,6 +354,11 @@ function OverviewTab() {
   );
 }
 
+// Compact card wrapper for consistent tight padding across all tabs
+function CompactCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <Card className={className}><CardContent className="py-2.5 px-3">{children}</CardContent></Card>;
+}
+
 // ============================================================================
 // P9-7: 트렌드 차트 컴포넌트
 // ============================================================================
@@ -374,7 +369,7 @@ function TrendCharts() {
   if (trend.isLoading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
+        <CardContent className="flex items-center justify-center py-6">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           <span className="ml-2 text-muted-foreground">트렌드 로딩 중...</span>
         </CardContent>
@@ -387,22 +382,20 @@ function TrendCharts() {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
       {/* 알림 발생 추이 */}
       {d.alerts.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" /> 알림 발생 추이 (30일)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
+          <CardContent className="py-2.5 px-3">
+            <h4 className="text-xs font-semibold flex items-center gap-1.5 mb-1.5">
+              <TrendingUp className="w-3.5 h-3.5" /> 알림 발생 추이 (30일)
+            </h4>
+            <ResponsiveContainer width="100%" height={150}>
               <AreaChart data={d.alerts}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} allowDecimals={false} width={24} />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 11 }} />
                 <Area type="monotone" dataKey="critical" stackId="1" fill="#ef4444" stroke="#ef4444" name="위험" />
                 <Area type="monotone" dataKey="high" stackId="1" fill="#f97316" stroke="#f97316" name="높음" />
                 <Area type="monotone" dataKey="other" stackId="1" fill="#eab308" stroke="#eab308" name="기타" />
@@ -415,18 +408,16 @@ function TrendCharts() {
       {/* CCP 적합/부적합 추이 */}
       {d.ccp.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Shield className="w-4 h-4" /> CCP 모니터링 추이 (30일)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
+          <CardContent className="py-2.5 px-3">
+            <h4 className="text-xs font-semibold flex items-center gap-1.5 mb-1.5">
+              <Shield className="w-3.5 h-3.5" /> CCP 모니터링 추이 (30일)
+            </h4>
+            <ResponsiveContainer width="100%" height={150}>
               <BarChart data={d.ccp}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} allowDecimals={false} width={24} />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 11 }} />
                 <Bar dataKey="pass" fill="#22c55e" name="적합" stackId="a" />
                 <Bar dataKey="fail" fill="#ef4444" name="부적합" stackId="a" />
               </BarChart>
@@ -438,18 +429,16 @@ function TrendCharts() {
       {/* 체크리스트 완료율 추이 */}
       {d.checklist.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <CheckCircle className="w-4 h-4" /> 체크리스트 완료율 (30일)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={180}>
+          <CardContent className="py-2.5 px-3">
+            <h4 className="text-xs font-semibold flex items-center gap-1.5 mb-1.5">
+              <CheckCircle className="w-3.5 h-3.5" /> 체크리스트 완료율 (30일)
+            </h4>
+            <ResponsiveContainer width="100%" height={150}>
               <LineChart data={d.checklist}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} unit="%" />
-                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} formatter={(v: number) => `${v}%`} />
+                <XAxis dataKey="date" tick={{ fontSize: 9 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 9 }} domain={[0, 100]} unit="%" width={30} />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 11 }} formatter={(v: number) => `${v}%`} />
                 <Line type="monotone" dataKey="rate" stroke="#3b82f6" strokeWidth={2} dot={false} name="완료율" />
               </LineChart>
             </ResponsiveContainer>
@@ -541,28 +530,26 @@ function SystemRulesCard() {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Shield className="w-5 h-5" /> 규칙 관리
-          </CardTitle>
-          <div className="flex gap-2">
+      <CardContent className="py-2.5 px-3">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <Shield className="w-4 h-4" /> 규칙 관리
+          </h3>
+          <div className="flex gap-1.5">
             <Button
               variant={tab === "system" ? "default" : "outline"}
-              size="sm" onClick={() => setTab("system")}
+              size="sm" className="h-6 text-xs px-2" onClick={() => setTab("system")}
             >
               시스템 ({sysRules.length})
             </Button>
             <Button
               variant={tab === "custom" ? "default" : "outline"}
-              size="sm" onClick={() => setTab("custom")}
+              size="sm" className="h-6 text-xs px-2" onClick={() => setTab("custom")}
             >
               커스텀 ({custRules.length})
             </Button>
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
         {tab === "system" ? (
           <>
             <Table>
@@ -651,8 +638,8 @@ function SystemRulesCard() {
                 <DialogHeader>
                   <DialogTitle>커스텀 규칙 추가</DialogTitle>
                 </DialogHeader>
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label>규칙 코드</Label>
                       <Input value={code} onChange={e => setCode(e.target.value)}
@@ -664,7 +651,7 @@ function SystemRulesCard() {
                         placeholder="냉장고 온도 15°C 초과" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
                       <Label>규칙 유형</Label>
                       <Select value={ruleType} onValueChange={setRuleType}>
@@ -696,7 +683,7 @@ function SystemRulesCard() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <div>
                       <Label>조건 필드</Label>
                       <Input value={condField} onChange={e => setCondField(e.target.value)}
@@ -762,8 +749,8 @@ function AlertsTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3">
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-2">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="상태 필터" />
@@ -796,12 +783,12 @@ function AlertsTab() {
       </div>
 
       {alerts.isLoading ? (
-        <div className="flex items-center justify-center py-12">
+        <div className="flex items-center justify-center py-6">
           <Loader2 className="w-6 h-6 animate-spin" />
         </div>
       ) : (alerts.data?.alerts || []).length === 0 ? (
         <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
+          <CardContent className="py-6 text-center text-muted-foreground">
             <CheckCircle className="w-12 h-12 mx-auto mb-2 opacity-30" />
             <p>해당 조건의 알림이 없습니다.</p>
           </CardContent>
@@ -810,13 +797,13 @@ function AlertsTab() {
         <div className="space-y-2">
           {(alerts.data?.alerts || []).map((alert: AlertItem) => (
             <Card key={alert.id} className="hover:shadow-sm transition">
-              <CardContent className="pt-4">
-                <div className="flex items-start gap-3">
+              <CardContent className="py-2.5 px-3">
+                <div className="flex items-start gap-2">
                   <SeverityBadge severity={alert.severity} />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm">{alert.title}</p>
                     <p className="text-sm text-muted-foreground mt-1">{alert.message}</p>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
                       <span>{alert.entity_type}</span>
                       {alert.entity_code && <span>| {alert.entity_code}</span>}
                       <span>| {formatDate(alert.created_at)}</span>
@@ -900,16 +887,16 @@ function StandardsTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">기준서 → 체크리스트 자동생성</h2>
+        <h2 className="text-sm font-semibold">기준서 → 체크리스트 자동생성</h2>
         <Button onClick={() => setShowUpload(true)} size="sm">
           <Upload className="w-4 h-4 mr-2" /> 기준서 업로드
         </Button>
       </div>
 
       <Card className="bg-indigo-50 border-indigo-200">
-        <CardContent className="pt-4">
+        <CardContent className="py-2.5 px-3">
           <p className="text-sm text-indigo-800">
             <strong>사용법:</strong> HACCP 기준서(관리기준, 위생관리기준 등)를 붙여넣으면 AI가 자동으로 점검항목을 추출하여
             체크리스트 템플릿을 생성합니다. 회사마다 기준이 비슷하므로 기준서만 주면 바로 쓸 수 있는 체크리스트가 나옵니다.
@@ -923,7 +910,7 @@ function StandardsTab() {
           <DialogHeader>
             <DialogTitle>기준서 업로드</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-2.5">
             <div>
               <Label>기준서 이름</Label>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 위생관리기준서 v2.0" />
@@ -1012,14 +999,12 @@ function StandardsTab() {
 
       {/* 기존 기준서 목록 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">등록된 기준서</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="py-2.5 px-3">
+          <h3 className="text-sm font-semibold mb-2">등록된 기준서</h3>
           {standards.isLoading ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+            <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin" /></div>
           ) : (standards.data?.standards || []).length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-4 text-muted-foreground">
               <FileText className="w-12 h-12 mx-auto mb-2 opacity-30" />
               <p>등록된 기준서가 없습니다. 위 "기준서 업로드" 버튼으로 시작하세요.</p>
             </div>
@@ -1099,15 +1084,13 @@ function CorrectiveActionTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="w-5 h-5" /> 시정조치서 AI 초안 생성
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CardContent className="py-2.5 px-3 space-y-2.5">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <FileText className="w-4 h-4" /> 시정조치서 AI 초안 생성
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             <div>
               <Label>이탈/부적합 유형</Label>
               <Select value={deviationType} onValueChange={setDeviationType}>
@@ -1136,7 +1119,7 @@ function CorrectiveActionTab() {
               placeholder="이탈/부적합의 상세 내용을 입력하세요. 예: 증숙 공정에서 중심온도 78°C로 한계기준(85°C) 미달..."
               className="min-h-[100px]" />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
             <div>
               <Label>관련 배치코드</Label>
               <Input value={batchCode} onChange={(e) => setBatchCode(e.target.value)} placeholder="예: B-2026-0316-001" />
@@ -1160,13 +1143,11 @@ function CorrectiveActionTab() {
       {/* 생성된 초안 */}
       {draft && (
         <Card className="border-green-200">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2 text-green-800">
-              <CheckCircle className="w-5 h-5" /> AI 생성 시정조치서 초안
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+          <CardContent className="py-2.5 px-3">
+            <h3 className="text-sm font-semibold flex items-center gap-1.5 text-green-800 mb-2">
+              <CheckCircle className="w-4 h-4" /> AI 생성 시정조치서 초안
+            </h3>
+            <div className="space-y-2">
               {Object.entries(draft)
                 .filter(([key]) => FIELD_LABELS[key])
                 .map(([key, value]) => (
@@ -1274,9 +1255,9 @@ function KnowledgeBaseTab() {
   const kbStats = stats.data;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <BookOpen className="w-5 h-5" /> 지식베이스 (RAG)
         </h2>
         <Button onClick={() => setShowUpload(true)} size="sm">
@@ -1285,7 +1266,7 @@ function KnowledgeBaseTab() {
       </div>
 
       <Card className="bg-indigo-50 border-indigo-200">
-        <CardContent className="pt-4">
+        <CardContent className="py-2.5 px-3">
           <p className="text-sm text-indigo-800">
             <strong>AI 지식베이스:</strong> HACCP 관련 법규, 기준서, SOP, 매뉴얼 등을 등록하면
             AI가 자동으로 문서를 분석하고 벡터 인덱스를 생성합니다.
@@ -1295,53 +1276,51 @@ function KnowledgeBaseTab() {
       </Card>
 
       {/* 통계 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="py-2.5 px-3">
             <div className="flex items-center gap-2 mb-1">
               <Database className="w-4 h-4 text-indigo-500" />
               <span className="text-xs text-muted-foreground">등록 문서</span>
             </div>
-            <div className="text-2xl font-bold">{kbStats?.totalDocuments || 0}</div>
+            <div className="text-lg font-bold">{kbStats?.totalDocuments || 0}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="py-2.5 px-3">
             <div className="flex items-center gap-2 mb-1">
               <CheckCircle className="w-4 h-4 text-green-500" />
               <span className="text-xs text-muted-foreground">검색 가능</span>
             </div>
-            <div className="text-2xl font-bold text-green-600">{kbStats?.readyDocuments || 0}</div>
+            <div className="text-lg font-bold text-green-600">{kbStats?.readyDocuments || 0}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="py-2.5 px-3">
             <div className="flex items-center gap-2 mb-1">
               <FileText className="w-4 h-4 text-blue-500" />
               <span className="text-xs text-muted-foreground">총 청크</span>
             </div>
-            <div className="text-2xl font-bold">{kbStats?.totalChunks || 0}</div>
+            <div className="text-lg font-bold">{kbStats?.totalChunks || 0}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="py-2.5 px-3">
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="w-4 h-4 text-purple-500" />
               <span className="text-xs text-muted-foreground">총 토큰</span>
             </div>
-            <div className="text-2xl font-bold">{(kbStats?.totalTokens || 0).toLocaleString()}</div>
+            <div className="text-lg font-bold">{(kbStats?.totalTokens || 0).toLocaleString()}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* 시맨틱 검색 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Search className="w-5 h-5" /> 지식베이스 검색
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="py-2.5 px-3 space-y-2">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <Search className="w-4 h-4" /> 지식베이스 검색
+          </h3>
           <div className="flex gap-2">
             <Input
               value={searchQuery}
@@ -1387,7 +1366,7 @@ function KnowledgeBaseTab() {
           <DialogHeader>
             <DialogTitle>지식베이스 문서 등록</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-2.5">
             <div>
               <Label>문서 제목</Label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)}
@@ -1441,11 +1420,11 @@ function KnowledgeBaseTab() {
 
       {/* 문서 목록 */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">등록된 문서</CardTitle>
+        <CardContent className="py-2.5 px-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold">등록된 문서</h3>
             <Select value={docTypeFilter} onValueChange={(v) => { setDocTypeFilter(v === "all" ? "all" : v); }}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-[130px] h-7 text-xs">
                 <SelectValue placeholder="유형 필터" />
               </SelectTrigger>
               <SelectContent>
@@ -1456,12 +1435,10 @@ function KnowledgeBaseTab() {
               </SelectContent>
             </Select>
           </div>
-        </CardHeader>
-        <CardContent>
           {documents.isLoading ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>
+            <div className="flex justify-center py-4"><Loader2 className="w-6 h-6 animate-spin" /></div>
           ) : (documents.data?.documents || []).length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-4 text-muted-foreground">
               <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-30" />
               <p>등록된 문서가 없습니다. "문서 등록"으로 HACCP 관련 문서를 추가하세요.</p>
             </div>
@@ -1550,18 +1527,16 @@ function AuditTab() {
   const summary = auditDocs.data?.summary as any;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileText className="w-5 h-5" /> 감사/점검 대응 자료 현황
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="py-2.5 px-3 space-y-2">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5">
+            <FileText className="w-4 h-4" /> 감사/점검 대응 자료 현황
+          </h3>
           <p className="text-sm text-muted-foreground">
             HACCP 인증 심사 또는 내부 점검 시 필요한 기록 현황을 기간별로 확인합니다.
           </p>
-          <div className="flex items-end gap-3">
+          <div className="flex items-end gap-2">
             <div>
               <Label>시작일</Label>
               <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setEnabled(false); }} />
@@ -1579,7 +1554,7 @@ function AuditTab() {
       </Card>
 
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
           <AuditCard title="체크리스트" total={summary.checklists?.cnt || 0} detail={`완료 ${summary.checklists?.completed || 0}건`} icon={<CheckCircle className="w-5 h-5 text-green-600" />} />
           <AuditCard title="CCP 모니터링" total={summary.ccpMonitoring?.cnt || 0} detail={`승인 ${summary.ccpMonitoring?.approved || 0}건`} icon={<Shield className="w-5 h-5 text-blue-600" />} />
           <AuditCard title="시정조치" total={summary.correctiveActions?.cnt || 0} detail={`해결 ${summary.correctiveActions?.resolved || 0}건`} icon={<AlertTriangle className="w-5 h-5 text-orange-600" />} />
@@ -1597,12 +1572,12 @@ function AuditTab() {
 function AuditCard({ title, total, detail, icon }: { title: string; total: number; detail: string; icon: React.ReactNode }) {
   return (
     <Card>
-      <CardContent className="pt-4">
+      <CardContent className="py-2.5 px-3">
         <div className="flex items-center gap-2 mb-2">
           {icon}
           <span className="text-sm font-medium">{title}</span>
         </div>
-        <div className="text-2xl font-bold">{total}건</div>
+        <div className="text-lg font-bold">{total}건</div>
         <p className="text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
@@ -1617,9 +1592,9 @@ function AnomalyTab() {
   const data = anomalyQuery.data;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-orange-500" />
           AI 이상 패턴 탐지
         </h2>
@@ -1632,14 +1607,14 @@ function AnomalyTab() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card><CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold">{data.totalAnomalies}</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Card><CardContent className="py-2.5 px-3 text-center">
+              <div className="text-xl font-bold">{data.totalAnomalies}</div>
               <p className="text-sm text-muted-foreground">총 이상 감지</p>
             </CardContent></Card>
             <Card className={data.criticalCount > 0 ? "border-red-300 bg-red-50" : ""}>
-              <CardContent className="pt-4 text-center">
-                <div className="text-3xl font-bold text-red-600">{data.criticalCount}</div>
+              <CardContent className="py-2.5 px-3 text-center">
+                <div className="text-xl font-bold text-red-600">{data.criticalCount}</div>
                 <p className="text-sm text-muted-foreground">위험 등급</p>
               </CardContent>
             </Card>
@@ -1647,14 +1622,13 @@ function AnomalyTab() {
 
           {data.aiSummary && (
             <Card className="border-indigo-200 bg-indigo-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
-              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</h4><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
             </Card>
           )}
 
           {data.anomalies.map((anomaly: any, i: number) => (
             <Card key={i} className={anomaly.severity === "critical" ? "border-red-300" : anomaly.severity === "high" ? "border-orange-300" : ""}>
-              <CardContent className="pt-4">
+              <CardContent className="py-2.5 px-3">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <SeverityBadge severity={anomaly.severity} />
@@ -1704,9 +1678,9 @@ function PredictionTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <ChevronRight className="w-5 h-5 text-blue-500" />
           AI 예측 분석
         </h2>
@@ -1721,15 +1695,14 @@ function PredictionTab() {
         <>
           {data.aiNarrative && (
             <Card className="border-indigo-200 bg-indigo-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 전망</CardTitle></CardHeader>
-              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiNarrative}</p></CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold flex items-center gap-2"><Brain className="w-4 h-4" /> AI 전망</h4><p className="text-sm whitespace-pre-wrap">{data.aiNarrative}</p></CardContent>
             </Card>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {data.predictions.map((pred: any, i: number) => (
               <Card key={i} className={RISK_COLORS[pred.riskLevel] || ""}>
-                <CardContent className="pt-4">
+                <CardContent className="py-2.5 px-3">
                   <div className="flex items-start justify-between mb-2">
                     <span className="font-medium text-sm">{pred.title}</span>
                     <Badge variant="outline" className="text-xs">
@@ -1737,7 +1710,7 @@ function PredictionTab() {
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground mb-2">{pred.description}</p>
-                  <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-2.5 text-xs">
                     <span>신뢰도: <strong>{pred.confidence}</strong></span>
                     <SeverityBadge severity={pred.riskLevel} />
                   </div>
@@ -1775,9 +1748,9 @@ function SupplierRiskTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <Shield className="w-5 h-5 text-purple-500" />
           공급업체 리스크 분석
         </h2>
@@ -1792,8 +1765,7 @@ function SupplierRiskTab() {
         <>
           {data.aiSummary && (
             <Card className="border-indigo-200 bg-indigo-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
-              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</h4><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
             </Card>
           )}
 
@@ -1852,9 +1824,9 @@ function TrainingTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <BookOpen className="w-5 h-5 text-green-600" />
           AI 교육 추천
         </h2>
@@ -1869,15 +1841,13 @@ function TrainingTab() {
         <>
           {data.overallAssessment && (
             <Card className="border-indigo-200 bg-indigo-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 평가</CardTitle></CardHeader>
-              <CardContent><p className="text-sm whitespace-pre-wrap">{data.overallAssessment}</p></CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 평가</h4><p className="text-sm whitespace-pre-wrap">{data.overallAssessment}</p></CardContent>
             </Card>
           )}
 
           {data.scheduleSuggestion.length > 0 && (
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm">추천 교육 일정 (4주)</CardTitle></CardHeader>
-              <CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold">추천 교육 일정 (4주)</h4>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1902,7 +1872,7 @@ function TrainingTab() {
 
           {data.recommendations.map((rec: any, i: number) => (
             <Card key={i} className={rec.priority === "urgent" ? "border-red-300" : ""}>
-              <CardContent className="pt-4">
+              <CardContent className="py-2.5 px-3">
                 <div className="flex items-start justify-between mb-2">
                   <span className="font-medium">{rec.title}</span>
                   <Badge variant="outline" className={PRIORITY_COLORS[rec.priority] || ""}>
@@ -1961,9 +1931,9 @@ function ReportsTab() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
           <FileText className="w-5 h-5 text-teal-600" />
           AI 보고서 생성
         </h2>
@@ -1986,39 +1956,37 @@ function ReportsTab() {
       </div>
 
       {currentData && (
-        <div className="space-y-4">
+        <div className="space-y-2.5">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{(currentData as any).title}</CardTitle>
-              <p className="text-xs text-muted-foreground">기간: {(currentData as any).period} | 생성: {(currentData as any).generatedAt?.split("T")[0]}</p>
-            </CardHeader>
-            <CardContent>
+            <CardContent className="py-2.5 px-3">
+              <h3 className="text-sm font-semibold">{(currentData as any).title}</h3>
+              <p className="text-[11px] text-muted-foreground mb-2">기간: {(currentData as any).period} | 생성: {(currentData as any).generatedAt?.split("T")[0]}</p>
               <div className="prose prose-sm max-w-none whitespace-pre-wrap">{(currentData as any).narrative}</div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
             {(currentData as any).highlights?.length > 0 && (
               <Card className="border-green-200 bg-green-50">
-                <CardHeader className="pb-2"><CardTitle className="text-sm text-green-700">긍정적 지표</CardTitle></CardHeader>
-                <CardContent className="text-sm">
-                  {(currentData as any).highlights.map((h: string, i: number) => <div key={i} className="mb-1">+ {h}</div>)}
+                <CardContent className="py-2 px-3">
+                  <h4 className="text-xs font-semibold text-green-700 mb-1">긍정적 지표</h4>
+                  <div className="text-xs">{(currentData as any).highlights.map((h: string, i: number) => <div key={i} className="mb-0.5">+ {h}</div>)}</div>
                 </CardContent>
               </Card>
             )}
             {(currentData as any).concerns?.length > 0 && (
               <Card className="border-orange-200 bg-orange-50">
-                <CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">우려 사항</CardTitle></CardHeader>
-                <CardContent className="text-sm">
-                  {(currentData as any).concerns.map((c: string, i: number) => <div key={i} className="mb-1">! {c}</div>)}
+                <CardContent className="py-2 px-3">
+                  <h4 className="text-xs font-semibold text-orange-700 mb-1">우려 사항</h4>
+                  <div className="text-xs">{(currentData as any).concerns.map((c: string, i: number) => <div key={i} className="mb-0.5">! {c}</div>)}</div>
                 </CardContent>
               </Card>
             )}
             {(currentData as any).recommendations?.length > 0 && (
               <Card className="border-blue-200 bg-blue-50">
-                <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">권장 사항</CardTitle></CardHeader>
-                <CardContent className="text-sm">
-                  {(currentData as any).recommendations.map((r: string, i: number) => <div key={i} className="mb-1">* {r}</div>)}
+                <CardContent className="py-2 px-3">
+                  <h4 className="text-xs font-semibold text-blue-700 mb-1">권장 사항</h4>
+                  <div className="text-xs">{(currentData as any).recommendations.map((r: string, i: number) => <div key={i} className="mb-0.5">* {r}</div>)}</div>
                 </CardContent>
               </Card>
             )}
@@ -2124,7 +2092,7 @@ function InlineChatbot({
     return (
       <button
         onClick={onToggle}
-        className="group w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50/80 hover:border-indigo-300 hover:shadow-md transition-all"
+        className="group w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 bg-gradient-to-r from-white to-slate-50/80 hover:border-indigo-300 hover:shadow-md transition-all"
       >
         <img
           src="/ai-hana-character.png"
@@ -2179,7 +2147,7 @@ function InlineChatbot({
       </div>
 
       {/* 메시지 영역 */}
-      <div ref={scrollRef} className="h-[320px] overflow-y-auto p-3 space-y-3 bg-slate-50/50">
+      <div ref={scrollRef} className="h-[320px] overflow-y-auto p-3 space-y-2 bg-slate-50/50">
         {messages.length === 0 && (
           <div className="flex flex-col items-center pt-6 pb-3">
             <img
@@ -2306,31 +2274,31 @@ function ExpenseAnomalyTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div className="space-y-2.5">
+      <h2 className="text-sm font-semibold flex items-center gap-2">
         <AlertOctagon className="w-5 h-5 text-red-500" /> 비용 이상탐지
       </h2>
 
       {data.isLoading ? (
-        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+        <Card><CardContent className="flex items-center justify-center py-6"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
       ) : !report || report.anomalies.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">
+        <Card><CardContent className="py-6 text-center text-muted-foreground">
           <CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500 opacity-50" />
           <p>비용 이상 항목이 없습니다.</p>
         </CardContent></Card>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="border-red-200 bg-red-50"><CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-red-600">{report.criticalCount}</div>
+          <div className="grid grid-cols-3 gap-2">
+            <Card className="border-red-200 bg-red-50"><CardContent className="py-2.5 px-3 text-center">
+              <div className="text-lg font-bold text-red-600">{report.criticalCount}</div>
               <div className="text-xs text-muted-foreground">위험</div>
             </CardContent></Card>
-            <Card className="border-orange-200 bg-orange-50"><CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold text-orange-600">{report.highCount}</div>
+            <Card className="border-orange-200 bg-orange-50"><CardContent className="py-2.5 px-3 text-center">
+              <div className="text-lg font-bold text-orange-600">{report.highCount}</div>
               <div className="text-xs text-muted-foreground">높음</div>
             </CardContent></Card>
-            <Card><CardContent className="pt-4 text-center">
-              <div className="text-2xl font-bold">{report.anomalies.length}</div>
+            <Card><CardContent className="py-2.5 px-3 text-center">
+              <div className="text-lg font-bold">{report.anomalies.length}</div>
               <div className="text-xs text-muted-foreground">전체</div>
             </CardContent></Card>
           </div>
@@ -2338,8 +2306,8 @@ function ExpenseAnomalyTab() {
           <div className="space-y-2">
             {report.anomalies.map((a: any, i: number) => (
               <Card key={i} className={`border ${sevColor[a.severity] || ""}`}>
-                <CardContent className="pt-4">
-                  <div className="flex items-start gap-3">
+                <CardContent className="py-2.5 px-3">
+                  <div className="flex items-start gap-2">
                     <Badge variant="outline" className={sevColor[a.severity]}>{a.severity}</Badge>
                     <div className="flex-1">
                       <p className="font-medium text-sm">{a.title}</p>
@@ -2370,35 +2338,35 @@ function CashFlowTab() {
   const forecast = data.data;
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div className="space-y-2.5">
+      <h2 className="text-sm font-semibold flex items-center gap-2">
         <DollarSign className="w-5 h-5 text-green-600" /> 현금흐름 30일 예측
       </h2>
 
       {data.isLoading ? (
-        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+        <Card><CardContent className="flex items-center justify-center py-6"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
       ) : !forecast ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+        <Card><CardContent className="py-6 text-center text-muted-foreground">데이터 없음</CardContent></Card>
       ) : (
         <>
           {/* 요약 카드 */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Card><CardContent className="pt-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <Card><CardContent className="py-2.5 px-3">
               <div className="text-xs text-muted-foreground">현재 잔고</div>
               <div className="text-xl font-bold">{forecast.currentBalance.toLocaleString()}원</div>
             </CardContent></Card>
-            <Card><CardContent className="pt-4">
+            <Card><CardContent className="py-2.5 px-3">
               <div className="text-xs text-muted-foreground">30일 후 예상</div>
               <div className={`text-xl font-bold ${forecast.summary.endingBalance < 0 ? "text-red-600" : ""}`}>
                 {forecast.summary.endingBalance.toLocaleString()}원
               </div>
             </CardContent></Card>
             <Card className={forecast.summary.dangerDays > 0 ? "border-red-300 bg-red-50" : ""}>
-              <CardContent className="pt-4">
+              <CardContent className="py-2.5 px-3">
                 <div className="text-xs text-muted-foreground">위험일</div>
                 <div className="text-xl font-bold text-red-600">{forecast.summary.dangerDays}일</div>
               </CardContent></Card>
-            <Card><CardContent className="pt-4">
+            <Card><CardContent className="py-2.5 px-3">
               <div className="text-xs text-muted-foreground">최저 잔고일</div>
               <div className="text-sm font-medium">{forecast.summary.lowestDate}</div>
               <div className="text-xs">{forecast.summary.lowestBalance.toLocaleString()}원</div>
@@ -2407,8 +2375,7 @@ function CashFlowTab() {
 
           {/* 차트 */}
           <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">일별 캐시 포지션</CardTitle></CardHeader>
-            <CardContent>
+            <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold">일별 캐시 포지션</h4>
               <ResponsiveContainer width="100%" height={250}>
                 <AreaChart data={forecast.dailyForecast}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -2422,16 +2389,16 @@ function CashFlowTab() {
           </Card>
 
           {/* AP/AR 흐름 */}
-          <div className="grid grid-cols-3 gap-3">
-            <Card><CardContent className="pt-4 text-center">
+          <div className="grid grid-cols-3 gap-2">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">AP 지출 예정</div>
               <div className="text-lg font-bold text-red-600">{forecast.summary.totalApOutflow.toLocaleString()}원</div>
             </CardContent></Card>
-            <Card><CardContent className="pt-4 text-center">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">AR 회수 예상</div>
               <div className="text-lg font-bold text-green-600">{forecast.summary.totalArInflow.toLocaleString()}원</div>
             </CardContent></Card>
-            <Card><CardContent className="pt-4 text-center">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">운영비 합계</div>
               <div className="text-lg font-bold">{forecast.summary.totalOperating.toLocaleString()}원</div>
             </CardContent></Card>
@@ -2440,9 +2407,9 @@ function CashFlowTab() {
           {/* 권고사항 */}
           {forecast.recommendations.length > 0 && (
             <Card className="border-blue-200 bg-blue-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">AI 권고사항</CardTitle></CardHeader>
-              <CardContent className="text-sm">
-                {forecast.recommendations.map((r: string, i: number) => <div key={i} className="mb-1">• {r}</div>)}
+              <CardContent className="py-2 px-3">
+                <h4 className="text-xs font-semibold text-blue-700 mb-1">AI 권고사항</h4>
+                <div className="text-xs">{forecast.recommendations.map((r: string, i: number) => <div key={i} className="mb-0.5">• {r}</div>)}</div>
               </CardContent>
             </Card>
           )}
@@ -2467,22 +2434,21 @@ function PaymentRiskTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div className="space-y-2.5">
+      <h2 className="text-sm font-semibold flex items-center gap-2">
         <AlertTriangle className="w-5 h-5 text-orange-500" /> AP/AR 연체 리스크 분석
       </h2>
 
       {data.isLoading ? (
-        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+        <Card><CardContent className="flex items-center justify-center py-6"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
       ) : !report ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+        <Card><CardContent className="py-6 text-center text-muted-foreground">데이터 없음</CardContent></Card>
       ) : (
         <>
           {/* Aging 요약 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-red-600">AP (미지급금) Aging</CardTitle></CardHeader>
-              <CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold text-red-600">AP (미지급금) Aging</h4>
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead className="text-xs">구간</TableHead><TableHead className="text-xs text-right">금액</TableHead>
@@ -2499,8 +2465,7 @@ function PaymentRiskTab() {
             </Card>
 
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-600">AR (미수금) Aging</CardTitle></CardHeader>
-              <CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold text-blue-600">AR (미수금) Aging</h4>
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead className="text-xs">구간</TableHead><TableHead className="text-xs text-right">금액</TableHead>
@@ -2520,8 +2485,7 @@ function PaymentRiskTab() {
           {/* 거래처별 리스크 */}
           {report.apProfiles.length > 0 && (
             <Card>
-              <CardHeader className="pb-2"><CardTitle className="text-sm">AP 거래처별 리스크 (상위)</CardTitle></CardHeader>
-              <CardContent>
+              <CardContent className="py-2 px-3"><h4 className="text-xs font-semibold">AP 거래처별 리스크 (상위)</h4>
                 <Table>
                   <TableHeader><TableRow>
                     <TableHead className="text-xs">거래처</TableHead>
@@ -2551,15 +2515,17 @@ function PaymentRiskTab() {
           {/* AI 분석 + 권고 */}
           {report.aiAnalysis && (
             <Card className="border-indigo-200 bg-indigo-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-indigo-700 flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
-              <CardContent className="text-sm whitespace-pre-wrap">{report.aiAnalysis}</CardContent>
+              <CardContent className="py-2 px-3">
+                <h4 className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5 mb-1"><Brain className="w-3.5 h-3.5" /> AI 종합 분석</h4>
+                <p className="text-xs whitespace-pre-wrap">{report.aiAnalysis}</p>
+              </CardContent>
             </Card>
           )}
           {report.recommendations.length > 0 && (
             <Card className="border-blue-200 bg-blue-50">
-              <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">권고사항</CardTitle></CardHeader>
-              <CardContent className="text-sm">
-                {report.recommendations.map((r: string, i: number) => <div key={i} className="mb-1">• {r}</div>)}
+              <CardContent className="py-2 px-3">
+                <h4 className="text-xs font-semibold text-blue-700 mb-1">권고사항</h4>
+                <div className="text-xs">{report.recommendations.map((r: string, i: number) => <div key={i} className="mb-0.5">• {r}</div>)}</div>
               </CardContent>
             </Card>
           )}
@@ -2585,40 +2551,40 @@ function JournalValidationTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div className="space-y-2.5">
+      <h2 className="text-sm font-semibold flex items-center gap-2">
         <BookCheck className="w-5 h-5 text-indigo-600" /> 분개 검증 AI
       </h2>
 
       {data.isLoading ? (
-        <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
+        <Card><CardContent className="flex items-center justify-center py-6"><Loader2 className="w-6 h-6 animate-spin" /></CardContent></Card>
       ) : !report ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">데이터 없음</CardContent></Card>
+        <Card><CardContent className="py-6 text-center text-muted-foreground">데이터 없음</CardContent></Card>
       ) : (
         <>
           {/* 요약 */}
-          <div className="grid grid-cols-4 gap-3">
-            <Card><CardContent className="pt-4 text-center">
+          <div className="grid grid-cols-4 gap-2">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">검증 기간</div>
               <div className="text-sm font-medium">{report.period}</div>
             </CardContent></Card>
-            <Card><CardContent className="pt-4 text-center">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">총 분개</div>
               <div className="text-xl font-bold">{report.stats.totalEntries}건</div>
             </CardContent></Card>
             <Card className={report.stats.criticalCount > 0 ? "border-red-300 bg-red-50" : ""}>
-              <CardContent className="pt-4 text-center">
+              <CardContent className="py-2.5 px-3 text-center">
                 <div className="text-xs text-muted-foreground">위험 이슈</div>
                 <div className="text-xl font-bold text-red-600">{report.stats.criticalCount}</div>
               </CardContent></Card>
-            <Card><CardContent className="pt-4 text-center">
+            <Card><CardContent className="py-2.5 px-3 text-center">
               <div className="text-xs text-muted-foreground">전체 이슈</div>
               <div className="text-xl font-bold">{report.stats.issueCount}</div>
             </CardContent></Card>
           </div>
 
           {report.issues.length === 0 ? (
-            <Card><CardContent className="py-8 text-center text-muted-foreground">
+            <Card><CardContent className="py-4 text-center text-muted-foreground">
               <CheckCircle className="w-10 h-10 mx-auto mb-2 text-green-500" />
               <p>분개 이상 항목이 발견되지 않았습니다.</p>
             </CardContent></Card>
@@ -2626,8 +2592,8 @@ function JournalValidationTab() {
             <div className="space-y-2">
               {report.issues.map((issue: any, i: number) => (
                 <Card key={i} className={issue.severity === "critical" ? "border-red-200" : issue.severity === "high" ? "border-orange-200" : ""}>
-                  <CardContent className="pt-4">
-                    <div className="flex items-start gap-3">
+                  <CardContent className="py-2.5 px-3">
+                    <div className="flex items-start gap-2">
                       <Badge variant="outline" className="shrink-0">{typeLabel[issue.type] || issue.type}</Badge>
                       <div className="flex-1">
                         <p className="font-medium text-sm">{issue.title}</p>
