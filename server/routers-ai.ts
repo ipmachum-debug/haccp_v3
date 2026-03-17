@@ -1639,4 +1639,36 @@ export const aiRouter = router({
       const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");
       return detectExpenseAnomalies(ctx.tenantId);
     }),
+
+  // ============================================================================
+  // ERP AI B-2: 현금흐름 예측
+  // ============================================================================
+  forecastCashFlow: tenantRequiredProcedure
+    .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      return forecastCashFlow(ctx.tenantId, input?.days || 30);
+    }),
+
+  // ============================================================================
+  // ERP AI B-3: AP/AR 연체 리스크 분석 + LLM 권고
+  // ============================================================================
+  analyzePaymentRisk: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { analyzePaymentRisk } = await import("./db/aiPaymentRiskAnalysis");
+      return analyzePaymentRisk(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // ERP AI B-4: 분개 검증 AI
+  // ============================================================================
+  validateJournals: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      return validateJournalEntries(ctx.tenantId, input?.startDate, input?.endDate);
+    }),
 });

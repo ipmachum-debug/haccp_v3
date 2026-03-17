@@ -278,4 +278,69 @@ export function initScheduler() {
   cron.schedule("0 16 * * *", runERPAIChecks);
   console.log("[Scheduler] ERP AI 비용 이상탐지/결제 알림 스케줄러 초기화 완료 (매일 오전 9시, 오후 4시 실행)");
 
+  // ===== ERP AI: 주간 현금흐름 경고 + 분개 검증 (매주 월요일 오전 8시) =====
+  cron.schedule("0 8 * * 1", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[ERP AI Weekly] ${timestamp} - 주간 현금흐름/분개 점검 시작`);
+
+    try {
+      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      const { saveAlerts } = await import("./db/rulesEngine");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return;
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      for (const tenant of activeTenants) {
+        try {
+          // 현금흐름 경고
+          const forecast = await forecastCashFlow(tenant.id, 30);
+          if (forecast.summary.dangerDays > 0) {
+            await saveAlerts(tenant.id, [{
+              ruleId: 0,
+              ruleCode: "ERP_CASHFLOW_WARNING",
+              triggered: true,
+              severity: forecast.summary.dangerDays > 7 ? "critical" as const : "high" as const,
+              title: `현금흐름 위험 - ${forecast.summary.dangerDays}일 잔고 부족 예상`,
+              message: forecast.recommendations[0] || "",
+              entityType: "accounting",
+              entityCode: "cashflow",
+              contextData: forecast.summary,
+            }]);
+          }
+
+          // 분개 검증
+          const validation = await validateJournalEntries(tenant.id);
+          if (validation.stats.criticalCount > 0) {
+            await saveAlerts(tenant.id, [{
+              ruleId: 0,
+              ruleCode: "ERP_JOURNAL_ISSUE",
+              triggered: true,
+              severity: "critical" as const,
+              title: `분개 검증 이슈 ${validation.stats.issueCount}건 (위험 ${validation.stats.criticalCount}건)`,
+              message: validation.issues[0]?.description || "",
+              entityType: "accounting",
+              entityCode: "journal",
+              contextData: validation.stats,
+            }]);
+          }
+        } catch (e) {
+          console.error(`[ERP AI Weekly] 테넌트 ${tenant.id} 실패:`, e);
+        }
+      }
+
+      console.log(`[ERP AI Weekly] ${timestamp} - 완료`);
+    } catch (error) {
+      console.error(`[ERP AI Weekly] ${timestamp} - 실패:`, error);
+    }
+  });
+  console.log("[Scheduler] ERP AI 주간 현금흐름/분개 점검 스케줄러 초기화 완료 (매주 월요일 오전 8시)");
+
 }
