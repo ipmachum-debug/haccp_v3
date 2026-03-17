@@ -552,7 +552,7 @@ export async function searchKnowledge(
      JOIN ai_knowledge_documents d ON c.document_id = d.id
      WHERE (${conditions.join(" AND ")})
        AND d.is_active = 1
-       AND d.status = 'ready'
+       AND d.status IN ('ready', 'active')
        AND c.embedding IS NOT NULL`,
     params
   );

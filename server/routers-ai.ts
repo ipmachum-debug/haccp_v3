@@ -260,8 +260,51 @@ Q: 모바일에서도 사용할 수 있나요?
 A: 네, 웹 브라우저를 통해 모바일에서도 접속 가능하며, "모바일 빠른 점검" 기능은 모바일에 최적화되어 있습니다.
 `;
 
-// 대화 히스토리 저장 (메모리 기반)
+// 대화 히스토리 저장 (메모리 + DB 영속화)
 const conversationHistory = new Map<string, Array<{ role: string; content: string }>>();
+
+/** DB에서 대화 히스토리 복구 (서버 재시작 시) */
+async function loadConversationHistory(tenantId: number, convId: string): Promise<Array<{ role: string; content: string }>> {
+  try {
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute(
+      `SELECT role, content FROM ai_chat_history
+       WHERE tenant_id = ? AND conversation_id = ?
+       ORDER BY created_at DESC LIMIT 20`,
+      [tenantId, convId]
+    );
+    return ((rows as any[]).reverse()).map((r) => ({ role: r.role, content: r.content }));
+  } catch {
+    return [];
+  }
+}
+
+/** DB에 대화 메시지 저장 */
+async function saveConversationMessage(tenantId: number, convId: string, userId: string, role: string, content: string) {
+  try {
+    const conn = await getRawConnection();
+    await conn.execute(
+      `INSERT INTO ai_chat_history (tenant_id, conversation_id, user_id, role, content, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [tenantId, convId, userId, role, content.slice(0, 10000)]
+    );
+    // 오래된 히스토리 정리 (대화당 최대 50개)
+    await conn.execute(
+      `DELETE FROM ai_chat_history
+       WHERE tenant_id = ? AND conversation_id = ?
+         AND id NOT IN (
+           SELECT id FROM (
+             SELECT id FROM ai_chat_history
+             WHERE tenant_id = ? AND conversation_id = ?
+             ORDER BY created_at DESC LIMIT 50
+           ) as recent
+         )`,
+      [tenantId, convId, tenantId, convId]
+    );
+  } catch {
+    // DB 저장 실패 시 무시 (메모리에는 이미 저장됨)
+  }
+}
 
 export const aiRouter = router({
   // ============================================================================
@@ -279,9 +322,13 @@ export const aiRouter = router({
       const convId = input.conversationId || userId;
       const tenantId = ctx.tenantId;
 
-      // 대화 히스토리 가져오기
-      let history = conversationHistory.get(convId) || [];
+      // 대화 히스토리 가져오기 (메모리 캐시 → DB 폴백)
+      let history = conversationHistory.get(convId);
+      if (!history || history.length === 0) {
+        history = await loadConversationHistory(tenantId, convId);
+      }
       history.push({ role: "user", content: input.message });
+      await saveConversationMessage(tenantId, convId, userId, "user", input.message);
 
       try {
         // AI 기반 의도 분류
@@ -338,9 +385,10 @@ export const aiRouter = router({
           } catch { /* 감사 로그 실패 무시 */ }
         }
 
-        // 히스토리 업데이트
+        // 히스토리 업데이트 (메모리 + DB)
         history.push({ role: "assistant", content: assistantMessage });
         conversationHistory.set(convId, history.slice(-20));
+        await saveConversationMessage(tenantId, convId, userId, "assistant", assistantMessage);
 
         return { success: true, response: assistantMessage, conversationId: convId };
       } catch (error: any) {

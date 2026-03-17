@@ -265,7 +265,188 @@ export async function evaluateAllRules(tenantId: number, targetDate?: string): P
     ...cleaningLogMissing,
   );
 
+  // === 커스텀 규칙 평가 (P9-1) ===
+  const customResults = await evaluateCustomRules(tenantId, date);
+  results.push(...customResults);
+
   return results;
+}
+
+// ============================================================================
+// P9-1: 커스텀 규칙 JSON 인터프리터
+// ============================================================================
+
+/**
+ * 테넌트별 커스텀 규칙을 DB에서 조회하여 동적으로 평가
+ * conditions JSON 형식:
+ * {
+ *   "field": "temperature" | "humidity" | "yield" | "checklist_rate" | "ccp_fail_count",
+ *   "operator": ">" | "<" | ">=" | "<=" | "==" | "!=",
+ *   "value": number,
+ *   "table": "h_temperature_logs" | "h_batches" | "checklist_instances" | "h_ccp_rows",
+ *   "timeRange": "today" | "7days" | "30days"
+ * }
+ */
+async function evaluateCustomRules(tenantId: number, date: string): Promise<RuleEvaluationResult[]> {
+  const conn = await getRawConnection();
+  const results: RuleEvaluationResult[] = [];
+
+  try {
+    const [rules] = await conn.execute(
+      `SELECT id, code, name, description, rule_type, entity_type, conditions, severity
+       FROM ai_rules
+       WHERE tenant_id = ? AND is_active = 1 AND is_system = 0`,
+      [tenantId]
+    );
+
+    for (const rule of rules as any[]) {
+      try {
+        let conditions: any;
+        try {
+          conditions = typeof rule.conditions === "string" ? JSON.parse(rule.conditions) : rule.conditions;
+        } catch { continue; }
+
+        if (!conditions || !conditions.field) continue;
+
+        const triggered = await evaluateCustomCondition(tenantId, date, conditions);
+
+        if (triggered.isTriggered) {
+          results.push({
+            ruleCode: rule.code,
+            triggered: true,
+            severity: rule.severity,
+            title: rule.name,
+            message: triggered.message || rule.description || `커스텀 규칙 [${rule.name}] 트리거`,
+            entityType: rule.entity_type || "custom",
+            entityId: triggered.entityId,
+            entityCode: triggered.entityCode,
+            contextData: { customRuleId: rule.id, conditions, actualValue: triggered.actualValue },
+          });
+        }
+      } catch {
+        // 개별 규칙 실패 시 계속
+      }
+    }
+  } catch {
+    // 커스텀 규칙 조회 실패 시 무시
+  }
+
+  return results;
+}
+
+async function evaluateCustomCondition(
+  tenantId: number,
+  date: string,
+  conditions: any
+): Promise<{ isTriggered: boolean; message?: string; entityId?: number; entityCode?: string; actualValue?: number }> {
+  const conn = await getRawConnection();
+  const { field, operator, value, timeRange } = conditions;
+
+  if (!field || !operator || value === undefined) {
+    return { isTriggered: false };
+  }
+
+  // 시간 범위 결정
+  let startDate = date;
+  if (timeRange === "7days") {
+    startDate = new Date(new Date(date).getTime() - 7 * 86400000).toISOString().split("T")[0];
+  } else if (timeRange === "30days") {
+    startDate = new Date(new Date(date).getTime() - 30 * 86400000).toISOString().split("T")[0];
+  }
+
+  let actualValue: number | null = null;
+  let entityInfo = { entityId: undefined as number | undefined, entityCode: undefined as string | undefined };
+
+  switch (field) {
+    case "temperature": {
+      const [rows] = await conn.execute(
+        `SELECT id, location, temperature FROM h_temperature_logs
+         WHERE tenant_id = ? AND DATE(log_time) BETWEEN ? AND ?
+           AND status IN ('warning', 'critical')
+         ORDER BY log_time DESC LIMIT 1`,
+        [tenantId, startDate, date]
+      );
+      const row = (rows as any[])[0];
+      if (row) { actualValue = Number(row.temperature); entityInfo.entityCode = row.location; }
+      break;
+    }
+    case "humidity": {
+      const [rows] = await conn.execute(
+        `SELECT id, location, humidity FROM h_temperature_logs
+         WHERE tenant_id = ? AND DATE(log_time) BETWEEN ? AND ? AND humidity IS NOT NULL
+         ORDER BY humidity DESC LIMIT 1`,
+        [tenantId, startDate, date]
+      );
+      const row = (rows as any[])[0];
+      if (row) { actualValue = Number(row.humidity); entityInfo.entityCode = row.location; }
+      break;
+    }
+    case "yield": {
+      const [rows] = await conn.execute(
+        `SELECT id, batch_code, actual_yield FROM h_batches
+         WHERE tenant_id = ? AND status = 'completed' AND actual_yield IS NOT NULL
+           AND DATE(completed_at) BETWEEN ? AND ?
+         ORDER BY actual_yield ASC LIMIT 1`,
+        [tenantId, startDate, date]
+      );
+      const row = (rows as any[])[0];
+      if (row) { actualValue = Number(row.actual_yield); entityInfo.entityId = row.id; entityInfo.entityCode = row.batch_code; }
+      break;
+    }
+    case "checklist_rate": {
+      const [rows] = await conn.execute(
+        `SELECT
+           COUNT(*) as total,
+           SUM(CASE WHEN status IN ('completed', 'approved') THEN 1 ELSE 0 END) as completed
+         FROM checklist_instances
+         WHERE tenant_id = ? AND DATE(created_at) = ?`,
+        [tenantId, date]
+      );
+      const row = (rows as any[])[0];
+      if (row && Number(row.total) > 0) { actualValue = (Number(row.completed) / Number(row.total)) * 100; }
+      break;
+    }
+    case "ccp_fail_count": {
+      const [rows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM h_ccp_rows hcr
+         JOIN h_ccp_instances hci ON hci.id = hcr.instance_id
+         WHERE hci.tenant_id = ? AND hcr.result = 'FAIL'
+           AND hci.work_date BETWEEN ? AND ?`,
+        [tenantId, startDate, date]
+      );
+      actualValue = Number((rows as any[])[0]?.cnt || 0);
+      break;
+    }
+    default:
+      return { isTriggered: false };
+  }
+
+  if (actualValue === null) return { isTriggered: false };
+
+  // 연산자 비교
+  let isTriggered = false;
+  switch (operator) {
+    case ">": isTriggered = actualValue > value; break;
+    case "<": isTriggered = actualValue < value; break;
+    case ">=": isTriggered = actualValue >= value; break;
+    case "<=": isTriggered = actualValue <= value; break;
+    case "==": isTriggered = actualValue === value; break;
+    case "!=": isTriggered = actualValue !== value; break;
+  }
+
+  const fieldLabels: Record<string, string> = {
+    temperature: "온도", humidity: "습도", yield: "수율",
+    checklist_rate: "체크리스트 완료율", ccp_fail_count: "CCP 이탈 건수",
+  };
+
+  return {
+    isTriggered,
+    message: isTriggered
+      ? `${fieldLabels[field] || field}: ${actualValue} (기준: ${operator} ${value})`
+      : undefined,
+    ...entityInfo,
+    actualValue,
+  };
 }
 
 // ============================================================================
