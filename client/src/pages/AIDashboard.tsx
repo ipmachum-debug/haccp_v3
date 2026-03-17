@@ -762,7 +762,7 @@ function StandardsTab() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUpload(false)}>취소</Button>
             <Button onClick={handleUploadAndParse} disabled={uploadMutation.isPending || !name.trim() || !content.trim()}>
-              {uploadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
+              {uploadMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
               AI 분석 시작
             </Button>
           </DialogFooter>
@@ -960,7 +960,7 @@ function CorrectiveActionTab() {
             </div>
           </div>
           <Button onClick={handleGenerate} disabled={mutation.isPending || !description.trim()}>
-            {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Brain className="w-4 h-4 mr-2" />}
+            {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
             시정조치서 초안 생성
           </Button>
         </CardContent>
@@ -1135,7 +1135,7 @@ function KnowledgeBaseTab() {
         <Card>
           <CardContent className="pt-4">
             <div className="flex items-center gap-2 mb-1">
-              <Brain className="w-4 h-4 text-purple-500" />
+              <Sparkles className="w-4 h-4 text-purple-500" />
               <span className="text-xs text-muted-foreground">총 토큰</span>
             </div>
             <div className="text-2xl font-bold">{(kbStats?.totalTokens || 0).toLocaleString()}</div>
