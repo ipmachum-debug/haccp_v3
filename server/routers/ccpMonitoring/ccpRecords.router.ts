@@ -4,6 +4,7 @@ import { getDb } from "../../db";
 import { ccpMonitoringRecords } from "../../../drizzle/schema/ccpMonitoring";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { getEffectiveTenantId } from "./_helpers";
+import { triggerCcpTemperatureAlert } from "../../db/temperatureAlertTrigger";
 
 export const ccpRecordsRouter = router({
   // CCP 모니터링 기록 관리
@@ -47,7 +48,24 @@ export const ccpRecordsRouter = router({
         tenantId,
         operatorId: ctx.user.id,
       });
-      return { id: result.insertId };
+      const recordId = result.insertId;
+
+      // P9-4: 실시간 온도 알림 트리거 (비동기, 에러 무시)
+      triggerCcpTemperatureAlert({
+        tenantId,
+        recordId: Number(recordId),
+        ccpType: input.ccpType,
+        productName: input.productName,
+        temperatureC: input.temperatureC,
+        tempEdgeC: input.tempEdgeC,
+        tempCenterC: input.tempCenterC,
+        heatingTimeMin: input.heatingTimeMin,
+        pressureMpa: input.pressureMpa,
+        passFail: input.passFail,
+        measurementTime: input.measurementTime,
+      }).catch((err) => console.error("[P9-4] CCP temperature alert trigger failed:", err));
+
+      return { id: recordId };
     }),
 
   getCcpMonitoringRecords: tenantRequiredProcedure

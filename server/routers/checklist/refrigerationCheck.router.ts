@@ -7,7 +7,8 @@ import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
 import { hRefrigerationChecks } from "../../../drizzle/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
-import { getEffectiveSiteId } from "./_helpers";
+import { getEffectiveSiteId, getEffectiveTenantId } from "./_helpers";
+import { triggerRefrigerationAlert } from "../../db/temperatureAlertTrigger";
 
 export const refrigerationCheckRouter = router({
   list: tenantRequiredProcedure
@@ -71,7 +72,22 @@ export const refrigerationCheckRouter = router({
         humidity: input.humidity?.toString(),
       } as any);
 
-      return { success: true, id: Number((result as any).insertId) };
+      const recordId = Number((result as any).insertId);
+
+      // P9-4: 실시간 냉동·냉장 온도 알림 트리거 (비동기, 에러 무시)
+      const tenantId = getEffectiveTenantId(ctx);
+      triggerRefrigerationAlert({
+        tenantId,
+        recordId,
+        equipmentName: input.equipmentName,
+        equipmentType: input.equipmentType,
+        temperature: input.temperature,
+        targetTemperature: input.targetTemperature,
+        checkResult: input.checkResult,
+        siteId: input.siteId,
+      }).catch((err) => console.error("[P9-4] Refrigeration temperature alert trigger failed:", err));
+
+      return { success: true, id: recordId };
     }),
 
   update: tenantRequiredProcedure
