@@ -5,7 +5,7 @@ import { ENV } from "./_core/env";
 import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
 import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
 import { getRawConnection } from "./db";
-import { processUserQuery, classifyIntent } from "./db/aiActionEngine";
+import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/aiActionEngine";
 import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
 import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
 
@@ -284,8 +284,8 @@ export const aiRouter = router({
       history.push({ role: "user", content: input.message });
 
       try {
-        // 의도 분류
-        const intent = classifyIntent(input.message);
+        // AI 기반 의도 분류
+        const { intent } = await classifyIntentAI(input.message);
 
         let assistantMessage: string;
 
@@ -1354,5 +1354,111 @@ export const aiRouter = router({
       } catch (error: any) {
         return { success: false, error: error?.message };
       }
+    }),
+
+  // ============================================================================
+  // P8-2: AI 이상탐지 (Anomaly Detection)
+  // ============================================================================
+  detectAnomalies: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { detectAnomalies } = await import("./db/aiAnomalyDetection");
+      return detectAnomalies(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-3: AI 예측 분석
+  // ============================================================================
+  getPredictions: tenantRequiredProcedure
+    .input(z.object({ focus: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const { generatePredictions } = await import("./db/aiPrediction");
+      return generatePredictions(ctx.tenantId, input?.focus);
+    }),
+
+  // ============================================================================
+  // P8-4: AI HACCP 계획서 자동생성
+  // ============================================================================
+  generateHaccpPlan: tenantRequiredProcedure
+    .input(
+      z.object({
+        companyName: z.string(),
+        businessType: z.string(),
+        products: z.array(z.string()),
+        rawMaterials: z.array(z.string()),
+        processes: z.array(z.string()),
+        facilityInfo: z.string().optional(),
+        existingCCPs: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateHaccpPlan } = await import("./db/aiHaccpPlan");
+      return generateHaccpPlan(ctx.tenantId, input);
+    }),
+
+  generateHaccpPlanAuto: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      const { generateHaccpPlanFromExistingData } = await import("./db/aiHaccpPlan");
+      return generateHaccpPlanFromExistingData(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-5: AI 보고서 내러티브
+  // ============================================================================
+  generateFinancialNarrative: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+        type: z.enum(["monthly", "quarterly"]).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateFinancialNarrative } = await import("./db/aiReportNarrative");
+      return generateFinancialNarrative(ctx.tenantId, { startDate: input.startDate, endDate: input.endDate }, input.type);
+    }),
+
+  generateHaccpNarrative: tenantRequiredProcedure
+    .input(z.object({ period: z.enum(["weekly", "monthly"]).optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const { generateHaccpNarrative } = await import("./db/aiReportNarrative");
+      return generateHaccpNarrative(ctx.tenantId, input?.period);
+    }),
+
+  generateExecutiveSummary: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      const { generateExecutiveSummary } = await import("./db/aiReportNarrative");
+      return generateExecutiveSummary(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-6: AI 감사 자료 패키지
+  // ============================================================================
+  generateAuditPackage: tenantRequiredProcedure
+    .input(
+      z.object({
+        auditType: z.enum(["haccp_certification", "haccp_renewal", "regular_audit"]).optional(),
+      }).optional()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateAuditPackage } = await import("./db/aiAuditPackage");
+      return generateAuditPackage(ctx.tenantId, input?.auditType);
+    }),
+
+  // ============================================================================
+  // P8-7: AI 공급업체 리스크 스코어링
+  // ============================================================================
+  analyzeSupplierRisk: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { analyzeSupplierRisk } = await import("./db/aiSupplierRisk");
+      return analyzeSupplierRisk(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-8: AI 교육 추천
+  // ============================================================================
+  getTrainingRecommendations: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { generateTrainingRecommendations } = await import("./db/aiTrainingRecommendation");
+      return generateTrainingRecommendations(ctx.tenantId);
     }),
 });

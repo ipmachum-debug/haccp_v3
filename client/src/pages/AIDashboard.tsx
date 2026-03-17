@@ -105,21 +105,31 @@ export default function AIDashboard() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid grid-cols-6 w-full max-w-4xl">
+          <TabsList className="flex flex-wrap gap-1 w-full max-w-6xl h-auto">
             <TabsTrigger value="overview">대시보드</TabsTrigger>
+            <TabsTrigger value="anomaly">이상탐지</TabsTrigger>
+            <TabsTrigger value="prediction">예측분석</TabsTrigger>
             <TabsTrigger value="alerts">알림 관리</TabsTrigger>
             <TabsTrigger value="standards">기준서 관리</TabsTrigger>
             <TabsTrigger value="knowledge">지식베이스</TabsTrigger>
             <TabsTrigger value="corrective">시정조치 AI</TabsTrigger>
-            <TabsTrigger value="audit">감사 자료</TabsTrigger>
+            <TabsTrigger value="audit">감사 AI</TabsTrigger>
+            <TabsTrigger value="supplier">공급업체 리스크</TabsTrigger>
+            <TabsTrigger value="training">교육 추천</TabsTrigger>
+            <TabsTrigger value="reports">AI 보고서</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview"><OverviewTab /></TabsContent>
+          <TabsContent value="anomaly"><AnomalyTab /></TabsContent>
+          <TabsContent value="prediction"><PredictionTab /></TabsContent>
           <TabsContent value="alerts"><AlertsTab /></TabsContent>
           <TabsContent value="standards"><StandardsTab /></TabsContent>
           <TabsContent value="knowledge"><KnowledgeBaseTab /></TabsContent>
           <TabsContent value="corrective"><CorrectiveActionTab /></TabsContent>
           <TabsContent value="audit"><AuditTab /></TabsContent>
+          <TabsContent value="supplier"><SupplierRiskTab /></TabsContent>
+          <TabsContent value="training"><TrainingTab /></TabsContent>
+          <TabsContent value="reports"><ReportsTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
@@ -1405,5 +1415,431 @@ function AuditCard({ title, total, detail, icon }: { title: string; total: numbe
         <p className="text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================================
+// P8-2: 이상탐지 탭
+// ============================================================================
+function AnomalyTab() {
+  const anomalyQuery = trpc.ai.detectAnomalies.useQuery(undefined, { refetchOnWindowFocus: false });
+  const data = anomalyQuery.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-orange-500" />
+          AI 이상 패턴 탐지
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => anomalyQuery.refetch()}>
+          <RefreshCw className="w-4 h-4 mr-1" /> 재분석
+        </Button>
+      </div>
+
+      {anomalyQuery.isLoading && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />데이터 분석 중...</div>}
+
+      {data && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card><CardContent className="pt-4 text-center">
+              <div className="text-3xl font-bold">{data.totalAnomalies}</div>
+              <p className="text-sm text-muted-foreground">총 이상 감지</p>
+            </CardContent></Card>
+            <Card className={data.criticalCount > 0 ? "border-red-300 bg-red-50" : ""}>
+              <CardContent className="pt-4 text-center">
+                <div className="text-3xl font-bold text-red-600">{data.criticalCount}</div>
+                <p className="text-sm text-muted-foreground">위험 등급</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {data.aiSummary && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
+              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
+            </Card>
+          )}
+
+          {data.anomalies.map((anomaly: any, i: number) => (
+            <Card key={i} className={anomaly.severity === "critical" ? "border-red-300" : anomaly.severity === "high" ? "border-orange-300" : ""}>
+              <CardContent className="pt-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <SeverityBadge severity={anomaly.severity} />
+                    <span className="font-medium">{anomaly.title}</span>
+                  </div>
+                  {anomaly.zScore && <span className="text-xs text-muted-foreground">Z-score: {anomaly.zScore}</span>}
+                </div>
+                <p className="text-sm text-muted-foreground mb-2">{anomaly.description}</p>
+                {anomaly.possibleCauses && (
+                  <div className="text-xs text-muted-foreground">
+                    <span className="font-medium">가능한 원인:</span> {anomaly.possibleCauses.join(", ")}
+                  </div>
+                )}
+                {anomaly.recommendedActions && (
+                  <div className="text-xs text-blue-600 mt-1">
+                    <span className="font-medium">권장 조치:</span> {anomaly.recommendedActions.join(", ")}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+
+          {data.totalAnomalies === 0 && (
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">
+              <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+              이상 패턴이 감지되지 않았습니다
+            </CardContent></Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// P8-3: 예측분석 탭
+// ============================================================================
+function PredictionTab() {
+  const predQuery = trpc.ai.getPredictions.useQuery(undefined, { refetchOnWindowFocus: false });
+  const data = predQuery.data;
+
+  const RISK_COLORS: Record<string, string> = {
+    critical: "border-red-300 bg-red-50",
+    high: "border-orange-300 bg-orange-50",
+    medium: "border-yellow-300 bg-yellow-50",
+    low: "border-green-300 bg-green-50",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <ChevronRight className="w-5 h-5 text-blue-500" />
+          AI 예측 분석
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => predQuery.refetch()}>
+          <RefreshCw className="w-4 h-4 mr-1" /> 재분석
+        </Button>
+      </div>
+
+      {predQuery.isLoading && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />예측 분석 중...</div>}
+
+      {data && (
+        <>
+          {data.aiNarrative && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 전망</CardTitle></CardHeader>
+              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiNarrative}</p></CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {data.predictions.map((pred: any, i: number) => (
+              <Card key={i} className={RISK_COLORS[pred.riskLevel] || ""}>
+                <CardContent className="pt-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <span className="font-medium text-sm">{pred.title}</span>
+                    <Badge variant="outline" className="text-xs">
+                      {pred.trend === "up" ? "↑" : pred.trend === "down" ? "↓" : "→"} {pred.timeframe}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-2">{pred.description}</p>
+                  <div className="flex items-center gap-4 text-xs">
+                    <span>신뢰도: <strong>{pred.confidence}</strong></span>
+                    <SeverityBadge severity={pred.riskLevel} />
+                  </div>
+                  {pred.recommendations.length > 0 && (
+                    <div className="mt-2 text-xs text-blue-600">
+                      {pred.recommendations.map((r: string, j: number) => <div key={j}>- {r}</div>)}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {data.predictions.length === 0 && (
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">
+              <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+              현재 주의가 필요한 예측이 없습니다
+            </CardContent></Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// P8-7: 공급업체 리스크 탭
+// ============================================================================
+function SupplierRiskTab() {
+  const riskQuery = trpc.ai.analyzeSupplierRisk.useQuery(undefined, { refetchOnWindowFocus: false });
+  const data = riskQuery.data;
+
+  const RISK_BG: Record<string, string> = {
+    critical: "bg-red-100", high: "bg-orange-100", medium: "bg-yellow-50", low: "",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Shield className="w-5 h-5 text-purple-500" />
+          공급업체 리스크 분석
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => riskQuery.refetch()}>
+          <RefreshCw className="w-4 h-4 mr-1" /> 재분석
+        </Button>
+      </div>
+
+      {riskQuery.isLoading && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />공급업체 분석 중...</div>}
+
+      {data && (
+        <>
+          {data.aiSummary && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 분석</CardTitle></CardHeader>
+              <CardContent><p className="text-sm whitespace-pre-wrap">{data.aiSummary}</p></CardContent>
+            </Card>
+          )}
+
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>공급업체</TableHead>
+                <TableHead className="text-center">리스크점수</TableHead>
+                <TableHead className="text-center">납품지연</TableHead>
+                <TableHead className="text-center">불합격률</TableHead>
+                <TableHead className="text-center">가격변동</TableHead>
+                <TableHead className="text-center">거래건수</TableHead>
+                <TableHead>주요 우려</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.suppliers.map((s: any) => (
+                <TableRow key={s.partnerId} className={RISK_BG[s.riskLevel] || ""}>
+                  <TableCell className="font-medium">{s.partnerName}</TableCell>
+                  <TableCell className="text-center">
+                    <SeverityBadge severity={s.riskLevel} /> <span className="ml-1">{s.overallScore}</span>
+                  </TableCell>
+                  <TableCell className="text-center">{s.metrics.deliveryDelayRate}%</TableCell>
+                  <TableCell className="text-center">{s.metrics.qualityRejectRate}%</TableCell>
+                  <TableCell className="text-center">{s.metrics.priceVolatility}%</TableCell>
+                  <TableCell className="text-center">{s.metrics.transactionCount}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                    {s.concerns.join("; ") || "-"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+
+          {data.suppliers.length === 0 && (
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">분석 가능한 공급업체가 없습니다</CardContent></Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// P8-8: 교육 추천 탭
+// ============================================================================
+function TrainingTab() {
+  const trainQuery = trpc.ai.getTrainingRecommendations.useQuery(undefined, { refetchOnWindowFocus: false });
+  const data = trainQuery.data;
+
+  const PRIORITY_COLORS: Record<string, string> = {
+    urgent: "bg-red-100 text-red-800 border-red-300",
+    high: "bg-orange-100 text-orange-800 border-orange-300",
+    medium: "bg-yellow-100 text-yellow-800 border-yellow-300",
+    low: "bg-blue-100 text-blue-800 border-blue-300",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <BookOpen className="w-5 h-5 text-green-600" />
+          AI 교육 추천
+        </h2>
+        <Button variant="outline" size="sm" onClick={() => trainQuery.refetch()}>
+          <RefreshCw className="w-4 h-4 mr-1" /> 재분석
+        </Button>
+      </div>
+
+      {trainQuery.isLoading && <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />교육 필요도 분석 중...</div>}
+
+      {data && (
+        <>
+          {data.overallAssessment && (
+            <Card className="border-indigo-200 bg-indigo-50">
+              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" /> AI 종합 평가</CardTitle></CardHeader>
+              <CardContent><p className="text-sm whitespace-pre-wrap">{data.overallAssessment}</p></CardContent>
+            </Card>
+          )}
+
+          {data.scheduleSuggestion.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">추천 교육 일정 (4주)</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>주차</TableHead>
+                      <TableHead>교육명</TableHead>
+                      <TableHead>대상</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {data.scheduleSuggestion.map((s: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell>{s.week}주차</TableCell>
+                        <TableCell>{s.training}</TableCell>
+                        <TableCell>{s.target}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {data.recommendations.map((rec: any, i: number) => (
+            <Card key={i} className={rec.priority === "urgent" ? "border-red-300" : ""}>
+              <CardContent className="pt-4">
+                <div className="flex items-start justify-between mb-2">
+                  <span className="font-medium">{rec.title}</span>
+                  <Badge variant="outline" className={PRIORITY_COLORS[rec.priority] || ""}>
+                    {rec.priority === "urgent" ? "긴급" : rec.priority === "high" ? "높음" : rec.priority === "medium" ? "보통" : "낮음"}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground mb-2">{rec.description}</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div><strong>대상:</strong> {rec.targetAudience.join(", ")}</div>
+                  <div><strong>소요시간:</strong> {rec.suggestedDuration}</div>
+                  <div><strong>근거:</strong> {rec.reason}</div>
+                  <div><strong>관련 건수:</strong> {rec.relatedIncidents}건</div>
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  <strong>핵심 주제:</strong> {rec.keyTopics.join(" / ")}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+
+          {data.recommendations.length === 0 && (
+            <Card><CardContent className="pt-6 text-center text-muted-foreground">
+              <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+              현재 추가 교육이 필요한 항목이 없습니다
+            </CardContent></Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// P8-5: AI 보고서 탭
+// ============================================================================
+function ReportsTab() {
+  const [reportType, setReportType] = useState<string>("executive");
+  const execMutation = trpc.ai.generateExecutiveSummary.useMutation();
+  const haccpMutation = trpc.ai.generateHaccpNarrative.useMutation();
+  const financialMutation = trpc.ai.generateFinancialNarrative.useMutation();
+
+  const isLoading = execMutation.isPending || haccpMutation.isPending || financialMutation.isPending;
+  const currentData = reportType === "executive" ? execMutation.data
+    : reportType === "haccp" ? haccpMutation.data
+    : financialMutation.data;
+
+  const handleGenerate = () => {
+    if (reportType === "executive") execMutation.mutate({});
+    else if (reportType === "haccp") haccpMutation.mutate({});
+    else {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+      const end = now.toISOString().split("T")[0];
+      financialMutation.mutate({ startDate: start, endDate: end });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <FileText className="w-5 h-5 text-teal-600" />
+          AI 보고서 생성
+        </h2>
+        <div className="flex items-center gap-2">
+          <Select value={reportType} onValueChange={setReportType}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="executive">경영진 요약</SelectItem>
+              <SelectItem value="haccp">HACCP 주간보고</SelectItem>
+              <SelectItem value="financial">재무 월간보고</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={handleGenerate} disabled={isLoading}>
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Brain className="w-4 h-4 mr-1" />}
+            보고서 생성
+          </Button>
+        </div>
+      </div>
+
+      {currentData && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{(currentData as any).title}</CardTitle>
+              <p className="text-xs text-muted-foreground">기간: {(currentData as any).period} | 생성: {(currentData as any).generatedAt?.split("T")[0]}</p>
+            </CardHeader>
+            <CardContent>
+              <div className="prose prose-sm max-w-none whitespace-pre-wrap">{(currentData as any).narrative}</div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {(currentData as any).highlights?.length > 0 && (
+              <Card className="border-green-200 bg-green-50">
+                <CardHeader className="pb-2"><CardTitle className="text-sm text-green-700">긍정적 지표</CardTitle></CardHeader>
+                <CardContent className="text-sm">
+                  {(currentData as any).highlights.map((h: string, i: number) => <div key={i} className="mb-1">+ {h}</div>)}
+                </CardContent>
+              </Card>
+            )}
+            {(currentData as any).concerns?.length > 0 && (
+              <Card className="border-orange-200 bg-orange-50">
+                <CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">우려 사항</CardTitle></CardHeader>
+                <CardContent className="text-sm">
+                  {(currentData as any).concerns.map((c: string, i: number) => <div key={i} className="mb-1">! {c}</div>)}
+                </CardContent>
+              </Card>
+            )}
+            {(currentData as any).recommendations?.length > 0 && (
+              <Card className="border-blue-200 bg-blue-50">
+                <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">권장 사항</CardTitle></CardHeader>
+                <CardContent className="text-sm">
+                  {(currentData as any).recommendations.map((r: string, i: number) => <div key={i} className="mb-1">* {r}</div>)}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!currentData && !isLoading && (
+        <Card><CardContent className="pt-6 text-center text-muted-foreground">
+          보고서 유형을 선택하고 "보고서 생성" 버튼을 클릭하세요
+        </CardContent></Card>
+      )}
+    </div>
   );
 }

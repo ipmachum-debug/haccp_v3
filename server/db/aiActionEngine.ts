@@ -57,43 +57,107 @@ export type UserIntent =
   | "corrective_draft"
   | "temperature_check"
   | "production_analysis"
+  | "prediction"
+  | "anomaly_detection"
   | "general";
 
-/** 키워드 기반 의도 분류 (빠르고 저렴) */
-export function classifyIntent(message: string): UserIntent {
+/** 키워드 기반 의도 분류 (폴백용) */
+export function classifyIntentKeyword(message: string): UserIntent {
   const msg = message.toLowerCase();
 
-  // 위험/리스크 체크
   if (/위험|리스크|risk|경고|alert|주의|문제/.test(msg)) return "risk_check";
-
-  // CCP 관련
   if (/ccp|중요관리|온도.*이탈|시간.*이탈|압력.*이탈|금속검출/.test(msg)) return "ccp_summary";
-
-  // 체크리스트
   if (/체크리스트|점검.*누락|미작성|작성.*안|체크.*현황/.test(msg)) return "checklist_status";
-
-  // 배치 분석
   if (/배치.*분석|batch.*분석|배치.*B-|수율.*분석/.test(msg)) return "batch_analysis";
-
-  // 이탈/부적합 이력
   if (/부적합|이탈.*이력|이탈.*요약|불량|deviation|클레임/.test(msg)) return "deviation_history";
-
-  // 설비 상태
   if (/설비|장비|equipment|검교정|교정.*기한/.test(msg)) return "equipment_status";
-
-  // 감사 준비
   if (/감사|점검.*준비|심사|audit|대비/.test(msg)) return "audit_prep";
-
-  // 시정조치
   if (/시정조치|corrective|조치.*작성|조치.*초안/.test(msg)) return "corrective_draft";
-
-  // 온도 체크
   if (/온도|냉장|냉동|보관.*온도|temperature/.test(msg)) return "temperature_check";
-
-  // 생산 분석
   if (/수율.*떨어|수율.*하락|생산.*분석|왜.*수율|production/.test(msg)) return "production_analysis";
+  if (/예측|forecast|전망|추세|트렌드|앞으로/.test(msg)) return "prediction";
+  if (/이상.*탐지|anomal|패턴.*이상|비정상/.test(msg)) return "anomaly_detection";
 
   return "general";
+}
+
+/** 엔티티 추출 결과 */
+export type ExtractedEntities = {
+  dateRange?: { startDate: string; endDate: string };
+  batchCode?: string;
+  productName?: string;
+  equipmentName?: string;
+  temperature?: number;
+};
+
+/** LLM 기반 의도 분류 + 엔티티 추출 */
+export async function classifyIntentAI(message: string): Promise<{
+  intent: UserIntent;
+  entities: ExtractedEntities;
+  confidence: number;
+}> {
+  if (!ENV.forgeApiKey) {
+    return { intent: classifyIntentKeyword(message), entities: {}, confidence: 0.5 };
+  }
+
+  try {
+    const result = await invokeLLM({
+      messages: [
+        {
+          role: "system",
+          content: `당신은 HACCP 시스템의 의도 분류기입니다.
+사용자 메시지를 분석하여 의도(intent)와 엔티티를 추출하세요.
+
+가능한 intent:
+- risk_check: 위험/리스크/경고 관련
+- ccp_summary: CCP 모니터링/이탈 관련
+- checklist_status: 체크리스트 현황
+- batch_analysis: 배치/LOT 분석
+- deviation_history: 이탈/부적합 이력
+- equipment_status: 설비/장비 상태
+- audit_prep: 감사/심사 대비
+- corrective_draft: 시정조치서 작성
+- temperature_check: 온도 모니터링
+- production_analysis: 생산/수율 분석
+- prediction: 예측/전망/트렌드
+- anomaly_detection: 이상 패턴 탐지
+- general: 일반 HACCP 질문
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{"intent":"...","confidence":0.0~1.0,"entities":{"dateRange":null,"batchCode":null,"productName":null,"equipmentName":null,"temperature":null}}`,
+        },
+        { role: "user", content: message },
+      ],
+      maxTokens: 200,
+      responseFormat: { type: "json_object" },
+    });
+
+    const text = typeof result.choices[0]?.message?.content === "string"
+      ? result.choices[0].message.content : "{}";
+    const parsed = JSON.parse(text);
+
+    const validIntents: UserIntent[] = [
+      "risk_check", "ccp_summary", "checklist_status", "batch_analysis",
+      "deviation_history", "equipment_status", "audit_prep", "corrective_draft",
+      "temperature_check", "production_analysis", "prediction", "anomaly_detection", "general",
+    ];
+
+    const intent = validIntents.includes(parsed.intent) ? parsed.intent : classifyIntentKeyword(message);
+
+    return {
+      intent,
+      entities: parsed.entities || {},
+      confidence: parsed.confidence || 0.8,
+    };
+  } catch (error: any) {
+    console.error("[AI Intent Classification Error]", error?.message);
+    return { intent: classifyIntentKeyword(message), entities: {}, confidence: 0.5 };
+  }
+}
+
+/** 하위호환 - 기존 코드에서 classifyIntent 호출 시 키워드 폴백 사용 */
+export function classifyIntent(message: string): UserIntent {
+  return classifyIntentKeyword(message);
 }
 
 // ============================================================================
@@ -122,8 +186,8 @@ export async function processUserQuery(
   message: string,
   conversationHistory?: Array<{ role: string; content: string }>
 ): Promise<ActionResult> {
-  // 1. 의도 분류
-  const intent = classifyIntent(message);
+  // 1. AI 기반 의도 분류 (폴백: 키워드)
+  const { intent, entities } = await classifyIntentAI(message);
 
   // 2. 데이터 수집 + 지식베이스 검색 (병렬)
   const [{ context, dataSources }, knowledgeResult] = await Promise.all([
@@ -337,6 +401,24 @@ async function gatherContext(
         break;
       }
 
+      case "prediction": {
+        // 예측 분석: 최근 데이터 트렌드 수집
+        const { generatePredictions } = await import("./aiPrediction");
+        const predictions = await generatePredictions(tenantId, message);
+        context = { predictions };
+        dataSources.push("prediction_engine", "historical_data");
+        break;
+      }
+
+      case "anomaly_detection": {
+        // 이상탐지: 최근 데이터에서 이상 패턴 검출
+        const { detectAnomalies } = await import("./aiAnomalyDetection");
+        const anomalies = await detectAnomalies(tenantId);
+        context = { anomalies };
+        dataSources.push("anomaly_detection", "sensor_data");
+        break;
+      }
+
       default: {
         // 일반 질문: 간단한 현황만
         const overview = await getDailyOverview(tenantId);
@@ -445,6 +527,20 @@ ${knowledgeContext}
 - 수율 하락 원인을 데이터 기반으로 분석하세요.
 - 가능한 원인을 신뢰도 순서로 나열하세요.
 - 개선 방안을 제안하세요.`,
+
+    prediction: `
+## 지시사항: 예측 분석
+- 제공된 예측 데이터를 기반으로 트렌드를 설명하세요.
+- 향후 예상되는 변화와 그 근거를 구체적으로 제시하세요.
+- 대비해야 할 사항과 권장 조치를 제안하세요.
+- 예측의 신뢰도를 함께 표시하세요.`,
+
+    anomaly_detection: `
+## 지시사항: 이상 패턴 탐지
+- 감지된 이상 패턴을 심각도 순으로 정리하세요.
+- 각 이상 패턴의 가능한 원인을 분석하세요.
+- 즉시 조치가 필요한 항목을 명확히 구분하세요.
+- 유사 패턴의 과거 사례가 있으면 언급하세요.`,
 
     general: `
 ## 지시사항: 일반 질문
