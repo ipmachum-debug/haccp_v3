@@ -328,6 +328,18 @@ export const batchRouter = router({
           console.error('[파이프라인 STEP9] 생산일지 갱신 실패:', pdErr);
         }
 
+        // STEP 10. 체크리스트 자동 생성 (frequency=batch_create 템플릿)
+        let checklistResult: any = null;
+        try {
+          const { autoCreateChecklistsForBatch } = await import('../../lib/autoChecklistFromBatch');
+          checklistResult = await autoCreateChecklistsForBatch(tenantId, batchId, ctx.user.id, workDate);
+          if (checklistResult.created > 0) {
+            console.log(`[파이프라인 STEP10] 체크리스트 ${checklistResult.created}건 자동생성: ${checklistResult.templateNames.join(', ')}`);
+          }
+        } catch (clErr: any) {
+          console.error('[파이프라인 STEP10] 체크리스트 자동생성 실패 (배치 생성 유지):', clErr?.message || clErr);
+        }
+
         return {
           success: true,
           batchId,
@@ -337,6 +349,7 @@ export const batchRouter = router({
           approvalRequestId,
           dailyLogResult,
           periodicLogsResult,
+          checklistResult,
           mode: input.mode,
           autoNavigateToApproval: input.mode === "auto" && ccpCreated,
           message: ccpCreated
@@ -1521,9 +1534,20 @@ export const batchRouter = router({
           } catch (approvalError) {
             console.error('[파이프라인] 승인 요청 생성 오류:', approvalError);
           }
+          // 단절 4-2: 템플릿 기반 체크리스트 자동생성 (frequency=batch_complete)
+          let templateChecklistResult = null;
+          try {
+            const { autoCreateChecklistsForBatchComplete } = await import('../../lib/autoChecklistFromBatch');
+            templateChecklistResult = await autoCreateChecklistsForBatchComplete(ctx.tenantId!, input.batchId, ctx.user.id);
+            if (templateChecklistResult.created > 0) {
+              console.log(`[파이프라인] 템플릿 체크리스트 ${templateChecklistResult.created}건 자동생성: ${templateChecklistResult.templateNames.join(', ')}`);
+            }
+          } catch (tclErr: any) {
+            console.error('[파이프라인] 템플릿 체크리스트 자동생성 실패:', tclErr?.message || tclErr);
+          }
+
           // === 파이프라인 자동화 끝 ===
-          
-          
+
           // === 원료수불부 사용 연동 ===
           try {
             const { onBatchCompleted } = await import("../../db/materialLedger");
