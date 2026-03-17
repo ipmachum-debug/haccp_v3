@@ -246,12 +246,12 @@ async function detectPaymentOverdue(tenantId: number): Promise<ExpenseAnomaly[]>
          apl.description,
          apl.due_date
        FROM ap_ledger apl
-       LEFT JOIN partners p ON p.id = apl.partner_id
+       LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = ?
        WHERE apl.tenant_id = ? AND apl.status != 'paid'
          AND apl.due_date < CURDATE()
        ORDER BY overdueDays DESC
        LIMIT 30`,
-      [tenantId]
+      [tenantId, tenantId]
     );
 
     // 30/60/90일 구간 분류

@@ -69,13 +69,13 @@ async function analyzeApAging(tenantId: number): Promise<PartnerPaymentProfile[]
        SUM(CASE WHEN DATEDIFF(CURDATE(), apl.due_date) > 90 THEN apl.amount ELSE 0 END) as days120plus,
        MAX(CASE WHEN apl.due_date < CURDATE() THEN DATEDIFF(CURDATE(), apl.due_date) ELSE 0 END) as oldest_overdue
      FROM ap_ledger apl
-     LEFT JOIN partners p ON p.id = apl.partner_id
+     LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = ?
      WHERE apl.tenant_id = ? AND apl.status NOT IN ('paid', 'cancelled')
      GROUP BY apl.partner_id, p.name
      HAVING total_outstanding > 0
      ORDER BY total_outstanding DESC
      LIMIT 50`,
-    [tenantId]
+    [tenantId, tenantId]
   );
 
   // 거래처별 과거 결제 패턴
@@ -158,13 +158,13 @@ async function analyzeArAging(tenantId: number): Promise<PartnerPaymentProfile[]
        SUM(CASE WHEN DATEDIFF(CURDATE(), arl.due_date) > 90 THEN arl.amount ELSE 0 END) as days120plus,
        MAX(CASE WHEN arl.due_date < CURDATE() THEN DATEDIFF(CURDATE(), arl.due_date) ELSE 0 END) as oldest_overdue
      FROM ar_ledger arl
-     LEFT JOIN partners p ON p.id = arl.partner_id
+     LEFT JOIN partners p ON p.id = arl.partner_id AND p.tenant_id = ?
      WHERE arl.tenant_id = ? AND arl.status NOT IN ('collected', 'cancelled')
      GROUP BY arl.partner_id, p.name
      HAVING total_outstanding > 0
      ORDER BY total_outstanding DESC
      LIMIT 50`,
-    [tenantId]
+    [tenantId, tenantId]
   );
 
   // 과거 회수 패턴

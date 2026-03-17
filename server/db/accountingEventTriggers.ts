@@ -95,11 +95,11 @@ export async function checkUpcomingPayments(tenantId: number): Promise<number> {
               p.name as partnerName,
               DATEDIFF(apl.due_date, CURDATE()) as daysUntilDue
        FROM ap_ledger apl
-       LEFT JOIN partners p ON p.id = apl.partner_id
+       LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = ?
        WHERE apl.tenant_id = ? AND apl.status NOT IN ('paid', 'cancelled')
          AND apl.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
        ORDER BY apl.due_date ASC`,
-      [tenantId]
+      [tenantId, tenantId]
     );
 
     const items = rows as any[];
