@@ -1,10 +1,9 @@
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
-import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { allocateLotsFEFO, saveLotAllocations } from "./fefoLotAllocation";
 import { eq, and } from "drizzle-orm";
-import { resolveSystemAccount } from "../db/journalHelper";
+import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
@@ -14,14 +13,14 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
  * 1. 출고 문서 상태 검증 (DRAFT만 POST 가능)
  * 2. FEFO 로트 할당 (유통기한 빠른 순)
  * 3. 재고 원장 생성 (h_inventory_transactions - usage)
- * 4. 회계 원장 생성 (accounting_transactions)
+ * 4. 회계 분개 생성 (expense_journal_entries + expense_journal_lines)
  *    - 차변: WIP (1130 - 재공품)
  *    - 대변: 원재료 (1120 - 원재료재고)
  * 5. 출고 문서 상태 전환 (DRAFT → POSTED)
  *
  * **멱등성 보장:**
  * - h_inventory_transactions: UNIQUE(source_type, source_id, source_line_id, action_type, lot_id)
- * - accounting_transactions: UNIQUE(source_type, source_id, source_line_id, action_type, account_code)
+ * - expense_journal_entries: description 기반 중복 체크
  */
 
 interface MaterialOutboundDocument {
@@ -110,7 +109,7 @@ export async function postMaterialOutbound(
     }
   }
 
-  // 5. 회계 원장 생성 (복식부기) - system_code 기반
+  // 5. 회계 분개 생성 (복식부기) - system_code 기반
   const totalAmount = allocations.reduce(
     (sum, a) => sum + a.quantity * a.unitCost,
     0
@@ -122,51 +121,44 @@ export async function postMaterialOutbound(
   const wipAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.WIP || "WIP", "1130", "재공품");
   const inventoryRawAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1120", "원재료재고");
 
+  const description = `원재료 출고 (출고 #${outboundId})`;
+
+  // expense_journal_entries + expense_journal_lines 기반 분개
+  const conn = await getRawConnection();
+
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    [tenantId, transactionDate, `[원재료출고] ${description}`, totalAmount.toFixed(2), totalAmount.toFixed(2), userId]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
+
   // 차변: WIP (재공품)
-  try {
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate,
-      accountCode: wipAcc.code,
-      accountName: wipAcc.name,
-      debitAmount: totalAmount.toFixed(2),
-      creditAmount: "0.00",
-      description: `원재료 출고 (출고 #${outboundId})`,
-      sourceType: "OUTBOUND",
-      sourceId: `OUTBOUND-${outboundId}`,
-      sourceLineId: `OUTBOUND-${outboundId}-1`,
-      actionType: "POST",
-      createdBy: userId
-    } as any);
-  } catch (error: any) {
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error("이미 확정된 출고 문서입니다 (회계 원장 중복 - WIP)");
-    }
-    throw error;
-  }
+  await insertJournalLine(conn, {
+    tenantId,
+    journalEntryId,
+    accountId: wipAcc.id,
+    accountCode: wipAcc.code,
+    accountName: wipAcc.name,
+    debitAmount: parseFloat(totalAmount.toFixed(2)),
+    creditAmount: 0,
+    description,
+    sortOrder: 0,
+  });
 
   // 대변: 원재료
-  try {
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate,
-      accountCode: inventoryRawAcc.code,
-      accountName: inventoryRawAcc.name,
-      debitAmount: "0.00",
-      creditAmount: totalAmount.toFixed(2),
-      description: `원재료 출고 (출고 #${outboundId})`,
-      sourceType: "OUTBOUND",
-      sourceId: `OUTBOUND-${outboundId}`,
-      sourceLineId: `OUTBOUND-${outboundId}-1`,
-      actionType: "POST",
-      createdBy: userId
-    } as any);
-  } catch (error: any) {
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error("이미 확정된 출고 문서입니다 (회계 원장 중복 - 원재료)");
-    }
-    throw error;
-  }
+  await insertJournalLine(conn, {
+    tenantId,
+    journalEntryId,
+    accountId: inventoryRawAcc.id,
+    accountCode: inventoryRawAcc.code,
+    accountName: inventoryRawAcc.name,
+    debitAmount: 0,
+    creditAmount: parseFloat(totalAmount.toFixed(2)),
+    description,
+    sortOrder: 1,
+  });
 
   console.log(`[materialOutboundPost] 원재료 출고 #${outboundId} 확정 완료`);
 }

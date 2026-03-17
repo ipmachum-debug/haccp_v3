@@ -1,10 +1,9 @@
-import { getDb, getRawConnection } from "../db";;
+import { getDb, getRawConnection } from "../db";
 import { accountingPurchases } from "../../drizzle/schema_accounting_extended";
 import { hInventoryTransactions, hInventoryLots } from "../../drizzle/schema/part2";
-import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { generateExpiryAlerts } from "./expiryAlertGenerator";
-import { resolveSystemAccount } from "../db/journalHelper";
+import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
@@ -112,69 +111,47 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
     : null;
 
-  try {
-    // (A) 차변: 원재료 증가 (공급가)
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate: purchase.transactionDate,
-      accountCode: inventoryAcc.code,
-      accountName: inventoryAcc.name,
-      debitAmount: supplyAmount.toFixed(2),
-      creditAmount: "0.00",
-      description: `매입: ${purchase.itemName || ""}`,
-      sourceType,
-      sourceId: docId,
-      sourceLineId: `${purchaseId}-debit`,
-      actionType,
-      reversalOfId: null,
-      postedAt: new Date(),
-      createdBy: userId
-    });
+  // 회계 분개 생성 (expense_journal_entries/lines)
+  const conn = await getRawConnection();
+  const entryDate = typeof purchase.transactionDate === 'string'
+    ? purchase.transactionDate
+    : (purchase.transactionDate as Date).toISOString().split('T')[0];
 
-    // (A-2) 차변: 부가세대급금 (세액이 있는 경우)
-    if (vatAcc && taxAmount > 0) {
-      await db.insert(accountingTransactions).values({
-        tenantId,
-        transactionDate: purchase.transactionDate,
-        accountCode: vatAcc.code,
-        accountName: vatAcc.name,
-        debitAmount: taxAmount.toFixed(2),
-        creditAmount: "0.00",
-        description: `매입 부가세: ${purchase.itemName || ""}`,
-        sourceType,
-        sourceId: docId,
-        sourceLineId: `${purchaseId}-vat`,
-        actionType,
-        reversalOfId: null,
-        postedAt: new Date(),
-        createdBy: userId
-      });
-    }
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    [tenantId, entryDate, `[매입] ${docId} ${purchase.itemName || ""}`, totalAmount, totalAmount, userId]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
 
-    // (B) 대변: 외상매입금 증가 (총액)
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate: purchase.transactionDate,
-      accountCode: payableAcc.code,
-      accountName: payableAcc.name,
-      debitAmount: "0.00",
-      creditAmount: totalAmount.toFixed(2),
-      description: `매입: ${purchase.itemName || ""}`,
-      sourceType,
-      sourceId: docId,
-      sourceLineId: `${purchaseId}-credit`,
-      actionType,
-      reversalOfId: null,
-      postedAt: new Date(),
-      createdBy: userId
+  let sortOrder = 0;
+  // (A) 차변: 원재료 증가 (공급가)
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name,
+    debitAmount: supplyAmount, creditAmount: 0,
+    description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
+  });
+
+  // (A-2) 차변: 부가세대급금 (세액이 있는 경우)
+  if (vatAcc && taxAmount > 0) {
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name,
+      debitAmount: taxAmount, creditAmount: 0,
+      description: `매입 부가세: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
     });
-  } catch (error: any) {
-    // 멱등성 키 중복 오류 처리
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error(`이미 회계 처리된 매입 전표입니다. (ID: ${purchaseId})`);
-    }
-    throw error;
   }
+
+  // (B) 대변: 외상매입금 증가 (총액)
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
+    debitAmount: 0, creditAmount: totalAmount,
+    description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
+    partnerId: (purchase as any).partnerId || null,
+  });
 
   // 7. 매입 전표 상태 업데이트 (DRAFT → POSTED)
   await db

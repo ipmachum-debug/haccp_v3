@@ -1,9 +1,10 @@
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
-import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { accountingSales } from "../../drizzle/schema_accounting_extended";
 import { eq, and } from "drizzle-orm";
+import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
  * 제품 출고/판매 CANCEL 로직 (역거래 패턴)
@@ -96,45 +97,51 @@ export async function cancelProductSale(
     }
   }
 
-  // 4. 원본 회계 원장 조회 (tenant_id 필터)
-  const originalAccountingTxs = await db
-    .select()
-    .from(accountingTransactions)
-    .where(and(
-      eq(accountingTransactions.sourceId, `SALE-${saleId}`),
-      eq(accountingTransactions.tenantId, tenantId)
-    ));
+  // 4. 회계 역분개 생성 (expense_journal_entries/lines)
+  const conn = await getRawConnection();
+  const cancelDate = new Date().toISOString().split("T")[0];
 
-  if (originalAccountingTxs.length === 0) {
-    throw new Error("원본 회계 거래를 찾을 수 없습니다");
-  }
+  // 원본 분개 조회
+  const [originalJeRows] = await conn.execute(
+    `SELECT id, total_debit FROM expense_journal_entries
+     WHERE tenant_id = ? AND description LIKE ?
+     LIMIT 1`,
+    [tenantId, `[매출] SALE-${saleId}%`]
+  );
+  const originalJe = (originalJeRows as any[])[0];
 
-  // 5. 회계 역거래 생성 (DR/CR 반대)
-  const transactionDate = new Date().toISOString().split("T")[0];
+  if (originalJe) {
+    const receivableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금");
+    const salesRevenueAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.SALES_REVENUE, "4010", "상품매출");
+    const cogsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가");
+    const inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품");
 
-  for (const originalTx of originalAccountingTxs) {
-    if (originalTx.actionType !== "POST") continue;
+    // 원본 분개행 조회
+    const [originalLines] = await conn.execute(
+      `SELECT account_id, account_code, account_name, debit_amount, credit_amount
+       FROM expense_journal_lines WHERE journal_entry_id = ? AND tenant_id = ?`,
+      [originalJe.id, tenantId]
+    );
+    const lines = originalLines as any[];
 
-    try {
-      await db.insert(accountingTransactions).values({
-        tenantId,
-        transactionDate,
-        accountCode: originalTx.accountCode,
-        debitAmount: originalTx.creditAmount, // DR ↔ CR 반대
-        creditAmount: originalTx.debitAmount,
-        description: `제품 판매 취소 (판매 #${saleId})`,
-        sourceType: "SALE",
-        sourceId: `SALE-${saleId}`,
-        sourceLineId: originalTx.sourceLineId,
-        actionType: "REVERSAL",
-        reversalOfId: originalTx.id,
-        createdBy: userId
-      } as any);
-    } catch (error: any) {
-      if (error.code === "ER_DUP_ENTRY") {
-        throw new Error("이미 취소된 판매 문서입니다 (회계 원장 중복)");
-      }
-      throw error;
+    const totalReversalAmount = Number(originalJe.total_debit);
+    const [jeResult] = await conn.execute(
+      `INSERT INTO expense_journal_entries
+         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+      [tenantId, cancelDate, `[매출취소] SALE-${saleId}`, totalReversalAmount, totalReversalAmount, userId]
+    );
+    const journalEntryId = Number((jeResult as any).insertId);
+
+    let sortOrder = 0;
+    for (const line of lines) {
+      // DR/CR 반대
+      await insertJournalLine(conn, {
+        tenantId, journalEntryId,
+        accountId: line.account_id, accountCode: line.account_code, accountName: line.account_name,
+        debitAmount: Number(line.credit_amount), creditAmount: Number(line.debit_amount),
+        description: `매출 취소 (판매 #${saleId})`, sortOrder: sortOrder++,
+      });
     }
   }
 

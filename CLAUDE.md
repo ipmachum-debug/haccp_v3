@@ -242,13 +242,25 @@ COST_OF_GOODS → 매출원가 (5010)
   - `financialReports.router.ts`에 `dashboardSummary` 엔드포인트 추가
   - `IntegratedDashboard.tsx`에 이번 달 매출/비용/순이익/이익률 카드 위젯 추가
 
-### 📋 Phase 6 ✅ 진행 중 (2026-03-16)
+### 📋 Phase 6 ✅ 완료 (2026-03-17)
 #### Phase 6 (P6) - 최적화 및 확장
-- [ ] 재무보고서 PDF 내보내기
-- [ ] 은행 매칭 시 자동 분개 생성 (matched → journal entry)
+- [x] 재무보고서 PDF 내보내기
+  - `server/db/financialReportsPdf.ts` 신규 (jsPDF + jspdf-autotable)
+  - 시산표 / 재무상태표 / 손익계산서 PDF 포맷
+  - tRPC mutation 엔드포인트 3개 + 프론트엔드 PDF 버튼 추가
+- [x] 은행 매칭 시 자동 분개 생성 (matched → journal entry)
+  - `journalHelper.ts`에 `postBankTransactionJournal()` / `cancelBankTransactionJournal()` 추가
+  - `bankTransaction.service.ts` match/unmatch에 자동분개 연동
+  - `bankAutoMatch.service.ts` runAutoMatch에도 자동분개 연동
+  - 입금: 차변 보통예금 / 대변 매칭계정, 출금: 차변 매칭계정 / 대변 보통예금
 - [x] TypeScript 에러 ~170개 → 0개 해결 완료 (환경 의존 2개 제외 - node_modules 설치 시 자동 해소)
-- [ ] 매입/매출 다이얼로그에서 account_categories → accounting_accounts 전환
-- [ ] `accounting_categories`, `accounting_transactions` 테이블 완전 제거
+- [x] 매입/매출 다이얼로그에서 account_categories → accounting_accounts 전환
+  - `EditPurchaseDialog.tsx`, `EditSaleDialog.tsx`에서 `accountingAccounts.list` 사용
+- [x] `accounting_transactions` 테이블 참조 제거
+  - `materialLedger.ts`: `accounting_transactions` → `expense_journal_entries/lines` 전환
+  - `financialReports.ts`: `accounting_transactions` 집계 제거 (journal_lines만 사용)
+  - `purchasePost.ts`, `purchaseCancel.ts` 등 모든 post/cancel 파일 전환
+  - `pipelineDashboard.ts`: 참조 제거
 
 ### 📋 Phase 7 - HACCP AI OS ✅ 진행 중 (2026-03-16)
 

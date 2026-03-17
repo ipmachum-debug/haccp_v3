@@ -8,6 +8,7 @@ import { bankTransactions } from "../../../drizzle/schema";
 import { eq, and, gte, lte, like, or, sql, desc, inArray } from "drizzle-orm";
 import { omitUndefined } from "@shared/utils";
 import { assertBankAccountOwned } from "./bankAccount.service";
+import { postBankTransactionJournal, cancelBankTransactionJournal } from "../../db/journalHelper";
 
 export async function listTransactions(tenantId: number, filters?: {
   bankAccountId?: number;
@@ -148,6 +149,10 @@ export async function deleteTransaction(tenantId: number, transactionId: number)
 
 export async function matchTransaction(tenantId: number, transactionId: number, accountingAccountId: number, userId: number) {
   const db = await getDb();
+
+  // 먼저 거래 정보 조회 (분개용)
+  const transaction = await getTransactionById(tenantId, transactionId);
+
   await db
     .update(bankTransactions)
     .set({
@@ -157,10 +162,37 @@ export async function matchTransaction(tenantId: number, transactionId: number, 
       matchedAt: new Date(),
     })
     .where(and(eq(bankTransactions.id, transactionId), eq(bankTransactions.tenantId, tenantId)));
+
+  // 자동 분개 생성
+  try {
+    await postBankTransactionJournal({
+      tenantId,
+      transactionId,
+      accountingAccountId,
+      amount: Math.abs(Number(transaction.amount)),
+      transactionType: transaction.transactionType as "deposit" | "withdrawal",
+      description: transaction.description || "은행 거래",
+      transactionDate: transaction.transactionDate,
+      bankAccountId: Number(transaction.bankAccountId),
+      partnerId: transaction.matchedPartnerId ? Number(transaction.matchedPartnerId) : null,
+      postedBy: userId,
+    });
+  } catch (e) {
+    console.error("[matchTransaction] 자동분개 실패:", e);
+    // 매칭은 성공, 분개 실패 시 무시 (매칭 상태는 유지)
+  }
 }
 
 export async function unmatchTransaction(tenantId: number, transactionId: number) {
   const db = await getDb();
+
+  // 분개 삭제 (매칭 해제 시)
+  try {
+    await cancelBankTransactionJournal(tenantId, transactionId);
+  } catch (e) {
+    console.error("[unmatchTransaction] 분개 삭제 실패:", e);
+  }
+
   await db
     .update(bankTransactions)
     .set({

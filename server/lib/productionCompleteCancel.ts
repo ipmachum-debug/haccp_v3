@@ -1,9 +1,10 @@
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
 import { hBatches } from "../../drizzle/schema";
-import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { eq, and } from "drizzle-orm";
+import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
  * 생산 완료 CANCEL 로직 (역거래 패턴)
@@ -12,7 +13,7 @@ import { eq, and } from "drizzle-orm";
  * 1. 배치 상태 검증 (completed만 CANCEL 가능)
  * 2. 원본 재고 원장 조회
  * 3. 재고 역거래 생성 (h_inventory_transactions - 음수)
- * 4. 회계 역거래 생성 (accounting_transactions - DR/CR 반대)
+ * 4. 회계 역거래 생성 (expense_journal_entries/lines - DR/CR 반대)
  * 5. 배치 상태 전환 (completed → canceled)
  *
  * **멱등성 보장:**
@@ -96,46 +97,52 @@ export async function cancelProductionComplete(
     }
   }
 
-  // 4. 원본 회계 원장 조회 (tenant_id 필터)
-  const originalAccountingTxs = await db
-    .select()
-    .from(accountingTransactions)
-    .where(and(
-      eq(accountingTransactions.sourceId, `BATCH-${batchId}`),
-      eq(accountingTransactions.tenantId, tenantId)
-    ));
+  // 4. 원본 회계 분개 조회 (description 패턴 매칭)
+  const conn = await getRawConnection();
+  const transactionDate = new Date().toISOString().split("T")[0];
 
-  if (originalAccountingTxs.length === 0) {
+  const [originalEntries] = await conn.execute(
+    `SELECT id, total_debit, total_credit FROM expense_journal_entries
+     WHERE tenant_id = ? AND description LIKE ?`,
+    [tenantId, `[생산완료] BATCH-${batchId}%`]
+  );
+  const entries = originalEntries as any[];
+
+  if (entries.length === 0) {
     throw new Error("원본 회계 거래를 찾을 수 없습니다");
   }
 
-  // 5. 회계 역거래 생성 (DR/CR 반대)
-  const transactionDate = new Date().toISOString().split("T")[0];
+  // 5. 회계 역거래 생성 (역분개)
+  // system_code 기반 계정 조회
+  const inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1140", "제품재고");
+  const wipAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.WIP || "WIP", "1130", "재공품");
 
-  for (const originalTx of originalAccountingTxs) {
-    if (originalTx.actionType !== "POST") continue;
+  for (const entry of entries) {
+    const totalAmount = parseFloat(entry.total_debit || "0");
+    const reverseDesc = `[생산완료취소] BATCH-${batchId}`;
 
-    try {
-      await db.insert(accountingTransactions).values({
-        tenantId,
-        transactionDate,
-        accountCode: originalTx.accountCode,
-        debitAmount: originalTx.creditAmount,
-        creditAmount: originalTx.debitAmount,
-        description: `생산 완료 취소 (배치 #${batchId})`,
-        sourceType: "PRODUCTION",
-        sourceId: `BATCH-${batchId}`,
-        sourceLineId: originalTx.sourceLineId,
-        actionType: "REVERSAL",
-        reversalOfId: originalTx.id,
-        createdBy: userId
-      } as any);
-    } catch (error: any) {
-      if (error.code === "ER_DUP_ENTRY") {
-        throw new Error("이미 취소된 배치입니다 (회계 원장 중복)");
-      }
-      throw error;
-    }
+    const [jeResult] = await conn.execute(
+      `INSERT INTO expense_journal_entries
+         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+       VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+      [tenantId, transactionDate, reverseDesc, totalAmount.toFixed(2), totalAmount.toFixed(2), userId]
+    );
+    const journalEntryId = Number((jeResult as any).insertId);
+
+    // 역분개: 차변 WIP (재공품), 대변 제품재고
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: wipAcc.id, accountCode: wipAcc.code, accountName: wipAcc.name,
+      debitAmount: totalAmount, creditAmount: 0,
+      description: reverseDesc, sortOrder: 0,
+    });
+
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: inventoryGoodsAcc.id, accountCode: inventoryGoodsAcc.code, accountName: inventoryGoodsAcc.name,
+      debitAmount: 0, creditAmount: totalAmount,
+      description: reverseDesc, sortOrder: 1,
+    });
   }
 
   // 6. 배치 상태 전환

@@ -273,6 +273,133 @@ export async function cancelExpenseJournal(
 }
 
 // ============================================
+// 은행 거래 매칭 자동분개 (P6)
+// ============================================
+
+/**
+ * 은행 거래 매칭 시 자동 분개 생성
+ * - 입금(deposit): 차변 보통예금(BANK_DEPOSIT), 대변 매칭된 계정
+ * - 출금(withdrawal): 차변 매칭된 계정, 대변 보통예금(BANK_DEPOSIT)
+ */
+export async function postBankTransactionJournal(params: {
+  tenantId: number;
+  transactionId: number;
+  accountingAccountId: number;
+  amount: number;
+  transactionType: "deposit" | "withdrawal";
+  description: string;
+  transactionDate: string | Date;
+  bankAccountId?: number;
+  partnerId?: number | null;
+  postedBy: number;
+}): Promise<{ journalEntryId: number }> {
+  const conn = await getRawConnection();
+  const { tenantId, transactionId, accountingAccountId, amount, transactionType } = params;
+
+  // 중복 체크: 이미 분개가 있으면 스킵
+  const [existing] = await conn.execute(
+    `SELECT id FROM expense_journal_entries
+     WHERE tenant_id = ? AND description LIKE ? LIMIT 1`,
+    [tenantId, `[은행매칭] txn_id=${transactionId}%`]
+  );
+  if ((existing as any[]).length > 0) {
+    return { journalEntryId: (existing as any[])[0].id };
+  }
+
+  // 은행 계정 조회
+  const bankAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.BANK_DEPOSIT, "1020", "보통예금");
+
+  // 매칭된 계정 조회
+  const [matchedAccRows] = await conn.execute(
+    `SELECT id, code, name FROM accounting_accounts WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    [accountingAccountId, tenantId]
+  );
+  const matchedAcc = (matchedAccRows as any[])[0];
+  if (!matchedAcc) {
+    throw new Error(`매칭된 계정(id=${accountingAccountId})을 찾을 수 없습니다.`);
+  }
+
+  const entryDate = typeof params.transactionDate === "string"
+    ? params.transactionDate
+    : params.transactionDate.toISOString().split("T")[0];
+
+  // 분개 엔트리 생성
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    [
+      tenantId, entryDate,
+      `[은행매칭] txn_id=${transactionId} ${params.description}`,
+      amount, amount, params.postedBy,
+    ]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
+
+  if (transactionType === "deposit") {
+    // 입금: 차변 보통예금, 대변 매칭계정 (예: 매출, 외상매출금 회수 등)
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name,
+      debitAmount: amount, creditAmount: 0,
+      description: "은행 입금", sortOrder: 0,
+      bankAccountId: params.bankAccountId,
+    });
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: matchedAcc.id, accountCode: matchedAcc.code, accountName: matchedAcc.name,
+      debitAmount: 0, creditAmount: amount,
+      description: params.description, sortOrder: 1,
+      partnerId: params.partnerId,
+    });
+  } else {
+    // 출금: 차변 매칭계정 (예: 비용, 외상매입금 결제 등), 대변 보통예금
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: matchedAcc.id, accountCode: matchedAcc.code, accountName: matchedAcc.name,
+      debitAmount: amount, creditAmount: 0,
+      description: params.description, sortOrder: 0,
+      partnerId: params.partnerId,
+    });
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: bankAcc.id, accountCode: bankAcc.code, accountName: bankAcc.name,
+      debitAmount: 0, creditAmount: amount,
+      description: "은행 출금", sortOrder: 1,
+      bankAccountId: params.bankAccountId,
+    });
+  }
+
+  return { journalEntryId };
+}
+
+/**
+ * 은행 거래 매칭 취소 시 분개 삭제
+ */
+export async function cancelBankTransactionJournal(tenantId: number, transactionId: number): Promise<void> {
+  const conn = await getRawConnection();
+
+  const [jeRows] = await conn.execute(
+    `SELECT id FROM expense_journal_entries
+     WHERE tenant_id = ? AND description LIKE ?`,
+    [tenantId, `[은행매칭] txn_id=${transactionId}%`]
+  );
+  for (const je of jeRows as any[]) {
+    await conn.execute(
+      `DELETE FROM expense_journal_lines WHERE journal_entry_id = ? AND tenant_id = ?`,
+      [je.id, tenantId]
+    );
+  }
+  if ((jeRows as any[]).length > 0) {
+    await conn.execute(
+      `DELETE FROM expense_journal_entries
+       WHERE tenant_id = ? AND description LIKE ?`,
+      [tenantId, `[은행매칭] txn_id=${transactionId}%`]
+    );
+  }
+}
+
+// ============================================
 // 시스템 계정 시드
 // ============================================
 

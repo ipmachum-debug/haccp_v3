@@ -52,8 +52,9 @@ export function EditPurchaseDialog({
   // 거래처 목록 조회
   const { data: partners = [] } = trpc.partners.list.useQuery();
 
-  // 계정 과목 목록 조회
-  const { data: accountCategories = [] } = trpc.accountingAccountCategories.list.useQuery();
+  // 계정 과목 목록 조회 (accounting_accounts 테이블)
+  const { data: accountsList } = trpc.accountingAccounts.list.useQuery();
+  const accountCategories = (accountsList as any)?.items ?? (Array.isArray(accountsList) ? accountsList : []);
 
   // purchase 데이터가 변경되면 폼 초기화
   useEffect(() => {
@@ -300,9 +301,9 @@ export function EditPurchaseDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">선택 안 함</SelectItem>
-                  {accountCategories.map((category: any) => (
-                    <SelectItem key={category.id} value={category.id.toString()}>
-                      {category.name}
+                  {accountCategories.map((acc: any) => (
+                    <SelectItem key={acc.id} value={acc.id.toString()}>
+                      {acc.code} - {acc.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

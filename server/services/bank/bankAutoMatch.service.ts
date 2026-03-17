@@ -6,6 +6,7 @@ import { getDb } from "../../db";
 import { bankTransactions, matchingRules } from "../../../drizzle/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { assertBankAccountOwned } from "./bankAccount.service";
+import { postBankTransactionJournal } from "../../db/journalHelper";
 
 function parseJsonSafe(text: string | null | undefined): any {
   if (!text) return null;
@@ -140,6 +141,24 @@ export async function runAutoMatch(tenantId: number, userId: number, bankAccount
           matchedAt: new Date(),
         })
         .where(and(eq(bankTransactions.id, transaction.id), eq(bankTransactions.tenantId, tenantId)));
+
+      // 자동 분개 생성
+      try {
+        await postBankTransactionJournal({
+          tenantId,
+          transactionId: Number(transaction.id),
+          accountingAccountId: matchResult.accountingAccountId,
+          amount: Math.abs(Number(transaction.amount)),
+          transactionType: transaction.transactionType as "deposit" | "withdrawal",
+          description: transaction.description || "은행 거래",
+          transactionDate: transaction.transactionDate as any,
+          bankAccountId: Number(transaction.bankAccountId),
+          partnerId: matchResult.partnerId,
+          postedBy: userId,
+        });
+      } catch (e) {
+        console.error("[runAutoMatch] 자동분개 실패:", e);
+      }
 
       matchedCount++;
     }

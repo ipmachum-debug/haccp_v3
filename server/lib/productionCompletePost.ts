@@ -1,10 +1,9 @@
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 
 import { hInventoryTransactions } from "../../drizzle/schema/part2";
 import { hBatches } from "../../drizzle/schema";
-import { accountingTransactions } from "../../drizzle/schema_inventory_accounting";
 import { eq, and } from "drizzle-orm";
-import { resolveSystemAccount } from "../db/journalHelper";
+import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
@@ -15,7 +14,7 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
  * 2. 원가 산식 계산 (재료비 + 인건비 + 경비)
  * 3. 수율 처리 (planned_yield vs actual_yield, loss 계산)
  * 4. 재고 원장 생성 (h_inventory_transactions - receipt)
- * 5. 회계 원장 생성 (accounting_transactions)
+ * 5. 회계 원장 생성 (expense_journal_entries/lines)
  *    - 차변: 제품재고 (1140 - 제품재고)
  *    - 대변: WIP (1130 - 재공품)
  * 6. 배치 상태 전환 (in_progress → completed)
@@ -26,7 +25,7 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
  *
  * **멱등성 보장:**
  * - h_inventory_transactions: UNIQUE(source_type, source_id, source_line_id, action_type, lot_id)
- * - accounting_transactions: UNIQUE(source_type, source_id, source_line_id, action_type, account_code)
+ * - expense_journal_entries: description 기반 중복 확인
  */
 
 interface Batch {
@@ -134,51 +133,32 @@ export async function postProductionComplete(
   const inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1140", "제품재고");
   const wipAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.WIP || "WIP", "1130", "재공품");
 
+  const description = `[생산완료] BATCH-${batchId} (${actualQuantity}kg)`;
+  const conn = await getRawConnection();
+
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    [tenantId, transactionDate, description, totalCost.toFixed(2), totalCost.toFixed(2), userId]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
+
   // 차변: 제품재고
-  try {
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate,
-      accountCode: inventoryGoodsAcc.code,
-      accountName: inventoryGoodsAcc.name,
-      debitAmount: totalCost.toFixed(2),
-      creditAmount: "0.00",
-      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}kg)`,
-      sourceType: "PRODUCTION",
-      sourceId: `BATCH-${batchId}`,
-      sourceLineId: `BATCH-${batchId}-1`,
-      actionType: "POST",
-      createdBy: userId
-    } as any);
-  } catch (error: any) {
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error("이미 완료된 배치입니다 (회계 원장 중복 - 제품재고)");
-    }
-    throw error;
-  }
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: inventoryGoodsAcc.id, accountCode: inventoryGoodsAcc.code, accountName: inventoryGoodsAcc.name,
+    debitAmount: totalCost, creditAmount: 0,
+    description, sortOrder: 0,
+  });
 
   // 대변: WIP (재공품)
-  try {
-    await db.insert(accountingTransactions).values({
-      tenantId,
-      transactionDate,
-      accountCode: wipAcc.code,
-      accountName: wipAcc.name,
-      debitAmount: "0.00",
-      creditAmount: totalCost.toFixed(2),
-      description: `생산 완료 (배치 #${batchId}, ${actualQuantity}kg)`,
-      sourceType: "PRODUCTION",
-      sourceId: `BATCH-${batchId}`,
-      sourceLineId: `BATCH-${batchId}-1`,
-      actionType: "POST",
-      createdBy: userId
-    } as any);
-  } catch (error: any) {
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error("이미 완료된 배치입니다 (회계 원장 중복 - WIP)");
-    }
-    throw error;
-  }
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: wipAcc.id, accountCode: wipAcc.code, accountName: wipAcc.name,
+    debitAmount: 0, creditAmount: totalCost,
+    description, sortOrder: 1,
+  });
 
   console.log(`[productionCompletePost] 배치 #${batchId} 생산 완료 (실제 수량: ${actualQuantity}kg, 수율: ${actualYield.toFixed(2)}%)`);
 }

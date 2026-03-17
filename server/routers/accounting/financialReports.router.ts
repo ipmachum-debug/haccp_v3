@@ -163,6 +163,72 @@ export const financialReportsRouter = router({
     }),
 
   // ============================================
+  // PDF 내보내기 (P6)
+  // ============================================
+
+  // 시산표 PDF
+  exportTrialBalancePdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateTrialBalance } = await import("../../db/financialReports");
+      const { exportTrialBalanceToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateTrialBalance(tenantId, input.startDate, input.endDate);
+      const buffer = await exportTrialBalanceToPdf(data);
+      return {
+        filename: `시산표_${input.startDate}_${input.endDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // 재무상태표 PDF
+  exportBalanceSheetPdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateBalanceSheet } = await import("../../db/financialReports");
+      const { exportBalanceSheetToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateBalanceSheet(tenantId, input.asOfDate);
+      const buffer = await exportBalanceSheetToPdf(data);
+      return {
+        filename: `재무상태표_${input.asOfDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // 손익계산서 PDF
+  exportIncomeStatementPdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateIncomeStatement } = await import("../../db/financialReports");
+      const { exportIncomeStatementToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateIncomeStatement(tenantId, input.startDate, input.endDate);
+      const buffer = await exportIncomeStatementToPdf(data);
+      return {
+        filename: `손익계산서_${input.startDate}_${input.endDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // ============================================
   // 기초 잔액 (Opening Balance / 전기이월) (P4-4)
   // ============================================
 

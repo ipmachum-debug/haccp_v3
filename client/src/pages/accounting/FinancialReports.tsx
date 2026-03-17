@@ -90,6 +90,17 @@ export default function FinancialReports() {
     onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
   });
 
+  // PDF 내보내기 뮤테이션
+  const exportTrialBalancePdfMut = trpc.financialReports.exportTrialBalancePdf.useMutation({
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
+  });
+  const exportBalanceSheetPdfMut = trpc.financialReports.exportBalanceSheetPdf.useMutation({
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
+  });
+  const exportIncomeStatementPdfMut = trpc.financialReports.exportIncomeStatementPdf.useMutation({
+    onSuccess: (result: any) => downloadBase64File(result.data, result.filename, result.mimeType),
+  });
+
   const handleExportExcel = () => {
     if (activeTab === "trial-balance") {
       exportTrialBalanceMut.mutate({ startDate, endDate });
@@ -100,7 +111,18 @@ export default function FinancialReports() {
     }
   };
 
+  const handleExportPdf = () => {
+    if (activeTab === "trial-balance") {
+      exportTrialBalancePdfMut.mutate({ startDate, endDate });
+    } else if (activeTab === "balance-sheet") {
+      exportBalanceSheetPdfMut.mutate({ asOfDate: endDate });
+    } else if (activeTab === "income-statement") {
+      exportIncomeStatementPdfMut.mutate({ startDate, endDate });
+    }
+  };
+
   const isExporting = exportTrialBalanceMut.isPending || exportBalanceSheetMut.isPending || exportIncomeStatementMut.isPending;
+  const isExportingPdf = exportTrialBalancePdfMut.isPending || exportBalanceSheetPdfMut.isPending || exportIncomeStatementPdfMut.isPending;
 
   return (
     <DashboardLayout>
@@ -144,10 +166,16 @@ export default function FinancialReports() {
               보고서 생성
             </Button>
             {fetchEnabled && (
-              <Button variant="outline" onClick={handleExportExcel} disabled={isExporting}>
-                {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                Excel 내보내기
-              </Button>
+              <>
+                <Button variant="outline" onClick={handleExportExcel} disabled={isExporting}>
+                  {isExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                  Excel
+                </Button>
+                <Button variant="outline" onClick={handleExportPdf} disabled={isExportingPdf}>
+                  {isExportingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                  PDF
+                </Button>
+              </>
             )}
             <div className="flex gap-2 ml-auto">
               <Button

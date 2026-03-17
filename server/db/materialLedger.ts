@@ -9,7 +9,7 @@
  * ✅ 멀티테넌시 격리: 모든 쿼리에 tenantId 필터 적용
  */
 import { getRawConnection } from "../db";
-import { resolveSystemAccount } from "./journalHelper";
+import { resolveSystemAccount, insertJournalLine } from "./journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 // ===== 일별 원료수불 =====
@@ -549,27 +549,32 @@ export async function syncToAccounting(
     creditAcc = inventoryAcc;
   }
   
-  const sourceId = `ML-${date}-${type}-${Date.now()}`;
+  // expense_journal_entries/lines에 복식부기 분개 생성
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+    [tenantId, date, `[원재료수불] ${description}`, amount, amount, userId]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
 
   // 차변 라인
-  await conn.execute(
-    `INSERT INTO accounting_transactions 
-     (tenant_id, transaction_date, account_code, account_name, debit_amount, credit_amount,
-      description, source_type, source_id, source_line_id, action_type, created_by)
-     VALUES (?, ?, ?, ?, ?, 0, ?, 'material_ledger', ?, 'debit', 'POST', ?)`,
-    [tenantId, date, debitAcc.code, debitAcc.name, amount, description, sourceId, userId]
-  );
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: debitAcc.id, accountCode: debitAcc.code, accountName: debitAcc.name,
+    debitAmount: amount, creditAmount: 0,
+    description, sortOrder: 0,
+  });
 
   // 대변 라인
-  const [result]: any = await conn.execute(
-    `INSERT INTO accounting_transactions 
-     (tenant_id, transaction_date, account_code, account_name, debit_amount, credit_amount,
-      description, source_type, source_id, source_line_id, action_type, created_by)
-     VALUES (?, ?, ?, ?, 0, ?, ?, 'material_ledger', ?, 'credit', 'POST', ?)`,
-    [tenantId, date, creditAcc.code, creditAcc.name, amount, description, sourceId, userId]
-  );
-  
-  return result.insertId;
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: creditAcc.id, accountCode: creditAcc.code, accountName: creditAcc.name,
+    debitAmount: 0, creditAmount: amount,
+    description, sortOrder: 1,
+  });
+
+  return journalEntryId;
 }
 
 // ========== 체크리스트 연동 ==========
