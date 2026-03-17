@@ -15,8 +15,12 @@ import {
   AlertTriangle, Bell, CheckCircle, Clock, FileText, PlayCircle,
   RefreshCw, Shield, Upload, ChevronRight, Sparkles, Loader2,
   XCircle, Eye, FileCheck, BookOpen, Search, Trash2, RotateCcw,
-  Database, Plus,
+  Database, Plus, Download, TrendingUp,
 } from "lucide-react";
+import {
+  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
 
 // ============================================================================
 // 타입
@@ -117,6 +121,7 @@ export default function AIDashboard() {
             <TabsTrigger value="supplier">공급업체 리스크</TabsTrigger>
             <TabsTrigger value="training">교육 추천</TabsTrigger>
             <TabsTrigger value="reports">AI 보고서</TabsTrigger>
+            <TabsTrigger value="chatbot">AI 챗봇</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview"><OverviewTab /></TabsContent>
@@ -130,6 +135,7 @@ export default function AIDashboard() {
           <TabsContent value="supplier"><SupplierRiskTab /></TabsContent>
           <TabsContent value="training"><TrainingTab /></TabsContent>
           <TabsContent value="reports"><ReportsTab /></TabsContent>
+          <TabsContent value="chatbot"><ChatbotTab /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
@@ -264,8 +270,107 @@ function OverviewTab() {
         </CardContent>
       </Card>
 
+      {/* P9-7: 30일 트렌드 차트 */}
+      <TrendCharts />
+
       {/* 시스템 규칙 목록 */}
       <SystemRulesCard />
+    </div>
+  );
+}
+
+// ============================================================================
+// P9-7: 트렌드 차트 컴포넌트
+// ============================================================================
+function TrendCharts() {
+  const trend = trpc.ai.trendData.useQuery({ days: 30 });
+  const d = trend.data;
+
+  if (trend.isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-muted-foreground">트렌드 로딩 중...</span>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!d || (d.alerts.length === 0 && d.ccp.length === 0 && d.checklist.length === 0)) {
+    return null; // 데이터 없으면 숨김
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* 알림 발생 추이 */}
+      {d.alerts.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <TrendingUp className="w-4 h-4" /> 알림 발생 추이 (30일)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={d.alerts}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} />
+                <Area type="monotone" dataKey="critical" stackId="1" fill="#ef4444" stroke="#ef4444" name="위험" />
+                <Area type="monotone" dataKey="high" stackId="1" fill="#f97316" stroke="#f97316" name="높음" />
+                <Area type="monotone" dataKey="other" stackId="1" fill="#eab308" stroke="#eab308" name="기타" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* CCP 적합/부적합 추이 */}
+      {d.ccp.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Shield className="w-4 h-4" /> CCP 모니터링 추이 (30일)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={d.ccp}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} />
+                <Bar dataKey="pass" fill="#22c55e" name="적합" stackId="a" />
+                <Bar dataKey="fail" fill="#ef4444" name="부적합" stackId="a" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 체크리스트 완료율 추이 */}
+      {d.checklist.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" /> 체크리스트 완료율 (30일)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={d.checklist}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} unit="%" />
+                <Tooltip labelFormatter={(v: string) => v} contentStyle={{ fontSize: 12 }} formatter={(v: number) => `${v}%`} />
+                <Line type="monotone" dataKey="rate" stroke="#3b82f6" strokeWidth={2} dot={false} name="완료율" />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -599,8 +704,9 @@ function AlertsTab() {
           </SelectContent>
         </Select>
 
-        <div className="text-sm text-muted-foreground ml-auto">
-          총 {alerts.data?.total || 0}건
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-sm text-muted-foreground">총 {alerts.data?.total || 0}건</span>
+          <CsvExportButton statusFilter={statusFilter} severityFilter={severityFilter} />
         </div>
       </div>
 
@@ -1841,5 +1947,149 @@ function ReportsTab() {
         </CardContent></Card>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// P9-8: AI 챗봇 탭
+// ============================================================================
+function ChatbotTab() {
+  const [message, setMessage] = useState("");
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const chatMutation = trpc.ai.chat.useMutation();
+
+  const handleSend = async () => {
+    const text = message.trim();
+    if (!text || chatMutation.isPending) return;
+    setMessage("");
+    setMessages((prev) => [...prev, { role: "user", content: text }]);
+
+    try {
+      const result = await chatMutation.mutateAsync({
+        message: text,
+        conversationId,
+      });
+      if (result.conversationId) setConversationId(result.conversationId);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: result.response || "응답을 생성하지 못했습니다." },
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "오류가 발생했습니다. 다시 시도해주세요." },
+      ]);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleNewChat = () => {
+    setMessages([]);
+    setConversationId(undefined);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-indigo-600" />
+          AI 어시스턴트 "하나"
+        </h2>
+        <Button variant="outline" size="sm" onClick={handleNewChat}>
+          <RefreshCw className="w-4 h-4 mr-1" /> 새 대화
+        </Button>
+      </div>
+
+      {/* 메시지 영역 */}
+      <Card className="min-h-[400px] max-h-[600px] flex flex-col">
+        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
+          {messages.length === 0 && (
+            <div className="text-center py-16 text-muted-foreground">
+              <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">안녕하세요! HACCP-ONE AI 어시스턴트 "하나"입니다.</p>
+              <p className="text-sm mt-1">식품안전, CCP, 재고, 회계 등 무엇이든 물어보세요.</p>
+              <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                {["오늘 위험한 항목이 있어?", "체크리스트 진행 현황", "이번주 CCP 요약", "감사 준비 상태"].map((q) => (
+                  <Button key={q} variant="outline" size="sm" className="text-xs"
+                    onClick={() => { setMessage(q); }}>
+                    {q}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
+                msg.role === "user"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-muted"
+              }`}>
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              </div>
+            </div>
+          ))}
+          {chatMutation.isPending && (
+            <div className="flex justify-start">
+              <div className="bg-muted rounded-lg px-4 py-2 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">하나가 생각하는 중...</span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+
+        {/* 입력 영역 */}
+        <div className="border-t p-3 flex gap-2">
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="메시지를 입력하세요... (Enter로 전송, Shift+Enter로 줄바꿈)"
+            className="min-h-[40px] max-h-[120px] resize-none"
+            rows={1}
+          />
+          <Button onClick={handleSend} disabled={!message.trim() || chatMutation.isPending} className="shrink-0">
+            전송
+          </Button>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// P9-9: CSV 내보내기 버튼
+// ============================================================================
+function CsvExportButton({ statusFilter, severityFilter }: { statusFilter: string; severityFilter: string }) {
+  const exportMutation = trpc.ai.exportAlertsCsv.useMutation();
+
+  const handleExport = async () => {
+    const result = await exportMutation.mutateAsync({
+      status: statusFilter as any,
+      severity: severityFilter === "all" ? undefined : severityFilter as any,
+    });
+    // CSV 다운로드
+    const blob = new Blob(["\uFEFF" + result.csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ai-alerts-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Button variant="outline" size="sm" onClick={handleExport} disabled={exportMutation.isPending}>
+      {exportMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+      <span className="ml-1 hidden sm:inline">CSV</span>
+    </Button>
   );
 }

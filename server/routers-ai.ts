@@ -1509,4 +1509,125 @@ export const aiRouter = router({
       const { generateTrainingRecommendations } = await import("./db/aiTrainingRecommendation");
       return generateTrainingRecommendations(ctx.tenantId);
     }),
+
+  // ============================================================================
+  // P9-7: 30일 트렌드 데이터 (알림/CCP/체크리스트 추이)
+  // ============================================================================
+  trendData: tenantRequiredProcedure
+    .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.tenantId;
+      const days = input?.days || 30;
+      const conn = await getRawConnection();
+
+      // 병렬로 3가지 트렌드 조회
+      const [alertTrend, ccpTrend, checklistTrend] = await Promise.all([
+        // 1. 일별 알림 발생 추이 (severity별)
+        conn.execute(
+          `SELECT DATE(created_at) as date,
+                  SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical_count,
+                  SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) as high_count,
+                  SUM(CASE WHEN severity IN ('medium', 'low') THEN 1 ELSE 0 END) as other_count,
+                  COUNT(*) as total
+           FROM ai_alerts
+           WHERE tenant_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(created_at)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+        // 2. 일별 CCP 적합/부적합 추이
+        conn.execute(
+          `SELECT DATE(record_date) as date,
+                  SUM(CASE WHEN pass_fail = '적합' THEN 1 ELSE 0 END) as pass_count,
+                  SUM(CASE WHEN pass_fail = '부적합' THEN 1 ELSE 0 END) as fail_count,
+                  COUNT(*) as total
+           FROM ccp_monitoring_records
+           WHERE tenant_id = ? AND record_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(record_date)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+        // 3. 일별 체크리스트 완료율 추이
+        conn.execute(
+          `SELECT DATE(created_at) as date,
+                  SUM(CASE WHEN status IN ('completed', 'approved') THEN 1 ELSE 0 END) as completed,
+                  COUNT(*) as total
+           FROM checklist_instances
+           WHERE tenant_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(created_at)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+      ]);
+
+      const formatRows = (raw: any) => {
+        const rows = Array.isArray(raw) && Array.isArray(raw[0]) ? raw[0] : raw;
+        return (rows as any[]).map((r: any) => ({
+          ...r,
+          date: r.date ? new Date(r.date).toISOString().split("T")[0] : r.date,
+        }));
+      };
+
+      return {
+        alerts: formatRows(alertTrend).map((r: any) => ({
+          date: r.date,
+          critical: Number(r.critical_count || 0),
+          high: Number(r.high_count || 0),
+          other: Number(r.other_count || 0),
+          total: Number(r.total || 0),
+        })),
+        ccp: formatRows(ccpTrend).map((r: any) => ({
+          date: r.date,
+          pass: Number(r.pass_count || 0),
+          fail: Number(r.fail_count || 0),
+          total: Number(r.total || 0),
+        })),
+        checklist: formatRows(checklistTrend).map((r: any) => ({
+          date: r.date,
+          completed: Number(r.completed || 0),
+          total: Number(r.total || 0),
+          rate: r.total > 0 ? Math.round((Number(r.completed || 0) / Number(r.total)) * 100) : 0,
+        })),
+      };
+    }),
+
+  // ============================================================================
+  // P9-9: 알림 목록 CSV 내보내기
+  // ============================================================================
+  exportAlertsCsv: tenantRequiredProcedure
+    .input(z.object({
+      status: z.enum(["active", "acknowledged", "resolved", "dismissed"]).optional(),
+      severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.tenantId;
+      const conn = await getRawConnection();
+
+      let where = `WHERE tenant_id = ?`;
+      const params: any[] = [tenantId];
+
+      if (input?.status) { where += ` AND status = ?`; params.push(input.status); }
+      if (input?.severity) { where += ` AND severity = ?`; params.push(input.severity); }
+      if (input?.startDate) { where += ` AND created_at >= ?`; params.push(input.startDate); }
+      if (input?.endDate) { where += ` AND created_at <= ?`; params.push(input.endDate); }
+
+      const [rows] = await conn.execute(
+        `SELECT id, rule_code, title, message, severity, entity_type, entity_code, status, created_at, resolved_at
+         FROM ai_alerts ${where}
+         ORDER BY created_at DESC
+         LIMIT 5000`,
+        params
+      );
+
+      // CSV 생성
+      const header = "ID,규칙코드,제목,메시지,심각도,대상유형,대상코드,상태,생성일시,해결일시";
+      const csvRows = (rows as any[]).map((r: any) =>
+        [r.id, r.rule_code, `"${(r.title || '').replace(/"/g, '""')}"`, `"${(r.message || '').replace(/"/g, '""')}"`,
+         r.severity, r.entity_type, r.entity_code, r.status, r.created_at, r.resolved_at || ""].join(",")
+      );
+
+      return { csv: [header, ...csvRows].join("\n"), count: (rows as any[]).length };
+    }),
 });
