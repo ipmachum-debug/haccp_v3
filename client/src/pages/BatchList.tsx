@@ -63,8 +63,11 @@ export default function BatchList() {
     { enabled: showCost && !!batches && batches.length > 0 }
   );
   
-  // 제품 목록 조회 (판매가 확인용)
-  const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });
+  // 제품 목록 조회 (판매가 확인용 - 비용 보기 활성화 시에만)
+  const { data: _rawProducts } = trpc.product.list.useQuery(
+    { limit: 500 },
+    { enabled: showCost }
+  );
   const products = (_rawProducts as any)?.items ?? (Array.isArray(_rawProducts) ? _rawProducts : []);
   
   useEffect(() => {

@@ -189,48 +189,59 @@ export async function getAllBatches(filters?: {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, limit: 50 };
 
-  const { hBatches } = await import("../../drizzle/schema");
-  const { count } = await import("drizzle-orm");
-
   // 페이지네이션 기본값
   const page = filters?.page || 1;
   const limit = filters?.limit || 50;
   const offset = (page - 1) * limit;
 
-  // 필터 조건 생성
-  const conditions = [];
+  // SQL 조건 빌드
+  const whereParts: string[] = [];
+  const params: any[] = [];
+
   if (filters?.tenantId) {
-    conditions.push(eq(hBatches.tenantId, filters.tenantId));
+    whereParts.push("b.tenant_id = ?");
+    params.push(filters.tenantId);
   }
   if (filters?.siteId) {
-    conditions.push(eq(hBatches.siteId, filters.siteId));
+    whereParts.push("b.site_id = ?");
+    params.push(filters.siteId);
   }
   if (filters?.status) {
-    conditions.push(sql`${hBatches.status} = ${filters.status}`);
+    whereParts.push("b.status = ?");
+    params.push(filters.status);
   }
   if (filters?.productId) {
-    conditions.push(eq(hBatches.productId, filters.productId));
+    whereParts.push("b.product_id = ?");
+    params.push(filters.productId);
   }
 
-  // 전체 개수 조회
-  const totalQuery = conditions.length > 0
-    ? db.select({ count: count() }).from(hBatches).where(and(...conditions))
-    : db.select({ count: count() }).from(hBatches);
-  const totalResult = await totalQuery;
-  const total = totalResult[0]?.count || 0;
+  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
 
-  // 데이터 조회 (최신순 정렬)
-  let query = db.select().from(hBatches);
-  if (conditions.length > 0) {
-    query = query.where(and(...conditions)) as any;
-  }
-  query = query.orderBy(desc(hBatches.createdAt)) as any;
-  query = query.limit(limit).offset(offset) as any;
+  // COUNT + 데이터를 단일 왕복으로 처리 (Raw SQL + LEFT JOIN product)
+  const conn = await getRawConnection();
 
-  const results = await query;
+  const [countRows] = await conn.execute<any[]>(
+    `SELECT COUNT(*) as cnt FROM h_batches b ${whereClause}`,
+    params
+  );
+  const total = Number((countRows as any[])[0]?.cnt || 0);
+
+  const [dataRows] = await conn.execute<any[]>(
+    `SELECT b.*, p.product_name, p.product_code
+     FROM h_batches b
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+     ${whereClause}
+     ORDER BY b.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
 
   return {
-    items: results,
+    items: (dataRows as any[]).map((row: any) => ({
+      ...row,
+      productName: row.product_name || null,
+      productCode: row.product_code || null,
+    })),
     total,
     page,
     limit,
