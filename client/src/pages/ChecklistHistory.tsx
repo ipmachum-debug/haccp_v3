@@ -44,7 +44,7 @@ export default function ChecklistHistory() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setLocation(`/checklist/${instanceId}`)}
+          onClick={() => setLocation(`/quality/checklists/${instanceId}`)}
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>

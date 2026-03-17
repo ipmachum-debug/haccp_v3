@@ -453,9 +453,6 @@ function SortableChecklistCard({ item, category }: { item: any; category: any })
   };
 
   const ItemIcon = item.icon;
-  // 임시 데이터 - 0으로 고정 (Math.random()은 React 렌더 오류 #185 유발)
-  const completedCount = 0;
-  const daysRemaining = 0;
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
@@ -475,27 +472,6 @@ function SortableChecklistCard({ item, category }: { item: any; category: any })
           <CardDescription className="text-sm">{item.description}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {/* 상태 배지 */}
-          <div className="flex flex-wrap gap-2">
-            {completedCount > 0 && (
-              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                <CheckCircle2 className="h-3 w-3 mr-1" />
-                완료 {completedCount}건
-              </Badge>
-            )}
-            {daysRemaining > 0 ? (
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                <Clock className="h-3 w-3 mr-1" />
-                {daysRemaining}일 남음
-              </Badge>
-            ) : daysRemaining < 0 ? (
-              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
-                <XCircle className="h-3 w-3 mr-1" />
-                기간초과
-              </Badge>
-            ) : null}
-          </div>
-
           {/* 버튼 렌더링 (actions 또는 listPath/createPath) */}
           {item.actions ? (
             <div className="flex flex-col gap-2">
@@ -835,11 +811,17 @@ export default function ChecklistDashboard() {
             {/* 알람 박스와 통계 대시보드를 3열 그리드로 좌우 배치 */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* 알람 박스 */}
-              <Alert className="border-yellow-200 bg-yellow-50">
-                <AlertCircle className="h-4 w-4 text-yellow-600" />
-                <AlertTitle className="text-yellow-800">중요 알림</AlertTitle>
-                <AlertDescription className="text-yellow-700">
-                  오늘 작성해야 할 체크리스트가 <strong>3건</strong> 있습니다. 기한이 지나기 전에 작성해주세요.
+              <Alert className={`${(stats?.overdue || 0) > 0 ? "border-red-200 bg-red-50" : (stats?.todayDue || 0) > 0 ? "border-yellow-200 bg-yellow-50" : "border-green-200 bg-green-50"}`}>
+                <AlertCircle className={`h-4 w-4 ${(stats?.overdue || 0) > 0 ? "text-red-600" : (stats?.todayDue || 0) > 0 ? "text-yellow-600" : "text-green-600"}`} />
+                <AlertTitle className={(stats?.overdue || 0) > 0 ? "text-red-800" : (stats?.todayDue || 0) > 0 ? "text-yellow-800" : "text-green-800"}>
+                  {(stats?.overdue || 0) > 0 ? "기한 초과 알림" : (stats?.todayDue || 0) > 0 ? "오늘 마감" : "모두 완료"}
+                </AlertTitle>
+                <AlertDescription className={(stats?.overdue || 0) > 0 ? "text-red-700" : (stats?.todayDue || 0) > 0 ? "text-yellow-700" : "text-green-700"}>
+                  {(stats?.overdue || 0) > 0
+                    ? <>기한이 지난 체크리스트가 <strong>{stats?.overdue}건</strong> 있습니다. 즉시 작성해주세요.</>
+                    : (stats?.todayDue || 0) > 0
+                    ? <>오늘 작성해야 할 체크리스트가 <strong>{stats?.todayDue}건</strong> 있습니다.</>
+                    : "현재 미완료 체크리스트가 없습니다."}
                 </AlertDescription>
               </Alert>
 
@@ -873,7 +855,7 @@ export default function ChecklistDashboard() {
                         <XCircle className="h-4 w-4 text-red-600" />
                       </div>
                       <div>
-                        <p className="text-lg font-bold">{isStatsLoading ? "-" : 0}</p>
+                        <p className="text-lg font-bold">{isStatsLoading ? "-" : stats?.overdue || 0}</p>
                         <p className="text-xs text-muted-foreground">기한초과</p>
                       </div>
                     </div>
@@ -892,22 +874,22 @@ export default function ChecklistDashboard() {
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium">주간</span>
                         <span className="text-xs font-bold text-green-600">
-                          {isStatsLoading ? "-" : "85%"}
+                          {isStatsLoading ? "-" : `${stats?.weeklyRate ?? 0}%`}
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-1.5">
-                        <div className="bg-green-600 h-1.5 rounded-full" style={{ width: "85%" }}></div>
+                        <div className="bg-green-600 h-1.5 rounded-full transition-all" style={{ width: `${stats?.weeklyRate ?? 0}%` }}></div>
                       </div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-xs font-medium">월간</span>
                         <span className="text-xs font-bold text-blue-600">
-                          {isStatsLoading ? "-" : "78%"}
+                          {isStatsLoading ? "-" : `${stats?.monthlyRate ?? 0}%`}
                         </span>
                       </div>
                       <div className="w-full bg-gray-200 rounded-full h-1.5">
-                        <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: "78%" }}></div>
+                        <div className="bg-blue-600 h-1.5 rounded-full transition-all" style={{ width: `${stats?.monthlyRate ?? 0}%` }}></div>
                       </div>
                     </div>
                   </div>
