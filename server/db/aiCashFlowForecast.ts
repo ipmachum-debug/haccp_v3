@@ -57,10 +57,10 @@ async function getCurrentCashBalance(tenantId: number): Promise<number> {
        SUM(ejl.debit_amount) - SUM(ejl.credit_amount) as balance
      FROM expense_journal_lines ejl
      JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-     JOIN accounting_accounts aa ON aa.id = ejl.account_id
+     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.tenant_id = ?
      WHERE eje.tenant_id = ?
        AND aa.system_code IN ('CASH', 'BANK_DEPOSIT')`,
-    [tenantId]
+    [tenantId, tenantId]
   );
   return Number((rows as any[])[0]?.balance || 0);
 }
@@ -155,11 +155,11 @@ async function getDailyOperatingExpense(tenantId: number): Promise<number> {
     `SELECT SUM(ejl.debit_amount) / 30 as daily_avg
      FROM expense_journal_lines ejl
      JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses'
+     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses' AND aa.tenant_id = ?
      WHERE eje.tenant_id = ?
        AND eje.entry_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
        AND aa.system_code NOT IN ('COST_OF_GOODS')`,
-    [tenantId]
+    [tenantId, tenantId]
   );
   return Math.round(Number((rows as any[])[0]?.daily_avg || 0));
 }

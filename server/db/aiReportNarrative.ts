@@ -56,11 +56,11 @@ export async function generateFinancialNarrative(
        SUM(ejl.credit_amount) as credit
      FROM expense_journal_lines ejl
      JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-     JOIN accounting_accounts aa ON aa.id = ejl.account_id
+     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.tenant_id = ?
      WHERE eje.tenant_id = ? AND eje.entry_date BETWEEN ? AND ?
      GROUP BY aa.category, aa.name
      ORDER BY aa.category, SUM(ejl.debit_amount + ejl.credit_amount) DESC`,
-    [tenantId, period.startDate, period.endDate]
+    [tenantId, tenantId, period.startDate, period.endDate]
   );
 
   const data = rows as any[];
@@ -77,10 +77,10 @@ export async function generateFinancialNarrative(
        SUM(CASE WHEN aa.category = 'expenses' THEN ejl.debit_amount ELSE 0 END) as expenses
      FROM expense_journal_lines ejl
      JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-     JOIN accounting_accounts aa ON aa.id = ejl.account_id
+     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.tenant_id = ?
      WHERE eje.tenant_id = ? AND eje.entry_date BETWEEN ? AND ?
      GROUP BY aa.category`,
-    [tenantId, prevStart, prevEnd]
+    [tenantId, tenantId, prevStart, prevEnd]
   );
 
   if (!ENV.forgeApiKey) {

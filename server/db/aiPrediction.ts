@@ -295,12 +295,12 @@ async function predictFinancialTrend(tenantId: number): Promise<Prediction[]> {
        SUM(CASE WHEN aa.category = 'expenses' THEN ejl.debit_amount ELSE 0 END) as expenses
      FROM expense_journal_lines ejl
      JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-     JOIN accounting_accounts aa ON aa.id = ejl.account_id
+     JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.tenant_id = ?
      WHERE eje.tenant_id = ?
        AND eje.entry_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
      GROUP BY DATE_FORMAT(eje.entry_date, '%Y-%m')
      ORDER BY month`,
-    [tenantId]
+    [tenantId, tenantId]
   );
 
   const months = rows as any[];

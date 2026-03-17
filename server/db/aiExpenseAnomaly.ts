@@ -181,7 +181,7 @@ async function detectCategorySpike(tenantId: number): Promise<ExpenseAnomaly[]> 
          SELECT ejl.account_id, SUM(ejl.debit_amount) as amount
          FROM expense_journal_lines ejl
          JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-         JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses'
+         JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses' AND aa.tenant_id = ?
          WHERE eje.tenant_id = ?
            AND eje.entry_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
          GROUP BY ejl.account_id
@@ -190,18 +190,18 @@ async function detectCategorySpike(tenantId: number): Promise<ExpenseAnomaly[]> 
          SELECT ejl.account_id, SUM(ejl.debit_amount) as amount
          FROM expense_journal_lines ejl
          JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-         JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses'
+         JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses' AND aa.tenant_id = ?
          WHERE eje.tenant_id = ?
            AND eje.entry_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01')
            AND eje.entry_date < DATE_FORMAT(CURDATE(), '%Y-%m-01')
          GROUP BY ejl.account_id
        ) prev ON prev.account_id = cur.account_id
-       JOIN accounting_accounts aa ON aa.id = cur.account_id
+       JOIN accounting_accounts aa ON aa.id = cur.account_id AND aa.tenant_id = ?
        WHERE cur.amount > 100000
        HAVING changeRate > 50
        ORDER BY changeRate DESC
        LIMIT 10`,
-      [tenantId, tenantId]
+      [tenantId, tenantId, tenantId, tenantId, tenantId]
     );
 
     for (const row of rows as any[]) {
@@ -318,13 +318,13 @@ async function detectRevenueDrop(tenantId: number): Promise<ExpenseAnomaly[]> {
          SUM(ejl.credit_amount) as revenue
        FROM expense_journal_lines ejl
        JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-       JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'revenue'
+       JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'revenue' AND aa.tenant_id = ?
        WHERE eje.tenant_id = ?
          AND eje.entry_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
        GROUP BY DATE_FORMAT(eje.entry_date, '%Y-%m')
        ORDER BY month DESC
        LIMIT 3`,
-      [tenantId]
+      [tenantId, tenantId]
     );
 
     const months = rows as any[];
@@ -375,10 +375,10 @@ async function detectCashflowWarning(tenantId: number): Promise<ExpenseAnomaly[]
          SUM(ejl.debit_amount) - SUM(ejl.credit_amount) as balance
        FROM expense_journal_lines ejl
        JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-       JOIN accounting_accounts aa ON aa.id = ejl.account_id
+       JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.tenant_id = ?
        WHERE eje.tenant_id = ?
          AND aa.system_code IN ('CASH', 'BANK_DEPOSIT')`,
-      [tenantId]
+      [tenantId, tenantId]
     );
 
     // 최근 30일 일평균 비용
@@ -387,10 +387,10 @@ async function detectCashflowWarning(tenantId: number): Promise<ExpenseAnomaly[]
          SUM(ejl.debit_amount) / 30 as dailyExpense
        FROM expense_journal_lines ejl
        JOIN expense_journal_entries eje ON eje.id = ejl.journal_entry_id
-       JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses'
+       JOIN accounting_accounts aa ON aa.id = ejl.account_id AND aa.category = 'expenses' AND aa.tenant_id = ?
        WHERE eje.tenant_id = ?
          AND eje.entry_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`,
-      [tenantId]
+      [tenantId, tenantId]
     );
 
     const cashBalance = Number((cashRows as any[])[0]?.balance || 0);

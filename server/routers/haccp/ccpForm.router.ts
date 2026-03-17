@@ -101,7 +101,7 @@ export const ccpFormRouter = router({
         const { getOrCreateCcpFormRecord } = await import("../../db/ccpFormRecords");
         return getOrCreateCcpFormRecord({
           tenantId: ctx.tenantId!,
-          siteId: (ctx.user.siteId ?? ctx.tenantId ?? 1) as number,
+          siteId: (ctx.user.siteId ?? ctx.tenantId!) as number,
           batchId: input.batchId,
           ccpType: input.ccpType,
           workDate: input.workDate,
@@ -321,7 +321,7 @@ export const ccpFormRouter = router({
         const approvalId = await submitCcpFormRecord({
           formRecordId: input.formRecordId,
           tenantId: ctx.tenantId!,
-          siteId: (ctx.user.siteId ?? ctx.tenantId ?? 1) as number,
+          siteId: (ctx.user.siteId ?? ctx.tenantId!) as number,
           writerId: ctx.user.id,
           batchNumber: input.batchNumber,
           productName: input.productName ?? "",

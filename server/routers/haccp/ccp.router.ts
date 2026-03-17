@@ -122,7 +122,7 @@ export const ccpRouter = router({
           
           // 관리자 알림 생성
           await createNotification({
-            tenantId: ctx.tenantId ?? 1,
+            tenantId: ctx.tenantId!,
             userId: ctx.user.id, // 실제로는 관리자 ID를 사용해야 함
             notificationType: "ccp_deviation",
             title: "CCP 한계기준 이탈 발생",
@@ -172,7 +172,7 @@ export const ccpRouter = router({
           
           // 관리자에게 알림 발송
           await createNotification({
-            tenantId: ctx.tenantId ?? 1,
+            tenantId: ctx.tenantId!,
             userId: ctx.user.id, // 실제로는 관리자 ID를 사용해야 함
             notificationType: "ccp_inspection_complete",
             title: "CCP 점검 완료",

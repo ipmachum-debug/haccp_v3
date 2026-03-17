@@ -122,11 +122,11 @@ export async function analyzeSupplierRisk(tenantId: number): Promise<SupplierRis
        FROM h_batches b
        JOIN h_batch_inputs bi ON bi.batch_id = b.id
        JOIN purchase_items pi ON pi.material_id = bi.material_id
-       JOIN purchases pu ON pu.id = pi.purchase_id AND pu.partner_id = ?
+       JOIN purchases pu ON pu.id = pi.purchase_id AND pu.partner_id = ? AND pu.tenant_id = ?
        LEFT JOIN h_ccp_instances hci ON hci.batch_id = b.id AND hci.tenant_id = ?
        LEFT JOIN h_ccp_rows hcr ON hcr.instance_id = hci.id AND hcr.result = 'FAIL'
        WHERE b.tenant_id = ? AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)`,
-      [partner.id, tenantId, tenantId]
+      [partner.id, tenantId, tenantId, tenantId]
     );
     const batchCount = (ccpCorr as any[])[0]?.batchCount || 0;
     const failBatches = (ccpCorr as any[])[0]?.failBatches || 0;

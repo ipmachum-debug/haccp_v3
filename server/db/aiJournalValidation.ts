@@ -108,8 +108,8 @@ async function detectUnusualPairs(tenantId: number, startDate: string, endDate: 
        FROM expense_journal_lines d_line
        JOIN expense_journal_entries eje ON eje.id = d_line.journal_entry_id
        JOIN expense_journal_lines c_line ON c_line.journal_entry_id = eje.id AND c_line.credit_amount > 0
-       JOIN accounting_accounts d_acc ON d_acc.id = d_line.account_id
-       JOIN accounting_accounts c_acc ON c_acc.id = c_line.account_id
+       JOIN accounting_accounts d_acc ON d_acc.id = d_line.account_id AND d_acc.tenant_id = ?
+       JOIN accounting_accounts c_acc ON c_acc.id = c_line.account_id AND c_acc.tenant_id = ?
        WHERE eje.tenant_id = ? AND eje.entry_date BETWEEN ? AND ?
          AND d_line.debit_amount > 0
          AND d_acc.id != c_acc.id
@@ -117,7 +117,7 @@ async function detectUnusualPairs(tenantId: number, startDate: string, endDate: 
        HAVING pair_count = 1
        ORDER BY eje.entry_date DESC
        LIMIT 50`,
-      [tenantId, startDate, endDate]
+      [tenantId, tenantId, tenantId, startDate, endDate]
     );
 
     // 전체 기간 대비 이 조합이 처음인 건만 필터
