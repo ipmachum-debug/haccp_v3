@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import {
   RefreshCw, Shield, Upload, ChevronRight, Sparkles, Loader2,
   XCircle, Eye, FileCheck, BookOpen, Search, Trash2, RotateCcw,
   Database, Plus, Download, TrendingUp, Brain, DollarSign,
-  AlertOctagon, BookCheck,
+  AlertOctagon, BookCheck, X, Send,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -93,40 +93,103 @@ function formatDate(dateStr: string) {
 }
 
 // ============================================================================
+// 섹션 정의
+// ============================================================================
+type Section = "haccp" | "erp" | "manage";
+
+const SECTION_CONFIG: Record<Section, { label: string; icon: any; color: string; description: string }> = {
+  haccp: { label: "HACCP AI", icon: Shield, color: "text-emerald-600 border-emerald-500 bg-emerald-50", description: "식품안전 AI 분석" },
+  erp: { label: "ERP AI", icon: DollarSign, color: "text-blue-600 border-blue-500 bg-blue-50", description: "회계/재무 AI 분석" },
+  manage: { label: "관리", icon: Database, color: "text-slate-600 border-slate-500 bg-slate-50", description: "규칙/지식 관리" },
+};
+
+const SECTION_TABS: Record<Section, Array<{ value: string; label: string }>> = {
+  haccp: [
+    { value: "overview", label: "대시보드" },
+    { value: "anomaly", label: "이상탐지" },
+    { value: "prediction", label: "예측분석" },
+    { value: "corrective", label: "시정조치" },
+    { value: "supplier", label: "공급업체 리스크" },
+    { value: "training", label: "교육 추천" },
+    { value: "audit", label: "감사 AI" },
+  ],
+  erp: [
+    { value: "erp-expense", label: "비용 이상탐지" },
+    { value: "erp-cashflow", label: "현금흐름 예측" },
+    { value: "erp-payment", label: "AP/AR 리스크" },
+    { value: "erp-journal", label: "분개 검증" },
+  ],
+  manage: [
+    { value: "alerts", label: "알림 관리" },
+    { value: "standards", label: "기준서 관리" },
+    { value: "knowledge", label: "지식베이스" },
+    { value: "reports", label: "AI 보고서" },
+  ],
+};
+
+const DEFAULT_TABS: Record<Section, string> = {
+  haccp: "overview",
+  erp: "erp-expense",
+  manage: "alerts",
+};
+
+// ============================================================================
 // 메인 컴포넌트
 // ============================================================================
 export default function AIDashboard() {
+  const [section, setSection] = useState<Section>("haccp");
   const [activeTab, setActiveTab] = useState("overview");
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const handleSectionChange = (s: Section) => {
+    setSection(s);
+    setActiveTab(DEFAULT_TABS[s]);
+  };
 
   return (
     <DashboardLayout>
       <div className="p-4 md:p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <Sparkles className="w-7 h-7 text-indigo-600" />
-          <div>
-            <h1 className="text-2xl font-bold">AI HACCP Assistant</h1>
-            <p className="text-sm text-muted-foreground">규칙엔진 + AI 기반 식품안전 관리 시스템</p>
+        {/* 헤더 */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center">
+              <Brain className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">AI 관제 센터</h1>
+              <p className="text-xs text-muted-foreground">HACCP + ERP 통합 AI 분석</p>
+            </div>
           </div>
         </div>
 
+        {/* 섹션 선택 */}
+        <div className="flex gap-2">
+          {(Object.entries(SECTION_CONFIG) as [Section, typeof SECTION_CONFIG[Section]][]).map(([key, cfg]) => {
+            const Icon = cfg.icon;
+            const isActive = section === key;
+            return (
+              <button
+                key={key}
+                onClick={() => handleSectionChange(key)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition-all text-sm font-medium ${
+                  isActive
+                    ? `${cfg.color} border-current shadow-sm`
+                    : "border-transparent text-muted-foreground hover:bg-muted/50"
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 탭 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="flex flex-wrap gap-1 w-full max-w-6xl h-auto">
-            <TabsTrigger value="overview">대시보드</TabsTrigger>
-            <TabsTrigger value="anomaly">이상탐지</TabsTrigger>
-            <TabsTrigger value="prediction">예측분석</TabsTrigger>
-            <TabsTrigger value="alerts">알림 관리</TabsTrigger>
-            <TabsTrigger value="standards">기준서 관리</TabsTrigger>
-            <TabsTrigger value="knowledge">지식베이스</TabsTrigger>
-            <TabsTrigger value="corrective">시정조치 AI</TabsTrigger>
-            <TabsTrigger value="audit">감사 AI</TabsTrigger>
-            <TabsTrigger value="supplier">공급업체 리스크</TabsTrigger>
-            <TabsTrigger value="training">교육 추천</TabsTrigger>
-            <TabsTrigger value="reports">AI 보고서</TabsTrigger>
-            <TabsTrigger value="chatbot">AI 챗봇</TabsTrigger>
-            <TabsTrigger value="erp-expense" className="text-blue-600">비용 분석</TabsTrigger>
-            <TabsTrigger value="erp-cashflow" className="text-blue-600">현금흐름</TabsTrigger>
-            <TabsTrigger value="erp-payment" className="text-blue-600">AP/AR 리스크</TabsTrigger>
-            <TabsTrigger value="erp-journal" className="text-blue-600">분개 검증</TabsTrigger>
+          <TabsList className="flex flex-wrap gap-1 h-auto">
+            {SECTION_TABS[section].map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="overview"><OverviewTab /></TabsContent>
@@ -140,13 +203,15 @@ export default function AIDashboard() {
           <TabsContent value="supplier"><SupplierRiskTab /></TabsContent>
           <TabsContent value="training"><TrainingTab /></TabsContent>
           <TabsContent value="reports"><ReportsTab /></TabsContent>
-          <TabsContent value="chatbot"><ChatbotTab /></TabsContent>
           <TabsContent value="erp-expense"><ExpenseAnomalyTab /></TabsContent>
           <TabsContent value="erp-cashflow"><CashFlowTab /></TabsContent>
           <TabsContent value="erp-payment"><PaymentRiskTab /></TabsContent>
           <TabsContent value="erp-journal"><JournalValidationTab /></TabsContent>
         </Tabs>
       </div>
+
+      {/* 플로팅 AI 챗봇 */}
+      <FloatingChatbot open={chatOpen} onToggle={() => setChatOpen(!chatOpen)} />
     </DashboardLayout>
   );
 }
@@ -1960,13 +2025,20 @@ function ReportsTab() {
 }
 
 // ============================================================================
-// P9-8: AI 챗봇 탭
+// 플로팅 AI 챗봇 (항상 접근 가능)
 // ============================================================================
-function ChatbotTab() {
+function FloatingChatbot({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   const [message, setMessage] = useState("");
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const chatMutation = trpc.ai.chat.useMutation();
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, chatMutation.isPending]);
 
   const handleSend = async () => {
     const text = message.trim();
@@ -2004,73 +2076,127 @@ function ChatbotTab() {
     setConversationId(undefined);
   };
 
+  const PRESET_QUESTIONS = [
+    { label: "오늘 알림 요약", q: "오늘 위험한 항목이 있어?" },
+    { label: "CCP 현황", q: "이번주 CCP 모니터링 요약해줘" },
+    { label: "비용 이상", q: "최근 비용 이상 내역 알려줘" },
+    { label: "현금흐름", q: "현금흐름 예측 결과 알려줘" },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-indigo-600" />
-          AI 어시스턴트 "하나"
-        </h2>
-        <Button variant="outline" size="sm" onClick={handleNewChat}>
-          <RefreshCw className="w-4 h-4 mr-1" /> 새 대화
-        </Button>
-      </div>
+    <>
+      {/* FAB 버튼 */}
+      {!open && (
+        <button
+          onClick={onToggle}
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 hover:shadow-xl transition-all flex items-center justify-center group"
+          title="AI 데이터 분석 챗봇"
+        >
+          <Brain className="w-6 h-6 group-hover:scale-110 transition-transform" />
+          <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full border-2 border-white" />
+        </button>
+      )}
 
-      {/* 메시지 영역 */}
-      <Card className="min-h-[400px] max-h-[600px] flex flex-col">
-        <CardContent className="flex-1 overflow-y-auto p-4 space-y-3">
-          {messages.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">안녕하세요! HACCP-ONE AI 어시스턴트 "하나"입니다.</p>
-              <p className="text-sm mt-1">식품안전, CCP, 재고, 회계 등 무엇이든 물어보세요.</p>
-              <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                {["오늘 위험한 항목이 있어?", "체크리스트 진행 현황", "이번주 CCP 요약", "감사 준비 상태"].map((q) => (
-                  <Button key={q} variant="outline" size="sm" className="text-xs"
-                    onClick={() => { setMessage(q); }}>
-                    {q}
-                  </Button>
-                ))}
+      {/* 채팅 패널 */}
+      {open && (
+        <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[560px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+          {/* 헤더 */}
+          <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 px-4 py-3 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                <Brain className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h3 className="text-white text-sm font-semibold">AI 데이터 분석</h3>
+                <p className="text-indigo-200 text-[10px]">HACCP/ERP 실시간 데이터 기반</p>
               </div>
             </div>
-          )}
-          {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-                msg.role === "user"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-muted"
-              }`}>
-                <div className="whitespace-pre-wrap">{msg.content}</div>
-              </div>
+            <div className="flex items-center gap-1">
+              <button onClick={handleNewChat} className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition" title="새 대화">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={onToggle} className="text-white/70 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition" title="닫기">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          ))}
-          {chatMutation.isPending && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-4 py-2 flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">하나가 생각하는 중...</span>
-              </div>
-            </div>
-          )}
-        </CardContent>
+          </div>
 
-        {/* 입력 영역 */}
-        <div className="border-t p-3 flex gap-2">
-          <Textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="메시지를 입력하세요... (Enter로 전송, Shift+Enter로 줄바꿈)"
-            className="min-h-[40px] max-h-[120px] resize-none"
-            rows={1}
-          />
-          <Button onClick={handleSend} disabled={!message.trim() || chatMutation.isPending} className="shrink-0">
-            전송
-          </Button>
+          {/* 메시지 영역 */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center pt-8 pb-4">
+                <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center mb-3">
+                  <Brain className="w-6 h-6 text-indigo-500" />
+                </div>
+                <p className="text-sm font-medium text-slate-700">AI 데이터 분석 어시스턴트</p>
+                <p className="text-xs text-muted-foreground mt-1 text-center px-4">
+                  실제 HACCP/ERP 데이터를 조회하여 분석합니다.<br />
+                  알림, CCP, 비용, 현금흐름 등을 질문하세요.
+                </p>
+                <div className="grid grid-cols-2 gap-1.5 mt-4 w-full px-2">
+                  {PRESET_QUESTIONS.map((pq) => (
+                    <button
+                      key={pq.q}
+                      onClick={() => setMessage(pq.q)}
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition text-left"
+                    >
+                      {pq.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg.role === "assistant" && (
+                  <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center mr-1.5 mt-1 shrink-0">
+                    <Brain className="w-3 h-3 text-indigo-600" />
+                  </div>
+                )}
+                <div className={`max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
+                  msg.role === "user"
+                    ? "bg-indigo-600 text-white rounded-br-md"
+                    : "bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm"
+                }`}>
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                </div>
+              </div>
+            ))}
+            {chatMutation.isPending && (
+              <div className="flex justify-start">
+                <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center mr-1.5 mt-1 shrink-0">
+                  <Brain className="w-3 h-3 text-indigo-600" />
+                </div>
+                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-3.5 py-2 shadow-sm flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                  <span className="text-xs text-muted-foreground">데이터 분석 중...</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="border-t border-slate-200 bg-white p-2.5 flex gap-2 shrink-0">
+            <Textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="HACCP/ERP 데이터를 질문하세요..."
+              className="min-h-[36px] max-h-[80px] resize-none text-sm rounded-xl border-slate-200 focus:border-indigo-300"
+              rows={1}
+            />
+            <Button
+              onClick={handleSend}
+              disabled={!message.trim() || chatMutation.isPending}
+              size="sm"
+              className="shrink-0 h-9 w-9 p-0 rounded-xl bg-indigo-600 hover:bg-indigo-700"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
-      </Card>
-    </div>
+      )}
+    </>
   );
 }
 
