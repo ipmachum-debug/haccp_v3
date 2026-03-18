@@ -22,9 +22,12 @@ export async function createBatch(batch: {
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../drizzle/schema_recipe_new");
 
   // Format dates as MySQL-compatible strings to avoid JS Date.toString() serialization issues
-  const plannedDateStr = batch.plannedDate instanceof Date
-    ? batch.plannedDate.toISOString().split("T")[0]
-    : String(batch.plannedDate).split("T")[0];
+  // Use raw SQL to prevent Drizzle from calling toISOString() on the value
+  const pd = batch.plannedDate;
+  const plannedDateStr = pd instanceof Date
+    ? pd.toISOString().split("T")[0]
+    : String(pd).includes("T") ? String(pd).split("T")[0]
+    : String(pd).slice(0, 10);  // "YYYY-MM-DD" or similar
 
   let startTimeStr: string | null = null;
   if (batch.batchStartTime) {
@@ -39,8 +42,8 @@ export async function createBatch(batch: {
     dayBatchGroup: batch.dayBatchGroup || null,
     batchOrder: batch.batchOrder ?? null,
     plannedQuantity: batch.plannedQuantity,
-    plannedDate: plannedDateStr,
-    startTime: startTimeStr,
+    plannedDate: sql`${plannedDateStr}`,
+    startTime: startTimeStr ? sql`${startTimeStr}` : null,
     status: batch.status || "planned",
     mode: (batch.mode || "auto") as any,
     createdBy: batch.createdBy
