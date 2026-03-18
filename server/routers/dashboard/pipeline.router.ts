@@ -118,4 +118,19 @@ export const pipelineRouter = router({
         const result3 = Array.isArray(resultRaw3) && Array.isArray(resultRaw3[0]) ? resultRaw3[0] : resultRaw3;
         return result3 as any[];
       }),
+
+    // 실시간 승인 대기 건수 조회
+    getPendingApprovalCount: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const db = await getDb();
+        if (!db) return { count: 0 };
+        const safeTenantId = ctx.tenantId;
+        const result = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM h_approval_requests
+          WHERE tenant_id = ${safeTenantId}
+            AND status IN ('pending_review', 'pending_approval', 'submitted')
+        `);
+        const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result;
+        return { count: Number((rows as any[])[0]?.cnt || 0) };
+      }),
 });

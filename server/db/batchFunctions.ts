@@ -254,7 +254,7 @@ export async function getAllBatches(filters?: {
      ${whereClause}
      ORDER BY b.created_at DESC
      LIMIT ? OFFSET ?`,
-    [...params, limit, offset]
+    [...params, String(limit), String(offset)]
   );
 
   return {
@@ -373,11 +373,20 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
       await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?`, [batchId]);
     }
   } catch (_e) { /* ignore if table not exists */ }
-  // 승인 요청 삭제
+  // 문서 인스턴스 삭제 (document_instances)
+  try {
+    if (tenantId) {
+      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    } else {
+      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ?`, [batchId]);
+    }
+  } catch (_e) { /* ignore if table not exists */ }
+
+  // 승인 요청 삭제 (batch 직접 + batch_group)
   if (tenantId) {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type = 'batch' AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
   } else {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type = 'batch' AND reference_id = ?`, [batchId]);
+    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ?`, [batchId]);
   }
 }
 
