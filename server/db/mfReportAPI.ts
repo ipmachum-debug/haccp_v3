@@ -9,6 +9,7 @@ import {
   itemMaster
 } from "../../drizzle/schema";
 import { eq, and, desc, lte, sql } from "drizzle-orm";
+import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -519,7 +520,6 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
-  const PDFDocument = require("pdfkit");
   const reports: any[] = [];
   
   for (const id of ids) {
@@ -888,7 +888,6 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
     .where(eq(hMfIngredients.mfReportVersionId, versionId))
     .orderBy(hMfIngredients.lineNo);
 
-  const PDFDocument = require("pdfkit");
   const doc = new PDFDocument({ margin: 50 });
   const fonts = registerKoreanFont(doc);
   const chunks: Buffer[] = [];

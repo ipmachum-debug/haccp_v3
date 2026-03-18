@@ -70,7 +70,7 @@ export const mfReportRouter = router({
               intermediateId: z.number().optional(),
               quantity: z.number(),
               unit: z.string(),
-              isDeductible: z.number(),
+              isDeductible: z.number().default(1),
               materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC"]),
               flavorName: z.string().optional(),
               processGroupId: z.number().optional(),

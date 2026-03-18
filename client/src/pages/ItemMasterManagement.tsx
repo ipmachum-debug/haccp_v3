@@ -157,11 +157,15 @@ function ItemMasterContent() {
 
   const updateMutation = trpc.itemMaster.update.useMutation({
     onSuccess: () => {
+      console.log('[ItemMaster] update success');
       toast({ title: "품목이 수정되었습니다." });
       setIsEditOpen(false);
       refetchItems();
     },
-    onError: (err: any) => toast({ title: "수정 실패", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      console.error('[ItemMaster] update error:', err);
+      toast({ title: "수정 실패", description: err.message, variant: "destructive" });
+    },
   });
 
   const deleteMutation = trpc.itemMaster.delete.useMutation({
@@ -417,12 +421,17 @@ function ItemMasterContent() {
       {/* 품목 수정 다이얼로그 */}
       {selectedItem && (
         <ItemFormDialog
+          key={`edit-${selectedItem.id}`}
           open={isEditOpen}
           onOpenChange={setIsEditOpen}
           itemType={activeTab as ItemType}
           initialData={selectedItem}
           isEdit
-          onSubmit={(data) => updateMutation.mutate({ id: selectedItem.id, ...data })}
+          onSubmit={(data) => {
+            const payload = { id: selectedItem.id, ...data };
+            console.log('[ItemMaster] edit onSubmit payload:', JSON.stringify(payload));
+            updateMutation.mutate(payload);
+          }}
           isPending={updateMutation.isPending}
         />
       )}
@@ -574,7 +583,7 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
     baseUnit: initialData?.baseUnit || "kg",
     supplierId: initialData?.supplierId || undefined,
     purchaseUnit: initialData?.purchaseUnit || "",
-    purchaseConversionRate: initialData?.purchaseConversionRate || 1,
+    purchaseConversionRate: Number(initialData?.purchaseConversionRate) || 1,
     productReportNo: initialData?.productReportNo || "",
     shelfLifeDays: initialData?.shelfLifeDays || undefined,
     defaultUnitPrice: Number(initialData?.defaultUnitPrice || 0),
@@ -600,7 +609,7 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
           baseUnit: initialData.baseUnit || "kg",
           supplierId: initialData.supplierId || undefined,
           purchaseUnit: initialData.purchaseUnit || "",
-          purchaseConversionRate: initialData.purchaseConversionRate || 1,
+          purchaseConversionRate: Number(initialData.purchaseConversionRate) || 1,
           productReportNo: initialData.productReportNo || "",
           shelfLifeDays: initialData.shelfLifeDays || undefined,
           defaultUnitPrice: Number(initialData.defaultUnitPrice || 0),
@@ -626,17 +635,34 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
   }, [open, isEdit, initialData, itemType]);
 
   const handleSubmit = () => {
-    if (!form.itemName) return;
-    const data: any = { ...form, itemType };
+    console.log('[ItemMaster] handleSubmit CALLED, isEdit:', isEdit, 'itemName:', form.itemName);
+    if (!form.itemName) {
+      console.error('[ItemMaster] handleSubmit: itemName is empty, aborting');
+      return;
+    }
+    const data: any = { ...form };
+    if (!isEdit) {
+      data.itemType = itemType;
+    }
     if (isEdit) {
       delete data.itemCode;
       delete data.itemType;
     }
-    // Clean up undefined/empty values (itemType은 항상 유지)
+    // Ensure numeric fields are proper numbers (decimal columns return strings from DB)
+    if (data.purchaseConversionRate !== undefined) data.purchaseConversionRate = Number(data.purchaseConversionRate);
+    if (data.defaultUnitPrice !== undefined) data.defaultUnitPrice = Number(data.defaultUnitPrice);
+    if (data.shelfLifeDays !== undefined && data.shelfLifeDays !== null) data.shelfLifeDays = Number(data.shelfLifeDays);
+    if (data.supplierId !== undefined && data.supplierId !== null) data.supplierId = Number(data.supplierId);
+    // Clean up undefined/empty values
     Object.keys(data).forEach(key => {
-      if (key === 'itemType' || key === 'itemName' || key === 'baseUnit') return; // 필수 필드 보존
-      if (data[key] === "" || data[key] === undefined) delete data[key];
+      if (key === 'itemName' || key === 'baseUnit') return;
+      if (data[key] === '' || data[key] === undefined) delete data[key];
     });
+    // Remove NaN values from numeric conversion
+    Object.keys(data).forEach(key => {
+      if (typeof data[key] === 'number' && isNaN(data[key])) delete data[key];
+    });
+    console.log('[ItemMaster] handleSubmit final data:', JSON.stringify(data));
     onSubmit(data);
   };
 
@@ -681,6 +707,12 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
                   <SelectValue placeholder="카테고리 선택" />
                 </SelectTrigger>
                 <SelectContent>
+                  {/* 현재 카테고리가 목록에 없을 경우 기존 값 표시 */}
+                  {form.category && !categories.some((cat: any) => cat.name === form.category) && (
+                    <SelectItem key="current" value={form.category}>
+                      {form.category} (미등록)
+                    </SelectItem>
+                  )}
                   {categories.map((cat: any) => (
                     <SelectItem key={cat.id} value={cat.name}>
                       {cat.name}
@@ -766,7 +798,7 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
-          <Button onClick={handleSubmit} disabled={isPending}>
+          <Button type="button" onClick={handleSubmit} disabled={isPending}>
             {isPending ? "처리 중..." : isEdit ? "수정" : "등록"}
           </Button>
         </DialogFooter>

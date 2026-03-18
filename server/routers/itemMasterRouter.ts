@@ -198,6 +198,7 @@ export const itemMasterRouter = router({
       isActive: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      console.log('[itemMaster.update] called with input:', JSON.stringify(input));
       const db = await getDb();
       const { id, ...updateData } = input;
       
@@ -221,6 +222,29 @@ export const itemMasterRouter = router({
           eq(itemMaster.id, id),
           eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
         ));
+      
+      // h_products_v2 역방향 동기화 (legacyProductId가 있는 경우)
+      try {
+        const [item] = await db.select({ legacyProductId: itemMaster.legacyProductId, itemType: itemMaster.itemType })
+          .from(itemMaster)
+          .where(eq(itemMaster.id, id));
+        if (item?.legacyProductId && (item.itemType === 'own_product' || item.itemType === 'external_product')) {
+          const syncParts: any[] = [];
+          if (updateData.itemName !== undefined) syncParts.push(sql`product_name = ${updateData.itemName}`);
+          if (updateData.category !== undefined) syncParts.push(sql`category = ${updateData.category}`);
+          if (updateData.baseUnit !== undefined) syncParts.push(sql`unit = ${updateData.baseUnit}`);
+          if (updateData.shelfLifeDays !== undefined) syncParts.push(sql`shelf_life_days = ${updateData.shelfLifeDays}`);
+          if (updateData.description !== undefined) syncParts.push(sql`description = ${updateData.description}`);
+          if (updateData.isActive !== undefined) syncParts.push(sql`is_active = ${updateData.isActive}`);
+          if (syncParts.length > 0) {
+            await db.execute(
+              sql`UPDATE h_products_v2 SET ${sql.join(syncParts, sql`, `)} WHERE id = ${item.legacyProductId} AND tenant_id = ${ctx.tenantId}`
+            );
+          }
+        }
+      } catch (syncErr) {
+        console.error('h_products_v2 역방향 동기화 실패:', syncErr);
+      }
       
       return { success: true, message: "품목이 수정되었습니다." };
     }),

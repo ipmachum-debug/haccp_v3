@@ -16,8 +16,10 @@ interface IngredientRow {
   intermediateId?: number;
   quantity: number;
   unit: string;
+  isDeductible: number;
   materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC";
   flavorName?: string;
+  materialName?: string; // 백엔드에서 조회된 원재료명
 }
 
 export default function MfReportModify() {
@@ -47,6 +49,7 @@ export default function MfReportModify() {
   const [newIngredient, setNewIngredient] = useState<IngredientRow>({
     quantity: 0,
     unit: "%",
+    isDeductible: 1,
     materialType: "RAW",
   });
 
@@ -75,17 +78,20 @@ export default function MfReportModify() {
       if (ver.unitWeightG) setUnitWeightG(String(ver.unitWeightG));
       if (ver.batchTargetKg) setBatchTargetKg(String(ver.batchTargetKg));
 
-      // 원재료 로드 (isAdditional=0인 것만, 추가 원재료 제외)
-      if ((ver as any).ingredients && (ver as any).ingredients.length > 0) {
-        const mainIngredients = (ver as any).ingredients
+      // 원재료 로드 (reportDetail.ingredients 또는 version.ingredients에서)
+      const ingSource = reportDetail.ingredients || (ver as any).ingredients || [];
+      if (ingSource.length > 0) {
+        const mainIngredients = ingSource
           .filter((ing: any) => !ing.isAdditional || ing.isAdditional === 0)
           .map((ing: any) => ({
             materialId: ing.materialId || undefined,
             intermediateId: ing.intermediateId || undefined,
             quantity: parseFloat(ing.quantity) || 0,
             unit: ing.unit || "%",
+            isDeductible: ing.isDeductible ?? 1,
             materialType: ing.materialType || "RAW",
             flavorName: ing.flavorName || undefined,
+            materialName: ing.materialName || undefined,
           }));
         setIngredients(mainIngredients);
       }
@@ -116,6 +122,7 @@ export default function MfReportModify() {
     setNewIngredient({
       quantity: 0,
       unit: "%",
+      isDeductible: 1,
       materialType: "RAW",
     });
   };
@@ -156,6 +163,7 @@ export default function MfReportModify() {
         intermediateId: ing.intermediateId,
         quantity: ing.quantity,
         unit: ing.unit,
+        isDeductible: ing.isDeductible ?? 1,
         materialType: ing.materialType,
         flavorName: ing.flavorName,
       })),
@@ -163,7 +171,8 @@ export default function MfReportModify() {
   };
 
   // === 헬퍼 ===
-  const getMaterialName = (materialId?: number) => {
+  const getMaterialName = (materialId?: number, storedName?: string) => {
+    if (storedName) return storedName;
     if (!materialId || !materials) return "";
     const m = materials.find((mat: any) => mat.id === materialId);
     return m ? `${m.materialName} (${m.materialCode})` : `ID:${materialId}`;
@@ -288,7 +297,7 @@ export default function MfReportModify() {
                         <TableCell className="text-sm">
                           {ing.materialType === "MIXED"
                             ? getIntermediateName(ing.intermediateId)
-                            : getMaterialName(ing.materialId)}
+                            : getMaterialName(ing.materialId, ing.materialName)}
                         </TableCell>
                         <TableCell className="text-sm">{ing.flavorName || "-"}</TableCell>
                         <TableCell>
