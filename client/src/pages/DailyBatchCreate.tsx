@@ -483,31 +483,99 @@ export default function DailyBatchCreate() {
                         </Button>
                       </div>
 
-                      {/* SKU Outputs */}
-                      {item.productId && skusForProduct.length > 0 && (
-                        <div className="mt-3 ml-10 pl-4 border-l-2 border-dashed">
-                          <div className="text-xs font-medium text-muted-foreground mb-2">
-                            SKU별 예상 생산수량
-                          </div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            {skusForProduct.map((sku: any) => (
-                              <div key={sku.id} className="flex items-center gap-2">
-                                <span className="text-xs truncate max-w-[120px]" title={sku.skuName}>
-                                  {sku.skuName || `${sku.netWeight}${sku.salesUnit}`}
-                                </span>
-                                <Input
-                                  type="number"
-                                  className="h-7 w-20 text-xs text-right"
-                                  placeholder="0"
-                                  value={item.skuOutputs[sku.id] || ""}
-                                  onChange={(e) => updateSkuOutput(item.id, sku.id, e.target.value)}
-                                />
-                                <span className="text-[10px] text-muted-foreground">{sku.salesUnit}</span>
+                      {/* SKU Outputs with conversion */}
+                      {item.productId && skusForProduct.length > 0 && (() => {
+                        const plannedKg = parseFloat(item.plannedQuantityKg) || 0;
+                        // SKU별 환산 계산
+                        const skuCalcs = skusForProduct.map((sku: any) => {
+                          const kgPerUnit = parseFloat(sku.kgPerSalesUnit) || 0;
+                          const inputQty = parseInt(item.skuOutputs[sku.id] || "0") || 0;
+                          const estimatedQty = kgPerUnit > 0 && plannedKg > 0 ? Math.floor(plannedKg / kgPerUnit) : 0;
+                          const inputKg = inputQty * kgPerUnit;
+                          return { ...sku, kgPerUnit, estimatedQty, inputQty, inputKg };
+                        });
+                        const totalSkuKg = skuCalcs.reduce((s, c) => s + c.inputKg, 0);
+                        const totalSkuQty = skuCalcs.reduce((s, c) => s + c.inputQty, 0);
+
+                        return (
+                          <div className="mt-3 ml-10 pl-4 border-l-2 border-dashed border-blue-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="text-xs font-medium text-muted-foreground">
+                                SKU별 예상 생산수량
+                                {plannedKg > 0 && (
+                                  <span className="ml-2 text-blue-600 font-normal">
+                                    (생산량 {plannedKg.toFixed(1)}kg 기준)
+                                  </span>
+                                )}
                               </div>
-                            ))}
+                              {totalSkuKg > 0 && (
+                                <Badge variant="outline" className={`text-[10px] ${Math.abs(totalSkuKg - plannedKg) < 0.01 ? "border-green-400 text-green-700 bg-green-50" : "border-orange-400 text-orange-700 bg-orange-50"}`}>
+                                  SKU 환산: {totalSkuKg.toFixed(1)}kg / {plannedKg.toFixed(1)}kg
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="space-y-1.5">
+                              {skuCalcs.map((calc: any) => (
+                                <div key={calc.id} className="flex items-center gap-2 bg-gray-50 rounded-md px-2 py-1.5">
+                                  {/* SKU 이름 + 규격 */}
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-xs font-medium truncate block" title={calc.skuName}>
+                                      {calc.skuName || `${calc.netWeightG}g`}
+                                    </span>
+                                    {calc.kgPerUnit > 0 && (
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {calc.netWeightG ? `${calc.netWeightG}g` : ""}
+                                        {calc.piecesPerPack > 1 ? ` × ${calc.piecesPerPack}ea` : ""}
+                                        {calc.packsPerBox > 1 ? ` × ${calc.packsPerBox}pack` : ""}
+                                        {" = "}{calc.kgPerUnit}kg/{calc.salesUnit}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* 예상수량 표시 */}
+                                  {calc.estimatedQty > 0 && (
+                                    <span className="text-[10px] text-blue-500 whitespace-nowrap">
+                                      예상 {calc.estimatedQty}{calc.salesUnit}
+                                    </span>
+                                  )}
+
+                                  {/* 수량 입력 */}
+                                  <Input
+                                    type="number"
+                                    className="h-7 w-20 text-xs text-right"
+                                    placeholder={calc.estimatedQty > 0 ? String(calc.estimatedQty) : "0"}
+                                    value={item.skuOutputs[calc.id] || ""}
+                                    onChange={(e) => updateSkuOutput(item.id, calc.id, e.target.value)}
+                                  />
+                                  <span className="text-[10px] text-muted-foreground w-8">{calc.salesUnit}</span>
+
+                                  {/* 환산중량 */}
+                                  {calc.inputQty > 0 && calc.kgPerUnit > 0 && (
+                                    <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap min-w-[50px] text-right">
+                                      = {calc.inputKg.toFixed(1)}kg
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* SKU 합산 요약 */}
+                            {totalSkuQty > 0 && (
+                              <div className="mt-2 pt-1.5 border-t border-dashed flex items-center justify-end gap-3 text-xs">
+                                <span className="text-muted-foreground">합계:</span>
+                                <span className="font-medium">{totalSkuQty.toLocaleString()}개</span>
+                                <span className="font-medium text-emerald-600">{totalSkuKg.toFixed(1)}kg</span>
+                                {plannedKg > 0 && Math.abs(totalSkuKg - plannedKg) >= 0.01 && (
+                                  <span className="text-orange-500 text-[10px]">
+                                    (차이: {(totalSkuKg - plannedKg) > 0 ? "+" : ""}{(totalSkuKg - plannedKg).toFixed(1)}kg)
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 );
