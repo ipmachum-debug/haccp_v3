@@ -436,6 +436,35 @@ export async function deleteCcpFormRow(id: number, tenantId?: number) {
   await db.delete(hCcpFormRows).where(conditions);
 }
 
+/**
+ * CCP 기록지(form record) 일괄 삭제
+ * - 연관된 form rows도 함께 삭제 (cascade)
+ * - tenantId 격리 필수
+ */
+export async function deleteCcpFormRecords(formRecordIds: number[], tenantId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const { inArray } = await import("drizzle-orm");
+
+  // 1. 관련 행(rows) 먼저 삭제
+  await db.delete(hCcpFormRows).where(
+    and(
+      inArray(hCcpFormRows.formRecordId, formRecordIds),
+      eq(hCcpFormRows.tenantId, tenantId)
+    )
+  );
+
+  // 2. 기록지(header) 삭제
+  await db.delete(hCcpFormRecords).where(
+    and(
+      inArray(hCcpFormRecords.id, formRecordIds),
+      eq(hCcpFormRecords.tenantId, tenantId)
+    )
+  );
+
+  return { deletedCount: formRecordIds.length };
+}
+
 // ─────────────────────────────────────────────────────────
 // Equipment Batch Settings (설비 배치 설정)
 // ─────────────────────────────────────────────────────────

@@ -307,6 +307,19 @@ export const ccpFormRouter = router({
         return { success: true };
       }),
 
+    /** 기록지 일괄 삭제 (header + rows cascade) */
+    bulkDelete: workerProcedure
+      .input(z.object({ formRecordIds: z.array(z.number()) }))
+      .mutation(async ({ input, ctx }) => {
+        const { deleteCcpFormRecords } = await import("../../db/ccpFormRecords");
+        const result = await deleteCcpFormRecords(input.formRecordIds, ctx.tenantId!);
+        return {
+          success: true,
+          deletedCount: result.deletedCount,
+          message: `${result.deletedCount}건의 CCP 기록지가 삭제되었습니다.`,
+        };
+      }),
+
     /** 기록지 제출 (승인 요청) */
     submit: workerProcedure
       .input(z.object({

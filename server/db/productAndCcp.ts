@@ -516,22 +516,27 @@ export async function getAllCcpRecords(filters?: {
 }
 
 // CCP 일괄 삭제
-export async function deleteCcpInstances(instanceIds: number[]) {
+export async function deleteCcpInstances(instanceIds: number[], tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { hCcpInstances, hCcpRows } = await import("../../drizzle/schema");
-  const { inArray } = await import("drizzle-orm");
+  const { inArray, and, eq } = await import("drizzle-orm");
+
+  // 테넌트 격리 조건 추가
+  const instanceCondition = tenantId
+    ? and(inArray(hCcpInstances.id, instanceIds), eq(hCcpInstances.tenantId, tenantId))
+    : inArray(hCcpInstances.id, instanceIds);
+
+  const rowCondition = tenantId
+    ? and(inArray(hCcpRows.instanceId, instanceIds), eq(hCcpRows.tenantId, tenantId))
+    : inArray(hCcpRows.instanceId, instanceIds);
 
   // 1. CCP 점검 행 삭제
-  await db
-    .delete(hCcpRows)
-    .where(inArray(hCcpRows.instanceId, instanceIds));
+  await db.delete(hCcpRows).where(rowCondition);
 
   // 2. CCP 인스턴스 삭제
-  const result = await db
-    .delete(hCcpInstances)
-    .where(inArray(hCcpInstances.id, instanceIds));
+  await db.delete(hCcpInstances).where(instanceCondition);
 
   return {
     deletedCount: instanceIds.length
