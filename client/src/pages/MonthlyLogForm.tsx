@@ -74,6 +74,25 @@ export default function MonthlyLogForm() {
   const [checkerName, setCheckerName] = useState("");
   const [confirmerName, setConfirmerName] = useState("");
 
+  // 문서결재설정에서 작성자/확인자 자동 로드
+  const { data: approvalSetting } = (trpc as any).organization.approvalSettings.getByType.useQuery(
+    { documentType: "monthly_log" },
+    { staleTime: 60000 }
+  );
+  const { data: employees } = (trpc as any).organization.employees.list.useQuery(undefined, { staleTime: 60000 });
+
+  // 작성자/확인자 자동 설정 (신규 작성 시 빈 값이면 설정값으로 채움)
+  useEffect(() => {
+    if (!checkerName && approvalSetting?.authorEmployeeId && employees) {
+      const emp = (employees as any[]).find((e: any) => e.id === approvalSetting.authorEmployeeId);
+      if (emp?.name) setCheckerName(emp.name);
+    }
+    if (!confirmerName && approvalSetting?.reviewerEmployeeId && employees) {
+      const emp = (employees as any[]).find((e: any) => e.id === approvalSetting.reviewerEmployeeId);
+      if (emp?.name) setConfirmerName(emp.name);
+    }
+  }, [approvalSetting, employees, checkerName, confirmerName]);
+
   // API queries
   const { data: existingLog, isLoading: loadingExisting } = trpc.monthlyLog.getByDate.useQuery(
     { logDate },
@@ -205,15 +224,21 @@ export default function MonthlyLogForm() {
       {/* Basic Info */}
       <Card>
         <CardContent className="pt-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <Label>점검자</Label>
+              <Label>점검자 (작성자)</Label>
               <Input value={checkerName} onChange={(e) => setCheckerName(e.target.value)} placeholder="점검자명" />
             </div>
             <div>
-              <Label>확인자</Label>
+              <Label>확인자 (검토자)</Label>
               <Input value={confirmerName} onChange={(e) => setConfirmerName(e.target.value)} placeholder="확인자명" />
             </div>
+            {approvalSetting?.approverEmployeeId && employees && (
+              <div>
+                <Label className="text-xs text-muted-foreground">승인자</Label>
+                <div className="text-sm font-medium mt-2">{(employees as any[]).find((e: any) => e.id === approvalSetting.approverEmployeeId)?.name || "-"}</div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

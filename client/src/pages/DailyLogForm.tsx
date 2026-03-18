@@ -92,6 +92,18 @@ export default function DailyLogForm() {
   const [recordStatus, setRecordStatus] = useState<string>("new");
   const [preFilledFrom, setPreFilledFrom] = useState<string | null>(null);
 
+  // 문서결재설정에서 작성자 자동 로드
+  const { data: approvalSetting } = (trpc as any).organization.approvalSettings.getByType.useQuery(
+    { documentType: "daily_log" },
+    { staleTime: 60000 }
+  );
+  const { data: employees } = (trpc as any).organization.employees.list.useQuery(undefined, { staleTime: 60000 });
+  const authorName = (() => {
+    if (!approvalSetting?.authorEmployeeId || !employees) return "";
+    const emp = (employees as any[]).find((e: any) => e.id === approvalSetting.authorEmployeeId);
+    return emp?.name || "";
+  })();
+
   // Form data states
   const [hygieneChecks, setHygieneChecks] = useState(structuredClone(DEFAULT_HYGIENE_CHECKS));
   const [hygieneNotes, setHygieneNotes] = useState({ ...EMPTY_NOTES });
@@ -289,6 +301,32 @@ export default function DailyLogForm() {
           </Button>
         </div>
       </div>
+
+      {/* 작성자 정보 (문서결재설정에서 자동) */}
+      {authorName && (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">작성자 (문서결재설정)</Label>
+                <div className="text-sm font-medium mt-1">{authorName}</div>
+              </div>
+              {approvalSetting?.reviewerEmployeeId && employees && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">검토자</Label>
+                  <div className="text-sm font-medium mt-1">{(employees as any[]).find((e: any) => e.id === approvalSetting.reviewerEmployeeId)?.name || "-"}</div>
+                </div>
+              )}
+              {approvalSetting?.approverEmployeeId && employees && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">승인자</Label>
+                  <div className="text-sm font-medium mt-1">{(employees as any[]).find((e: any) => e.id === approvalSetting.approverEmployeeId)?.name || "-"}</div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 배치 정보 (자동생성 데이터가 있는 경우) */}
       {batchData.length > 0 && (
