@@ -9,6 +9,53 @@ import {
   itemMaster
 } from "../../drizzle/schema";
 import { eq, and, desc, lte, sql } from "drizzle-orm";
+import * as path from "path";
+import * as fs from "fs";
+
+/**
+ * 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음)
+ */
+function findFontPath(fontName: string): string | null {
+  const possiblePaths = [
+    path.join(process.cwd(), "fonts", fontName),
+    path.join(process.cwd(), "..", "fonts", fontName),
+    path.join(process.cwd(), "..", "..", "fonts", fontName),
+    path.join(__dirname, "..", "..", "fonts", fontName),
+    path.join(__dirname, "..", "..", "..", "fonts", fontName),
+    `/root/haccp_v3/fonts/${fontName}`,
+    `/home/root/haccp_v3/fonts/${fontName}`,
+  ];
+  for (const p of possiblePaths) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
+
+/**
+ * PDFDocument에 한글 폰트 등록 (NanumGothic)
+ */
+function registerKoreanFont(doc: any): { regular: string; bold: string } {
+  const regularPath = findFontPath("NanumGothic-Regular.ttf");
+  const boldPath = findFontPath("NanumGothic-Bold.ttf");
+
+  if (regularPath) {
+    doc.registerFont("NanumGothic", regularPath);
+    doc.font("NanumGothic");
+  } else {
+    console.error("[PDF] NanumGothic-Regular.ttf not found! Korean text will be broken. Searched paths:", [
+      path.join(process.cwd(), "fonts"),
+      path.join(process.cwd(), "..", "fonts"),
+    ]);
+  }
+  if (boldPath) {
+    doc.registerFont("NanumGothicBold", boldPath);
+  }
+
+  return {
+    regular: regularPath ? "NanumGothic" : "Helvetica",
+    bold: boldPath ? "NanumGothicBold" : "Helvetica-Bold",
+  };
+}
 
 /**
  * 품목제조보고 목록 조회
@@ -483,28 +530,25 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
   }
   
   // PDF 생성
-  const path = require("path");
-  const fontPath = path.join(process.cwd(), "fonts", "NanumGothic-Regular.ttf");
-  const fontBoldPath = path.join(process.cwd(), "fonts", "NanumGothic-Bold.ttf");
   const doc = new PDFDocument({ margin: 50 });
-  try { doc.registerFont("NanumGothic", fontPath); doc.registerFont("NanumGothicBold", fontBoldPath); doc.font("NanumGothic"); } catch(e) { console.error("Font registration failed:", e); }
+  const fonts = registerKoreanFont(doc);
   const chunks: Buffer[] = [];
-  
+
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  
+
   return new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    
+
     // 각 보고서를 새 페이지에 출력
     reports.forEach((report, index) => {
       if (index > 0) {
         doc.addPage();
       }
-      
-      doc.fontSize(20).text("품목제조보고서", { align: "center" });
+
+      doc.font(fonts.bold).fontSize(20).text("품목제조보고서", { align: "center" });
       doc.moveDown();
-      doc.fontSize(12);
+      doc.font(fonts.regular).fontSize(12);
       doc.text(`보고서 번호: ${report.reportNo}`);
       doc.text(`제품명: ${report.productName}`);
       doc.text(`보고 날짜: ${new Date(report.reportDate).toLocaleDateString("ko-KR")}`);
@@ -512,7 +556,7 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
       doc.moveDown();
       doc.text(`생성일: ${new Date(report.createdAt).toLocaleString("ko-KR")}`);
     });
-    
+
     doc.end();
   });
 }
@@ -845,17 +889,15 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
     .orderBy(hMfIngredients.lineNo);
 
   const PDFDocument = require("pdfkit");
-  const path = require("path");
-  const fontPath = path.join(process.cwd(), "fonts", "NanumGothic-Regular.ttf");
-  const fontBoldPath = path.join(process.cwd(), "fonts", "NanumGothic-Bold.ttf");
   const doc = new PDFDocument({ margin: 50 });
-  try { doc.registerFont("NanumGothic", fontPath); doc.registerFont("NanumGothicBold", fontBoldPath); doc.font("NanumGothic"); } catch(e) { console.error("Font registration failed:", e); }
+  const fonts = registerKoreanFont(doc);
   const chunks: Buffer[] = [];
 
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
 
   // 제목
-  doc.fontSize(20).text("원재료 배합표", { align: "center" });
+  doc.font(fonts.bold).fontSize(20).text("원재료 배합표", { align: "center" });
+  doc.font(fonts.regular);
   doc.moveDown();
   doc.fontSize(12);
   doc.text(`버전: ${version[0].versionNo}`);
