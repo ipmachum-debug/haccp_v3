@@ -21,6 +21,16 @@ export async function createBatch(batch: {
   const { hBatches, hBatchInputs } = await import("../../drizzle/schema");
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../drizzle/schema_recipe_new");
 
+  // Format dates as MySQL-compatible strings to avoid JS Date.toString() serialization issues
+  const plannedDateStr = batch.plannedDate instanceof Date
+    ? batch.plannedDate.toISOString().split("T")[0]
+    : String(batch.plannedDate).split("T")[0];
+
+  let startTimeStr: string | null = null;
+  if (batch.batchStartTime) {
+    startTimeStr = `${plannedDateStr} ${batch.batchStartTime}:00`;
+  }
+
   const [result] = await db.insert(hBatches).values({
     tenantId: batch.tenantId,
     siteId: batch.siteId,
@@ -29,8 +39,8 @@ export async function createBatch(batch: {
     dayBatchGroup: batch.dayBatchGroup || null,
     batchOrder: batch.batchOrder ?? null,
     plannedQuantity: batch.plannedQuantity,
-    plannedDate: batch.plannedDate,
-    startTime: batch.batchStartTime ? new Date(`${batch.plannedDate.toISOString().split("T")[0]}T${batch.batchStartTime}:00`) : null,
+    plannedDate: plannedDateStr,
+    startTime: startTimeStr,
     status: batch.status || "planned",
     mode: (batch.mode || "auto") as any,
     createdBy: batch.createdBy
