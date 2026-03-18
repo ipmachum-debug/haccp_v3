@@ -36,6 +36,10 @@ export const FORM_TYPE_LABELS: Record<string, string> = {
   personal_hygiene_check: "개인위생 점검표",
   cleaning_disinfection: "세척소독 관리대장",
   pest_control_checklist: "방충·방서 점검표",
+  // 주간/월간/연간 일지
+  weekly_log: "주간 위생점검 일지",
+  monthly_log: "월간 위생/CCP 점검 일지",
+  yearly_log: "연간 검교정 점검표",
   // CCP 관련
   batch_plan: "일일배치 CCP 기록지 (그룹)",
   batch_production: "배치 CCP 기록지",

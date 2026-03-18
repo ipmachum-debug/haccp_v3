@@ -15,6 +15,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader } from "@/components/print/PrintHelpers";
 import { renderDailyLogPages } from "@/components/print/DailyLogRenderers";
+import { renderWeeklyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
 import { renderCcpBatchSummary, renderCcpFormRecord } from "@/components/print/CcpRenderers";
 import { renderFormContent } from "@/components/print/renderFormContent";
 
@@ -176,6 +177,26 @@ export default function PrintPreviewPage() {
           pageIndex: idx,
           totalPages: pages.length,
         });
+      });
+    } else if (doc.formType === "weekly_log") {
+      const weeklyPages = renderWeeklyLogPages(doc.formData);
+      const weeklyPageTitles = ["일반위생관리 점검표 (주간)", "방충·방서관리 점검표 (주간)"];
+      weeklyPages.forEach((pageContent, idx) => {
+        allPages.push({
+          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+          pageContent,
+          pageTitle: weeklyPageTitles[idx] || `주간일지 ${idx + 1}`,
+          pageIndex: idx,
+          totalPages: weeklyPages.length,
+        });
+      });
+    } else if (doc.formType === "yearly_log") {
+      allPages.push({
+        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+        pageContent: renderYearlyLog(doc.formData),
+        pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
+        pageIndex: 0,
+        totalPages: 1,
       });
     } else if (doc.formType === "batch_production" || doc.formType === "batch_approval") {
       // CCP 기록지(배치): 같은 CCP 타입은 연속으로 한 페이지에, 타입별 페이지 분리
