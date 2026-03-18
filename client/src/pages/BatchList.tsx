@@ -31,7 +31,7 @@ export default function BatchList() {
   const [, setLocation] = useLocation();
   const [page, setPage] = useState(1);
   const [limit] = useState(50);
-  const { data: batchData, isLoading, refetch } = trpc.batch.list.useQuery({ page, limit });
+  const { data: batchData, isLoading, isError, error, refetch } = trpc.batch.list.useQuery({ page, limit });
   const batches = batchData?.items || [];
   const totalPages = batchData?.totalPages || 1;
   
@@ -173,6 +173,11 @@ export default function BatchList() {
         {/* 배치 목록 */}
         {isLoading ? (
           <div className="text-center py-12 text-muted-foreground">로딩 중...</div>
+        ) : isError ? (
+          <div className="text-center py-12 text-red-500">
+            배치 목록 로딩 실패: {error?.message || "서버 에러"}
+            <Button variant="outline" size="sm" className="ml-3" onClick={() => refetch()}>재시도</Button>
+          </div>
         ) : batches && batches.length > 0 ? (
           <>
             {/* 데스크톱: 테이블 뷰 */}

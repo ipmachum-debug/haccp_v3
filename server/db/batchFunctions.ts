@@ -219,6 +219,7 @@ export async function getAllBatches(filters?: {
 
   // COUNT + 데이터를 단일 왕복으로 처리 (Raw SQL + LEFT JOIN product)
   const conn = await getRawConnection();
+  if (!conn) return { items: [], total: 0, page, limit, totalPages: 0 };
 
   const [countRows] = await conn.execute<any[]>(
     `SELECT COUNT(*) as cnt FROM h_batches b ${whereClause}`,
@@ -360,51 +361,47 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
   }
 }
 
-export async function generateBatchCode(productId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const { hBatches } = await import("../../drizzle/schema.js");
-  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
-  const { eq, desc, and, like } = await import("drizzle-orm");
+export async function generateBatchCode(productId: number, tenantId?: number) {
+  const conn = await getRawConnection();
 
-  // 1. 제품 정보 조회 (hProductsV2 사용)
-  const [product] = await db.select().from(hProductsV2).where(eq(hProductsV2.id, productId));
-  if (!product) throw new Error("제품을 찾을 수 없습니다");
+  // 1. 제품 정보 조회 (tenantId 격리)
+  let productCode = "00000";
+  try {
+    if (tenantId) {
+      const [v2Rows] = await conn.execute<any[]>(
+        "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+        [productId, tenantId],
+      );
+      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
+        productCode = (v2Rows as any[])[0].product_code;
+      }
+    } else {
+      const [v2Rows] = await conn.execute<any[]>(
+        "SELECT product_code FROM h_products_v2 WHERE id=? LIMIT 1",
+        [productId],
+      );
+      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
+        productCode = (v2Rows as any[])[0].product_code;
+      }
+    }
+  } catch { /* use default code */ }
 
   // 2. 오늘 날짜 문자열 생성 (YYYYMMDD)
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
 
-  // 3. 오늘 날짜의 해당 제품 배치 모두 조회 (날짜별 순번 확인)
-  const todayBatches = await db
-    .select()
-    .from(hBatches)
-    .where(
-      and(
-        eq(hBatches.productId, productId),
-        like(hBatches.batchCode, `${product.productCode}-${dateStr}-%`)
-      )
-    )
-    .orderBy(desc(hBatches.createdAt));
+  // 3. 해당 날짜의 기존 배치 수 조회 (tenantId 격리)
+  const countParams: any[] = tenantId
+    ? [tenantId, `${productCode}-${dateStr}-%`]
+    : [`${productCode}-${dateStr}-%`];
+  const countSql = tenantId
+    ? "SELECT COUNT(*) as cnt FROM h_batches WHERE tenant_id=? AND batch_code LIKE ?"
+    : "SELECT COUNT(*) as cnt FROM h_batches WHERE batch_code LIKE ?";
+  const [countRows] = await conn.execute<any[]>(countSql, countParams);
+  const seq = ((countRows as any[])[0]?.cnt || 0) + 1;
 
-  // 4. 순번 계산 (오늘 날짜의 최대 순번 + 1)
-  let sequence = 1;
-  if (todayBatches.length > 0) {
-    const maxSequence = Math.max(
-      ...todayBatches.map((batch) => {
-        const parts = batch.batchCode.split("-");
-        if (parts.length === 3) {
-          return parseInt(parts[2]) || 0;
-        }
-        return 0;
-      })
-    );
-    sequence = maxSequence + 1;
-  }
-
-  // 5. 배치 번호 생성 (순번은 3자리로 패딩)
-  const batchCode = `${product.productCode}-${dateStr}-${sequence.toString().padStart(3, "0")}`;
-  return batchCode;
+  // 4. 배치 번호 생성 (순번은 3자리로 패딩)
+  return `${productCode}-${dateStr}-${String(seq).padStart(3, "0")}`;
 }
 
 export async function generateBatchReport(batchId: number, tenantId?: number) {

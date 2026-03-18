@@ -125,9 +125,22 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
 
   const handleGenerateBatchCode = async () => {
     if (!selectedProductId) return;
-    const result = await refetchBatchCode();
-    if (result.data?.batchCode) {
-      setBatchCode(result.data.batchCode);
+    try {
+      const result = await refetchBatchCode();
+      if (result.data?.batchCode) {
+        setBatchCode(result.data.batchCode);
+      } else if (result.error) {
+        console.error("[BatchCreate] 배치번호 생성 실패:", result.error);
+        // 폴백: 기본 배치번호 생성 (productId-날짜-001)
+        const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        setBatchCode(`${selectedProductId}-${dateStr}-001`);
+        toast.error("배치번호 자동생성 실패 - 임시번호가 생성되었습니다. 확인 후 수정해주세요.");
+      }
+    } catch (err: any) {
+      console.error("[BatchCreate] 배치번호 생성 에러:", err);
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      setBatchCode(`${selectedProductId}-${dateStr}-001`);
+      toast.error("배치번호 자동생성 실패 - 임시번호가 생성되었습니다.");
     }
   };
 

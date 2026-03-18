@@ -91,11 +91,31 @@ export default function DailyBatchCreate() {
   // Bulk create mutation
   const bulkCreateMutation = trpc.batch.bulkCreateForDay.useMutation({
     onSuccess: (data: any) => {
-      toast.success(`${data.createdCount}개 배치 생성 완료! (그룹: ${data.dayBatchGroup || ""})`);
+      if (data.createdCount === 0) {
+        // 모든 배치 생성 실패
+        const errors = (data.errors || []).map((e: any) => e.error);
+        if (errors.length === 0) {
+          // fallback: batches에서 에러 추출
+          (data.batches || []).filter((b: any) => b.error).forEach((b: any) => errors.push(b.error));
+        }
+        const errorMsg = errors.length > 0
+          ? errors.slice(0, 3).join("; ")
+          : "알 수 없는 오류";
+        toast.error(`배치 생성 실패: ${errorMsg}`);
+        return;
+      }
+      if (data.createdCount < data.totalRequested) {
+        toast.warning(`${data.createdCount}/${data.totalRequested}개 배치 생성 (일부 실패)`);
+      } else {
+        toast.success(`${data.createdCount}개 배치 생성 완료! (그룹: ${data.dayBatchGroup || ""})`);
+      }
       setLocation("/dashboard/batch");
     },
     onError: (error: any) => {
-      toast.error(`생성 실패: ${error.message}`);
+      const detail = error.data?.zodError
+        ? `검증 오류: ${JSON.stringify(error.data.zodError.fieldErrors)}`
+        : error.message;
+      toast.error(`생성 실패: ${detail}`);
     },
   });
 

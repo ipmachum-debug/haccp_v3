@@ -611,13 +611,20 @@ export const batchRouter = router({
           console.error('[bulkCreateForDay] 생산일지(production_daily) 자동 갱신 실패:', pdErr);
         }
 
+        const failedResults = results.filter((r: any) => r.batchId === 0);
+        if (failedResults.length > 0) {
+          console.error(`[bulkCreateForDay] ${failedResults.length}건 실패:`,
+            failedResults.map((r: any) => `productId=${r.productId}: ${r.error}`).join("; "));
+        }
+
         return {
-          success: true,
+          success: successResults.length > 0,
           dayBatchGroup,
           createdCount: successResults.length,
           totalRequested: input.items.length,
           batchIds: successResults.map((r: any) => r.batchId),
           batches: results,
+          errors: failedResults.map((r: any) => ({ productId: r.productId, error: r.error })),
           metalPass: metalPassResult,
           schedule: scheduleResult,
           groupApprovalRequestId,
