@@ -21,33 +21,40 @@ export async function createBatch(batch: {
   const { hBatches, hBatchInputs } = await import("../../drizzle/schema");
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../drizzle/schema_recipe_new");
 
-  // Format dates as MySQL-compatible strings to avoid JS Date.toString() serialization issues
-  // Use raw SQL to prevent Drizzle from calling toISOString() on the value
+  // Format dates as MySQL-compatible strings
   const pd = batch.plannedDate;
   const plannedDateStr = pd instanceof Date
     ? pd.toISOString().split("T")[0]
     : String(pd).includes("T") ? String(pd).split("T")[0]
-    : String(pd).slice(0, 10);  // "YYYY-MM-DD" or similar
+    : String(pd).slice(0, 10);
 
-  let startTimeStr: string | null = null;
-  if (batch.batchStartTime) {
-    startTimeStr = `${plannedDateStr} ${batch.batchStartTime}:00`;
-  }
+  const startTimeStr = batch.batchStartTime
+    ? `${plannedDateStr} ${batch.batchStartTime}:00`
+    : null;
 
-  const [result] = await db.insert(hBatches).values({
-    tenantId: batch.tenantId,
-    siteId: batch.siteId,
-    productId: batch.productId,
-    batchCode: batch.batchCode,
-    dayBatchGroup: batch.dayBatchGroup || null,
-    batchOrder: batch.batchOrder ?? null,
-    plannedQuantity: batch.plannedQuantity,
-    plannedDate: sql`${plannedDateStr}`,
-    startTime: startTimeStr ? sql`${startTimeStr}` : null,
-    status: batch.status || "planned",
-    mode: (batch.mode || "auto") as any,
-    createdBy: batch.createdBy
-  } as any);
+  // Use raw SQL to avoid Drizzle's date serialization and `as any` type issues
+  const conn = await getRawConnection();
+  const [result]: any = await conn.execute(
+    `INSERT INTO h_batches
+       (tenant_id, site_id, batch_code, day_batch_group, batch_order,
+        product_id, planned_quantity, planned_date, start_time,
+        status, mode, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      batch.tenantId,
+      batch.siteId,
+      batch.batchCode,
+      batch.dayBatchGroup || null,
+      batch.batchOrder != null ? batch.batchOrder : null,
+      batch.productId,
+      batch.plannedQuantity,
+      plannedDateStr,
+      startTimeStr,
+      batch.status || "planned",
+      batch.mode || "auto",
+      batch.createdBy,
+    ]
+  );
 
   const batchId = Number(result.insertId);
   const tenantId = batch.tenantId;
