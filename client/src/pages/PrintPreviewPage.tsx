@@ -304,6 +304,9 @@ export default function PrintPreviewPage() {
         .ccp-print-table { table-layout: fixed; width: 100%; }
         .ccp-print-table th, .ccp-print-table td { overflow: hidden; text-overflow: ellipsis; word-break: keep-all; box-sizing: border-box; }
         .ccp-print-table th { white-space: normal; line-height: 1.2; }
+        /* 주간/월간/연간/일일 일지 테이블 오버플로우 방지 */
+        .print-page table { table-layout: fixed; width: 100%; }
+        .print-page td, .print-page th { word-break: break-all; word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
       `}</style>
 
       <div className="no-print bg-blue-600 text-white p-4 sticky top-0 z-50 flex items-center justify-between">

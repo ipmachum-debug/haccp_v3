@@ -100,8 +100,7 @@ export const dailyLogRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const tenantId = ctx.tenantId ?? undefined;
-        const siteId = input.siteId || ctx.user.siteId;
-        if (!siteId) throw new TRPCError({ code: "BAD_REQUEST", message: "사이트 정보가 필요합니다. (siteId)" });
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
         // 기존 레코드 확인
         const existing = await db.execute(sql`

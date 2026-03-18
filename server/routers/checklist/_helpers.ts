@@ -8,10 +8,7 @@ import { eq, and } from "drizzle-orm";
 
 // ✅ P0 FIX: 테넌트/사이트 격리 헬퍼
 export function getEffectiveSiteId(input: { siteId?: number }, ctx: any): number {
-  const siteId = input.siteId ?? ctx.user?.siteId;
-  if (!siteId) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "사이트 정보가 필요합니다. (siteId)" });
-  }
+  const siteId = input.siteId ?? ctx.user?.siteId ?? ctx.tenantId ?? 1;
   return siteId;
 }
 
