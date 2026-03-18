@@ -9,15 +9,63 @@ import {
   itemMaster
 } from "../../drizzle/schema";
 import { eq, and, desc, lte, sql } from "drizzle-orm";
+import PDFDocument from "pdfkit";
+import * as path from "path";
+import * as fs from "fs";
+
+/**
+ * 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음)
+ */
+function findFontPath(fontName: string): string | null {
+  const possiblePaths = [
+    path.join(process.cwd(), "fonts", fontName),
+    path.join(process.cwd(), "..", "fonts", fontName),
+    path.join(process.cwd(), "..", "..", "fonts", fontName),
+    path.join(__dirname, "..", "..", "fonts", fontName),
+    path.join(__dirname, "..", "..", "..", "fonts", fontName),
+    `/root/haccp_v3/fonts/${fontName}`,
+    `/home/root/haccp_v3/fonts/${fontName}`,
+  ];
+  for (const p of possiblePaths) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
+
+/**
+ * PDFDocument에 한글 폰트 등록 (NanumGothic)
+ */
+function registerKoreanFont(doc: any): { regular: string; bold: string } {
+  const regularPath = findFontPath("NanumGothic-Regular.ttf");
+  const boldPath = findFontPath("NanumGothic-Bold.ttf");
+
+  if (regularPath) {
+    doc.registerFont("NanumGothic", regularPath);
+    doc.font("NanumGothic");
+  } else {
+    console.error("[PDF] NanumGothic-Regular.ttf not found! Korean text will be broken. Searched paths:", [
+      path.join(process.cwd(), "fonts"),
+      path.join(process.cwd(), "..", "fonts"),
+    ]);
+  }
+  if (boldPath) {
+    doc.registerFont("NanumGothicBold", boldPath);
+  }
+
+  return {
+    regular: regularPath ? "NanumGothic" : "Helvetica",
+    bold: boldPath ? "NanumGothicBold" : "Helvetica-Bold",
+  };
+}
 
 /**
  * 품목제조보고 목록 조회
  */
-export async function getMfReports(tenantId?: number) {
+export async function getMfReports(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
-  const baseQuery = db
+
+  return db
     .select({
       id: hMfReports.id,
       productId: hMfReports.productId,
@@ -28,27 +76,20 @@ export async function getMfReports(tenantId?: number) {
       createdAt: hMfReports.createdAt
     })
     .from(hMfReports)
-    .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id));
-  
-  // tenantId 필터링
-  if (tenantId) {
-    return baseQuery
-      .where(eq(hMfReports.tenantId, tenantId))
-      .orderBy(desc(hMfReports.createdAt));
-  }
-  
-  return baseQuery.orderBy(desc(hMfReports.createdAt));
+    .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id))
+    .where(eq(hMfReports.tenantId, tenantId))
+    .orderBy(desc(hMfReports.createdAt));
 }
 
 /**
  * 품목제조보고 상세 조회 (최신 버전 포함)
  */
-export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
+export async function getMfReportDetail(mfReportId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
   // 품목제조보고 기본 정보
-  const baseReportQuery = db
+  const report = await db
     .select({
       id: hMfReports.id,
       productId: hMfReports.productId,
@@ -60,21 +101,14 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
       updatedAt: hMfReports.updatedAt
     })
     .from(hMfReports)
-    .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id));
-  
-  // tenantId 필터링
-  const report = tenantId
-    ? await baseReportQuery
-        .where(
-          and(
-            eq(hMfReports.id, mfReportId),
-            eq(hMfReports.tenantId, tenantId)
-          )
-        )
-        .limit(1)
-    : await baseReportQuery
-        .where(eq(hMfReports.id, mfReportId))
-        .limit(1);
+    .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id))
+    .where(
+      and(
+        eq(hMfReports.id, mfReportId),
+        eq(hMfReports.tenantId, tenantId)
+      )
+    )
+    .limit(1);
   
   if (report.length === 0) {
     throw new Error("품목제조보고를 찾을 수 없습니다.");
@@ -89,7 +123,7 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
     .limit(1);
   
   // 원재료 함량(배합비) 조회
-  let ingredients = [];
+  let ingredients: any[] = [];
   if (latestVersion.length > 0) {
     const ingredientsData = await db
       .select({
@@ -147,17 +181,17 @@ export async function createMfReport(data: {
   yieldBasis?: string;
   unitWeightG?: number;
   batchTargetKg?: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
   // 1. 품목제조보고 마스터 생성
   const [reportResult] = await db.insert(hMfReports).values({
     productId: data.productId,
     reportNo: data.reportNo,
     reportDate: new Date(data.reportDate),
     status: "ACTIVE",
-    tenantId: tenantId || 1
+    tenantId: tenantId
   } as any);
   
   const mfReportId = reportResult.insertId;
@@ -174,7 +208,7 @@ export async function createMfReport(data: {
     yieldBasis: data.yieldBasis || "PER_BATCH_KG",
     unitWeightG: data.unitWeightG || null,
     batchTargetKg: data.batchTargetKg || null,
-    tenantId: tenantId || 1
+    tenantId: tenantId
   } as any);
   
   const versionId = versionResult.insertId;
@@ -221,7 +255,7 @@ export async function createMfReportVersion(data: {
   changeReason?: string;
   compositionTotalRule?: string;
   createdBy?: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -258,7 +292,7 @@ export async function createMfFlavor(data: {
   flavorCode: string;
   flavorName: string;
   appliesToSku?: string;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -278,7 +312,7 @@ export async function addMfIngredient(data: {
   quantity: string;
   unit: string;
   isDeductible: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -290,7 +324,7 @@ export async function addMfIngredient(data: {
 /**
  * 품목제조보고 버전 상세 조회 (맛 및 원재료 구성 포함)
  */
-export async function getMfReportVersionDetail(versionId: number, tenantId?: number) {
+export async function getMfReportVersionDetail(versionId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -351,7 +385,7 @@ export async function getMfReportVersionDetail(versionId: number, tenantId?: num
 /**
  * 특정 날짜에 유효한 품목제조보고 버전 조회
  */
-export async function getMfReportVersionByDate(mfReportId: number, date: string, tenantId?: number) {
+export async function getMfReportVersionByDate(mfReportId: number, date: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -378,7 +412,7 @@ export async function getMfReportVersionByDate(mfReportId: number, date: string,
 /**
  * 품목제조보고 버전 목록 조회
  */
-export async function getMfReportVersions(mfReportId: number, tenantId?: number) {
+export async function getMfReportVersions(mfReportId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -400,7 +434,7 @@ export async function updateMfIngredient(
     labelNameOverride?: string;
     allergens?: string;
     originNote?: string;
-  }, tenantId?: number) {
+  }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -415,7 +449,7 @@ export async function updateMfIngredient(
 /**
  * 원재료 구성 삭제
  */
-export async function deleteMfIngredient(ingredientId: number, tenantId?: number) {
+export async function deleteMfIngredient(ingredientId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -431,7 +465,7 @@ export async function deleteMfIngredient(ingredientId: number, tenantId?: number
  */
 export async function bulkUpdateMfReportStatus(
   ids: number[],
-  status: "ACTIVE" | "INACTIVE" | "ARCHIVED", tenantId?: number) {
+  status: "ACTIVE" | "INACTIVE" | "ARCHIVED", tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -446,7 +480,7 @@ export async function bulkUpdateMfReportStatus(
 /**
  * 일괄 삭제
  */
-export async function bulkDeleteMfReports(ids: number[], tenantId?: number) {
+export async function bulkDeleteMfReports(ids: number[], tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -482,11 +516,10 @@ export async function bulkDeleteMfReports(ids: number[], tenantId?: number) {
 /**
  * 일괄 PDF 출력
  */
-export async function bulkExportMfReportsPdf(ids: number[], tenantId?: number) {
+export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
-  const PDFDocument = require("pdfkit");
   const reports: any[] = [];
   
   for (const id of ids) {
@@ -497,28 +530,25 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId?: number) {
   }
   
   // PDF 생성
-  const path = require("path");
-  const fontPath = path.join(process.cwd(), "fonts", "NanumGothic-Regular.ttf");
-  const fontBoldPath = path.join(process.cwd(), "fonts", "NanumGothic-Bold.ttf");
   const doc = new PDFDocument({ margin: 50 });
-  try { doc.registerFont("NanumGothic", fontPath); doc.registerFont("NanumGothicBold", fontBoldPath); doc.font("NanumGothic"); } catch(e) { console.error("Font registration failed:", e); }
+  const fonts = registerKoreanFont(doc);
   const chunks: Buffer[] = [];
-  
+
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
-  
+
   return new Promise<Buffer>((resolve, reject) => {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-    
+
     // 각 보고서를 새 페이지에 출력
     reports.forEach((report, index) => {
       if (index > 0) {
         doc.addPage();
       }
-      
-      doc.fontSize(20).text("품목제조보고서", { align: "center" });
+
+      doc.font(fonts.bold).fontSize(20).text("품목제조보고서", { align: "center" });
       doc.moveDown();
-      doc.fontSize(12);
+      doc.font(fonts.regular).fontSize(12);
       doc.text(`보고서 번호: ${report.reportNo}`);
       doc.text(`제품명: ${report.productName}`);
       doc.text(`보고 날짜: ${new Date(report.reportDate).toLocaleDateString("ko-KR")}`);
@@ -526,7 +556,7 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId?: number) {
       doc.moveDown();
       doc.text(`생성일: ${new Date(report.createdAt).toLocaleString("ko-KR")}`);
     });
-    
+
     doc.end();
   });
 }
@@ -537,10 +567,10 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId?: number) {
 export async function requestMfReportApproval(
   mfReportVersionId: number,
   requestedBy: number,
-  comment?: string, tenantId?: number) {
+  comment?: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
   // 버전 상태를 PENDING으로 변경
   await db
     .update(hMfReportVersions)
@@ -565,10 +595,10 @@ export async function requestMfReportApproval(
 export async function approveMfReportVersion(
   versionId: number,
   approvedBy: number,
-  comment?: string, tenantId?: number) {
+  comment?: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
   // 버전 상태를 APPROVED로 변경
   await db
     .update(hMfReportVersions)
@@ -597,7 +627,7 @@ export async function approveMfReportVersion(
 export async function rejectMfReportVersion(
   versionId: number,
   rejectedBy: number,
-  reason: string, tenantId?: number) {
+  reason: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -627,7 +657,7 @@ export async function rejectMfReportVersion(
 /**
  * 승인 이력 조회
  */
-export async function getMfReportApprovalHistory(mfReportVersionId: number, tenantId?: number) {
+export async function getMfReportApprovalHistory(mfReportVersionId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   
@@ -658,7 +688,7 @@ export async function getMfReportApprovalHistory(mfReportVersionId: number, tena
  */
 export async function calculateBatchRequirements(
   versionId: number,
-  batchKg: number, tenantId?: number): Promise<Array<{
+  batchKg: number, tenantId: number): Promise<Array<{
   lineNo: number;
   materialType: string;
   materialId?: number;
@@ -753,7 +783,7 @@ export async function deductInventoryByMfReport(data: {
   producedQuantity: number;
   notes?: string;
   createdBy?: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -836,7 +866,7 @@ export async function deductInventoryByMfReport(data: {
  * - 요약형: 품목제조보고 그대로 출력
  * - 상세형: BOM 재귀적으로 펼쳐서 출력
  */
-export async function generateIngredientLabel(versionId: number, mode: "summary" | "detailed", tenantId?: number) {
+export async function generateIngredientLabel(versionId: number, mode: "summary" | "detailed", tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -858,18 +888,15 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
     .where(eq(hMfIngredients.mfReportVersionId, versionId))
     .orderBy(hMfIngredients.lineNo);
 
-  const PDFDocument = require("pdfkit");
-  const path = require("path");
-  const fontPath = path.join(process.cwd(), "fonts", "NanumGothic-Regular.ttf");
-  const fontBoldPath = path.join(process.cwd(), "fonts", "NanumGothic-Bold.ttf");
   const doc = new PDFDocument({ margin: 50 });
-  try { doc.registerFont("NanumGothic", fontPath); doc.registerFont("NanumGothicBold", fontBoldPath); doc.font("NanumGothic"); } catch(e) { console.error("Font registration failed:", e); }
+  const fonts = registerKoreanFont(doc);
   const chunks: Buffer[] = [];
 
   doc.on("data", (chunk: Buffer) => chunks.push(chunk));
 
   // 제목
-  doc.fontSize(20).text("원재료 배합표", { align: "center" });
+  doc.font(fonts.bold).fontSize(20).text("원재료 배합표", { align: "center" });
+  doc.font(fonts.regular);
   doc.moveDown();
   doc.fontSize(12);
   doc.text(`버전: ${version[0].versionNo}`);
@@ -887,14 +914,14 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
         const material = await db
           .select()
           .from(hMaterials)
-          .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)) : eq(hMaterials.id, ing.materialId))
+          .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)))
           .limit(1);
         materialName = material[0]?.materialName || "Unknown";
       } else if (ing.intermediateId) {
         const intermediate = await db
           .select()
           .from(hMaterials)
-          .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.intermediateId)) : eq(hMaterials.id, ing.intermediateId))
+          .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.intermediateId)))
           .limit(1);
         materialName = intermediate[0]?.materialName || "Unknown";
       }
@@ -914,7 +941,7 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
         const material = await db
           .select()
           .from(hMaterials)
-          .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)) : eq(hMaterials.id, ing.materialId))
+          .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)))
           .limit(1);
 
         doc.text(`${ing.lineNo}. ${material[0]?.materialName || "Unknown"} - ${percentage}%`);
@@ -923,7 +950,7 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
         const intermediate = await db
           .select()
           .from(hMaterials)
-          .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.intermediateId)) : eq(hMaterials.id, ing.intermediateId))
+          .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.intermediateId)))
           .limit(1);
 
         doc.text(`${ing.lineNo}. ${intermediate[0]?.materialName || "Unknown"} - ${percentage}% [중간재]`);
@@ -938,7 +965,7 @@ export async function generateIngredientLabel(versionId: number, mode: "summary"
         const material = await db
           .select()
           .from(hMaterials)
-          .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)) : eq(hMaterials.id, ing.materialId))
+          .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, ing.materialId)))
           .limit(1);
 
         doc.text(`${ing.lineNo}. ${material[0]?.materialName || "Unknown"} (${ing.flavorName || "공통"}) - ${percentage}%`);
@@ -962,7 +989,7 @@ async function expandMixedMaterialForLabel(
   intermediateId: number,
   parentPercentage: number,
   depth: number,
-  tenantId?: number
+  tenantId: number
 ): Promise<Array<{ materialName: string; percentage: number; depth: number }>> {
   const results: Array<{ materialName: string; percentage: number; depth: number }> = [];
 
@@ -982,7 +1009,7 @@ async function expandMixedMaterialForLabel(
       const material = await db
         .select()
         .from(hMaterials)
-        .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, component.materialId)) : eq(hMaterials.id, component.materialId))
+        .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, component.materialId)))
         .limit(1);
 
       results.push({
@@ -995,7 +1022,7 @@ async function expandMixedMaterialForLabel(
       const subIntermediate = await db
         .select()
         .from(hMaterials)
-        .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, component.subMixedMaterialId)) : eq(hMaterials.id, component.subMixedMaterialId))
+        .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.id, component.subMixedMaterialId)))
         .limit(1);
 
       results.push({
@@ -1570,7 +1597,7 @@ export async function updateMfReport(data: {
     adjustedWeightKg?: number;
     isAdditional?: number;
   }>;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -1580,15 +1607,10 @@ export async function updateMfReport(data: {
   const updateFields: any = {};
   if (data.reportNo) updateFields.reportNo = data.reportNo;
   if (data.reportDate) updateFields.reportDate = new Date(data.reportDate);
-  
+
   if (Object.keys(updateFields).length > 0) {
-    if (tenantId) {
-      await db.update(hMfReports).set(updateFields)
-        .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId)));
-    } else {
-      await db.update(hMfReports).set(updateFields)
-        .where(eq(hMfReports.id, mfReportId));
-    }
+    await db.update(hMfReports).set(updateFields)
+      .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId)));
   }
 
   // 2. 최신 버전 찾기

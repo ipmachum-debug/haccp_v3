@@ -29,7 +29,7 @@ interface SkuActualInput {
 /** CCP 처리 모드 */
 type ProcessingMode = "auto" | "manual";
 
-export default function BatchCreate({ embedded = false }: { embedded?: boolean }) {
+export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boolean; [key: string]: any }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
 
@@ -195,7 +195,7 @@ export default function BatchCreate({ embedded = false }: { embedded?: boolean }
 
   // ── 배치 생성 ──
   const createBatchMutation = trpc.batch.create.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       confetti({
         particleCount: 120,
         spread: 80,
@@ -230,7 +230,7 @@ export default function BatchCreate({ embedded = false }: { embedded?: boolean }
         setLocation(`/dashboard/batch/${data.batchId}`);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`배치 생성 실패: ${error.message}`);
     },
   });

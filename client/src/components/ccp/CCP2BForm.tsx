@@ -38,7 +38,7 @@ export function CCP2BForm() {
         correctiveAction: "",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });

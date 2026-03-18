@@ -1,4 +1,5 @@
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { Clock, Mail, Shield, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";

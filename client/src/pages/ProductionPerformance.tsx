@@ -42,8 +42,8 @@ export default function ProductionPerformance() {
     inProgressBatches: batches?.filter((b: any) => b.status === "in_progress").length || 0,
     failedBatches: batches?.filter((b: any) => b.status === "failed").length || 0,
     totalSchedules: schedules?.length || 0,
-    completedSchedules: schedules?.filter((s) => s.status === "completed").length || 0,
-    pendingSchedules: schedules?.filter((s) => s.status === "pending").length || 0,
+    completedSchedules: schedules?.filter((s: any) => s.status === "completed").length || 0,
+    pendingSchedules: schedules?.filter((s: any) => s.status === "pending").length || 0,
   };
 
   // CCP 준수율

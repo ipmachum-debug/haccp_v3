@@ -37,6 +37,7 @@ export * from "./materialLedger";
 export * from "./schema_dual_unit";
 export * from "./communicationLog";
 export * from "./communicationLogExtensions";
+export * from "./communicationLogBoard";
 export * from "./ccpMonitoring";
 export * from "./expense";
 export * from "./support";

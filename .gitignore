@@ -32,6 +32,9 @@ client/server
 *.current
 backups/
 dist.tar.gz
+server/server/_backup/
+client/client/
+*/_backup_*/
 
 # Python patch/fix scripts (generated files)
 fix_*.py
@@ -53,3 +56,4 @@ fix_new_batches.mjs
 *.pdf
 core
 tmp/
+screenshot_ccp.png

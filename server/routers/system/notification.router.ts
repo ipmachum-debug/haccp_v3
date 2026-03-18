@@ -10,7 +10,7 @@ export const notificationRouter = router({
     // 알림 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getNotifications } = await import("../../db");
-      return await getNotifications(ctx.user.id, ctx.user.tenantId);
+      return await getNotifications(ctx.user.id, ctx.tenantId ?? undefined);
     }),
     
     // 알림 읽음 처리
@@ -18,7 +18,7 @@ export const notificationRouter = router({
       .input(z.object({ notificationId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { markNotificationAsRead } = await import("../../db");
-        await markNotificationAsRead(input.notificationId, ctx.user.tenantId);
+        await markNotificationAsRead(input.notificationId, ctx.tenantId ?? undefined);
         return { success: true };
       }),
     
@@ -27,7 +27,7 @@ export const notificationRouter = router({
       .input(z.object({ notificationId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteNotification } = await import("../../db");
-        await deleteNotification(input.notificationId, ctx.user.tenantId);
+        await deleteNotification(input.notificationId, ctx.tenantId ?? undefined);
         return { success: true };
       }),
     
@@ -52,14 +52,14 @@ export const notificationRouter = router({
       .input(z.object({ notificationId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { markNotificationAsResolved } = await import("../../db");
-        await markNotificationAsResolved(input.notificationId, ctx.user.tenantId);
+        await markNotificationAsResolved(input.notificationId, ctx.tenantId ?? undefined);
         return { success: true };
       }),
     
     // 알림 타입별 개수 조회 (읽지 않은 알림만)
     countsByType: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getNotificationCountsByType } = await import("../../db");
-      return await getNotificationCountsByType(ctx.user.id, ctx.user.tenantId);
+      return await getNotificationCountsByType(ctx.user.id, ctx.tenantId ?? undefined);
     }),
     
     getStatistics: tenantRequiredProcedure
@@ -69,13 +69,14 @@ export const notificationRouter = router({
       }).optional())
       .query(async ({ input, ctx }) => {
         const { getNotificationStatistics } = await import("../../db");
-        return await getNotificationStatistics(input?.startDate, input?.endDate, ctx.user.tenantId);
+        return await getNotificationStatistics(input?.startDate, input?.endDate, ctx.tenantId ?? undefined);
       }),
     
     // 재고 만료 알림 자동 생성 (테스트용)
-    checkExpiry: tenantRequiredProcedure.mutation(async () => {
+    checkExpiry: tenantRequiredProcedure.mutation(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { checkAndCreateExpiryNotifications } = await import("../../db");
-      const count = await checkAndCreateExpiryNotifications();
+      const count = await checkAndCreateExpiryNotifications(tenantId ?? undefined);
       return { success: true, count, message: `${count}개의 알림이 생성되었습니다.` };
     }),
     
@@ -83,17 +84,19 @@ export const notificationRouter = router({
     markMultipleAsRead: tenantRequiredProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { markMultipleNotificationsAsRead } = await import("../../db");
-        await markMultipleNotificationsAsRead(input.notificationIds);
+        await markMultipleNotificationsAsRead(input.notificationIds, tenantId ?? undefined);
         return { success: true, count: input.notificationIds.length };
       }),
-    
+
     // 선택한 알림 삭제
     deleteMultiple: tenantRequiredProcedure
       .input(z.object({ notificationIds: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deleteMultipleNotifications } = await import("../../db");
-        await deleteMultipleNotifications(input.notificationIds);
+        await deleteMultipleNotifications(input.notificationIds, tenantId ?? undefined);
         return { success: true, count: input.notificationIds.length };
       }),
        // 알림 삭제
@@ -101,7 +104,7 @@ export const notificationRouter = router({
       .input(z.object({ days: z.number().min(1) }))
       .mutation(async ({ input, ctx }) => {
         const { deleteOldReadNotifications } = await import("../../db");
-        const deletedCount = await deleteOldReadNotifications(input.days, ctx.user.tenantId);
+        const deletedCount = await deleteOldReadNotifications(input.days, ctx.tenantId ?? undefined);
         return { deletedCount, message: `${deletedCount}개의 오래된 알림을 삭제했습니다` };
       }),
     
@@ -153,7 +156,7 @@ export const notificationRouter = router({
             description: "알림 자동 삭제 기준일 (읽은 알림)",
             isEditable: 1,
             updatedBy: Number(ctx.user.id)
-          });
+          } as any);
         }
         
         return { message: `알림 보관 기간이 ${input.days}일로 설정되었습니다` };
@@ -163,7 +166,7 @@ export const notificationRouter = router({
       .input(z.object({ type: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const { archiveNotificationsByType } = await import("../../db");
-        const result = await archiveNotificationsByType(input.type, ctx.user.tenantId);
+        const result = await archiveNotificationsByType(input.type, ctx.tenantId ?? undefined);
         return { success: true, archivedCount: result.archivedCount };
       })
 });

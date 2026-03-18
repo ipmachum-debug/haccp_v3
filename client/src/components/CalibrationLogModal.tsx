@@ -79,7 +79,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
       onClose();
       resetForm();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`저장 실패: ${error.message}`);
     },
   });
@@ -224,7 +224,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
                   <SelectValue placeholder="설비를 선택하세요" />
                 </SelectTrigger>
                 <SelectContent>
-                  {equipmentList?.map((equipment) => (
+                  {equipmentList?.map((equipment: any) => (
                     <SelectItem key={equipment.id} value={equipment.id.toString()}>
                       {equipment.code} - {equipment.name}
                     </SelectItem>
@@ -238,7 +238,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
                 <p><strong>설비명:</strong> {selectedEquipment.name}</p>
                 <p><strong>설비코드:</strong> {selectedEquipment.code}</p>
                 <p><strong>설비유형:</strong> {selectedEquipment.equipmentType}</p>
-                <p><strong>설치위치:</strong> {selectedEquipment.location}</p>
+                <p><strong>설치위치:</strong> {(selectedEquipment as any)?.location || '-'}</p>
               </div>
             )}
 

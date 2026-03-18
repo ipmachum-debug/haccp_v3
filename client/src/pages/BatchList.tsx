@@ -51,7 +51,7 @@ export default function BatchList() {
       setDeleteTarget(null);
       refetch();
     },
-    onError: (err) => {
+    onError: (err: any) => {
       toast.error(`삭제 실패: ${err.message}`);
       setDeleteTarget(null);
     },
@@ -59,18 +59,21 @@ export default function BatchList() {
   
   // 배치 비용 조회
   const { data: costSummary } = trpc.batch.getCostSummary.useQuery(
-    { batchIds: batches?.map(b => b.id) || [] },
+    { batchIds: batches?.map((b: any) => b.id) || [] },
     { enabled: showCost && !!batches && batches.length > 0 }
   );
   
-  // 제품 목록 조회 (판매가 확인용)
-  const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });
+  // 제품 목록 조회 (판매가 확인용 - 비용 보기 활성화 시에만)
+  const { data: _rawProducts } = trpc.product.list.useQuery(
+    { limit: 500 },
+    { enabled: showCost }
+  );
   const products = (_rawProducts as any)?.items ?? (Array.isArray(_rawProducts) ? _rawProducts : []);
   
   useEffect(() => {
     if (costSummary) {
       const costs: Record<number, number> = {};
-      costSummary.forEach(item => {
+      costSummary.forEach((item: any) => {
         costs[item.batchId] = item.totalCost;
       });
       setBatchCosts(costs);
@@ -81,9 +84,9 @@ export default function BatchList() {
   useEffect(() => {
     if (showCost && batches && batches.length > 0 && batchCosts) {
       const ratios: Record<number, number | null> = {};
-      batches.forEach((batch) => {
+      batches.forEach((batch: any) => {
         const cost = batchCosts[batch.id];
-        const product = products?.find(p => p.id === batch.productId);
+        const product = products?.find((p: any) => p.id === batch.productId);
         const unitPrice = product?.unitPrice ? parseFloat(product.unitPrice) : 0;
         
         if (cost && unitPrice && unitPrice > 0) {
@@ -186,7 +189,7 @@ export default function BatchList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {batches.map((batch) => (
+                  {batches.map((batch: any) => (
                     <TableRow key={batch.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
@@ -267,7 +270,7 @@ export default function BatchList() {
 
             {/* 모바일: 카드 뷰 */}
             <div className="md:hidden space-y-4">
-              {batches.map((batch) => (
+              {batches.map((batch: any) => (
                 <Card key={batch.id} className="hover:bg-accent/50 transition-colors">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">

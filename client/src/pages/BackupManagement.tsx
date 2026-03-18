@@ -34,7 +34,7 @@ export default function BackupManagement() {
       setDeleteDialogOpen(false);
       setSelectedBackupId(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`백업 삭제 실패: ${error.message}`);
     },
   });
@@ -165,7 +165,7 @@ export default function BackupManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {backups.map((backup) => (
+                  {backups.map((backup: any) => (
                     <TableRow key={backup.id}>
                       <TableCell className="font-medium">
                         {backup.fileName}

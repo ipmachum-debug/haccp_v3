@@ -13,6 +13,9 @@ interface AuditLogParams {
   tenantId?: string;                 // 테넌트 ID (시스템 전체 이벤트의 경우 null)
   targetType?: string;               // 대상 유형 (예: 'tenant', 'user', 'license')
   targetId?: string;                 // 대상 ID
+  entityType?: string;               // 엔티티 유형 (예: 'tenants', 'users')
+  entityId?: number;                 // 엔티티 ID
+  description?: string;              // 상세 설명
   ip?: string;                       // IP 주소
   userAgent?: string;                // User Agent
   meta?: Record<string, any>;        // 추가 메타데이터 (JSON)
@@ -133,6 +136,6 @@ export async function createSystemAuditLog(
   await createAuditLog({
     ...params,
     actorType: 'system',
-    actorId: null
+    actorId: undefined
   });
 }

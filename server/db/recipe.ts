@@ -113,8 +113,7 @@ export async function createRecipe(data: {
       lines.map(line => ({
         ...line,
         recipeId
-      }))
-    );
+      })) as any);
   }
   
   return { id: recipeId, success: true };
@@ -170,8 +169,7 @@ export async function updateRecipe(
         lines.map(line => ({
           ...line,
           recipeId
-        }))
-      );
+        })) as any);
     }
   }
   
@@ -202,30 +200,31 @@ export async function createRecipeVersion(data: {
   version: string;
   changeDescription?: string;
   createdBy: number;
-}) {
+}, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   // 현재 레시피 스냅샷 저장
-  const recipe = await getRecipeById(data.recipeId);
-  
+  const recipe = await getRecipeById(data.recipeId, tenantId);
+
   await db.insert(recipeVersions).values({
     ...data,
+    tenantId,
     snapshotData: JSON.stringify(recipe)
-  });
-  
+  } as any);
+
   return { success: true };
 }
 
 /**
  * 레시피 버전 이력 조회
  */
-export async function getRecipeVersions(recipeId: number) {
+export async function getRecipeVersions(recipeId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   return await db.select().from(recipeVersions)
-    .where(eq(recipeVersions.recipeId, recipeId))
+    .where(and(eq(recipeVersions.tenantId, tenantId as any), eq(recipeVersions.recipeId, recipeId)) as any)
     .orderBy(desc(recipeVersions.createdAt));
 }
 

@@ -49,7 +49,7 @@ export default function ChecklistApprovalManagement() {
       setIsDetailDialogOpen(false);
       setSelectedInstance(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -62,7 +62,7 @@ export default function ChecklistApprovalManagement() {
       setSelectedInstance(null);
       setRejectReason("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

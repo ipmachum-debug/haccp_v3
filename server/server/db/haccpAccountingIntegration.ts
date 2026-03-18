@@ -126,10 +126,10 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       l.product_id,
       l.unit_price,
       l.receipt_date,
-      p.name as product_name
+      p.product_name as product_name
     FROM h_inventory_transactions t
     JOIN h_inventory_lots l ON t.lot_id = l.id AND l.tenant_id = ?
-    LEFT JOIN h_products p ON l.product_id = p.id AND p.tenant_id = ?
+    LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
     WHERE t.id = ? AND t.tenant_id = ? AND t.transaction_type = 'usage' AND l.product_id IS NOT NULL
     LIMIT 1`,
     [tenantId, tenantId, transactionId, tenantId]

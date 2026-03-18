@@ -6,7 +6,7 @@ export const intermediateRouter = router({
     // 혼합재제 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getIntermediates } = await import("../../db/intermediateAPI");
-      return await getIntermediates(ctx.user.tenantId);
+      return await getIntermediates(ctx.tenantId ?? undefined);
     }),
     
     // 혼합재제 상세 조회 (구성 포함)
@@ -14,7 +14,7 @@ export const intermediateRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getIntermediateDetail } = await import("../../db/intermediateAPI");
-        return await getIntermediateDetail(input.id, ctx.user.tenantId);
+        return await getIntermediateDetail(input.id, ctx.tenantId ?? undefined);
       }),
     
     // 혼합재제 생성
@@ -32,8 +32,9 @@ export const intermediateRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createIntermediate } = await import("../../db/intermediateAPI");
-        return await createIntermediate(input);
+        return await createIntermediate(input, tenantId ?? undefined);
       }),
     
     // 혼합재제 수정
@@ -52,9 +53,10 @@ export const intermediateRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateIntermediate } = await import("../../db/intermediateAPI");
         const { id, ...data } = input;
-        return await updateIntermediate(id, data);
+        return await updateIntermediate(id, data, tenantId ?? undefined);
       }),
     
     // 혼합재제 삭제
@@ -62,7 +64,7 @@ export const intermediateRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteIntermediate } = await import("../../db/intermediateAPI");
-        return await deleteIntermediate(input.id, ctx.user.tenantId);
+        return await deleteIntermediate(input.id, ctx.tenantId ?? undefined);
       }),
     
     // 혼합재제 구성 추가
@@ -77,8 +79,9 @@ export const intermediateRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { addIntermediateComponent } = await import("../../db/intermediateAPI");
-        return await addIntermediateComponent(input);
+        return await addIntermediateComponent(input, tenantId ?? undefined);
       }),
     
     // 혼합재제 구성 수정
@@ -92,9 +95,10 @@ export const intermediateRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateIntermediateComponent } = await import("../../db/intermediateAPI");
         const { id, ...data } = input;
-        return await updateIntermediateComponent(id, data);
+        return await updateIntermediateComponent(id, data, tenantId ?? undefined);
       }),
     
     // 혼합재제 구성 삭제
@@ -102,6 +106,6 @@ export const intermediateRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteIntermediateComponent } = await import("../../db/intermediateAPI");
-        return await deleteIntermediateComponent(input.id, ctx.user.tenantId);
+        return await deleteIntermediateComponent(input.id, ctx.tenantId ?? undefined);
       })
 });

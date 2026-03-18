@@ -4,14 +4,15 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 export const productionDashboardRouter = router({
     // 진행 중인 배치 목록 조회
     getActiveBatches: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getActiveBatches } = await import("../../db/productionDashboard");
-        return await getActiveBatches();
+        return await getActiveBatches(tenantId ?? undefined);
       }),
     // 배치 상태별 통계 조회
     getBatchStats: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getBatchStats } = await import("../../db/productionDashboard");
-        return await getBatchStats(ctx.user.tenantId);
+        return await getBatchStats(ctx.tenantId ?? undefined);
       })
 });

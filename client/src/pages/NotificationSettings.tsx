@@ -14,7 +14,7 @@ export default function NotificationSettings() {
       alert("알림 설정이 저장되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`오류: ${error.message}`);
     },
   });

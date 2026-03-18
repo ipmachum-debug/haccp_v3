@@ -17,7 +17,8 @@ export default function BankAccountManagement() {
   const [selectedAccount, setSelectedAccount] = useState<any>(null);
   const [filterStatus, setFilterStatus] = useState<"Y" | "N" | "all">("all");
 
-  const { data: accounts, refetch } = trpc.bankAccount.list.useQuery({ isActive: filterStatus });
+  const { data: accountsData, refetch } = trpc.bankAccount.list.useQuery({ isActive: filterStatus });
+  const accounts = (accountsData as any)?.accounts ?? (Array.isArray(accountsData) ? accountsData : []);
   const createMutation = trpc.bankAccount.create.useMutation();
   const updateMutation = trpc.bankAccount.update.useMutation();
   const deleteMutation = trpc.bankAccount.delete.useMutation();
@@ -112,8 +113,8 @@ export default function BankAccountManagement() {
                   <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                     취소
                   </Button>
-                  <Button type="submit" disabled={createMutation.isLoading}>
-                    {createMutation.isLoading ? "등록 중..." : "등록"}
+                  <Button type="submit" disabled={createMutation.isPending}>
+                    {createMutation.isPending ? "등록 중..." : "등록"}
                   </Button>
                 </div>
               </form>

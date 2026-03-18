@@ -12,11 +12,11 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
 
   const requestResetMutation = trpc.auth.requestPasswordReset.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       setEmail("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });

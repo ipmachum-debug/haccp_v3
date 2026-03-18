@@ -13,7 +13,7 @@ export const inspectionRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getInspectionDashboardStatistics } = await import("../../db");
-        return await getInspectionDashboardStatistics(input);
+        return await getInspectionDashboardStatistics(input, ctx.tenantId);
       }),
     
     // 원재료 검사
@@ -42,15 +42,16 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { createMaterialInspectionRecord, addMaterialInspectionItem } = await import("../../db");
-          
+
           const recordId = await createMaterialInspectionRecord({
             ...input,
             inspectorId: ctx.user.id
-          });
+          }, tenantId);
 
           for (const item of input.items) {
-            await addMaterialInspectionItem({ recordId, ...item });
+            await addMaterialInspectionItem({ recordId, ...item }, tenantId);
           }
 
           return { success: true, recordId };
@@ -70,15 +71,16 @@ export const inspectionRouter = router({
         )
         .query(async ({ input, ctx }) => {
           const { getMaterialInspectionRecords } = await import("../../db");
-          return await getMaterialInspectionRecords(input);
+          return await getMaterialInspectionRecords({ ...input, tenantId: ctx.tenantId });
         }),
 
       // 원재료 검사 기록 상세 조회
       getById: tenantRequiredProcedure
         .input(z.object({ id: z.number() }))
         .query(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { getMaterialInspectionRecordById } = await import("../../db");
-          return await getMaterialInspectionRecordById(input.id);
+          return await getMaterialInspectionRecordById(input.id, tenantId);
         }),
 
       // 원재료 검사 기록 상태 변경
@@ -91,11 +93,13 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { updateMaterialInspectionStatus } = await import("../../db");
           return await updateMaterialInspectionStatus(
             input.id,
             input.status,
-            input.inspectionResult
+            input.inspectionResult,
+            tenantId
           );
         }),
       // 원재료 검사 기록 수정
@@ -128,12 +132,13 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { updateMaterialInspectionRecord } = await import("../../db");
           const { id, ...data } = input;
           await updateMaterialInspectionRecord(id, {
             ...data,
             inspectionDate: data.inspectionDate ? new Date(data.inspectionDate) : undefined
-          });
+          }, tenantId);
           return { success: true, message: "검사 기록이 수정되었습니다." };
         })
     }),
@@ -164,15 +169,16 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
           const { createShippingInspectionRecord, addShippingInspectionItem } = await import("../../db");
-          
+
           const recordId = await createShippingInspectionRecord({
             ...input,
             inspectorId: ctx.user.id
-          });
+          }, tenantId);
 
           for (const item of input.items) {
-            await addShippingInspectionItem({ recordId, ...item });
+            await addShippingInspectionItem({ recordId, ...item }, tenantId);
           }
 
           return { success: true, recordId };
@@ -192,7 +198,7 @@ export const inspectionRouter = router({
         )
         .query(async ({ input, ctx }) => {
           const { getShippingInspectionRecords } = await import("../../db");
-          return await getShippingInspectionRecords(input);
+          return await getShippingInspectionRecords({ ...input, tenantId: ctx.tenantId });
         }),
 
       // 출하 검사 기록 상세 조회
@@ -305,7 +311,7 @@ export const inspectionRouter = router({
         )
         .query(async ({ input, ctx }) => {
           const { getHygieneInspectionRecords } = await import("../../db");
-          return await getHygieneInspectionRecords(input);
+          return await getHygieneInspectionRecords({ ...input, tenantId: ctx.tenantId });
         }),
 
       // 위생 검사 기록 상세 조회

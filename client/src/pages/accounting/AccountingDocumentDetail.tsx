@@ -48,7 +48,7 @@ export default function AccountingDocumentDetail() {
       refetch();
       setStatusForm({ status: "uploaded", comment: "" });
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });
@@ -134,7 +134,7 @@ export default function AccountingDocumentDetail() {
             </div>
           </div>
           <div className="flex gap-2">
-            {getStatusBadge(detail.status)}
+            {getStatusBadge((detail as any).status || detail.workflow?.[0]?.status || "uploaded")}
             <Badge variant="outline">{getCategoryLabel(detail.category)}</Badge>
           </div>
         </div>
@@ -247,7 +247,7 @@ export default function AccountingDocumentDetail() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {detail.workflow.map((wf, index) => (
+                {detail.workflow.map((wf: any, index: any) => (
                   <div
                     key={wf.id}
                     className={`flex gap-4 pb-4 ${index !== detail.workflow.length - 1 ? "border-b" : ""}`}
@@ -270,7 +270,7 @@ export default function AccountingDocumentDetail() {
                       <div className="flex items-center gap-2 mb-1">
                         {getStatusBadge(wf.status)}
                         <span className="text-sm text-muted-foreground">
-                          {new Date(wf.createdAt).toLocaleString("ko-KR")}
+                          {new Date(wf.changedAt).toLocaleString("ko-KR")}
                         </span>
                       </div>
                       {wf.comment && (

@@ -65,25 +65,25 @@ export default function InventoryTrend() {
     if (!trendData) return null;
 
     return {
-      labels: trendData.map((item) => item.date),
+      labels: trendData.map((item: any) => item.date),
       datasets: [
         {
           label: "입고 수량",
-          data: trendData.map((item) => item.receiptQuantity),
+          data: trendData.map((item: any) => item.receiptQuantity),
           borderColor: "rgb(34, 197, 94)",
           backgroundColor: "rgba(34, 197, 94, 0.1)",
           tension: 0.4,
         },
         {
           label: "사용 수량",
-          data: trendData.map((item) => item.usageQuantity),
+          data: trendData.map((item: any) => item.usageQuantity),
           borderColor: "rgb(239, 68, 68)",
           backgroundColor: "rgba(239, 68, 68, 0.1)",
           tension: 0.4,
         },
         {
           label: "조정 수량",
-          data: trendData.map((item) => item.adjustmentQuantity),
+          data: trendData.map((item: any) => item.adjustmentQuantity),
           borderColor: "rgb(59, 130, 246)",
           backgroundColor: "rgba(59, 130, 246, 0.1)",
           tension: 0.4,
@@ -99,11 +99,11 @@ export default function InventoryTrend() {
     const topTurnover = turnoverData.slice(0, 10);
 
     return {
-      labels: topTurnover.map((item) => item.materialName),
+      labels: topTurnover.map((item: any) => item.materialName),
       datasets: [
         {
           label: "회전율",
-          data: topTurnover.map((item) => parseFloat(item.turnoverRate)),
+          data: topTurnover.map((item: any) => parseFloat(item.turnoverRate)),
           backgroundColor: "rgba(59, 130, 246, 0.6)",
           borderColor: "rgb(59, 130, 246)",
           borderWidth: 1,
@@ -117,11 +117,11 @@ export default function InventoryTrend() {
     if (!expiringStock) return null;
 
     return {
-      labels: expiringStock.map((item) => `${item.materialName} (${item.lotNumber})`),
+      labels: expiringStock.map((item: any) => `${item.materialName} (${item.lotNumber})`),
       datasets: [
         {
           label: "재고 수량",
-          data: expiringStock.map((item) => item.quantity),
+          data: expiringStock.map((item: any) => item.quantity),
           backgroundColor: "rgba(239, 68, 68, 0.6)",
           borderColor: "rgb(239, 68, 68)",
           borderWidth: 1,
@@ -221,7 +221,7 @@ export default function InventoryTrend() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {materials?.map((material) => (
+                  {materials?.map((material: any) => (
                     <SelectItem key={material.id} value={material.id.toString()}>
                       {material.materialName}
                     </SelectItem>
@@ -328,7 +328,7 @@ export default function InventoryTrend() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {turnoverData.map((item) => (
+                {turnoverData.map((item: any) => (
                   <TableRow key={item.materialId}>
                     <TableCell className="font-medium">{item.materialName}</TableCell>
                     <TableCell>{item.materialCode}</TableCell>
@@ -364,7 +364,7 @@ export default function InventoryTrend() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {expiringStock.map((item, index) => (
+                {expiringStock.map((item: any, index: any) => (
                   <TableRow key={index}>
                     <TableCell className="font-medium">{item.materialName}</TableCell>
                     <TableCell>{item.lotNumber}</TableCell>

@@ -55,15 +55,17 @@ export async function getInspectionDashboardStatistics(params: {
   }
 
   // 전체 검사 기록 조회
+  const conditions: any[] = [
+    gte((table as any).inspectionDate, startDateStr),
+    lte((table as any).inspectionDate, endDateStr)
+  ];
+  if (tenantId) {
+    conditions.push(eq((table as any).tenantId, tenantId));
+  }
   const records = await db
     .select()
     .from(table)
-    .where(
-      and(
-        gte((table as any).inspectionDate, startDateStr),
-        lte((table as any).inspectionDate, endDateStr)
-      )
-    );
+    .where(and(...conditions));
 
   // 통계 계산
   const totalCount = records.length;

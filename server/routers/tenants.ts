@@ -5,30 +5,21 @@
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, superAdminProcedure } from "../_core/trpc";
 import { tenants, users } from "../../drizzle/schema_main";
 import { getDb } from "../db";
 import { eq, desc, and, like, or, count } from "drizzle-orm";
 
 /**
- * 슈퍼관리자 전용 프로시저
- * role이 'admin'인 사용자만 접근 가능
+ * 슈퍼관리자 전용 프로시저 (로컬 정의 → core superAdminProcedure 사용)
  */
-const superAdminProcedure = protectedProcedure.use(({ ctx, next }) => {
-  if (ctx.user.role !== "super_admin") {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "슈퍼관리자 권한이 필요합니다.",
-    });
-  }
-  return next({ ctx });
-});
+const localSuperAdminProcedure = superAdminProcedure;
 
 export const tenantsRouter = router({
   /**
    * 테넌트 생성 (슈퍼관리자 전용)
    */
-  create: superAdminProcedure
+  create: localSuperAdminProcedure
     .input(
       z.object({
         name: z.string().min(1, "테넌트 이름은 필수입니다"),
@@ -48,7 +39,7 @@ export const tenantsRouter = router({
   /**
    * 테넌트 목록 조회 (슈퍼관리자 전용)
    */
-  list: superAdminProcedure
+  list: localSuperAdminProcedure
     .input(
       z.object({
         search: z.string().optional(),
@@ -110,7 +101,7 @@ export const tenantsRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       // 슬슈퍼관리자가 아니면 자기 테넌트만 조회 가능
-      if (ctx.user.role !== "super_admin" && ctx.user.tenantId !== input.tenantId) {
+      if (ctx.user.role !== "super_admin" && (ctx.tenantId ?? undefined) !== input.tenantId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "다른 테넌트의 정보를 조회할 수 없습니다.",
@@ -136,7 +127,7 @@ export const tenantsRouter = router({
   /**
    * 테넌트 정보 수정 (슈퍼관리자 전용)
    */
-  update: superAdminProcedure
+  update: localSuperAdminProcedure
     .input(
       z.object({
         tenantId: z.number(),
@@ -161,7 +152,7 @@ export const tenantsRouter = router({
    * 테넌트 삭제 (슈퍼관리자 전용)
    * 주의: 테넌트에 속한 사용자가 있으면 삭제 불가
    */
-  delete: superAdminProcedure
+  delete: localSuperAdminProcedure
     .input(z.object({ tenantId: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -199,7 +190,7 @@ export const tenantsRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       // 슬슈퍼관리자가 아니면 자기 테넌트만 조회 가능
-      if (ctx.user.role !== "super_admin" && ctx.user.tenantId !== input.tenantId) {
+      if (ctx.user.role !== "super_admin" && (ctx.tenantId ?? undefined) !== input.tenantId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "다른 테넌트의 사용자를 조회할 수 없습니다.",

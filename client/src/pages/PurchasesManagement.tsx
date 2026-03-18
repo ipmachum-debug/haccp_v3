@@ -21,8 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Save, Search, FileText, Building2, X, Package } from "lucide-react";
+import { Plus, Trash2, Save, Search, FileText, Building2, X, Package, FileSpreadsheet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
 /* ─── Partner inline search/autocomplete ─── */
 function PartnerInlineSearch({ selectedId, selectedName, onSelect, onClear, partnerType, label = "거래처 *" }: {
@@ -147,6 +148,7 @@ type PurchaseItem = {
   itemMasterId?: number;
   itemType?: string;
   itemName: string;
+  unit?: string;
   packagingSize?: number;
   packagingUnit?: string;
   quantity: number;
@@ -167,6 +169,7 @@ export default function PurchasesManagement() {
 
 function PurchasesManagementContent() {
   const { toast } = useToast();
+  const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
 
   const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>("");
@@ -260,7 +263,7 @@ function PurchasesManagementContent() {
         },
       ]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -386,7 +389,7 @@ function PurchasesManagementContent() {
           unitPrice: item.unitPrice,
           amount: item.amount,
           taxAmount: item.taxAmount,
-          unit: item.unit || undefined,
+          unit: (item as any).unit || undefined,
           memo: memo || undefined,
         },
         {
@@ -430,14 +433,20 @@ function PurchasesManagementContent() {
   return (
     <div className="p-4 space-y-0">
       {/* 헤더 - 컴팩트 */}
-      <div className="mb-3">
-        <h1 className="text-lg font-bold flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          매입 등록
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          F2 (거래처 검색) | Ctrl+S (저장)
-        </p>
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-bold flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            매입 등록
+          </h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            F2 (거래처 검색) | Ctrl+S (저장)
+          </p>
+        </div>
+        <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-1.5 text-xs">
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          엑셀 일괄등록
+        </Button>
       </div>
 
       {/* 거래 정보 - 한 줄 */}
@@ -639,7 +648,12 @@ function PurchasesManagementContent() {
         </Button>
       </div>
 
-
+      {/* 엑셀 일괄등록 모달 */}
+      <ExcelBulkUploadModal
+        open={bulkUploadOpen}
+        onOpenChange={setBulkUploadOpen}
+        mode="purchase"
+      />
     </div>
   );
 }

@@ -128,7 +128,7 @@ export default function PurchaseProposalHistory() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {materials?.map((material) => (
+                  {materials?.map((material: any) => (
                     <SelectItem key={material.id} value={material.id.toString()}>
                       {material.materialName}
                     </SelectItem>

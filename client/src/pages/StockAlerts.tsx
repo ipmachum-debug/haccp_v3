@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,7 +66,7 @@ export default function StockAlerts() {
       toast.success("알람이 해제되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });

@@ -139,7 +139,7 @@ export async function getOrCreateCcpFormRecord(params: {
     siteId: params.siteId,
     batchId: params.batchId,
     ccpType: params.ccpType,
-    workDate: params.workDate,
+    workDate: new Date(params.workDate),
     productId: params.productId,
     productName: params.productName,
     processGroupId: params.processGroupId,
@@ -315,10 +315,91 @@ export async function upsertCcpFormRow(data: InsertCcpFormRow) {
       .update(hCcpFormRows)
       .set({ ...data, updatedAt: new Date() })
       .where(updateWhere);
+    // ★ h_ccp_form_rows → h_ccp_rows 역방향 동기화
+    await syncFormRowToCcpRow(data);
     return existing[0].id;
   } else {
     const [result] = await db.insert(hCcpFormRows).values(data);
+    // ★ h_ccp_form_rows → h_ccp_rows 역방향 동기화
+    await syncFormRowToCcpRow(data);
     return (result as any).insertId as number;
+  }
+}
+
+/**
+ * h_ccp_form_rows 저장 시 h_ccp_rows에도 동기화
+ * CCP 카드 UI(h_ccp_form_rows) → CCP 점검 기록 페이지(h_ccp_rows) 데이터 일관성 보장
+ */
+async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
+  try {
+    const rawConn = await getRawConnection();
+    const tenantId = data.tenantId;
+    if (!tenantId) throw new Error("[P0 보안] tenantId is required");
+    const formRecordId = data.formRecordId;
+    const batchSeq = data.batchSeq ?? 1;
+
+    // form_record에서 batch_id, ccp_type 조회
+    const [frRows] = await rawConn.execute<any[]>(
+      `SELECT batch_id, ccp_type FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`,
+      [formRecordId, tenantId]
+    );
+    if (!(frRows as any[]).length) return;
+    const { batch_id: batchId, ccp_type: ccpType } = (frRows as any[])[0];
+
+    // 해당 batch의 h_ccp_instances에서 같은 ccp_type의 instance_id 조회
+    const [instRows] = await rawConn.execute<any[]>(
+      `SELECT id FROM h_ccp_instances WHERE batch_id = ? AND ccp_type = ? AND tenant_id = ? LIMIT 1`,
+      [batchId, ccpType, tenantId]
+    );
+    if (!(instRows as any[]).length) return;
+    const instanceId = (instRows as any[])[0].id;
+
+    // 측정값 매핑: form_rows 컬럼 → ccp_rows 컬럼
+    const tempC = data.heatTempC != null ? parseFloat(String(data.heatTempC)) : null;
+    const durationMin = data.heatTimeMin ?? null;
+    const pressureBar = data.pressureMpa != null ? parseFloat(String(data.pressureMpa)) : null;
+    const measuredAt = data.measurementTime
+      ? new Date(`2026-01-01 ${data.measurementTime}`)
+      : new Date();
+    const result = data.result === "적합" ? "PASS" : data.result === "부적합" ? "FAIL" : "PASS";
+    const equipmentId = data.equipmentId ?? null;
+    const equipmentName = data.equipmentName ?? null;
+
+    // 올바른 날짜 설정: form_record의 work_date + measurement_time
+    const [dateRows] = await rawConn.execute<any[]>(
+      `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') as wd FROM h_ccp_form_records WHERE id = ? LIMIT 1`,
+      [formRecordId]
+    );
+    const workDate = (dateRows as any[])[0]?.wd || new Date().toISOString().slice(0, 10);
+    const fullMeasuredAt = data.measurementTime
+      ? `${workDate} ${data.measurementTime}`
+      : new Date().toISOString().slice(0, 19).replace("T", " ");
+
+    // h_ccp_rows에서 같은 instance + sort_order(=batchSeq)로 찾아 upsert
+    const [existingRows] = await rawConn.execute<any[]>(
+      `SELECT id FROM h_ccp_rows WHERE instance_id = ? AND sort_order = ? AND tenant_id = ? LIMIT 1`,
+      [instanceId, batchSeq, tenantId]
+    );
+
+    if ((existingRows as any[]).length > 0) {
+      await rawConn.execute(
+        `UPDATE h_ccp_rows SET temp_c = ?, duration_min = ?, pressure_bar = ?, result = ?,
+         measured_at = ?, equipment_id = ?, equipment_name = ?, auto_generated = 0
+         WHERE id = ? AND tenant_id = ?`,
+        [tempC, durationMin, pressureBar, result, fullMeasuredAt,
+         equipmentId, equipmentName, (existingRows as any[])[0].id, tenantId]
+      );
+    } else {
+      await rawConn.execute(
+        `INSERT INTO h_ccp_rows (instance_id, equipment_id, equipment_name, sort_order,
+         measured_at, temp_c, duration_min, pressure_bar, result, auto_generated, tenant_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [instanceId, equipmentId, equipmentName, batchSeq,
+         fullMeasuredAt, tempC, durationMin, pressureBar, result, tenantId]
+      );
+    }
+  } catch (err) {
+    console.error("[syncFormRowToCcpRow] 동기화 실패 (무시):", err);
   }
 }
 
@@ -373,7 +454,7 @@ export async function upsertCcpEquipBatchSettings(
     .from(hCcpEquipBatchSettings)
     .where(
       and(
-        eq(hCcpEquipBatchSettings.tenantId, data.tenantId ?? 1),
+        eq(hCcpEquipBatchSettings.tenantId, data.tenantId as any) ,
         eq(hCcpEquipBatchSettings.processGroupId, data.processGroupId)
       )
     )
@@ -781,13 +862,13 @@ export async function syncCcpRowsToFormRows(params: {
     // 모든 공정(교반, 증숙, 오븐, 금속검출)에 작업시작 시점으로부터 0-10분 랜덤 오프셋
     // 일괄적이면 외부점검시 이상하게 생각하므로 자연스럽게 분산
     // seed: batchId + processGroupId + ccpType hash → 동일 배치에 대해 동일 오프셋 (재현성)
-    function seededRandom(seed: number): number {
+    const seededRandom = (seed: number): number => {
       let s = seed;
       s = ((s ^ 0xDEADBEEF) + (s << 1)) & 0x7FFFFFFF;
       s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
       s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
       return (s & 0x7FFFFFFF) / 0x7FFFFFFF;
-    }
+    };
     const randomSeed = batchId * 1000 + (processGroupId || 0) * 100 + ccpType.charCodeAt(4);
     const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
     const adjustedStartTime = batchStartTime ? addMinutesToTime(batchStartTime, randomOffsetMin) : batchStartTime;

@@ -36,7 +36,7 @@ export const recallSimulationRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await recallDb.createRecallSimulation({
+      const id = await recallDb.createRecallSimulation(ctx.tenantId, {
         ...input,
         totalProducedQuantity: String(input.totalProducedQuantity),
         distributedQuantity: String(input.distributedQuantity),
@@ -45,10 +45,9 @@ export const recallSimulationRouter = router({
         targetRecallRate: String(input.targetRecallRate),
         startTime: new Date(),
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
       });
       // 기본 체크리스트 자동 생성
-      await recallDb.createDefaultChecklist(id, ctx.user.tenantId);
+      await recallDb.createDefaultChecklist(id, ctx.tenantId ?? undefined);
       return { id };
     }),
 
@@ -62,14 +61,14 @@ export const recallSimulationRouter = router({
       limit: z.number().optional(),
       offset: z.number().optional(),
     }))
-    .query(async ({ input }) => {
-      return await recallDb.getRecallSimulations(input);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getRecallSimulations(ctx.tenantId, input);
     }),
 
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return await recallDb.getRecallSimulationById(input.id);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getRecallSimulationById(ctx.tenantId, input.id);
     }),
 
   update: tenantRequiredProcedure
@@ -83,26 +82,26 @@ export const recallSimulationRouter = router({
       participants: z.string().optional(),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       const updateData: any = { ...data };
       if (data.targetRecallQuantity) updateData.targetRecallQuantity = String(data.targetRecallQuantity);
       if (data.targetRecallRate) updateData.targetRecallRate = String(data.targetRecallRate);
-      await recallDb.updateRecallSimulation(id, updateData);
+      await recallDb.updateRecallSimulation(ctx.tenantId, id, updateData);
       return { success: true };
     }),
 
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await recallDb.deleteRecallSimulation(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await recallDb.deleteRecallSimulation(ctx.tenantId, input.id);
       return { success: true };
     }),
 
   start: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await recallDb.startRecallSimulation(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await recallDb.startRecallSimulation(ctx.tenantId, input.id);
       return { success: true };
     }),
 
@@ -119,9 +118,9 @@ export const recallSimulationRouter = router({
       findings: z.string().optional(),
       improvements: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await recallDb.completeRecallSimulation(id, {
+      await recallDb.completeRecallSimulation(ctx.tenantId, id, {
         ...data,
         actualRecalledQuantity: String(data.actualRecalledQuantity),
         actualRecallRate: String(data.actualRecallRate),
@@ -146,18 +145,17 @@ export const recallSimulationRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await recallDb.addDistributionTracking({
+      const id = await recallDb.addDistributionTracking(ctx.tenantId, {
         ...input,
         shippedQuantity: String(input.shippedQuantity),
-        tenantId: ctx.user.tenantId,
       });
       return { id };
     }),
 
   getDistributions: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
-    .query(async ({ input }) => {
-      return await recallDb.getDistributionTracking(input.simulationId);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getDistributionTracking(ctx.tenantId, input.simulationId);
     }),
 
   updateDistributionStatus: tenantRequiredProcedure
@@ -170,19 +168,19 @@ export const recallSimulationRouter = router({
       notificationDate: z.string().optional(),
       notificationMethod: z.enum(["phone", "email", "fax", "visit", "other"]).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       const updateData: any = { ...data };
       if (data.recalledQuantity) updateData.recalledQuantity = String(data.recalledQuantity);
       if (data.recallRate) updateData.recallRate = String(data.recallRate);
-      await recallDb.updateDistributionRecallStatus(id, updateData);
+      await recallDb.updateDistributionRecallStatus(ctx.tenantId, id, updateData);
       return { success: true };
     }),
 
   deleteDistribution: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await recallDb.deleteDistributionTracking(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await recallDb.deleteDistributionTracking(ctx.tenantId, input.id);
       return { success: true };
     }),
 
@@ -192,8 +190,8 @@ export const recallSimulationRouter = router({
 
   getChecklist: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
-    .query(async ({ input }) => {
-      return await recallDb.getChecklist(input.simulationId);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getChecklist(ctx.tenantId, input.simulationId);
     }),
 
   addChecklistItem: tenantRequiredProcedure
@@ -203,9 +201,8 @@ export const recallSimulationRouter = router({
       checkItem: z.string(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await recallDb.addChecklistItem({
+      const id = await recallDb.addChecklistItem(ctx.tenantId, {
         ...input,
-        tenantId: ctx.user.tenantId,
       });
       return { id };
     }),
@@ -213,7 +210,7 @@ export const recallSimulationRouter = router({
   completeChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      await recallDb.completeChecklistItem(input.id, ctx.user.id);
+      await recallDb.completeChecklistItem(ctx.tenantId, input.id, ctx.user.id);
       return { success: true };
     }),
 
@@ -232,24 +229,23 @@ export const recallSimulationRouter = router({
       description: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await recallDb.addAttachment({
+      const id = await recallDb.addAttachment(ctx.tenantId, {
         ...input,
         uploadedBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
       });
       return { id };
     }),
 
   getAttachments: tenantRequiredProcedure
     .input(z.object({ simulationId: z.number() }))
-    .query(async ({ input }) => {
-      return await recallDb.getAttachments(input.simulationId);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getAttachments(ctx.tenantId, input.simulationId);
     }),
 
   deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await recallDb.deleteAttachment(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await recallDb.deleteAttachment(ctx.tenantId, input.id);
       return { success: true };
     }),
 
@@ -259,7 +255,7 @@ export const recallSimulationRouter = router({
 
   getDashboard: tenantRequiredProcedure
     .input(z.object({ siteId: z.number() }))
-    .query(async ({ input }) => {
-      return await recallDb.getRecallDashboard(input.siteId);
+    .query(async ({ input, ctx }) => {
+      return await recallDb.getRecallDashboard(ctx.tenantId, input.siteId);
     }),
 });

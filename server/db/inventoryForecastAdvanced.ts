@@ -50,12 +50,19 @@ function isKoreanHoliday(date: Date): boolean {
 /**
  * 과거 사용 패턴 분석
  */
-async function analyzeUsagePatterns(materialId: number, days: number = 90): Promise<UsagePattern[]> {
+async function analyzeUsagePatterns(materialId: number, days: number = 90, tenantId: number): Promise<UsagePattern[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const pastDate = new Date();
   pastDate.setDate(pastDate.getDate() - days);
+
+  const conditions = [
+    eq(hInventoryTransactions.transactionType, "usage"),
+    eq(hInventoryLots.materialId, materialId),
+    gte(hInventoryTransactions.createdAt, pastDate)
+  ];
+  conditions.push(eq(hInventoryLots.tenantId, tenantId));
 
   const usageRecords = await db
     .select({
@@ -64,13 +71,7 @@ async function analyzeUsagePatterns(materialId: number, days: number = 90): Prom
     })
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
-    .where(
-      and(
-        eq(hInventoryTransactions.transactionType, "usage"),
-        eq(hInventoryLots.materialId, materialId),
-        gte(hInventoryTransactions.createdAt, pastDate)
-      )
-    );
+    .where(and(...conditions));
 
   return usageRecords.map(record => {
     const date = new Date(record.createdAt);
@@ -243,15 +244,16 @@ JSON 형식으로 응답: { "adjustmentFactor": 1.0, "reasoning": "이유" }`
 /**
  * 고도화된 재고 예측
  */
-export async function getAdvancedInventoryForecast(days: number = 90, tenantId?: number) {
+export async function getAdvancedInventoryForecast(days: number = 90, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // 원재료별 현재 재고 조회
+  // 원재료별 현재 재고 조회 (tenant 격리)
   const materials = await db
     .select()
     .from(hInventory)
-    .leftJoin(hMaterials, eq(hInventory.materialId, hMaterials.id));
+    .leftJoin(hMaterials, eq(hInventory.materialId, hMaterials.id))
+    .where(eq(hInventory.tenantId, tenantId));
 
   const forecasts = await Promise.all(
     materials.map(async (row) => {
@@ -262,7 +264,7 @@ export async function getAdvancedInventoryForecast(days: number = 90, tenantId?:
 
       try {
         // 1. 과거 사용 패턴 분석
-        const patterns = await analyzeUsagePatterns(material.materialId, days);
+        const patterns = await analyzeUsagePatterns(material.materialId, days, tenantId);
         
         if (patterns.length === 0) {
           // 데이터가 없으면 기본 예측 반환
@@ -363,8 +365,8 @@ export async function getAdvancedInventoryForecast(days: number = 90, tenantId?:
 /**
  * 고도화된 발주 제안
  */
-export async function getAdvancedPurchaseRecommendations(tenantId?: number) {
-  const forecasts = await getAdvancedInventoryForecast(90);
+export async function getAdvancedPurchaseRecommendations(tenantId: number) {
+  const forecasts = await getAdvancedInventoryForecast(90, tenantId);
 
   // 14일 이내 소진 예상 또는 안전 재고 이하인 원재료
   const recommendations = forecasts

@@ -29,7 +29,7 @@ export const yearlyLogsRouter = router({
       action_taker: z.string().optional(),
       confirmation: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       const [result] = await conn.execute(
@@ -44,7 +44,7 @@ export const yearlyLogsRouter = router({
          special_notes, improvement_action, action_taker, confirmation, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '작성중')`,
         [
-          input.tenant_id, input.inspection_date, input.inspector,
+          ctx.tenantId, input.inspection_date, input.inspector,
           input.calibration_freezer_panel_thermometer ?? null, input.calibration_refrigerator ?? null, input.calibration_timer ?? null,
           input.calibration_probe_thermometer ?? null, input.calibration_scale ?? null, input.calibration_oven ?? null,
           input.calibration_metal_detector ?? null, input.calibration_hygrothermograph ?? null, input.calibration_radiation_thermometer1 ?? null,
@@ -66,11 +66,12 @@ export const yearlyLogsRouter = router({
       end_date: z.string().optional(),
       status: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
+      // ★ 테넌트 격리: ctx.tenantId 사용 (input.tenant_id 무시)
       let query = "SELECT * FROM yearly_logs WHERE tenant_id = ?";
-      const params: any[] = [input.tenant_id];
+      const params: any[] = [ctx.tenantId];
 
       if (input.start_date && input.end_date) {
         query += " AND inspection_date BETWEEN ? AND ?";
@@ -114,7 +115,7 @@ export const yearlyLogsRouter = router({
       action_taker: z.string().optional(),
       confirmation: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       await conn.execute(
@@ -140,7 +141,7 @@ export const yearlyLogsRouter = router({
           improvement_action = ?,
           action_taker = ?,
           confirmation = ?
-        WHERE id = ?`,
+        WHERE id = ? AND tenant_id = ?`,
         [
           input.inspection_date ?? null, input.inspector ?? null,
           input.calibration_freezer_panel_thermometer ?? null, input.calibration_refrigerator ?? null, input.calibration_timer ?? null,
@@ -150,7 +151,7 @@ export const yearlyLogsRouter = router({
           input.metal_detector_check_date ?? null, input.metal_detector_next_check ?? null,
           input.periodic_verification_date ?? null, input.periodic_verification_next ?? null,
           input.special_notes ?? null, input.improvement_action ?? null, input.action_taker ?? null, input.confirmation ?? null,
-          input.id
+          input.id, ctx.tenantId
         ]
       );
 
@@ -163,12 +164,12 @@ export const yearlyLogsRouter = router({
       id: z.number(),
       approved_by: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       await conn.execute(
-        `UPDATE yearly_logs SET status = '승인완료', approved_by = ?, approved_at = NOW() WHERE id = ?`,
-        [input.approved_by, input.id]
+        `UPDATE yearly_logs SET status = '승인완료', approved_by = ?, approved_at = NOW() WHERE id = ? AND tenant_id = ?`,
+        [input.approved_by, input.id, ctx.tenantId]
       );
 
       return { success: true };
@@ -177,12 +178,12 @@ export const yearlyLogsRouter = router({
   // 승인 요청
   requestApproval: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       await conn.execute(
-        `UPDATE yearly_logs SET status = '승인대기' WHERE id = ?`,
-        [input.id]
+        `UPDATE yearly_logs SET status = '승인대기' WHERE id = ? AND tenant_id = ?`,
+        [input.id, ctx.tenantId]
       );
 
       return { success: true };
@@ -194,12 +195,12 @@ export const yearlyLogsRouter = router({
       id: z.number(),
       rejected_reason: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       await conn.execute(
-        `UPDATE yearly_logs SET status = '작성중', rejected_reason = ? WHERE id = ?`,
-        [input.rejected_reason, input.id]
+        `UPDATE yearly_logs SET status = '작성중', rejected_reason = ? WHERE id = ? AND tenant_id = ?`,
+        [input.rejected_reason, input.id, ctx.tenantId]
       );
 
       return { success: true };
@@ -208,12 +209,12 @@ export const yearlyLogsRouter = router({
   // 삭제
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const conn = await getRawConnection();
 
       await conn.execute(
-        `DELETE FROM yearly_logs WHERE id = ?`,
-        [input.id]
+        `DELETE FROM yearly_logs WHERE id = ? AND tenant_id = ?`,
+        [input.id, ctx.tenantId]
       );
 
       return { success: true };

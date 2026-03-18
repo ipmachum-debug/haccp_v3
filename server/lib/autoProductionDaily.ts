@@ -119,6 +119,14 @@ export async function autoRegenerateProductionDaily(
       ? issueResult[0]
       : issueResult;
 
+    // ── 배치가 없으면 생산일지를 생성하지 않음 ──
+    if (!(batches as any[]).length) {
+      return {
+        success: true,
+        message: `${dateStr} 배치 없음 → 생산일지 미생성`,
+      };
+    }
+
     // ── CCP 상세 맵 생성 (batch_id -> ccpDetails) ──
     const ccpByBatch = new Map<number, any[]>();
     for (const c of ccpDetails as any[]) {

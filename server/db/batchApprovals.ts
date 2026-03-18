@@ -19,7 +19,7 @@ export async function createBatchApproval(data: {
     approverId: data.approverId,
     status: "pending",
     notes: data.notes || null
-  });
+  } as any);
 
   return result.insertId;
 }
@@ -54,7 +54,7 @@ export async function approveBatch(data: {
   const [existing] = await db
     .select()
     .from(hBatchApprovals)
-    .where(and(eq(hBatchApprovals.tenantId, tenantId), eq(hBatchApprovals.batchId, data.batchId)))    .limit(1);
+    .where(and(eq(hBatchApprovals.tenantId, tenantId as any) , eq(hBatchApprovals.batchId, data.batchId)) as any)    .limit(1);
 
   if (!existing) {
     await db.insert(hBatchApprovals).values({
@@ -64,7 +64,7 @@ export async function approveBatch(data: {
       status: "approved",
       approvalDate: new Date(),
       notes: data.notes || null
-    });
+    } as any);
   }
 }
 
@@ -99,7 +99,7 @@ export async function rejectBatch(data: {
   const [existing] = await db
     .select()
     .from(hBatchApprovals)
-    .where(and(eq(hBatchApprovals.tenantId, tenantId), eq(hBatchApprovals.batchId, data.batchId)))    .limit(1);
+    .where(and(eq(hBatchApprovals.tenantId, tenantId as any) , eq(hBatchApprovals.batchId, data.batchId)) as any)    .limit(1);
 
   if (!existing) {
     await db.insert(hBatchApprovals).values({
@@ -109,7 +109,7 @@ export async function rejectBatch(data: {
       status: "rejected",
       rejectionReason: data.rejectionReason,
       notes: data.notes || null
-    });
+    } as any);
   }
 }
 
@@ -123,7 +123,7 @@ export async function getBatchApprovals(batchId: number, tenantId?: number) {
   const approvals = await db
     .select()
     .from(hBatchApprovals)
-    .where(and(eq(hBatchApprovals.tenantId, tenantId), eq(hBatchApprovals.batchId, batchId)))    .orderBy(desc(hBatchApprovals.createdAt));
+    .where(and(eq(hBatchApprovals.tenantId, tenantId as any) , eq(hBatchApprovals.batchId, batchId)) as any)    .orderBy(desc(hBatchApprovals.createdAt));
 
   return approvals;
 }
@@ -138,7 +138,7 @@ export async function getBatchApprovalStatus(batchId: number, tenantId?: number)
   const [approval] = await db
     .select()
     .from(hBatchApprovals)
-    .where(and(eq(hBatchApprovals.tenantId, tenantId), eq(hBatchApprovals.batchId, batchId)))    .orderBy(desc(hBatchApprovals.createdAt))
+    .where(and(eq(hBatchApprovals.tenantId, tenantId as any) , eq(hBatchApprovals.batchId, batchId)) as any)    .orderBy(desc(hBatchApprovals.createdAt))
     .limit(1);
 
   return approval || null;

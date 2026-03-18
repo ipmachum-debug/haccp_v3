@@ -323,7 +323,7 @@ export default function AuditLogs() {
                     </td>
                   </tr>
                 ) : (
-                  logsData?.logs.map((log) => (
+                  logsData?.logs.map((log: any) => (
                     <tr key={log.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {new Date(log.createdAt).toLocaleString('ko-KR')}

@@ -31,7 +31,7 @@ export const adminEmployeeRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 
-    const tenantId = ctx.user.tenantId;
+    const tenantId = ctx.tenantId ?? undefined;
     console.log('[adminEmployee] getPendingEmployees - tenantId:', tenantId, 'user:', ctx.user.email);
 
     // 승인 대기 중인 직원 조회 (같은 테넌트)
@@ -98,7 +98,7 @@ export const adminEmployeeRouter = router({
       }
 
       // 같은 테넌트인지 확인
-      if (user.tenantId !== ctx.user.tenantId) {
+      if (user.tenantId !== (ctx.tenantId ?? undefined)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: '다른 회사의 직원은 관리할 수 없습니다.',
@@ -135,7 +135,7 @@ export const adminEmployeeRouter = router({
         const [tenant] = await db
           .select()
           .from(tenants)
-          .where(eq(tenants.id, ctx.user.tenantId))
+          .where(eq(tenants.id, ctx.tenantId ?? undefined))
           .limit(1);
 
         // 승인 완료 이메일 발송
@@ -182,7 +182,7 @@ export const adminEmployeeRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not initialized' });
 
-    const tenantId = ctx.user.tenantId;
+    const tenantId = ctx.tenantId ?? undefined;
 
     // 활성 직원 조회 (같은 테넌트)
     const activeEmployees = await db
@@ -243,7 +243,7 @@ export const adminEmployeeRouter = router({
       }
 
       // 같은 테넌트인지 확인
-      if (user.tenantId !== ctx.user.tenantId) {
+      if (user.tenantId !== (ctx.tenantId ?? undefined)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: '다른 회사의 직원은 삭제할 수 없습니다.',
@@ -308,7 +308,7 @@ export const adminEmployeeRouter = router({
       }
 
       // 같은 테넌트인지 확인
-      if (user.tenantId !== ctx.user.tenantId) {
+      if (user.tenantId !== (ctx.tenantId ?? undefined)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: '다른 회사의 직원은 수정할 수 없습니다.',

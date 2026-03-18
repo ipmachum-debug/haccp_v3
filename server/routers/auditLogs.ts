@@ -41,22 +41,23 @@ export const auditLogsRouter = router({
       const offset = (page - 1) * limit;
 
       // 필터 조건 구성
-      const conditions = [];
+      const tenantId = ctx.tenantId;
+      const conditions: any[] = [eq(auditLogs.tenantId, tenantId as any)];
 
       if (action) {
         conditions.push(eq(auditLogs.action, action));
       }
 
       if (entityType) {
-        conditions.push(eq(auditLogs.entityType, entityType));
+        conditions.push(eq((auditLogs as any).entityType, entityType));
       }
 
       if (userId) {
-        conditions.push(eq(auditLogs.userId, userId));
+        conditions.push(eq((auditLogs as any).userId, userId));
       }
 
       if (userEmail) {
-        conditions.push(like(auditLogs.userEmail, `%${userEmail}%`));
+        conditions.push(like((auditLogs as any).userEmail, `%${userEmail}%`));
       }
 
       if (startDate) {
@@ -70,7 +71,7 @@ export const auditLogsRouter = router({
       }
 
       if (search) {
-        conditions.push(like(auditLogs.description, `%${search}%`));
+        conditions.push(like((auditLogs as any).description, `%${search}%`));
       }
 
       const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -115,12 +116,14 @@ export const auditLogsRouter = router({
 
     const db = await getDb();
 
+    const tenantId = ctx.tenantId;
+
     // 최근 24시간 로그 수
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [{ recentCount }] = await db
       .select({ recentCount: sql<number>`count(*)` })
       .from(auditLogs)
-      .where(gte(auditLogs.createdAt, oneDayAgo));
+      .where(and(eq(auditLogs.tenantId, tenantId as any), gte(auditLogs.createdAt, oneDayAgo)));
 
     // 액션별 통계
     const actionStats = await db
@@ -129,6 +132,7 @@ export const auditLogsRouter = router({
         count: sql<number>`count(*)`,
       })
       .from(auditLogs)
+      .where(eq(auditLogs.tenantId, tenantId as any))
       .groupBy(auditLogs.action)
       .orderBy(desc(sql`count(*)`))
       .limit(10);
@@ -136,11 +140,12 @@ export const auditLogsRouter = router({
     // 엔티티 타입별 통계
     const entityStats = await db
       .select({
-        entityType: auditLogs.entityType,
+        entityType: (auditLogs as any).entityType,
         count: sql<number>`count(*)`,
       })
       .from(auditLogs)
-      .groupBy(auditLogs.entityType)
+      .where(eq(auditLogs.tenantId, tenantId as any))
+      .groupBy((auditLogs as any).entityType)
       .orderBy(desc(sql`count(*)`))
       .limit(10);
 
@@ -174,10 +179,11 @@ export const auditLogsRouter = router({
       const db = await getDb();
       const { entityType, entityId, limit } = input;
 
+      const tenantId = ctx.tenantId;
       const logs = await db
         .select()
         .from(auditLogs)
-        .where(and(eq(auditLogs.entityType, entityType), eq(auditLogs.entityId, entityId)))
+        .where(and(eq(auditLogs.tenantId, tenantId as any), eq((auditLogs as any).entityType, entityType), eq((auditLogs as any).entityId, entityId)))
         .orderBy(desc(auditLogs.createdAt))
         .limit(limit);
 

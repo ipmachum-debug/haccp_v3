@@ -6,7 +6,7 @@ import {
   hBatchProducts,
   hInventoryLots,
   hMaterials,
-  hProducts
+  hProductsV2
 } from "../../drizzle/schema";
 
 /**
@@ -38,7 +38,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       uom: hBatchInputs.unit
     })
     .from(hBatchInputs)
-    .where(and(eq(hBatchInputs.tenantId, tenantId), eq(hBatchInputs.lotId, lotId)));
+    .where(and(eq(hBatchInputs.tenantId, tenantId as any) , eq(hBatchInputs.lotId, lotId)) as any);
   if (batchMaterials.length === 0) {
     return {
       lot,
@@ -54,7 +54,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       lotNumber: hBatches.lotNumber,
       status: hBatches.status,
       plannedQuantity: hBatches.plannedQuantity,
@@ -63,7 +63,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(inArray(hBatches.id, batchIds));
 
   // 4. 각 배치의 완제품 LOT 정보 조회
@@ -98,7 +98,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       lotNumber: hBatches.lotNumber,
       status: hBatches.status,
       plannedQuantity: hBatches.plannedQuantity,
@@ -107,7 +107,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(eq(hBatches.id, batchId));
 
   if (!batch) {
@@ -134,7 +134,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
   const batchProducts = await db
     .select()
     .from(hBatchProducts)
-    .where(and(eq(hBatchProducts.tenantId, tenantId), eq(hBatchProducts.batchId, batchId)));
+    .where(and(eq(hBatchProducts.tenantId, tenantId as any) , eq(hBatchProducts.batchId, batchId)) as any);
   return {
     batch,
     materialInputs,
@@ -154,7 +154,7 @@ export async function traceLotByProductLotNumber(lotNumber: string, tenantId?: n
   const [batchProduct] = await db
     .select()
     .from(hBatchProducts)
-    .where(and(eq(hBatchProducts.tenantId, tenantId), eq(hBatchProducts.lotNumber, lotNumber)));
+    .where(and(eq(hBatchProducts.tenantId, tenantId as any) , eq(hBatchProducts.lotNumber, lotNumber)) as any);
   if (!batchProduct) {
     throw new Error("해당 LOT 번호의 완제품을 찾을 수 없습니다.");
   }

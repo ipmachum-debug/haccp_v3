@@ -43,7 +43,7 @@ export default function TemplateVersionHistory({
       onRollback();
       onClose();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`롤백 실패: ${error.message}`);
     },
   });
@@ -70,7 +70,7 @@ export default function TemplateVersionHistory({
           </div>
         ) : versions && versions.length > 0 ? (
           <div className="space-y-4">
-            {versions.map((version) => (
+            {versions.map((version: any) => (
               <div
                 key={version.id}
                 className={`border rounded-lg p-4 hover:bg-accent/50 transition-colors ${

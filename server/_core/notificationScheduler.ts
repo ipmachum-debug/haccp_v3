@@ -37,7 +37,7 @@ async function getActiveTenants() {
   return await db
     .select({ id: tenants.id })
     .from(tenants)
-    .where(eq(tenants.isActive, 1));
+    .where(eq((tenants as any).isActive, 1));
 }
 
 /**
@@ -93,7 +93,7 @@ export function initNotificationScheduler() {
             status,
             resultMessage,
             deletedCount: totalDeletedCount,
-          });
+          } as any);
         }
       } catch (logError) {
         console.error("[Scheduler] 실행 이력 저장 실패:", logError);

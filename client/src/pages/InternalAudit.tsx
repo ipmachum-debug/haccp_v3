@@ -39,7 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardCheck, Plus, Edit, FileText, Play, CheckCircle, AlertTriangle } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function InternalAudit({ embedded }: { embedded?: boolean } = {}) {
+export default function InternalAudit({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedAudit, setSelectedAudit] = useState<any>(null);
@@ -58,7 +58,7 @@ export default function InternalAudit({ embedded }: { embedded?: boolean } = {})
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -69,7 +69,7 @@ export default function InternalAudit({ embedded }: { embedded?: boolean } = {})
       alert("내부 감사가 성공적으로 수정되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

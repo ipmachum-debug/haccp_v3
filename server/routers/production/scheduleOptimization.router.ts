@@ -12,13 +12,13 @@ export const scheduleOptimizationRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { optimizeProductionSchedule } = await import("../../api/scheduleOptimization");
-        return await optimizeProductionSchedule({ ...input, tenantId: ctx.user.tenantId });
+        return await optimizeProductionSchedule({ ...input, tenantId: ctx.tenantId ?? undefined });
       }),
     
     // 재고 수준 기반 생산 우선순위 계산
     getPriority: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { calculateProductionPriority } = await import("../../api/scheduleOptimization");
-        return await calculateProductionPriority(ctx.user.tenantId);
+        return await calculateProductionPriority(ctx.tenantId ?? undefined);
       })
 });

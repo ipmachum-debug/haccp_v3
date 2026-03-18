@@ -28,14 +28,14 @@ export default function ResetPassword() {
   }, [navigate]);
 
   const resetPasswordMutation = trpc.auth.resetPassword.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       setSuccess(true);
       setTimeout(() => {
         navigate("/login");
       }, 3000);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });

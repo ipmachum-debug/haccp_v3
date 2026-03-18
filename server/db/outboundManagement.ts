@@ -15,11 +15,10 @@ async function decreaseInventoryQuantity(params: {
   db: any;
   materialId: number;
   quantityChange: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   // 기존 재고 레코드 조회
-  const conditions: any[] = [eq(hInventory.materialId, params.materialId)];
-  if (params.tenantId) conditions.push(eq(hInventory.tenantId, params.tenantId));
+  const conditions: any[] = [eq(hInventory.materialId, params.materialId), eq(hInventory.tenantId, params.tenantId)];
   const [existingInventory] = await params.db
     .select()
     .from(hInventory)
@@ -64,7 +63,7 @@ export async function createOutboundRecord(params: {
   batchId?: number;
   notes?: string;
   createdBy: number;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -73,7 +72,7 @@ export async function createOutboundRecord(params: {
     .select()
     .from(hMaterials)
     .where(and(
-      ...(tenantId ? [eq(hMaterials.tenantId, tenantId)] : []),
+      eq(hMaterials.tenantId, tenantId),
       eq(hMaterials.id, params.materialId)
     ));
   if (!material) {
@@ -107,6 +106,7 @@ export async function createOutboundRecord(params: {
     .where(eq(hInventoryLots.id, params.lotId));
   // 재고 거래 내역 기록
   await db.insert(hInventoryTransactions).values({
+    tenantId: tenantId!,
     lotId: params.lotId,
     transactionType: "usage",
     quantity: params.quantity.toString(),
@@ -115,7 +115,7 @@ export async function createOutboundRecord(params: {
     referenceId: params.batchId || null,
     notes: params.notes || null,
     createdBy: params.createdBy
-  });
+  } as any);
 
   // h_inventory 테이블 재고 차감
   await decreaseInventoryQuantity({
@@ -144,15 +144,14 @@ export async function getOutboundHistory(params?: {
   batchId?: number;
   startDate?: Date;
   endDate?: Date;
-}, tenantId?: number) {
+}, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions = [eq(hInventoryTransactions.transactionType, "usage")];
-  // tenantId 필터: hInventoryTransactions에 tenant_id 없음 → hMaterials.tenantId 사용
-  if (tenantId) {
-    conditions.push(eq(hMaterials.tenantId, tenantId));
-  }
+  const conditions = [
+    eq(hInventoryTransactions.transactionType, "usage"),
+    eq(hMaterials.tenantId, tenantId)
+  ];
 
   if (params?.materialId) {
     // materialId로 필터링하려면 LOT를 조인해야 함

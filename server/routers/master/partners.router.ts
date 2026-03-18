@@ -23,7 +23,7 @@ export const partnersRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createPartner } = await import("../../partners");
-        const id = await createPartner({ ...input, tenantId: ctx.user.tenantId });
+        const id = await createPartner({ ...input, tenantId: ctx.tenantId ?? undefined });
         return { id };
       }),
 
@@ -39,7 +39,7 @@ export const partnersRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllPartners } = await import("../../partners");
-        return await getAllPartners(input, ctx.user.tenantId);
+        return await getAllPartners(input, ctx.tenantId ?? undefined);
       }),
 
     // 거래처 상세 조회
@@ -49,7 +49,7 @@ export const partnersRouter = router({
         const { getPartnerById } = await import("../../partners");
         const result = await getPartnerById(input.id);
         // tenant isolation: 다른 테넌트 데이터 접근 차단
-        if (result && (result as any).tenantId !== ctx.user.tenantId) return null;
+        if (result && (result as any).tenantId !== (ctx.tenantId ?? undefined)) return null;
         return result;
       }),
 
@@ -104,7 +104,7 @@ export const partnersRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getRawConnection } = await import("../../db");
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId ?? undefined;
         const conn = await getRawConnection();
         let where = "tenant_id = ? AND is_active = 1";
         const params: any[] = [tenantId];

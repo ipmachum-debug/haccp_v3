@@ -77,13 +77,13 @@ function BankTransactionMatchingContent() {
   // 매칭 통계 계산
   const stats = transactions.length > 0 ? {
     totalCount: transactions.length,
-    matchedCount: transactions.filter(tx => tx.matchedLedgerType).length,
-    unmatchedCount: transactions.filter(tx => !tx.matchedLedgerType).length,
+    matchedCount: transactions.filter((tx: any) => tx.matchedLedgerType).length,
+    unmatchedCount: transactions.filter((tx: any) => !tx.matchedLedgerType).length,
   } : null;
 
   // 업로드 mutation
   const uploadMutation = trpc.bankTransactions.upload.useMutation({
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "업로드 실패",
         description: error.message,
@@ -94,14 +94,14 @@ function BankTransactionMatchingContent() {
 
   // 고급 자동 매칭 실행
   const autoMatchAdvancedMutation = trpc.bankTransactions.autoMatchAdvanced.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast({
         title: "고급 자동 매칭 완료",
         description: `${result.matched}건 매칭 성공 (전체 ${result.total}건)`,
       });
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "자동 매칭 실패",
         description: error.message,
@@ -122,7 +122,7 @@ function BankTransactionMatchingContent() {
       setSelectedTransaction(null);
       setSelectedPartnerId("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "수동 매칭 실패",
         description: error.message,
@@ -326,7 +326,7 @@ function BankTransactionMatchingContent() {
                   <SelectValue placeholder="계좌 선택" />
                 </SelectTrigger>
                 <SelectContent>
-                  {accounts.map((account) => (
+                  {accounts.map((account: any) => (
                     <SelectItem key={account.id} value={account.id.toString()}>
                       {account.bankName} - {account.accountNumber} ({account.ownerName || '소유자 미지정'})
                     </SelectItem>
@@ -405,7 +405,7 @@ function BankTransactionMatchingContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {transactions.map((tx) => (
+                {transactions.map((tx: any) => (
                   <TableRow key={tx.id}>
                     <TableCell>{new Date(tx.occurredAt).toLocaleDateString()}</TableCell>
                     <TableCell>{tx.counterpartyText || tx.memo || '-'}</TableCell>
@@ -468,7 +468,7 @@ function BankTransactionMatchingContent() {
                 <p className="text-sm text-muted-foreground">추천 거래처가 없습니다. 매칭 규칙을 추가해주세요.</p>
               ) : (
                 <RadioGroup value={selectedPartnerId} onValueChange={setSelectedPartnerId}>
-                  {matchCandidates.map((candidate, index) => (
+                  {matchCandidates.map((candidate: any, index: any) => (
                     <div key={candidate.partnerId} className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50">
                       <RadioGroupItem value={candidate.partnerId.toString()} id={`partner-${candidate.partnerId}`} />
                       <div className="flex-1">

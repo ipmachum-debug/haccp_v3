@@ -21,10 +21,10 @@ export async function upsertMonthlySummary(data: NewAccountingMonthlySummary, te
     .select()
     .from(accountingMonthlySummary)
     .where(
-      and(eq(accountingMonthlySummary.tenantId, tenantId), 
+      and(eq(accountingMonthlySummary.tenantId, tenantId as any) , 
         eq(accountingMonthlySummary.year, data.year),
         eq(accountingMonthlySummary.month, data.month)
-      )
+      ) as any
     )
     .limit(1);
 
@@ -35,12 +35,12 @@ export async function upsertMonthlySummary(data: NewAccountingMonthlySummary, te
       .set({
         ...data
       })
-      .where(and(eq(accountingMonthlySummary.tenantId, tenantId), eq(accountingMonthlySummary.id, existing[0].id)));    
+      .where(and(eq(accountingMonthlySummary.tenantId, tenantId as any) , eq(accountingMonthlySummary.id, existing[0].id)) as any);    
     return existing[0].id;
   } else {
     // 생성
     const result = await db.insert(accountingMonthlySummary).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId } as any);
     return Number(result[0].insertId);
   }
 }
@@ -55,10 +55,10 @@ export async function getMonthlySummary(year: number, month: number, tenantId?: 
     .select()
     .from(accountingMonthlySummary)
     .where(
-      and(eq(accountingMonthlySummary.tenantId, tenantId), 
+      and(eq(accountingMonthlySummary.tenantId, tenantId as any) , 
         eq(accountingMonthlySummary.year, year),
         eq(accountingMonthlySummary.month, month)
-      )
+      ) as any
     )
     .limit(1);
 
@@ -73,7 +73,7 @@ export async function listMonthlySummaries(limit = 12, tenantId?: number) {
   
   return db
     .select()
-    .from(accountingMonthlySummary).where(eq(accountingMonthlySummary.tenantId, tenantId)).orderBy(desc(accountingMonthlySummary.year), desc(accountingMonthlySummary.month))
+    .from(accountingMonthlySummary).where(eq(accountingMonthlySummary.tenantId, tenantId as any) ).orderBy(desc(accountingMonthlySummary.year), desc(accountingMonthlySummary.month))
     .limit(limit);
 }
 
@@ -101,7 +101,7 @@ export async function updateMonthlySummaryStatus(
   await db
     .update(accountingMonthlySummary)
     .set(updateData)
-    .where(and(eq(accountingMonthlySummary.tenantId, tenantId), eq(accountingMonthlySummary.id, id)));}
+    .where(and(eq(accountingMonthlySummary.tenantId, tenantId as any) , eq(accountingMonthlySummary.id, id)) as any);}
 
 /**
  * 일일 마감 데이터 기반 월간 집계 계산
@@ -121,10 +121,10 @@ export async function calculateMonthlySummary(year: number, month: number, tenan
     .select()
     .from(accountingDailyClose)
     .where(
-      and(eq(accountingDailyClose.tenantId, tenantId), 
+      and(eq(accountingDailyClose.tenantId, tenantId as any) , 
         gte(accountingDailyClose.closeDate, startDateStr),
         lte(accountingDailyClose.closeDate, endDateStr)
-      )
+      ) as any
     );
 
   // 집계 계산
@@ -189,16 +189,16 @@ export async function extractHighAmountTransactions(
     .select()
     .from(accountingDailyClose)
     .where(
-      and(eq(accountingDailyClose.tenantId, tenantId), 
+      and(eq(accountingDailyClose.tenantId, tenantId as any) , 
         gte(accountingDailyClose.closeDate, startDateStr),
         lte(accountingDailyClose.closeDate, endDateStr)
-      )
+      ) as any
     );
 
   // 기존 고액 거래 삭제
   await db
     .delete(accountingHighAmountTransactions)
-    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId), eq(accountingHighAmountTransactions.summaryId, summaryId)));
+    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId as any) , eq(accountingHighAmountTransactions.summaryId, summaryId)) as any);
   // 고액 거래 추출
   const highAmountList: NewAccountingHighAmountTransaction[] = [];
   
@@ -208,6 +208,7 @@ export async function extractHighAmountTransactions(
     
     if (deposit >= threshold) {
       highAmountList.push({
+        tenantId: tenantId!,
         summaryId,
         dailyCloseId: close.id,
         transactionDate: close.closeDate as any,
@@ -217,9 +218,10 @@ export async function extractHighAmountTransactions(
         counterparty: null
       });
     }
-    
+
     if (withdrawal >= threshold) {
       highAmountList.push({
+        tenantId: tenantId!,
         summaryId,
         dailyCloseId: close.id,
         transactionDate: close.closeDate as any,
@@ -234,7 +236,7 @@ export async function extractHighAmountTransactions(
   // 고액 거래 저장
   if (highAmountList.length > 0) {
     await db.insert(accountingHighAmountTransactions).values({
-      tenantId, ...highAmountList, tenantId });
+      ...highAmountList[0], tenantId } as any);
   }
 
   return highAmountList.length;
@@ -249,7 +251,7 @@ export async function getHighAmountTransactions(summaryId: number, tenantId?: nu
   return db
     .select()
     .from(accountingHighAmountTransactions)
-    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId), eq(accountingHighAmountTransactions.summaryId, summaryId)))    .orderBy(desc(accountingHighAmountTransactions.transactionDate));
+    .where(and(eq(accountingHighAmountTransactions.tenantId, tenantId as any) , eq(accountingHighAmountTransactions.summaryId, summaryId)) as any)    .orderBy(desc(accountingHighAmountTransactions.transactionDate));
 }
 
 /**
@@ -262,16 +264,16 @@ export async function saveMonthlyReport(data: NewAccountingMonthlyReport, tenant
   const existing = await db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId), eq(accountingMonthlyReport.summaryId, data.summaryId)))    .orderBy(desc(accountingMonthlyReport.version))
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, data.summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
     .limit(1);
 
   const version = existing.length > 0 ? existing[0].version + 1 : 1;
 
   const result = await db.insert(accountingMonthlyReport).values({
-      tenantId,
     ...data,
+    tenantId: tenantId!,
     version
-  });
+  } as any);
 
   return Number(result[0].insertId);
 }
@@ -285,7 +287,7 @@ export async function getMonthlyReports(summaryId: number, tenantId?: number) {
   return db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId), eq(accountingMonthlyReport.summaryId, summaryId)))    .orderBy(desc(accountingMonthlyReport.version));
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version));
 }
 
 /**
@@ -297,7 +299,7 @@ export async function getLatestMonthlyReport(summaryId: number, tenantId?: numbe
   const result = await db
     .select()
     .from(accountingMonthlyReport)
-    .where(and(eq(accountingMonthlyReport.tenantId, tenantId), eq(accountingMonthlyReport.summaryId, summaryId)))    .orderBy(desc(accountingMonthlyReport.version))
+    .where(and(eq(accountingMonthlyReport.tenantId, tenantId as any) , eq(accountingMonthlyReport.summaryId, summaryId)) as any)    .orderBy(desc(accountingMonthlyReport.version))
     .limit(1);
 
   return result[0] || null;

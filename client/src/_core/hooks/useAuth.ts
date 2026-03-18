@@ -27,7 +27,7 @@ export function useAuth(options?: UseAuthOptions) {
   const logout = useCallback(async () => {
     try {
       await logoutMutation.mutateAsync();
-    } catch (error: unknown) {
+    } catch (error: any) {
       if (
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
@@ -80,6 +80,7 @@ export function useAuth(options?: UseAuthOptions) {
   const isAdmin = useMemo(() => state.user?.role === "admin", [state.user]);
   const isWorker = useMemo(() => state.user?.role === "worker" || state.user?.role === "admin", [state.user]);
   const isMonitor = useMemo(() => state.user?.role === "monitor" || state.user?.role === "admin", [state.user]);
+  const isEmployee = useMemo(() => state.user?.role === "employee", [state.user]);
   const hasRole = useCallback((role: string | string[]) => {
     if (!state.user) return false;
     if (Array.isArray(role)) {
@@ -96,6 +97,7 @@ export function useAuth(options?: UseAuthOptions) {
     isAdmin,
     isWorker,
     isMonitor,
+    isEmployee,
     hasRole,
   };
 }

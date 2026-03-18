@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { CheckCircle, XCircle, Clock, User, Mail, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { SuperAdminLayout } from "@/components/SuperAdminLayout";
+import SuperAdminLayout from "@/components/SuperAdminLayout";
 
 interface PendingUser {
   id: number;

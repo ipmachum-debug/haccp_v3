@@ -16,6 +16,7 @@ import { trpc } from "@/lib/trpc";
 import { Calendar, Save, Send, FileText, ArrowLeft, Loader2, Copy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import DashboardLayout from "@/components/DashboardLayout";
 
 // 일반위생관리 주간 점검항목
 const DEFAULT_WEEKLY_HYGIENE = [
@@ -66,6 +67,21 @@ export default function WeeklyLogForm() {
   const [checkerName, setCheckerName] = useState("");
   const [managementNotes, setManagementNotes] = useState("");
 
+  // 문서결재설정에서 작성자 자동 로드
+  const { data: approvalSetting } = (trpc as any).organization.approvalSettings.getByType.useQuery(
+    { documentType: "weekly_log" },
+    { staleTime: 60000 }
+  );
+  const { data: employees } = (trpc as any).organization.employees.list.useQuery(undefined, { staleTime: 60000 });
+
+  // 작성자 자동 설정 (신규 작성 시 빈 값이면 설정값으로 채움)
+  useEffect(() => {
+    if (!checkerName && approvalSetting?.authorEmployeeId && employees) {
+      const emp = (employees as any[]).find((e: any) => e.id === approvalSetting.authorEmployeeId);
+      if (emp?.name) setCheckerName(emp.name);
+    }
+  }, [approvalSetting, employees, checkerName]);
+
   // API queries
   const { data: existingLog, isLoading: loadingExisting } = trpc.weeklyLog.getByDate.useQuery(
     { logDate },
@@ -78,12 +94,12 @@ export default function WeeklyLogForm() {
   );
 
   const saveMutation = trpc.weeklyLog.saveFullForm.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       setRecordId(result.id);
       setRecordStatus(result.status);
       toast.success(result.status === 'submitted' ? '제출 완료 (승인관리로 이동됩니다)' : '저장 완료');
     },
-    onError: (err) => toast.error('저장 실패: ' + err.message),
+    onError: (err: any) => toast.error('저장 실패: ' + err.message),
   });
 
   const applyFormData = useCallback((fd: any, isPreFill: boolean) => {
@@ -148,6 +164,7 @@ export default function WeeklyLogForm() {
   const isSaving = saveMutation.isPending;
 
   return (
+    <DashboardLayout>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -196,15 +213,27 @@ export default function WeeklyLogForm() {
       {/* Basic Info */}
       <Card>
         <CardContent className="pt-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <Label>점검자</Label>
+              <Label>점검자 (작성자)</Label>
               <Input value={checkerName} onChange={(e) => setCheckerName(e.target.value)} placeholder="점검자명" />
             </div>
             <div>
               <Label>관리 메모</Label>
               <Input value={managementNotes} onChange={(e) => setManagementNotes(e.target.value)} placeholder="관리 메모" />
             </div>
+            {approvalSetting?.reviewerEmployeeId && employees && (
+              <div>
+                <Label className="text-xs text-muted-foreground">검토자</Label>
+                <div className="text-sm font-medium mt-2">{(employees as any[]).find((e: any) => e.id === approvalSetting.reviewerEmployeeId)?.name || "-"}</div>
+              </div>
+            )}
+            {approvalSetting?.approverEmployeeId && employees && (
+              <div>
+                <Label className="text-xs text-muted-foreground">승인자</Label>
+                <div className="text-sm font-medium mt-2">{(employees as any[]).find((e: any) => e.id === approvalSetting.approverEmployeeId)?.name || "-"}</div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -294,6 +323,7 @@ export default function WeeklyLogForm() {
         </Tabs>
       )}
     </div>
+    </DashboardLayout>
   );
 }
 

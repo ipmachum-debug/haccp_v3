@@ -6,7 +6,8 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { getGreetingMessage } from "@/lib/greetings";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { 
   CheckCircle2, 
   Shield, 
@@ -32,7 +33,7 @@ export default function Login() {
   const utils = trpc.useUtils();
   
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       try {
         await utils.auth.me.invalidate();
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -46,6 +47,8 @@ export default function Login() {
         console.log('[Login] User role:', response?.role);
         if (response?.role === 'super_admin') {
           setLocation("/dashboard/super-admin");
+        } else if (response?.role === 'employee') {
+          setLocation("/board");
         } else {
           setLocation("/dashboard");
         }

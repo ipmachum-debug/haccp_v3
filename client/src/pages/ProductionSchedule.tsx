@@ -101,7 +101,7 @@ export default function ProductionSchedule() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {batchSchedule.map((batch) => (
+                {batchSchedule.map((batch: any) => (
                   <TableRow key={batch.id}>
                     <TableCell className="font-medium">{batch.batchCode}</TableCell>
                     <TableCell>
@@ -191,7 +191,7 @@ export default function ProductionSchedule() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {materialRequirements.materials.map((material) => (
+                    {materialRequirements.materials.map((material: any) => (
                       <TableRow key={material.materialId}>
                         <TableCell>
                           <div>

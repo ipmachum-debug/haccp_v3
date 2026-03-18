@@ -49,7 +49,7 @@ export default function MaterialInspectionDetail() {
       setEditDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -83,7 +83,7 @@ export default function MaterialInspectionDetail() {
       toast.success("검사 상태가 변경되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });

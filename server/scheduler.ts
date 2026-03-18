@@ -180,4 +180,167 @@ export function initScheduler() {
   });
   console.log("[Scheduler] 원료수불부 일일 마감 스케줄러 초기화 완료 (매일 오후 11시 30분 실행)");
 
+  // ===== AI 규칙엔진 자동 평가 (매일 오전 7시, 오후 2시) =====
+  const runAIRuleEvaluation = async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 시작`);
+
+    try {
+      const { evaluateAllRules, saveAlerts } = await import("./db/rulesEngine");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) {
+        console.error("[AI Scheduler] DB 연결 실패");
+        return;
+      }
+
+      // 활성 테넌트 목록 조회
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      let totalAlerts = 0;
+      for (const tenant of activeTenants) {
+        try {
+          const results = await evaluateAllRules(tenant.id);
+          const triggered = results.filter(r => r.triggered);
+          if (triggered.length > 0) {
+            const saved = await saveAlerts(tenant.id, triggered);
+            totalAlerts += saved;
+            console.log(`[AI Scheduler] 테넌트 ${tenant.id}: ${triggered.length}건 탐지, ${saved}건 저장`);
+          }
+        } catch (tenantError) {
+          console.error(`[AI Scheduler] 테넌트 ${tenant.id} 처리 실패:`, tenantError);
+        }
+      }
+
+      console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 완료 (${activeTenants.length}개 테넌트, ${totalAlerts}건 알림)`);
+    } catch (error) {
+      console.error(`[AI Scheduler] ${timestamp} - AI 규칙 평가 실패:`, error);
+    }
+  };
+
+  // 매일 오전 7시
+  cron.schedule("0 7 * * *", runAIRuleEvaluation);
+  // 매일 오후 2시
+  cron.schedule("0 14 * * *", runAIRuleEvaluation);
+  console.log("[Scheduler] AI 규칙엔진 자동 평가 스케줄러 초기화 완료 (매일 오전 7시, 오후 2시 실행)");
+
+  // ===== ERP AI: 비용 이상탐지 + AP 결제 알림 =====
+  const runERPAIChecks = async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[ERP AI Scheduler] ${timestamp} - ERP AI 점검 시작`);
+
+    try {
+      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accountingEventTriggers");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) {
+        console.error("[ERP AI Scheduler] DB 연결 실패");
+        return;
+      }
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      let totalAlerts = 0;
+      for (const tenant of activeTenants) {
+        try {
+          const [paymentAlerts, anomalyAlerts] = await Promise.all([
+            checkUpcomingPayments(tenant.id),
+            runDailyExpenseAnomalyScan(tenant.id),
+          ]);
+          totalAlerts += paymentAlerts + anomalyAlerts;
+          if (paymentAlerts + anomalyAlerts > 0) {
+            console.log(`[ERP AI Scheduler] 테넌트 ${tenant.id}: 결제알림 ${paymentAlerts}건, 이상탐지 ${anomalyAlerts}건`);
+          }
+        } catch (tenantError) {
+          console.error(`[ERP AI Scheduler] 테넌트 ${tenant.id} 처리 실패:`, tenantError);
+        }
+      }
+
+      console.log(`[ERP AI Scheduler] ${timestamp} - 완료 (${activeTenants.length}개 테넌트, ${totalAlerts}건 알림)`);
+    } catch (error) {
+      console.error(`[ERP AI Scheduler] ${timestamp} - 실패:`, error);
+    }
+  };
+
+  // 매일 오전 9시: 비용 이상탐지 스캔
+  cron.schedule("0 9 * * *", runERPAIChecks);
+  // 매일 오후 4시: AP 결제 기한 점검
+  cron.schedule("0 16 * * *", runERPAIChecks);
+  console.log("[Scheduler] ERP AI 비용 이상탐지/결제 알림 스케줄러 초기화 완료 (매일 오전 9시, 오후 4시 실행)");
+
+  // ===== ERP AI: 주간 현금흐름 경고 + 분개 검증 (매주 월요일 오전 8시) =====
+  cron.schedule("0 8 * * 1", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[ERP AI Weekly] ${timestamp} - 주간 현금흐름/분개 점검 시작`);
+
+    try {
+      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      const { saveAlerts } = await import("./db/rulesEngine");
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return;
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      for (const tenant of activeTenants) {
+        try {
+          // 현금흐름 경고
+          const forecast = await forecastCashFlow(tenant.id, 30);
+          if (forecast.summary.dangerDays > 0) {
+            await saveAlerts(tenant.id, [{
+              ruleId: 0,
+              ruleCode: "ERP_CASHFLOW_WARNING",
+              triggered: true,
+              severity: forecast.summary.dangerDays > 7 ? "critical" as const : "high" as const,
+              title: `현금흐름 위험 - ${forecast.summary.dangerDays}일 잔고 부족 예상`,
+              message: forecast.recommendations[0] || "",
+              entityType: "accounting",
+              entityCode: "cashflow",
+              contextData: forecast.summary,
+            }]);
+          }
+
+          // 분개 검증
+          const validation = await validateJournalEntries(tenant.id);
+          if (validation.stats.criticalCount > 0) {
+            await saveAlerts(tenant.id, [{
+              ruleId: 0,
+              ruleCode: "ERP_JOURNAL_ISSUE",
+              triggered: true,
+              severity: "critical" as const,
+              title: `분개 검증 이슈 ${validation.stats.issueCount}건 (위험 ${validation.stats.criticalCount}건)`,
+              message: validation.issues[0]?.description || "",
+              entityType: "accounting",
+              entityCode: "journal",
+              contextData: validation.stats,
+            }]);
+          }
+        } catch (e) {
+          console.error(`[ERP AI Weekly] 테넌트 ${tenant.id} 실패:`, e);
+        }
+      }
+
+      console.log(`[ERP AI Weekly] ${timestamp} - 완료`);
+    } catch (error) {
+      console.error(`[ERP AI Weekly] ${timestamp} - 실패:`, error);
+    }
+  });
+  console.log("[Scheduler] ERP AI 주간 현금흐름/분개 점검 스케줄러 초기화 완료 (매주 월요일 오전 8시)");
+
 }

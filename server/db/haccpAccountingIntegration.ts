@@ -114,7 +114,7 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
     throw new Error("tenantId is required");
   }
 
-  // 재고 거래 정보 조회 (tenant 필터 추가)
+  // 재고 거래 정보 조회 (tenant 필터 + SKU 정보 포함)
   const [transactionResult] = await db.execute(
     `SELECT 
       t.id,
@@ -126,10 +126,15 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       l.product_id,
       l.unit_price,
       l.receipt_date,
-      p.name as product_name
+      l.sku_id,
+      l.sku_name,
+      l.unit as lot_unit,
+      p.product_name as product_name,
+      ps.sales_unit
     FROM h_inventory_transactions t
     JOIN h_inventory_lots l ON t.lot_id = l.id AND l.tenant_id = ?
-    LEFT JOIN h_products p ON l.product_id = p.id AND p.tenant_id = ?
+    LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
+    LEFT JOIN product_skus ps ON l.sku_id = ps.id
     WHERE t.id = ? AND t.tenant_id = ? AND t.transaction_type = 'usage' AND l.product_id IS NOT NULL
     LIMIT 1`,
     [tenantId, tenantId, transactionId, tenantId]
@@ -166,6 +171,7 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       partner_name,
       item_name,
       quantity,
+      unit,
       unit_price,
       total_amount,
       status,
@@ -173,13 +179,16 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       source_type,
       source_id,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
       transaction.receipt_date || new Date().toISOString().split("T")[0],
-      "고객사", // 기본값 (추후 고객 정보 연동 시 수정)
-      transaction.product_name || "제품",
+      "미지정 고객", // 기본값 (추후 고객 정보 연동 시 수정)
+      transaction.sku_name
+        ? `${transaction.product_name || "제품"} [${transaction.sku_name}]`
+        : (transaction.product_name || "제품"),
       quantity,
+      transaction.lot_unit || transaction.sales_unit || transaction.unit || "EA",
       unitPrice,
       totalAmount,
       "completed",

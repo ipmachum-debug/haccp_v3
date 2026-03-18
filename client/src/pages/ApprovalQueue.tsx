@@ -30,7 +30,7 @@ export default function ApprovalQueue() {
       setApprovalNotes("");
       setSelectedInstance(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -43,33 +43,33 @@ export default function ApprovalQueue() {
       setRejectionNotes("");
       setSelectedInstance(null);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
 
   const batchApproveMutation = trpc.qualityChecklist.batchApprove.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`${data.count}개 항목이 승인되었습니다`);
       utils.qualityChecklist.getPendingApprovals.invalidate();
       setShowBatchApproveDialog(false);
       setApprovalNotes("");
       setSelectedInstances([]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
 
   const batchRejectMutation = trpc.qualityChecklist.batchReject.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`${data.count}개 항목이 반려되었습니다`);
       utils.qualityChecklist.getPendingApprovals.invalidate();
       setShowBatchRejectDialog(false);
       setRejectionNotes("");
       setSelectedInstances([]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -120,7 +120,7 @@ export default function ApprovalQueue() {
     if (selectedInstances.length === pendingApprovals?.length) {
       setSelectedInstances([]);
     } else {
-      setSelectedInstances(pendingApprovals?.map(instance => instance.id) || []);
+      setSelectedInstances(pendingApprovals?.map((instance: any) => instance.id) || []);
     }
   };
 
@@ -189,7 +189,7 @@ export default function ApprovalQueue() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {pendingApprovals.map((instance) => (
+            {pendingApprovals.map((instance: any) => (
               <Card key={instance.id} className="card-hover">
                 <CardHeader className="pb-3">
                   <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">

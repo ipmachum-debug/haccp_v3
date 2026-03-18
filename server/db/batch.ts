@@ -103,7 +103,7 @@ export async function createBatch(data: {
             }));
           
           if (batchInputs.length > 0) {
-            await db.insert(hBatchInputs).values(batchInputs);
+            await db.insert(hBatchInputs).values(batchInputs as any);
           }
         }
       }

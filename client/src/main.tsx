@@ -11,7 +11,7 @@ import { registerServiceWorker, setupInstallPrompt } from "./registerSW";
 
 const queryClient = new QueryClient();
 
-const redirectToLoginIfUnauthorized = (error: unknown) => {
+const redirectToLoginIfUnauthorized = (error: any) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
 
@@ -43,7 +43,7 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,
-      fetch(input, init) {
+      fetch(input: any, init: any) {
         return globalThis.fetch(input, {
           ...(init ?? {}),
           credentials: "include",

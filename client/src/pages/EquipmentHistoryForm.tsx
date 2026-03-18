@@ -14,7 +14,7 @@ const config: ChecklistFormConfig = {
 };
 
 const initialColumns = ["설비명", "모델명", "제조사", "설치일", "점검주기", "최근점검일", "상태", "비고"];
-const initialData = [
+const initialData: Record<string, string>[] = [
   { "설비명": "", "모델명": "", "제조사": "", "설치일": "", "점검주기": "", "최근점검일": "", "상태": "", "비고": "" },
 ];
 

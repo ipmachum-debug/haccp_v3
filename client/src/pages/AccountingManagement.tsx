@@ -71,7 +71,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 등록 실패: ${error.message}`);
     },
   });
@@ -84,7 +84,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 수정 실패: ${error.message}`);
     },
   });
@@ -94,7 +94,7 @@ function AccountingManagementContent() {
       toast.success("거래가 삭제되었습니다");
       refetchTransactions();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`거래 삭제 실패: ${error.message}`);
     },
   });
@@ -104,7 +104,7 @@ function AccountingManagementContent() {
       toast.success("기본 계정 과목이 초기화되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`초기화 실패: ${error.message}`);
     },
   });
@@ -160,7 +160,7 @@ function AccountingManagementContent() {
   };
 
   const handleExportExcel = () => {
-    const exportData = transactions.map((t) => ({
+    const exportData = transactions.map((t: any) => ({
       거래일자: t.transactionDate,
       구분: t.type === "income" ? "수입" : "지출",
       계정과목: `[${t.categoryCode}] ${t.categoryName}`,
@@ -177,8 +177,8 @@ function AccountingManagementContent() {
 
   // 계정 과목별 지출 비율 계산
   const expenseChartData = useMemo(() => {
-    const total = expenseBreakdown.reduce((sum, item) => sum + (item.totalAmount || 0), 0);
-    return expenseBreakdown.map((item) => ({
+    const total = expenseBreakdown.reduce((sum: any, item: any) => sum + (item.totalAmount || 0), 0);
+    return expenseBreakdown.map((item: any) => ({
       ...item,
       percentage: total > 0 ? ((item.totalAmount || 0) / total * 100).toFixed(1) : "0",
     }));
@@ -186,7 +186,7 @@ function AccountingManagementContent() {
 
   // 카테고리 필터링 (수입/지출 구분)
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) => cat.type === transactionForm.type);
+    return categories.filter((cat: any) => cat.type === transactionForm.type);
   }, [categories, transactionForm.type]);
 
   return (
@@ -258,7 +258,7 @@ function AccountingManagementContent() {
                       <SelectValue placeholder="계정 과목 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {filteredCategories.map((cat) => (
+                      {filteredCategories.map((cat: any) => (
                         <SelectItem key={cat.id} value={String(cat.id)}>
                           [{cat.code}] {cat.name}
                         </SelectItem>
@@ -403,7 +403,7 @@ function AccountingManagementContent() {
                   <Label htmlFor="filterType">구분</Label>
                   <Select
                     value={filters.type}
-                    onValueChange={(value: "" | "income" | "expense") => setFilters({ ...filters, type: value })}
+                    onValueChange={(value: "all" | "income" | "expense") => setFilters({ ...filters, type: value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="전체" />
@@ -426,7 +426,7 @@ function AccountingManagementContent() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">전체</SelectItem>
-                      {categories.map((cat) => (
+                      {categories.map((cat: any) => (
                         <SelectItem key={cat.id} value={String(cat.id)}>
                           [{cat.code}] {cat.name}
                         </SelectItem>
@@ -472,7 +472,7 @@ function AccountingManagementContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((transaction) => (
+                    transactions.map((transaction: any) => (
                       <TableRow key={transaction.id}>
                         <TableCell>{transaction.transactionDate}</TableCell>
                         <TableCell>
@@ -545,7 +545,7 @@ function AccountingManagementContent() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    expenseChartData.map((item) => (
+                    expenseChartData.map((item: any) => (
                       <TableRow key={item.categoryId}>
                         <TableCell>
                           <div className="flex flex-col">
@@ -589,7 +589,7 @@ function AccountingManagementContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.slice(0, 10).map((transaction) => (
+                  {transactions.slice(0, 10).map((transaction: any) => (
                     <TableRow key={transaction.id}>
                       <TableCell>{transaction.transactionDate}</TableCell>
                       <TableCell>
@@ -620,15 +620,58 @@ function AccountingManagementContent() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  리포트 기능은 향후 업데이트 예정입니다.
-                </p>
-                <ul className="list-disc list-inside space-y-2 text-sm">
-                  <li>월간 재무제표 PDF 생성</li>
-                  <li>연간 손익계산서</li>
-                  <li>세무 신고용 자료</li>
-                  <li>투자자 리포트</li>
-                </ul>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <BarChart3 className="h-5 w-5 text-blue-600" />
+                        시산표 (Trial Balance)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">계정 과목별 차변/대변 합계와 잔액을 확인합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-5 w-5 text-green-600" />
+                        재무상태표 (Balance Sheet)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">자산, 부채, 자본의 현재 상태를 확인합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <TrendingUp className="h-5 w-5 text-purple-600" />
+                        손익계산서 (Income Statement)
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">수익과 비용을 비교하여 순이익을 산출합니다</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="cursor-pointer hover:shadow-md transition-shadow border-2 hover:border-primary" onClick={() => window.location.href = '/dashboard/accounting/financial-reports'}>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Download className="h-5 w-5 text-orange-600" />
+                        엑셀 내보내기
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">시산표, 재무상태표, 손익계산서를 Excel로 다운로드합니다</p>
+                    </CardContent>
+                  </Card>
+                </div>
+                <div className="pt-2">
+                  <Button onClick={() => window.location.href = '/dashboard/accounting/financial-reports'} className="w-full">
+                    <FileText className="h-4 w-4 mr-2" />
+                    재무 리포트 전체 보기
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

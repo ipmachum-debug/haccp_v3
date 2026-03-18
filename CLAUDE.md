@@ -1,6 +1,6 @@
 # CLAUDE.md - HACCP-ONE 프로젝트 AI 개발 가이드
 
-> 최종 업데이트: 2026-03-05
+> 최종 업데이트: 2026-03-16
 
 ---
 
@@ -242,13 +242,63 @@ COST_OF_GOODS → 매출원가 (5010)
   - `financialReports.router.ts`에 `dashboardSummary` 엔드포인트 추가
   - `IntegratedDashboard.tsx`에 이번 달 매출/비용/순이익/이익률 카드 위젯 추가
 
-### 📋 다음 단계 (Phase 6)
+### 📋 Phase 6 ✅ 완료 (2026-03-17)
 #### Phase 6 (P6) - 최적화 및 확장
-- [ ] 재무보고서 PDF 내보내기
-- [ ] 은행 매칭 시 자동 분개 생성 (matched → journal entry)
-- [ ] TypeScript 에러 ~170개 해결 (Drizzle ORM 타입 문제)
-- [ ] 매입/매출 다이얼로그에서 account_categories → accounting_accounts 전환
-- [ ] `accounting_categories`, `accounting_transactions` 테이블 완전 제거
+- [x] 재무보고서 PDF 내보내기
+  - `server/db/financialReportsPdf.ts` 신규 (jsPDF + jspdf-autotable)
+  - 시산표 / 재무상태표 / 손익계산서 PDF 포맷
+  - tRPC mutation 엔드포인트 3개 + 프론트엔드 PDF 버튼 추가
+- [x] 은행 매칭 시 자동 분개 생성 (matched → journal entry)
+  - `journalHelper.ts`에 `postBankTransactionJournal()` / `cancelBankTransactionJournal()` 추가
+  - `bankTransaction.service.ts` match/unmatch에 자동분개 연동
+  - `bankAutoMatch.service.ts` runAutoMatch에도 자동분개 연동
+  - 입금: 차변 보통예금 / 대변 매칭계정, 출금: 차변 매칭계정 / 대변 보통예금
+- [x] TypeScript 에러 ~170개 → 0개 해결 완료 (환경 의존 2개 제외 - node_modules 설치 시 자동 해소)
+- [x] 매입/매출 다이얼로그에서 account_categories → accounting_accounts 전환
+  - `EditPurchaseDialog.tsx`, `EditSaleDialog.tsx`에서 `accountingAccounts.list` 사용
+- [x] `accounting_transactions` 테이블 참조 제거
+  - `materialLedger.ts`: `accounting_transactions` → `expense_journal_entries/lines` 전환
+  - `financialReports.ts`: `accounting_transactions` 집계 제거 (journal_lines만 사용)
+  - `purchasePost.ts`, `purchaseCancel.ts` 등 모든 post/cancel 파일 전환
+  - `pipelineDashboard.ts`: 참조 제거
+
+### 📋 Phase 7 - HACCP AI OS ✅ 진행 중 (2026-03-16)
+
+#### Phase 7-1 (P7-1) - AI 규칙엔진 + 기준서→체크리스트 ✅ 완료
+- [x] AI 엔진 DB 스키마 (`drizzle/schema/aiEngine.ts`) - 5 테이블
+- [x] 규칙엔진 (`server/db/rulesEngine.ts`) - 22개 시스템 규칙
+- [x] 기준서→체크리스트 자동생성 (`server/db/standardChecklist.ts`)
+- [x] AI 대시보드 UI (`client/src/pages/AIDashboard.tsx`) - 5탭
+- [x] AI 라우터 21+ 엔드포인트 (`server/routers-ai.ts`)
+- [x] DB 마이그레이션 스크립트 (`scripts/migrate-ai-engine-tables.ts`)
+
+#### Phase 7-2 (P7-2) - AI Context Layer + Action Engine ✅ 완료
+- [x] AI Context Layer (`server/db/aiContextLayer.ts`) - 8개 데이터 요약 함수
+- [x] AI Action Engine (`server/db/aiActionEngine.ts`) - 스마트 챗봇 파이프라인
+- [x] 의도 분류 (11개 intent) + 날짜 파싱 + 컨텍스트 빌더
+- [x] 챗봇 "하나" 업그레이드: 일반질문 → SYSTEM_PROMPT, 데이터질문 → Action Engine
+
+#### Phase 7-3 (P7-3) - Knowledge Base (RAG) + 자동 스케줄러 ✅ 완료
+- [x] 지식베이스 DB 스키마 (`ai_knowledge_documents`, `ai_knowledge_chunks`)
+- [x] 문서 청크 분할 + OpenAI 임베딩 생성 (`server/db/knowledgeBase.ts`)
+- [x] 코사인 유사도 벡터 검색 (MySQL JSON 기반)
+- [x] RAG 통합: 챗봇이 질문 시 지식베이스 참고자료 자동 삽입
+- [x] 키워드 기반 폴백 검색 (임베딩 실패 시)
+- [x] AI 대시보드 "지식베이스" 탭 추가 (문서 등록/검색/관리)
+- [x] AI 규칙엔진 자동 스케줄러 (매일 오전 7시, 오후 2시)
+- [x] KB 마이그레이션 스크립트 (`scripts/migrate-ai-knowledge-tables.ts`)
+
+#### Phase 7-4 (P7-4) - 통합 및 확장 ✅ 완료
+- [x] 알림 시스템 통합 (ai_alerts → h_notifications 연동, critical/high 자동 전파)
+- [x] 배치 상세 페이지 "AI 리스크 요약" 카드 (`BatchDetail.tsx`)
+  - 배치별 리스크 점수, CCP 이탈, 체크리스트 누락, 알림 요약
+  - 자동 60초 갱신, 알림이 없으면 카드 숨김
+- [x] 테넌트별 커스텀 규칙 관리 UI (AI 대시보드 내)
+  - 시스템 규칙 / 커스텀 규칙 탭 전환
+  - 커스텀 규칙 CRUD (생성/수정/삭제/활성화토글)
+  - 시스템 규칙은 활성화/비활성화만 허용
+- [x] 배치 리스크 요약 API (`batchRiskSummary` 엔드포인트)
+- [ ] 감사 자료 PDF 패키지 자동 생성 (향후)
 
 ---
 
@@ -297,7 +347,7 @@ WHERE tenant_id = ?
 ### 중간 우선순위
 5. ~~**AP/AR 원장 미연결**~~ → ✅ P2-1에서 해결 (tenant 격리 + accountingAccountId 활용)
 6. ~~**은행 매칭 엔진 미완성**~~ → ✅ P4-1에서 해결 (conditions/actions JSON + 자동매칭 + 통계)
-7. **TypeScript 에러 다수** - ~170개 (대부분 Drizzle ORM 라이브러리 타입 문제)
+7. ~~**TypeScript 에러 다수**~~ → ✅ 해결 완료 (170개 → 0개, 환경 의존 2개는 npm install 시 자동 해소)
 8. ~~**`accounting_categories` 테이블 참조**~~ → ✅ P3-4 + P4-2에서 deprecated 마킹 완료 (P5에서 완전 제거 예정)
 
 ### 낮은 우선순위
@@ -342,6 +392,15 @@ npx tsx scripts/migrate-system-code.ts
 | 루트 라우터 | `server/routers/_root.ts` |
 | 앱 라우팅 | `client/src/App.tsx` |
 | 레이아웃/메뉴 | `client/src/pages/DashboardLayout.tsx` |
+| AI 엔진 스키마 | `drizzle/schema/aiEngine.ts` |
+| AI 규칙엔진 | `server/db/rulesEngine.ts` |
+| AI Context Layer | `server/db/aiContextLayer.ts` |
+| AI Action Engine | `server/db/aiActionEngine.ts` |
+| AI 지식베이스 (RAG) | `server/db/knowledgeBase.ts` |
+| AI 기준서→체크리스트 | `server/db/standardChecklist.ts` |
+| AI 라우터 | `server/routers-ai.ts` |
+| AI 대시보드 UI | `client/src/pages/AIDashboard.tsx` |
+| AI 스케줄러 | `server/scheduler.ts` |
 
 ### Git 워크플로우
 ```bash

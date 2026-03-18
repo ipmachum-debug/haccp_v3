@@ -55,7 +55,7 @@ function getDaysInMonth(ym: string) {
   return new Date(y, m, 0).getDate();
 }
 
-export default function MaterialLedger({ embedded }: { embedded?: boolean } = {}) {
+export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [activeTab, setActiveTab] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [selectedMonth, setSelectedMonth] = useState(getYearMonth(new Date()));
@@ -74,8 +74,9 @@ export default function MaterialLedger({ embedded }: { embedded?: boolean } = {}
 
   // ========== 데이터 조회 ==========
   // 대시보드 요약
-  const { data: dashboard, refetch: refetchDashboard } =
+  const { data: _dashboardRaw, refetch: refetchDashboard } =
     trpc.materialLedger.getDashboard.useQuery();
+  const dashboard = _dashboardRaw as any;
 
   // 일일 데이터
   const { data: dailyData, refetch: refetchDaily } =
@@ -87,7 +88,7 @@ export default function MaterialLedger({ embedded }: { embedded?: boolean } = {}
 
   // 승인 상태
   const { data: approvalData, refetch: refetchApproval } =
-    trpc.materialLedger.getApprovalStatus.useQuery({ yearMonth: selectedMonth });
+    trpc.materialLedger.getApproval.useQuery({ yearMonth: selectedMonth });
 
   // ========== Mutations ==========
   // 수정
@@ -122,7 +123,7 @@ export default function MaterialLedger({ embedded }: { embedded?: boolean } = {}
   });
 
   // 승인
-  const approveMutation = trpc.materialLedger.approveMonthly.useMutation({
+  const approveMutation = trpc.materialLedger.approve.useMutation({
     onSuccess: () => {
       toast.success("월마감이 승인되었습니다.");
       refetchApproval();

@@ -78,12 +78,12 @@ export default function InventoryForecast() {
   }
 
   // 우선순위별 통계
-  const highPriorityCount = recommendations.filter((r) => r.priority === "high").length;
-  const mediumPriorityCount = recommendations.filter((r) => r.priority === "medium").length;
-  const lowPriorityCount = recommendations.filter((r) => r.priority === "low").length;
+  const highPriorityCount = recommendations.filter((r: any) => r.priority === "high").length;
+  const mediumPriorityCount = recommendations.filter((r: any) => r.priority === "medium").length;
+  const lowPriorityCount = recommendations.filter((r: any) => r.priority === "low").length;
 
   // 총 추천 구매 금액 계산 (단가 정보가 있다면)
-  const totalRecommendedValue = recommendations.reduce((sum, r) => {
+  const totalRecommendedValue = recommendations.reduce((sum: any, r: any) => {
     return sum + r.recommendedQuantity;
   }, 0);
 
@@ -172,7 +172,7 @@ export default function InventoryForecast() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recommendations.map((rec) => (
+              {recommendations.map((rec: any) => (
                 <TableRow
                   key={rec.materialId}
                   className="cursor-pointer hover:bg-muted/50"
@@ -250,7 +250,7 @@ export default function InventoryForecast() {
           <CardHeader>
             <CardTitle>사용량 패턴 상세</CardTitle>
             <CardDescription>
-              {recommendations.find((r) => r.materialId === selectedMaterialId)?.materialName} - 최근 30일 사용 패턴
+              {recommendations.find((r: any) => r.materialId === selectedMaterialId)?.materialName} - 최근 30일 사용 패턴
             </CardDescription>
           </CardHeader>
           <CardContent>

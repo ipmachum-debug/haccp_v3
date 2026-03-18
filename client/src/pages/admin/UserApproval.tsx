@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { 
   CheckCircle, 
   XCircle, 
@@ -40,14 +41,14 @@ export default function UserApproval() {
 
   // 승인/거부 mutation
   const approveMutation = trpc.superadminApproval.approveClientAdmin.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       utils.superadminApproval.getPendingClientAdmins.invalidate();
       setSelectedUser(null);
       setAction(null);
       setAdminMemo("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "처리 중 오류가 발생했습니다.");
     },
   });

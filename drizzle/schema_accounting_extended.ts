@@ -40,7 +40,13 @@ export const accountingPurchases = mysqlTable("accounting_purchases", {
   
   // 계정 과목
   accountCategoryId: int("account_category_id"), // 계정 과목 ID
-  
+
+  // 확정/취소 정보
+  postedAt: timestamp("posted_at"), // 확정 일시
+  postedBy: bigint("posted_by", { mode: "number" }), // 확정자 ID
+  canceledAt: timestamp("canceled_at"), // 취소 일시
+  canceledBy: bigint("canceled_by", { mode: "number" }), // 취소자 ID
+
   // 감사 정보
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -87,7 +93,13 @@ export const accountingSales = mysqlTable("accounting_sales", {
   // 메모 및 상태
   notes: text("notes"), // 메모
   status: mysqlEnum("status", ["pending", "approved", "received", "cancelled"]).default("pending"), // 상태
-  
+
+  // 확정/취소 정보
+  postedAt: timestamp("posted_at"), // 확정 일시
+  postedBy: bigint("posted_by", { mode: "number" }), // 확정자 ID
+  canceledAt: timestamp("canceled_at"), // 취소 일시
+  canceledBy: bigint("canceled_by", { mode: "number" }), // 취소자 ID
+
   // 감사 정보
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),

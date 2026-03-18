@@ -1,4 +1,4 @@
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, superAdminProcedure, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import { tenants, subscriptionNotifications, packageFeatures } from "../../drizzle/schema_main";
@@ -7,43 +7,36 @@ import { TRPCError } from "@trpc/server";
 
 /**
  * 구독 관리 라우터
- * 테넌트 구독 기간, 패키지, 알림 관리
+ * ✅ P0 FIX: IDOR 위험 제거 - tenantId를 input에서 받지 않고 ctx에서 파생
+ * - 슈퍼관리자 전용 엔드포인트: superAdminProcedure 사용 (tenantId input 허용)
+ * - 일반 사용자 엔드포인트: tenantRequiredProcedure 사용 (ctx.tenantId 사용)
  */
 export const subscriptionRouter = router({
   /**
    * 구독 정보 업데이트
-   * 슈퍼관리자 전용
+   * ✅ P0 FIX: superAdminProcedure로 변경 (기존: protectedProcedure + role 체크)
    */
-  updateSubscription: protectedProcedure
+  updateSubscription: superAdminProcedure
     .input(
       z.object({
-        tenantId: z.number(),
+        tenantId: z.number(), // 슈퍼관리자가 관리 대상 테넌트 지정
         subscriptionPackage: z.enum(["basic", "pro"]),
         subscriptionDays: z.number().min(1),
-        startDate: z.string().optional(), // YYYY-MM-DD 형식
+        startDate: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // 슈퍼관리자 권한 확인
-      if (ctx.user.role !== "super_admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "슈퍼관리자만 구독을 관리할 수 있습니다.",
-        });
-      }
-
       const startDate = input.startDate ? new Date(input.startDate) : new Date();
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + input.subscriptionDays);
 
-      // 구독 정보 업데이트
       const db = await getDb();
       await db
         .update(tenants)
         .set({
           subscriptionPackage: input.subscriptionPackage,
-          subscriptionStartDate: startDate.toISOString().split('T')[0],
-          subscriptionEndDate: endDate.toISOString().split('T')[0],
+          subscriptionStartDate: startDate,
+          subscriptionEndDate: endDate,
           subscriptionDays: input.subscriptionDays,
           status: "active",
           isReadOnly: false,
@@ -61,26 +54,18 @@ export const subscriptionRouter = router({
 
   /**
    * 구독 연장
-   * 슈퍼관리자 전용
+   * ✅ P0 FIX: superAdminProcedure로 변경
    */
-  extendSubscription: protectedProcedure
+  extendSubscription: superAdminProcedure
     .input(
       z.object({
-        tenantId: z.number(),
+        tenantId: z.number(), // 슈퍼관리자가 관리 대상 테넌트 지정
         additionalDays: z.number().min(1),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "super_admin") {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "슈퍼관리자만 구독을 연장할 수 있습니다.",
-        });
-      }
-
-      // 현재 구독 정보 조회
       const db = await getDb();
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, input.tenantId),
       });
 
@@ -103,7 +88,7 @@ export const subscriptionRouter = router({
       await db
         .update(tenants)
         .set({
-          subscriptionEndDate: newEndDate.toISOString().split('T')[0],
+          subscriptionEndDate: newEndDate,
           subscriptionDays: newTotalDays,
           status: "active",
           isReadOnly: false,
@@ -121,12 +106,48 @@ export const subscriptionRouter = router({
 
   /**
    * 구독 정보 조회
+   * ✅ P0 FIX: input에서 tenantId 제거 → ctx.tenantId 사용 (IDOR 방지)
    */
-  getSubscription: protectedProcedure
-    .input(z.object({ tenantId: z.number() }))
-    .query(async ({ ctx, input }) => {
+  getSubscription: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
       const db = await getDb();
-      const tenant = await db.query.tenants.findFirst({
+      const tenant = await (db.query as any).tenants.findFirst({
+        where: eq(tenants.id, ctx.tenantId),
+      });
+
+      if (!tenant) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "테넌트를 찾을 수 없습니다.",
+        });
+      }
+
+      const today = new Date();
+      const endDate = tenant.subscriptionEndDate ? new Date(tenant.subscriptionEndDate) : null;
+      const daysRemaining = endDate
+        ? Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+        : 0;
+
+      return {
+        subscriptionPackage: tenant.subscriptionPackage,
+        subscriptionStartDate: tenant.subscriptionStartDate,
+        subscriptionEndDate: tenant.subscriptionEndDate,
+        subscriptionDays: tenant.subscriptionDays,
+        status: tenant.status,
+        gracePeriodEndDate: tenant.gracePeriodEndDate,
+        daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
+        isReadOnly: tenant.isReadOnly,
+      };
+    }),
+
+  /**
+   * 슈퍼관리자용 특정 테넌트 구독 조회
+   */
+  getSubscriptionByTenant: superAdminProcedure
+    .input(z.object({ tenantId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const tenant = await (db.query as any).tenants.findFirst({
         where: eq(tenants.id, input.tenantId),
       });
 
@@ -137,7 +158,6 @@ export const subscriptionRouter = router({
         });
       }
 
-      // 남은 일수 계산
       const today = new Date();
       const endDate = tenant.subscriptionEndDate ? new Date(tenant.subscriptionEndDate) : null;
       const daysRemaining = endDate
@@ -158,14 +178,14 @@ export const subscriptionRouter = router({
 
   /**
    * 알림 목록 조회
+   * ✅ P0 FIX: input에서 tenantId 제거 → ctx.tenantId 사용 (IDOR 방지)
    */
-  getNotifications: protectedProcedure
-    .input(z.object({ tenantId: z.number() }))
-    .query(async ({ ctx, input }) => {
+  getNotifications: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
       const db = await getDb();
-      const notifications = await db.query.subscriptionNotifications.findMany({
-        where: eq(subscriptionNotifications.tenantId, input.tenantId),
-        orderBy: (notifications, { desc }) => [desc(notifications.createdAt)],
+      const notifications = await (db.query as any).subscriptionNotifications.findMany({
+        where: eq(subscriptionNotifications.tenantId, ctx.tenantId),
+        orderBy: (notifications: any, { desc }: any) => [desc(notifications.createdAt)],
       });
 
       return notifications;
@@ -173,27 +193,33 @@ export const subscriptionRouter = router({
 
   /**
    * 알림 읽음 처리
+   * ✅ P0 FIX: 알림이 현재 테넌트 소속인지 검증
    */
-  markNotificationAsRead: protectedProcedure
+  markNotificationAsRead: tenantRequiredProcedure
     .input(z.object({ notificationId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
+      
+      // 알림이 현재 테넌트 소속인지 검증
       await db
         .update(subscriptionNotifications)
         .set({ isRead: true })
-        .where(eq(subscriptionNotifications.id, input.notificationId));
+        .where(and(
+          eq(subscriptionNotifications.id, input.notificationId),
+          eq(subscriptionNotifications.tenantId, ctx.tenantId)
+        ));
 
       return { success: true };
     }),
 
   /**
-   * 패키지 기능 목록 조회
+   * 패키지 기능 목록 조회 (공개 정보이므로 protectedProcedure 유지)
    */
   getPackageFeatures: protectedProcedure
     .input(z.object({ packageName: z.enum(["basic", "pro"]) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const features = await db.query.packageFeatures.findMany({
+      const features = await (db.query as any).packageFeatures.findMany({
         where: eq(packageFeatures.packageName, input.packageName),
       });
 
@@ -202,11 +228,11 @@ export const subscriptionRouter = router({
 
   /**
    * 구독 상태 체크 (만료 여부 확인)
-   * 모든 사용자가 자신의 테넌트 상태 확인 가능
+   * ✅ P0 FIX: ctx.tenantId 사용 (기존도 ctx.tenantId ?? undefined 사용하여 안전)
    */
-  checkSubscriptionStatus: protectedProcedure.mutation(async ({ ctx }) => {
+  checkSubscriptionStatus: tenantRequiredProcedure.mutation(async ({ ctx }) => {
     const db = await getDb();
-    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, ctx.user.tenantId)).limit(1);
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
 
     if (!tenant) {
       throw new TRPCError({
@@ -233,12 +259,12 @@ export const subscriptionRouter = router({
 
   /**
    * 현재 사용자의 패키지 기능 확인
-   * 특정 기능이 현재 패키지에서 사용 가능한지 체크
+   * ✅ P0 FIX: ctx.tenantId 사용
    */
-  checkFeatureAccess: protectedProcedure
+  checkFeatureAccess: tenantRequiredProcedure
     .input(
       z.object({
-        featureName: z.string(), // 'haccp', 'accounting' 등
+        featureName: z.string(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -252,16 +278,8 @@ export const subscriptionRouter = router({
         };
       }
 
-      // 테넌트 정보 조회
-      if (!ctx.user.tenantId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "테넌트 정보가 없습니다.",
-        });
-      }
-
-      const tenant = await db.query.tenants.findFirst({
-        where: eq(tenants.id, ctx.user.tenantId),
+      const tenant = await (db.query as any).tenants.findFirst({
+        where: eq(tenants.id, ctx.tenantId),
       });
 
       if (!tenant) {
@@ -271,7 +289,6 @@ export const subscriptionRouter = router({
         });
       }
 
-      // 구독 상태 체크
       if (tenant.status === "suspended") {
         return {
           hasAccess: false,
@@ -280,8 +297,7 @@ export const subscriptionRouter = router({
         };
       }
 
-      // 패키지 기능 조회
-      const feature = await db.query.packageFeatures.findFirst({
+      const feature = await (db.query as any).packageFeatures.findFirst({
         where: and(
           eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
           eq(packageFeatures.featureName, input.featureName)
@@ -305,10 +321,10 @@ export const subscriptionRouter = router({
 
   /**
    * 현재 테넌트의 모든 사용 가능한 기능 목록 조회
+   * ✅ P0 FIX: ctx.tenantId 사용
    */
-  getAvailableFeatures: protectedProcedure.query(async ({ ctx }) => {
+  getAvailableFeatures: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    // 슈퍼관리자는 모든 기능 사용 가능
     if (ctx.user.role === "super_admin") {
       return {
         features: ["haccp", "accounting", "all"],
@@ -316,15 +332,8 @@ export const subscriptionRouter = router({
       };
     }
 
-    if (!ctx.user.tenantId) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: "테넌트 정보가 없습니다.",
-      });
-    }
-
-    const tenant = await db.query.tenants.findFirst({
-      where: eq(tenants.id, ctx.user.tenantId),
+    const tenant = await (db.query as any).tenants.findFirst({
+      where: eq(tenants.id, ctx.tenantId),
     });
 
     if (!tenant) {
@@ -334,7 +343,6 @@ export const subscriptionRouter = router({
       });
     }
 
-    // 구독 상태 체크
     if (tenant.status === "suspended") {
       return {
         features: [],
@@ -343,8 +351,7 @@ export const subscriptionRouter = router({
       };
     }
 
-    // 패키지의 모든 활성화된 기능 조회
-    const features = await db.query.packageFeatures.findMany({
+    const features = await (db.query as any).packageFeatures.findMany({
       where: and(
         eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
         eq(packageFeatures.isEnabled, true)
@@ -352,15 +359,15 @@ export const subscriptionRouter = router({
     });
 
     return {
-      features: features.map((f) => f.featureName),
+      features: features.map((f: any) => f.featureName),
       packageName: tenant.subscriptionPackage || "basic",
       isReadOnly: tenant.isReadOnly || false,
     };
   }),
 
-  // 구독 통계 조회
-  getSubscriptionStats: adminProcedure.query(async ({ ctx }) => {
-    const db = getDb();
+  // 구독 통계 조회 (슈퍼관리자 전용)
+  getSubscriptionStats: superAdminProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
     const allTenants = await db.select().from(tenants);
     
     const today = new Date();
@@ -371,17 +378,15 @@ export const subscriptionRouter = router({
     let package_basic = 0, package_pro = 0;
 
     allTenants.forEach((tenant) => {
-      // 패키지 통계
       if (tenant.subscriptionPackage === 'basic') package_basic++;
       else if (tenant.subscriptionPackage === 'pro') package_pro++;
 
-      // 상태 통계
-      if (tenant.subscriptionStatus === 'suspended') {
+      if ((tenant.status as string) === 'suspended') {
         suspended++;
-      } else if (tenant.subscriptionStatus === 'grace_period') {
+      } else if ((tenant.status as string) === 'grace_period') {
         grace_period++;
-      } else if (tenant.subscriptionExpiryDate) {
-        const expiryDate = new Date(tenant.subscriptionExpiryDate);
+      } else if (tenant.subscriptionEndDate) {
+        const expiryDate = new Date(tenant.subscriptionEndDate);
         const daysRemaining = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         
         if (daysRemaining <= 7) {
@@ -402,15 +407,15 @@ export const subscriptionRouter = router({
       suspended,
       package_basic,
       package_pro,
-      renewal_rate: 0, // TODO: 구현 필요
+      renewal_rate: 0,
     };
   }),
 
-  // 만료 임박 테넌트 조회
-  getExpiringTenants: adminProcedure
+  // 만료 임박 테넌트 조회 (슈퍼관리자 전용)
+  getExpiringTenants: superAdminProcedure
     .input(z.object({ days: z.number().default(7) }))
     .query(async ({ ctx, input }) => {
-      const db = getDb();
+      const db = await getDb();
       const today = new Date();
       const targetDate = new Date(today);
       targetDate.setDate(today.getDate() + input.days);
@@ -420,17 +425,17 @@ export const subscriptionRouter = router({
         .from(tenants)
         .where(
           and(
-            sql`${tenants.subscriptionExpiryDate} IS NOT NULL`,
-            sql`${tenants.subscriptionExpiryDate} <= ${targetDate.toISOString().split('T')[0]}`,
-            sql`${tenants.subscriptionExpiryDate} >= ${today.toISOString().split('T')[0]}`
+            sql`${tenants.subscriptionEndDate} IS NOT NULL`,
+            sql`${tenants.subscriptionEndDate} <= ${targetDate.toISOString().split('T')[0]}`,
+            sql`${tenants.subscriptionEndDate} >= ${today.toISOString().split('T')[0]}`
           )
         );
 
       return expiringTenants;
     }),
 
-  // 패키지 기능 업데이트 (관리자 전용)
-  updatePackageFeature: adminProcedure
+  // 패키지 기능 업데이트 (슈퍼관리자 전용)
+  updatePackageFeature: superAdminProcedure
     .input(
       z.object({
         id: z.number(),
@@ -438,7 +443,7 @@ export const subscriptionRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       await db
         .update(packageFeatures)
         .set({ isEnabled: input.isEnabled })
@@ -447,8 +452,8 @@ export const subscriptionRouter = router({
       return { success: true };
     }),
 
-  // 새 패키지 기능 추가 (관리자 전용)
-  addPackageFeature: adminProcedure
+  // 새 패키지 기능 추가 (슈퍼관리자 전용)
+  addPackageFeature: superAdminProcedure
     .input(
       z.object({
         packageName: z.enum(["basic", "pro"]),
@@ -458,13 +463,13 @@ export const subscriptionRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       await db.insert(packageFeatures).values({
         packageName: input.packageName,
         featureName: input.featureName,
         featureDisplayName: input.featureDisplayName,
         isEnabled: input.isEnabled,
-      });
+      } as any);
 
       return { success: true };
     }),

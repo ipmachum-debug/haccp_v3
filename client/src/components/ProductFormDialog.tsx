@@ -73,7 +73,7 @@ export default function ProductFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "제품 등록에 실패했습니다.");
     },
   });
@@ -84,7 +84,7 @@ export default function ProductFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "제품 수정에 실패했습니다.");
     },
   });
@@ -178,8 +178,8 @@ export default function ProductFormDialog({
             <Label htmlFor="category">카테고리</Label>
             <CategorySelect
               type="product"
-              value={formData.category}
-              onChange={(value) => setFormData({ ...formData, category: value })}
+              value={formData.category as any}
+              onChange={(value) => setFormData({ ...formData, category: value as any })}
               placeholder="카테고리를 선택하세요"
             />
           </div>

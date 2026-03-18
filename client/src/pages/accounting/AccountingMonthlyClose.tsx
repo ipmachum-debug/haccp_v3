@@ -34,13 +34,13 @@ export default function AccountingMonthlyClose() {
   const [showReopenDialog, setShowReopenDialog] = useState(false);
 
   // 월 마감 조회
-  const { data: monthlyClose, refetch } = trpc.accountingMonthly.get.useQuery({
+  const { data: monthlyClose, refetch } = trpc.accountingMonthly.getDetail.useQuery({
     year: selectedYear,
     month: selectedMonth,
   });
 
   // 월 집계 생성
-  const generateMutation = trpc.accountingMonthly.generate.useMutation({
+  const generateMutation = trpc.accountingMonthly.generateSummary.useMutation({
     onSuccess: (data: any) => {
       toast({
         title: "월 집계 생성 완료",
@@ -58,7 +58,7 @@ export default function AccountingMonthlyClose() {
   });
 
   // 월 마감 확정
-  const closeMutation = trpc.accountingMonthly.close.useMutation({
+  const closeMutation = trpc.accountingMonthly.confirmClose.useMutation({
     onSuccess: () => {
       toast({
         title: "월 마감 확정 완료",
@@ -96,7 +96,7 @@ export default function AccountingMonthlyClose() {
   });
 
   // PDF 생성
-  const exportPdfMutation = trpc.accountingMonthly.exportPdf.useMutation({
+  const exportPdfMutation = trpc.accountingMonthly.generatePDF.useMutation({
     onSuccess: (data: any) => {
       toast({
         title: "PDF 생성 완료",
@@ -153,16 +153,17 @@ export default function AccountingMonthlyClose() {
     });
   };
 
-  const summary = monthlyClose?.summary
-    ? typeof monthlyClose.summary === "string"
-      ? JSON.parse(monthlyClose.summary)
-      : monthlyClose.summary
-    : null;
+  const mc = monthlyClose as any;
+  const summary = mc?.summary
+    ? typeof mc.summary === "string"
+      ? JSON.parse(mc.summary)
+      : mc.summary
+    : mc || null;
 
-  const missingDates = monthlyClose?.missingCloseDates
-    ? typeof monthlyClose.missingCloseDates === "string"
-      ? JSON.parse(monthlyClose.missingCloseDates)
-      : monthlyClose.missingCloseDates
+  const missingDates = (mc?.missingCloseDates || mc?.missingDays)
+    ? typeof (mc?.missingCloseDates || mc?.missingDays) === "string"
+      ? JSON.parse(mc?.missingCloseDates || mc?.missingDays)
+      : (mc?.missingCloseDates || mc?.missingDays)
     : [];
 
   return (

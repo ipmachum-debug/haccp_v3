@@ -105,7 +105,7 @@ export default function SupplierInspectionForm() {
             </div>
         </div>
 
-        <Table bordered>
+        <Table>
           <TableHeader>
             <TableRow>
               {inspectionItems.map((item) => (

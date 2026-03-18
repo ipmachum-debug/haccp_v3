@@ -17,14 +17,14 @@ export default function SystemSettings() {
       toast.success("설정이 저장되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
   useEffect(() => {
     if (settings) {
-      const erpSetting = settings.find((s) => s.settingKey === "erp_module_enabled");
+      const erpSetting = settings.find((s: any) => s.settingKey === "erp_module_enabled");
       setErpEnabled(erpSetting?.settingValue === "true");
     }
   }, [settings]);

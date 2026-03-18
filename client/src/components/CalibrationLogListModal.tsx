@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -27,7 +26,7 @@ export default function CalibrationLogListModal({ open, onClose }: CalibrationLo
   );
 
   // 검색 필터링
-  const filteredRecords = records?.filter((record) => {
+  const filteredRecords = (records as any[])?.filter((record: any) => {
     if (!searchTerm) return true;
     return (
       record.equipmentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -104,13 +103,13 @@ export default function CalibrationLogListModal({ open, onClose }: CalibrationLo
             </thead>
             <tbody>
               {filteredRecords && filteredRecords.length > 0 ? (
-                filteredRecords.map((record) => (
+                filteredRecords.map((record: any) => (
                   <tr key={record.id} className="border-t hover:bg-muted/50">
                     <td className="p-3">{record.equipmentCode}</td>
                     <td className="p-3">{record.equipmentName}</td>
                     <td className="p-3">{record.calibrationDate}</td>
                     <td className="p-3">{record.nextCalibrationDate || "-"}</td>
-                    <td className="p-3">{getStatusBadge(record.status)}</td>
+                    <td className="p-3">{getStatusBadge(record.approvalStatus || record.status || 'draft')}</td>
                     <td className="p-3">{record.createdBy}</td>
                     <td className="p-3 text-center">
                       <div className="flex justify-center gap-2">

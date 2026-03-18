@@ -53,10 +53,10 @@ export default function BannerManagement() {
   });
 
   // Queries
-  const { data: banners, refetch } = trpc.banner.getAll.useQuery();
+  const { data: banners, refetch } = trpc.banner.getAllBanners.useQuery();
 
   // Mutations
-  const createMutation = trpc.banner.create.useMutation({
+  const createMutation = trpc.banner.createBanner.useMutation({
     onSuccess: () => {
       toast({
         title: "배너 생성 완료",
@@ -66,7 +66,7 @@ export default function BannerManagement() {
       resetForm();
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 생성 실패",
         description: error.message,
@@ -75,7 +75,7 @@ export default function BannerManagement() {
     },
   });
 
-  const updateMutation = trpc.banner.update.useMutation({
+  const updateMutation = trpc.banner.updateBanner.useMutation({
     onSuccess: () => {
       toast({
         title: "배너 수정 완료",
@@ -85,7 +85,7 @@ export default function BannerManagement() {
       resetForm();
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 수정 실패",
         description: error.message,
@@ -94,7 +94,7 @@ export default function BannerManagement() {
     },
   });
 
-  const deleteMutation = trpc.banner.delete.useMutation({
+  const deleteMutation = trpc.banner.deleteBanner.useMutation({
     onSuccess: () => {
       toast({
         title: "배너 삭제 완료",
@@ -102,7 +102,7 @@ export default function BannerManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "배너 삭제 실패",
         description: error.message,
@@ -111,7 +111,7 @@ export default function BannerManagement() {
     },
   });
 
-  const toggleActiveMutation = trpc.banner.update.useMutation({
+  const toggleActiveMutation = trpc.banner.updateBanner.useMutation({
     onSuccess: () => {
       toast({
         title: "배너 상태 변경 완료",

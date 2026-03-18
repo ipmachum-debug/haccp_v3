@@ -27,14 +27,14 @@ export default function NotificationHistory() {
   const handleMarkAllAsRead = async () => {
     if (!notifications) return;
     
-    const unreadNotifications = notifications.filter((n) => !n.isRead);
+    const unreadNotifications = notifications.filter((n: any) => !n.isRead);
     for (const notification of unreadNotifications) {
       await markAsReadMutation.mutateAsync({ notificationId: notification.id });
     }
     refetch();
   };
 
-  const filteredNotifications = notifications?.filter((n) => {
+  const filteredNotifications = notifications?.filter((n: any) => {
     if (filter === "unread") return !n.isRead;
     return true;
   });
@@ -96,7 +96,7 @@ export default function NotificationHistory() {
                 variant="outline"
                 onClick={handleMarkAllAsRead}
                 size="sm"
-                disabled={!notifications?.some((n) => !n.isRead)}
+                disabled={!notifications?.some((n: any) => !n.isRead)}
               >
                 <Check className="mr-2 h-4 w-4" />
                 모두 읽음 처리
@@ -109,7 +109,7 @@ export default function NotificationHistory() {
             <div className="text-center py-8">로딩 중...</div>
           ) : filteredNotifications && filteredNotifications.length > 0 ? (
             <div className="space-y-3">
-              {filteredNotifications.map((notification) => (
+              {filteredNotifications.map((notification: any) => (
                 <div
                   key={notification.id}
                   className={`p-4 rounded-lg border transition-colors ${

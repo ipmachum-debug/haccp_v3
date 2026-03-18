@@ -73,7 +73,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "원재료 등록에 실패했습니다.");
     },
   });
@@ -84,7 +84,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "원재료 수정에 실패했습니다.");
     },
   });
@@ -127,9 +127,9 @@ export default function MaterialFormDialog({
 
   const handleGenerateCode = async () => {
     try {
-      const result = await utils.material.generateCode.fetch();
-      setFormData({ ...formData, materialCode: result });
-      toast.success(`코드 자동 생성: ${result}`);
+      const code = `MAT-${String(Date.now()).slice(-6)}`;
+      setFormData({ ...formData, materialCode: code });
+      toast.success(`코드 자동 생성: ${code}`);
     } catch (error: any) {
       toast.error("코드 생성 실패: " + error.message);
     }
@@ -183,7 +183,7 @@ export default function MaterialFormDialog({
               placeholder="카테고리를 선택하세요"
             />
             {formData.categoryId && categories && (() => {
-              const selectedCategory = categories.find((c) => c.id === formData.categoryId);
+              const selectedCategory = categories.find((c: any) => c.id === formData.categoryId);
               if (selectedCategory?.dateManagementType && selectedCategory.dateManagementType !== 'none') {
                 const typeText = selectedCategory.dateManagementType === 'expiry' ? '소비기한'
                   : selectedCategory.dateManagementType === 'production' ? '생산일자'

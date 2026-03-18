@@ -45,7 +45,7 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
     const updatedData = [...parsedData];
     const value = editValue.trim();
 
-    if (field === "unitPrice") {
+    if (field === ("unitPrice" as any)) {
       (updatedData[rowIndex] as any)[field] = value ? parseFloat(value) : undefined;
     } else {
       (updatedData[rowIndex] as any)[field] = value || undefined;
@@ -107,7 +107,7 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
       setUploadResult(result);
       setStep("result");
 
-      if (result.success) {
+      if (result.failureCount === 0) {
         toast({
           title: "일괄 등록 완료",
           description: `${result.successCount}개의 제품이 등록되었습니다.`,
@@ -116,7 +116,7 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
       } else {
         toast({
           title: "일부 등록 실패",
-          description: `${result.successCount}개 성공, ${result.errorCount}개 실패`,
+          description: `${result.successCount}개 성공, ${result.failureCount}개 실패`,
           variant: "destructive",
         });
       }
@@ -264,19 +264,19 @@ export default function ProductBulkUploadModal({ open, onClose, onSuccess }: Pro
                           product.unit || "-"
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "unitPrice", product.unitPrice?.toString() || "")}>
-                        {editingCell?.rowIndex === index && editingCell?.field === "unitPrice" ? (
+                      <TableCell onClick={() => handleCellClick(index, "unitPrice" as any, (product as any).unitPrice?.toString() || "")}>
+                        {editingCell?.rowIndex === index && editingCell?.field === ("unitPrice" as any) ? (
                           <input
                             type="number"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={() => handleCellBlur(index, "unitPrice")}
-                            onKeyDown={(e) => e.key === "Enter" && handleCellBlur(index, "unitPrice")}
+                            onBlur={() => handleCellBlur(index, "unitPrice" as any)}
+                            onKeyDown={(e) => e.key === "Enter" && handleCellBlur(index, "unitPrice" as any)}
                             className="w-full px-2 py-1 border rounded"
                             autoFocus
                           />
                         ) : (
-                          product.unitPrice ? `${product.unitPrice.toLocaleString()}원` : "-"
+                          (product as any).unitPrice ? `${(product as any).unitPrice.toLocaleString()}원` : "-"
                         )}
                       </TableCell>
                       <TableCell onClick={() => handleCellClick(index, "shelfLifeMonths", product.shelfLifeMonths?.toString() || "")}>

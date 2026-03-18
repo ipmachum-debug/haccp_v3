@@ -7,7 +7,7 @@ import { Label } from "../components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { Badge } from "../components/ui/badge";
-import { FileDown, FileText, Calendar, BarChart3, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { FileDown, FileText, Calendar, BarChart3, AlertTriangle, CheckCircle2, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function CcpReportGenerator() {
@@ -25,7 +25,7 @@ export default function CcpReportGenerator() {
 
   // Excel export mutation
   const exportMutation = trpc.ccp.exportInspectionHistory.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       const byteCharacters = atob(result.file);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -41,14 +41,28 @@ export default function CcpReportGenerator() {
       a.download = result.filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("보고서가 다운로드되었습니다");
+      toast.success("Excel 보고서가 다운로드되었습니다");
     },
-    onError: (error) => {
-      toast.error(`보고서 생성 실패: ${error.message}`);
+    onError: (error: any) => {
+      toast.error(`Excel 보고서 생성 실패: ${error.message}`);
     },
   });
 
-  const handleGenerateReport = () => {
+  // PDF 보고서 mutation
+  const pdfMutation = trpc.report.generateCcpReport.useMutation({
+    onSuccess: (data: any) => {
+      const link = document.createElement("a");
+      link.href = `data:application/pdf;base64,${data.pdf}`;
+      link.download = data.filename;
+      link.click();
+      toast.success("PDF 보고서가 다운로드되었습니다");
+    },
+    onError: (error: any) => {
+      toast.error(`PDF 보고서 생성 실패: ${error.message}`);
+    },
+  });
+
+  const handleExcelReport = () => {
     exportMutation.mutate({
       startDate: new Date(dateRange.startDate),
       endDate: new Date(dateRange.endDate),
@@ -56,63 +70,91 @@ export default function CcpReportGenerator() {
     });
   };
 
+  const handlePdfReport = () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
+      toast.error("기간을 선택해주세요");
+      return;
+    }
+    // deviation은 daily로 처리
+    const pdfReportType = reportType === "deviation" ? "daily" : reportType;
+    pdfMutation.mutate({
+      reportType: pdfReportType as "daily" | "weekly" | "monthly",
+      startDate: dateRange.startDate,
+      endDate: dateRange.endDate,
+      ccpType: selectedCcpType === "all" ? undefined : selectedCcpType,
+    });
+  };
+
   // 기록 필터링
-  const filteredRecords = ccpRecords?.filter((record) => {
+  const filteredRecords = ccpRecords?.filter((record: any) => {
     if (dateRange.startDate && record.workDate) {
       if (new Date(record.workDate) < new Date(dateRange.startDate)) return false;
     }
     if (dateRange.endDate && record.workDate) {
       if (new Date(record.workDate) > new Date(dateRange.endDate)) return false;
     }
+    // 이탈 보고서일 때는 반려/이탈 건만 필터
+    if (reportType === "deviation") {
+      return record.status === "rejected";
+    }
     return true;
   }) || [];
 
   // 요약 통계 계산
   const totalRecords = filteredRecords.length;
-  const approvedRecords = filteredRecords.filter(r => r.status === 'approved').length;
-  const deviationRecords = filteredRecords.filter(r => r.status === 'rejected').length;
-  const pendingRecords = filteredRecords.filter(r => r.status === 'draft' || r.status === 'submitted').length;
+  const approvedRecords = filteredRecords.filter((r: any) => r.status === 'approved').length;
+  const deviationRecords = filteredRecords.filter((r: any) => r.status === 'rejected').length;
+  const pendingRecords = filteredRecords.filter((r: any) => r.status === 'draft' || r.status === 'submitted').length;
 
   const reportTypes = [
-    { value: "daily", label: "일일 보고서", icon: Calendar, description: "일별 CCP 모니터링 결과 요약" },
-    { value: "weekly", label: "주간 보고서", icon: BarChart3, description: "주간 CCP 모니터링 통계 및 이탈 분석" },
-    { value: "monthly", label: "월간 보고서", icon: FileText, description: "월간 CCP 모니터링 종합 보고서" },
-    { value: "deviation", label: "이탈 보고서", icon: AlertTriangle, description: "CCP 이탈 건 상세 보고서 및 개선 조치" },
+    { value: "daily", label: "일일 보고서", icon: Calendar, description: "일별 CCP 모니터링 결과 요약", color: "text-blue-600 bg-blue-50 dark:bg-blue-900/20" },
+    { value: "weekly", label: "주간 보고서", icon: BarChart3, description: "주간 CCP 모니터링 통계 및 분석", color: "text-green-600 bg-green-50 dark:bg-green-900/20" },
+    { value: "monthly", label: "월간 보고서", icon: FileText, description: "월간 CCP 모니터링 종합 보고서", color: "text-purple-600 bg-purple-50 dark:bg-purple-900/20" },
+    { value: "deviation", label: "이탈 보고서", icon: AlertTriangle, description: "CCP 이탈 건 상세 및 개선 조치", color: "text-red-600 bg-red-50 dark:bg-red-900/20" },
   ];
 
+  const isPending = exportMutation.isPending || pdfMutation.isPending;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="space-y-3">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
         <div>
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <FileText className="h-5 w-5" /> 보고서 생성
+          <h2 className="text-base font-bold flex items-center gap-2">
+            <FileText className="h-4 w-4" /> 보고서 생성
           </h2>
-          <p className="text-sm text-muted-foreground">
-            CCP 모니터링 데이터를 기반으로 보고서를 생성하고 다운로드합니다
+          <p className="text-xs text-muted-foreground">
+            CCP 모니터링 데이터 기반 보고서 다운로드
           </p>
         </div>
       </div>
 
       {/* 보고서 유형 선택 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
         {reportTypes.map((type) => {
           const Icon = type.icon;
+          const isSelected = reportType === type.value;
           return (
             <Card
               key={type.value}
-              className={`cursor-pointer transition-all hover:shadow-md ${reportType === type.value ? 'ring-2 ring-primary' : ''}`}
+              className={`cursor-pointer transition-all hover:shadow-sm ${isSelected ? 'ring-2 ring-primary shadow-sm' : ''}`}
               onClick={() => setReportType(type.value)}
             >
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${reportType === type.value ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
-                    <Icon className="h-5 w-5" />
+              <CardContent className="pt-3 pb-2 px-3">
+                <div className="flex items-center gap-2">
+                  <div className={`p-1.5 rounded-md ${isSelected ? 'bg-primary text-primary-foreground' : type.color}`}>
+                    <Icon className="h-4 w-4" />
                   </div>
-                  <div>
-                    <p className="font-medium text-sm">{type.label}</p>
-                    <p className="text-xs text-muted-foreground">{type.description}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-xs">{type.label}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{type.description}</p>
                   </div>
                 </div>
+                {isSelected && (
+                  <div className="mt-2 pt-1.5 border-t flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-primary" />
+                    <span className="text-[10px] text-primary font-medium">선택됨</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
@@ -121,13 +163,16 @@ export default function CcpReportGenerator() {
 
       {/* 필터 및 생성 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">보고서 조건 설정</CardTitle>
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-sm">보고서 조건 설정</CardTitle>
+          <CardDescription className="text-xs">
+            {reportTypes.find(t => t.value === reportType)?.label} - 기간과 CCP 유형을 선택하세요
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <CardContent className="space-y-3 px-4 pb-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <Label>시작일</Label>
+              <Label className="text-xs">시작일</Label>
               <Input
                 type="date"
                 value={dateRange.startDate}
@@ -135,7 +180,7 @@ export default function CcpReportGenerator() {
               />
             </div>
             <div>
-              <Label>종료일</Label>
+              <Label className="text-xs">종료일</Label>
               <Input
                 type="date"
                 value={dateRange.endDate}
@@ -143,57 +188,69 @@ export default function CcpReportGenerator() {
               />
             </div>
             <div>
-              <Label>CCP 유형</Label>
+              <Label className="text-xs">CCP 유형</Label>
               <Select value={selectedCcpType} onValueChange={setSelectedCcpType}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  <SelectItem value="CCP-1B">CCP-1B (가열)</SelectItem>
-                  <SelectItem value="CCP-2B">CCP-2B (냉각)</SelectItem>
-                  <SelectItem value="CCP-3B">CCP-3B (교반)</SelectItem>
+                  <SelectItem value="CCP-1B">CCP-1B (가열/증숙)</SelectItem>
+                  <SelectItem value="CCP-2B">CCP-2B (가열 굽기)</SelectItem>
+                  <SelectItem value="CCP-3B">CCP-3B (가열/볶음)</SelectItem>
                   <SelectItem value="CCP-4P">CCP-4P (금속검출)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={handleGenerateReport} disabled={exportMutation.isPending} className="min-h-[44px]">
-              <FileDown className="mr-2 h-4 w-4" />
-              {exportMutation.isPending ? "생성 중..." : "Excel 보고서 생성"}
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button onClick={handlePdfReport} disabled={isPending} variant="default" size="sm">
+              {pdfMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />PDF 생성 중...</>
+              ) : (
+                <><Download className="mr-2 h-4 w-4" />PDF 보고서 다운로드</>
+              )}
+            </Button>
+            <Button onClick={handleExcelReport} disabled={isPending} variant="outline" size="sm">
+              {exportMutation.isPending ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Excel 생성 중...</>
+              ) : (
+                <><FileDown className="mr-2 h-4 w-4" />Excel 보고서 다운로드</>
+              )}
             </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* 요약 통계 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-2">
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="p-3">
             <div className="text-center">
-              <p className="text-2xl font-bold">{totalRecords}</p>
-              <p className="text-sm text-muted-foreground">총 기록</p>
+              <p className="text-lg font-bold">{totalRecords}</p>
+              <p className="text-xs text-muted-foreground">총 기록</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="p-3">
             <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">{approvedRecords}</p>
-              <p className="text-sm text-muted-foreground">승인됨</p>
+              <p className="text-lg font-bold text-green-600">{approvedRecords}</p>
+              <p className="text-xs text-muted-foreground">승인됨</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="p-3">
             <div className="text-center">
-              <p className="text-2xl font-bold text-red-600">{deviationRecords}</p>
-              <p className="text-sm text-muted-foreground">이탈/반려</p>
+              <p className="text-lg font-bold text-red-600">{deviationRecords}</p>
+              <p className="text-xs text-muted-foreground">이탈/반려</p>
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-4">
+          <CardContent className="p-3">
             <div className="text-center">
-              <p className="text-2xl font-bold text-amber-600">{pendingRecords}</p>
-              <p className="text-sm text-muted-foreground">대기중</p>
+              <p className="text-lg font-bold text-amber-600">{pendingRecords}</p>
+              <p className="text-xs text-muted-foreground">대기중</p>
             </div>
           </CardContent>
         </Card>
@@ -201,17 +258,19 @@ export default function CcpReportGenerator() {
 
       {/* 미리보기 테이블 */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">보고서 미리보기</CardTitle>
-          <CardDescription>
-            {dateRange.startDate} ~ {dateRange.endDate} 기간의 CCP 기록 ({filteredRecords.length}건)
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-sm">보고서 미리보기</CardTitle>
+          <CardDescription className="text-xs">
+            {dateRange.startDate} ~ {dateRange.endDate} ({filteredRecords.length}건)
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-4 pb-3">
           {isLoading ? (
-            <p className="text-center py-8 text-muted-foreground">로딩 중...</p>
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
           ) : filteredRecords.length === 0 ? (
-            <p className="text-center py-8 text-muted-foreground">해당 기간에 CCP 기록이 없습니다</p>
+            <p className="text-center py-4 text-sm text-muted-foreground">해당 기간에 CCP 기록이 없습니다</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -225,9 +284,9 @@ export default function CcpReportGenerator() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRecords.slice(0, 20).map((record) => (
+                  {filteredRecords.slice(0, 20).map((record: any) => (
                     <TableRow key={record.id}>
-                      <TableCell>{record.workDate ? new Date(record.workDate).toLocaleDateString() : '-'}</TableCell>
+                      <TableCell>{record.workDate ? new Date(record.workDate).toLocaleDateString('ko-KR') : '-'}</TableCell>
                       <TableCell><Badge variant="outline">{record.ccpType}</Badge></TableCell>
                       <TableCell>{record.productName || '-'}</TableCell>
                       <TableCell>{record.batchCode || '-'}</TableCell>
@@ -241,7 +300,7 @@ export default function CcpReportGenerator() {
                   {filteredRecords.length > 20 && (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center text-muted-foreground">
-                        ... 외 {filteredRecords.length - 20}건 (Excel 보고서에서 전체 확인)
+                        ... 외 {filteredRecords.length - 20}건 (보고서에서 전체 확인)
                       </TableCell>
                     </TableRow>
                   )}

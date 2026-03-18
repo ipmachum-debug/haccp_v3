@@ -13,7 +13,7 @@ export const recipeManagementRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getRecipes } = await import("../../db/recipe");
-        return await getRecipes({ ...input, tenantId: ctx.user.tenantId });
+        return await getRecipes({ ...input, tenantId: ctx.tenantId! });
       }),
     
     // 레시피 상세 조회 (라인 포함)
@@ -21,7 +21,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipeById } = await import("../../db/recipe");
-        const recipe = await getRecipeById(input.id, ctx.user.tenantId);
+        const recipe = await getRecipeById(input.id, ctx.tenantId!);
         if (!recipe) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -36,7 +36,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRecipesByProductId } = await import("../../db/recipe");
-        return await getRecipesByProductId(input.productId, ctx.user.tenantId);
+        return await getRecipesByProductId(input.productId, ctx.tenantId!);
       }),
     
     // 레시피 생성
@@ -68,7 +68,7 @@ export const recipeManagementRouter = router({
         return await createRecipe({
           ...input,
           createdBy: ctx.user.id,
-          tenantId: ctx.user.tenantId
+          tenantId: ctx.tenantId!
         });
       }),
     
@@ -102,6 +102,7 @@ export const recipeManagementRouter = router({
         const { updateRecipe, createRecipeVersion } = await import("../../db/recipe");
         const { id, lines, ...recipeData } = input;
         
+        const tenantId = ctx.tenantId;
         // 버전 이력 생성
         if (input.version) {
           await createRecipeVersion({
@@ -109,10 +110,10 @@ export const recipeManagementRouter = router({
             version: input.version,
             changeDescription: "레시피 수정",
             createdBy: ctx.user.id
-          });
+          }, tenantId ?? undefined);
         }
-        
-        return await updateRecipe(id, recipeData, lines);
+
+        return await updateRecipe(id, recipeData, lines, tenantId ?? undefined);
       }),
     
     // 레시피 삭제 (소프트 삭제)
@@ -120,7 +121,7 @@ export const recipeManagementRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteRecipe } = await import("../../db/recipe");
-        await deleteRecipe(input.id, ctx.user.tenantId);
+        await deleteRecipe(input.id, ctx.tenantId!);
         
         // 감사 로그 기록
         const { createAuditLog } = await import("../../db");
@@ -142,8 +143,9 @@ export const recipeManagementRouter = router({
     getVersions: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getRecipeVersions } = await import("../../db/recipe");
-        return await getRecipeVersions(input.recipeId);
+        return await getRecipeVersions(input.recipeId, tenantId ?? undefined);
       }),
     
     // 레시피 복제
@@ -154,7 +156,7 @@ export const recipeManagementRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { duplicateRecipe } = await import("../../db/recipe");
-        return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.user.tenantId);
+        return await duplicateRecipe(input.id, input.newRecipeName, ctx.user.id, ctx.tenantId!);
       }),
     
     // 레시피 활성화/비활성화
@@ -164,8 +166,9 @@ export const recipeManagementRouter = router({
         isActive: z.boolean()
       }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateRecipe } = await import("../../db/recipe");
-        await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 });
+        await updateRecipe(input.id, { isActive: input.isActive ? 1 : 0 }, undefined, tenantId ?? undefined);
         return { success: true };
       })
 });

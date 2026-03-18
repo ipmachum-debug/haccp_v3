@@ -163,7 +163,7 @@ export default function DocumentApprovalManagement() {
     if (allSelected) {
       setSelectedIds(prev => prev.filter(id => !docIds.includes(id)));
     } else {
-      setSelectedIds(prev => [...new Set([...prev, ...docIds])]);
+      setSelectedIds(prev => Array.from(new Set([...prev, ...docIds])));
     }
   };
 

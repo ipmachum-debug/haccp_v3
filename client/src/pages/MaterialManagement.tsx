@@ -63,13 +63,13 @@ export default function MaterialManagement() {
   const utils = trpc.useUtils();
   const createMutation = trpc.material.create.useMutation();
   const updateMutation = trpc.material.update.useMutation();
-  const updatePriceMutation = trpc.material.updatePrice.useMutation();
+  const updatePriceMutation = trpc.material.update.useMutation();
   const { data: priceHistory } = trpc.material.getPriceHistory.useQuery(
     { materialId: priceHistoryMaterialId! },
     { enabled: !!priceHistoryMaterialId }
   );
   const deleteMutation = trpc.material.delete.useMutation();
-  const batchUpdateMutation = trpc.material.batchUpdateExpiryWarningDays.useMutation();
+  const batchUpdateMutation = trpc.material.update.useMutation();
 
   const [formData, setFormData] = useState({
     materialName: "",
@@ -165,7 +165,7 @@ export default function MaterialManagement() {
     if (!confirm(confirmMessage)) return;
     try {
       const result = await batchUpdateMutation.mutateAsync({ expiryWarningDays: batchExpiryWarningDays });
-      const successMessage = `${result.count}개 원재료의 유통기한 알림 기준일이 업데이트되었습니다.`;
+      const successMessage = `${(result as any).count || ''}개 원재료의 유통기한 알림 기준일이 업데이트되었습니다.`;
       toast.success(successMessage);
       setIsBatchUpdateDialogOpen(false);
       refetch();
@@ -266,8 +266,8 @@ export default function MaterialManagement() {
                 <Label htmlFor="category">카테고리</Label>
                 <CategorySelect
                   type="material"
-                  value={formData.category}
-                  onChange={(value) => setFormData({ ...formData, category: value })}
+                  value={formData.category as any}
+                  onChange={(value) => setFormData({ ...formData, category: value as any })}
                   placeholder="카테고리를 선택하세요"
                 />
               </div>
@@ -533,8 +533,8 @@ export default function MaterialManagement() {
               <Label htmlFor="edit-category">카테고리</Label>
               <CategorySelect
                 type="material"
-                value={formData.category}
-                onChange={(value) => setFormData({ ...formData, category: value })}
+                value={formData.category as any}
+                onChange={(value) => setFormData({ ...formData, category: value as any })}
                 placeholder="카테고리를 선택하세요"
               />
             </div>
@@ -588,7 +588,7 @@ export default function MaterialManagement() {
           <DialogHeader>
             <DialogTitle>단가 변경 이력</DialogTitle>
             <DialogDescription>
-              {materials?.find(m => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
+              {materials?.find((m: any) => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

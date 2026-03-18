@@ -70,7 +70,7 @@ export default function MfReportCreate() {
       toast.success("품목제조보고가 생성되었습니다");
       setLocation("/dashboard/recipes");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });
@@ -151,13 +151,13 @@ export default function MfReportCreate() {
 
   const getMaterialName = (materialId?: number) => {
     if (!materialId || !materials) return "";
-    const material = materials.find((m) => m.id === materialId);
+    const material = materials.find((m: any) => m.id === materialId);
     return material ? `${material.materialName} (${material.materialCode})` : "";
   };
 
   const getIntermediateName = (intermediateId?: number) => {
     if (!intermediateId || !intermediates) return "";
-    const intermediate = intermediates.find((i) => i.id === intermediateId);
+    const intermediate = intermediates.find((i: any) => i.id === intermediateId);
     return intermediate
       ? `${intermediate.materialName} (${intermediate.materialCode})`
       : "";
@@ -188,7 +188,7 @@ export default function MfReportCreate() {
                       <div className="flex items-center justify-center p-4">
                         <Loader2 className="w-4 h-4 animate-spin" />
                       </div>
-                    ) : products?.map((product) => (
+                    ) : products?.map((product: any) => (
                       <SelectItem key={product.id} value={product.id.toString()}>
                         {product.productName} ({product.productCode})
                       </SelectItem>
@@ -317,7 +317,7 @@ export default function MfReportCreate() {
                           <div className="flex items-center justify-center p-4">
                             <Loader2 className="w-4 h-4 animate-spin" />
                           </div>
-                        ) : intermediates?.map((intermediate) => (
+                        ) : intermediates?.map((intermediate: any) => (
                           <SelectItem key={intermediate.id} value={intermediate.id.toString()}>
                             {intermediate.materialName} ({intermediate.materialCode})
                           </SelectItem>
@@ -339,7 +339,7 @@ export default function MfReportCreate() {
                           <div className="flex items-center justify-center p-4">
                             <Loader2 className="w-4 h-4 animate-spin" />
                           </div>
-                        ) : materials?.map((material) => (
+                        ) : materials?.map((material: any) => (
                           <SelectItem key={material.id} value={material.id.toString()}>
                             {material.materialName} ({material.materialCode})
                           </SelectItem>
@@ -388,7 +388,7 @@ export default function MfReportCreate() {
                             <div className="flex items-center justify-center p-4">
                               <Loader2 className="w-4 h-4 animate-spin" />
                             </div>
-                          ) : intermediates?.map((intermediate) => (
+                          ) : intermediates?.map((intermediate: any) => (
                             <SelectItem key={intermediate.id} value={intermediate.id.toString()}>
                               {intermediate.materialName} ({intermediate.materialCode})
                             </SelectItem>
@@ -410,7 +410,7 @@ export default function MfReportCreate() {
                             <div className="flex items-center justify-center p-4">
                               <Loader2 className="w-4 h-4 animate-spin" />
                             </div>
-                          ) : materials?.map((material) => (
+                          ) : materials?.map((material: any) => (
                             <SelectItem key={material.id} value={material.id.toString()}>
                               {material.materialName} ({material.materialCode})
                             </SelectItem>

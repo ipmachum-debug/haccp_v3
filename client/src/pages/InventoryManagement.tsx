@@ -180,7 +180,7 @@ export default function InventoryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dashboard.lowStockMaterials.map((material) => (
+                      {dashboard.lowStockMaterials.map((material: any) => (
                         <TableRow key={material.materialId}>
                           <TableCell>
                             <div>
@@ -229,7 +229,7 @@ export default function InventoryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dashboard.expiringLots.map((lot) => (
+                      {dashboard.expiringLots.map((lot: any) => (
                         <TableRow key={lot.id}>
                           <TableCell className="font-medium">{lot.lotNumber}</TableCell>
                           <TableCell>
@@ -285,7 +285,7 @@ export default function InventoryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dashboard.materialStocks.map((material) => (
+                      {dashboard.materialStocks.map((material: any) => (
                         <TableRow key={material.materialId}>
                           <TableCell>
                             <div>
@@ -359,7 +359,7 @@ export default function InventoryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {trend.map((row) => (
+                      {trend.map((row: any) => (
                         <TableRow key={row.date}>
                           <TableCell className="font-medium">{row.date}</TableCell>
                           <TableCell className="text-green-600">+{Number(row.receiptQuantity || 0).toFixed(2)}</TableCell>
@@ -409,7 +409,7 @@ export default function InventoryManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {turnoverAnalysis.map((material) => (
+                      {turnoverAnalysis.map((material: any) => (
                         <TableRow key={material.materialId}>
                           <TableCell>
                             <div>
@@ -517,7 +517,7 @@ function PredictionTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {predictions.map((pred) => (
+              {predictions.map((pred: any) => (
                 <TableRow key={pred.materialId}>
                   <TableCell>
                     <div>
@@ -564,7 +564,7 @@ function PurchaseOrderTab() {
       utils.inventory.getPurchaseOrderSuggestions.invalidate();
       alert("발주 제안이 승인되었습니다.");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`오류: ${error.message}`);
     },
   });
@@ -574,7 +574,7 @@ function PurchaseOrderTab() {
       utils.inventory.getPurchaseOrderSuggestions.invalidate();
       alert("발주 제안이 거부되었습니다.");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`오류: ${error.message}`);
     },
   });
@@ -636,7 +636,7 @@ function PurchaseOrderTab() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {suggestions.map((sugg) => (
+                {suggestions.map((sugg: any) => (
                   <TableRow key={sugg.materialId}>
                     <TableCell>
                       <div>
@@ -705,7 +705,7 @@ function ReleaseTab() {
       setQuantity("");
       setReason("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`출고 실패: ${error.message}`);
     },
   });
@@ -847,7 +847,7 @@ function AdjustmentTab() {
       setQuantity("");
       setReason("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`조정 실패: ${error.message}`);
     },
   });

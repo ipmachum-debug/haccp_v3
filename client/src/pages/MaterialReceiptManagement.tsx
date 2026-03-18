@@ -57,7 +57,7 @@ export default function MaterialReceiptManagement() {
       setIsReceiveDialogOpen(false);
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -127,7 +127,7 @@ export default function MaterialReceiptManagement() {
                       <SelectValue placeholder="원재료 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {materials.map((material) => (
+                      {materials.map((material: any) => (
                         <SelectItem key={material.id} value={material.id.toString()}>
                           {material.materialName} ({material.materialCode})
                         </SelectItem>
@@ -246,11 +246,11 @@ export default function MaterialReceiptManagement() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    lots.map((lot) => (
+                    lots.map((lot: any) => (
                       <TableRow key={lot.id}>
                         <TableCell className="font-mono">{lot.lotNumber}</TableCell>
                         <TableCell>
-                          {materials.find((m) => m.id === lot.materialId)?.materialName || "-"}
+                          {materials.find((m: any) => m.id === lot.materialId)?.materialName || "-"}
                         </TableCell>
                         <TableCell>{lot.quantity} {lot.unit}</TableCell>
                         <TableCell>{lot.availableQuantity} {lot.unit}</TableCell>
@@ -314,7 +314,7 @@ export default function MaterialReceiptManagement() {
                     <SelectValue placeholder="원재료를 선택하세요" />
                   </SelectTrigger>
                   <SelectContent>
-                    {materials.map((material) => (
+                    {materials.map((material: any) => (
                       <SelectItem key={material.id} value={material.id.toString()}>
                         {material.materialName} ({material.materialCode})
                       </SelectItem>
@@ -342,7 +342,7 @@ export default function MaterialReceiptManagement() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      fefoLots.map((lot, index) => (
+                      fefoLots.map((lot: any, index: any) => (
                         <TableRow key={lot.id}>
                           <TableCell className="font-mono">
                             {index === 0 && (
@@ -398,7 +398,7 @@ export default function MaterialReceiptManagement() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((tx) => (
+                    transactions.map((tx: any) => (
                       <TableRow key={tx.id}>
                         <TableCell>
                           <span
@@ -424,7 +424,7 @@ export default function MaterialReceiptManagement() {
                           </span>
                         </TableCell>
                         <TableCell className="font-mono">
-                          {lots.find((l) => l.id === tx.lotId)?.lotNumber || "-"}
+                          {lots.find((l: any) => l.id === tx.lotId)?.lotNumber || "-"}
                         </TableCell>
                         <TableCell>
                           {tx.transactionType === "receipt" || tx.transactionType === "adjustment"

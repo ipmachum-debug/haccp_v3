@@ -114,7 +114,7 @@ export async function createCategory(input: CreateCategoryInput, tenantId?: numb
   
   const result = await db.insert(categories).values(values);
   
-  return result.insertId;
+  return (result as any).insertId;
 }
 
 /**

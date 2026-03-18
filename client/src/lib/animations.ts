@@ -3,7 +3,7 @@
  * 재사용 가능한 애니메이션 설정 및 variants
  */
 
-import { Variants } from "framer-motion";
+type Variants = Record<string, any>;
 
 // 페이드 인 애니메이션
 export const fadeIn: Variants = {

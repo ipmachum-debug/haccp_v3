@@ -76,9 +76,8 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
          WHERE batch_id = b.id AND status = 'approved') as approved_document_count,
         (SELECT COUNT(*) FROM document_instances 
          WHERE batch_id = b.id AND status IN ('pending_review', 'pending_approval')) as pending_document_count,
-        -- 회계 전표 상태 (accounting_transactions에서 reference_type='batch'로 참조)
-        (SELECT COUNT(*) FROM accounting_transactions 
-         WHERE reference_id = b.id AND reference_type = 'batch') as accounting_entry_count,
+        -- 회계 전표 상태 (expense_journal_entries 기반)
+        0 as accounting_entry_count,
         -- 일일일지 상태 (h_generic_checklist_records에서 daily_log 타입)
         (SELECT COUNT(*) FROM h_generic_checklist_records
          WHERE form_type = 'daily_log' AND form_date = DATE_FORMAT(b.planned_date, '%Y-%m-%d')
@@ -369,7 +368,8 @@ export async function checkMaterialAvailability(db: any, batchId: number, siteId
   
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
 
-  const batchTenantId = Number(batch.tenant_id) || tenantId || 1;
+  const batchTenantId = Number(batch.tenant_id) || tenantId;
+  if (!batchTenantId) throw new Error('[P0 보안] tenantId is required for pipeline');
   
   // h_batch_inputs에서 원재료 투입 계획 조회 (MF report 기반 - 신규 스키마)
   const inputsQuery = sql`

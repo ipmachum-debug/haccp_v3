@@ -23,17 +23,17 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
   const [editValue, setEditValue] = useState<string>("");
 
   const bulkCreateMutation = trpc.supplier.bulkCreate.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       setUploadResult(result);
       setStep("result");
-      if (result.success) {
+      if (result.failureCount === 0) {
         toast.success(`${result.successCount}개 거래처가 등록되었습니다`);
         onSuccess();
       } else {
         toast.warning(`${result.successCount}개 성공, ${result.failureCount}개 실패`);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`업로드 실패: ${error.message}`);
     },
   });
@@ -207,7 +207,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
                           supplier.supplierName
                         )}
                       </TableCell>
-                      <TableCell onClick={() => handleCellClick(index, "businessNumber", supplier.businessNumber)}>
+                      <TableCell onClick={() => handleCellClick(index, "businessNumber", supplier.businessNumber || "")}>
                         {editingCell?.rowIndex === index && editingCell?.field === "businessNumber" ? (
                           <input
                             type="text"

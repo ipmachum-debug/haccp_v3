@@ -23,7 +23,7 @@ import {
   ClipboardList, CheckSquare, Square, ListChecks, ArrowRight,
   ThermometerSun, Shield, Beaker, Bug, Snowflake, Droplets, 
   Scale, Wrench, Truck, GraduationCap, Trash2, AlertTriangle,
-  UserCheck, ShieldCheck, RefreshCw, History, Filter
+  UserCheck, ShieldCheck, RefreshCw, History, Filter, Ban
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -191,24 +191,24 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
 };
 
-// 3단계 승인 진행 표시 컴포넌트
-function ApprovalSteps({ status }: { status: string }) {
+// 3단계 승인 진행 표시 컴포넌트 (compact)
+function ApprovalStepsInline({ status }: { status: string }) {
   const steps = [
     { key: "작성", done: true },
     { key: "검토", done: status === "pending_approval" || status === "approved" },
     { key: "승인", done: status === "approved" },
   ];
   return (
-    <div className="flex items-center gap-1 text-xs mt-1">
+    <span className="inline-flex items-center gap-0.5 text-[10px]">
       {steps.map((step, i) => (
         <span key={step.key} className="flex items-center gap-0.5">
-          {i > 0 && <ArrowRight className="h-3 w-3 text-gray-300 mx-0.5" />}
+          {i > 0 && <span className="text-gray-300 mx-0.5">{">"}</span>}
           <span className={step.done ? "text-green-600 font-semibold" : "text-gray-400"}>
-            {step.done ? "✓" : "○"} {step.key}
+            {step.done ? "\u2713" : "\u25CB"}{step.key}
           </span>
         </span>
       ))}
-    </div>
+    </span>
   );
 }
 
@@ -223,6 +223,7 @@ export default function ApprovalManagement() {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [comment, setComment] = useState("");
   const [selectedRecipe, setSelectedRecipe] = useState<any>(null);
   const [recipeApproveDialogOpen, setRecipeApproveDialogOpen] = useState(false);
@@ -299,7 +300,7 @@ export default function ApprovalManagement() {
   // 처리이력: approved, rejected만 표시 (statusFilter가 all일 때) + 날짜 필터
   const historyRequests = (() => {
     let list = statusFilter === "all" 
-      ? (historyAll || []).filter((r: any) => r.status === "approved" || r.status === "rejected")
+      ? (historyAll || []).filter((r: any) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
       : historyAll || [];
     // 날짜 필터 적용
     if (historyDateFrom) {
@@ -350,9 +351,9 @@ export default function ApprovalManagement() {
   // 3단계 승인 Mutations
   // ============================================================================
 
-  // 검토 완료 (pending_review → pending_approval)
+  // 검토 완료 (pending_review -> pending_approval)
   const reviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("검토 완료", { description: data.message || "검토가 완료되어 승인 대기로 이동했습니다." });
       setReviewDialogOpen(false);
       setComment("");
@@ -363,14 +364,14 @@ export default function ApprovalManagement() {
       refetchApproval();
       setActiveTab("approval");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("검토 실패", { description: error.message });
     },
   });
 
-  // 최종 승인 (pending_approval → approved)
+  // 최종 승인 (pending_approval -> approved)
   const approveMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("승인 완료", { description: data.message || "최종 승인이 완료되었습니다." });
       setApproveDialogOpen(false);
       setComment("");
@@ -380,14 +381,14 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
 
   // 반려 처리
   const rejectReviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("반려 완료", { description: data.message || "요청이 반려되었습니다." });
       setRejectDialogOpen(false);
       setComment("");
@@ -398,13 +399,13 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
 
   const rejectApprovalMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("반려 완료", { description: data.message || "승인이 반려되었습니다." });
       setRejectDialogOpen(false);
       setComment("");
@@ -415,8 +416,40 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
+    },
+  });
+
+  // 삭제 처리 (DB에서 완전 삭제)
+  const deleteMutation = trpc.approval.deleteRequest.useMutation({
+    onSuccess: () => {
+      toast.success("삭제 완료", { description: "승인 요청이 삭제되었습니다." });
+      setCancelDialogOpen(false);
+      setComment("");
+      setSelectedRequest(null);
+      refetchReview();
+      refetchPending();
+      refetchApproval();
+      refetchHistory();
+    },
+    onError: (error: any) => {
+      toast.error("삭제 실패", { description: error.message });
+    },
+  });
+
+  // 일괄 삭제 처리
+  const deleteMultipleMutation = trpc.approval.deleteMultipleRequests.useMutation({
+    onSuccess: (data: any) => {
+      toast.success("일괄 삭제 완료", { description: data.message });
+      setSelectedIds([]);
+      refetchReview();
+      refetchPending();
+      refetchApproval();
+      refetchHistory();
+    },
+    onError: (error: any) => {
+      toast.error("일괄 삭제 실패", { description: error.message });
     },
   });
 
@@ -428,7 +461,7 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
@@ -441,14 +474,14 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
 
   // 일괄 검토 완료
   const batchReviewMutation = trpc.genericChecklist.batchReviewChecklists.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("일괄 검토 완료", { description: data.message });
       setSelectedIds([]);
       setBatchConfirmDialogOpen(false);
@@ -456,14 +489,14 @@ export default function ApprovalManagement() {
       refetchPending();
       refetchApproval();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("일괄 검토 실패", { description: error.message });
     },
   });
 
   // 일괄 최종 승인
   const batchApproveMutation = trpc.genericChecklist.batchApproveChecklists.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("일괄 승인 완료", { description: data.message });
       setSelectedIds([]);
       setBatchConfirmDialogOpen(false);
@@ -471,14 +504,14 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("일괄 승인 실패", { description: error.message });
     },
   });
 
   // 승인자 자동 검토+승인
   const autoReviewApproveMutation = trpc.genericChecklist.approveWithAutoReview.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("검토 및 승인 완료", { description: data.message });
       setSelectedIds([]);
       setReviewDialogOpen(false);
@@ -489,7 +522,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error("처리 실패", { description: error.message });
     },
   });
@@ -519,6 +552,19 @@ export default function ApprovalManagement() {
     } else if (status === "pending_approval") {
       rejectApprovalMutation.mutate({ approvalRequestId: selectedRequest.id, action: "reject", comments: comment });
     }
+  };
+
+  const handleCancel = () => {
+    if (!selectedRequest) return;
+    deleteMutation.mutate({ requestId: selectedRequest.id });
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0) {
+      toast.error("삭제할 항목을 선택해주세요.");
+      return;
+    }
+    deleteMultipleMutation.mutate({ requestIds: selectedIds });
   };
 
   // 일괄 검토 핸들러 (확인 다이얼로그 경유)
@@ -570,7 +616,6 @@ export default function ApprovalManagement() {
       toast.error("승인할 항목을 선택해주세요.");
       return;
     }
-    // 일괄 승인 (검토 단계도 자동 처리)
     batchApproveMutation.mutate({ approvalRequestIds: reviewIds });
   };
 
@@ -625,318 +670,238 @@ export default function ApprovalManagement() {
   const selectedApprovalCount = selectedIds.filter(id => (approvalRequests || []).some((r: any) => r.id === id)).length;
 
   // ============================================================================
-  // 카드 렌더링
+  // 컴팩트 테이블 행 렌더링
   // ============================================================================
 
-  const renderRequestCard = (request: any, mode: "review" | "approve" | "readonly" = "readonly") => {
+  const renderRequestRow = (request: any, mode: "review" | "approve" | "readonly" = "readonly") => {
     const Icon = REQUEST_TYPE_ICONS[request.requestType] || FileText;
     const category = REQUEST_CATEGORIES[request.requestType] || "기타";
     const categoryColor = CATEGORY_COLORS[category] || "bg-gray-100 text-gray-800";
     const isSelected = selectedIds.includes(request.id);
-    
+    const dateStr = request.requestedAt
+      ? format(new Date(request.requestedAt), "MM.dd HH:mm")
+      : request.createdAt
+        ? format(new Date(request.createdAt), "MM.dd HH:mm")
+        : "-";
+
     return (
-      <Card key={request.id} className={`card-hover transition-all ${isSelected ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-950/10 ring-1 ring-blue-300' : ''}`}>
-        <CardHeader className="pb-2">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-3">
-              {mode !== "readonly" && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); toggleSelect(request.id); }}
-                  className="mt-1 text-muted-foreground hover:text-blue-600 transition-colors"
-                >
-                  {isSelected 
-                    ? <CheckSquare className="w-5 h-5 text-blue-600" /> 
-                    : <Square className="w-5 h-5" />
-                  }
-                </button>
-              )}
-              <div className="p-2 bg-primary/10 rounded-lg">
-                <Icon className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <CardTitle className="text-base">
-                  {request.title || REQUEST_TYPE_LABELS[request.requestType] || request.requestType}
-                </CardTitle>
-                <CardDescription className="mt-1">
-                  {request.description || `요청자: ${request.requester?.name || "알 수 없음"}`}
-                </CardDescription>
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <div className="flex items-center gap-2">
-                <Badge className={categoryColor}>{category}</Badge>
-                <Badge className={STATUS_COLORS[request.status] || STATUS_COLORS.pending}>
-                  {STATUS_LABELS[request.status] || request.status}
-                </Badge>
-              </div>
-            </div>
+      <div
+        key={request.id}
+        className={`flex items-center gap-2 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40 transition-colors text-sm ${
+          isSelected ? "bg-blue-50/60 dark:bg-blue-950/10" : ""
+        }`}
+      >
+        {/* 체크박스 */}
+        {mode !== "readonly" && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleSelect(request.id); }}
+            className="flex-shrink-0 text-muted-foreground hover:text-blue-600"
+          >
+            {isSelected
+              ? <CheckSquare className="w-4 h-4 text-blue-600" />
+              : <Square className="w-4 h-4" />
+            }
+          </button>
+        )}
+
+        {/* 아이콘 + 카테고리 */}
+        <div className="flex-shrink-0 flex items-center gap-1.5">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <Badge className={`${categoryColor} text-[10px] px-1.5 py-0`}>{category}</Badge>
+        </div>
+
+        {/* 제목 + 유형 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium truncate text-sm">
+              {request.title || REQUEST_TYPE_LABELS[request.requestType] || request.requestType}
+            </span>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {/* 3단계 진행 표시 */}
-            <ApprovalSteps status={request.status} />
-
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>요청: {request.requestedAt ? format(new Date(request.requestedAt), "PPP p", { locale: ko }) : request.createdAt ? format(new Date(request.createdAt), "PPP p", { locale: ko }) : "-"}</span>
-              {request.reviewedAt && (
-                <span>검토: {format(new Date(request.reviewedAt), "MM/dd HH:mm", { locale: ko })}</span>
-              )}
-              {request.approvedAt && (
-                <span>승인: {format(new Date(request.approvedAt), "MM/dd HH:mm", { locale: ko })}</span>
-              )}
-            </div>
-
-            {/* 승인 직인 표시 (승인 완료 시) - formData.approval 우선 사용 */}
-            {request.status === "approved" && (() => {
-              const cfd = (request as any).checklistFormData;
-              const approval = cfd?.approval;
-              const settingNames = getApprovalSettingNames(request.requestType || "");
-              const writerName = settingNames?.writerName || approval?.writerName || request.requester?.name || "작성자";
-              const reviewerName = settingNames?.reviewerName || approval?.reviewerName || request.reviewer?.name || "검토자";
-              const approverName = settingNames?.approverName || approval?.approverName || request.approver?.name || "승인자";
-              return (
-                <div className="pt-2 border-t">
-                  <ApprovalSealRow
-                    writer={{ name: writerName, date: request.requestedAt || request.createdAt }}
-                    reviewer={request.reviewedAt || approval?.reviewerApproved ? { name: reviewerName, date: request.reviewedAt || request.approvedAt } : undefined}
-                    approver={request.approvedAt || approval?.approverApproved ? { name: approverName, date: request.approvedAt } : undefined}
-                    size={45}
-                  />
-                </div>
-              );
-            })()}
-
-            {/* 검토 코멘트 */}
-            {request.reviewComments && (
-              <div className="text-xs text-blue-600 bg-blue-50 dark:bg-blue-950/20 p-2 rounded">
-                검토 코멘트: {request.reviewComments}
-              </div>
-            )}
-            {/* 승인 코멘트 */}
-            {request.notes && request.status === "approved" && (
-              <div className="text-xs text-green-600 bg-green-50 dark:bg-green-950/20 p-2 rounded">
-                승인 코멘트: {request.notes}
-              </div>
-            )}
-            {/* 반려 사유 */}
-            {request.rejectionReason && request.status === "rejected" && (
-              <div className="text-xs text-red-600 bg-red-50 dark:bg-red-950/20 p-2 rounded">
-                반려 사유: {request.rejectionReason}
-              </div>
-            )}
-
-            {/* 검토대기 → 검토완료/반려 버튼 (검토자/승인자만) */}
-            {mode === "review" && (request.status === "pending_review" || request.status === "pending") && (
-              <div className="flex gap-2 pt-2">
-                <Button
-                  size="sm" variant="outline"
-                  onClick={() => { setSelectedRequest(request); setDetailDialogOpen(true); }}
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  상세
-                </Button>
-                {canReview ? (
-                  <>
-                    <Button
-                      size="sm" className="flex-1 bg-orange-500 hover:bg-orange-600"
-                      onClick={() => { setSelectedRequest(request); setComment(""); setReviewDialogOpen(true); }}
-                    >
-                      <UserCheck className="h-4 w-4 mr-1" />
-                      검토완료
-                    </Button>
-                    {canApprove && (
-                      <Button
-                        size="sm" className="flex-1 bg-green-600 hover:bg-green-700"
-                        onClick={() => { setSelectedRequest(request); setComment(""); handleAutoReviewApprove(); }}
-                        disabled={autoReviewApproveMutation.isPending}
-                      >
-                        <ShieldCheck className="h-4 w-4 mr-1" />
-                        바로승인
-                      </Button>
-                    )}
-                    <Button
-                      size="sm" variant="destructive"
-                      onClick={() => { setSelectedRequest(request); setComment(""); setRejectDialogOpen(true); }}
-                    >
-                      <XCircle className="h-4 w-4 mr-1" />
-                      반려
-                    </Button>
-                  </>
-                ) : (
-                  <div className="flex-1 text-center text-xs text-muted-foreground py-2 bg-gray-50 rounded border border-dashed">
-                    검토 권한이 없습니다 (검토자/승인자 직급 필요)
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 승인대기 → 승인/반려 버튼 (승인자만) */}
-            {mode === "approve" && request.status === "pending_approval" && (
-              <div className="flex gap-2 pt-2">
-                <Button
-                  size="sm" variant="outline"
-                  onClick={() => { setSelectedRequest(request); setDetailDialogOpen(true); }}
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  상세
-                </Button>
-                {canApprove ? (
-                  <>
-                    <Button
-                      size="sm" className="flex-1 bg-green-600 hover:bg-green-700"
-                      onClick={() => { setSelectedRequest(request); setComment(""); setApproveDialogOpen(true); }}
-                    >
-                      <ShieldCheck className="h-4 w-4 mr-1" />
-                      최종승인
-                    </Button>
-                    <Button
-                      size="sm" variant="destructive" className="flex-1"
-                      onClick={() => { setSelectedRequest(request); setComment(""); setRejectDialogOpen(true); }}
-                    >
-                      <XCircle className="h-4 w-4 mr-1" />
-                      반려
-                    </Button>
-                  </>
-                ) : (
-                  <div className="flex-1 text-center text-xs text-muted-foreground py-2 bg-gray-50 rounded border border-dashed">
-                    승인 권한이 없습니다 (승인자 직급 필요)
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 승인 완료 → 인쇄/문서출력 */}
-            {request.status === "approved" && mode === "readonly" && (
-              <div className="flex gap-2 pt-2">
-                <Button size="sm" variant="outline"
-                  onClick={() => { setSelectedRequest(request); setDetailDialogOpen(true); }}
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  상세
-                </Button>
-                <Button size="sm" variant="outline"
-                  onClick={() => setLocation("/dashboard/document-output")}
-                >
-                  <Printer className="h-4 w-4 mr-1" />
-                  인쇄
-                </Button>
-              </div>
-            )}
-
-            {/* 반려 → 상세 */}
-            {request.status === "rejected" && mode === "readonly" && (
-              <div className="flex gap-2 pt-2">
-                <Button size="sm" variant="outline"
-                  onClick={() => { setSelectedRequest(request); setDetailDialogOpen(true); }}
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  상세
-                </Button>
-              </div>
-            )}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+            <span>{request.requester?.name || "?"}</span>
+            <span>{dateStr}</span>
+            <ApprovalStepsInline status={request.status} />
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* 상태 */}
+        <Badge className={`${STATUS_COLORS[request.status] || STATUS_COLORS.pending} text-[10px] px-1.5 py-0 flex-shrink-0`}>
+          {STATUS_LABELS[request.status] || request.status}
+        </Badge>
+
+        {/* 액션 버튼 */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <Button
+            size="sm" variant="ghost" className="h-7 w-7 p-0"
+            onClick={() => { setSelectedRequest(request); setDetailDialogOpen(true); }}
+            title="상세"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
+
+          {mode === "review" && (request.status === "pending_review" || request.status === "pending") && canReview && (
+            <>
+              <Button
+                size="sm" className="h-7 px-2 text-xs bg-orange-500 hover:bg-orange-600"
+                onClick={() => { setSelectedRequest(request); setComment(""); setReviewDialogOpen(true); }}
+                title="검토완료"
+              >
+                <UserCheck className="h-3 w-3 mr-0.5" />검토
+              </Button>
+              {canApprove && (
+                <Button
+                  size="sm" className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+                  onClick={() => { setSelectedRequest(request); setComment(""); handleAutoReviewApprove(); }}
+                  disabled={autoReviewApproveMutation.isPending}
+                  title="바로승인"
+                >
+                  <ShieldCheck className="h-3 w-3 mr-0.5" />승인
+                </Button>
+              )}
+              <Button
+                size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                onClick={() => { setSelectedRequest(request); setComment(""); setRejectDialogOpen(true); }}
+                title="반려"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+
+          {mode === "approve" && request.status === "pending_approval" && canApprove && (
+            <>
+              <Button
+                size="sm" className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+                onClick={() => { setSelectedRequest(request); setComment(""); setApproveDialogOpen(true); }}
+                title="최종승인"
+              >
+                <ShieldCheck className="h-3 w-3 mr-0.5" />승인
+              </Button>
+              <Button
+                size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                onClick={() => { setSelectedRequest(request); setComment(""); setRejectDialogOpen(true); }}
+                title="반려"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+
+          {mode === "readonly" && request.status === "approved" && (
+            <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+              onClick={() => setLocation("/dashboard/document-output")}
+              title="문서출력"
+            >
+              <Printer className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
+          {/* 삭제 버튼 */}
+          <Button
+            size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-400 hover:text-red-500"
+            onClick={() => { setSelectedRequest(request); setComment(""); setCancelDialogOpen(true); }}
+            title="삭제"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
     );
   };
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* 헤더 */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <h1 className="text-3xl font-bold">승인 관리</h1>
-            <p className="text-muted-foreground mt-1">
-              3단계 승인: <strong>작성자</strong>(작성) → <strong>검토자</strong>(검토) → <strong>승인자</strong>(최종승인)
+            <h1 className="text-2xl font-bold">승인 관리</h1>
+            <p className="text-sm text-muted-foreground">
+              작성 &rarr; 검토 &rarr; 최종승인
               {currentRole !== "none" && (
-                <Badge variant="outline" className="ml-2">
-                  내 역할: {currentRole === "approver" ? "승인자" : currentRole === "reviewer" ? "검토자" : "일반"}
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {currentRole === "approver" ? "승인자" : currentRole === "reviewer" ? "검토자" : "일반"}
                 </Badge>
               )}
             </p>
           </div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-1.5 flex-wrap">
             <Button variant="outline" size="sm" onClick={handleRefreshAll}>
-              <RefreshCw className="h-4 w-4 mr-1" />
-              새로고침
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />새로고침
             </Button>
             <Button variant="outline" size="sm" onClick={() => setLocation("/document-approval")}>
-              <FileCheck className="h-4 w-4 mr-1" />
-              문서 승인
+              <FileCheck className="h-3.5 w-3.5 mr-1" />문서 승인
             </Button>
             <Button variant="outline" size="sm" onClick={() => setLocation("/dashboard/document-output")}>
-              <Printer className="h-4 w-4 mr-1" />
-              문서 출력
+              <Printer className="h-3.5 w-3.5 mr-1" />문서 출력
             </Button>
           </div>
         </div>
 
         {/* 요약 카드 */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           <Card className={`cursor-pointer transition-all hover:shadow-md ${activeTab === "review" ? "ring-2 ring-orange-400" : ""}`}
             onClick={() => setActiveTab("review")}
           >
-            <CardContent className="py-4 px-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-orange-100 dark:bg-orange-900/30">
-                <UserCheck className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+            <CardContent className="py-3 px-3 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-orange-100 dark:bg-orange-900/30">
+                <UserCheck className="h-4 w-4 text-orange-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">검토 대기</p>
-                <p className="text-2xl font-bold text-orange-600">{allReviewRequests.length}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">검토 대기</p>
+                <p className="text-xl font-bold text-orange-600">{allReviewRequests.length}</p>
               </div>
             </CardContent>
           </Card>
           <Card className={`cursor-pointer transition-all hover:shadow-md ${activeTab === "approval" ? "ring-2 ring-blue-400" : ""}`}
             onClick={() => setActiveTab("approval")}
           >
-            <CardContent className="py-4 px-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <CardContent className="py-3 px-3 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                <ShieldCheck className="h-4 w-4 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">승인 대기</p>
-                <p className="text-2xl font-bold text-blue-600">{(approvalRequests || []).length}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">승인 대기</p>
+                <p className="text-xl font-bold text-blue-600">{(approvalRequests || []).length}</p>
               </div>
             </CardContent>
           </Card>
           <Card className={`cursor-pointer transition-all hover:shadow-md ${activeTab === "recipe" ? "ring-2 ring-purple-400" : ""}`}
             onClick={() => setActiveTab("recipe")}
           >
-            <CardContent className="py-4 px-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
-                <Utensils className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+            <CardContent className="py-3 px-3 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                <Utensils className="h-4 w-4 text-purple-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">품목제조보고</p>
-                <p className="text-2xl font-bold text-purple-600">{(pendingRecipes || []).length}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">품목제조보고</p>
+                <p className="text-xl font-bold text-purple-600">{(pendingRecipes || []).length}</p>
               </div>
             </CardContent>
           </Card>
           <Card className={`cursor-pointer transition-all hover:shadow-md ${activeTab === "history" ? "ring-2 ring-green-400" : ""}`}
             onClick={() => setActiveTab("history")}
           >
-            <CardContent className="py-4 px-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                <History className="h-5 w-5 text-green-600 dark:text-green-400" />
+            <CardContent className="py-3 px-3 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-green-100 dark:bg-green-900/30">
+                <History className="h-4 w-4 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">처리 이력</p>
-                <p className="text-2xl font-bold text-green-600">{(historyRequests || []).length}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">처리 이력</p>
+                <p className="text-xl font-bold text-green-600">{(historyRequests || []).length}</p>
               </div>
             </CardContent>
           </Card>
           <Card className={`cursor-pointer transition-all hover:shadow-md ${activeTab === "recipeHistory" ? "ring-2 ring-gray-400" : ""}`}
             onClick={() => setActiveTab("recipeHistory")}
           >
-            <CardContent className="py-4 px-4 flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-gray-100 dark:bg-gray-900/30">
-                <FileText className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+            <CardContent className="py-3 px-3 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-900/30">
+                <FileText className="h-4 w-4 text-gray-600" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">품목제조 이력</p>
-                <p className="text-2xl font-bold text-gray-600">{(recipeHistory || []).length}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight">품목제조 이력</p>
+                <p className="text-xl font-bold text-gray-600">{(recipeHistory || []).length}</p>
               </div>
             </CardContent>
           </Card>
@@ -944,10 +909,10 @@ export default function ApprovalManagement() {
 
         {/* 카테고리 필터 (검토/승인 탭에서만) */}
         {(activeTab === "review" || activeTab === "approval") && allReviewRequests.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5">
             <Badge
               variant={categoryFilter === "all" ? "default" : "outline"}
-              className="cursor-pointer"
+              className="cursor-pointer text-xs"
               onClick={() => setCategoryFilter("all")}
             >
               전체 ({allReviewRequests.length + (approvalRequests || []).length})
@@ -956,7 +921,7 @@ export default function ApprovalManagement() {
               <Badge
                 key={cat}
                 variant={categoryFilter === cat ? "default" : "outline"}
-                className={`cursor-pointer ${categoryFilter === cat ? "" : CATEGORY_COLORS[cat] || ""}`}
+                className={`cursor-pointer text-xs ${categoryFilter === cat ? "" : CATEGORY_COLORS[cat] || ""}`}
                 onClick={() => setCategoryFilter(cat)}
               >
                 {cat} ({count})
@@ -968,33 +933,33 @@ export default function ApprovalManagement() {
         {/* 탭 */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as any); setSelectedIds([]); }}>
           <TabsList className="flex flex-wrap h-auto gap-1 p-1">
-            <TabsTrigger value="review" className="flex items-center gap-1 text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-              <UserCheck className="h-4 w-4" />
+            <TabsTrigger value="review" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <UserCheck className="h-3.5 w-3.5" />
               검토 대기
               {allReviewRequests.length > 0 && (
-                <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{allReviewRequests.length}</Badge>
+                <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">{allReviewRequests.length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="approval" className="flex items-center gap-1 text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-              <ShieldCheck className="h-4 w-4" />
+            <TabsTrigger value="approval" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" />
               승인 대기
               {(approvalRequests || []).length > 0 && (
-                <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-xs">{(approvalRequests || []).length}</Badge>
+                <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">{(approvalRequests || []).length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="history" className="flex items-center gap-1 text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-              <History className="h-4 w-4" />
+            <TabsTrigger value="history" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <History className="h-3.5 w-3.5" />
               처리 이력
             </TabsTrigger>
-            <TabsTrigger value="recipe" className="flex items-center gap-1 text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-              <Utensils className="h-4 w-4" />
+            <TabsTrigger value="recipe" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <Utensils className="h-3.5 w-3.5" />
               품목제조보고
               {pendingRecipes && pendingRecipes.length > 0 && (
-                <Badge variant="secondary" className="ml-1">{pendingRecipes.length}</Badge>
+                <Badge variant="secondary" className="ml-1 text-[10px]">{pendingRecipes.length}</Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="recipeHistory" className="flex items-center gap-1 text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-              <FileText className="h-4 w-4" />
+            <TabsTrigger value="recipeHistory" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <FileText className="h-3.5 w-3.5" />
               품목제조 이력
             </TabsTrigger>
           </TabsList>
@@ -1002,28 +967,28 @@ export default function ApprovalManagement() {
           {/* ============================================================ */}
           {/* 검토 대기 탭 */}
           {/* ============================================================ */}
-          <TabsContent value="review" className="space-y-4">
+          <TabsContent value="review" className="space-y-2 mt-2">
             {filteredReview.length > 0 && (
-              <div className="flex items-center gap-2 py-2 flex-wrap">
+              <div className="flex items-center gap-2 py-1.5 flex-wrap">
                 <button onClick={() => toggleSelectAll(filteredReview)}
-                  className="text-muted-foreground hover:text-blue-600 transition-colors"
+                  className="text-muted-foreground hover:text-blue-600"
                 >
                   {filteredReview.every((r: any) => selectedIds.includes(r.id))
-                    ? <CheckSquare className="w-5 h-5 text-blue-600" />
-                    : <Square className="w-5 h-5" />
+                    ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                    : <Square className="w-4 h-4" />
                   }
                 </button>
-                <span className="text-sm text-muted-foreground">전체 선택 ({filteredReview.length}건)</span>
+                <span className="text-xs text-muted-foreground">전체 선택 ({filteredReview.length}건)</span>
                 {selectedReviewCount > 0 && (
-                  <div className="flex gap-2 ml-auto flex-wrap">
+                  <div className="flex gap-1.5 ml-auto flex-wrap">
                     {canReview && (
-                      <Button size="sm" className="bg-orange-500 hover:bg-orange-600" onClick={handleBatchReview} disabled={batchReviewMutation.isPending}>
-                        {batchReviewMutation.isPending ? "처리 중..." : `일괄 검토 (${selectedReviewCount}건)`}
+                      <Button size="sm" className="h-7 text-xs bg-orange-500 hover:bg-orange-600" onClick={handleBatchReview} disabled={batchReviewMutation.isPending}>
+                        {batchReviewMutation.isPending ? "..." : `일괄 검토 (${selectedReviewCount})`}
                       </Button>
                     )}
                     {canApprove && (
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleBatchDirectApprove} disabled={batchApproveMutation.isPending}>
-                        {batchApproveMutation.isPending ? "처리 중..." : `일괄 바로승인 (${selectedReviewCount}건)`}
+                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={handleBatchDirectApprove} disabled={batchApproveMutation.isPending}>
+                        {batchApproveMutation.isPending ? "..." : `일괄 승인 (${selectedReviewCount})`}
                       </Button>
                     )}
                   </div>
@@ -1033,39 +998,38 @@ export default function ApprovalManagement() {
 
             {filteredReview.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <UserCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-lg font-medium text-muted-foreground mb-1">검토 대기 중인 요청이 없습니다</p>
-                  <p className="text-sm text-muted-foreground">
-                    체크리스트 폼에서 저장 후 승인 요청을 하면 이곳에 표시됩니다
-                  </p>
+                <CardContent className="py-8 text-center">
+                  <UserCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">검토 대기 중인 요청이 없습니다</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {filteredReview.map((request: any) => renderRequestCard(request, "review"))}
-              </div>
+              <Card>
+                <CardContent className="p-0">
+                  {filteredReview.map((request: any) => renderRequestRow(request, "review"))}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           {/* ============================================================ */}
           {/* 승인 대기 탭 */}
           {/* ============================================================ */}
-          <TabsContent value="approval" className="space-y-4">
+          <TabsContent value="approval" className="space-y-2 mt-2">
             {filteredApproval.length > 0 && (
-              <div className="flex items-center gap-2 py-2 flex-wrap">
+              <div className="flex items-center gap-2 py-1.5 flex-wrap">
                 <button onClick={() => toggleSelectAll(filteredApproval)}
-                  className="text-muted-foreground hover:text-blue-600 transition-colors"
+                  className="text-muted-foreground hover:text-blue-600"
                 >
                   {filteredApproval.every((r: any) => selectedIds.includes(r.id))
-                    ? <CheckSquare className="w-5 h-5 text-blue-600" />
-                    : <Square className="w-5 h-5" />
+                    ? <CheckSquare className="w-4 h-4 text-blue-600" />
+                    : <Square className="w-4 h-4" />
                   }
                 </button>
-                <span className="text-sm text-muted-foreground">전체 선택 ({filteredApproval.length}건)</span>
+                <span className="text-xs text-muted-foreground">전체 선택 ({filteredApproval.length}건)</span>
                 {selectedApprovalCount > 0 && canApprove && (
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700 ml-auto" onClick={handleBatchApprove} disabled={batchApproveMutation.isPending}>
-                    {batchApproveMutation.isPending ? "처리 중..." : `일괄 승인 (${selectedApprovalCount}건)`}
+                  <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 ml-auto" onClick={handleBatchApprove} disabled={batchApproveMutation.isPending}>
+                    {batchApproveMutation.isPending ? "..." : `일괄 승인 (${selectedApprovalCount})`}
                   </Button>
                 )}
               </div>
@@ -1073,74 +1037,66 @@ export default function ApprovalManagement() {
 
             {filteredApproval.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <ShieldCheck className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-lg font-medium text-muted-foreground mb-1">승인 대기 중인 요청이 없습니다</p>
-                  <p className="text-sm text-muted-foreground">
-                    검토가 완료된 요청이 이곳에 표시됩니다
-                  </p>
+                <CardContent className="py-8 text-center">
+                  <ShieldCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">승인 대기 중인 요청이 없습니다</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {filteredApproval.map((request: any) => renderRequestCard(request, "approve"))}
-              </div>
+              <Card>
+                <CardContent className="p-0">
+                  {filteredApproval.map((request: any) => renderRequestRow(request, "approve"))}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           {/* ============================================================ */}
-          {/* 처리 이력 탭 (개선: 날짜 필터 추가) */}
+          {/* 처리 이력 탭 */}
           {/* ============================================================ */}
-          <TabsContent value="history" className="space-y-4">
-            <Card className="p-4">
-              <div className="flex gap-3 flex-wrap items-end">
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground font-medium">상태</label>
+          <TabsContent value="history" className="space-y-2 mt-2">
+            <Card className="p-3">
+              <div className="flex gap-2 flex-wrap items-end">
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] text-muted-foreground font-medium">상태</label>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[150px] h-9">
-                      <SelectValue placeholder="상태 필터" />
+                    <SelectTrigger className="w-[120px] h-8 text-xs">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">전체 상태</SelectItem>
+                      <SelectItem value="all">전체</SelectItem>
                       <SelectItem value="approved">승인됨</SelectItem>
                       <SelectItem value="rejected">반려됨</SelectItem>
+                      <SelectItem value="cancelled">취소됨</SelectItem>
                       <SelectItem value="pending_review">검토 대기</SelectItem>
                       <SelectItem value="pending_approval">승인 대기</SelectItem>
-                      <SelectItem value="cancelled">취소됨</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground font-medium">유형</label>
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] text-muted-foreground font-medium">유형</label>
                   <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger className="w-[150px] h-9">
-                      <SelectValue placeholder="요청 유형" />
+                    <SelectTrigger className="w-[120px] h-8 text-xs">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">전체 유형</SelectItem>
-                      <SelectItem value="batch_production">배치 CCP 자동승인</SelectItem>
-                      <SelectItem value="ccp_form">CCP 모니터링 기록지</SelectItem>
-                    <SelectItem value="batch_approval">배치 승인</SelectItem>
-                      <SelectItem value="checklist_approval">체크리스트 승인</SelectItem>
-                      <SelectItem value="ccp_deviation">CCP 이탈</SelectItem>
-                      <SelectItem value="material_inspection">원재료 검사</SelectItem>
-                      <SelectItem value="hygiene_inspection">위생 점검</SelectItem>
-                      <SelectItem value="document_approval">문서 승인</SelectItem>
+                      <SelectItem value="all">전체</SelectItem>
+                      <SelectItem value="batch_production">배치 CCP</SelectItem>
+                      <SelectItem value="ccp_form">CCP 기록지</SelectItem>
+                      <SelectItem value="batch_approval">배치 승인</SelectItem>
+                      <SelectItem value="checklist_approval">체크리스트</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground font-medium">시작일</label>
-                  <Input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} className="w-[150px] h-9" />
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] text-muted-foreground font-medium">시작일</label>
+                  <Input type="date" value={historyDateFrom} onChange={(e) => setHistoryDateFrom(e.target.value)} className="w-[130px] h-8 text-xs" />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground font-medium">종료일</label>
-                  <Input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} className="w-[150px] h-9" />
+                <div className="flex flex-col gap-0.5">
+                  <label className="text-[10px] text-muted-foreground font-medium">종료일</label>
+                  <Input type="date" value={historyDateTo} onChange={(e) => setHistoryDateTo(e.target.value)} className="w-[130px] h-8 text-xs" />
                 </div>
-
-                <Button variant="outline" size="sm" className="h-9" onClick={() => {
+                <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => {
                   setStatusFilter("all"); setTypeFilter("all"); setHistoryDateFrom(""); setHistoryDateTo("");
                 }}>
                   초기화
@@ -1150,99 +1106,72 @@ export default function ApprovalManagement() {
 
             {!historyRequests || historyRequests.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <History className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">처리 이력이 없습니다</p>
+                <CardContent className="py-8 text-center">
+                  <History className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">처리 이력이 없습니다</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {historyRequests.map((request: any) => renderRequestCard(request, "readonly"))}
-              </div>
+              <Card>
+                <CardContent className="p-0">
+                  {historyRequests.map((request: any) => renderRequestRow(request, "readonly"))}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           {/* ============================================================ */}
           {/* 품목제조보고 탭 */}
           {/* ============================================================ */}
-          <TabsContent value="recipe" className="space-y-4">
+          <TabsContent value="recipe" className="space-y-2 mt-2">
             {!pendingRecipes || pendingRecipes.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <Utensils className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">승인 대기 중인 품목제조보고가 없습니다</p>
+                <CardContent className="py-8 text-center">
+                  <Utensils className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">승인 대기 중인 품목제조보고가 없습니다</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {pendingRecipes.map((recipe: any) => (
-                  <Card key={recipe.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                            <Utensils className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg">{recipe.recipeName}</CardTitle>
-                            <CardDescription>
-                              버전: {recipe.version} | 제품 ID: {recipe.productId}
-                            </CardDescription>
-                          </div>
-                        </div>
-                        <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-                          대기 중
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="text-sm space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">배치 크기:</span>
-                          <span className="font-medium">{recipe.batchSize} {recipe.batchUnit}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">수율:</span>
-                          <span className="font-medium">{recipe.yieldRate}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">생성일:</span>
-                          <span className="font-medium">
-                            {format(new Date(recipe.createdAt), "yyyy-MM-dd HH:mm", { locale: ko })}
-                          </span>
+              <Card>
+                <CardContent className="p-0">
+                  {pendingRecipes.map((recipe: any) => (
+                    <div key={recipe.id} className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40 text-sm">
+                      <Utensils className="h-4 w-4 text-purple-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium">{recipe.recipeName}</span>
+                        <div className="text-xs text-muted-foreground">
+                          v{recipe.version} | {recipe.batchSize} {recipe.batchUnit} | 수율 {recipe.yieldRate}%
+                          <span className="ml-2">{format(new Date(recipe.createdAt), "MM.dd HH:mm")}</span>
                         </div>
                       </div>
-                      <div className="flex gap-2 pt-2">
-                        <Button size="sm"
+                      <Badge className="bg-yellow-100 text-yellow-800 text-[10px] px-1.5">대기</Badge>
+                      <div className="flex gap-1">
+                        <Button size="sm" className="h-7 px-2 text-xs"
                           onClick={() => { setSelectedRecipe(recipe); setRecipeApproveDialogOpen(true); }}
-                          className="flex-1"
                         >
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          승인
+                          <CheckCircle className="h-3 w-3 mr-0.5" />승인
                         </Button>
-                        <Button size="sm" variant="destructive"
+                        <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
                           onClick={() => { setSelectedRecipe(recipe); setRecipeRejectDialogOpen(true); }}
-                          className="flex-1"
                         >
-                          <XCircle className="h-4 w-4 mr-1" />
-                          반려
+                          <XCircle className="h-3 w-3 mr-0.5" />반려
                         </Button>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
 
           {/* ============================================================ */}
           {/* 품목제조 이력 탭 */}
           {/* ============================================================ */}
-          <TabsContent value="recipeHistory" className="space-y-4">
-            <div className="flex gap-4 flex-wrap">
+          <TabsContent value="recipeHistory" className="space-y-2 mt-2">
+            <div className="flex gap-2 flex-wrap">
               <Select value={recipeStatusFilter} onValueChange={setRecipeStatusFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="상태 필터" />
+                <SelectTrigger className="w-[140px] h-8 text-xs">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
@@ -1254,67 +1183,37 @@ export default function ApprovalManagement() {
 
             {!recipeHistory || recipeHistory.length === 0 ? (
               <Card>
-                <CardContent className="py-12 text-center">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">품목제조보고 이력이 없습니다</p>
+                <CardContent className="py-8 text-center">
+                  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm text-muted-foreground">품목제조보고 이력이 없습니다</p>
                 </CardContent>
               </Card>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2">
-                {recipeHistory.map((recipe: any) => (
-                  <Card key={recipe.id}>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                            <Utensils className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-lg">{recipe.recipeName}</CardTitle>
-                            <CardDescription>
-                              버전: {recipe.version} | 제품 ID: {recipe.productId}
-                            </CardDescription>
-                          </div>
+              <Card>
+                <CardContent className="p-0">
+                  {recipeHistory.map((recipe: any) => (
+                    <div key={recipe.id} className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40 text-sm">
+                      <Utensils className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium">{recipe.recipeName}</span>
+                        <div className="text-xs text-muted-foreground">
+                          v{recipe.version} | {recipe.batchSize} {recipe.batchUnit}
+                          <span className="ml-2">{format(new Date(recipe.createdAt), "MM.dd HH:mm")}</span>
+                          {recipe.approvalStatus === "REJECTED" && recipe.rejectionReason && (
+                            <span className="ml-2 text-red-500">반려: {recipe.rejectionReason}</span>
+                          )}
                         </div>
-                        <Badge className={recipe.approvalStatus === "APPROVED" 
-                          ? "bg-green-100 text-green-800" 
-                          : "bg-red-100 text-red-800"
-                        }>
-                          {recipe.approvalStatus === "APPROVED" ? "승인됨" : "반려됨"}
-                        </Badge>
                       </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-sm space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">배치 크기:</span>
-                          <span className="font-medium">{recipe.batchSize} {recipe.batchUnit}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">생성일:</span>
-                          <span className="font-medium">
-                            {format(new Date(recipe.createdAt), "yyyy-MM-dd HH:mm", { locale: ko })}
-                          </span>
-                        </div>
-                        {recipe.approvalStatus === "APPROVED" && recipe.approvedAt && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">승인일:</span>
-                            <span className="font-medium">
-                              {format(new Date(recipe.approvedAt), "yyyy-MM-dd HH:mm", { locale: ko })}
-                            </span>
-                          </div>
-                        )}
-                        {recipe.approvalStatus === "REJECTED" && recipe.rejectionReason && (
-                          <div className="pt-2 border-t">
-                            <p className="text-sm text-muted-foreground mb-1">반려 사유:</p>
-                            <p className="text-sm text-red-600">{recipe.rejectionReason}</p>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      <Badge className={recipe.approvalStatus === "APPROVED"
+                        ? "bg-green-100 text-green-800 text-[10px]"
+                        : "bg-red-100 text-red-800 text-[10px]"
+                      }>
+                        {recipe.approvalStatus === "APPROVED" ? "승인" : "반려"}
+                      </Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
         </Tabs>
@@ -1323,179 +1222,130 @@ export default function ApprovalManagement() {
         {/* 검토 다이얼로그 */}
         {/* ============================================================ */}
         <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+              <DialogTitle className="flex items-center gap-2 text-base">
                 <UserCheck className="h-5 w-5 text-orange-600" />
                 검토 확인
               </DialogTitle>
-              <DialogDescription>
-                이 요청을 검토 완료하시겠습니까? 검토 완료 시 승인 대기 상태로 이동합니다.
+              <DialogDescription className="text-xs">
+                검토 완료 시 승인 대기 상태로 이동합니다.
               </DialogDescription>
             </DialogHeader>
             {selectedRequest && (
-              <div className="space-y-3 text-sm border rounded-lg p-3 bg-muted/50">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">유형:</span>
-                  <span className="font-medium">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">제목:</span>
-                  <span className="font-medium">{selectedRequest.title}</span>
-                </div>
+              <div className="text-sm border rounded p-2 bg-muted/50 space-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">유형:</span><span className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">제목:</span><span className="font-medium text-xs truncate max-w-[200px]">{selectedRequest.title}</span></div>
               </div>
             )}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="review-comment">검토 코멘트 (선택)</Label>
-                <Textarea
-                  id="review-comment"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="검토 코멘트를 입력하세요..."
-                  rows={3}
-                />
-              </div>
+            <div>
+              <Label htmlFor="review-comment" className="text-xs">검토 코멘트 (선택)</Label>
+              <Textarea id="review-comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="검토 코멘트..." rows={2} className="text-sm" />
             </div>
-            <DialogFooter className="flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>취소</Button>
-              <Button className="bg-orange-500 hover:bg-orange-600" onClick={handleReview} disabled={reviewMutation.isPending}>
-                {reviewMutation.isPending ? "처리 중..." : "검토 완료"}
+            <DialogFooter className="flex-wrap gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => setReviewDialogOpen(false)}>취소</Button>
+              <Button size="sm" className="bg-orange-500 hover:bg-orange-600" onClick={handleReview} disabled={reviewMutation.isPending}>
+                {reviewMutation.isPending ? "..." : "검토 완료"}
               </Button>
               {canApprove && (
-                <Button className="bg-green-600 hover:bg-green-700" onClick={handleAutoReviewApprove} disabled={autoReviewApproveMutation.isPending}>
-                  {autoReviewApproveMutation.isPending ? "처리 중..." : "검토+승인 동시처리"}
+                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleAutoReviewApprove} disabled={autoReviewApproveMutation.isPending}>
+                  {autoReviewApproveMutation.isPending ? "..." : "검토+승인"}
                 </Button>
               )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ============================================================ */}
         {/* 승인 다이얼로그 */}
-        {/* ============================================================ */}
         <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-green-600" />
-                최종 승인 확인
-              </DialogTitle>
-              <DialogDescription>이 요청을 최종 승인하시겠습니까?</DialogDescription>
+              <DialogTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-5 w-5 text-green-600" />최종 승인</DialogTitle>
             </DialogHeader>
             {selectedRequest && (
-              <div className="space-y-3 text-sm border rounded-lg p-3 bg-muted/50">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">유형:</span>
-                  <span className="font-medium">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">제목:</span>
-                  <span className="font-medium">{selectedRequest.title}</span>
-                </div>
-                {selectedRequest.reviewComments && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">검토 코멘트:</span>
-                    <span className="font-medium text-blue-600">{selectedRequest.reviewComments}</span>
-                  </div>
-                )}
+              <div className="text-sm border rounded p-2 bg-muted/50 space-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">유형:</span><span className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">제목:</span><span className="font-medium text-xs truncate max-w-[200px]">{selectedRequest.title}</span></div>
               </div>
             )}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="approve-comment">승인 코멘트 (선택)</Label>
-                <Textarea
-                  id="approve-comment"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="승인 코멘트를 입력하세요..."
-                  rows={3}
-                />
-              </div>
+            <div>
+              <Label className="text-xs">승인 코멘트 (선택)</Label>
+              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="승인 코멘트..." rows={2} className="text-sm" />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>취소</Button>
-              <Button className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={approveMutation.isPending}>
-                {approveMutation.isPending ? "처리 중..." : "최종 승인"}
+              <Button variant="outline" size="sm" onClick={() => setApproveDialogOpen(false)}>취소</Button>
+              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={approveMutation.isPending}>
+                {approveMutation.isPending ? "..." : "최종 승인"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ============================================================ */}
         {/* 반려 다이얼로그 */}
-        {/* ============================================================ */}
         <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-red-600" />
-                반려 확인
-              </DialogTitle>
-              <DialogDescription>이 요청을 반려하시겠습니까?</DialogDescription>
+              <DialogTitle className="flex items-center gap-2 text-base"><XCircle className="h-5 w-5 text-red-600" />반려</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="reject-comment">반려 사유 (필수)</Label>
-                <Textarea
-                  id="reject-comment"
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="반려 사유를 입력하세요..."
-                  rows={3}
-                  required
-                />
-              </div>
+            <div>
+              <Label className="text-xs">반려 사유 (필수)</Label>
+              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="반려 사유..." rows={2} className="text-sm" required />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>취소</Button>
-              <Button
-                variant="destructive"
-                onClick={handleReject}
+              <Button variant="outline" size="sm" onClick={() => setRejectDialogOpen(false)}>취소</Button>
+              <Button size="sm" variant="destructive" onClick={handleReject}
                 disabled={!comment.trim() || rejectReviewMutation.isPending || rejectApprovalMutation.isPending}
               >
-                {(rejectReviewMutation.isPending || rejectApprovalMutation.isPending) ? "처리 중..." : "반려"}
+                {(rejectReviewMutation.isPending || rejectApprovalMutation.isPending) ? "..." : "반려"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* ============================================================ */}
-        {/* 일괄 처리 확인 다이얼로그 */}
-        {/* ============================================================ */}
-        <Dialog open={batchConfirmDialogOpen} onOpenChange={setBatchConfirmDialogOpen}>
-          <DialogContent>
+        {/* 삭제 다이얼로그 */}
+        <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {batchConfirmAction === "review" 
-                  ? <><UserCheck className="h-5 w-5 text-orange-600" /> 일괄 검토 확인</>
-                  : <><ShieldCheck className="h-5 w-5 text-green-600" /> 일괄 승인 확인</>
-                }
+              <DialogTitle className="flex items-center gap-2 text-base text-red-600"><Trash2 className="h-5 w-5" />승인 요청 삭제</DialogTitle>
+              <DialogDescription className="text-xs">이 승인 요청을 완전히 삭제합니다. 삭제된 데이터는 복구할 수 없습니다.</DialogDescription>
+            </DialogHeader>
+            {selectedRequest && (
+              <div className="text-sm py-1 space-y-1">
+                <p className="font-medium">{selectedRequest.title}</p>
+                <p className="text-xs text-muted-foreground">#{selectedRequest.id} · {REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setCancelDialogOpen(false)}>취소</Button>
+              <Button size="sm" variant="destructive" onClick={handleCancel} disabled={deleteMutation.isPending}>
+                {deleteMutation.isPending ? "삭제 중..." : "삭제 확인"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 일괄 처리 확인 다이얼로그 */}
+        <Dialog open={batchConfirmDialogOpen} onOpenChange={setBatchConfirmDialogOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-base">
+                {batchConfirmAction === "review" ? "일괄 검토 확인" : "일괄 승인 확인"}
               </DialogTitle>
-              <DialogDescription>
+              <DialogDescription className="text-xs">
                 {batchConfirmAction === "review"
-                  ? `선택한 ${selectedReviewCount}건을 일괄 검토 완료하시겠습니까?`
-                  : `선택한 ${selectedApprovalCount}건을 일괄 승인하시겠습니까?`
+                  ? `${selectedReviewCount}건 일괄 검토`
+                  : `${selectedApprovalCount}건 일괄 승인`
                 }
               </DialogDescription>
             </DialogHeader>
-            <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-lg">
-              {batchConfirmAction === "review" 
-                ? "검토 완료 후 승인 대기 상태로 이동합니다."
-                : "최종 승인 처리됩니다. 이 작업은 되돌릴 수 없습니다."
-              }
-            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setBatchConfirmDialogOpen(false)}>취소</Button>
-              <Button 
+              <Button variant="outline" size="sm" onClick={() => setBatchConfirmDialogOpen(false)}>취소</Button>
+              <Button size="sm"
                 className={batchConfirmAction === "review" ? "bg-orange-500 hover:bg-orange-600" : "bg-green-600 hover:bg-green-700"}
                 onClick={batchConfirmAction === "review" ? confirmBatchReview : confirmBatchApprove}
                 disabled={batchReviewMutation.isPending || batchApproveMutation.isPending}
               >
-                {(batchReviewMutation.isPending || batchApproveMutation.isPending) 
-                  ? "처리 중..." 
-                  : batchConfirmAction === "review" ? "일괄 검토" : "일괄 승인"
-                }
+                {(batchReviewMutation.isPending || batchApproveMutation.isPending) ? "..." : "확인"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1507,17 +1357,16 @@ export default function ApprovalManagement() {
         <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>승인 요청 상세</DialogTitle>
+              <DialogTitle className="text-base">승인 요청 상세</DialogTitle>
             </DialogHeader>
             {selectedRequest && (
-              <div className="space-y-4">
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {/* 3단계 진행 표시 */}
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">승인 진행 단계</p>
-                  <ApprovalSteps status={selectedRequest.status} />
+                <div className="p-2 bg-muted/50 rounded text-xs">
+                  <ApprovalStepsInline status={selectedRequest.status} />
                 </div>
 
-                {/* 승인 직인 (승인 완료 시) - formData.approval 우선 사용 */}
+                {/* 승인 직인 (승인 완료 시) */}
                 {selectedRequest.status === "approved" && (() => {
                   const cfd = (selectedRequest as any).checklistFormData;
                   const approval = cfd?.approval;
@@ -1526,199 +1375,98 @@ export default function ApprovalManagement() {
                   const reviewerName = settingNames2?.reviewerName || approval?.reviewerName || selectedRequest.reviewer?.name || "검토자";
                   const approverName = settingNames2?.approverName || approval?.approverName || selectedRequest.approver?.name || "승인자";
                   return (
-                    <div className="p-3 bg-muted/50 rounded-lg flex justify-center">
+                    <div className="p-2 bg-muted/50 rounded flex justify-center">
                       <ApprovalSealRow
                         writer={{ name: writerName, date: selectedRequest.requestedAt || selectedRequest.createdAt }}
                         reviewer={selectedRequest.reviewedAt || approval?.reviewerApproved ? { name: reviewerName, date: selectedRequest.reviewedAt || selectedRequest.approvedAt } : undefined}
                         approver={selectedRequest.approvedAt || approval?.approverApproved ? { name: approverName, date: selectedRequest.approvedAt } : undefined}
-                        size={55}
+                        size={45}
                       />
                     </div>
                   );
                 })()}
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-muted-foreground">유형</div>
-                    <div className="font-medium">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">상태</div>
-                    <Badge className={STATUS_COLORS[selectedRequest.status] || STATUS_COLORS.pending}>
-                      {STATUS_LABELS[selectedRequest.status] || selectedRequest.status}
-                    </Badge>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">제목</div>
-                    <div className="font-medium">{selectedRequest.title}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">요청일</div>
-                    <div className="font-medium">
-                      {selectedRequest.requestedAt ? format(new Date(selectedRequest.requestedAt), "PPP p", { locale: ko }) : "-"}
-                    </div>
-                  </div>
-                  {selectedRequest.reviewedAt && (
-                    <div>
-                      <div className="text-muted-foreground">검토일</div>
-                      <div className="font-medium">
-                        {format(new Date(selectedRequest.reviewedAt), "PPP p", { locale: ko })}
-                      </div>
-                    </div>
-                  )}
-                  {selectedRequest.approvedAt && (
-                    <div>
-                      <div className="text-muted-foreground">승인일</div>
-                      <div className="font-medium">
-                        {format(new Date(selectedRequest.approvedAt), "PPP p", { locale: ko })}
-                      </div>
-                    </div>
-                  )}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div><div className="text-[10px] text-muted-foreground">유형</div><div className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</div></div>
+                  <div><div className="text-[10px] text-muted-foreground">상태</div><Badge className={`${STATUS_COLORS[selectedRequest.status] || STATUS_COLORS.pending} text-[10px]`}>{STATUS_LABELS[selectedRequest.status] || selectedRequest.status}</Badge></div>
+                  <div><div className="text-[10px] text-muted-foreground">제목</div><div className="font-medium text-xs">{selectedRequest.title}</div></div>
+                  <div><div className="text-[10px] text-muted-foreground">요청일</div><div className="text-xs">{selectedRequest.requestedAt ? format(new Date(selectedRequest.requestedAt), "PPP p", { locale: ko }) : "-"}</div></div>
+                  {selectedRequest.reviewedAt && (<div><div className="text-[10px] text-muted-foreground">검토일</div><div className="text-xs">{format(new Date(selectedRequest.reviewedAt), "PPP p", { locale: ko })}</div></div>)}
+                  {selectedRequest.approvedAt && (<div><div className="text-[10px] text-muted-foreground">승인일</div><div className="text-xs">{format(new Date(selectedRequest.approvedAt), "PPP p", { locale: ko })}</div></div>)}
                 </div>
                 {selectedRequest.description && (
-                  <div className="border-t pt-3">
-                    <div className="text-sm text-muted-foreground mb-1">설명</div>
-                    <div className="text-sm whitespace-pre-line">{selectedRequest.description}</div>
-                  </div>
+                  <div className="border-t pt-2"><div className="text-[10px] text-muted-foreground mb-1">설명</div><div className="text-xs whitespace-pre-line">{selectedRequest.description}</div></div>
                 )}
                 {(selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
-                  <div className="border-t pt-3">
-                    <div className="text-sm font-semibold mb-2 flex items-center gap-1">
-                      <Package className="h-4 w-4 text-blue-600" />
-                      CCP 기록지 (배치 #{selectedRequest.referenceId})
-                    </div>
-                    {/* CCP 기록지(h_ccp_form_records) 상태 표시 */}
+                  <div className="border-t pt-2">
+                    <div className="text-xs font-semibold mb-1 flex items-center gap-1"><Package className="h-3.5 w-3.5 text-blue-600" />CCP 기록지 (배치 #{selectedRequest.referenceId})</div>
                     {(ccpFormRecords as any[]).length > 0 && (
                       <div className="mb-2 space-y-1">
                         {(ccpFormRecords as any[]).map((fr: any) => (
                           <div key={fr.id} className="flex items-center justify-between bg-gray-50 border rounded px-2 py-1 text-xs">
-                            <span className="font-medium">{fr.ccpType} — {fr.processGroupName || '-'}</span>
-                            <span className={`px-2 py-0.5 rounded font-semibold ${
-                              fr.status === 'approved' ? 'bg-green-100 text-green-700' :
-                              fr.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
-                              fr.status === 'rejected' ? 'bg-red-100 text-red-700' :
-                              'bg-yellow-100 text-yellow-700'
-                            }`}>
-                              {fr.status === 'approved' ? '✅ 승인완료' :
-                               fr.status === 'submitted' ? '⏳ 검토중' :
-                               fr.status === 'rejected' ? '❌ 반려' : '✏️ 작성중'}
+                            <span className="font-medium">{fr.ccpType} - {fr.processGroupName || '-'}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${fr.status === 'approved' ? 'bg-green-100 text-green-700' : fr.status === 'submitted' ? 'bg-blue-100 text-blue-700' : fr.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                              {fr.status === 'approved' ? 'OK' : fr.status === 'submitted' ? '검토중' : fr.status === 'rejected' ? '반려' : '작성중'}
                             </span>
                           </div>
                         ))}
                       </div>
                     )}
-                    {/* CCP 점검 카드 인라인 표시 */}
                     {ccpListForApproval && ccpListForApproval.length > 0 ? (
-                      <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                         {(ccpListForApproval as any[]).map((ccp: any) => (
                           <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcpForApproval} />
                         ))}
                       </div>
                     ) : (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-                        <div className="text-xs text-blue-600">
-                          CCP 기록지를 불러오는 중이거나 생성되지 않았습니다.
-                        </div>
-                      </div>
+                      <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">CCP 기록지를 불러오는 중이거나 생성되지 않았습니다.</div>
                     )}
-                    <Button
-                      size="sm" variant="outline"
-                      className="w-full mt-2 text-blue-600 border-blue-300"
+                    <Button size="sm" variant="outline" className="w-full mt-2 text-blue-600 border-blue-300 h-7 text-xs"
                       onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
-                    >
-                      <Package className="h-3 w-3 mr-1" />
-                      배치 상세 / CCP 전체 보기
-                    </Button>
+                    >배치 상세 / CCP 전체 보기</Button>
                   </div>
                 )}
-                {selectedRequest.reviewComments && (
-                  <div className="border-t pt-3">
-                    <div className="text-sm text-muted-foreground mb-1">검토 코멘트</div>
-                    <div className="text-sm text-blue-600">{selectedRequest.reviewComments}</div>
-                  </div>
-                )}
-                {selectedRequest.notes && (
-                  <div className="border-t pt-3">
-                    <div className="text-sm text-muted-foreground mb-1">승인 코멘트</div>
-                    <div className="text-sm text-green-600">{selectedRequest.notes}</div>
-                  </div>
-                )}
-                {selectedRequest.rejectionReason && (
-                  <div className="border-t pt-3">
-                    <div className="text-sm text-muted-foreground mb-1">반려 사유</div>
-                    <div className="text-sm text-red-600">{selectedRequest.rejectionReason}</div>
-                  </div>
-                )}
+                {selectedRequest.reviewComments && (<div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">검토: {selectedRequest.reviewComments}</div>)}
+                {selectedRequest.notes && selectedRequest.status === "approved" && (<div className="text-xs text-green-600 bg-green-50 p-2 rounded">승인: {selectedRequest.notes}</div>)}
+                {selectedRequest.rejectionReason && (<div className="text-xs text-red-600 bg-red-50 p-2 rounded">반려: {selectedRequest.rejectionReason}</div>)}
               </div>
             )}
-            <DialogFooter className="flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setDetailDialogOpen(false)}>닫기</Button>
-              {/* 일일/주간/월간 일지 편집 버튼 */}
+            <DialogFooter className="flex-wrap gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => setDetailDialogOpen(false)}>닫기</Button>
               {selectedRequest && ['daily_log', 'weekly_log', 'monthly_log'].includes(selectedRequest.requestType) && selectedRequest.status !== 'approved' && (() => {
-                const routeMap: Record<string, string> = {
-                  daily_log: '/daily-log/daily',
-                  weekly_log: '/weekly-log/form',
-                  monthly_log: '/monthly-log/form',
-                };
+                const routeMap: Record<string, string> = { daily_log: '/daily-log/daily', weekly_log: '/weekly-log/form', monthly_log: '/monthly-log/form' };
                 const route = routeMap[selectedRequest.requestType];
-                // Extract date from title (format: [일일일지] 2025-03-01 ...)
                 const dateMatch = selectedRequest.title?.match(/(\d{4}-\d{2}-\d{2})/);
                 const dateParam = dateMatch ? dateMatch[1] : '';
                 return (
-                  <Button variant="outline" className="text-amber-600 border-amber-300"
-                    onClick={() => {
-                      setDetailDialogOpen(false);
-                      setLocation(`${route}?date=${dateParam}&id=${selectedRequest.referenceId}`);
-                    }}
-                  >
-                    <FileText className="h-4 w-4 mr-1" />
-                    데이터 수정
-                  </Button>
+                  <Button variant="outline" size="sm" className="text-amber-600 border-amber-300"
+                    onClick={() => { setDetailDialogOpen(false); setLocation(`${route}?date=${dateParam}&id=${selectedRequest.referenceId}`); }}
+                  ><FileText className="h-3.5 w-3.5 mr-1" />수정</Button>
                 );
               })()}
               {selectedRequest && (selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
-                <Button variant="outline" className="text-blue-600 border-blue-300"
+                <Button variant="outline" size="sm" className="text-blue-600"
                   onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
-                >
-                  <Package className="h-4 w-4 mr-1" />
-                  배치 상세 이동
-                </Button>
+                ><Package className="h-3.5 w-3.5 mr-1" />배치</Button>
               )}
               {selectedRequest && (selectedRequest.status === "pending_review" || selectedRequest.status === "pending") && canReview && (
                 <>
-                  <Button className="bg-orange-500 hover:bg-orange-600"
+                  <Button size="sm" className="bg-orange-500 hover:bg-orange-600"
                     onClick={() => { setDetailDialogOpen(false); setComment(""); setReviewDialogOpen(true); }}
-                  >
-                    <UserCheck className="h-4 w-4 mr-1" />
-                    검토완료
-                  </Button>
-                  <Button variant="destructive"
-                    onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}
-                  >
-                    반려
-                  </Button>
+                  ><UserCheck className="h-3.5 w-3.5 mr-1" />검토</Button>
+                  <Button size="sm" variant="destructive" onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}>반려</Button>
                 </>
               )}
               {selectedRequest?.status === "pending_approval" && canApprove && (
                 <>
-                  <Button className="bg-green-600 hover:bg-green-700"
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700"
                     onClick={() => { setDetailDialogOpen(false); setComment(""); setApproveDialogOpen(true); }}
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-1" />
-                    최종승인
-                  </Button>
-                  <Button variant="destructive"
-                    onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}
-                  >
-                    반려
-                  </Button>
+                  ><ShieldCheck className="h-3.5 w-3.5 mr-1" />승인</Button>
+                  <Button size="sm" variant="destructive" onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}>반려</Button>
                 </>
               )}
               {selectedRequest?.status === "approved" && (
-                <Button variant="outline" onClick={() => setLocation("/dashboard/document-output")}>
-                  <Printer className="h-4 w-4 mr-1" />
-                  문서 출력
-                </Button>
+                <Button variant="outline" size="sm" onClick={() => setLocation("/dashboard/document-output")}><Printer className="h-3.5 w-3.5 mr-1" />출력</Button>
               )}
             </DialogFooter>
           </DialogContent>
@@ -1726,30 +1474,18 @@ export default function ApprovalManagement() {
 
         {/* 품목제조보고 승인 다이얼로그 */}
         <Dialog open={recipeApproveDialogOpen} onOpenChange={setRecipeApproveDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>품목제조보고 승인 확인</DialogTitle>
-              <DialogDescription>이 품목제조보고를 승인하시겠습니까?</DialogDescription>
-            </DialogHeader>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle className="text-base">품목제조보고 승인</DialogTitle></DialogHeader>
             {selectedRecipe && (
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">레시피 이름:</span>
-                  <span className="font-medium">{selectedRecipe.recipeName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">버전:</span>
-                  <span className="font-medium">{selectedRecipe.version}</span>
-                </div>
+              <div className="text-sm space-y-1">
+                <div className="flex justify-between"><span className="text-muted-foreground">레시피:</span><span className="font-medium">{selectedRecipe.recipeName}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">버전:</span><span>{selectedRecipe.version}</span></div>
               </div>
             )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRecipeApproveDialogOpen(false)}>취소</Button>
-              <Button
-                onClick={() => { if (selectedRecipe) approveRecipeMutation.mutate({ recipeId: selectedRecipe.id }); }}
-                disabled={approveRecipeMutation.isPending}
-              >
-                {approveRecipeMutation.isPending ? "처리 중..." : "승인"}
+              <Button variant="outline" size="sm" onClick={() => setRecipeApproveDialogOpen(false)}>취소</Button>
+              <Button size="sm" onClick={() => { if (selectedRecipe) approveRecipeMutation.mutate({ recipeId: selectedRecipe.id }); }} disabled={approveRecipeMutation.isPending}>
+                {approveRecipeMutation.isPending ? "..." : "승인"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -1757,44 +1493,19 @@ export default function ApprovalManagement() {
 
         {/* 품목제조보고 반려 다이얼로그 */}
         <Dialog open={recipeRejectDialogOpen} onOpenChange={setRecipeRejectDialogOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>품목제조보고 반려 확인</DialogTitle>
-              <DialogDescription>이 품목제조보고를 반려하시겠습니까?</DialogDescription>
-            </DialogHeader>
-            {selectedRecipe && (
-              <div className="space-y-4">
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">레시피 이름:</span>
-                    <span className="font-medium">{selectedRecipe.recipeName}</span>
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="rejection-reason">반려 사유 (필수)</Label>
-                  <Textarea
-                    id="rejection-reason"
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    placeholder="반려 사유를 입력하세요..."
-                    rows={3}
-                    required
-                  />
-                </div>
-              </div>
-            )}
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle className="text-base">품목제조보고 반려</DialogTitle></DialogHeader>
+            <div>
+              <Label className="text-xs">반려 사유 (필수)</Label>
+              <Textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} placeholder="반려 사유..." rows={2} className="text-sm" required />
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRecipeRejectDialogOpen(false)}>취소</Button>
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  if (selectedRecipe && rejectionReason.trim()) {
-                    rejectRecipeMutation.mutate({ recipeId: selectedRecipe.id, reason: rejectionReason });
-                  }
-                }}
+              <Button variant="outline" size="sm" onClick={() => setRecipeRejectDialogOpen(false)}>취소</Button>
+              <Button size="sm" variant="destructive"
+                onClick={() => { if (selectedRecipe && rejectionReason.trim()) rejectRecipeMutation.mutate({ recipeId: selectedRecipe.id, reason: rejectionReason }); }}
                 disabled={!rejectionReason.trim() || rejectRecipeMutation.isPending}
               >
-                {rejectRecipeMutation.isPending ? "처리 중..." : "반려"}
+                {rejectRecipeMutation.isPending ? "..." : "반려"}
               </Button>
             </DialogFooter>
           </DialogContent>

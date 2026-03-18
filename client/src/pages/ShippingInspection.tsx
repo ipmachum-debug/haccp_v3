@@ -58,7 +58,7 @@ export default function ShippingInspection() {
       setIsCreateDialogOpen(false);
       utils.inspection.shipping.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -70,7 +70,7 @@ export default function ShippingInspection() {
       utils.inspection.shipping.list.invalidate();
       utils.inspection.shipping.getById.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -128,7 +128,7 @@ export default function ShippingInspection() {
   };
 
   // 필터링된 기록
-  const filteredRecords = records.filter((record) => {
+  const filteredRecords = records.filter((record: any) => {
     const matchesSearch =
       record.productName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.batchCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -401,7 +401,7 @@ export default function ShippingInspection() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRecords.map((record) => (
+                {filteredRecords.map((record: any) => (
                   <TableRow key={record.id}>
                     <TableCell>
                       {record.inspectionDate
@@ -547,7 +547,7 @@ export default function ShippingInspection() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {selectedRecord.items.map((item, index) => (
+                    {selectedRecord.items.map((item: any, index: any) => (
                       <TableRow key={index}>
                         <TableCell>{item.itemName}</TableCell>
                         <TableCell>{item.standard}</TableCell>

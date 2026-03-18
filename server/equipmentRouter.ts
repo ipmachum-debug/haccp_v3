@@ -1,4 +1,4 @@
-import { router, protectedProcedure } from '../trpc';
+import { router, tenantRequiredProcedure } from '../_core/trpc';
 import { z } from 'zod';
 import { db } from '../db';
 
@@ -9,7 +9,7 @@ const equipmentTypeEnum = z.enum([
 
 export const equipmentRouter = router({
   // 설비 목록 조회
-  list: protectedProcedure.query(async ({ ctx }) => {
+  list: tenantRequiredProcedure.query(async ({ ctx }) => {
     const tenantId = ctx.user.tenantId;
 
     const equipments = await db.query(
@@ -23,7 +23,7 @@ export const equipmentRouter = router({
   }),
 
   // 설비 유형별 조회
-  listByType: protectedProcedure
+  listByType: tenantRequiredProcedure
     .input(
       z.object({
         equipment_type: equipmentTypeEnum,
@@ -43,7 +43,7 @@ export const equipmentRouter = router({
     }),
 
   // 설비 생성
-  create: protectedProcedure
+  create: tenantRequiredProcedure
     .input(
       z.object({
         equipment_type: equipmentTypeEnum,
@@ -81,7 +81,7 @@ export const equipmentRouter = router({
     }),
 
   // 설비 수정 (기본 정보)
-  update: protectedProcedure
+  update: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -123,7 +123,7 @@ export const equipmentRouter = router({
     }),
 
   // 설비 운영 기준값 저장 (설비별 개별 저장)
-  updateOperationSettings: protectedProcedure
+  updateOperationSettings: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -165,7 +165,7 @@ export const equipmentRouter = router({
     }),
 
   // 설비 삭제 (소프트 삭제)
-  delete: protectedProcedure
+  delete: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
@@ -185,7 +185,7 @@ export const equipmentRouter = router({
     }),
 
   // 설비 순서 변경
-  updateOrder: protectedProcedure
+  updateOrder: tenantRequiredProcedure
     .input(
       z.object({
         equipmentIds: z.array(z.number()),
@@ -208,7 +208,7 @@ export const equipmentRouter = router({
     }),
 
   // CCP 타입별 설비 조회
-  listByCcpType: protectedProcedure
+  listByCcpType: tenantRequiredProcedure
     .input(
       z.object({
         ccp_type: z.string(),

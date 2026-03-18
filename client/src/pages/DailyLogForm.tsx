@@ -17,6 +17,7 @@ import { trpc } from "@/lib/trpc";
 import { Calendar, Save, Send, FileText, ArrowLeft, Loader2, Copy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import DashboardLayout from "@/components/DashboardLayout";
 
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
@@ -91,6 +92,18 @@ export default function DailyLogForm() {
   const [recordStatus, setRecordStatus] = useState<string>("new");
   const [preFilledFrom, setPreFilledFrom] = useState<string | null>(null);
 
+  // 문서결재설정에서 작성자 자동 로드
+  const { data: approvalSetting } = (trpc as any).organization.approvalSettings.getByType.useQuery(
+    { documentType: "daily_log" },
+    { staleTime: 60000 }
+  );
+  const { data: employees } = (trpc as any).organization.employees.list.useQuery(undefined, { staleTime: 60000 });
+  const authorName = (() => {
+    if (!approvalSetting?.authorEmployeeId || !employees) return "";
+    const emp = (employees as any[]).find((e: any) => e.id === approvalSetting.authorEmployeeId);
+    return emp?.name || "";
+  })();
+
   // Form data states
   const [hygieneChecks, setHygieneChecks] = useState(structuredClone(DEFAULT_HYGIENE_CHECKS));
   const [hygieneNotes, setHygieneNotes] = useState({ ...EMPTY_NOTES });
@@ -116,12 +129,12 @@ export default function DailyLogForm() {
   );
 
   const saveMutation = trpc.dailyLog.saveFullForm.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       setRecordId(result.id);
       setRecordStatus(result.status);
       toast.success(result.status === 'submitted' ? '제출 완료 (승인관리로 이동됩니다)' : '저장 완료');
     },
-    onError: (err) => toast.error('저장 실패: ' + err.message),
+    onError: (err: any) => toast.error('저장 실패: ' + err.message),
   });
 
   // form_data를 state에 반영하는 함수
@@ -237,6 +250,7 @@ export default function DailyLogForm() {
   const isSaving = saveMutation.isPending;
 
   return (
+    <DashboardLayout>
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -287,6 +301,32 @@ export default function DailyLogForm() {
           </Button>
         </div>
       </div>
+
+      {/* 작성자 정보 (문서결재설정에서 자동) */}
+      {authorName && (
+        <Card>
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">작성자 (문서결재설정)</Label>
+                <div className="text-sm font-medium mt-1">{authorName}</div>
+              </div>
+              {approvalSetting?.reviewerEmployeeId && employees && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">검토자</Label>
+                  <div className="text-sm font-medium mt-1">{(employees as any[]).find((e: any) => e.id === approvalSetting.reviewerEmployeeId)?.name || "-"}</div>
+                </div>
+              )}
+              {approvalSetting?.approverEmployeeId && employees && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">승인자</Label>
+                  <div className="text-sm font-medium mt-1">{(employees as any[]).find((e: any) => e.id === approvalSetting.approverEmployeeId)?.name || "-"}</div>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 배치 정보 (자동생성 데이터가 있는 경우) */}
       {batchData.length > 0 && (
@@ -500,6 +540,7 @@ export default function DailyLogForm() {
         </Tabs>
       )}
     </div>
+    </DashboardLayout>
   );
 }
 

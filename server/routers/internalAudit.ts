@@ -27,7 +27,7 @@ export const internalAuditRouter = router({
       const id = await auditDb.createAuditPlan({
         ...input,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -43,14 +43,15 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAuditPlans({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAuditPlans({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 내부 감사 계획 상세 조회
   getPlanById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return auditDb.getAuditPlanById(input.id);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getAuditPlanById(input.id, tenantId ?? undefined);
     }),
 
   // 내부 감사 계획 수정
@@ -65,9 +66,10 @@ export const internalAuditRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { id, ...data } = input;
-      await auditDb.updateAuditPlan(id, data);
+      await auditDb.updateAuditPlan(id, data, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -75,19 +77,21 @@ export const internalAuditRouter = router({
   approvePlan: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateAuditPlan(input.id, {
         status: "approved",
         approvedBy: ctx.user.id,
         approvedDate: new Date().toISOString().split("T")[0],
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 내부 감사 계획 삭제
   deletePlan: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await auditDb.deleteAuditPlan(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      await auditDb.deleteAuditPlan(input.id, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -117,7 +121,7 @@ export const internalAuditRouter = router({
         auditAreas: input.auditAreas ? JSON.stringify(input.auditAreas) : undefined,
         auditTeam: input.auditTeam ? JSON.stringify(input.auditTeam) : undefined,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -137,14 +141,15 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAudits({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAudits({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 내부 감사 상세 조회
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return auditDb.getAuditById(input.id);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getAuditById(input.id, tenantId ?? undefined);
     }),
 
   // 내부 감사 수정
@@ -168,45 +173,49 @@ export const internalAuditRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { id, auditAreas, auditTeam, ...data } = input;
-      
+
       await auditDb.updateAudit(id, {
         ...data,
         auditAreas: auditAreas ? JSON.stringify(auditAreas) : undefined,
         auditTeam: auditTeam ? JSON.stringify(auditTeam) : undefined,
-      });
-      
+      }, tenantId ?? undefined);
+
       return { success: true };
     }),
 
   // 내부 감사 시작
   start: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateAudit(input.id, {
         status: "in_progress",
         actualStartDate: new Date().toISOString().split("T")[0],
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 내부 감사 완료
   complete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateAudit(input.id, {
         status: "completed",
         actualEndDate: new Date().toISOString().split("T")[0],
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 내부 감사 삭제
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await auditDb.deleteAudit(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      await auditDb.deleteAudit(input.id, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -232,23 +241,25 @@ export const internalAuditRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const id = await auditDb.createChecklistItem({
         ...input,
         checkedBy: ctx.user.id,
         checkedAt: new Date().toISOString(),
-      });
-      
+      }, tenantId ?? undefined);
+
       // 체크리스트 통계 업데이트
-      await auditDb.updateAuditStatistics(input.auditId);
-      
+      await auditDb.updateAuditStatistics(input.auditId, tenantId ?? undefined);
+
       return { id };
     }),
 
   // 체크리스트 목록 조회
   getChecklistItems: tenantRequiredProcedure
     .input(z.object({ auditId: z.number() }))
-    .query(async ({ input }) => {
-      return auditDb.getChecklistItems(input.auditId);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getChecklistItems(input.auditId, tenantId ?? undefined);
     }),
 
   // 체크리스트 항목 수정
@@ -269,31 +280,33 @@ export const internalAuditRouter = router({
         remarks: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { id, ...data } = input;
-      await auditDb.updateChecklistItem(id, data);
-      
+      await auditDb.updateChecklistItem(id, data, tenantId ?? undefined);
+
       // 체크리스트 통계 업데이트
-      const item = await auditDb.getChecklistItemById(id);
+      const item = await auditDb.getChecklistItemById(id, tenantId ?? undefined);
       if (item) {
-        await auditDb.updateAuditStatistics(item.auditId);
+        await auditDb.updateAuditStatistics(item.auditId, tenantId ?? undefined);
       }
-      
+
       return { success: true };
     }),
 
   // 체크리스트 항목 삭제
   deleteChecklistItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const item = await auditDb.getChecklistItemById(input.id);
-      await auditDb.deleteChecklistItem(input.id);
-      
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      const item = await auditDb.getChecklistItemById(input.id, tenantId ?? undefined);
+      await auditDb.deleteChecklistItem(input.id, tenantId ?? undefined);
+
       // 체크리스트 통계 업데이트
       if (item) {
-        await auditDb.updateAuditStatistics(item.auditId);
+        await auditDb.updateAuditStatistics(item.auditId, tenantId ?? undefined);
       }
-      
+
       return { success: true };
     }),
 
@@ -321,10 +334,11 @@ export const internalAuditRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const id = await auditDb.createFinding({
         ...input,
         createdBy: ctx.user.id,
-      });
+      }, tenantId ?? undefined);
       return { id };
     }),
 
@@ -339,15 +353,17 @@ export const internalAuditRouter = router({
         offset: z.number().default(0),
       })
     )
-    .query(async ({ input }) => {
-      return auditDb.getFindings(input);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getFindings({ ...input, tenantId: tenantId ?? undefined });
     }),
 
   // 발견 사항 상세 조회
   getFindingById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return auditDb.getFindingById(input.id);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getFindingById(input.id, tenantId ?? undefined);
     }),
 
   // 발견 사항 수정
@@ -366,20 +382,22 @@ export const internalAuditRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const { id, ...data } = input;
-      await auditDb.updateFinding(id, data);
+      await auditDb.updateFinding(id, data, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 발견 사항 해결
   resolveFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateFinding(input.id, {
         status: "resolved",
         resolvedDate: new Date().toISOString().split("T")[0],
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -387,29 +405,32 @@ export const internalAuditRouter = router({
   verifyFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateFinding(input.id, {
         status: "verified",
         verifiedBy: ctx.user.id,
         verifiedDate: new Date().toISOString().split("T")[0],
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 발견 사항 종결
   closeFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       await auditDb.updateFinding(input.id, {
         status: "closed",
-      });
+      }, tenantId ?? undefined);
       return { success: true };
     }),
 
   // 발견 사항 삭제
   deleteFinding: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await auditDb.deleteFinding(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      await auditDb.deleteFinding(input.id, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -430,25 +451,28 @@ export const internalAuditRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
       const id = await auditDb.createAttachment({
         ...input,
         uploadedBy: ctx.user.id,
-      });
+      }, tenantId ?? undefined);
       return { id };
     }),
 
   // 첨부 파일 목록 조회
   getAttachments: tenantRequiredProcedure
     .input(z.object({ auditId: z.number() }))
-    .query(async ({ input }) => {
-      return auditDb.getAttachments(input.auditId);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getAttachments(input.auditId, tenantId ?? undefined);
     }),
 
   // 첨부 파일 삭제
   deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await auditDb.deleteAttachment(input.id);
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      await auditDb.deleteAttachment(input.id, tenantId ?? undefined);
       return { success: true };
     }),
 
@@ -466,7 +490,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getAuditStatistics({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getAuditStatistics({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 예정된 감사 목록
@@ -478,7 +502,7 @@ export const internalAuditRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      return auditDb.getUpcomingAudits({ ...input, tenantId: ctx.user.tenantId });
+      return auditDb.getUpcomingAudits({ ...input, tenantId: ctx.tenantId ?? undefined });
     }),
 
   // 미해결 발견 사항 통계
@@ -488,7 +512,8 @@ export const internalAuditRouter = router({
         siteId: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
-      return auditDb.getOpenFindingsStatistics(input);
+    .query(async ({ input, ctx }) => {
+      const tenantId = ctx.tenantId;
+      return auditDb.getOpenFindingsStatistics({ ...input, tenantId: tenantId ?? undefined });
     }),
 });

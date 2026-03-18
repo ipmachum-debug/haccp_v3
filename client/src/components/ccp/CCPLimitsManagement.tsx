@@ -107,7 +107,7 @@ function ProcessGroupFormDialog({
       queryClient.invalidateQueries({ queryKey: [['ccpMonitoring', 'getProcessGroupProducts']] });
       queryClient.invalidateQueries({ queryKey: [['ccpMonitoring', 'getProcessGroups']] });
     },
-    onError: (err) => toast.error("제품 매핑 실패: " + err.message),
+    onError: (err: any) => toast.error("제품 매핑 실패: " + err.message),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -548,7 +548,7 @@ function TimeProfileDialog({
       refetch();
       setEditingId(null);
     },
-    onError: (err) => toast.error("저장 실패: " + err.message),
+    onError: (err: any) => toast.error("저장 실패: " + err.message),
   });
 
   const startEdit = (group: any) => {
@@ -918,7 +918,7 @@ export default function CCPLimitsManagement() {
       refetch();
       setIsCreateOpen(false);
     },
-    onError: (err) => toast.error("생성 실패: " + err.message),
+    onError: (err: any) => toast.error("생성 실패: " + err.message),
   });
 
   // 공정 그룹 수정
@@ -928,7 +928,7 @@ export default function CCPLimitsManagement() {
       refetch();
       setEditingGroup(null);
     },
-    onError: (err) => toast.error("수정 실패: " + err.message),
+    onError: (err: any) => toast.error("수정 실패: " + err.message),
   });
 
   // 공정 그룹 삭제
@@ -937,7 +937,7 @@ export default function CCPLimitsManagement() {
       toast.success("공정 그룹이 삭제되었습니다");
       refetch();
     },
-    onError: (err) => toast.error("삭제 실패: " + err.message),
+    onError: (err: any) => toast.error("삭제 실패: " + err.message),
   });
 
   const groups = Array.isArray(processGroups) ? processGroups : [];

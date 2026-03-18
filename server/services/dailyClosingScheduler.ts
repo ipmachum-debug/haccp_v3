@@ -370,6 +370,24 @@ export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
     // 각 테넌트별 마감 처리
     for (const tenant of (tenantRows as any[])) {
       const tenantId = tenant.id;
+      
+      // ★ 생산 활동이 전혀 없는 테넌트는 스킵 (빈 알림/리포트 방지)
+      try {
+        const activityCheck = await db.execute(sql`
+          SELECT 
+            (SELECT COUNT(*) FROM h_batches WHERE tenant_id = ${tenantId} AND DATE(created_at) >= DATE_SUB(${dateStr}, INTERVAL 1 DAY)) as recent_batches,
+            (SELECT COUNT(*) FROM h_batches WHERE tenant_id = ${tenantId}) as total_batches
+        `);
+        const actRows = Array.isArray(activityCheck) && Array.isArray(activityCheck[0]) ? activityCheck[0] : activityCheck;
+        const activity = (actRows as any[])[0];
+        if (Number(activity?.total_batches || 0) === 0) {
+          console.log(`[일일마감] 테넌트 ${tenantId} 스킵 (생산 활동 없음)`);
+          continue;
+        }
+      } catch (skipErr) {
+        // 체크 실패 시 마감 처리 계속 진행
+      }
+      
       console.log(`[일일마감] --- 테넌트 ${tenantId} 마감 시작 ---`);
       
       const summary: DailyClosingSummary = {

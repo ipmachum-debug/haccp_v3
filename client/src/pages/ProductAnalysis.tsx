@@ -70,7 +70,7 @@ export default function ProductAnalysis() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {productCapacity.map((row) => (
+                {productCapacity.map((row: any) => (
                   <TableRow key={row.productId}>
                     <TableCell>
                       <div>

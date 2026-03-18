@@ -178,9 +178,9 @@ function AccountingMonthlyCloseContent() {
     dailyCloseCount?: number;
   };
 
-  const summary = (monthlyClose?.summary as MonthlySummary) || {};
-  const missingDates = (monthlyClose?.missingCloseDates as string[]) || [];
-  const isClosed = monthlyClose?.status === "closed";
+  const summary = ((monthlyClose as any)?.summary as MonthlySummary) || monthlyClose || {};
+  const missingDates = ((monthlyClose as any)?.missingCloseDates || monthlyClose?.missingDays || []) as string[];
+  const isClosed = (monthlyClose as any)?.status === "closed" || (monthlyClose as any)?.closedAt;
   const canClose = monthlyClose && missingDates.length === 0 && !isClosed;
 
   return (
@@ -280,9 +280,9 @@ function AccountingMonthlyCloseContent() {
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
-              {isClosed && monthlyClose.closedAt && (
+              {isClosed && (monthlyClose as any).closedAt && (
                 <p className="text-sm text-muted-foreground">
-                  확정 일시: {new Date(monthlyClose.closedAt).toLocaleString("ko-KR")}
+                  확정 일시: {new Date((monthlyClose as any).closedAt).toLocaleString("ko-KR")}
                 </p>
               )}
             </CardContent>

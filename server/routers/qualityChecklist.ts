@@ -152,8 +152,7 @@ export const qualityChecklistRouter = router({
             sortOrder: item.sortOrder,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: templateId };
@@ -272,7 +271,7 @@ export const qualityChecklistRouter = router({
         sortOrder: input.sortOrder,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      } as any);
       
       return { id: Number(result[0].insertId) };
     }),
@@ -293,9 +292,23 @@ export const qualityChecklistRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      // Note: template items don't have tenant_id directly but are linked via template
-      // The parent template ownership was verified during add, but we verify here too for safety
-      
+      const tenantId = requireTenantId(ctx);
+
+      // tenant 검증: 부모 템플릿 소유권 확인
+      const item = await db
+        .select({ templateId: checklistTemplateItems.templateId })
+        .from(checklistTemplateItems)
+        .where(eq(checklistTemplateItems.id, input.id))
+        .limit(1);
+      if (item.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "항목을 찾을 수 없습니다." });
+
+      const template = await db
+        .select({ id: checklistTemplates.id })
+        .from(checklistTemplates)
+        .where(and(eq(checklistTemplates.id, item[0].templateId), eq(checklistTemplates.tenantId, tenantId)))
+        .limit(1);
+      if (template.length === 0) throw new TRPCError({ code: "FORBIDDEN", message: "권한이 없습니다." });
+
       await db
         .update(checklistTemplateItems)
         .set({
@@ -315,10 +328,26 @@ export const qualityChecklistRouter = router({
    */
   deleteTemplateItem: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      
+      const tenantId = requireTenantId(ctx);
+
+      // tenant 검증: 부모 템플릿 소유권 확인
+      const item = await db
+        .select({ templateId: checklistTemplateItems.templateId })
+        .from(checklistTemplateItems)
+        .where(eq(checklistTemplateItems.id, input.id))
+        .limit(1);
+      if (item.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "항목을 찾을 수 없습니다." });
+
+      const template = await db
+        .select({ id: checklistTemplates.id })
+        .from(checklistTemplates)
+        .where(and(eq(checklistTemplates.id, item[0].templateId), eq(checklistTemplates.tenantId, tenantId)))
+        .limit(1);
+      if (template.length === 0) throw new TRPCError({ code: "FORBIDDEN", message: "권한이 없습니다." });
+
       await db.delete(checklistTemplateItems).where(eq(checklistTemplateItems.id, input.id));
       
       return { success: true };
@@ -386,8 +415,7 @@ export const qualityChecklistRouter = router({
             sortOrder: item.sortOrder,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: newTemplateId };
@@ -456,8 +484,7 @@ export const qualityChecklistRouter = router({
             value: null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
-          }))
-        );
+          })) as any);
       }
       
       return { id: instanceId };
@@ -643,7 +670,7 @@ export const qualityChecklistRouter = router({
         oldValue: oldValue,
         newValue: input.value,
         changedAt: new Date().toISOString(),
-      });
+      } as any);
       
       // 인스턴스 상태 업데이트
       const item = currentItem[0];
@@ -672,6 +699,7 @@ export const qualityChecklistRouter = router({
         .update(checklistInstances)
         .set({
           status: "completed",
+          completedBy: ctx.user.id,
           completedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
@@ -882,26 +910,102 @@ export const qualityChecklistRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
     const tenantId = requireTenantId(ctx);
-    
+    const today = new Date().toISOString().split("T")[0];
+
     const inProgressCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(checklistInstances)
       .where(and(eq(checklistInstances.tenantId, tenantId), eq(checklistInstances.status, "in_progress")));
-    
+
     const completedCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(checklistInstances)
       .where(and(eq(checklistInstances.tenantId, tenantId), eq(checklistInstances.status, "completed")));
-    
+
     const pendingApprovalCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(checklistInstances)
       .where(and(eq(checklistInstances.tenantId, tenantId), eq(checklistInstances.status, "pending_review")));
-    
+
+    // 오늘 마감 체크리스트 (pending 또는 in_progress 중 targetDate = today)
+    const todayDueCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) = ${today}`,
+        sql`${checklistInstances.status} IN ('pending', 'in_progress')`,
+      ));
+
+    // 기한 초과 (targetDate < today AND status IN pending/in_progress)
+    const overdueCount = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) < ${today}`,
+        sql`${checklistInstances.status} IN ('pending', 'in_progress')`,
+      ));
+
+    // 주간 완료율 (이번 주 월~일)
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
+    const weekStartStr = weekStart.toISOString().split("T")[0];
+
+    const weeklyTotal = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) >= ${weekStartStr}`,
+        sql`DATE(${checklistInstances.targetDate}) <= ${today}`,
+      ));
+
+    const weeklyCompleted = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) >= ${weekStartStr}`,
+        sql`DATE(${checklistInstances.targetDate}) <= ${today}`,
+        sql`${checklistInstances.status} IN ('completed', 'approved', 'pending_review')`,
+      ));
+
+    // 월간 완료율 (이번 달 1일~오늘)
+    const monthStart = `${today.slice(0, 7)}-01`;
+
+    const monthlyTotal = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) >= ${monthStart}`,
+        sql`DATE(${checklistInstances.targetDate}) <= ${today}`,
+      ));
+
+    const monthlyCompleted = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(checklistInstances)
+      .where(and(
+        eq(checklistInstances.tenantId, tenantId),
+        sql`DATE(${checklistInstances.targetDate}) >= ${monthStart}`,
+        sql`DATE(${checklistInstances.targetDate}) <= ${today}`,
+        sql`${checklistInstances.status} IN ('completed', 'approved', 'pending_review')`,
+      ));
+
+    const wTotal = Number(weeklyTotal[0]?.count || 0);
+    const wDone = Number(weeklyCompleted[0]?.count || 0);
+    const mTotal = Number(monthlyTotal[0]?.count || 0);
+    const mDone = Number(monthlyCompleted[0]?.count || 0);
+
     return {
       inProgress: Number(inProgressCount[0]?.count || 0),
       completed: Number(completedCount[0]?.count || 0),
       pendingApproval: Number(pendingApprovalCount[0]?.count || 0),
+      todayDue: Number(todayDueCount[0]?.count || 0),
+      overdue: Number(overdueCount[0]?.count || 0),
+      weeklyRate: wTotal > 0 ? Math.round((wDone / wTotal) * 100) : 0,
+      monthlyRate: mTotal > 0 ? Math.round((mDone / mTotal) * 100) : 0,
     };
   }),
 
@@ -915,8 +1019,23 @@ export const qualityChecklistRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
-      // Note: Verified via instance -> tenantId chain
-      
+      const tenantId = requireTenantId(ctx);
+
+      // tenant 검증: instanceItem → instance → tenantId 체인 확인
+      const itemRow = await db
+        .select({ instanceId: checklistInstanceItems.instanceId })
+        .from(checklistInstanceItems)
+        .where(eq(checklistInstanceItems.id, input.instanceItemId))
+        .limit(1);
+      if (itemRow.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "항목을 찾을 수 없습니다." });
+
+      const instRow = await db
+        .select({ id: checklistInstances.id })
+        .from(checklistInstances)
+        .where(and(eq(checklistInstances.id, itemRow[0].instanceId), eq(checklistInstances.tenantId, tenantId)))
+        .limit(1);
+      if (instRow.length === 0) throw new TRPCError({ code: "FORBIDDEN", message: "권한이 없습니다." });
+
       const history = await db
         .select({
           id: checklistInstanceItemHistory.id,
@@ -1043,7 +1162,7 @@ export const qualityChecklistRouter = router({
         changeDescription: input.changeDescription || "템플릿 수정",
         templateSnapshot: templateSnapshot as any,
         createdBy: ctx.user.id,
-      });
+      } as any);
 
       return {
         id: Number(newVersion.insertId),
@@ -1129,7 +1248,7 @@ export const qualityChecklistRouter = router({
         changeDescription: `롤백 전 백업 (버전 ${version[0].version}로 롤백)`,
         templateSnapshot: currentSnapshot as any,
         createdBy: ctx.user.id,
-      });
+      } as any);
 
       // 템플릿 복원
       await db

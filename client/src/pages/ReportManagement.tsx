@@ -15,7 +15,7 @@ export default function ReportManagement() {
   const [ccpType, setCcpType] = useState("");
 
   const generateMutation = trpc.report.generateCcpReport.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       // Base64 PDF를 다운로드
       const link = document.createElement("a");
       link.href = `data:application/pdf;base64,${data.pdf}`;
@@ -24,7 +24,7 @@ export default function ReportManagement() {
       
       toast.success("보고서가 생성되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`보고서 생성 실패: ${error.message}`);
     },
   });

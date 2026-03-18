@@ -45,7 +45,7 @@ export const expenseRouter = router({
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
       const db = await getDb();
-      const p = input || {};
+      const p = input || {} as any;
       const page = p.page || 1;
       const limit = p.limit || 30;
 
@@ -366,6 +366,19 @@ export const expenseRouter = router({
         items,
         postedBy: ctx.user.id,
       });
+
+      // 4. ERP AI: 대형 비용 트리거 (비동기, 실패해도 무시)
+      try {
+        const { onLargeExpenseCreated } = await import("../db/accountingEventTriggers");
+        onLargeExpenseCreated({
+          tenantId,
+          voucherId: input.id,
+          amount: Number(voucher.total_amount),
+          partnerName: voucher.partner_name,
+          description: voucher.description,
+          userId: ctx.user.id,
+        }).catch(() => {});
+      } catch { /* 무시 */ }
 
       return { success: true, journalEntryId: result.journalEntryId };
     }),

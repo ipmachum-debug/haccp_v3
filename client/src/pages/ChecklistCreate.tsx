@@ -59,11 +59,11 @@ export default function ChecklistCreate() {
   };
 
   const createInstanceMutation = trpc.qualityChecklist.createInstance.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("체크리스트가 생성되었습니다");
       
       // 선택된 템플릿 찾기
-      const selectedTemplate = templates?.find(t => t.id === parseInt(templateId));
+      const selectedTemplate = templates?.find((t: any) => t.id === parseInt(templateId));
       
       // 전용 폼 URL 확인
       if (selectedTemplate) {
@@ -77,7 +77,7 @@ export default function ChecklistCreate() {
       // 전용 폼이 없으면 기본 상세 페이지로 이동
       setLocation(`/quality/checklists/${data.id}`);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -130,7 +130,7 @@ export default function ChecklistCreate() {
                     <SelectValue placeholder="템플릿 선택" />
                   </SelectTrigger>
                   <SelectContent>
-                    {templates?.map((template) => (
+                    {templates?.map((template: any) => (
                       <SelectItem key={template.id} value={template.id.toString()}>
                         {template.name} ({template.category})
                       </SelectItem>

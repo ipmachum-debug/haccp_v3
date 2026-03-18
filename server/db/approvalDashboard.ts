@@ -25,7 +25,7 @@ export async function getPendingApprovals(tenantId?: number) {
       requestedBy: hApprovalRequests.requestedBy,
       createdAt: hApprovalRequests.createdAt
     })
-    .from(hApprovalRequests).where(eq(hApprovalRequests.tenantId, tenantId)).orderBy(hApprovalRequests.createdAt);
+    .from(hApprovalRequests).where(eq(hApprovalRequests.tenantId, tenantId as any) ).orderBy(hApprovalRequests.createdAt);
 
   // 2. 요청자 정보 조회
     const requesterIds = Array.from(new Set(requests.map(r => r.requestedBy)));

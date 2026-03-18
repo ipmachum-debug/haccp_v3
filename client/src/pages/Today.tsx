@@ -39,7 +39,7 @@ export default function Today() {
   // 통계 계산
   const stats = {
     totalBatches: todayBatches?.length || 0,
-    inProgressBatches: todayBatches?.filter(b => b.status === "in_progress").length || 0,
+    inProgressBatches: todayBatches?.filter((b: any) => b.status === "in_progress").length || 0,
     pendingCcps: pendingCcps?.length || 0,
     failedItems: 0, // TODO: 실패/이탈 항목 조회
   };
@@ -208,7 +208,7 @@ export default function Today() {
                   </div>
                 ) : pendingCcps && pendingCcps.length > 0 ? (
                   <div className="space-y-4">
-                    {pendingCcps.map((ccp) => (
+                    {pendingCcps.map((ccp: any) => (
                       <Link key={ccp.id} href={`/dashboard/ccp/${ccp.id}`}>
                         <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors">
                           <div className="flex-1">

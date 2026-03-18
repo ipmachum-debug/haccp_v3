@@ -287,7 +287,7 @@ export default function Dashboard() {
             icon={ShieldAlert}
             color={(ccpDeviations?.length || 0) > 0 ? "red" : "emerald"}
             sub={`CCP 이탈 ${ccpDeviations?.length || 0} | 점검 ${todaySchedules?.length || 0}`}
-            href="/dashboard/ccp"
+            href="/quality/ccp-monitoring"
           />
           <MiniKPI
             label="재고 경고"
@@ -329,7 +329,7 @@ export default function Dashboard() {
                   label="CCP 점검"
                   count={todaySchedules?.length || 0}
                   color="red"
-                  href="/dashboard/ccp"
+                  href="/quality/ccp-monitoring"
                 />
                 <TaskItem
                   icon={FlaskConical}
@@ -449,7 +449,7 @@ export default function Dashboard() {
                   <ShieldCheck className="h-4.5 w-4.5 text-emerald-600" />
                   <CardTitle className="text-[15px]">HACCP 상태</CardTitle>
                 </div>
-                <Link href="/dashboard/ccp">
+                <Link href="/quality/ccp-monitoring">
                   <Button variant="ghost" size="sm" className="text-xs gap-1">
                     전체 보기 <ChevronRight className="h-3 w-3" />
                   </Button>

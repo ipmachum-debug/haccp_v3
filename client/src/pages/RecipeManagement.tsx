@@ -65,7 +65,7 @@ export default function RecipeManagement() {
       setIsCreateDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "레시피 생성 중 오류가 발생했습니다.");
     },
   });
@@ -77,7 +77,7 @@ export default function RecipeManagement() {
       setEditingRecipe(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "레시피 수정 중 오류가 발생했습니다.");
     },
   });
@@ -88,7 +88,7 @@ export default function RecipeManagement() {
       toast.success("레시피가 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "레시피 삭제 중 오류가 발생했습니다.");
     },
   });
@@ -99,7 +99,7 @@ export default function RecipeManagement() {
       toast.success("레시피가 복제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "레시피 복제 중 오류가 발생했습니다.");
     },
   });
@@ -110,7 +110,7 @@ export default function RecipeManagement() {
       toast.success("레시피 상태가 변경되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message || "레시피 상태 변경 중 오류가 발생했습니다.");
     },
   });

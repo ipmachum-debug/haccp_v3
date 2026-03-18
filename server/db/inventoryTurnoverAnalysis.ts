@@ -45,7 +45,7 @@ export async function getInventoryTurnoverAnalysis(periodDays: number = 90, tena
       totalQuantity: hInventory.totalQuantity,
       availableQuantity: hInventory.availableQuantity
     })
-    .from(hInventory).where(eq(hInventory.tenantId, tenantId));
+    .from(hInventory).where(eq(hInventory.tenantId, tenantId as any) );
 
   // 원재료별 데이터 집계
   const materialMap = new Map<number, any>();

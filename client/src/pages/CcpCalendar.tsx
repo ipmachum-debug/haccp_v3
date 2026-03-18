@@ -87,7 +87,7 @@ export default function CcpCalendar() {
       setSelectedEvent(null);
       setNote("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -97,7 +97,7 @@ export default function CcpCalendar() {
       toast.success("일정이 변경되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -106,7 +106,7 @@ export default function CcpCalendar() {
   const events: CalendarEvent[] = useMemo(() => {
     if (!schedules) return [];
     
-    return schedules.map((schedule) => {
+    return schedules.map((schedule: any) => {
       const scheduledDate = new Date(schedule.scheduledDate);
       return {
         id: schedule.id,

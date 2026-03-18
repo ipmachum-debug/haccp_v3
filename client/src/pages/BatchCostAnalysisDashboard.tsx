@@ -27,11 +27,11 @@ export default function BatchCostAnalysisDashboard() {
   const summary = costAnalysis
     ? {
         totalBatches: costAnalysis.length,
-        totalPlannedCost: costAnalysis.reduce((sum, b) => sum + b.plannedCost, 0),
-        totalActualCost: costAnalysis.reduce((sum, b) => sum + b.actualCost, 0),
-        underBudgetCount: costAnalysis.filter((b) => b.status === "under_budget").length,
-        onBudgetCount: costAnalysis.filter((b) => b.status === "on_budget").length,
-        overBudgetCount: costAnalysis.filter((b) => b.status === "over_budget").length,
+        totalPlannedCost: costAnalysis.reduce((sum: any, b: any) => sum + b.plannedCost, 0),
+        totalActualCost: costAnalysis.reduce((sum: any, b: any) => sum + b.actualCost, 0),
+        underBudgetCount: costAnalysis.filter((b: any) => b.status === "under_budget").length,
+        onBudgetCount: costAnalysis.filter((b: any) => b.status === "on_budget").length,
+        overBudgetCount: costAnalysis.filter((b: any) => b.status === "over_budget").length,
       }
     : null;
 
@@ -43,7 +43,7 @@ export default function BatchCostAnalysisDashboard() {
     : "0.00";
 
   // 차트 데이터 준비
-  const chartData = costAnalysis?.slice(0, 10).map((batch) => ({
+  const chartData = costAnalysis?.slice(0, 10).map((batch: any) => ({
     batchCode: batch.batchCode,
     plannedCost: batch.plannedCost,
     actualCost: batch.actualCost,
@@ -218,7 +218,7 @@ export default function BatchCostAnalysisDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {costAnalysis?.map((batch) => (
+                  {costAnalysis?.map((batch: any) => (
                     <TableRow key={batch.batchId}>
                       <TableCell className="font-medium">{batch.batchCode}</TableCell>
                       <TableCell>{new Date(batch.plannedDate).toLocaleDateString("ko-KR")}</TableCell>
