@@ -143,6 +143,7 @@ export async function createPurchase(params: {
           alertDate.setDate(alertDate.getDate() + category.alertDays);
           
           alerts.push({
+            tenantId: tenantId,
             siteId: 1,
             lotId: lot.insertId as number,
             alertType: "expiring_soon",

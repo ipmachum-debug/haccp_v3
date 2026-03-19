@@ -17,15 +17,13 @@ export async function getAllInventoryLotsWithDetails(tenantId?: number) {
     ? await db.select().from(hMaterials).where(eq(hMaterials.tenantId, tenantId))
     : await db.select().from(hMaterials);
   const materialMap = new Map(materials.map(m => [m.id, m]));
-  const materialIds = new Set(materials.map(m => m.id));
 
-  // LOT 목록 조회
-  const lots = await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.createdAt));
+  // LOT 목록 조회 (tenantId 직접 필터)
+  const lots = tenantId
+    ? await db.select().from(hInventoryLots).where(eq(hInventoryLots.tenantId, tenantId)).orderBy(desc(hInventoryLots.createdAt))
+    : await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.createdAt));
 
-  // tenantId가 있으면 해당 테넌트 원재료의 LOT만 필터
-  const filteredLots = tenantId
-    ? lots.filter(lot => lot.materialId && materialIds.has(lot.materialId))
-    : lots;
+  const filteredLots = lots;
 
   return filteredLots.map(lot => ({
     ...lot,
@@ -52,7 +50,7 @@ export async function getAllInventoryLots(filters?: {
 
   // 필터 조건 구성
   const conditions = [];
-  // NOTE: hInventoryLots에 tenant_id 컬럼 없음 → hMaterials.tenantId 기반 필터링은 후처리
+  // hInventoryLots.tenant_id로 직접 필터링
   if (filters?.startDate) {
     conditions.push(gte(hInventoryLots.createdAt, new Date(filters.startDate)));
   }
@@ -63,6 +61,11 @@ export async function getAllInventoryLots(filters?: {
     conditions.push(eq(hInventoryLots.materialId, filters.materialId));
   }
    // supplierId 필터는 supplierName으로 대체 (클라이언트 측에서 처리) }
+
+  // tenantId 직접 필터링 (hInventoryLots에 tenant_id 컬럼 있음)
+  if (filters?.tenantId) {
+    conditions.push(eq(hInventoryLots.tenantId, filters.tenantId));
+  }
 
   // 기본 조회
   let query = db.select().from(hInventoryLots);
@@ -76,12 +79,8 @@ export async function getAllInventoryLots(filters?: {
     ? await db.select().from(hMaterials).where(eq(hMaterials.tenantId, filters.tenantId))
     : await db.select().from(hMaterials);
   const materialMap = new Map(materials.map(m => [m.id, m]));
-  const materialIds = new Set(materials.map(m => m.id));
 
-  // tenantId 기반 LOT 필터링 (hInventoryLots에 tenant_id 없으므로 materialId 기준)
-  let filteredLots = filters?.tenantId
-    ? lots.filter(lot => lot.materialId && materialIds.has(lot.materialId))
-    : lots;
+  let filteredLots = lots;
 
   let results = filteredLots.map(lot => ({
     ...lot,
@@ -813,7 +812,7 @@ export async function getInventoryDashboard(tenantId?: number) {
     })
     .from(hInventoryLots)
     .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(tenantId ? eq(hMaterials.tenantId, tenantId) : undefined);
+    .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hInventoryLots.tenantId, tenantId)) : undefined);
 
   // 2. 원재료별 재고 현황 (hMaterials 기준 LEFT JOIN → 재고 0인 원재료도 표시)
   const materialStocks = await db
