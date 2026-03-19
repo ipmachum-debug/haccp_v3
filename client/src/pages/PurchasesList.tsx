@@ -38,6 +38,10 @@ import {
   Package,
   FileSpreadsheet,
   Upload,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -65,6 +69,8 @@ function PurchasesListContent() {
   const [editingPurchase, setEditingPurchase] = useState<any>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const PAGE_SIZE = 25;
 
   // 거래명세표 PDF 생성 (다운로드)
   const generatePDFMutation = trpc.haccpIntegration.generatePurchasePDF.useMutation({
@@ -154,7 +160,7 @@ function PurchasesListContent() {
 
   const { data: purchases = [], isLoading, refetch } = trpc.haccpIntegration.getAllPurchases.useQuery(filters);
 
-  // KPI 계산
+  // KPI 계산 (전체 데이터 기준)
   const kpiData = useMemo(() => {
     const totalCount = purchases.length;
     const totalAmount = purchases.reduce((sum: number, p: any) => sum + parseFloat(p.amount || p.totalAmount || "0"), 0);
@@ -163,9 +169,26 @@ function PurchasesListContent() {
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [purchases]);
 
-  // 전체 선택/해제
+  // 페이지네이션 계산
+  const totalPages = Math.max(1, Math.ceil(purchases.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedPurchases = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return purchases.slice(start, start + PAGE_SIZE);
+  }, [purchases, safePage]);
+
+  // 필터 변경 시 페이지 리셋
+  const resetPage = () => setCurrentPage(1);
+
+  // 현재 페이지 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
-    setSelectedIds(checked ? purchases.map((p: any) => p.id) : []);
+    if (checked) {
+      const pageIds = pagedPurchases.map((p: any) => p.id);
+      setSelectedIds((prev) => [...new Set([...prev, ...pageIds])]);
+    } else {
+      const pageIds = new Set(pagedPurchases.map((p: any) => p.id));
+      setSelectedIds((prev) => prev.filter((id) => !pageIds.has(id)));
+    }
   };
 
   const handleSelectOne = (id: number, checked: boolean) => {
@@ -179,6 +202,7 @@ function PurchasesListContent() {
     setSelectedPartnerId("all");
     setItemNameSearch("");
     setSelectedStatus("all");
+    resetPage();
   };
 
   // 선택 삭제
@@ -430,7 +454,7 @@ function PurchasesListContent() {
               <FileText className="h-4 w-4" />
               매입 거래 내역
             </CardTitle>
-            <span className="text-sm text-muted-foreground">총 {purchases.length}건</span>
+            <span className="text-sm text-muted-foreground">총 {purchases.length}건 · {safePage}/{totalPages} 페이지</span>
           </div>
         </CardHeader>
         <CardContent>
@@ -447,13 +471,14 @@ function PurchasesListContent() {
               <p className="text-sm mt-1">필터 조건을 변경하거나 새로운 거래를 등록해주세요.</p>
             </div>
           ) : (
+            <div className="space-y-4">
             <div className="rounded-lg border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30">
                     <TableHead className="w-[44px]">
                       <Checkbox
-                        checked={selectedIds.length === purchases.length && purchases.length > 0}
+                        checked={pagedPurchases.length > 0 && pagedPurchases.every((p: any) => selectedIds.includes(p.id))}
                         onCheckedChange={handleSelectAll}
                       />
                     </TableHead>
@@ -471,7 +496,7 @@ function PurchasesListContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {purchases.map((purchase: any) => {
+                  {pagedPurchases.map((purchase: any) => {
                     const amount = parseFloat(purchase.amount || purchase.totalAmount || "0");
                     const tax = parseFloat(purchase.taxAmount || "0");
                     return (
@@ -543,6 +568,52 @@ function PurchasesListContent() {
                   })}
                 </TableBody>
               </Table>
+            </div>
+
+            {/* 페이지네이션 */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-sm text-muted-foreground">
+                  {((safePage - 1) * PAGE_SIZE) + 1}–{Math.min(safePage * PAGE_SIZE, purchases.length)}건 / 총 {purchases.length}건
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage(1)} disabled={safePage <= 1} title="첫 페이지">
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage(safePage - 1)} disabled={safePage <= 1} title="이전">
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(p => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+                    .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && p - (arr[idx - 1]) > 1) acc.push("...");
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, idx) =>
+                      p === "..." ? (
+                        <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground text-sm">…</span>
+                      ) : (
+                        <Button key={p} variant={p === safePage ? "default" : "outline"} size="sm"
+                          className="h-8 min-w-[2rem] px-2 text-xs"
+                          onClick={() => setCurrentPage(p as number)}>
+                          {p}
+                        </Button>
+                      )
+                    )}
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage(safePage + 1)} disabled={safePage >= totalPages} title="다음">
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                    onClick={() => setCurrentPage(totalPages)} disabled={safePage >= totalPages} title="마지막 페이지">
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
             </div>
           )}
         </CardContent>
