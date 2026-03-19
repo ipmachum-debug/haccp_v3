@@ -808,7 +808,7 @@ function ReceiptTab() {
                 <TableBody>
                   {receipts.map((r: any) => (
                     <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.createdAt)}</TD>
+                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
                       <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
                       <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
                       <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>

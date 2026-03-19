@@ -207,11 +207,11 @@ export async function getInboundHistory(params: {
   }
   
   if (params.startDate) {
-    conditions.push(gte(hInventoryTransactions.createdAt, params.startDate));
+    conditions.push(gte(hInventoryLots.receiptDate, params.startDate.toISOString().split("T")[0]));
   }
-  
+
   if (params.endDate) {
-    conditions.push(lte(hInventoryTransactions.createdAt, params.endDate));
+    conditions.push(lte(hInventoryLots.receiptDate, params.endDate.toISOString().split("T")[0]));
   }
   
   // supplierId 필터는 supplierName으로 대체 (클라이언트 측에서 처리)
@@ -222,8 +222,11 @@ export async function getInboundHistory(params: {
       lotId: hInventoryTransactions.lotId,
       quantity: hInventoryTransactions.quantity,
       unit: hInventoryTransactions.unit,
+      unitCost: hInventoryTransactions.unitCost,
       notes: hInventoryTransactions.notes,
       createdAt: hInventoryTransactions.createdAt,
+      transactionDate: hInventoryTransactions.transactionDate,
+      receiptDate: hInventoryLots.receiptDate,
       lotNumber: hInventoryLots.lotNumber,
       materialId: hInventoryLots.materialId,
       expiryDate: hInventoryLots.expiryDate,
@@ -237,7 +240,7 @@ export async function getInboundHistory(params: {
     .innerJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
     .where(conditions.length > 1 ? and(...conditions) : conditions[0])
-    .orderBy(desc(hInventoryTransactions.createdAt))
+    .orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryTransactions.id))
     .limit(limit);
 
   let results = await query;
@@ -262,11 +265,14 @@ export async function getInboundHistory(params: {
     materialCode: row.materialCode,
     quantity: parseFloat(row.quantity),
     unit: row.unit,
+    unitPrice: row.unitCost,
     expiryDate: row.expiryDate,
     supplierName: row.supplierName,
     manufacturerName: row.manufacturerName,
     location: row.location,
     notes: row.notes,
+    // 입고일: LOT의 receiptDate → 거래일(transactionDate) → 생성일(createdAt) 순서로 폴백
+    receiptDate: row.receiptDate || row.transactionDate || row.createdAt,
     createdAt: row.createdAt
   }));
 }
