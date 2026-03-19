@@ -1,23 +1,21 @@
 import { getDb, getRawConnection } from "../db";
 import { accountingPurchases } from "../../drizzle/schema_accounting_extended";
 import { hInventoryTransactions, hInventoryLots } from "../../drizzle/schema/part2";
-import { eq } from "drizzle-orm";
-import { generateExpiryAlerts } from "./expiryAlertGenerator";
+import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 /**
  * 매입 POST 로직
- * 
- * DRAFT 상태의 매입 전표를 POSTED로 전환하고,
- * 재고 원장(h_inventory_transactions)과 회계 원장(accounting_transactions)에 자동 반영
- * 
+ *
+ * pending/approved 상태의 매입 전표를 paid(확정)로 전환하고,
+ * 재고 원장(h_inventory_transactions)과 회계 원장에 자동 반영
+ *
  * @param purchaseId 매입 전표 ID
  * @param userId 처리자 ID
  */
 export async function postPurchase(purchaseId: number, userId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
   if (!db) throw new Error("Database connection not available");
 
   // 1. 매입 전표 조회
@@ -41,77 +39,63 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     throw new Error(`취소된 전표는 확정할 수 없습니다. (ID: ${purchaseId})`);
   }
 
+  const tenantId = purchase.tenantId;
+  if (!tenantId) throw new Error('[P0 보안] tenantId is required for purchasePost');
+
   // 3. 멱등성 키 생성
   const docId = `PURCHASE-${purchaseId}`;
-  const sourceType = "PURCHASE";
-  const actionType = "POST";
 
   // 4. LOT 생성 (매입은 항상 새 LOT 생성)
-  const p = purchase as any;
   const lotNumber = `LOT-${Date.now()}-${purchaseId}`;
+  const qty = purchase.quantity?.toString() || "0";
   const [newLot] = await db.insert(hInventoryLots).values({
-    inventoryId: p.inventoryId!,
+    tenantId,
     lotNumber,
-    initialQuantity: purchase.quantity?.toString() || "0",
-    currentQuantity: purchase.quantity?.toString() || "0",
+    quantity: qty,
+    currentQuantity: qty,
+    availableQuantity: qty,
     unit: purchase.unit || "EA",
-    unitCost: purchase.unitPrice?.toString() || "0",
-    receivedDate: purchase.transactionDate,
-    expiryDate: p.expiryDate || null,
-    supplierId: p.supplierId || null,
-    status: "active",
-    createdBy: userId
+    unitPrice: purchase.unitPrice?.toString() || "0",
+    receiptDate: purchase.transactionDate,
+    status: "available",
   } as any);
 
   const lotId = newLot.insertId;
 
-  // 4.5. 소비기한 알람 자동 생성
-  if (p.expiryDate) {
-    await generateExpiryAlerts(lotId, p.inventoryId!, p.expiryDate, userId);
-  }
-
   // 5. 재고 원장 생성 (h_inventory_transactions)
   try {
     await db.insert(hInventoryTransactions).values({
-      inventoryId: p.inventoryId!,
+      tenantId,
       lotId,
       transactionType: "receipt",
-      quantity: purchase.quantity?.toString() || "0",
+      quantity: qty,
       unit: purchase.unit || "EA",
       transactionDate: purchase.transactionDate,
-      sourceType,
-      sourceId: docId,
-      sourceLineId: purchaseId.toString(),
-      actionType,
-      purpose: "매입 입고",
+      referenceType: "PURCHASE",
+      sourceId: purchaseId,
       unitCost: purchase.unitPrice?.toString() || "0",
       amount: purchase.totalAmount?.toString() || "0",
-      createdBy: userId
+      createdBy: userId,
     } as any);
   } catch (error: any) {
-    // 멱등성 키 중복 오류 처리
     if (error.code === "ER_DUP_ENTRY") {
       throw new Error(`이미 처리된 매입 전표입니다. (ID: ${purchaseId})`);
     }
     throw error;
   }
 
-  // 6. 회계 원장 생성 (accounting_transactions) - system_code 기반
+  // 6. 회계 원장 생성 - system_code 기반
   // 매입 분개: 차변 원재료(INVENTORY_RAW) + 부가세대급금(VAT_INPUT), 대변 외상매입금(ACCOUNTS_PAYABLE)
   const totalAmount = Number(purchase.totalAmount || 0);
   const taxAmount = Number(purchase.taxAmount || 0);
   const supplyAmount = totalAmount - taxAmount;
-  const tenantId = purchase.tenantId;
-  if (!tenantId) throw new Error('[P0 보안] tenantId is required for purchasePost');
 
-  // system_code 기반 계정 조회
   const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
-  const vatAcc = taxAmount > 0 
+  const vatAcc = taxAmount > 0
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
     : null;
 
-  // 회계 분개 생성 (expense_journal_entries/lines)
   const conn = await getRawConnection();
   const entryDate = typeof purchase.transactionDate === 'string'
     ? purchase.transactionDate
@@ -153,7 +137,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     partnerId: (purchase as any).partnerId || null,
   });
 
-  // 7. 매입 전표 상태 업데이트 (DRAFT → POSTED)
+  // 7. 매입 전표 상태 업데이트
   await db
     .update(accountingPurchases)
     .set({

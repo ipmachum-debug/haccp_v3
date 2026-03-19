@@ -48,56 +48,11 @@ export async function cancelProductSale(
     throw new Error("판매 문서를 찾을 수 없습니다");
   }
 
-  if (sale.status !== "paid") {
+  if (sale.status !== "received") {
     throw new Error("확정된 판매 문서만 취소할 수 있습니다");
   }
 
-  // 2. 원본 재고 원장 조회 (tenant_id 필터)
-  const originalInventoryTxs = await db
-    .select()
-    .from(hInventoryTransactions)
-    .where(and(
-      eq(hInventoryTransactions.sourceId, `SALE-${saleId}` as any),
-      eq(hInventoryTransactions.tenantId, tenantId)
-    ));
-
-  if (originalInventoryTxs.length === 0) {
-    throw new Error("원본 재고 거래를 찾을 수 없습니다");
-  }
-
-  // 3. 재고 역거래 생성 (각 LOT별로)
-  for (const originalTx of originalInventoryTxs) {
-    if (originalTx.actionType !== "POST") continue;
-
-    try {
-      await db.insert(hInventoryTransactions).values({
-        tenantId,
-        inventoryId: originalTx.inventoryId,
-        lotId: originalTx.lotId,
-        transactionType: "adjustment",
-        quantity: (-parseFloat(originalTx.quantity || "0")).toString(), // 부호 반대
-        unit: originalTx.unit,
-        transactionDate: new Date().toISOString().split("T")[0],
-        sourceType: "SALE",
-        sourceId: `SALE-${saleId}`,
-        sourceLineId: originalTx.sourceLineId,
-        actionType: "REVERSAL",
-        purpose: "cancellation",
-        unitCost: originalTx.unitCost,
-        amount: (-parseFloat(originalTx.amount || "0")).toString(),
-        reversalOfId: originalTx.id,
-        performedBy: userId,
-        createdBy: userId
-      } as any);
-    } catch (error: any) {
-      if (error.code === "ER_DUP_ENTRY") {
-        throw new Error("이미 취소된 판매 문서입니다 (재고 원장 중복)");
-      }
-      throw error;
-    }
-  }
-
-  // 4. 회계 역분개 생성 (expense_journal_entries/lines)
+  // 2. 회계 역분개 생성 (expense_journal_entries/lines)
   const conn = await getRawConnection();
   const cancelDate = new Date().toISOString().split("T")[0];
 

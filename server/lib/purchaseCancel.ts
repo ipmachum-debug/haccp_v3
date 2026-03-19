@@ -48,55 +48,53 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
       and(
         eq(hInventoryTransactions.referenceType, sourceType),
         eq(hInventoryTransactions.sourceId, purchaseId),
-        eq(hInventoryTransactions.actionType, "POST"),
+        eq(hInventoryTransactions.transactionType, "receipt"),
         eq(hInventoryTransactions.tenantId, tenantId)
       )
     )
     .limit(1)
     .then((rows) => rows[0]);
 
-  if (!originalInventoryTx) {
-    throw new Error(`원본 재고 거래를 찾을 수 없습니다. (매입 ID: ${purchaseId})`);
-  }
+  if (originalInventoryTx) {
+    const lotId = originalInventoryTx.lotId;
 
-  const lotId = originalInventoryTx.lotId;
-
-  // 5. 재고 원장에 역거래 추가
-  try {
-    await db.insert(hInventoryTransactions).values({
-      tenantId,
-      inventoryId: (purchase as any).inventoryId!,
-      lotId,
-      transactionType: "adjustment",
-      quantity: (-Number(purchase.quantity || 0)).toString(),
-      unit: purchase.unit || "EA",
-      transactionDate: new Date().toISOString().split("T")[0],
-      sourceType,
-      sourceId: docId,
-      sourceLineId: purchaseId.toString(),
-      actionType: "REVERSAL",
-      purpose: "매입 취소",
-      unitCost: purchase.unitPrice?.toString() || "0",
-      amount: (-Number(purchase.totalAmount || 0)).toString(),
-      createdBy: userId
-    } as any);
-  } catch (error: any) {
-    if (error.code === "ER_DUP_ENTRY") {
-      throw new Error(`이미 취소 처리된 매입 전표입니다. (ID: ${purchaseId})`);
+    // 5. 재고 원장에 역거래 추가
+    try {
+      await db.insert(hInventoryTransactions).values({
+        tenantId,
+        lotId,
+        transactionType: "adjustment",
+        quantity: (-Number(purchase.quantity || 0)).toString(),
+        unit: purchase.unit || "EA",
+        transactionDate: new Date().toISOString().split("T")[0],
+        referenceType: sourceType,
+        sourceId: purchaseId,
+        unitCost: purchase.unitPrice?.toString() || "0",
+        amount: (-Number(purchase.totalAmount || 0)).toString(),
+        createdBy: userId,
+      } as any);
+    } catch (error: any) {
+      if (error.code === "ER_DUP_ENTRY") {
+        throw new Error(`이미 취소 처리된 매입 전표입니다. (ID: ${purchaseId})`);
+      }
+      throw error;
     }
-    throw error;
-  }
 
-  // 6. LOT 재고 감소
-  await db
-    .update(hInventoryLots)
-    .set({
-      currentQuantity: (Number((originalInventoryTx as any).currentQuantity || 0) - Number(purchase.quantity || 0)).toString()
-    })
-    .where(and(
-      eq(hInventoryLots.id, lotId),
-      eq(hInventoryLots.tenantId, tenantId)
-    ));
+    // 6. LOT 재고 감소 (available → 0 또는 disposed)
+    const currentQty = Number((originalInventoryTx as any).quantity || 0);
+    const cancelQty = Number(purchase.quantity || 0);
+    const newQty = Math.max(0, currentQty - cancelQty);
+    await db
+      .update(hInventoryLots)
+      .set({
+        availableQuantity: newQty.toString(),
+        status: newQty <= 0 ? "disposed" : "available",
+      } as any)
+      .where(and(
+        eq(hInventoryLots.id, lotId),
+        eq(hInventoryLots.tenantId, tenantId)
+      ));
+  }
 
   // 7. 회계 역분개 생성 (expense_journal_entries/lines)
   const totalAmount = Number(purchase.totalAmount || 0);

@@ -83,16 +83,16 @@ export async function createPurchase(params: {
     
     // h_inventory_lots에 LOT 생성
     const [lot] = await db.insert(hInventoryLots).values({
+      tenantId: tenantId,
       lotNumber,
       materialId: resolvedMaterialId,
       quantity: totalInventoryQuantity,
       availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
       unit: material.unit, // 원재료의 단위 사용
-      receivedDate: params.transactionDate,
+      receiptDate: params.transactionDate,
       expiryDate: params.expiryDate || null,
       productionDate: params.productionDate || null,
       status: "available", // enum: available, reserved, used, expired, disposed
-      createdBy: params.createdBy
     } as any);
     
     // h_material_inspections에 육안검사일지 자동 생성
