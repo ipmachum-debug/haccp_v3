@@ -802,7 +802,7 @@ export async function getInventoryDashboard(tenantId?: number) {
   const { hInventoryLots, hMaterials } = await import("../../drizzle/schema");
   const { sql, eq, and } = await import("drizzle-orm");
 
-  // 1. 전체 재고 통계
+  // 1. 전체 재고 통계 (활성 원재료만 - materialStocks와 동일 기준)
   const [stockStats] = await db
     .select({
       totalLots: sql<number>`COUNT(*)`,
@@ -811,8 +811,12 @@ export async function getInventoryDashboard(tenantId?: number) {
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
     .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hInventoryLots.tenantId, tenantId)) : undefined);
+    .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .where(and(
+      eq(hMaterials.isActive, 1),
+      tenantId ? eq(hMaterials.tenantId, tenantId) : undefined,
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined
+    ));
 
   // 2. 원재료별 재고 현황 (hMaterials 기준 LEFT JOIN → 재고 0인 원재료도 표시)
   const materialStocks = await db
@@ -828,7 +832,10 @@ export async function getInventoryDashboard(tenantId?: number) {
       expiryWarningDays: hMaterials.expiryWarningDays
     })
     .from(hMaterials)
-    .leftJoin(hInventoryLots, eq(hMaterials.id, hInventoryLots.materialId))
+    .leftJoin(hInventoryLots, and(
+      eq(hMaterials.id, hInventoryLots.materialId),
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined
+    ))
     .where(and(
       eq(hMaterials.isActive, 1),
       tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
@@ -848,11 +855,13 @@ export async function getInventoryDashboard(tenantId?: number) {
       material: hMaterials
     })
     .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
     .where(and(
       eq(hInventoryLots.status, "available"),
+      eq(hMaterials.isActive, 1),
       sql`${hInventoryLots.expiryDate} IS NOT NULL`,
       sql`${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL COALESCE(${hMaterials.expiryWarningDays}, 7) DAY)`,
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined,
       tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
     ))
     .orderBy(hInventoryLots.expiryDate);

@@ -2488,7 +2488,7 @@ export async function predictInventoryShortage(params: {
       and(
         eq(hInventoryLots.materialId, params.materialId),
         sql`${hInventoryTransactions.createdAt} >= ${thirtyDaysAgo.toISOString().split('T')[0]}`,
-        params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+        params.tenantId ? eq(hInventoryTransactions.tenantId, params.tenantId) : undefined
       )
     )
     .orderBy(hInventoryTransactions.createdAt);
@@ -2498,17 +2498,17 @@ export async function predictInventoryShortage(params: {
   const totalUsage = usageTransactions.reduce((sum, t) => sum + Math.abs(Number(t.quantity)), 0);
   const dailyAverageUsage = usageTransactions.length > 0 ? totalUsage / 30 : 0;
   
-  // 3. 현재 재고 조회
+  // 3. 현재 재고 조회 (availableQuantity 사용 - 현황 탭과 동일한 계산)
   const currentStock = await db
     .select({
-      totalQuantity: sql<number>`COALESCE(SUM(${hInventoryLots.quantity}), 0)`
+      totalQuantity: sql<number>`COALESCE(SUM(${hInventoryLots.availableQuantity}), 0)`
     })
     .from(hInventoryLots)
     .where(
       and(
         eq(hInventoryLots.materialId, params.materialId),
         sql`${hInventoryLots.status} = 'available'`,
-        params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+        params.tenantId ? eq(hInventoryLots.tenantId, params.tenantId) : undefined
       )
     );
   
@@ -2606,7 +2606,7 @@ export async function generatePurchaseOrderSuggestions(params: {
     .from(hMaterials)
     .where(and(...conditions));
   
-  // 2. 각 원재료별 재고 예측 분석
+  // 2. 각 원재료별 재고 예측 분석 (현황과 동일한 재고값 사용)
   const suggestions = await Promise.all(
     materials.map(async (material: any) => {
       const prediction = await predictInventoryShortage({
@@ -2614,17 +2614,23 @@ export async function generatePurchaseOrderSuggestions(params: {
         days: params.days,
         tenantId: params.tenantId
       });
-      
+
       const safetyStock = Number(material.safetyStockLevel || 0);
       const leadTime = 7; // 기본 리드타임 7일
-      
-      // 안전 재고 미달 또는 리드타임 내 부족 예상 시 발주 제안
-      const needsOrder = 
-        prediction.currentStock < safetyStock ||
-        prediction.daysUntilShortage <= leadTime;
-      
-      if (!needsOrder) return null;
-      
+
+      // 안전 재고 미달 또는 리드타임 내 부족 예상 시 발주 필요
+      const needsOrder =
+        (safetyStock > 0 && prediction.currentStock < safetyStock) ||
+        (prediction.daysUntilShortage <= leadTime && prediction.dailyAverageUsage > 0);
+
+      // 우선순위: 긴급(재고 0 또는 7일 내 부족), 높음(안전재고 미달), 보통
+      let priority: "urgent" | "high" | "normal" = "normal";
+      if (prediction.currentStock <= 0 || (prediction.daysUntilShortage <= 7 && prediction.dailyAverageUsage > 0)) {
+        priority = "urgent";
+      } else if (safetyStock > 0 && prediction.currentStock < safetyStock) {
+        priority = "high";
+      }
+
       return {
         materialId: material.id,
         materialCode: material.materialCode,
@@ -2637,15 +2643,28 @@ export async function generatePurchaseOrderSuggestions(params: {
         shortageDate: prediction.shortageDate,
         recommendedOrderQuantity: prediction.recommendedOrderQuantity,
         leadTimeDays: leadTime,
-        priority: prediction.isUrgent ? "urgent" as const : "normal" as const,
-        reason: prediction.currentStock < safetyStock
-          ? "안전 재고 미달"
-          : `${prediction.daysUntilShortage}일 내 재고 부족 예상`
+        priority,
+        needsOrder,
+        reason: prediction.currentStock <= 0
+          ? "재고 없음"
+          : safetyStock > 0 && prediction.currentStock < safetyStock
+            ? "안전 재고 미달"
+            : prediction.daysUntilShortage <= leadTime
+              ? `${prediction.daysUntilShortage}일 내 재고 부족 예상`
+              : "정상"
       };
     })
   );
-  
-  return suggestions.filter((s): s is NonNullable<typeof s> => s !== null);
+
+  // 발주 필요 항목 우선, 그 다음 전체 원재료
+  return suggestions.sort((a, b) => {
+    // 발주 필요 항목 먼저
+    if (a.needsOrder && !b.needsOrder) return -1;
+    if (!a.needsOrder && b.needsOrder) return 1;
+    // 같은 그룹 내에서는 우선순위 순서
+    const priorityOrder = { urgent: 0, high: 1, normal: 2 };
+    return (priorityOrder[a.priority] || 2) - (priorityOrder[b.priority] || 2);
+  });
 }
 
 
