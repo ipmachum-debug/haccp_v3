@@ -60,10 +60,10 @@ export async function createPurchase(params: {
     createdBy: params.createdBy
   });
 
-  // 원재료 ID가 있으면 h_inventory + h_inventory_lots + h_inventory_transactions + h_material_inspections 자동 생성
+  // 원재료 ID가 있으면 h_inventory_lots 및 h_material_inspections 자동 생성
   if (resolvedMaterialId) {
-    const { hInventoryLots, hInventoryTransactions, hInventory, hMaterialInspections, hMaterials, partners } = await import("../../drizzle/schema");
-    const { eq, and: drizzleAnd, sql } = await import("drizzle-orm");
+    const { hInventoryLots, hMaterialInspections, hMaterials } = await import("../../drizzle/schema");
+    const { eq } = await import("drizzle-orm");
     
     // 원재료 정보 조회 (unit 필드 필요)
     const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, resolvedMaterialId));
@@ -72,123 +72,54 @@ export async function createPurchase(params: {
       // 원재료를 찾지 못하면 HACCP 연동 건너뛰기 (매입 기록은 이미 생성됨)
     } else {
     
-    // 거래처명 조회
-    let supplierName = "";
-    if (params.partnerId) {
-      try {
-        const [partner] = await db.select().from(partners).where(
-          drizzleAnd(eq(partners.id, params.partnerId), eq(partners.tenantId, tenantId))
-        );
-        supplierName = partner?.companyName || "";
-      } catch (e) {
-        console.warn(`[createPurchase] Partner lookup failed:`, e);
-      }
-    }
-
-    // LOT 번호 자동 생성 (형식: LOT-YYYYMMDD-순번)
-    const txDateStr = params.transactionDate.replace(/-/g, "");
-    const randomSuffix = Math.floor(Math.random() * 10000).toString().padStart(4, "0");
-    const lotNumber = `LOT-${txDateStr}-${randomSuffix}`;
+    // LOT 번호 자동 생성 (형식: MAT-YYYYMMDD-순번)
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    const lotNumber = `MAT-${dateStr}-${randomSuffix}`;
     
     // 포장규격 × 수량 = 총 재고량
     const totalInventoryQuantity = (params.packagingSize || 1) * params.quantity;
-    const materialUnit = material.unit || params.unit || "kg";
     
-    // ━━━ h_inventory 마스터 생성/업데이트 ━━━
-    const [existingInventory] = await db.select().from(hInventory).where(
-      drizzleAnd(
-        eq(hInventory.tenantId, tenantId),
-        eq(hInventory.materialId, resolvedMaterialId)
-      )
-    );
-
-    let inventoryId: number;
-    if (existingInventory) {
-      // 기존 재고가 있으면 수량 증가
-      inventoryId = existingInventory.id;
-      await db.update(hInventory)
-        .set({
-          totalQuantity: sql`${hInventory.totalQuantity} + ${totalInventoryQuantity.toFixed(3)}`,
-          availableQuantity: sql`${hInventory.availableQuantity} + ${totalInventoryQuantity.toFixed(3)}`,
-        })
-        .where(eq(hInventory.id, inventoryId));
-    } else {
-      // 새 재고 마스터 생성
-      const [newInv] = await db.insert(hInventory).values({
-        tenantId,
-        siteId: 1,
-        materialId: resolvedMaterialId,
-        itemName: params.itemName,
-        totalQuantity: totalInventoryQuantity.toFixed(3),
-        availableQuantity: totalInventoryQuantity.toFixed(3),
-        reservedQuantity: "0.000",
-        unit: materialUnit,
-        location: "원재료 창고",
-      } as any);
-      inventoryId = newInv.insertId as number;
-    }
-
-    // ━━━ h_inventory_lots에 LOT 생성 ━━━
+    // h_inventory_lots에 LOT 생성
     const [lot] = await db.insert(hInventoryLots).values({
-      tenantId,
-      inventoryId,
+      tenantId: tenantId,
       lotNumber,
       materialId: resolvedMaterialId,
-      quantity: totalInventoryQuantity.toFixed(3),
-      availableQuantity: totalInventoryQuantity.toFixed(3),
-      unit: materialUnit,
-      unitPrice: params.unitPrice.toFixed(2),
+      quantity: totalInventoryQuantity,
+      availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
+      unit: material.unit, // 원재료의 단위 사용
       receiptDate: params.transactionDate,
       expiryDate: params.expiryDate || null,
       productionDate: params.productionDate || null,
-      supplierName: supplierName || null,
-      location: "원재료 창고",
-      status: "available",
-    } as any);
-
-    const lotId = lot.insertId as number;
-
-    // ━━━ h_inventory_transactions에 입고 트랜잭션 생성 ━━━
-    await db.insert(hInventoryTransactions).values({
-      tenantId,
-      lotId,
-      inventoryId,
-      transactionType: "receipt",
-      quantity: totalInventoryQuantity.toFixed(3),
-      unit: materialUnit,
-      unitCost: params.unitPrice.toFixed(2),
-      amount: (totalInventoryQuantity * params.unitPrice).toFixed(2),
-      transactionDate: params.transactionDate,
-      referenceType: "purchase",
-      referenceId: purchase.insertId as number,
-      sourceType: "accounting_purchases",
-      actionType: "inbound",
-      purpose: "매입 입고",
-      performedBy: params.createdBy,
-      createdBy: params.createdBy,
-      notes: `${supplierName ? supplierName + " - " : ""}${params.itemName} ${totalInventoryQuantity}${materialUnit} 입고`,
+      status: "available", // enum: available, reserved, used, expired, disposed
     } as any);
     
     // h_material_inspections에 육안검사일지 자동 생성
+    // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
     await db.insert(hMaterialInspections).values({
       tenantId: tenantId,
-      receivingId: purchase.insertId as number,
+      receivingId: purchase.insertId as number, // accounting_purchases.id
       inspectionDate: params.transactionDate,
       inspectorId: params.createdBy,
-      status: "pending",
-      result: "pass",
+      status: "pending", // enum: pending, passed, failed, conditional - 초기 상태는 pending
+      result: "pass", // enum: pass, fail, conditional
       notes: params.memo || null
     } as any);
     
     // 카테고리의 alertDays 조회 및 알람 자동 생성
     const { categories, hStockAlerts } = await import("../../drizzle/schema");
+    // eslint-disable-next-line no-unreachable
     
+    // 원재료의 categoryId 조회 (이미 조회한 material 변수 사용)
     if (material?.categoryId) {
       const [category] = await db.select().from(categories).where(eq(categories.id, material.categoryId));
       
+      // alertDays > 0이면 알람 생성
       if (category && category.alertDays && category.alertDays > 0) {
         const alerts: any[] = [];
         
+        // 소비기한 기반 알람 (expiryDate - alertDays)
         if (params.expiryDate) {
           const expiryDate = new Date(params.expiryDate);
           const alertDate = new Date(expiryDate);
@@ -197,7 +128,7 @@ export async function createPurchase(params: {
           alerts.push({
             tenantId: tenantId,
             siteId: 1,
-            lotId,
+            lotId: lot.insertId as number,
             alertType: "expiring_soon",
             alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
             resolved: 0,
@@ -205,6 +136,7 @@ export async function createPurchase(params: {
           });
         }
         
+        // 생산일자 기반 알람 (productionDate + alertDays)
         if (params.productionDate) {
           const productionDate = new Date(params.productionDate);
           const alertDate = new Date(productionDate);
@@ -213,7 +145,7 @@ export async function createPurchase(params: {
           alerts.push({
             tenantId: tenantId,
             siteId: 1,
-            lotId,
+            lotId: lot.insertId as number,
             alertType: "expiring_soon",
             alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
             resolved: 0,
@@ -221,6 +153,7 @@ export async function createPurchase(params: {
           });
         }
         
+        // 알람 일괄 삽입
         if (alerts.length > 0) {
           await db.insert(hStockAlerts).values(alerts);
         }

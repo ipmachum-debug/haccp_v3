@@ -23,7 +23,9 @@ export async function getAllInventoryLotsWithDetails(tenantId?: number) {
     ? await db.select().from(hInventoryLots).where(eq(hInventoryLots.tenantId, tenantId)).orderBy(desc(hInventoryLots.createdAt))
     : await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.createdAt));
 
-  return lots.map(lot => ({
+  const filteredLots = lots;
+
+  return filteredLots.map(lot => ({
     ...lot,
     materialName: lot.materialId ? (materialMap.get(lot.materialId)?.materialName || "Unknown") : "Unknown",
     materialCode: lot.materialId ? (materialMap.get(lot.materialId)?.materialCode || "") : ""
@@ -49,9 +51,6 @@ export async function getAllInventoryLots(filters?: {
   // 필터 조건 구성
   const conditions = [];
   // hInventoryLots.tenant_id로 직접 필터링
-  if (filters?.tenantId) {
-    conditions.push(eq(hInventoryLots.tenantId, filters.tenantId));
-  }
   if (filters?.startDate) {
     conditions.push(gte(hInventoryLots.createdAt, new Date(filters.startDate)));
   }
@@ -62,6 +61,11 @@ export async function getAllInventoryLots(filters?: {
     conditions.push(eq(hInventoryLots.materialId, filters.materialId));
   }
    // supplierId 필터는 supplierName으로 대체 (클라이언트 측에서 처리) }
+
+  // tenantId 직접 필터링 (hInventoryLots에 tenant_id 컬럼 있음)
+  if (filters?.tenantId) {
+    conditions.push(eq(hInventoryLots.tenantId, filters.tenantId));
+  }
 
   // 기본 조회
   let query = db.select().from(hInventoryLots);
@@ -76,7 +80,9 @@ export async function getAllInventoryLots(filters?: {
     : await db.select().from(hMaterials);
   const materialMap = new Map(materials.map(m => [m.id, m]));
 
-  let results = lots.map(lot => ({
+  let filteredLots = lots;
+
+  let results = filteredLots.map(lot => ({
     ...lot,
     materialName: lot.materialId ? (materialMap.get(lot.materialId)?.materialName || "Unknown") : "Unknown",
     materialCode: lot.materialId ? (materialMap.get(lot.materialId)?.materialCode || "") : ""
@@ -796,7 +802,7 @@ export async function getInventoryDashboard(tenantId?: number) {
   const { hInventoryLots, hMaterials } = await import("../../drizzle/schema");
   const { sql, eq, and } = await import("drizzle-orm");
 
-  // 1. 전체 재고 통계
+  // 1. 전체 재고 통계 (활성 원재료만 - materialStocks와 동일 기준)
   const [stockStats] = await db
     .select({
       totalLots: sql<number>`COUNT(*)`,
@@ -805,8 +811,12 @@ export async function getInventoryDashboard(tenantId?: number) {
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
     .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(tenantId ? and(eq(hMaterials.tenantId, tenantId), eq(hInventoryLots.tenantId, tenantId)) : undefined);
+    .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .where(and(
+      eq(hMaterials.isActive, 1),
+      tenantId ? eq(hMaterials.tenantId, tenantId) : undefined,
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined
+    ));
 
   // 2. 원재료별 재고 현황 (hMaterials 기준 LEFT JOIN → 재고 0인 원재료도 표시)
   const materialStocks = await db
@@ -822,7 +832,10 @@ export async function getInventoryDashboard(tenantId?: number) {
       expiryWarningDays: hMaterials.expiryWarningDays
     })
     .from(hMaterials)
-    .leftJoin(hInventoryLots, and(eq(hMaterials.id, hInventoryLots.materialId), tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined))
+    .leftJoin(hInventoryLots, and(
+      eq(hMaterials.id, hInventoryLots.materialId),
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined
+    ))
     .where(and(
       eq(hMaterials.isActive, 1),
       tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
@@ -842,12 +855,14 @@ export async function getInventoryDashboard(tenantId?: number) {
       material: hMaterials
     })
     .from(hInventoryLots)
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
+    .innerJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
     .where(and(
       eq(hInventoryLots.status, "available"),
+      eq(hMaterials.isActive, 1),
       sql`${hInventoryLots.expiryDate} IS NOT NULL`,
       sql`${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL COALESCE(${hMaterials.expiryWarningDays}, 7) DAY)`,
-      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined
+      tenantId ? eq(hInventoryLots.tenantId, tenantId) : undefined,
+      tenantId ? eq(hMaterials.tenantId, tenantId) : undefined
     ))
     .orderBy(hInventoryLots.expiryDate);
 
@@ -906,9 +921,10 @@ export async function getInventoryTrend(params: {
     conditions.push(eq(hInventoryLots.materialId, params.materialId));
   }
 
-  // tenantId 직접 필터링 (hInventoryLots.tenant_id)
+  // hInventoryLots → hMaterials JOIN으로 tenantId 필터링 (별도 서브쿼리)
   if (params.tenantId) {
-    conditions.push(eq(hInventoryLots.tenantId, params.tenantId));
+    const { hMaterials } = await import("../../drizzle/schema");
+    conditions.push(sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})`);
   }
 
   const trend = await db
@@ -967,7 +983,7 @@ export async function getInventoryTurnoverAnalysis(params: {
       eq(hInventoryTransactions.transactionType, "usage"),
       sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
       sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
-      params.tenantId ? eq(hInventoryLots.tenantId, params.tenantId) : undefined
+      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
     ))
     .groupBy(hInventoryLots.materialId);
 
@@ -980,7 +996,7 @@ export async function getInventoryTurnoverAnalysis(params: {
     .from(hInventoryLots)
     .where(and(
       eq(hInventoryLots.status, "available"),
-      params.tenantId ? eq(hInventoryLots.tenantId, params.tenantId) : undefined
+      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
     ))
     .groupBy(hInventoryLots.materialId);
 

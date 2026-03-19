@@ -247,20 +247,28 @@ export default function InventoryManagement() {
 }
 
 /* ═══════════════════════════════════════════════════
-   발주 제안 (원재료 전용)
+   발주 제안 (원재료 전용) - 현황 탭과 동일한 재고값 표시
    ═══════════════════════════════════════════════════ */
 function PurchaseOrderTab() {
   const [days, setDays] = useState(30);
   const utils = trpc.useUtils();
   const { data: suggs, isLoading } = trpc.inventory.getPurchaseOrderSuggestions.useQuery({ days });
-  const approveMut = trpc.inventory.approvePurchaseOrder.useMutation({ onSuccess: () => { utils.inventory.getPurchaseOrderSuggestions.invalidate(); alert("승인됨"); } });
-  const rejectMut = trpc.inventory.rejectPurchaseOrder.useMutation({ onSuccess: () => { utils.inventory.getPurchaseOrderSuggestions.invalidate(); alert("거부됨"); } });
+  const approveMut = trpc.inventory.approvePurchaseOrder.useMutation({
+    onSuccess: () => {
+      utils.inventory.getPurchaseOrderSuggestions.invalidate();
+      utils.inventory.getDashboard.invalidate();
+      alert("승인됨");
+    },
+  });
+  const rejectMut = trpc.inventory.rejectPurchaseOrder.useMutation({
+    onSuccess: () => { utils.inventory.getPurchaseOrderSuggestions.invalidate(); alert("거부됨"); },
+  });
 
   return (
     <Card>
       <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
         <div className="flex items-center justify-between">
-          <SectionTitle icon={Calendar} title="자동 발주 제안" desc="재고 예측 기반 최적 발주" />
+          <SectionTitle icon={Calendar} title="자동 발주 제안" desc="입고 · 현황 연동 재고 기반 최적 발주" />
           <Select value={days.toString()} onValueChange={(v) => setDays(+v)}>
             <SelectTrigger className="w-28 h-10 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -270,32 +278,41 @@ function PurchaseOrderTab() {
         </div>
       </CardHeader>
       <CardContent className="p-3">
-        {isLoading ? <Loading /> : !suggs?.length ? <Empty text="발주 필요 원재료 없음" /> : (
+        {isLoading ? <Loading /> : !suggs?.length ? <Empty text="원재료 데이터 없음" /> : (
           <StyledTable>
             <TableHeader><TableRow>
-              <TH>원재료</TH><TH>현재고</TH><TH>권장발주</TH>
-              <TH className="text-right">비용</TH><TH className="text-center">우선</TH><TH className="text-center w-32">작업</TH>
+              <TH>원재료</TH><TH>현재고</TH><TH>안전재고</TH><TH>권장발주</TH>
+              <TH className="text-center">우선</TH><TH className="text-center w-32">작업</TH>
             </TableRow></TableHeader>
             <TableBody>
               {suggs.map((s: any) => (
-                <TableRow key={s.materialId} className="hover:bg-muted/30">
+                <TableRow key={s.materialId} className={`hover:bg-muted/30 ${!s.needsOrder ? "opacity-50" : ""}`}>
                   <TD>
                     <span className="font-medium">{s.materialName}</span>
                     <span className="text-muted-foreground ml-2 text-xs">{s.materialCode}</span>
                   </TD>
-                  <TD className="font-mono">{fmt(s.currentStock)} {s.unit}</TD>
+                  <TD className={`font-mono ${s.currentStock <= 0 ? "text-red-500 font-semibold" : ""}`}>
+                    {fmt(s.currentStock)} {s.unit}
+                  </TD>
+                  <TD className="font-mono text-muted-foreground">{fmt(s.safetyStockLevel)} {s.unit}</TD>
                   <TD className="font-mono font-medium">{fmt(s.recommendedOrderQuantity)} {s.unit}</TD>
-                  <TD className="text-right text-muted-foreground">{won(s.recommendedOrderQuantity * 1000)}</TD>
                   <TD className="text-center">
-                    <Badge variant={s.priority === "urgent" ? "destructive" : "outline"} className="text-xs px-2.5 py-1">
-                      {s.priority === "urgent" ? "긴급" : "보통"}
+                    <Badge
+                      variant={s.priority === "urgent" ? "destructive" : s.priority === "high" ? "secondary" : "outline"}
+                      className="text-xs px-2.5 py-1"
+                    >
+                      {s.priority === "urgent" ? "긴급" : s.priority === "high" ? "높음" : "보통"}
                     </Badge>
                   </TD>
                   <TD className="text-center">
-                    <div className="flex gap-2 justify-center">
-                      <Button size="sm" className="h-9 text-sm px-4" onClick={() => { if(confirm("승인?")) approveMut.mutate({ materialId: s.materialId, quantity: s.recommendedOrderQuantity }); }}>승인</Button>
-                      <Button size="sm" variant="ghost" className="h-9 text-sm px-4 text-muted-foreground" onClick={() => { const r = prompt("거부 사유:"); if(r !== null) rejectMut.mutate({ materialId: s.materialId, reason: r || undefined }); }}>거부</Button>
-                    </div>
+                    {s.needsOrder ? (
+                      <div className="flex gap-2 justify-center">
+                        <Button size="sm" className="h-9 text-sm px-4" onClick={() => { if(confirm("승인?")) approveMut.mutate({ materialId: s.materialId, quantity: s.recommendedOrderQuantity }); }}>승인</Button>
+                        <Button size="sm" variant="ghost" className="h-9 text-sm px-4 text-muted-foreground" onClick={() => { const r = prompt("거부 사유:"); if(r !== null) rejectMut.mutate({ materialId: s.materialId, reason: r || undefined }); }}>거부</Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </TD>
                 </TableRow>
               ))}
@@ -638,13 +655,29 @@ function ReceiptTab() {
   const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 50 });
 
   const createMut = trpc.lotManagement.createReceivingWithLot.useMutation({
-    onSuccess: (r: any) => { utils.inventory.getInboundHistory.invalidate(); utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate();
+    onSuccess: (r: any) => {
+      // 입고→현황→발주→예측 모든 탭 캐시 갱신
+      utils.inventory.getInboundHistory.invalidate();
+      utils.inventory.list.invalidate();
+      utils.inventory.getDashboard.invalidate();
+      utils.inventory.getPurchaseOrderSuggestions.invalidate();
+      utils.inventory.predictAllShortage.invalidate();
+      utils.inventory.getTrend.invalidate();
+      utils.inventory.getTurnoverAnalysis.invalidate();
       const purchaseMsg = r.accountingPurchaseCreated ? "\n(매입전표 자동 생성됨)" : "";
       alert(`입고 완료! LOT: ${r.lotNumber}${purchaseMsg}`); setMatId(null); setMatName(""); setMatCode(""); setQty(""); setPrice(""); setSelectedSupplierId(null); setSelectedSupplierName(""); setExpiry(""); setNotes(""); setShowForm(false); },
     onError: (e: any) => alert(`실패: ${e.message}`),
   });
   const backfillMut = trpc.lotManagement.backfillLots.useMutation({
-    onSuccess: (r: any) => { utils.inventory.getInboundHistory.invalidate(); utils.inventory.list.invalidate(); alert(`LOT 일괄 생성: ${r?.created || 0}건`); },
+    onSuccess: (r: any) => {
+      // LOT 일괄 생성 후 모든 탭 캐시 갱신
+      utils.inventory.getInboundHistory.invalidate();
+      utils.inventory.list.invalidate();
+      utils.inventory.getDashboard.invalidate();
+      utils.inventory.getPurchaseOrderSuggestions.invalidate();
+      utils.inventory.predictAllShortage.invalidate();
+      alert(`LOT 일괄 생성: ${r?.created || 0}건`);
+    },
     onError: (e: any) => alert(`실패: ${e.message}`),
   });
 
