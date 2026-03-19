@@ -718,9 +718,30 @@ export default function ApprovalManagement() {
             </span>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-            <span>{request.requester?.name || "?"}</span>
+            {(() => {
+              const settingNames = getApprovalSettingNames(request.requestType || "");
+              const writerName = settingNames?.writerName || request.requester?.name || "?";
+              return <span>{writerName}</span>;
+            })()}
             <span>{dateStr}</span>
-            <ApprovalStepsInline status={request.status} />
+            {(() => {
+              const settingNames = getApprovalSettingNames(request.requestType || "");
+              return (
+                <span className="inline-flex items-center gap-0.5 text-[10px]">
+                  <span className="text-green-600 font-semibold">{"\u2713"}작성</span>
+                  <span className="text-gray-300 mx-0.5">{">"}</span>
+                  <span className={request.status === "pending_approval" || request.status === "approved" ? "text-green-600 font-semibold" : "text-gray-400"}>
+                    {request.status === "pending_approval" || request.status === "approved" ? "\u2713" : "\u25CB"}검토
+                    {settingNames?.reviewerName && <span className="ml-0.5 text-gray-500">·{settingNames.reviewerName}</span>}
+                  </span>
+                  <span className="text-gray-300 mx-0.5">{">"}</span>
+                  <span className={request.status === "approved" ? "text-green-600 font-semibold" : "text-gray-400"}>
+                    {request.status === "approved" ? "\u2713" : "\u25CB"}승인
+                    {settingNames?.approverName && <span className="ml-0.5 text-gray-500">·{settingNames.approverName}</span>}
+                  </span>
+                </span>
+              );
+            })()}
           </div>
         </div>
 
