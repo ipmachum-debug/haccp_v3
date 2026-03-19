@@ -378,6 +378,9 @@ export async function getAllPurchases(filters?: {
     query = query.where(and(...conditions)) as any;
   }
 
+  const { desc } = await import("drizzle-orm");
+  query = query.orderBy(desc(accountingPurchases.transactionDate), desc(accountingPurchases.id)) as any;
+
   return await query;
 }
 
