@@ -20,8 +20,8 @@ export async function getAllInventoryLotsWithDetails(tenantId?: number) {
 
   // LOT 목록 조회 (tenantId 직접 필터)
   const lots = tenantId
-    ? await db.select().from(hInventoryLots).where(eq(hInventoryLots.tenantId, tenantId)).orderBy(desc(hInventoryLots.createdAt))
-    : await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.createdAt));
+    ? await db.select().from(hInventoryLots).where(eq(hInventoryLots.tenantId, tenantId)).orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryLots.id))
+    : await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryLots.id));
 
   const filteredLots = lots;
 
@@ -52,10 +52,10 @@ export async function getAllInventoryLots(filters?: {
   const conditions = [];
   // hInventoryLots.tenant_id로 직접 필터링
   if (filters?.startDate) {
-    conditions.push(gte(hInventoryLots.createdAt, new Date(filters.startDate)));
+    conditions.push(gte(hInventoryLots.receiptDate, filters.startDate));
   }
   if (filters?.endDate) {
-    conditions.push(lte(hInventoryLots.createdAt, new Date(filters.endDate)));
+    conditions.push(lte(hInventoryLots.receiptDate, filters.endDate));
   }
   if (filters?.materialId) {
     conditions.push(eq(hInventoryLots.materialId, filters.materialId));
@@ -72,7 +72,7 @@ export async function getAllInventoryLots(filters?: {
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
   }
-  const lots = await query.orderBy(desc(hInventoryLots.createdAt));
+  const lots = await query.orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryLots.id));
 
   // 원재료 정보 병합 (tenantId 필터 포함)
   const materials = filters?.tenantId
