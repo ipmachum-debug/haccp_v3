@@ -54,11 +54,9 @@ export async function createPurchase(params: {
     taxAmount: params.taxAmount.toString(),
     taxRate: "10.00",
     sourceType: "manual",
-    sourceId: null,
-    notes: params.memo,
+    notes: params.memo ?? null,
     status: "approved",
-    accountCategoryId: params.accountCategoryId,
-
+    accountCategoryId: params.accountCategoryId ?? null,
     createdBy: params.createdBy
   });
 
@@ -209,10 +207,8 @@ export async function createSale(params: {
     taxAmount: params.taxAmount.toString(),
     taxRate: "10.00",
     sourceType: "manual",
-    sourceId: null,
-    notes: params.memo,
+    notes: params.memo ?? null,
     status: "approved",
-
     createdBy: params.createdBy
   });
 
