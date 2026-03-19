@@ -47,10 +47,10 @@ export function StatCard({ icon: Icon, label, value, sub, color = "blue" }: {
   );
 }
 
-/* ─────────── 테이블 래퍼 ─────────── */
+/* ─────────── 테이블 래퍼 (모바일 수평 스와이프 지원) ─────────── */
 export const StyledTable = ({ children }: { children: React.ReactNode }) => (
-  <div className="border rounded-lg overflow-hidden">
-    <Table>{children}</Table>
+  <div className="border rounded-lg overflow-x-auto -mx-px">
+    <Table className="min-w-[600px]">{children}</Table>
   </div>
 );
 export const TH = ({ children, className = "" }: { children?: React.ReactNode; className?: string }) => (

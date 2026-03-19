@@ -79,16 +79,19 @@ export default function InventoryManagement() {
 
         {/* ── 탭 ── */}
         <Tabs defaultValue="current" className="space-y-3">
-          <TabsList className="grid w-full grid-cols-8 h-9">
-            <TabsTrigger value="current" className="text-xs gap-1 data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
-            <TabsTrigger value="release" className="text-xs gap-1 data-[state=active]:font-semibold"><PackageMinus className="h-3.5 w-3.5" />{isMat ? "소모" : "출고"}</TabsTrigger>
-            <TabsTrigger value="receipt" className="text-xs gap-1 data-[state=active]:font-semibold"><PackagePlus className="h-3.5 w-3.5" />입고</TabsTrigger>
-            <TabsTrigger value="trend" className="text-xs gap-1 data-[state=active]:font-semibold"><TrendingUp className="h-3.5 w-3.5" />추이</TabsTrigger>
-            <TabsTrigger value="turnover" className="text-xs gap-1 data-[state=active]:font-semibold"><RotateCw className="h-3.5 w-3.5" />회전율</TabsTrigger>
-            <TabsTrigger value="prediction" className="text-xs gap-1 data-[state=active]:font-semibold"><AlertCircle className="h-3.5 w-3.5" />예측</TabsTrigger>
-            <TabsTrigger value="purchase" className="text-xs gap-1 data-[state=active]:font-semibold"><Calendar className="h-3.5 w-3.5" />발주</TabsTrigger>
-            <TabsTrigger value="adjustment" className="text-xs gap-1 data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />조정</TabsTrigger>
-          </TabsList>
+          {/* 탭: 모바일에서 수평 스와이프 가능 */}
+          <div className="overflow-x-auto -mx-1 px-1">
+            <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-8 h-9">
+              <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
+              <TabsTrigger value="release" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackageMinus className="h-3.5 w-3.5" />{isMat ? "소모" : "출고"}</TabsTrigger>
+              <TabsTrigger value="receipt" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackagePlus className="h-3.5 w-3.5" />입고</TabsTrigger>
+              <TabsTrigger value="trend" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><TrendingUp className="h-3.5 w-3.5" />추이</TabsTrigger>
+              <TabsTrigger value="turnover" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><RotateCw className="h-3.5 w-3.5" />회전율</TabsTrigger>
+              <TabsTrigger value="prediction" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><AlertCircle className="h-3.5 w-3.5" />예측</TabsTrigger>
+              <TabsTrigger value="purchase" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Calendar className="h-3.5 w-3.5" />발주</TabsTrigger>
+              <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />조정</TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* ━━━ 재고현황 ━━━ */}
           <TabsContent value="current" className="space-y-5 mt-0">
@@ -799,27 +802,49 @@ function ReceiptTab() {
         </CardHeader>
         <CardContent className="p-3">
           {isLoading ? <Loading /> : !receipts?.length ? <Empty text="입고 내역 없음" /> : (
-            <div className="overflow-x-auto">
-              <StyledTable>
-                <TableHeader><TableRow>
-                  <TH>입고일</TH><TH>LOT</TH><TH>원재료</TH>
-                  <TH className="text-right">수량</TH><TH className="text-right">단가</TH><TH>공급업체</TH><TH>소비기한</TH>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {receipts.map((r: any) => (
-                    <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
-                      <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
-                      <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
-                      <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
-                      <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
-                      <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
-                      <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </StyledTable>
-            </div>
+            <>
+              {/* 데스크톱: 테이블 (스와이프 가능) */}
+              <div className="hidden sm:block">
+                <StyledTable>
+                  <TableHeader><TableRow>
+                    <TH>입고일</TH><TH>LOT</TH><TH>원재료</TH>
+                    <TH className="text-right">수량</TH><TH className="text-right">단가</TH><TH>공급업체</TH><TH>소비기한</TH>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {receipts.map((r: any) => (
+                      <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
+                        <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
+                        <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
+                        <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
+                        <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
+                        <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
+                        <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
+                        <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </StyledTable>
+              </div>
+
+              {/* 모바일: 카드 리스트 */}
+              <div className="sm:hidden space-y-2">
+                {receipts.map((r: any) => (
+                  <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-medium text-sm truncate">{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></p>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5 border-t text-xs">
+                      <div className="flex justify-between"><span className="text-muted-foreground">수량</span><span className="font-mono font-semibold">{r.quantity} {r.unit}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">단가</span><span className="font-mono">{r.unitPrice ? won(r.unitPrice) : "-"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">LOT</span><span className="font-mono truncate ml-1">{r.lotNumber || "-"}</span></div>
+                      <div className="flex justify-between"><span className="text-muted-foreground">소비기한</span><span>{fmtDate(r.expiryDate)}</span></div>
+                      {r.supplierName && <div className="col-span-2 flex justify-between"><span className="text-muted-foreground">공급업체</span><span>{r.supplierName}</span></div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
