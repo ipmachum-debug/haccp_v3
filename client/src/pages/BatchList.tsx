@@ -439,7 +439,12 @@ export default function BatchList() {
                             <div className="space-y-3">
                               <div className="flex items-center gap-2">
                                 <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                                <span className="font-semibold text-base">{batch.batchCode}</span>
+                                <div>
+                                  <span className="font-semibold text-base">{batch.batchCode}</span>
+                                  {batch.productName && (
+                                    <div className="text-xs text-muted-foreground">{batch.productName}</div>
+                                  )}
+                                </div>
                               </div>
                               <div>{getStatusBadge(batch.status)}</div>
                               {showCost && batchCosts[batch.id] !== undefined && (
