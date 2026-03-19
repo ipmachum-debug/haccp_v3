@@ -23,31 +23,67 @@ export function MaterialStockView({ dashboard, isLoading }: { dashboard: any; is
         </CardHeader>
         <CardContent className="p-3">
           {isLoading ? <Loading /> : !dashboard?.materialStocks?.length ? <Empty /> : (
-            <StyledTable>
-              <TableHeader><TableRow>
-                <TH>원재료</TH><TH>총 수량</TH><TH className="text-center">LOT</TH>
-                <TH className="text-right">단가</TH><TH className="text-right">총 가치</TH><TH className="text-center">상태</TH>
-              </TableRow></TableHeader>
-              <TableBody>
+            <>
+              {/* 데스크톱: 테이블 뷰 (스와이프 가능) */}
+              <div className="hidden sm:block">
+                <StyledTable>
+                  <TableHeader><TableRow>
+                    <TH>원재료</TH><TH>총 수량</TH><TH className="text-center">LOT</TH>
+                    <TH className="text-right">단가</TH><TH className="text-right">총 가치</TH><TH className="text-center">상태</TH>
+                  </TableRow></TableHeader>
+                  <TableBody>
+                    {dashboard.materialStocks.map((m: any) => (
+                      <TableRow key={m.materialId} className="hover:bg-muted/30">
+                        <TD>
+                          <span className="font-medium">{m.materialName}</span>
+                          <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
+                        </TD>
+                        <TD className="font-mono">{fmt(m.totalQuantity)} {m.unit}</TD>
+                        <TD className="text-center">{m.lotCount}</TD>
+                        <TD className="text-right text-muted-foreground">{won(m.unitPrice)}</TD>
+                        <TD className="text-right font-medium">{won(m.totalValue)}</TD>
+                        <TD className="text-center">
+                          <Badge variant={m.isLowStock ? "destructive" : "secondary"} className="text-xs px-2.5 py-1">
+                            {m.isLowStock ? "부족" : "정상"}
+                          </Badge>
+                        </TD>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </StyledTable>
+              </div>
+
+              {/* 모바일: 카드 리스트 뷰 */}
+              <div className="sm:hidden space-y-2">
                 {dashboard.materialStocks.map((m: any) => (
-                  <TableRow key={m.materialId} className="hover:bg-muted/30">
-                    <TD>
-                      <span className="font-medium">{m.materialName}</span>
-                      <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
-                    </TD>
-                    <TD className="font-mono">{fmt(m.totalQuantity)} {m.unit}</TD>
-                    <TD className="text-center">{m.lotCount}</TD>
-                    <TD className="text-right text-muted-foreground">{won(m.unitPrice)}</TD>
-                    <TD className="text-right font-medium">{won(m.totalValue)}</TD>
-                    <TD className="text-center">
-                      <Badge variant={m.isLowStock ? "destructive" : "secondary"} className="text-xs px-2.5 py-1">
+                  <div key={m.materialId} className="border rounded-lg p-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{m.materialName}</p>
+                        <p className="text-xs text-muted-foreground">{m.materialCode}</p>
+                      </div>
+                      <Badge variant={m.isLowStock ? "destructive" : "secondary"} className="text-xs px-2 py-0.5 shrink-0">
                         {m.isLowStock ? "부족" : "정상"}
                       </Badge>
-                    </TD>
-                  </TableRow>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t">
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">수량</p>
+                        <p className="text-sm font-mono font-semibold">{fmt(m.totalQuantity)} <span className="text-xs font-normal">{m.unit}</span></p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-muted-foreground">LOT</p>
+                        <p className="text-sm font-mono">{m.lotCount}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-muted-foreground">총 가치</p>
+                        <p className="text-sm font-semibold">{won(m.totalValue)}</p>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </StyledTable>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
