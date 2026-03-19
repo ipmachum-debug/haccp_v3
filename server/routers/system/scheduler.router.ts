@@ -68,7 +68,7 @@ export const schedulerRouter = router({
               status,
               resultMessage,
               deletedCount
-            });
+            } as any);
           }
         } catch (logError) {
           console.error("[스케줄러] 실행 이력 저장 실패:", logError);

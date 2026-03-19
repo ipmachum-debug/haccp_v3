@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import session from "express-session";
@@ -121,7 +122,7 @@ async function startServer() {
       secure: process.env.NODE_ENV === 'production', // HTTPS에서만 secure 쿠키
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7일
-      domain: process.env.NODE_ENV === 'production' ? '.haccpone.co.kr' : undefined,
+      domain: process.env.NODE_ENV === 'production' ? '.haccpone.com' : undefined,
     },
   }));
   
@@ -136,6 +137,19 @@ async function startServer() {
   const yearlyLogRestRouter = (await import("../routers/yearlyLogRest")).default;
   app.use("/api/yearlyLog", yearlyLogRestRouter);
   app.use("/api/superadmin", superadminRouter);
+  // 정적 파일 다운로드 (템플릿 문서 등)
+  app.get("/api/download/:filename", (req, res) => {
+    const allowed = ["HACCP-ONE_데이터입력_템플릿.docx"];
+    const filename = req.params.filename;
+    if (!allowed.includes(filename)) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    const filePath = path.resolve(process.cwd(), filename);
+    res.download(filePath, filename, (err) => {
+      if (err) res.status(404).json({ error: "File not found" });
+    });
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

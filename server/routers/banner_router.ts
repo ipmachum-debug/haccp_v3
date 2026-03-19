@@ -1,35 +1,36 @@
 import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
-import { eq, and, lte, gte, desc } from "drizzle-orm";
+import { eq, and, lte, gte, desc, or, isNull } from "drizzle-orm";
+import { banners } from "../../drizzle/schema_control_plane_ops";
 
 export const bannerRouter = router({
   // 활성 배너 조회 (일반 사용자용)
   getActiveBanners: protectedProcedure.query(async ({ ctx }) => {
-    const db = getDb();
+    const db = await getDb();
     const now = new Date();
     
-    const banners = await db
+    const rows = await db
       .select()
-      .from(db.schema.banners)
+      .from(banners)
       .where(
         and(
-          eq(db.schema.banners.isActive, true),
-          lte(db.schema.banners.startDate, now),
-          gte(db.schema.banners.endDate, now),
+          eq(banners.isActive, true),
+          lte(banners.startDate, now),
+          gte(banners.endDate, now),
           // 테넌트 필터: null(전체) 또는 현재 테넌트
-          ctx.user.tenantId 
+          ctx.tenantId 
             ? or(
-                eq(db.schema.banners.tenantId, null),
-                eq(db.schema.banners.tenantId, ctx.user.tenantId)
+                isNull(banners.tenantId),
+                eq(banners.tenantId, ctx.tenantId)
               )
-            : eq(db.schema.banners.tenantId, null)
+            : isNull(banners.tenantId)
         )
       )
-      .orderBy(desc(db.schema.banners.priority));
+      .orderBy(desc(banners.priority));
     
     // 역할 필터링
-    return banners.filter(banner => {
+    return rows.filter(banner => {
       if (!banner.targetRoles) return true;
       return banner.targetRoles.includes(ctx.user.role);
     });
@@ -37,11 +38,11 @@ export const bannerRouter = router({
 
   // 모든 배너 조회 (슈퍼관리자용)
   getAllBanners: adminProcedure.query(async () => {
-    const db = getDb();
+    const db = await getDb();
     return await db
       .select()
-      .from(db.schema.banners)
-      .orderBy(desc(db.schema.banners.createdAt));
+      .from(banners)
+      .orderBy(desc(banners.createdAt));
   }),
 
   // 배너 생성 (슈퍼관리자용)
@@ -61,14 +62,21 @@ export const bannerRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       
       const [banner] = await db
-        .insert(db.schema.banners)
+        .insert(banners)
         .values({
-          ...input,
+          title: input.title,
+          content: input.content,
+          type: input.type,
+          color: input.color,
+          icon: input.icon,
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
+          targetRoles: input.targetRoles ?? null,
+          tenantId: input.tenantId ?? null,
+          priority: input.priority,
         })
         .$returningId();
       
@@ -94,7 +102,7 @@ export const bannerRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       const { id, ...data } = input;
       
       const updateData: any = { ...data };
@@ -102,9 +110,9 @@ export const bannerRouter = router({
       if (data.endDate) updateData.endDate = new Date(data.endDate);
       
       await db
-        .update(db.schema.banners)
+        .update(banners)
         .set(updateData)
-        .where(eq(db.schema.banners.id, id));
+        .where(eq(banners.id, id));
       
       return { success: true };
     }),
@@ -113,11 +121,11 @@ export const bannerRouter = router({
   deleteBanner: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       
       await db
-        .delete(db.schema.banners)
-        .where(eq(db.schema.banners.id, input.id));
+        .delete(banners)
+        .where(eq(banners.id, input.id));
       
       return { success: true };
     }),
@@ -126,12 +134,12 @@ export const bannerRouter = router({
   toggleBanner: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      const db = getDb();
+      const db = await getDb();
       
       const [banner] = await db
         .select()
-        .from(db.schema.banners)
-        .where(eq(db.schema.banners.id, input.id))
+        .from(banners)
+        .where(eq(banners.id, input.id))
         .limit(1);
       
       if (!banner) {
@@ -139,9 +147,9 @@ export const bannerRouter = router({
       }
       
       await db
-        .update(db.schema.banners)
+        .update(banners)
         .set({ isActive: !banner.isActive })
-        .where(eq(db.schema.banners.id, input.id));
+        .where(eq(banners.id, input.id));
       
       return { success: true, isActive: !banner.isActive };
     }),

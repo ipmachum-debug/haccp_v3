@@ -119,7 +119,7 @@ export async function adjustInventory(params: {
     referenceId: null,
     notes: `${params.reason}${params.notes ? ` | ${params.notes}` : ""}`,
     createdBy: params.createdBy
-  });
+  } as any);
 
   // h_inventory 테이블 재고 조정
   await adjustInventoryQuantity({

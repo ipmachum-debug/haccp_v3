@@ -36,7 +36,7 @@ export default function ScheduleOptimization() {
       setNewDate("");
       toast.success("일정이 변경되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`일정 변경 실패: ${error.message}`);
     },
   });
@@ -138,7 +138,7 @@ export default function ScheduleOptimization() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {optimization.suggestions.map((suggestion) => (
+                    {optimization.suggestions.map((suggestion: any) => (
                       <TableRow key={suggestion.batchId}>
                         <TableCell className="font-medium">{suggestion.batchCode}</TableCell>
                         <TableCell>{suggestion.productName}</TableCell>

@@ -38,7 +38,7 @@ export default function ApprovalPendingWidget() {
       setNotes("");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`승인 실패: ${error.message}`);
     },
   });
@@ -51,7 +51,7 @@ export default function ApprovalPendingWidget() {
       setRejectionReason("");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`거부 실패: ${error.message}`);
     },
   });
@@ -127,7 +127,7 @@ export default function ApprovalPendingWidget() {
             <div className="text-center py-8">로딩 중...</div>
           ) : pendingRequests && pendingRequests.length > 0 ? (
             <div className="space-y-3">
-              {pendingRequests.map((request) => (
+              {pendingRequests.map((request: any) => (
                 <div
                   key={request.id}
                   className="p-4 rounded-lg border bg-accent/50 hover:bg-accent transition-colors cursor-pointer"

@@ -2,7 +2,8 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import SuperAdminLayout from "@/components/SuperAdminLayout";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as _motion, AnimatePresence } from "framer-motion";
+const motion = _motion as any;
 import {
   MessageCircle, Search, Eye, Lock, Unlock, Trash2, Edit3, 
   Send, X, CheckCircle2, Clock, AlertCircle, ChevronRight,
@@ -57,7 +58,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const updateMutation = trpc.support.adminUpdate.useMutation({
@@ -67,7 +68,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const deleteMutation = trpc.support.adminDelete.useMutation({
@@ -76,7 +77,7 @@ function TicketModal({
       onClose();
       utils.support.adminList.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const statusMutation = trpc.support.updateStatus.useMutation({
@@ -85,7 +86,7 @@ function TicketModal({
       utils.support.adminList.invalidate();
       utils.support.adminDetail.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const handleReply = () => {
@@ -136,7 +137,7 @@ function TicketModal({
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
+        onClick={(e: any) => e.stopPropagation()}
       >
         {isLoading ? (
           <div className="p-12 text-center">
@@ -336,7 +337,7 @@ export default function SupportManagePage() {
       toast.success("삭제되었습니다.");
       refetch();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const handleQuickDelete = (id: number, subject: string) => {

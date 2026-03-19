@@ -30,7 +30,7 @@ export default function CostAnalysis() {
   const products = productsData || [];
 
   // 필터링된 배치
-  const filteredBatches = batches.filter((batch) => {
+  const filteredBatches = batches.filter((batch: any) => {
     if (productFilter !== "all" && batch.productId !== parseInt(productFilter)) {
       return false;
     }
@@ -39,8 +39,8 @@ export default function CostAnalysis() {
 
   // 배치별 원가 비교 데이터
   const costComparisonData = filteredBatches
-    .filter((batch) => batch.plannedCost || batch.actualCost)
-    .map((batch) => ({
+    .filter((batch: any) => batch.plannedCost || batch.actualCost)
+    .map((batch: any) => ({
       batchNumber: batch.batchCode || `BATCH-${batch.id}`,
       plannedCost: parseFloat(batch.plannedCost || "0"),
       actualCost: parseFloat(batch.actualCost || "0"),
@@ -49,9 +49,9 @@ export default function CostAnalysis() {
 
   // 원가 차이 추세 데이터 (날짜별)
   const costTrendData = filteredBatches
-    .filter((batch) => batch.actualCost && batch.completedAt)
-    .sort((a, b) => new Date(a.completedAt!).getTime() - new Date(b.completedAt!).getTime())
-    .map((batch) => ({
+    .filter((batch: any) => batch.actualCost && batch.completedAt)
+    .sort((a: any, b: any) => new Date(a.completedAt!).getTime() - new Date(b.completedAt!).getTime())
+    .map((batch: any) => ({
       date: new Date(batch.completedAt!).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }),
       difference: parseFloat(batch.actualCost || "0") - parseFloat(batch.plannedCost || "0"),
       differencePercent:
@@ -73,11 +73,11 @@ export default function CostAnalysis() {
 
   // 통계 계산
   const totalPlannedCost = filteredBatches.reduce(
-    (sum, batch) => sum + parseFloat(batch.plannedCost || "0"),
+    (sum: any, batch: any) => sum + parseFloat(batch.plannedCost || "0"),
     0
   );
   const totalActualCost = filteredBatches.reduce(
-    (sum, batch) => sum + parseFloat(batch.actualCost || "0"),
+    (sum: any, batch: any) => sum + parseFloat(batch.actualCost || "0"),
     0
   );
   const totalDifference = totalActualCost - totalPlannedCost;
@@ -127,7 +127,7 @@ export default function CostAnalysis() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {products.map((product) => (
+                  {products.map((product: any) => (
                     <SelectItem key={product.id} value={product.id.toString()}>
                       {product.productName}
                     </SelectItem>

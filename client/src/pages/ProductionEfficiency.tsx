@@ -309,7 +309,7 @@ export default function ProductionEfficiency() {
                         </tr>
                       </thead>
                       <tbody>
-                        {timeAnalysis.map((item, index) => (
+                        {timeAnalysis.map((item: any, index: any) => (
                           <tr key={index} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-4">{item.date}</td>
                             <td className="text-right py-2 px-4">{item.totalBatches}개</td>
@@ -359,7 +359,7 @@ export default function ProductionEfficiency() {
                         </tr>
                       </thead>
                       <tbody>
-                        {defectAnalysis.map((item, index) => (
+                        {defectAnalysis.map((item: any, index: any) => (
                           <tr key={index} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-4">{item.productName}</td>
                             <td className="text-right py-2 px-4">

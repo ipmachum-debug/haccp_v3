@@ -54,7 +54,7 @@ export async function createHazardAnalysis(data: {
     criticalLimit: data.criticalLimit,
     analyzedBy: data.analyzedBy,
     analyzedDate: new Date(data.analyzedDate)
-  });
+  } as any);
 
   return result.insertId;
 }
@@ -65,7 +65,7 @@ export async function getHazardAnalysisByProduct(productId: number, tenantId?: n
   return db
     .select()
     .from(hHazardAnalysis)
-    .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.productId, productId)))    .orderBy(desc(hHazardAnalysis.createdAt));
+    .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.productId, productId)) as any)    .orderBy(desc(hHazardAnalysis.createdAt));
 }
 
 export async function getHazardAnalysisById(id: number, tenantId?: number) {
@@ -74,7 +74,7 @@ export async function getHazardAnalysisById(id: number, tenantId?: number) {
   const [result] = await db
     .select()
     .from(hHazardAnalysis)
-    .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.id, id)));  return result;
+    .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.id, id)) as any);  return result;
 }
 
 export async function updateHazardAnalysis(
@@ -118,7 +118,7 @@ export async function updateHazardAnalysis(
     await db
       .update(hHazardAnalysis)
       .set(updateData)
-      .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.id, id)));  } else {
+      .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.id, id)) as any);  } else {
     const updateData: any = { ...data };
     if (data.approvedDate) updateData.approvedDate = new Date(data.approvedDate);
     if (data.reviewDate) updateData.reviewDate = new Date(data.reviewDate);
@@ -126,7 +126,7 @@ export async function updateHazardAnalysis(
     await db
       .update(hHazardAnalysis)
       .set(updateData)
-      .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.id, id)));  }
+      .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.id, id)) as any);  }
 }
 
 export async function deleteHazardAnalysis(id: number, tenantId?: number) {
@@ -136,10 +136,10 @@ export async function deleteHazardAnalysis(id: number, tenantId?: number) {
   // 관련 관리 방법도 함께 삭제
   await db
     .delete(hHazardControls)
-    .where(and(eq(hHazardControls.tenantId, tenantId), eq(hHazardControls.hazardAnalysisId, id)));  
+    .where(and(eq(hHazardControls.tenantId, tenantId as any) , eq(hHazardControls.hazardAnalysisId, id)) as any);  
   await db
     .delete(hHazardAnalysis)
-    .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.id, id)));}
+    .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.id, id)) as any);}
 
 export async function getHazardAnalysisBySite(siteId: number, tenantId?: number) {
   const db = await getDb();
@@ -147,7 +147,7 @@ export async function getHazardAnalysisBySite(siteId: number, tenantId?: number)
   return db
     .select()
     .from(hHazardAnalysis)
-    .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.siteId, siteId)))    .orderBy(desc(hHazardAnalysis.createdAt));
+    .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.siteId, siteId)) as any)    .orderBy(desc(hHazardAnalysis.createdAt));
 }
 
 export async function getHazardAnalysisByStatus(status: "draft" | "submitted" | "approved" | "rejected", tenantId?: number) {
@@ -156,7 +156,7 @@ export async function getHazardAnalysisByStatus(status: "draft" | "submitted" | 
   return db
     .select()
     .from(hHazardAnalysis)
-    .where(and(eq(hHazardAnalysis.tenantId, tenantId), eq(hHazardAnalysis.status, status)))    .orderBy(desc(hHazardAnalysis.createdAt));
+    .where(and(eq(hHazardAnalysis.tenantId, tenantId as any) , eq(hHazardAnalysis.status, status)) as any)    .orderBy(desc(hHazardAnalysis.createdAt));
 }
 
 export async function getCcpHazardAnalysis(productId: number, tenantId?: number) {
@@ -166,10 +166,10 @@ export async function getCcpHazardAnalysis(productId: number, tenantId?: number)
     .select()
     .from(hHazardAnalysis)
     .where(
-      and(eq(hHazardAnalysis.tenantId, tenantId), 
+      and(eq(hHazardAnalysis.tenantId, tenantId as any) , 
         eq(hHazardAnalysis.productId, productId),
         eq(hHazardAnalysis.isCcp, 1)
-      )
+      ) as any
     )
     .orderBy(desc(hHazardAnalysis.createdAt));
 }
@@ -189,7 +189,7 @@ export async function createHazardControl(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const [result] = await db.insert(hHazardControls).values({
-      tenantId, ...data, tenantId });
+      ...data, tenantId } as any);
   return result.insertId;
 }
 
@@ -199,7 +199,7 @@ export async function getHazardControlsByAnalysisId(hazardAnalysisId: number, te
   return db
     .select()
     .from(hHazardControls)
-    .where(and(eq(hHazardControls.tenantId, tenantId), eq(hHazardControls.hazardAnalysisId, hazardAnalysisId)));}
+    .where(and(eq(hHazardControls.tenantId, tenantId as any) , eq(hHazardControls.hazardAnalysisId, hazardAnalysisId)) as any);}
 
 export async function updateHazardControl(
   id: number,
@@ -215,11 +215,11 @@ export async function updateHazardControl(
   await db
     .update(hHazardControls)
     .set(data)
-    .where(and(eq(hHazardControls.tenantId, tenantId), eq(hHazardControls.id, id)));}
+    .where(and(eq(hHazardControls.tenantId, tenantId as any) , eq(hHazardControls.id, id)) as any);}
 
 export async function deleteHazardControl(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db
     .delete(hHazardControls)
-    .where(and(eq(hHazardControls.tenantId, tenantId), eq(hHazardControls.id, id)));}
+    .where(and(eq(hHazardControls.tenantId, tenantId as any) , eq(hHazardControls.id, id)) as any);}

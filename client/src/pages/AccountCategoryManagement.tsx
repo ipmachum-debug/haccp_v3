@@ -93,7 +93,7 @@ function AccountCategoryManagementContent() {
       resetForm();
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "등록 실패",
         description: error.message,
@@ -113,7 +113,7 @@ function AccountCategoryManagementContent() {
       setEditingCategory(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "수정 실패",
         description: error.message,
@@ -131,7 +131,7 @@ function AccountCategoryManagementContent() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "삭제 실패",
         description: error.message,
@@ -229,7 +229,7 @@ function AccountCategoryManagementContent() {
   };
 
   // 대분류별로 그룹화
-  const groupedCategories = categories?.reduce((acc, category) => {
+  const groupedCategories = categories?.reduce((acc: any, category: any) => {
     const major = category.majorCategory as MajorCategory;
     if (!acc[major]) {
       acc[major] = [];
@@ -281,7 +281,7 @@ function AccountCategoryManagementContent() {
                   <p className="text-sm text-muted-foreground">등록된 계정 과목이 없습니다.</p>
                 ) : (
                   <div className="space-y-2">
-                    {items.map((item) => (
+                    {items.map((item: any) => (
                       <div
                         key={item.id}
                         className="flex items-center justify-between p-2 rounded-md hover:bg-accent"
@@ -345,7 +345,7 @@ function AccountCategoryManagementContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {categories.map((category) => (
+                {categories.map((category: any) => (
                   <TableRow key={category.id}>
                     <TableCell className="font-mono">{category.code}</TableCell>
                     <TableCell className="font-medium">{category.name}</TableCell>

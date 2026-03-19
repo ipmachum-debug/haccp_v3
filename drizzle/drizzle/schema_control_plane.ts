@@ -39,7 +39,7 @@ export const tenants = mysqlTable("tenants", {
 export const tenantDomains = mysqlTable("tenant_domains", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenant_id", { length: 36 }).notNull().references(() => tenants.id, { onDelete: "cascade" }),
-  domain: varchar("domain", { length: 255 }).notNull().unique(), // subdomain.haccpone.co.kr
+  domain: varchar("domain", { length: 255 }).notNull().unique(), // subdomain.haccpone.com
   isPrimary: boolean("is_primary").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({

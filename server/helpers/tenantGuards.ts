@@ -15,10 +15,12 @@ import { TRPCError } from "@trpc/server";
 import { eq, and, sql } from "drizzle-orm";
 import type { TenantDb } from "../db/TenantDb";
 
-type TenantContext = {
-  user: { id: number; email: string; role: string; tenantId?: number };
-  tenantId: number;
+/** TRPC 미들웨어 컨텍스트와 호환되는 테넌트 컨텍스트 타입 */
+export type TenantContext = {
+  user: { id: number; email: string; role: string; tenantId?: number | null; [key: string]: any };
+  tenantId: number | null;
   db: TenantDb | null;
+  [key: string]: any; // req, res, actingTenantId, isSuperAdminActing 등 추가 필드 허용
 };
 
 /**
@@ -45,7 +47,7 @@ export async function assertSiteOwned(ctx: TenantContext, siteId: number) {
     sql`SELECT id FROM h_sites WHERE id = ${siteId} AND tenant_id = ${ctx.tenantId} LIMIT 1`
   );
 
-  const rows = result[0] as any[];
+  const rows = result[0] as unknown as any[];
   if (!rows || rows.length === 0) {
     console.warn(`[SECURITY] User ${ctx.user.email} (tenant=${ctx.tenantId}) attempted to access siteId=${siteId} which doesn't belong to their tenant.`);
     throw new TRPCError({ 

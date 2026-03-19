@@ -48,19 +48,19 @@ export default function AdminSettings() {
       toast.success("데이터베이스 스키마가 성공적으로 생성되었습니다");
       setShowInitDialog(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`데이터베이스 초기화 실패: ${error.message}`);
     },
   });
 
   const seedMutation = trpc.admin.seedSampleData.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(
         `샘플 데이터 생성 완료: 사용자 ${result.data.users}명, 제품 ${result.data.products}개, 원재료 ${result.data.materials}개, 배치 ${result.data.batches}개`
       );
       setShowSeedDialog(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`샘플 데이터 생성 실패: ${error.message}`);
     },
   });
@@ -74,20 +74,20 @@ export default function AdminSettings() {
   };
 
   const deleteOldReadMutation = trpc.notification.deleteOldReadNotifications.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(`${result.deletedCount}개의 오래된 알림이 삭제되었습니다`);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`자동 삭제 실패: ${error.message}`);
     },
   });
 
   const archiveByTypeMutation = trpc.notification.archiveByType.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(`${result.archivedCount}개의 알림이 아카이브되었습니다`);
       setArchiveType("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`아카이브 실패: ${error.message}`);
     },
   });
@@ -105,11 +105,11 @@ export default function AdminSettings() {
   };
 
   const runSchedulerManuallyMutation = trpc.scheduler.runManually.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchLogs();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`수동 실행 실패: ${error.message}`);
     },
   });
@@ -120,10 +120,10 @@ export default function AdminSettings() {
   
   // 알림 보관 정책 설정 저장
   const setRetentionPolicyMutation = trpc.notification.setNotificationRetentionPolicy.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`설정 저장 실패: ${error.message}`);
     },
   });
@@ -191,7 +191,7 @@ export default function AdminSettings() {
                     </tr>
                   </thead>
                   <tbody>
-                    {schedulerLogs.map((log) => (
+                    {schedulerLogs.map((log: any) => (
                       <tr key={log.id} className="border-t">
                         <td className="px-4 py-2 text-sm">
                           {new Date(log.executionTime).toLocaleString('ko-KR')}

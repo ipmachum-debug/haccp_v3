@@ -75,11 +75,11 @@ export const financialReportsRouter = router({
         period: `${year}년 ${parseInt(month)}월`,
         startDate,
         endDate,
-        totalRevenue: income.totalRevenue || 0,
-        totalExpenses: income.totalExpenses || 0,
-        netIncome: income.netIncome || 0,
-        revenueItems: income.revenueRows?.length || 0,
-        expenseItems: income.expenseRows?.length || 0,
+        totalRevenue: income.totals.totalRevenue || 0,
+        totalExpenses: income.totals.totalExpenses || 0,
+        netIncome: income.totals.netIncome || 0,
+        revenueItems: income.revenue?.length || 0,
+        expenseItems: income.expenses?.length || 0,
       };
     } catch (error: any) {
       // 데이터가 없으면 기본값 반환
@@ -163,6 +163,72 @@ export const financialReportsRouter = router({
     }),
 
   // ============================================
+  // PDF 내보내기 (P6)
+  // ============================================
+
+  // 시산표 PDF
+  exportTrialBalancePdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateTrialBalance } = await import("../../db/financialReports");
+      const { exportTrialBalanceToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateTrialBalance(tenantId, input.startDate, input.endDate);
+      const buffer = await exportTrialBalanceToPdf(data);
+      return {
+        filename: `시산표_${input.startDate}_${input.endDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // 재무상태표 PDF
+  exportBalanceSheetPdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateBalanceSheet } = await import("../../db/financialReports");
+      const { exportBalanceSheetToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateBalanceSheet(tenantId, input.asOfDate);
+      const buffer = await exportBalanceSheetToPdf(data);
+      return {
+        filename: `재무상태표_${input.asOfDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // 손익계산서 PDF
+  exportIncomeStatementPdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateIncomeStatement } = await import("../../db/financialReports");
+      const { exportIncomeStatementToPdf } = await import("../../db/financialReportsPdf");
+      const data = await generateIncomeStatement(tenantId, input.startDate, input.endDate);
+      const buffer = await exportIncomeStatementToPdf(data);
+      return {
+        filename: `손익계산서_${input.startDate}_${input.endDate}.pdf`,
+        data: buffer.toString("base64"),
+        mimeType: "application/pdf",
+      };
+    }),
+
+  // ============================================
   // 기초 잔액 (Opening Balance / 전기이월) (P4-4)
   // ============================================
 
@@ -206,5 +272,118 @@ export const financialReportsRouter = router({
       const { deleteOpeningBalances } = await import("../../db/openingBalances");
       await deleteOpeningBalances(tenantId, input.fiscalYear);
       return { success: true, message: `${input.fiscalYear}년 기초 잔액이 삭제되었습니다.` };
+    }),
+
+  // ============================================
+  // Phase A-1: AI 재무 내러티브 연동
+  // ============================================
+
+  // AI 재무 분석 보고서 생성
+  aiFinancialNarrative: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      type: z.enum(["monthly", "quarterly"]).default("monthly"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generateFinancialNarrative } = await import("../../db/aiReportNarrative");
+      return await generateFinancialNarrative(
+        tenantId,
+        { startDate: input.startDate, endDate: input.endDate },
+        input.type
+      );
+    }),
+
+  // Phase A-2: AI 재무 트렌드 예측 (financial_trend)
+  aiFinancialPredictions: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const { generatePredictions } = await import("../../db/aiPrediction");
+      const result = await generatePredictions(tenantId);
+      // 재무 관련 예측만 필터링
+      return {
+        ...result,
+        predictions: result.predictions.filter(
+          (p) => p.type === "financial_trend" || p.type === "inventory_stockout"
+        ),
+      };
+    }),
+
+  // Phase A-3: AP/AR 리스크 분석 (공급업체 리스크 + 연체 분석)
+  aiApArRiskAnalysis: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn = (await import("../../db")).getRawConnection();
+      const connection = await conn;
+
+      // AP 연체 분석
+      const [apAging] = await connection.execute(
+        `SELECT
+           p.name as partnerName,
+           COUNT(*) as invoiceCount,
+           SUM(apl.amount) as totalAmount,
+           SUM(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN apl.amount ELSE 0 END) as overdueAmount,
+           MIN(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN DATEDIFF(CURDATE(), apl.due_date) ELSE NULL END) as minOverdueDays,
+           MAX(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN DATEDIFF(CURDATE(), apl.due_date) ELSE NULL END) as maxOverdueDays
+         FROM ap_ledger apl
+         LEFT JOIN partners p ON p.id = apl.partner_id
+         WHERE apl.tenant_id = ? AND apl.status != 'paid'
+         GROUP BY apl.partner_id, p.name
+         HAVING overdueAmount > 0
+         ORDER BY overdueAmount DESC
+         LIMIT 20`,
+        [tenantId]
+      );
+
+      // AR 연체 분석
+      const [arAging] = await connection.execute(
+        `SELECT
+           p.name as partnerName,
+           COUNT(*) as invoiceCount,
+           SUM(arl.amount) as totalAmount,
+           SUM(CASE WHEN arl.due_date < CURDATE() AND arl.status != 'collected' THEN arl.amount ELSE 0 END) as overdueAmount,
+           MAX(CASE WHEN arl.due_date < CURDATE() AND arl.status != 'collected' THEN DATEDIFF(CURDATE(), arl.due_date) ELSE NULL END) as maxOverdueDays
+         FROM ar_ledger arl
+         LEFT JOIN partners p ON p.id = arl.partner_id
+         WHERE arl.tenant_id = ? AND arl.status != 'collected'
+         GROUP BY arl.partner_id, p.name
+         HAVING overdueAmount > 0
+         ORDER BY overdueAmount DESC
+         LIMIT 20`,
+        [tenantId]
+      );
+
+      // 공급업체 리스크 스코어 (있으면)
+      let supplierRisk: any[] = [];
+      try {
+        const { analyzeSupplierRisk } = await import("../../db/aiSupplierRisk");
+        const risk = await analyzeSupplierRisk(tenantId);
+        supplierRisk = (risk as any)?.suppliers || [];
+      } catch { /* 무시 */ }
+
+      return {
+        ap: {
+          overduePartners: (apAging as any[]).map((r: any) => ({
+            partnerName: r.partnerName,
+            invoiceCount: Number(r.invoiceCount),
+            totalAmount: Number(r.totalAmount),
+            overdueAmount: Number(r.overdueAmount),
+            maxOverdueDays: Number(r.maxOverdueDays || 0),
+          })),
+          totalOverdue: (apAging as any[]).reduce((sum: number, r: any) => sum + Number(r.overdueAmount), 0),
+        },
+        ar: {
+          overduePartners: (arAging as any[]).map((r: any) => ({
+            partnerName: r.partnerName,
+            invoiceCount: Number(r.invoiceCount),
+            totalAmount: Number(r.totalAmount),
+            overdueAmount: Number(r.overdueAmount),
+            maxOverdueDays: Number(r.maxOverdueDays || 0),
+          })),
+          totalOverdue: (arAging as any[]).reduce((sum: number, r: any) => sum + Number(r.overdueAmount), 0),
+        },
+        supplierRisk: supplierRisk.slice(0, 10),
+      };
     }),
 });

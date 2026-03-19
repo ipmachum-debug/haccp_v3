@@ -39,7 +39,7 @@ export const batchRouter = router({
         const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
         const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
 
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId!;
         const workDate = input.plannedStartDate.toISOString().split("T")[0];
 
         // STEP 1. 배치 헤더 생성
@@ -56,7 +56,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(input.productId);
+        const product = await getProductById(input.productId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -102,10 +102,48 @@ export const batchRouter = router({
         } catch (_pe) { /* ignore */ }
 
         // STEP 3-B. CCP 기록지(h_ccp_form_records) 자동 생성
+        // ★ FIX: bom_batch_kg와 batch_count를 초기 생성 시 계산하여 포함
+        //    이전에는 이 값이 누락되어 batch_count=1로 기본 생성 → 나중에 getOrCreate 호출 시 재계산 → 지연 발생
         if (ccpCreated && ccpGroups.length > 0) {
           try {
             const { getRawConnection: _rc3 } = await import("../../db");
             const _pool3 = await _rc3(); // Pool 싱글턴 (end() 호출 금지)
+
+            // BOM에서 batch_target_kg (1배치 기준 중량) 조회
+            let bomBatchKg: number | null = null;
+            try {
+              const [bomRows] = await _pool3.execute(
+                `SELECT v.batch_target_kg
+                 FROM h_mf_reports r
+                 JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
+                 WHERE r.product_id = ? AND r.tenant_id = ?
+                 ORDER BY v.id DESC LIMIT 1`,
+                [input.productId, tenantId]
+              );
+              if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
+                bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
+              }
+              // 폴백: h_recipes.target_quantity
+              if (!bomBatchKg) {
+                const [rRows] = await _pool3.execute(
+                  `SELECT target_quantity FROM h_recipes WHERE product_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1`,
+                  [input.productId, tenantId]
+                );
+                const fallback = (rRows as any[])[0]?.target_quantity;
+                if (fallback) bomBatchKg = parseFloat(fallback);
+              }
+            } catch (bomErr) {
+              console.error('[파이프라인] BOM batch_target_kg 조회 실패:', bomErr);
+            }
+
+            // batch_count 계산: 총생산량 / BOM 1배치 기준 중량
+            let batchCount = 1;
+            if (bomBatchKg && bomBatchKg > 0 && input.plannedQuantity > 0) {
+              batchCount = Math.ceil(input.plannedQuantity / bomBatchKg);
+              if (batchCount < 1) batchCount = 1;
+            }
+            console.log(`[파이프라인] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantity}kg → batchCount=${batchCount}`);
+
             for (const grp of ccpGroups) {
               const [existFR] = await _pool3.execute(
                 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1',
@@ -125,18 +163,20 @@ export const batchRouter = router({
                     product_id, product_name, process_group_id, process_group_name,
                     planned_qty_kg, writer_id, status,
                     cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo,
-                    equip_group_mode, equip_interval_min)
-                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?)`,
+                    equip_group_mode, equip_interval_min,
+                    bom_batch_kg, batch_count)
+                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?, ?,?)`,
                 [
-                  tenantId, input.siteId || ctx.user.siteId || 1, batchId, grp.ccp_type, workDate,
+                  tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
                   input.productId, finalProductName || productName || null, grp.id, grp.name,
                   input.plannedQuantity, ctx.user.id,
                   clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
                   equipGroupMode, equipIntervalMin,
+                  bomBatchKg, batchCount,
                 ]
               );
             }
-            console.log(`[파이프라인] CCP 기록지 자동 생성 완료: 배치#${batchId} (${ccpGroups.length}건)`);
+            console.log(`[파이프라인] CCP 기록지 자동 생성 완료: 배치#${batchId} (${ccpGroups.length}건, batchCount=${batchCount})`);
           } catch (frErr) {
             console.error('[파이프라인] CCP 기록지 자동 생성 실패 (계속):', frErr);
           }
@@ -167,7 +207,7 @@ export const batchRouter = router({
                   title, description, status, priority, requested_by)
                VALUES (?, ?, 'batch_production', 'batch', ?, ?, ?, 'pending_review', 'high', ?)`,
               [
-                (input.siteId || ctx.user.siteId || 1),
+                (input.siteId || ctx.user.siteId || ctx.tenantId),
                 tenantId,
                 batchId,
                 `${modeLabel} 배치 CCP 승인 - ${input.batchNumber} (${finalProductName || ""})`,
@@ -204,7 +244,7 @@ export const batchRouter = router({
             const db = await getDb();
             if (!db) throw new Error("DB unavailable");
             const { productionSkuOutput, productSkus: pSkus } = await import(
-              "../drizzle/schema/schema_dual_unit.js"
+              "../../../drizzle/schema/schema_dual_unit.js"
             );
             const { eq: eqOp } = await import("drizzle-orm");
 
@@ -249,20 +289,20 @@ export const batchRouter = router({
         // 당일 동일 site_id+tenant_id 조합의 일일일지가 이미 있으면 배치 목록만 업데이트
         let dailyLogResult: any = null;
         try {
-          const { autoGenerateDailyReport } = await import('./lib/autoDailyReport');
+          const { autoGenerateDailyReport } = await import('../../lib/autoDailyReport');
           dailyLogResult = await autoGenerateDailyReport(batchId, ctx.user.id);
-          console.log(`[파이프라인 STEP8] 일일일지: ${dailyLogResult.message}`);
-        } catch (dlErr) {
-          console.error('[파이프라인 STEP8] 일일일지 생성 실패 (배치 생성 유지):', dlErr);
+          console.log(`[파이프라인 STEP8] 일일일지: ${dailyLogResult?.message || '완료'}`);
+        } catch (dlErr: any) {
+          console.error('[파이프라인 STEP8] 일일일지 생성 실패 (배치 생성 유지):', dlErr?.message || dlErr);
         }
 
         // STEP 8.5. 주간/월간/연간 일지 자동 생성 (auto 모드만)
         let periodicLogsResult: any = null;
         try {
-          const { autoGenerateAllPeriodicLogs } = await import('./lib/autoPeriodicLogs');
+          const { autoGenerateAllPeriodicLogs } = await import('../../lib/autoPeriodicLogs');
           periodicLogsResult = await autoGenerateAllPeriodicLogs(
             input.mode,
-            ctx.user.tenantId,
+            ctx.tenantId!,
             input.siteId,
             workDate,
             ctx.user.id,
@@ -281,11 +321,23 @@ export const batchRouter = router({
 
         // STEP 9. 생산일지(production_daily) 자동 생성/갱신
         try {
-          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+          const { autoRegenerateProductionDaily } = await import('../../lib/autoProductionDaily');
           await autoRegenerateProductionDaily(tenantId, workDate);
           console.log('[파이프라인 STEP9] 생산일지(production_daily) 자동 갱신 완료:', workDate);
         } catch (pdErr) {
           console.error('[파이프라인 STEP9] 생산일지 갱신 실패:', pdErr);
+        }
+
+        // STEP 10. 체크리스트 자동 생성 (frequency=batch_create 템플릿)
+        let checklistResult: any = null;
+        try {
+          const { autoCreateChecklistsForBatch } = await import('../../lib/autoChecklistFromBatch');
+          checklistResult = await autoCreateChecklistsForBatch(tenantId, batchId, ctx.user.id, workDate);
+          if (checklistResult.created > 0) {
+            console.log(`[파이프라인 STEP10] 체크리스트 ${checklistResult.created}건 자동생성: ${checklistResult.templateNames.join(', ')}`);
+          }
+        } catch (clErr: any) {
+          console.error('[파이프라인 STEP10] 체크리스트 자동생성 실패 (배치 생성 유지):', clErr?.message || clErr);
         }
 
         return {
@@ -297,6 +349,7 @@ export const batchRouter = router({
           approvalRequestId,
           dailyLogResult,
           periodicLogsResult,
+          checklistResult,
           mode: input.mode,
           autoNavigateToApproval: input.mode === "auto" && ccpCreated,
           message: ccpCreated
@@ -353,7 +406,7 @@ export const batchRouter = router({
         const dateStr = input.workDate.replace(/-/g, "");
         const [grpCntRows] = await conn.execute<any[]>(
           "SELECT COUNT(DISTINCT day_batch_group) as cnt FROM h_batches WHERE tenant_id=? AND day_batch_group LIKE ?",
-          [ctx.user.tenantId, `DAY-${dateStr}-%`],
+          [ctx.tenantId!, `DAY-${dateStr}-%`],
         );
         const grpSeq = ((grpCntRows as any[])[0]?.cnt || 0) + 1;
         const dayBatchGroup = `DAY-${dateStr}-${String(grpSeq).padStart(3, "0")}`;
@@ -366,7 +419,7 @@ export const batchRouter = router({
           try {
             const mode = item.mode ?? input.defaultMode;
             const result = await createSingleBatch({
-              tenantId: ctx.user.tenantId,
+              tenantId: ctx.tenantId!,
               siteId: input.siteId,
               workDate: input.workDate,
               startTime: item.startTime ?? input.dayStartTime,
@@ -422,7 +475,7 @@ export const batchRouter = router({
             const firstBatch = successResults[0];
             const periodicResult = await autoGenerateAllPeriodicLogs(
               input.defaultMode,
-              ctx.user.tenantId,
+              ctx.tenantId!,
               input.siteId,
               input.workDate,
               ctx.user.id,
@@ -466,7 +519,7 @@ export const batchRouter = router({
                 (site_id, tenant_id, request_type, reference_type, reference_id,
                  title, description, status, priority, requested_by, created_at)
               VALUES
-                (${input.siteId}, ${ctx.user.tenantId}, 'batch_plan', 'batch_group', ${successResults[0].batchId},
+                (${input.siteId}, ${ctx.tenantId}, 'batch_plan', 'batch_group', ${successResults[0].batchId},
                  ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${ctx.user.id}, NOW())
             `);
             groupApprovalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
@@ -477,6 +530,7 @@ export const batchRouter = router({
 
           // 3.7 개별 배치별 batch_production 승인요청 생성 (CCP 기록지 인쇄용)
           try {
+            const db2 = await (await import("../../db")).getDb();
             for (const r of successResults) {
               if (r.ccpCreated && r.ccpCount > 0) {
                 const ccpGroupNames = (r.ccpGroups || []).map((g: any) => `${g.name || g.ccp_type}(${g.ccp_type})`).join(", ");
@@ -484,12 +538,12 @@ export const batchRouter = router({
                 const modeLabel = (item as any)?.mode === "manual" ? "[수동]" : "[자동]";
                 const indivTitle = `${modeLabel} 배치 CCP 승인 - ${r.batchCode} (${r.productName || ""})`;
                 const indivDesc = `제품: ${r.productName || ""}\n계획일: ${input.workDate}\nCCP ${r.ccpCount}건 자동 생성 완료\n배치코드: ${r.batchCode}\nCCP 공정: ${ccpGroupNames}\n그룹: ${dayBatchGroup}`;
-                await db.execute(sql`
+                await db2.execute(sql`
                   INSERT INTO h_approval_requests
                     (site_id, tenant_id, request_type, reference_type, reference_id,
                      title, description, status, priority, requested_by, created_at)
                   VALUES
-                    (${input.siteId}, ${ctx.user.tenantId}, 'batch_production', 'batch', ${r.batchId},
+                    (${input.siteId}, ${ctx.tenantId}, 'batch_production', 'batch', ${r.batchId},
                      ${indivTitle}, ${indivDesc},
                      'pending_review', 'high', ${ctx.user.id}, NOW())
                 `);
@@ -506,7 +560,7 @@ export const batchRouter = router({
         if (successResults.length > 0) {
           try {
             metalPassResult = await allocateMetalPassLogsForDay({
-              tenantId: ctx.user.tenantId, siteId: input.siteId,
+              tenantId: ctx.tenantId!, siteId: input.siteId,
               workDate: input.workDate, dayStartTime: input.dayStartTime,
               metalDetectorEquipmentId: input.metalDetectorEquipmentId,
               batches: successResults.map((r: any) => ({
@@ -529,7 +583,7 @@ export const batchRouter = router({
         if (input.scheduling.applyProcessSchedule && successResults.length > 0) {
           try {
             scheduleResult = await createProcessScheduleForDay({
-              tenantId: ctx.user.tenantId, siteId: input.siteId,
+              tenantId: ctx.tenantId!, siteId: input.siteId,
               workDate: input.workDate, dayStartTime: input.dayStartTime,
               batches: successResults.map((r: any) => ({
                 batchId: r.batchId, productId: r.productId,
@@ -550,20 +604,27 @@ export const batchRouter = router({
 
         // === 6. 생산일지(production_daily) 자동 생성/갱신 ===
         try {
-          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
-          await autoRegenerateProductionDaily(ctx.user.tenantId, input.workDate);
+          const { autoRegenerateProductionDaily } = await import('../../lib/autoProductionDaily');
+          await autoRegenerateProductionDaily(ctx.tenantId!, input.workDate);
           console.log(`[bulkCreateForDay] 생산일지(production_daily) 자동 갱신 완료 - ${input.workDate}`);
         } catch (pdErr) {
           console.error('[bulkCreateForDay] 생산일지(production_daily) 자동 갱신 실패:', pdErr);
         }
 
+        const failedResults = results.filter((r: any) => r.batchId === 0);
+        if (failedResults.length > 0) {
+          console.error(`[bulkCreateForDay] ${failedResults.length}건 실패:`,
+            failedResults.map((r: any) => `productId=${r.productId}: ${r.error}`).join("; "));
+        }
+
         return {
-          success: true,
+          success: successResults.length > 0,
           dayBatchGroup,
           createdCount: successResults.length,
           totalRequested: input.items.length,
           batchIds: successResults.map((r: any) => r.batchId),
           batches: results,
+          errors: failedResults.map((r: any) => ({ productId: r.productId, error: r.error })),
           metalPass: metalPassResult,
           schedule: scheduleResult,
           groupApprovalRequestId,
@@ -584,7 +645,7 @@ export const batchRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllBatches } = await import("../../db");
-        const batches = await getAllBatches({ ...input, tenantId: ctx.user.tenantId });
+        const batches = await getAllBatches({ ...input, tenantId: ctx.tenantId! });
         
         return batches;
       }),
@@ -596,14 +657,14 @@ export const batchRouter = router({
         const { getBatchById } = await import("../../db");
         const { getLatestSuccessPdfUrl } = await import("../../db/batchPdfLogs");
         
-        const batch = await getBatchById(input.id, ctx.user.tenantId);
+        const batch = await getBatchById(input.id, ctx.tenantId!);
         
         if (!batch) {
           throw new Error("배치를 찾을 수 없습니다.");
         }
         
         // 최신 PDF URL 조회
-        const latestPdfUrl = await getLatestSuccessPdfUrl(input.id, ctx.user.tenantId);
+        const latestPdfUrl = await getLatestSuccessPdfUrl(input.id);
         
         return {
           ...batch,
@@ -622,12 +683,13 @@ export const batchRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateBatchSchedule, createAuditLog } = await import("../../db");
         await updateBatchSchedule(input.id, {
           plannedDate: input.plannedDate,
           startTime: input.startTime,
           endTime: input.endTime
-        });
+        }, tenantId ?? undefined);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -660,7 +722,7 @@ export const batchRouter = router({
         const { getBatchById, updateBatch, createAuditLog } = await import("../../db");
         
         // 락 체크: 완료된 배치 수정 금지
-        const batch = await getBatchById(input.id, ctx.user.tenantId);
+        const batch = await getBatchById(input.id, ctx.tenantId!);
         if (!batch) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -713,7 +775,7 @@ export const batchRouter = router({
         const { getBatchById, updateBatchStatus } = await import("../../db");
         
         // 락 체크: 완료된 배치 수정 금지
-        const batch = await getBatchById(input.id, ctx.user.tenantId);
+        const batch = await getBatchById(input.id, ctx.tenantId!);
         if (!batch) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -728,18 +790,18 @@ export const batchRouter = router({
           });
         }
         
-        await updateBatchStatus(input.id, input.status, undefined, ctx.user.tenantId);
+        await updateBatchStatus(input.id, input.status);
         
         // === 파이프라인 자동화: 배치 시작 시 원료 자동 출고 ===
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
           try {
             const { autoIssueMaterialsForBatch } = await import('./lib/autoMaterialIssue');
-            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1);
-            if (!autoIssueResult.success) {
-              console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult.errors);
+            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1) as any;
+            if (!autoIssueResult?.success) {
+              console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult?.errors);
             } else {
-              console.log('[파이프라인] 원료 자동 출고 완료:', autoIssueResult.issuedMaterials.length, '건');
+              console.log('[파이프라인] 원료 자동 출고 완료:', autoIssueResult?.issuedMaterials?.length, '건');
             }
           } catch (autoIssueError) {
             console.error('[파이프라인] 원료 자동 출고 오류:', autoIssueError);
@@ -749,11 +811,11 @@ export const batchRouter = router({
         
         // === 생산일지 자동 갱신 (배치 상태 변경 시) ===
         try {
-          const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
+          const { autoRegenerateProductionDaily } = await import('../../lib/autoProductionDaily');
           const batchDateStr = batch.plannedDate
             ? new Date(batch.plannedDate).toISOString().split('T')[0]
             : new Date().toISOString().split('T')[0];
-          await autoRegenerateProductionDaily(ctx.user.tenantId, batchDateStr);
+          await autoRegenerateProductionDaily(ctx.tenantId!, batchDateStr);
           console.log(`[파이프라인] 생산일지 자동 갱신 완료 - batch:${input.id}, date:${batchDateStr}`);
         } catch (pdErr) {
           console.error('[파이프라인] 생산일지 자동 갱신 오류:', pdErr);
@@ -773,7 +835,7 @@ export const batchRouter = router({
         const { getBatchById, deleteBatch } = await import("../../db");
         
         // 락 체크: 완료된 배치 삭제 금지
-        const batch = await getBatchById(input.id, ctx.user.tenantId);
+        const batch = await getBatchById(input.id, ctx.tenantId!);
         if (!batch) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -788,7 +850,7 @@ export const batchRouter = router({
           });
         }
         
-        await deleteBatch(input.id, ctx.user.tenantId);
+        await deleteBatch(input.id, ctx.tenantId!);
 
         // 일일일지 form_data에서 삭제된 배치 제거
         // 배치가 당일 최초였다면: 일일일지 자체를 draft 상태로 유지 (다음 배치가 추가될 수 있음)
@@ -806,7 +868,7 @@ export const batchRouter = router({
               WHERE form_type = 'daily_log'
                 AND form_date = ${batchDate}
                 AND site_id = ${Number(batch.siteId) || 1}
-                AND tenant_id = ${ctx.user.tenantId}
+                AND tenant_id = ${ctx.tenantId}
               LIMIT 1
             `);
             const clRows = (existingChecklist as any)[0] || [];
@@ -851,8 +913,9 @@ export const batchRouter = router({
     generateBatchCode: tenantRequiredProcedure
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { generateBatchCode } = await import("../../db");
-        const batchCode = await generateBatchCode(input.productId, ctx.user.tenantId);
+        const batchCode = await generateBatchCode(input.productId, tenantId ?? undefined);
         return { batchCode };
       }),
     
@@ -866,7 +929,8 @@ export const batchRouter = router({
         const { getBatchById, getProductById } = await import("../../db");
 
         // 배치 정보 조회
-        const batch = await getBatchById(input.batchId);
+        const tenantId = ctx.tenantId;
+        const batch = await getBatchById(input.batchId, tenantId ?? undefined);
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
 
         // 이미 CCP 인스턴스가 있는지 확인
@@ -874,7 +938,7 @@ export const batchRouter = router({
         const conn = await getRawConnection();
         const [existing] = await conn.execute(
           "SELECT COUNT(*) as cnt FROM h_ccp_instances WHERE batch_id=? AND tenant_id=?",
-          [input.batchId, ctx.user.tenantId]
+          [input.batchId, ctx.tenantId!]
         );
         const existingCount = Number((existing as any)[0]?.cnt || 0);
         if (existingCount > 0) {
@@ -886,7 +950,7 @@ export const batchRouter = router({
           };
         }
 
-        const product = await getProductById(batch.productId);
+        const product = await getProductById(batch.productId, tenantId ?? undefined);
         const workDate = batch.plannedDate
           ? new Date(batch.plannedDate).toISOString().split("T")[0]
           : new Date().toISOString().split("T")[0];
@@ -898,7 +962,7 @@ export const batchRouter = router({
           productId: batch.productId,
           productName: product?.productName || "",
           createdBy: ctx.user.id,
-          tenantId: ctx.user.tenantId
+          tenantId: ctx.tenantId!
         });
 
         const groupNames = (result.groups || []).map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
@@ -919,15 +983,16 @@ export const batchRouter = router({
     getCost: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getBatchCost } = await import("../../db");
-        return await getBatchCost(input.batchId);
+        return await getBatchCost(input.batchId, tenantId ?? undefined);
       }),
     
     // 배치 대시보드 데이터 조회
     getDashboardData: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getBatchDashboardData } = await import("../../db/batchDashboard");
-        return await getBatchDashboardData(ctx.user.tenantId);
+        return await getBatchDashboardData(ctx.tenantId!);
       }),
     
     // 진행 중인 배치 목록
@@ -935,7 +1000,7 @@ export const batchRouter = router({
       .input(z.object({ limit: z.number().optional().default(10) }))
       .query(async ({ input, ctx }) => {
         const { getInProgressBatches } = await import("../../db/batchDashboard");
-        return await getInProgressBatches(input.limit, ctx.user.tenantId);
+        return await getInProgressBatches(input.limit, ctx.tenantId!);
       }),
     
     // 완료된 배치 목록
@@ -943,7 +1008,7 @@ export const batchRouter = router({
       .input(z.object({ limit: z.number().optional().default(10) }))
       .query(async ({ input, ctx }) => {
         const { getCompletedBatches } = await import("../../db/batchDashboard");
-        return await getCompletedBatches(input.limit, ctx.user.tenantId);
+        return await getCompletedBatches(input.limit, ctx.tenantId!);
       }),
     
     // 승인 대기 중인 배치 목록
@@ -951,7 +1016,7 @@ export const batchRouter = router({
       .input(z.object({ limit: z.number().optional().default(10) }))
       .query(async ({ input, ctx }) => {
         const { getPendingApprovalBatches } = await import("../../db/batchDashboard");
-        return await getPendingApprovalBatches(input.limit, ctx.user.tenantId);
+        return await getPendingApprovalBatches(input.limit, ctx.tenantId!);
       }),
     
     // HACCP 보고서 PDF 생성
@@ -993,7 +1058,7 @@ export const batchRouter = router({
         const { getBatchById, updateBatchStatus, createAuditLog, getUsersByRole, createNotification } = await import("../../db");
         
         // 배치 정보 조회
-        const batch = await getBatchById(input.batchId, ctx.user.tenantId);
+        const batch = await getBatchById(input.batchId, ctx.tenantId!);
         if (!batch) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -1002,7 +1067,7 @@ export const batchRouter = router({
         }
         
         // 배치 상태를 under_review로 변경
-        await updateBatchStatus(input.batchId, "under_review", undefined, ctx.user.tenantId);
+        await updateBatchStatus(input.batchId, "under_review");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1023,6 +1088,7 @@ export const batchRouter = router({
         
         for (const recipient of recipients) {
           await createNotification({
+            tenantId: ctx.tenantId!,
             userId: recipient.id,
             notificationType: "batch_approval_request",
             title: "배치 승인 요청",
@@ -1058,7 +1124,7 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 approved로 변경
-        await updateBatchStatus(input.batchId, "approved", undefined, ctx.user.tenantId);
+        await updateBatchStatus(input.batchId, "approved");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1099,7 +1165,7 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 rejected로 변경
-        await updateBatchStatus(input.batchId, "rejected", undefined, ctx.user.tenantId);
+        await updateBatchStatus(input.batchId, "rejected");
         
         // 감사 로그 기록
         await createAuditLog({
@@ -1124,7 +1190,7 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchApprovals } = await import("../../db/batchApprovals");
-        return await getBatchApprovals(input.batchId, ctx.user.tenantId);
+        return await getBatchApprovals(input.batchId, ctx.tenantId!);
       }),
     
     // 배치 승인 상태 확인
@@ -1132,7 +1198,7 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchApprovalStatus } = await import("../../db/batchApprovals");
-        return await getBatchApprovalStatus(input.batchId, ctx.user.tenantId);
+        return await getBatchApprovalStatus(input.batchId, ctx.tenantId!);
       }),
     
     // 여러 배치 비용 요약 조회
@@ -1244,9 +1310,9 @@ export const batchRouter = router({
       }),
     
     // 활성 배치 목록 조회 (실시간 모니터링용)
-    getActiveBatches: tenantRequiredProcedure.query(async () => {
+    getActiveBatches: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getActiveBatches } = await import("../../db");
-      return await getActiveBatches(ctx.user.tenantId);
+      return await getActiveBatches();
     }),
     
     // 배치 완성도 체크 (미작성 문서 추적)
@@ -1254,7 +1320,7 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { checkBatchCompletion } = await import("../../db/batchCompletion");
-        return await checkBatchCompletion(input.batchId, ctx.user.tenantId);
+        return await checkBatchCompletion(input.batchId, ctx.tenantId!);
       }),
     
     // 배치 완료 전 체크리스트 확인
@@ -1348,7 +1414,7 @@ export const batchRouter = router({
             // PDF를 S3에 업로드
             const { storagePut } = await import("./storage");
             const timestamp = Date.now();
-            const fileKey = `tenant-${ctx.user.tenantId}/haccp-reports/batch-${input.batchId}-${timestamp}.pdf`;
+            const fileKey = `tenant-${ctx.tenantId}/haccp-reports/batch-${input.batchId}-${timestamp}.pdf`;
             const { url } = await storagePut(fileKey, pdfBuffer, "application/pdf");
             pdfUrl = url;
             pdfGenerated = true;
@@ -1357,7 +1423,7 @@ export const batchRouter = router({
             if (pdfUrl) {
               try {
                 const { logPdfSuccess } = await import("../../db/batchPdfLogs");
-                await logPdfSuccess(input.batchId, pdfUrl, ctx.user.tenantId);
+                await logPdfSuccess(input.batchId, pdfUrl);
               } catch (logError) {
                 console.error("[배치 완료] PDF 성공 로그 저장 실패:", logError);
               }
@@ -1371,7 +1437,7 @@ export const batchRouter = router({
               await logPdfFailure(
                 input.batchId,
                 pdfError instanceof Error ? pdfError.message : "PDF 생성 실패"
-              , ctx.user.tenantId);
+              );
             } catch (logError) {
               console.error("[배치 완료] PDF 실패 로그 저장 실패:", logError);
             }
@@ -1395,17 +1461,18 @@ export const batchRouter = router({
           
           // 단절 3: 일일일지 자동 생성
           try {
-            const { autoGenerateDailyReport } = await import('./lib/autoDailyReport');
+            const { autoGenerateDailyReport } = await import('../../lib/autoDailyReport');
             dailyReportResult = await autoGenerateDailyReport(input.batchId, ctx.user.id);
-            console.log('[파이프라인] 일일일지:', dailyReportResult.message);
-          } catch (dailyError) {
-            console.error('[파이프라인] 일일일지 생성 오류:', dailyError);
+            console.log('[파이프라인] 일일일지:', dailyReportResult?.message || '완료');
+          } catch (dailyError: any) {
+            console.error('[파이프라인] 일일일지 생성 오류:', dailyError?.message || dailyError);
           }
           
           // 단절 4-1: 법적 선행 체크리스트 자동생성
           let checklistResult = null;
           try {
-            const batch = await getBatchById(input.batchId, ctx.user.tenantId);
+            const { getBatchById } = await import("../../db");
+            const batch = await getBatchById(input.batchId, ctx.tenantId!);
             if (batch) {
               const today = new Date().toISOString().split('T')[0];
               const { sql: rawSql } = await import("drizzle-orm");
@@ -1414,9 +1481,9 @@ export const batchRouter = router({
                 // 해당 날짜에 이미 생성된 체크리스트가 있는지 확인
                 const existing = await dbConn.execute(rawSql`
                   SELECT id FROM h_daily_checklists 
-                  WHERE site_id = ${batch.siteId || 1} 
+                  WHERE site_id = ${batch.siteId || ctx.user.siteId || ctx.tenantId} 
                     AND check_date = ${today} 
-                    AND tenant_id = ${ctx.user.tenantId}
+                    AND tenant_id = ${ctx.tenantId}
                   LIMIT 1
                 `);
                 
@@ -1426,9 +1493,9 @@ export const batchRouter = router({
                   // 일일 체크리스트 자동 생성
                   const insertRes = await dbConn.execute(rawSql`
                     INSERT INTO h_daily_checklists (site_id, check_date, shift, area, status, notes, tenant_id)
-                    VALUES (${batch.siteId || 1}, ${today}, 'day', '생산구역', 'pending', 
+                    VALUES (${batch.siteId || ctx.user.siteId || ctx.tenantId}, ${today}, 'day', '생산구역', 'pending', 
                             ${JSON.stringify({ batchId: input.batchId, autoGenerated: true })}, 
-                            ${ctx.user.tenantId})
+                            ${ctx.tenantId})
                   `);
                   
                   const checklistId = Number((insertRes as any)[0]?.insertId || 0);
@@ -1450,7 +1517,7 @@ export const batchRouter = router({
                   for (let i = 0; i < defaultItems.length; i++) {
                     await dbConn.execute(rawSql`
                       INSERT INTO h_daily_checklist_items (checklist_id, item_name, result, sort_order, tenant_id)
-                      VALUES (${checklistId}, ${defaultItems[i]}, NULL, ${i + 1}, ${ctx.user.tenantId})
+                      VALUES (${checklistId}, ${defaultItems[i]}, NULL, ${i + 1}, ${ctx.tenantId})
                     `);
                   }
                   
@@ -1468,15 +1535,26 @@ export const batchRouter = router({
           
           // 단절 4: 승인 대기 문서 자동 등록
           try {
-            const { autoCreateApprovalRequest } = await import('./lib/autoApprovalRequest');
+            const { autoCreateApprovalRequest } = await import('../../lib/autoApprovalRequest');
             approvalResult = await autoCreateApprovalRequest(input.batchId, ctx.user.id, pdfUrl);
-            console.log('[파이프라인] 승인 요청:', approvalResult.message);
+            console.log('[파이프라인] 승인 요청:', approvalResult?.message || '완료');
           } catch (approvalError) {
             console.error('[파이프라인] 승인 요청 생성 오류:', approvalError);
           }
+          // 단절 4-2: 템플릿 기반 체크리스트 자동생성 (frequency=batch_complete)
+          let templateChecklistResult = null;
+          try {
+            const { autoCreateChecklistsForBatchComplete } = await import('../../lib/autoChecklistFromBatch');
+            templateChecklistResult = await autoCreateChecklistsForBatchComplete(ctx.tenantId!, input.batchId, ctx.user.id);
+            if (templateChecklistResult.created > 0) {
+              console.log(`[파이프라인] 템플릿 체크리스트 ${templateChecklistResult.created}건 자동생성: ${templateChecklistResult.templateNames.join(', ')}`);
+            }
+          } catch (tclErr: any) {
+            console.error('[파이프라인] 템플릿 체크리스트 자동생성 실패:', tclErr?.message || tclErr);
+          }
+
           // === 파이프라인 자동화 끝 ===
-          
-          
+
           // === 원료수불부 사용 연동 ===
           try {
             const { onBatchCompleted } = await import("../../db/materialLedger");
@@ -1484,17 +1562,17 @@ export const batchRouter = router({
             await onBatchCompleted({
               batchId: input.batchId,
               completionDate,
-            }, ctx.user.tenantId);
+            }, ctx.tenantId!);
             console.log("[원료수불부] 배치 사용 반영 완료:", input.batchId);
           } catch (ledgerError) {
             console.error("[원료수불부] 배치 사용 반영 실패:", ledgerError);
           }
           // 생산일지(production_daily) 자동 갱신 (배치 완료 시)
           try {
-            const { autoRegenerateProductionDaily } = await import('./lib/autoProductionDaily');
-            const batchInfo = await (await import("../../db")).getBatchById(input.batchId, ctx.user.tenantId);
+            const { autoRegenerateProductionDaily } = await import('../../lib/autoProductionDaily');
+            const batchInfo = await (await import("../../db")).getBatchById(input.batchId, ctx.tenantId!);
             const bDate = batchInfo?.plannedDate ? new Date(batchInfo.plannedDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
-            await autoRegenerateProductionDaily(ctx.user.tenantId, bDate);
+            await autoRegenerateProductionDaily(ctx.tenantId!, bDate);
             console.log('[파이프라인] 생산일지(production_daily) 자동 갱신 완료 (배치완료)');
           } catch (pdErr) {
             console.error('[파이프라인] 생산일지 갱신 실패 (배치완료):', pdErr);
@@ -1562,7 +1640,7 @@ export const batchRouter = router({
         const { getBatchCostAnalysis } = await import("../../db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
-        return await getBatchCostAnalysis({ startDate, endDate, limit: input.limit }, ctx.user.tenantId);
+        return await getBatchCostAnalysis({ startDate, endDate, limit: input.limit }, ctx.tenantId!);
       }),
 
     // 특정 배치의 원재료별 비용 분석
@@ -1570,7 +1648,7 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchMaterialCostBreakdown } = await import("../../db/batchCostAnalysis");
-        return await getBatchMaterialCostBreakdown(input.batchId, ctx.user.tenantId);
+        return await getBatchMaterialCostBreakdown(input.batchId, ctx.tenantId!);
       }),
 
     // 기간별 비용 분석 집계
@@ -1586,7 +1664,7 @@ export const batchRouter = router({
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
           groupBy: input.groupBy
-        }, ctx.user.tenantId);
+        }, ctx.tenantId!);
       }),
 
     // 원재료별 비용 분석
@@ -1599,7 +1677,7 @@ export const batchRouter = router({
         const { getMaterialCostAnalysis } = await import("../../db/batchCostAnalysis");
         const startDate = input.startDate ? new Date(input.startDate) : undefined;
         const endDate = input.endDate ? new Date(input.endDate) : undefined;
-        return await getMaterialCostAnalysis({ startDate, endDate }, ctx.user.tenantId);
+        return await getMaterialCostAnalysis({ startDate, endDate }, ctx.tenantId!);
       }),
     
     // 배치 원가율 계산
@@ -1607,6 +1685,6 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { calculateBatchCost } = await import("../../db/batchCostCalculation");
-        return await calculateBatchCost(input.batchId, ctx.user.tenantId);
+        return await calculateBatchCost(input.batchId, ctx.tenantId!);
       })
 });

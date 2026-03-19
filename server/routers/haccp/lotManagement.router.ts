@@ -31,12 +31,12 @@ export const lotManagementRouter = router({
         if (input.partnerId && !supplierName) {
           const [partnerRows] = await pool.execute(
             `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`,
-            [input.partnerId, ctx.user.tenantId]
+            [input.partnerId, ctx.tenantId ?? undefined]
           );
           supplierName = (partnerRows as any[])?.[0]?.company_name || supplierName;
         }
         
-        const result = await createMaterialReceivingWithLot(db, pool, ctx.user.tenantId, {
+        const result = await createMaterialReceivingWithLot(db, pool, ctx.tenantId ?? undefined, {
           ...input,
           supplierName,
           userId: ctx.user.id,
@@ -53,7 +53,7 @@ export const lotManagementRouter = router({
                 total_amount, status, notes, source_type, source_id, created_by, created_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'material_receipt', ?, ?, NOW())`,
               [
-                ctx.user.tenantId, receiptDate,
+                ctx.tenantId ?? undefined, receiptDate,
                 input.partnerId || null,
                 input.materialCode + (supplierName ? ` (${supplierName})` : ''),
                 input.quantity, input.unit, input.unitPrice,
@@ -86,7 +86,7 @@ export const lotManagementRouter = router({
         if (!db) return [];
         try {
           const { getMaterialLotHistory } = await import("../../db/visualInspection");
-          return await getMaterialLotHistory(db, ctx.user.tenantId, input);
+          return await getMaterialLotHistory(db, ctx.tenantId ?? undefined, input);
         } catch (err) {
           console.error('[lotManagement.getLotHistory]', err);
           return [];
@@ -101,6 +101,6 @@ export const lotManagementRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         const pool = await getRawConnection();
         const { backfillMaterialReceivingLots } = await import("../../db/visualInspection");
-        return await backfillMaterialReceivingLots(db, pool, ctx.user.tenantId, ctx.user.id);
+        return await backfillMaterialReceivingLots(db, pool, ctx.tenantId ?? undefined, ctx.user.id);
       }),
 });

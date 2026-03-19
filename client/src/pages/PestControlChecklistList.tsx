@@ -32,7 +32,7 @@ export default function PestControlChecklistList() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "삭제 실패",
         description: error.message,
@@ -150,7 +150,7 @@ export default function PestControlChecklistList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {checklists.map((item) => (
+                {checklists.map((item: any) => (
                   <TableRow key={item.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">

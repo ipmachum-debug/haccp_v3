@@ -3,8 +3,7 @@
  * P3: 시산표 (Trial Balance), 재무상태표 (Balance Sheet), 손익계산서 (Income Statement)
  * 
  * 데이터 소스:
- * 1. expense_journal_lines (비용전표 분개)
- * 2. accounting_transactions (매입/매출/재고 자동분개)
+ * 1. expense_journal_lines (모든 분개 - 비용전표, 매입/매출, 재고, 은행매칭 등)
  * 
  * 계정과목: accounting_accounts (system_code 기반 통합 테이블)
  */
@@ -92,22 +91,7 @@ export async function generateTrialBalance(
     [tenantId, tenantId, startDate, endDate],
   );
 
-  // 2. accounting_transactions에서 집계
-  const [atRows] = await conn.execute(
-    `SELECT 
-       account_code,
-       account_name,
-       COALESCE(SUM(debit_amount), 0) as debit_total,
-       COALESCE(SUM(credit_amount), 0) as credit_total
-     FROM accounting_transactions
-     WHERE tenant_id = ?
-       AND transaction_date >= ? AND transaction_date <= ?
-       AND action_type = 'POST'
-     GROUP BY account_code, account_name`,
-    [tenantId, startDate, endDate],
-  );
-
-  // 3. 계정과목 마스터 조회 (category, system_code 보강)
+  // 2. 계정과목 마스터 조회 (category, system_code 보강)
   const [accounts] = await conn.execute(
     `SELECT id, code, name, category, system_code
      FROM accounting_accounts
@@ -119,10 +103,9 @@ export async function generateTrialBalance(
     accountMap.set(acc.code, acc);
   }
 
-  // 4. 데이터 통합 (account_code 기준)
+  // 3. 데이터 통합 (account_code 기준)
   const mergedMap = new Map<string, TrialBalanceRow>();
 
-  // expense_journal_lines 데이터
   for (const row of expenseRows as any[]) {
     const code = row.account_code;
     const master = accountMap.get(code);
@@ -142,29 +125,9 @@ export async function generateTrialBalance(
     mergedMap.set(code, existing);
   }
 
-  // accounting_transactions 데이터
-  for (const row of atRows as any[]) {
-    const code = row.account_code;
-    const master = accountMap.get(code);
-    const existing = mergedMap.get(code) || {
-      accountId: master?.id || 0,
-      accountCode: code,
-      accountName: row.account_name || master?.name || code,
-      category: master?.category || "expenses",
-      systemCode: master?.system_code || null,
-      debitTotal: 0,
-      creditTotal: 0,
-      debitBalance: 0,
-      creditBalance: 0,
-    };
-    existing.debitTotal += Number(row.debit_total);
-    existing.creditTotal += Number(row.credit_total);
-    mergedMap.set(code, existing);
-  }
-
-  // 5. 잔액 계산
+  // 4. 잔액 계산
   const rows: TrialBalanceRow[] = [];
-  for (const row of mergedMap.values()) {
+  for (const row of Array.from(mergedMap.values())) {
     const diff = row.debitTotal - row.creditTotal;
     // 자산/비용: 차변 잔액, 부채/자본/수익: 대변 잔액
     if (["assets", "expenses"].includes(row.category)) {

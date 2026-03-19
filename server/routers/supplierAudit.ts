@@ -25,10 +25,7 @@ export const supplierAuditRouter = router({
       rating: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await supplierDb.createSupplier({
-        ...input,
-        tenantId: ctx.user.tenantId,
-      });
+      const id = await supplierDb.createSupplier(ctx.tenantId ?? undefined, input);
       return { id };
     }),
 
@@ -43,14 +40,14 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSuppliers({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
   getSupplier: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return await supplierDb.getSupplierById(input.id);
+    .query(async ({ input, ctx }) => {
+      return await supplierDb.getSupplierById(ctx.tenantId ?? undefined, input.id);
     }),
 
   updateSupplier: tenantRequiredProcedure
@@ -68,16 +65,16 @@ export const supplierAuditRouter = router({
       rating: z.string().optional(),
       isActive: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await supplierDb.updateSupplier(id, data);
+      await supplierDb.updateSupplier(ctx.tenantId ?? undefined, id, data);
       return { success: true };
     }),
 
   deleteSupplier: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await supplierDb.deleteSupplier(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await supplierDb.deleteSupplier(ctx.tenantId ?? undefined, input.id);
       return { success: true };
     }),
 
@@ -99,10 +96,9 @@ export const supplierAuditRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const id = await supplierDb.createSupplierAudit({
+      const id = await supplierDb.createSupplierAudit(ctx.tenantId ?? undefined, {
         ...input,
         score: input.score ? String(input.score) : undefined,
-        tenantId: ctx.user.tenantId,
       });
       return { id };
     }),
@@ -120,14 +116,14 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSupplierAudits({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
   getAudit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return await supplierDb.getSupplierAuditById(input.id);
+    .query(async ({ input, ctx }) => {
+      return await supplierDb.getSupplierAuditById(ctx.tenantId ?? undefined, input.id);
     }),
 
   updateAudit: tenantRequiredProcedure
@@ -143,18 +139,18 @@ export const supplierAuditRouter = router({
       nextAuditDate: z.string().optional(),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       const updateData: any = { ...data };
       if (data.score) updateData.score = String(data.score);
-      await supplierDb.updateSupplierAudit(id, updateData);
+      await supplierDb.updateSupplierAudit(ctx.tenantId ?? undefined, id, updateData);
       return { success: true };
     }),
 
   deleteAudit: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await supplierDb.deleteSupplierAudit(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await supplierDb.deleteSupplierAudit(ctx.tenantId ?? undefined, input.id);
       return { success: true };
     }),
 
@@ -178,11 +174,10 @@ export const supplierAuditRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const overallScore = ((input.qualityScore + input.deliveryScore + input.priceScore + input.serviceScore + input.responseScore) / 5).toFixed(2);
-      const id = await supplierDb.createSupplierEvaluation({
+      const id = await supplierDb.createSupplierEvaluation(ctx.tenantId ?? undefined, {
         ...input,
         overallScore,
         evaluatedBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
       });
       return { id };
     }),
@@ -198,14 +193,14 @@ export const supplierAuditRouter = router({
     .query(async ({ input, ctx }) => {
       return await supplierDb.getSupplierEvaluations({
         ...input,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
     }),
 
   getEvaluation: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return await supplierDb.getSupplierEvaluationById(input.id);
+    .query(async ({ input, ctx }) => {
+      return await supplierDb.getSupplierEvaluationById(ctx.tenantId ?? undefined, input.id);
     }),
 
   updateEvaluation: tenantRequiredProcedure
@@ -221,16 +216,16 @@ export const supplierAuditRouter = router({
       weaknesses: z.string().optional(),
       recommendations: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await supplierDb.updateSupplierEvaluation(id, data);
+      await supplierDb.updateSupplierEvaluation(ctx.tenantId ?? undefined, id, data);
       return { success: true };
     }),
 
   deleteEvaluation: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await supplierDb.deleteSupplierEvaluation(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await supplierDb.deleteSupplierEvaluation(ctx.tenantId ?? undefined, input.id);
       return { success: true };
     }),
 
@@ -240,12 +235,12 @@ export const supplierAuditRouter = router({
 
   getDashboard: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      return await supplierDb.getSupplierDashboard(ctx.user.tenantId);
+      return await supplierDb.getSupplierDashboard(ctx.tenantId ?? undefined);
     }),
 
   getUpcomingAudits: tenantRequiredProcedure
     .input(z.object({ limit: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      return await supplierDb.getUpcomingAudits(ctx.user.tenantId, input.limit);
+      return await supplierDb.getUpcomingAudits(ctx.tenantId ?? undefined, input.limit);
     }),
 });

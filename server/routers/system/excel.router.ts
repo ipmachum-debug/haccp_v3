@@ -15,7 +15,7 @@ export const excelRouter = router({
         const { exportBatchesToExcel } = await import("../../excel");
         
         // 배치 목록 조회
-        const batchData = await getAllBatches();
+        const batchData = await getAllBatches({ tenantId: ctx.tenantId! });
         const batches = batchData.items;
         
         // Excel 파일 생성
@@ -32,12 +32,12 @@ export const excelRouter = router({
     
     // 재고 데이터 Excel 내보내기
     exportInventory: tenantRequiredProcedure
-      .mutation(async () => {
+      .mutation(async ({ ctx }) => {
         const { getAllInventoryLots } = await import("../../db");
         const { exportInventoryToExcel } = await import("../../excel");
         
         // 재고 목록 조회
-        const inventory = await getAllInventoryLots();
+        const inventory = await getAllInventoryLots({ tenantId: ctx.tenantId! } as any);
         
         // Excel 파일 생성
         const buffer = await exportInventoryToExcel(inventory);
@@ -53,7 +53,7 @@ export const excelRouter = router({
     
     // 배치 템플릿 다운로드
     downloadBatchTemplate: tenantRequiredProcedure
-      .mutation(async () => {
+      .mutation(async ({ ctx }) => {
         const { generateBatchTemplate } = await import("../../excel");
         
         const buffer = await generateBatchTemplate();
@@ -67,7 +67,7 @@ export const excelRouter = router({
     
     // 재고 템플릿 다운로드
     downloadInventoryTemplate: tenantRequiredProcedure
-      .mutation(async () => {
+      .mutation(async ({ ctx }) => {
         const { generateInventoryTemplate } = await import("../../excel");
         
         const buffer = await generateInventoryTemplate();

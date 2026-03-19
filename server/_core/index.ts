@@ -122,7 +122,7 @@ async function startServer() {
       secure: process.env.NODE_ENV === 'production', // HTTPS에서만 secure 쿠키
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7일
-      domain: process.env.NODE_ENV === 'production' ? '.haccpone.co.kr' : undefined,
+      domain: process.env.NODE_ENV === 'production' ? '.haccpone.com' : undefined,
     },
   }));
   
@@ -164,8 +164,18 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, '0.0.0.0', () => {
+  server.listen(port, '0.0.0.0', async () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
+    
+    // DB 사전 초기화 (스케줄러보다 먼저 실행)
+    try {
+      const { getDb } = await import("../db");
+      await getDb();
+      console.log("[Server] Database pre-initialized successfully");
+    } catch (err) {
+      console.error("[Server] Database pre-initialization failed:", err);
+    }
+    
     // 스케줄러 초기화
     initScheduler();
     // 알림 자동 삭제 스케줄러 초기화

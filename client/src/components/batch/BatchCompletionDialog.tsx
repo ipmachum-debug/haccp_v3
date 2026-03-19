@@ -47,7 +47,7 @@ export function BatchCompletionDialog({
 
   // 배치 완료 mutation
   const completeMutation = trpc.batch.complete.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       if (result.data.pdfGenerated) {
         toast.info("HACCP 보고서 PDF가 생성되었습니다.");
@@ -55,7 +55,7 @@ export function BatchCompletionDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });

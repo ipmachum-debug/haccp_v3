@@ -39,7 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AlertTriangle, Plus, Edit, FileText, CheckCircle } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function NonconformingProduct({ embedded }: { embedded?: boolean } = {}) {
+export default function NonconformingProduct({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [selectedNcp, setSelectedNcp] = useState<any>(null);
@@ -57,7 +57,7 @@ export default function NonconformingProduct({ embedded }: { embedded?: boolean 
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -68,7 +68,7 @@ export default function NonconformingProduct({ embedded }: { embedded?: boolean 
       alert("부적합 제품이 성공적으로 수정되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

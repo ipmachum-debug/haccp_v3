@@ -58,7 +58,7 @@ export default function MaterialInspection() {
       setIsCreateDialogOpen(false);
       utils.inspection.material.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -70,7 +70,7 @@ export default function MaterialInspection() {
       utils.inspection.material.list.invalidate();
       utils.inspection.material.getById.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -121,7 +121,7 @@ export default function MaterialInspection() {
   };
 
   // 필터링된 기록
-  const filteredRecords = records.filter((record) => {
+  const filteredRecords = records.filter((record: any) => {
     const matchesSearch =
       record.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       record.lotNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -394,7 +394,7 @@ export default function MaterialInspection() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRecords.map((record) => (
+                {filteredRecords.map((record: any) => (
                   <TableRow key={record.id}>
                     <TableCell>
                       {record.inspectionDate
@@ -540,7 +540,7 @@ export default function MaterialInspection() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {selectedRecord.items.map((item, index) => (
+                    {selectedRecord.items.map((item: any, index: any) => (
                       <TableRow key={index}>
                         <TableCell>{item.itemName}</TableCell>
                         <TableCell>{item.standard}</TableCell>

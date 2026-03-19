@@ -19,7 +19,7 @@ export const matchingRulesRouter = router({
       const db = await getDb();
       const { matchingRules } = await import("../../../drizzle/schema_main");
       const rules = await db.select().from(matchingRules)
-        .where(eq(matchingRules.tenantId, ctx.user.tenantId))
+        .where(eq(matchingRules.tenantId, ctx.tenantId ?? undefined))
         .orderBy(matchingRules.priority);
 
       // JSON 필드를 파싱하여 반환
@@ -81,7 +81,7 @@ export const matchingRulesRouter = router({
         if (input.actionMemo) actions.memo = input.actionMemo;
 
         const [newRule] = await db.insert(matchingRules).values({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           userId: ctx.user.id,
           ruleType: input.ruleType,
           priority: input.priority,
@@ -119,7 +119,7 @@ export const matchingRulesRouter = router({
 
         // 기존 규칙 조회
         const existing = await db.select().from(matchingRules).where(
-          and(eq(matchingRules.id, id), eq(matchingRules.tenantId, ctx.user.tenantId))
+          and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
         ).limit(1);
         if (!existing.length) {
           throw new Error("규칙을 찾을 수 없습니다.");
@@ -164,7 +164,7 @@ export const matchingRulesRouter = router({
 
         if (Object.keys(dataToUpdate).length > 0) {
           await db.update(matchingRules).set(dataToUpdate).where(
-            and(eq(matchingRules.id, id), eq(matchingRules.tenantId, ctx.user.tenantId))
+            and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
           );
         }
 
@@ -178,7 +178,7 @@ export const matchingRulesRouter = router({
         const db = await getDb();
         const { matchingRules } = await import("../../../drizzle/schema_main");
         await db.delete(matchingRules).where(
-          and(eq(matchingRules.id, input.id), eq(matchingRules.tenantId, ctx.user.tenantId))
+          and(eq(matchingRules.id, input.id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
         );
         return { success: true };
       }),
@@ -190,13 +190,13 @@ export const matchingRulesRouter = router({
       const { sql } = await import("drizzle-orm");
 
       const rules = await db.select().from(matchingRules)
-        .where(eq(matchingRules.tenantId, ctx.user.tenantId));
+        .where(eq(matchingRules.tenantId, ctx.tenantId ?? undefined));
 
       const [unmatchedResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(bankTransactions)
         .where(and(
-          eq(bankTransactions.tenantId, ctx.user.tenantId),
+          eq(bankTransactions.tenantId, ctx.tenantId ?? undefined),
           eq(bankTransactions.matchingStatus, "unmatched")
         ));
 
@@ -204,7 +204,7 @@ export const matchingRulesRouter = router({
         .select({ count: sql<number>`count(*)` })
         .from(bankTransactions)
         .where(and(
-          eq(bankTransactions.tenantId, ctx.user.tenantId),
+          eq(bankTransactions.tenantId, ctx.tenantId ?? undefined),
           eq(bankTransactions.matchingStatus, "matched")
         ));
 

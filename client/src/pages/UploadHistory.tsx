@@ -34,7 +34,7 @@ export default function UploadHistory() {
       toast.success("이력이 삭제되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -42,7 +42,7 @@ export default function UploadHistory() {
   // 필터링된 이력
   const filteredHistories = selectedType === "all"
     ? histories
-    : histories.filter((h) => h.uploadType === selectedType);
+    : histories.filter((h: any) => h.uploadType === selectedType);
 
   // 에러 상세 보기
   const handleViewErrors = (errors: any[]) => {
@@ -116,7 +116,7 @@ export default function UploadHistory() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredHistories.map((history) => (
+                  {filteredHistories.map((history: any) => (
                     <TableRow key={history.id}>
                       <TableCell>
                         <Badge variant="outline">

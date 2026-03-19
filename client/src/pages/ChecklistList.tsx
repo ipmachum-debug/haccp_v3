@@ -40,7 +40,7 @@ export default function ChecklistList() {
   const { data: users } = trpc.user.list.useQuery();
 
   // 클라이언트 측 검색 필터링
-  const filteredInstances = instances?.filter((instance) => {
+  const filteredInstances = instances?.filter((instance: any) => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -57,7 +57,7 @@ export default function ChecklistList() {
       setSelectedInstance(null);
       setSelectedReviewer("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(error.message);
     },
   });
@@ -187,7 +187,7 @@ export default function ChecklistList() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">모든 담당자</SelectItem>
-                  {users?.map((user) => (
+                  {users?.map((user: any) => (
                     <SelectItem key={user.id} value={user.id.toString()}>
                       {user.name || user.email}
                     </SelectItem>
@@ -255,7 +255,7 @@ export default function ChecklistList() {
           </Card>
         ) : (
           <div className="grid gap-4">
-            {filteredInstances.map((instance) => (
+            {filteredInstances.map((instance: any) => (
               <Card key={instance.id} className="card-hover">
                 <CardHeader>
                   <div className="flex items-start justify-between">
@@ -337,7 +337,7 @@ export default function ChecklistList() {
                 <SelectValue placeholder="승인자 선택" />
               </SelectTrigger>
               <SelectContent>
-                {users?.map((user) => (
+                {users?.map((user: any) => (
                   <SelectItem key={user.id} value={user.id.toString()}>
                     {user.name || user.email}
                   </SelectItem>

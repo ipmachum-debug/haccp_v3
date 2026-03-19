@@ -51,6 +51,9 @@ export function MonthlyCCPLogModal({
   // 한계기준 이탈내용, 개선조치, 조치자, 확인
   const [deviationDetails, setDeviationDetails] = useState('');
   const [improvementAction, setImprovementAction] = useState('');
+  const [confirmerName, setConfirmerName] = useState('');
+  const [actionTaker, setActionTaker] = useState('');
+  const [confirmation, setConfirmation] = useState('');
 
 
   const createMutation = trpc.monthlyLog.createCCP.useMutation({
@@ -62,7 +65,7 @@ export function MonthlyCCPLogModal({
       resetForm();
       onClose();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: '오류',
         description: error.message,

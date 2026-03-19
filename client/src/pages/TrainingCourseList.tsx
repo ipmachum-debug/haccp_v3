@@ -52,7 +52,7 @@ export default function TrainingCourseList() {
       toast.success("교육 과정이 삭제되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -62,7 +62,7 @@ export default function TrainingCourseList() {
     deleteMutation.mutate({ id });
   };
 
-  const filteredCourses = courses?.filter((course) =>
+  const filteredCourses = courses?.filter((course: any) =>
     course.courseName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     course.courseCode.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -141,7 +141,7 @@ export default function TrainingCourseList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredCourses.map((course) => (
+                {filteredCourses.map((course: any) => (
                   <TableRow key={course.id}>
                     <TableCell className="font-medium">{course.courseCode}</TableCell>
                     <TableCell>{course.courseName}</TableCell>

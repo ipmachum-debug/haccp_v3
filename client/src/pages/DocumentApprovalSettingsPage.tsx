@@ -196,7 +196,7 @@ export default function DocumentApprovalSettingsPage() {
   };
 
   // 필터링
-  const categories = [...new Set(FORM_TYPES.map((ft) => ft.category))];
+  const categories = Array.from(new Set(FORM_TYPES.map((ft) => ft.category)));
   const filteredSettings = settings.filter((row) => {
     const matchSearch = !searchTerm || row.name.includes(searchTerm) || row.formType.includes(searchTerm);
     const matchCategory = categoryFilter === "all" || row.category === categoryFilter;

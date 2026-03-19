@@ -14,7 +14,7 @@ export async function checkBatchCompletion(batchId: number, tenantId?: number) {
   const batch = await db
     .select()
     .from(hBatches)
-    .where(and(eq(hBatches.tenantId, tenantId), eq(hBatches.id, batchId)))    .limit(1);
+    .where(and(eq(hBatches.tenantId, tenantId as any) , eq(hBatches.id, batchId)) as any)    .limit(1);
 
   if (!batch || batch.length === 0) {
     throw new Error("배치를 찾을 수 없습니다.");
@@ -26,7 +26,7 @@ export async function checkBatchCompletion(batchId: number, tenantId?: number) {
   const ccpInstances = await db
     .select()
     .from(hCcpInstances)
-    .where(and(eq(hCcpInstances.tenantId, tenantId), eq(hCcpInstances.batchId, batchId)));
+    .where(and(eq(hCcpInstances.tenantId, tenantId as any) , eq(hCcpInstances.batchId, batchId)) as any);
   // 3. 각 CCP 인스턴스의 점검 기록 확인
   const missingDocuments: Array<{
     type: string;

@@ -85,7 +85,7 @@ export default function BatchProductionDashboard() {
               <p className="text-center text-muted-foreground py-8">진행 중인 배치가 없습니다.</p>
             ) : (
               <div className="space-y-4">
-                {activeBatches.map((batch) => (
+                {activeBatches.map((batch: any) => (
                   <Card key={batch.id} className={batch.isDelayed ? "border-red-500" : ""}>
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between">

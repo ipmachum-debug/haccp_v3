@@ -169,7 +169,7 @@ export default function InventoryAnalytics() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {turnoverData.map((material) => (
+                  {turnoverData.map((material: any) => (
                     <TableRow key={material.materialId}>
                       <TableCell>
                         <div>
@@ -197,7 +197,7 @@ export default function InventoryAnalytics() {
       </Card>
 
       {/* 효율성 개선 제안 */}
-      {turnoverData && turnoverData.filter((m) => m.efficiency === "low").length > 0 && (
+      {turnoverData && turnoverData.filter((m: any) => m.efficiency === "low").length > 0 && (
         <Card className="border-yellow-500">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -209,9 +209,9 @@ export default function InventoryAnalytics() {
           <CardContent>
             <ul className="space-y-2">
               {turnoverData
-                .filter((m) => m.efficiency === "low")
+                .filter((m: any) => m.efficiency === "low")
                 .slice(0, 5)
-                .map((material) => (
+                .map((material: any) => (
                   <li key={material.materialId} className="flex items-start gap-2">
                     <span className="text-yellow-500">•</span>
                     <div>

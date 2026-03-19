@@ -16,7 +16,7 @@
 import { getDb } from "../db";
 import { eq, and, desc, asc, sql, gte, lte, isNull, inArray, type SQL } from "drizzle-orm";
 import {
-  hBatches, hProducts, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
+  hBatches, hProducts, hProductsV2, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
   hCcpTemplates, hBatchInputs, hInventoryLots, hInventory, hInventoryTransactions,
   hSuppliers, hApprovalRequests, hApprovalHistory, hNotifications, hNotificationSettings,
   hCcpDeviations, hSupplierEvaluations, users,
@@ -72,10 +72,10 @@ export class TenantDb {
     const db = await getDb();
     const conditions: SQL[] = [eq(hBatches.tenantId, this.tenantId)];
 
-    if (filters?.status) conditions.push(eq(hBatches.status, filters.status));
+    if (filters?.status) conditions.push(eq(hBatches.status, filters.status as any) );
     if (filters?.productId) conditions.push(eq(hBatches.productId, filters.productId));
-    if (filters?.startDate) conditions.push(gte(hBatches.productionDate, filters.startDate));
-    if (filters?.endDate) conditions.push(lte(hBatches.productionDate, filters.endDate));
+    if (filters?.startDate) conditions.push(gte((hBatches as any).productionDate, filters.startDate));
+    if (filters?.endDate) conditions.push(lte((hBatches as any).productionDate, filters.endDate));
     if (filters?.search) {
       conditions.push(sql`(${hBatches.batchCode} LIKE ${`%${filters.search}%`})`);
     }
@@ -144,17 +144,17 @@ export class TenantDb {
 
   async getAllProducts() {
     const db = await getDb();
-    return db.select().from(hProducts)
-      .where(eq(hProducts.tenantId, this.tenantId))
-      .orderBy(asc(hProducts.name));
+    return db.select().from(hProductsV2)
+      .where(eq(hProductsV2.tenantId, this.tenantId))
+      .orderBy(asc(hProductsV2.productName));
   }
 
   async getProductById(productId: number) {
     const db = await getDb();
-    const result = await db.select().from(hProducts)
+    const result = await db.select().from(hProductsV2)
       .where(and(
-        eq(hProducts.id, productId),
-        eq(hProducts.tenantId, this.tenantId)
+        eq(hProductsV2.id, productId),
+        eq(hProductsV2.tenantId, this.tenantId)
       ))
       .limit(1);
     return result[0] ?? null;
@@ -169,12 +169,12 @@ export class TenantDb {
     const conditions: SQL[] = [eq(hMaterials.tenantId, this.tenantId)];
 
     if (filters?.search) {
-      conditions.push(sql`(${hMaterials.name} LIKE ${`%${filters.search}%`} OR ${hMaterials.code} LIKE ${`%${filters.search}%`})`);
+      conditions.push(sql`(${(hMaterials as any).name} LIKE ${`%${filters.search}%`} OR ${(hMaterials as any).code} LIKE ${`%${filters.search}%`})`);
     }
 
     return db.select().from(hMaterials)
       .where(and(...conditions))
-      .orderBy(asc(hMaterials.name));
+      .orderBy(asc((hMaterials as any).name));
   }
 
   async getMaterialById(materialId: number) {
@@ -233,7 +233,7 @@ export class TenantDb {
     const conditions: SQL[] = [];
 
     if (filters?.materialId) conditions.push(eq(hInventoryLots.materialId, filters.materialId));
-    if (filters?.status) conditions.push(eq(hInventoryLots.status, filters.status));
+    if (filters?.status) conditions.push(eq(hInventoryLots.status, filters.status as any) );
 
     const page = filters?.page || 1;
     const limit = filters?.limit || 50;
@@ -254,7 +254,7 @@ export class TenantDb {
     const db = await getDb();
     return db.select().from(hSuppliers)
       .where(eq(hSuppliers.tenantId, this.tenantId))
-      .orderBy(asc(hSuppliers.name));
+      .orderBy(asc((hSuppliers as any).name));
   }
 
   // ============================================================================
@@ -305,7 +305,7 @@ export class TenantDb {
     const conditions: SQL[] = [eq(hApprovalRequests.tenantId, this.tenantId)];
 
     if (filters?.status) {
-      conditions.push(eq(hApprovalRequests.status, filters.status));
+      conditions.push(eq(hApprovalRequests.status, filters.status as any) );
     }
 
     return db.select().from(hApprovalRequests)

@@ -1,6 +1,6 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/_backup/**", "**/*.bak", "**/*.bak2", "**/*.bak3", "**/*.broken", "**/*.current", "**/*.backup_express"],
+  "exclude": ["node_modules", "build", "dist", "**/*.test.ts", "**/_backup/**", "**/_backup_*/**", "**/*.bak", "**/*.bak2", "**/*.bak3", "**/*.broken", "**/*.current", "**/*.backup_express", "server/server/**", "server_new_files/**", "shared/shared/**", "server/trpc.ts", "server/equipmentRouter.ts", "server/db/batches.ts", "server/db/accountingClose.ts", "client/client/**", "client/src/pages/landing/**", "server/api/admin_employee.ts", "server/api/superadmin_approval.ts", "server/api/tenants_public.ts", "server/auth_local.ts"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",

@@ -80,7 +80,7 @@ export function HealthCertificateExpiringWidget() {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {certificates.map((cert) => {
+          {certificates.map((cert: any) => {
             const daysLeft = getDaysUntilExpiry(cert.expiryDate);
             return (
               <Link key={cert.id} href={`/health-certificates/${cert.id}`}>

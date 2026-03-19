@@ -19,7 +19,7 @@ export default function CapaRecordList() {
       toast({ title: "삭제 완료", description: "개선조치(CAPA) 기록 기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

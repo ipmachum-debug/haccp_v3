@@ -48,7 +48,7 @@ export default function CcpEquipmentMonitoring() {
       setShowNewRecordDialog(false);
       refetchRecords();
     },
-    onError: (err) => toast.error(`생성 실패: ${err.message}`),
+    onError: (err: any) => toast.error(`생성 실패: ${err.message}`),
   });
 
   // 신규 기록 폼 상태

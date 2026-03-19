@@ -1,11 +1,13 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "./_core/trpc";
-import OpenAI from "openai";
-
-// OpenAI 클라이언트 초기화
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { router, tenantRequiredProcedure } from "./_core/trpc";
+import { invokeLLM } from "./_core/llm";
+import { ENV } from "./_core/env";
+import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
+import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
+import { getRawConnection } from "./db";
+import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/aiActionEngine";
+import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
+import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -258,14 +260,57 @@ Q: 모바일에서도 사용할 수 있나요?
 A: 네, 웹 브라우저를 통해 모바일에서도 접속 가능하며, "모바일 빠른 점검" 기능은 모바일에 최적화되어 있습니다.
 `;
 
-// 대화 히스토리 저장 (메모리 기반)
+// 대화 히스토리 저장 (메모리 + DB 영속화)
 const conversationHistory = new Map<string, Array<{ role: string; content: string }>>();
+
+/** DB에서 대화 히스토리 복구 (서버 재시작 시) */
+async function loadConversationHistory(tenantId: number, convId: string): Promise<Array<{ role: string; content: string }>> {
+  try {
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute(
+      `SELECT role, content FROM ai_chat_history
+       WHERE tenant_id = ? AND conversation_id = ?
+       ORDER BY created_at DESC LIMIT 20`,
+      [tenantId, convId]
+    );
+    return ((rows as any[]).reverse()).map((r) => ({ role: r.role, content: r.content }));
+  } catch {
+    return [];
+  }
+}
+
+/** DB에 대화 메시지 저장 */
+async function saveConversationMessage(tenantId: number, convId: string, userId: string, role: string, content: string) {
+  try {
+    const conn = await getRawConnection();
+    await conn.execute(
+      `INSERT INTO ai_chat_history (tenant_id, conversation_id, user_id, role, content, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
+      [tenantId, convId, userId, role, content.slice(0, 10000)]
+    );
+    // 오래된 히스토리 정리 (대화당 최대 50개)
+    await conn.execute(
+      `DELETE FROM ai_chat_history
+       WHERE tenant_id = ? AND conversation_id = ?
+         AND id NOT IN (
+           SELECT id FROM (
+             SELECT id FROM ai_chat_history
+             WHERE tenant_id = ? AND conversation_id = ?
+             ORDER BY created_at DESC LIMIT 50
+           ) as recent
+         )`,
+      [tenantId, convId, tenantId, convId]
+    );
+  } catch {
+    // DB 저장 실패 시 무시 (메모리에는 이미 저장됨)
+  }
+}
 
 export const aiRouter = router({
   // ============================================================================
-  // AI 채팅 (메인 챗봇 기능)
+  // AI 채팅 (스마트 챗봇 - Action Engine 기반)
   // ============================================================================
-  chat: protectedProcedure
+  chat: tenantRequiredProcedure
     .input(
       z.object({
         message: z.string().min(1).max(2000),
@@ -275,81 +320,87 @@ export const aiRouter = router({
     .mutation(async ({ input, ctx }) => {
       const userId = ctx.user?.id?.toString() || "anonymous";
       const convId = input.conversationId || userId;
+      const tenantId = ctx.tenantId;
 
-      // 대화 히스토리 가져오기 또는 새로 생성
-      let history = conversationHistory.get(convId) || [];
-
-      // 사용자 메시지 추가
+      // 대화 히스토리 가져오기 (메모리 캐시 → DB 폴백)
+      let history = conversationHistory.get(convId);
+      if (!history || history.length === 0) {
+        history = await loadConversationHistory(tenantId, convId);
+      }
       history.push({ role: "user", content: input.message });
-
-      // 최근 20개 메시지만 유지 (토큰 절약)
-      const recentHistory = history.slice(-20);
+      await saveConversationMessage(tenantId, convId, userId, "user", input.message);
 
       try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            ...recentHistory.map((msg) => ({
-              role: msg.role as "user" | "assistant",
-              content: msg.content,
-            })),
-          ],
-          temperature: 0.7,
-          max_tokens: 2000,
-        });
+        // AI 기반 의도 분류
+        const { intent } = await classifyIntentAI(input.message);
 
-        const assistantMessage =
-          completion.choices[0]?.message?.content ||
-          "죄송합니다. 응답을 생성하지 못했습니다. 다시 시도해 주세요.";
+        let assistantMessage: string;
 
-        // 어시스턴트 응답 히스토리에 추가
+        if (intent === "general") {
+          // 일반 질문: 기존 시스템 매뉴얼 기반 응답 (SYSTEM_PROMPT 사용)
+          if (!ENV.forgeApiKey) {
+            return { success: false, response: "AI 서비스가 아직 설정되지 않았습니다.", conversationId: convId };
+          }
+
+          const recentHistory = history.slice(-20);
+          const result = await invokeLLM({
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              ...recentHistory.map((msg) => ({
+                role: msg.role as "user" | "assistant",
+                content: msg.content,
+              })),
+            ],
+            maxTokens: 2000,
+          });
+
+          assistantMessage = typeof result.choices[0]?.message?.content === 'string'
+            ? result.choices[0].message.content
+            : '응답을 생성하지 못했습니다.';
+        } else {
+          // 데이터 기반 질문: Action Engine 사용 (DB 조회 → LLM)
+          const actionResult = await processUserQuery(
+            tenantId,
+            input.message,
+            history.slice(-10)
+          );
+
+          assistantMessage = actionResult.response;
+
+          // 감사 로그 저장
+          try {
+            const conn = await getRawConnection();
+            await conn.execute(
+              `INSERT INTO ai_audit_logs
+               (tenant_id, action_type, input_data, reference_data, output_text, user_id, created_at)
+               VALUES (?, 'chat_response', ?, ?, ?, ?, NOW())`,
+              [
+                tenantId,
+                JSON.stringify({ message: input.message, intent: actionResult.intent }),
+                JSON.stringify({ dataSources: actionResult.dataSources }),
+                assistantMessage.slice(0, 5000),
+                ctx.user?.id || null,
+              ]
+            );
+          } catch { /* 감사 로그 실패 무시 */ }
+        }
+
+        // 히스토리 업데이트 (메모리 + DB)
         history.push({ role: "assistant", content: assistantMessage });
-
-        // 히스토리 업데이트
         conversationHistory.set(convId, history.slice(-20));
+        await saveConversationMessage(tenantId, convId, userId, "assistant", assistantMessage);
 
-        return {
-          success: true,
-          response: assistantMessage,
-          conversationId: convId,
-        };
+        return { success: true, response: assistantMessage, conversationId: convId };
       } catch (error: any) {
-        console.error("[AI Chat Error]", error);
-
-        // API 키 오류 처리
-        if (error?.status === 401) {
-          return {
-            success: false,
-            response:
-              "AI 서비스 인증에 실패했습니다. 관리자에게 문의해 주세요.",
-            conversationId: convId,
-          };
-        }
-
-        // 할당량 초과 처리
-        if (error?.status === 429) {
-          return {
-            success: false,
-            response:
-              "AI 서비스 사용량이 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.",
-            conversationId: convId,
-          };
-        }
-
-        return {
-          success: false,
-          response:
-            "AI 응답 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-          conversationId: convId,
-        };
+        console.error("[AI Chat Error]", error?.message || error);
+        return { success: false, response: "AI 응답 생성 중 오류가 발생했습니다.", conversationId: convId };
       }
     }),
 
   // ============================================================================
   // 대화 히스토리 초기화
   // ============================================================================
-  clearHistory: protectedProcedure
+  clearHistory: tenantRequiredProcedure
     .input(
       z.object({
         conversationId: z.string().optional(),
@@ -365,126 +416,1259 @@ export const aiRouter = router({
   // ============================================================================
   // HACCP 일지 초안 자동 생성
   // ============================================================================
-  generateHaccpDraft: protectedProcedure
+  generateHaccpDraft: tenantRequiredProcedure
     .input(
       z.object({
-        date: z.string(), // YYYY-MM-DD
+        date: z.string(),
         type: z.enum(["daily", "weekly", "monthly"]),
       })
     )
     .mutation(async ({ input }) => {
+      if (!ENV.forgeApiKey) {
+        return { success: false, draft: "AI 서비스가 설정되지 않았습니다.", date: input.date, type: input.type };
+      }
       try {
-        const prompt = `오늘 날짜는 ${input.date}입니다.
-식품 제조업체의 HACCP ${input.type === "daily" ? "일일" : input.type === "weekly" ? "주간" : "월간"} 점검 일지 초안을 작성해 주세요.
-다음 항목을 포함해야 합니다:
-1. 작업장 위생 상태 점검
-2. 개인 위생 점검 (작업복, 모자, 마스크, 장갑 착용 여부)
-3. 원부자재 입고 검수 상태
-4. 가열 공정 온도/시간 기록 (가열 온도: 85°C 이상, 가열 시간: 30초 이상)
-5. 냉각 공정 온도 기록 (냉각 온도: 10°C 이하, 냉각 시간: 4시간 이내)
-6. 금속 검출기 작동 상태
-7. 포장 상태 점검
-8. 보관 온도 점검 (냉장: 0~10°C, 냉동: -18°C 이하)
-9. 세척 소독 실시 여부
-10. 방충방서 상태 점검
-각 항목에 대해 "적합" 또는 "부적합"을 기본값으로 설정하고, 특이사항란을 포함해 주세요.
-표 형식으로 작성해 주세요.`;
+        const prompt = `오늘 날짜는 ${input.date}입니다.\n식품 제조업체의 HACCP ${input.type === "daily" ? "일일" : input.type === "weekly" ? "주간" : "월간"} 점검 일지 초안을 작성해 주세요.\n다음 항목을 포함: 작업장 위생, 개인 위생, 원부자재 검수, 가열 공정(85°C↑), 냉각 공정(10°C↓), 금속 검출기, 포장 상태, 보관 온도(냉장0~10°C/냉동-18°C↓), 세척 소독, 방충방서.\n각 항목에 적합/부적합 기본값, 특이사항란 포함. 표 형식.`;
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const result = await invokeLLM({
           messages: [
-            {
-              role: "system",
-              content:
-                "당신은 HACCP 전문가입니다. 식품 제조업체의 HACCP 점검 일지를 정확하고 전문적으로 작성합니다.",
-            },
+            { role: "system", content: "당신은 HACCP 전문가입니다. 식품 제조업체의 HACCP 점검 일지를 정확하고 전문적으로 작성합니다." },
             { role: "user", content: prompt },
           ],
-          temperature: 0.3,
-          max_tokens: 2000,
+          maxTokens: 2000,
         });
 
-        const draft =
-          completion.choices[0]?.message?.content ||
-          "일지 초안 생성에 실패했습니다.";
+        const draft = typeof result.choices[0]?.message?.content === 'string'
+          ? result.choices[0].message.content : "일지 초안 생성에 실패했습니다.";
 
-        return {
-          success: true,
-          draft,
-          date: input.date,
-          type: input.type,
-        };
-      } catch (error) {
-        console.error("[AI HACCP Draft Error]", error);
-        return {
-          success: false,
-          draft: "일지 초안 생성 중 오류가 발생했습니다.",
-          date: input.date,
-          type: input.type,
-        };
+        return { success: true, draft, date: input.date, type: input.type };
+      } catch (error: any) {
+        console.error("[AI HACCP Draft Error]", error?.message || error);
+        return { success: false, draft: "일지 초안 생성 중 오류가 발생했습니다.", date: input.date, type: input.type };
       }
     }),
 
   // ============================================================================
   // 검사 결과 자동 판정
   // ============================================================================
-  analyzeInspection: protectedProcedure
+  analyzeInspection: tenantRequiredProcedure
     .input(
       z.object({
-        inspectionType: z.string(), // 검사 유형
+        inspectionType: z.string(),
         measurements: z.array(
           z.object({
-            item: z.string(), // 검사 항목
-            value: z.string(), // 측정값
-            standard: z.string(), // 기준값
+            item: z.string(),
+            value: z.string(),
+            standard: z.string(),
           })
         ),
       })
     )
     .mutation(async ({ input }) => {
+      if (!ENV.forgeApiKey) {
+        return { success: false, result: "AI 서비스가 설정되지 않았습니다." };
+      }
       try {
         const measurementText = input.measurements
-          .map(
-            (m) => `- ${m.item}: 측정값 ${m.value}, 기준값 ${m.standard}`
-          )
+          .map((m) => `- ${m.item}: 측정값 ${m.value}, 기준값 ${m.standard}`)
           .join("\n");
 
-        const prompt = `다음은 식품 ${input.inspectionType} 검사 결과입니다:
-${measurementText}
-각 항목에 대해:
-1. 적합/부적합 판정
-2. 판정 근거
-3. 부적합 시 권장 조치사항
-을 JSON 형식으로 답변해 주세요.`;
+        const prompt = `다음은 식품 ${input.inspectionType} 검사 결과입니다:\n${measurementText}\n각 항목에 대해: 1.적합/부적합 판정 2.판정근거 3.부적합시 권장 조치사항을 JSON 형식으로 답변해 주세요.`;
 
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+        const result = await invokeLLM({
           messages: [
-            {
-              role: "system",
-              content:
-                "당신은 식품 품질 검사 전문가입니다. 검사 결과를 정확하게 판정합니다. 반드시 JSON 형식으로 답변하세요.",
-            },
+            { role: "system", content: "당신은 식품 품질 검사 전문가입니다. 검사 결과를 정확하게 판정합니다. 반드시 JSON 형식으로 답변하세요." },
             { role: "user", content: prompt },
           ],
-          temperature: 0.2,
-          max_tokens: 1500,
+          maxTokens: 1500,
         });
 
-        const result =
-          completion.choices[0]?.message?.content ||
-          "판정 결과를 생성하지 못했습니다.";
+        const analysisResult = typeof result.choices[0]?.message?.content === 'string'
+          ? result.choices[0].message.content : "판정 결과를 생성하지 못했습니다.";
+
+        return { success: true, result: analysisResult };
+      } catch (error: any) {
+        console.error("[AI Inspection Error]", error?.message || error);
+        return { success: false, result: "검사 결과 분석 중 오류가 발생했습니다." };
+      }
+    }),
+
+  // ============================================================================
+  // AI 규칙엔진: 전체 규칙 평가 실행
+  // ============================================================================
+  evaluateRules: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const tenantId = ctx.tenantId;
+        const date = input?.date || new Date().toISOString().split("T")[0];
+
+        const results = await evaluateAllRules(tenantId, date);
+        const savedCount = await saveAlerts(tenantId, results);
+
+        // 감사 로그 저장
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs (tenant_id, action_type, input_data, output_data, user_id, created_at)
+             VALUES (?, 'rule_evaluation', ?, ?, ?, NOW())`,
+            [tenantId, JSON.stringify({ date }), JSON.stringify({ totalRules: results.length, savedAlerts: savedCount }), ctx.user?.id || null]
+          );
+        } catch { /* 감사 로그 실패 무시 */ }
 
         return {
           success: true,
-          result,
+          date,
+          totalTriggered: results.length,
+          savedAlerts: savedCount,
+          results: results.map(r => ({
+            ruleCode: r.ruleCode,
+            severity: r.severity,
+            title: r.title,
+            message: r.message,
+            entityType: r.entityType,
+            entityCode: r.entityCode,
+          })),
+          bySeverity: {
+            critical: results.filter(r => r.severity === "critical").length,
+            high: results.filter(r => r.severity === "high").length,
+            medium: results.filter(r => r.severity === "medium").length,
+            low: results.filter(r => r.severity === "low").length,
+          },
         };
-      } catch (error) {
-        console.error("[AI Inspection Error]", error);
+      } catch (error: any) {
+        console.error("[AI Rules Error]", error?.message || error);
+        return { success: false, totalTriggered: 0, savedAlerts: 0, results: [], bySeverity: { critical: 0, high: 0, medium: 0, low: 0 } };
+      }
+    }),
+
+  // ============================================================================
+  // AI 대시보드 요약 조회
+  // ============================================================================
+  dashboardSummary: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const summary = await getAIDashboardSummary(ctx.tenantId, input?.date);
+        return { success: true, ...summary };
+      } catch (error: any) {
+        console.error("[AI Dashboard Error]", error?.message || error);
         return {
           success: false,
-          result: "검사 결과 분석 중 오류가 발생했습니다.",
+          date: input?.date || new Date().toISOString().split("T")[0],
+          activeAlerts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+          recentAlerts: [],
+          batchRiskSummary: { high: 0, medium: 0, low: 0 },
         };
       }
+    }),
+
+  // ============================================================================
+  // 알림 목록 조회
+  // ============================================================================
+  listAlerts: tenantRequiredProcedure
+    .input(z.object({
+      status: z.enum(["active", "acknowledged", "resolved", "dismissed"]).optional(),
+      severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+      entityType: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.status) { conditions.push("status = ?"); params.push(input.status); }
+        if (input?.severity) { conditions.push("severity = ?"); params.push(input.severity); }
+        if (input?.entityType) { conditions.push("entity_type = ?"); params.push(input.entityType); }
+
+        const limit = input?.limit || 50;
+        const offset = input?.offset || 0;
+
+        const [rows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, entity_type, entity_id, entity_code,
+                  context_data, status, acknowledged_by, acknowledged_at, resolved_by, resolved_at,
+                  resolved_note, created_at, expires_at
+           FROM ai_alerts
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY FIELD(severity, 'critical', 'high', 'medium', 'low'), created_at DESC
+           LIMIT ? OFFSET ?`,
+          [...params, limit, offset]
+        );
+
+        const [countResult] = await conn.execute(
+          `SELECT COUNT(*) as total FROM ai_alerts WHERE ${conditions.join(" AND ")}`,
+          params
+        );
+
+        return {
+          success: true,
+          alerts: (rows as any[]).map(r => ({
+            ...r,
+            contextData: typeof r.context_data === "string" ? JSON.parse(r.context_data) : r.context_data,
+          })),
+          total: (countResult as any[])[0]?.total || 0,
+        };
+      } catch (error: any) {
+        console.error("[AI Alerts Error]", error?.message || error);
+        return { success: false, alerts: [], total: 0 };
+      }
+    }),
+
+  // ============================================================================
+  // 알림 상태 업데이트 (확인/해결/무시)
+  // ============================================================================
+  updateAlert: tenantRequiredProcedure
+    .input(z.object({
+      alertId: z.number(),
+      status: z.enum(["acknowledged", "resolved", "dismissed"]),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await updateAlertStatus(ctx.tenantId, input.alertId, input.status, ctx.user?.id || 0, input.note);
+        return { success: true };
+      } catch (error: any) {
+        console.error("[AI Alert Update Error]", error?.message || error);
+        return { success: false };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 업로드 및 파싱
+  // ============================================================================
+  uploadStandard: tenantRequiredProcedure
+    .input(z.object({
+      name: z.string().min(1).max(300),
+      standardType: z.enum([
+        "haccp_plan", "prerequisite", "operational_prp", "ccp_standard",
+        "sanitation", "quality_standard", "facility_standard",
+        "training_standard", "recall_plan", "custom",
+      ]),
+      content: z.string().min(10).max(50000),
+      version: z.string().optional(),
+      additionalContext: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 1. 기준서 저장
+        const [result] = await conn.execute(
+          `INSERT INTO ai_standards
+           (tenant_id, name, standard_type, content, status, version, created_by, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'uploaded', ?, ?, NOW(), NOW())`,
+          [ctx.tenantId, input.name, input.standardType, input.content, input.version || null, ctx.user?.id || null]
+        );
+        const standardId = (result as any).insertId;
+
+        // 2. AI 파싱 실행
+        const startTime = Date.now();
+        const { items, rawResponse } = await parseStandardToCheckItems(
+          input.content,
+          input.standardType,
+          input.additionalContext
+        );
+        const latencyMs = Date.now() - startTime;
+
+        // 3. 파싱 결과 저장
+        await conn.execute(
+          `UPDATE ai_standards SET parsed_items = ?, status = 'parsed', updated_at = NOW() WHERE id = ?`,
+          [JSON.stringify(items), standardId]
+        );
+
+        // 4. 감사 로그
+        try {
+          await conn.execute(
+            `INSERT INTO ai_audit_logs
+             (tenant_id, action_type, input_data, reference_data, output_data, output_text, model_used, latency_ms, user_id, created_at)
+             VALUES (?, 'checklist_generation', ?, ?, ?, ?, 'gpt-4o-mini', ?, ?, NOW())`,
+            [
+              ctx.tenantId,
+              JSON.stringify({ name: input.name, type: input.standardType, contentLength: input.content.length }),
+              JSON.stringify({ standardIds: [standardId] }),
+              JSON.stringify({ itemCount: items.length }),
+              rawResponse,
+              latencyMs,
+              ctx.user?.id || null,
+            ]
+          );
+        } catch { /* 감사 로그 실패 무시 */ }
+
+        return {
+          success: true,
+          standardId,
+          parsedItems: items,
+          itemCount: items.length,
+        };
+      } catch (error: any) {
+        console.error("[AI Standard Upload Error]", error?.message || error);
+        return { success: false, standardId: 0, parsedItems: [], itemCount: 0, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 파싱 결과로 체크리스트 템플릿 생성
+  // ============================================================================
+  createChecklistFromStandard: tenantRequiredProcedure
+    .input(z.object({
+      standardId: z.number(),
+      templateName: z.string().min(1).max(200),
+      category: z.string(),
+      items: z.array(z.object({
+        id: z.string(),
+        category: z.string(),
+        checkItem: z.string(),
+        standard: z.string(),
+        frequency: z.string(),
+        method: z.string().optional(),
+        responsibleRole: z.string().optional(),
+        itemType: z.string().optional(),
+        validationRules: z.object({
+          min: z.number().nullable().optional(),
+          max: z.number().nullable().optional(),
+          options: z.array(z.string()).nullable().optional(),
+        }).optional(),
+        importance: z.enum(["required", "recommended", "optional"]).optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await createTemplateFromStandard(
+          ctx.tenantId,
+          input.standardId,
+          input.templateName,
+          input.category,
+          input.items,
+          ctx.user?.id
+        );
+        return { success: true, ...result };
+      } catch (error: any) {
+        console.error("[AI Checklist Create Error]", error?.message || error);
+        return { success: false, templateId: 0, itemCount: 0, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 목록 조회
+  // ============================================================================
+  listStandards: tenantRequiredProcedure
+    .input(z.object({
+      standardType: z.string().optional(),
+      status: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.standardType) { conditions.push("standard_type = ?"); params.push(input.standardType); }
+        if (input?.status) { conditions.push("status = ?"); params.push(input.status); }
+
+        const [rows] = await conn.execute(
+          `SELECT id, name, standard_type, status, version, effective_date, is_active,
+                  generated_template_id, created_by, created_at, updated_at,
+                  JSON_LENGTH(parsed_items) as item_count
+           FROM ai_standards
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY created_at DESC`,
+          params
+        );
+
+        return { success: true, standards: rows as any[] };
+      } catch (error: any) {
+        console.error("[AI Standards List Error]", error?.message || error);
+        return { success: false, standards: [] };
+      }
+    }),
+
+  // ============================================================================
+  // 기준서 상세 조회 (파싱된 항목 포함)
+  // ============================================================================
+  getStandard: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [rows] = await conn.execute(
+          `SELECT * FROM ai_standards WHERE id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId]
+        );
+
+        const standard = (rows as any[])[0];
+        if (!standard) return { success: false, standard: null };
+
+        if (typeof standard.parsed_items === "string") {
+          standard.parsed_items = JSON.parse(standard.parsed_items);
+        }
+        return { success: true, standard };
+      } catch (error: any) {
+        return { success: false, standard: null };
+      }
+    }),
+
+  // ============================================================================
+  // 시정조치서 초안 AI 생성
+  // ============================================================================
+  generateCorrectiveAction: tenantRequiredProcedure
+    .input(z.object({
+      type: z.string(),
+      description: z.string(),
+      location: z.string().optional(),
+      batchCode: z.string().optional(),
+      actualValue: z.string().optional(),
+      standardValue: z.string().optional(),
+      ccpType: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const startTime = Date.now();
+        const { draft, rawResponse } = await generateCorrectiveActionDraft(input);
+        const latencyMs = Date.now() - startTime;
+
+        // 감사 로그
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs
+             (tenant_id, action_type, input_data, output_data, output_text, model_used, latency_ms, user_id, created_at)
+             VALUES (?, 'document_draft', ?, ?, ?, 'gpt-4o-mini', ?, ?, NOW())`,
+            [ctx.tenantId, JSON.stringify(input), JSON.stringify(draft), rawResponse, latencyMs, ctx.user?.id || null]
+          );
+        } catch { /* ignore */ }
+
+        return { success: true, draft };
+      } catch (error: any) {
+        console.error("[AI Corrective Action Error]", error?.message || error);
+        return { success: false, draft: {}, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // 점검결과 AI 요약
+  // ============================================================================
+  summarizeInspection: tenantRequiredProcedure
+    .input(z.object({
+      type: z.string(),
+      date: z.string(),
+      items: z.array(z.object({
+        name: z.string(),
+        standard: z.string(),
+        result: z.string(),
+        passed: z.boolean(),
+      })),
+      additionalInfo: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const { summary } = await generateInspectionSummary(input);
+        return { success: true, summary };
+      } catch (error: any) {
+        console.error("[AI Inspection Summary Error]", error?.message || error);
+        return { success: false, summary: "" };
+      }
+    }),
+
+  // ============================================================================
+  // 감사 대응 자료 자동 묶기
+  // ============================================================================
+  gatherAuditDocs: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string(),
+      endDate: z.string(),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await gatherAuditDocuments(ctx.tenantId, input.startDate, input.endDate);
+        return { success: true, ...result };
+      } catch (error: any) {
+        console.error("[AI Audit Docs Error]", error?.message || error);
+        return { success: false, period: { startDate: input.startDate, endDate: input.endDate }, summary: {} };
+      }
+    }),
+
+  // ============================================================================
+  // AI 판단 로그 조회
+  // ============================================================================
+  listAuditLogs: tenantRequiredProcedure
+    .input(z.object({
+      actionType: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const conditions = ["tenant_id = ?"];
+        const params: any[] = [ctx.tenantId];
+
+        if (input?.actionType) { conditions.push("action_type = ?"); params.push(input.actionType); }
+
+        const [rows] = await conn.execute(
+          `SELECT id, action_type, input_data, reference_data, output_data, output_text,
+                  user_modified, model_used, tokens_used, latency_ms, user_id, created_at
+           FROM ai_audit_logs
+           WHERE ${conditions.join(" AND ")}
+           ORDER BY created_at DESC
+           LIMIT ? OFFSET ?`,
+          [...params, input?.limit || 50, input?.offset || 0]
+        );
+
+        return { success: true, logs: rows as any[] };
+      } catch (error: any) {
+        return { success: false, logs: [] };
+      }
+    }),
+
+  // ============================================================================
+  // 시스템 규칙 목록 조회 (어떤 규칙이 있는지)
+  // ============================================================================
+  listSystemRules: tenantRequiredProcedure
+    .query(async () => {
+      return {
+        success: true,
+        rules: Object.values(SYSTEM_RULES).map(rule => ({
+          code: rule.code,
+          name: rule.name,
+          ruleType: rule.ruleType,
+          entityType: rule.entityType,
+          severity: rule.severity,
+          description: rule.description,
+        })),
+      };
+    }),
+
+  // ============================================================================
+  // AI Context Layer API (AI가 직접 접근하는 데이터 API)
+  // ============================================================================
+
+  /** 일일 종합 현황 */
+  dailyOverview: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getDailyOverview(ctx.tenantId, input?.date);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 배치 요약 + 리스크 점수 */
+  batchSummary: tenantRequiredProcedure
+    .input(z.object({
+      batchId: z.number().optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      limit: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getBatchSummary(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** CCP 이벤트 요약 */
+  ccpEvents: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      ccpType: z.string().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getCcpEventSummary(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** 체크리스트 현황 */
+  checklistStatus: tenantRequiredProcedure
+    .input(z.object({ date: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getChecklistStatus(ctx.tenantId, input?.date);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 이탈/부적합 이력 */
+  deviationHistory: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+      limit: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getDeviationHistory(ctx.tenantId, input || {});
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: [], error: error?.message };
+      }
+    }),
+
+  /** 설비 상태 */
+  equipmentHealth: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const data = await getEquipmentHealth(ctx.tenantId);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 생산 분석 (배치별 수율 원인 분석) */
+  productionAnalysis: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getProductionAnalysis(ctx.tenantId, input.batchId);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  /** 감사 대비 상태 */
+  auditReadiness: tenantRequiredProcedure
+    .input(z.object({ periodDays: z.number().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const data = await getAuditReadiness(ctx.tenantId, input?.periodDays || 90);
+        return { success: true, data };
+      } catch (error: any) {
+        return { success: false, data: null, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // Knowledge Base (RAG) API - 지식베이스 문서 관리 + 시맨틱 검색
+  // ============================================================================
+
+  /** 문서 업로드 (자동 청크 + 임베딩 생성) */
+  kbUploadDocument: tenantRequiredProcedure
+    .input(z.object({
+      title: z.string().min(1).max(500),
+      description: z.string().optional(),
+      docType: z.enum([
+        "regulation", "standard", "sop", "manual", "guideline",
+        "training", "template", "faq", "internal", "custom",
+      ]),
+      content: z.string().min(10),
+      sourceUrl: z.string().optional(),
+      sourceFile: z.string().optional(),
+      isGlobal: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await uploadDocument(ctx.tenantId, {
+          ...input,
+          createdBy: ctx.userId,
+        });
+
+        // 감사 로그
+        try {
+          const conn = await getRawConnection();
+          await conn.execute(
+            `INSERT INTO ai_audit_logs (tenant_id, action_type, input_data, output_data, user_id, created_at)
+             VALUES (?, 'summary_generation', ?, ?, ?, NOW())`,
+            [
+              ctx.tenantId,
+              JSON.stringify({ title: input.title, docType: input.docType, contentLength: input.content.length }),
+              JSON.stringify(result),
+              ctx.userId,
+            ]
+          );
+        } catch {}
+
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, error: error?.message, documentId: 0, chunkCount: 0, status: "error" };
+      }
+    }),
+
+  /** 문서 목록 조회 */
+  kbListDocuments: tenantRequiredProcedure
+    .input(z.object({
+      docType: z.string().optional(),
+      status: z.string().optional(),
+      limit: z.number().min(1).max(100).optional(),
+      offset: z.number().min(0).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      try {
+        const result = await listDocuments(ctx.tenantId, input || {});
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, documents: [], total: 0, error: error?.message };
+      }
+    }),
+
+  /** 문서 상세 조회 */
+  kbGetDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const doc = await getDocument(ctx.tenantId, input.documentId);
+        return { success: true, document: doc };
+      } catch (error: any) {
+        return { success: false, document: null, error: error?.message };
+      }
+    }),
+
+  /** 문서 삭제 */
+  kbDeleteDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const deleted = await deleteDocument(ctx.tenantId, input.documentId);
+        return { success: deleted };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 지식베이스 검색 (RAG) */
+  kbSearch: tenantRequiredProcedure
+    .input(z.object({
+      query: z.string().min(1),
+      topK: z.number().min(1).max(20).optional(),
+      minScore: z.number().min(0).max(1).optional(),
+      docType: z.string().optional(),
+      documentIds: z.array(z.number()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const results = await searchKnowledge(ctx.tenantId, input.query, {
+          topK: input.topK,
+          minScore: input.minScore,
+          docType: input.docType,
+          documentIds: input.documentIds,
+        });
+        return { success: true, results };
+      } catch (error: any) {
+        return { success: false, results: [], error: error?.message };
+      }
+    }),
+
+  /** 문서 재인덱싱 (임베딩 재생성) */
+  kbReindexDocument: tenantRequiredProcedure
+    .input(z.object({ documentId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const result = await reindexDocument(ctx.tenantId, input.documentId);
+        return { success: true, ...result };
+      } catch (error: any) {
+        return { success: false, error: error?.message, chunksUpdated: 0 };
+      }
+    }),
+
+  /** 지식베이스 통계 */
+  kbStats: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const stats = await getKBStats(ctx.tenantId);
+        return { success: true, ...stats };
+      } catch (error: any) {
+        return { success: false, error: error?.message, totalDocuments: 0, readyDocuments: 0, totalChunks: 0, totalTokens: 0, byDocType: [] };
+      }
+    }),
+
+  // ============================================================================
+  // 배치 AI 리스크 요약 (BatchDetail 페이지용)
+  // ============================================================================
+
+  /** 특정 배치의 AI 리스크 요약 (알림 + 점수 + 추천) */
+  batchRiskSummary: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 1. 이 배치에 관련된 활성 AI 알림 조회
+        const [alertRows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, entity_type, entity_code, context_data, status, created_at
+           FROM ai_alerts
+           WHERE tenant_id = ? AND entity_type = 'batch' AND entity_id = ? AND status IN ('active', 'acknowledged')
+           ORDER BY FIELD(severity, 'critical', 'high', 'medium', 'low'), created_at DESC
+           LIMIT 20`,
+          [ctx.tenantId, input.batchId]
+        );
+
+        // 2. 배치 관련 CCP 이탈 알림
+        const [ccpAlertRows] = await conn.execute(
+          `SELECT id, rule_code, title, message, severity, context_data, created_at
+           FROM ai_alerts
+           WHERE tenant_id = ? AND entity_type = 'ccp'
+             AND status IN ('active', 'acknowledged')
+             AND JSON_CONTAINS(context_data, CAST(? AS JSON), '$.relatedBatchIds')
+           ORDER BY created_at DESC LIMIT 10`,
+          [ctx.tenantId, JSON.stringify(input.batchId)]
+        );
+
+        // 3. 리스크 점수 계산 (Context Layer 활용)
+        let riskData = null;
+        try {
+          const summaries = await getBatchSummary(ctx.tenantId, { batchId: input.batchId });
+          if (summaries.length > 0) riskData = summaries[0];
+        } catch {}
+
+        const alerts = (alertRows as any[]).concat(ccpAlertRows as any[]);
+        const bySeverity = {
+          critical: alerts.filter(a => a.severity === "critical").length,
+          high: alerts.filter(a => a.severity === "high").length,
+          medium: alerts.filter(a => a.severity === "medium").length,
+          low: alerts.filter(a => a.severity === "low").length,
+        };
+
+        return {
+          success: true,
+          batchId: input.batchId,
+          riskScore: riskData?.riskScore ?? null,
+          riskLevel: riskData?.riskLevel ?? (bySeverity.critical > 0 ? "critical" : bySeverity.high > 0 ? "high" : "low"),
+          alertCount: alerts.length,
+          bySeverity,
+          alerts: alerts.map((a: any) => ({
+            id: a.id,
+            ruleCode: a.rule_code,
+            title: a.title,
+            message: a.message,
+            severity: a.severity,
+            createdAt: a.created_at,
+          })),
+          yieldDeviation: riskData?.yieldDeviation ?? null,
+          ccpDeviationCount: riskData?.ccpDeviationCount ?? 0,
+          checklistMissing: riskData?.checklistMissing ?? 0,
+        };
+      } catch (error: any) {
+        return {
+          success: false, batchId: input.batchId, riskScore: null, riskLevel: null,
+          alertCount: 0, bySeverity: { critical: 0, high: 0, medium: 0, low: 0 },
+          alerts: [], yieldDeviation: null, ccpDeviationCount: 0, checklistMissing: 0,
+          error: error?.message,
+        };
+      }
+    }),
+
+  // ============================================================================
+  // 커스텀 규칙 관리 CRUD (테넌트별)
+  // ============================================================================
+
+  /** 커스텀 규칙 목록 조회 */
+  listCustomRules: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      try {
+        const conn = await getRawConnection();
+        const [rows] = await conn.execute(
+          `SELECT id, code, name, description, rule_type, entity_type, conditions,
+                  severity, notify_roles, is_active, is_system, created_at, updated_at
+           FROM ai_rules
+           WHERE tenant_id = ?
+           ORDER BY is_system DESC, severity DESC, created_at DESC`,
+          [ctx.tenantId]
+        );
+        return { success: true, rules: (rows as any[]).map(r => ({
+          ...r,
+          conditions: typeof r.conditions === "string" ? JSON.parse(r.conditions) : r.conditions,
+          notifyRoles: typeof r.notify_roles === "string" ? JSON.parse(r.notify_roles) : r.notify_roles,
+          isActive: r.is_active,
+          isSystem: r.is_system,
+          ruleType: r.rule_type,
+          entityType: r.entity_type,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+        })) };
+      } catch (error: any) {
+        return { success: false, rules: [], error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 생성 */
+  createCustomRule: tenantRequiredProcedure
+    .input(z.object({
+      code: z.string().min(1).max(100),
+      name: z.string().min(1).max(200),
+      description: z.string().optional(),
+      ruleType: z.enum(["threshold", "missing", "overdue", "anomaly", "recurrence"]),
+      entityType: z.enum(["ccp", "checklist", "equipment", "batch", "lot", "inspection", "hygiene", "calibration", "document", "training"]),
+      conditions: z.record(z.any()),
+      severity: z.enum(["low", "medium", "high", "critical"]),
+      notifyRoles: z.array(z.string()).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [result] = await conn.execute(
+          `INSERT INTO ai_rules
+           (tenant_id, code, name, description, rule_type, entity_type, conditions, severity, notify_roles, is_active, is_system, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, NOW(), NOW())`,
+          [
+            ctx.tenantId,
+            input.code,
+            input.name,
+            input.description || null,
+            input.ruleType,
+            input.entityType,
+            JSON.stringify(input.conditions),
+            input.severity,
+            JSON.stringify(input.notifyRoles || []),
+          ]
+        );
+        return { success: true, ruleId: (result as any).insertId };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 수정 */
+  updateCustomRule: tenantRequiredProcedure
+    .input(z.object({
+      ruleId: z.number(),
+      name: z.string().optional(),
+      description: z.string().optional(),
+      conditions: z.record(z.any()).optional(),
+      severity: z.enum(["low", "medium", "high", "critical"]).optional(),
+      notifyRoles: z.array(z.string()).optional(),
+      isActive: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+
+        // 시스템 규칙은 수정 불가
+        const [existing] = await conn.execute(
+          `SELECT is_system FROM ai_rules WHERE id = ? AND tenant_id = ?`,
+          [input.ruleId, ctx.tenantId]
+        );
+        if ((existing as any[]).length === 0) {
+          return { success: false, error: "규칙을 찾을 수 없습니다." };
+        }
+        if ((existing as any[])[0].is_system === 1) {
+          // 시스템 규칙은 활성화/비활성화만 허용
+          if (input.isActive !== undefined) {
+            await conn.execute(
+              `UPDATE ai_rules SET is_active = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+              [input.isActive ? 1 : 0, input.ruleId, ctx.tenantId]
+            );
+            return { success: true };
+          }
+          return { success: false, error: "시스템 규칙은 활성화/비활성화만 변경할 수 있습니다." };
+        }
+
+        const sets: string[] = ["updated_at = NOW()"];
+        const params: any[] = [];
+
+        if (input.name) { sets.push("name = ?"); params.push(input.name); }
+        if (input.description !== undefined) { sets.push("description = ?"); params.push(input.description); }
+        if (input.conditions) { sets.push("conditions = ?"); params.push(JSON.stringify(input.conditions)); }
+        if (input.severity) { sets.push("severity = ?"); params.push(input.severity); }
+        if (input.notifyRoles) { sets.push("notify_roles = ?"); params.push(JSON.stringify(input.notifyRoles)); }
+        if (input.isActive !== undefined) { sets.push("is_active = ?"); params.push(input.isActive ? 1 : 0); }
+
+        params.push(input.ruleId, ctx.tenantId);
+        await conn.execute(
+          `UPDATE ai_rules SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`,
+          params
+        );
+        return { success: true };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  /** 커스텀 규칙 삭제 (시스템 규칙은 삭제 불가) */
+  deleteCustomRule: tenantRequiredProcedure
+    .input(z.object({ ruleId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      try {
+        const conn = await getRawConnection();
+        const [result] = await conn.execute(
+          `DELETE FROM ai_rules WHERE id = ? AND tenant_id = ? AND is_system = 0`,
+          [input.ruleId, ctx.tenantId]
+        );
+        return { success: (result as any).affectedRows > 0 };
+      } catch (error: any) {
+        return { success: false, error: error?.message };
+      }
+    }),
+
+  // ============================================================================
+  // P8-2: AI 이상탐지 (Anomaly Detection)
+  // ============================================================================
+  detectAnomalies: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { detectAnomalies } = await import("./db/aiAnomalyDetection");
+      return detectAnomalies(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-3: AI 예측 분석
+  // ============================================================================
+  getPredictions: tenantRequiredProcedure
+    .input(z.object({ focus: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const { generatePredictions } = await import("./db/aiPrediction");
+      return generatePredictions(ctx.tenantId, input?.focus);
+    }),
+
+  // ============================================================================
+  // P8-4: AI HACCP 계획서 자동생성
+  // ============================================================================
+  generateHaccpPlan: tenantRequiredProcedure
+    .input(
+      z.object({
+        companyName: z.string(),
+        businessType: z.string(),
+        products: z.array(z.string()),
+        rawMaterials: z.array(z.string()),
+        processes: z.array(z.string()),
+        facilityInfo: z.string().optional(),
+        existingCCPs: z.array(z.string()).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateHaccpPlan } = await import("./db/aiHaccpPlan");
+      return generateHaccpPlan(ctx.tenantId, input);
+    }),
+
+  generateHaccpPlanAuto: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      const { generateHaccpPlanFromExistingData } = await import("./db/aiHaccpPlan");
+      return generateHaccpPlanFromExistingData(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-5: AI 보고서 내러티브
+  // ============================================================================
+  generateFinancialNarrative: tenantRequiredProcedure
+    .input(
+      z.object({
+        startDate: z.string(),
+        endDate: z.string(),
+        type: z.enum(["monthly", "quarterly"]).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateFinancialNarrative } = await import("./db/aiReportNarrative");
+      return generateFinancialNarrative(ctx.tenantId, { startDate: input.startDate, endDate: input.endDate }, input.type);
+    }),
+
+  generateHaccpNarrative: tenantRequiredProcedure
+    .input(z.object({ period: z.enum(["weekly", "monthly"]).optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const { generateHaccpNarrative } = await import("./db/aiReportNarrative");
+      return generateHaccpNarrative(ctx.tenantId, input?.period);
+    }),
+
+  generateExecutiveSummary: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      const { generateExecutiveSummary } = await import("./db/aiReportNarrative");
+      return generateExecutiveSummary(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-6: AI 감사 자료 패키지
+  // ============================================================================
+  generateAuditPackage: tenantRequiredProcedure
+    .input(
+      z.object({
+        auditType: z.enum(["haccp_certification", "haccp_renewal", "regular_audit"]).optional(),
+      }).optional()
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { generateAuditPackage } = await import("./db/aiAuditPackage");
+      return generateAuditPackage(ctx.tenantId, input?.auditType);
+    }),
+
+  // ============================================================================
+  // P8-7: AI 공급업체 리스크 스코어링
+  // ============================================================================
+  analyzeSupplierRisk: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { analyzeSupplierRisk } = await import("./db/aiSupplierRisk");
+      return analyzeSupplierRisk(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P8-8: AI 교육 추천
+  // ============================================================================
+  getTrainingRecommendations: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { generateTrainingRecommendations } = await import("./db/aiTrainingRecommendation");
+      return generateTrainingRecommendations(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // P9-7: 30일 트렌드 데이터 (알림/CCP/체크리스트 추이)
+  // ============================================================================
+  trendData: tenantRequiredProcedure
+    .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const tenantId = ctx.tenantId;
+      const days = input?.days || 30;
+      const conn = await getRawConnection();
+
+      // 병렬로 3가지 트렌드 조회
+      const [alertTrend, ccpTrend, checklistTrend] = await Promise.all([
+        // 1. 일별 알림 발생 추이 (severity별)
+        conn.execute(
+          `SELECT DATE(created_at) as date,
+                  SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical_count,
+                  SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) as high_count,
+                  SUM(CASE WHEN severity IN ('medium', 'low') THEN 1 ELSE 0 END) as other_count,
+                  COUNT(*) as total
+           FROM ai_alerts
+           WHERE tenant_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(created_at)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+        // 2. 일별 CCP 적합/부적합 추이
+        conn.execute(
+          `SELECT DATE(record_date) as date,
+                  SUM(CASE WHEN pass_fail = '적합' THEN 1 ELSE 0 END) as pass_count,
+                  SUM(CASE WHEN pass_fail = '부적합' THEN 1 ELSE 0 END) as fail_count,
+                  COUNT(*) as total
+           FROM ccp_monitoring_records
+           WHERE tenant_id = ? AND record_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(record_date)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+        // 3. 일별 체크리스트 완료율 추이
+        conn.execute(
+          `SELECT DATE(created_at) as date,
+                  SUM(CASE WHEN status IN ('completed', 'approved') THEN 1 ELSE 0 END) as completed,
+                  COUNT(*) as total
+           FROM checklist_instances
+           WHERE tenant_id = ? AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           GROUP BY DATE(created_at)
+           ORDER BY date`,
+          [tenantId, days]
+        ),
+      ]);
+
+      const formatRows = (raw: any) => {
+        const rows = Array.isArray(raw) && Array.isArray(raw[0]) ? raw[0] : raw;
+        return (rows as any[]).map((r: any) => ({
+          ...r,
+          date: r.date ? new Date(r.date).toISOString().split("T")[0] : r.date,
+        }));
+      };
+
+      return {
+        alerts: formatRows(alertTrend).map((r: any) => ({
+          date: r.date,
+          critical: Number(r.critical_count || 0),
+          high: Number(r.high_count || 0),
+          other: Number(r.other_count || 0),
+          total: Number(r.total || 0),
+        })),
+        ccp: formatRows(ccpTrend).map((r: any) => ({
+          date: r.date,
+          pass: Number(r.pass_count || 0),
+          fail: Number(r.fail_count || 0),
+          total: Number(r.total || 0),
+        })),
+        checklist: formatRows(checklistTrend).map((r: any) => ({
+          date: r.date,
+          completed: Number(r.completed || 0),
+          total: Number(r.total || 0),
+          rate: r.total > 0 ? Math.round((Number(r.completed || 0) / Number(r.total)) * 100) : 0,
+        })),
+      };
+    }),
+
+  // ============================================================================
+  // P9-9: 알림 목록 CSV 내보내기
+  // ============================================================================
+  exportAlertsCsv: tenantRequiredProcedure
+    .input(z.object({
+      status: z.enum(["active", "acknowledged", "resolved", "dismissed"]).optional(),
+      severity: z.enum(["critical", "high", "medium", "low"]).optional(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.tenantId;
+      const conn = await getRawConnection();
+
+      let where = `WHERE tenant_id = ?`;
+      const params: any[] = [tenantId];
+
+      if (input?.status) { where += ` AND status = ?`; params.push(input.status); }
+      if (input?.severity) { where += ` AND severity = ?`; params.push(input.severity); }
+      if (input?.startDate) { where += ` AND created_at >= ?`; params.push(input.startDate); }
+      if (input?.endDate) { where += ` AND created_at <= ?`; params.push(input.endDate); }
+
+      const [rows] = await conn.execute(
+        `SELECT id, rule_code, title, message, severity, entity_type, entity_code, status, created_at, resolved_at
+         FROM ai_alerts ${where}
+         ORDER BY created_at DESC
+         LIMIT 5000`,
+        params
+      );
+
+      // CSV 생성
+      const header = "ID,규칙코드,제목,메시지,심각도,대상유형,대상코드,상태,생성일시,해결일시";
+      const csvRows = (rows as any[]).map((r: any) =>
+        [r.id, r.rule_code, `"${(r.title || '').replace(/"/g, '""')}"`, `"${(r.message || '').replace(/"/g, '""')}"`,
+         r.severity, r.entity_type, r.entity_code, r.status, r.created_at, r.resolved_at || ""].join(",")
+      );
+
+      return { csv: [header, ...csvRows].join("\n"), count: (rows as any[]).length };
+    }),
+
+  // ============================================================================
+  // ERP AI: 비용 이상탐지
+  // ============================================================================
+  detectExpenseAnomalies: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");
+      return detectExpenseAnomalies(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // ERP AI B-2: 현금흐름 예측
+  // ============================================================================
+  forecastCashFlow: tenantRequiredProcedure
+    .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      return forecastCashFlow(ctx.tenantId, input?.days || 30);
+    }),
+
+  // ============================================================================
+  // ERP AI B-3: AP/AR 연체 리스크 분석 + LLM 권고
+  // ============================================================================
+  analyzePaymentRisk: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { analyzePaymentRisk } = await import("./db/aiPaymentRiskAnalysis");
+      return analyzePaymentRisk(ctx.tenantId);
+    }),
+
+  // ============================================================================
+  // ERP AI B-4: 분개 검증 AI
+  // ============================================================================
+  validateJournals: tenantRequiredProcedure
+    .input(z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      return validateJournalEntries(ctx.tenantId, input?.startDate, input?.endDate);
     }),
 });

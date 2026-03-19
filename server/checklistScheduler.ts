@@ -49,7 +49,7 @@ export async function generateDailyChecklists() {
         scheduledDate: today,
         status: "pending",
         createdBy: 1
-      });
+      } as any);
 
       const [newInstance] = await db
         .select()
@@ -72,7 +72,7 @@ export async function generateDailyChecklists() {
           itemType: item.itemType,
           sortOrder: item.sortOrder,
           isCompleted: 0
-        });
+        } as any);
       }
 
       createdCount++;

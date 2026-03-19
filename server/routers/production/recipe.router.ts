@@ -7,15 +7,17 @@ export const recipeRouter = router({
     getByProductId: tenantRequiredProcedure
       .input(z.object({ productId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getRecipeByProductId } = await import("../../db");
-        return await getRecipeByProductId(input.productId);
+        return await getRecipeByProductId(input.productId, tenantId ?? undefined);
       }),
     
     // 레시피 ID로 원재료 목록 조회
     getMaterialsByRecipeId: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getMaterialsByRecipeId } = await import("../../db");
-        return await getMaterialsByRecipeId(input.recipeId);
+        return await getMaterialsByRecipeId(input.recipeId, tenantId ?? undefined);
       })
 });

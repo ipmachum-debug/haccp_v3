@@ -56,7 +56,8 @@ import {
   Link2,
   Unlink
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion as _motion } from "framer-motion";
+const motion = _motion as any;
 import { useToast } from "@/hooks/use-toast";
 
 export default function TenantManagement() {
@@ -129,7 +130,7 @@ export default function TenantManagement() {
       setFormData({ name: "", slug: "", status: "trial" });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -149,7 +150,7 @@ export default function TenantManagement() {
       setSelectedTenant(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -169,7 +170,7 @@ export default function TenantManagement() {
       setSelectedTenant(null);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -190,7 +191,7 @@ export default function TenantManagement() {
         setSubscriptionDialogOpen(false);
       }, 500);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "❌ 오류 발생",
         description: error.message,
@@ -208,7 +209,7 @@ export default function TenantManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,
@@ -226,7 +227,7 @@ export default function TenantManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({
         title: "오류",
         description: error.message,

@@ -5,8 +5,9 @@ import { z } from "zod";
 export const accountingRouter = router({
     // 계정 과목 목록 조회
     getCategories: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { getAllCategories } = await import("../../accounting");
-      return await getAllCategories();
+      return await getAllCategories(tenantId);
     }),
 
     // 거래 등록
@@ -23,12 +24,13 @@ export const accountingRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { createTransaction } = await import("../../accounting");
         const transactionId = await createTransaction({
           ...input,
-          tenantId: ctx.user.tenantId,
+          tenantId: tenantId ?? undefined,
           createdBy: ctx.user.id
-        });
+        }, tenantId);
         return { success: true, transactionId };
       }),
 
@@ -45,16 +47,18 @@ export const accountingRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getTransactions } = await import("../../accounting");
-        return await getTransactions(input);
+        return await getTransactions(input, tenantId);
       }),
 
     // 거래 상세 조회
     getTransaction: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getTransactionById } = await import("../../accounting");
-        return await getTransactionById(input.id);
+        return await getTransactionById(input.id, tenantId);
       }),
 
     // 거래 수정
@@ -70,13 +74,14 @@ export const accountingRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { updateTransaction } = await import("../../accounting");
         const { id, transactionDate, ...rest } = input;
         const data: any = { ...rest };
         if (transactionDate) {
           data.transactionDate = transactionDate;
         }
-        await updateTransaction(id, data);
+        await updateTransaction(id, data, tenantId);
         return { success: true };
       }),
 
@@ -84,8 +89,9 @@ export const accountingRouter = router({
     deleteTransaction: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { deleteTransaction } = await import("../../accounting");
-        await deleteTransaction(input.id);
+        await deleteTransaction(input.id, tenantId);
         return { success: true };
       }),
 
@@ -93,8 +99,9 @@ export const accountingRouter = router({
     getDailySummary: tenantRequiredProcedure
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getDailySummary } = await import("../../accounting");
-        return await getDailySummary(input.date);
+        return await getDailySummary(input.date, tenantId);
       }),
     // 월간 집계
     getMonthlySummary: tenantRequiredProcedure
@@ -105,8 +112,9 @@ export const accountingRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getMonthlySummary } = await import("../../accounting");
-        return await getMonthlySummary(input.year, input.month, ctx.user.tenantId);
+        return await getMonthlySummary(input.year, input.month, tenantId);
       }),
 
     // 계정 과목별 분석
@@ -119,8 +127,9 @@ export const accountingRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getCategoryBreakdown } = await import("../../accounting");
-        return await getCategoryBreakdown(input.startDate, input.endDate, input.type);
+        return await getCategoryBreakdown(input.startDate, input.endDate, input.type, tenantId);
       }),
 
     // 재무 현황 요약
@@ -132,14 +141,16 @@ export const accountingRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
         const { getFinancialOverview } = await import("../../accounting");
-        return await getFinancialOverview(input.startDate, input.endDate);
+        return await getFinancialOverview(input.startDate, input.endDate, tenantId);
       }),
 
     // 기본 계정 과목 초기화
-    initializeCategories: adminProcedure.mutation(async () => {
+    initializeCategories: adminProcedure.mutation(async ({ ctx }) => {
+      const tenantId = ctx.tenantId;
       const { initializeDefaultCategories } = await import("../../accounting");
-      await initializeDefaultCategories();
+      await initializeDefaultCategories(tenantId);
       return { success: true };
     })
 });

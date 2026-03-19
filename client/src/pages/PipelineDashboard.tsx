@@ -156,6 +156,12 @@ export const PipelineDashboardContent: React.FC = () => {
     { enabled: !!tenantId }
   );
 
+  // 실시간 승인 대기 건수
+  const { data: pendingApprovalData } = trpc.pipeline.getPendingApprovalCount.useQuery(
+    undefined,
+    { enabled: !!tenantId, refetchInterval: 30000 }
+  );
+
   // 마감 알림 조회
   const { data: closingNotifications } = trpc.pipeline.getClosingNotifications.useQuery(
     { tenantId, limit: 10 },
@@ -378,7 +384,7 @@ export const PipelineDashboardContent: React.FC = () => {
                     </div>
                     <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
                       <p className="text-xs text-blue-600 font-medium">승인 대기</p>
-                      <p className="text-xl font-bold text-blue-800">{summary.approvals?.pendingCount || 0}건</p>
+                      <p className="text-xl font-bold text-blue-800">{pendingApprovalData?.count ?? summary.approvals?.pendingCount ?? 0}건</p>
                       <p className="text-xs text-blue-500">문서 처리 필요</p>
                     </div>
                     <div className="bg-rose-50 rounded-lg p-3 border border-rose-100">

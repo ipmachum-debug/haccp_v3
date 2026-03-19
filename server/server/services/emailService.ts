@@ -11,7 +11,7 @@ import sgMail from '@sendgrid/mail';
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
 const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@haccp-one.com';
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'dduckdanji@naver.com';
-const APP_URL = process.env.VITE_APP_URL || 'https://haccpone.co.kr';
+const APP_URL = process.env.VITE_APP_URL || 'https://haccpone.com';
 
 // SendGrid 초기화
 if (SENDGRID_API_KEY) {

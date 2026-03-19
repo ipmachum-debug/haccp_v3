@@ -113,8 +113,8 @@ export async function getSupplierAudits(filters: {
   if (filters.supplierId) conditions.push(eq(hSupplierAudits.supplierId, filters.supplierId));
   if (filters.auditType) conditions.push(eq(hSupplierAudits.auditType, filters.auditType));
   if (filters.result) conditions.push(eq(hSupplierAudits.result, filters.result as any));
-  if (filters.dateFrom) conditions.push(gte(hSupplierAudits.auditDate, filters.dateFrom));
-  if (filters.dateTo) conditions.push(lte(hSupplierAudits.auditDate, filters.dateTo));
+  if (filters.dateFrom) conditions.push(gte(hSupplierAudits.auditDate, filters.dateFrom as any) );
+  if (filters.dateTo) conditions.push(lte(hSupplierAudits.auditDate, filters.dateTo as any) );
 
   const query = db.select().from(hSupplierAudits).where(and(...conditions)).orderBy(desc(hSupplierAudits.auditDate));
   if (filters.limit) query.limit(filters.limit);
@@ -189,8 +189,8 @@ export async function getSupplierEvaluations(filters: {
 
   const conditions: any[] = [eq(hSupplierEvaluations.tenantId, filters.tenantId)];
   if (filters.supplierId) conditions.push(eq(hSupplierEvaluations.supplierId, filters.supplierId));
-  if (filters.dateFrom) conditions.push(gte(hSupplierEvaluations.evaluationDate, filters.dateFrom));
-  if (filters.dateTo) conditions.push(lte(hSupplierEvaluations.evaluationDate, filters.dateTo));
+  if (filters.dateFrom) conditions.push(gte(hSupplierEvaluations.evaluationDate, filters.dateFrom as any) );
+  if (filters.dateTo) conditions.push(lte(hSupplierEvaluations.evaluationDate, filters.dateTo as any) );
 
   const query = db.select().from(hSupplierEvaluations).where(and(...conditions)).orderBy(desc(hSupplierEvaluations.evaluationDate));
   if (filters.limit) query.limit(filters.limit);

@@ -113,7 +113,7 @@ export default function HygieneInspections() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {inspections.map((inspection) => (
+                    {inspections.map((inspection: any) => (
                       <TableRow key={inspection.id}>
                         <TableCell>
                           {new Date(inspection.inspectionDate).toLocaleDateString("ko-KR")}
@@ -172,7 +172,7 @@ export default function HygieneInspections() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inspections.map((inspection) => (
+                      {inspections.map((inspection: any) => (
                         <TableRow key={inspection.id}>
                           <TableCell>
                             {new Date(inspection.inspectionDate).toLocaleDateString("ko-KR")}

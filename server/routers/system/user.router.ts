@@ -11,14 +11,14 @@ export const userRouter = router({
       const { getAllUsers } = await import("../../db");
       // 모든 관리자(슈퍼관리자 포함)는 자신의 tenant_id로 필터링
       // 슈퍼관리자가 모든 테넌트를 관리하려면 시스템 모니터링 페이지 사용
-      return await getAllUsers(ctx.user.tenantId);
+      return await getAllUsers(ctx.tenantId ?? undefined);
     }),
     
     // 사용자 역할 변경 (관리자만)
     updateRole: adminProcedure
       .input(z.object({
         userId: z.number(),
-        role: z.enum(["admin", "worker", "monitor"])
+        role: z.enum(["admin", "worker", "monitor", "employee"])
       }))
       .mutation(async ({ input, ctx }) => {
         const { updateUserRole, createAuditLog, getUserById } = await import("../../db");
@@ -34,7 +34,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.user.tenantId) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 관리할 수 없습니다.'
@@ -82,7 +82,7 @@ export const userRouter = router({
     approve: adminProcedure
       .input(z.object({
         userId: z.number(),
-        role: z.enum(["admin", "worker", "monitor"]).default("worker")
+        role: z.enum(["admin", "worker", "monitor", "employee"]).default("worker")
       }))
       .mutation(async ({ input, ctx }) => {
         const { approveUser, createAuditLog, getUserById } = await import("../../db");
@@ -98,7 +98,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.user.tenantId) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 승인할 수 없습니다.'
@@ -106,7 +106,7 @@ export const userRouter = router({
         }
         
         // 사용자 승인
-        await approveUser(input.userId, input.role);
+        await approveUser(input.userId, input.role as "admin" | "worker" | "monitor");
         
         // 감사 로그 생성
         await createAuditLog({
@@ -147,7 +147,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.user.tenantId) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 관리할 수 없습니다.'
@@ -162,13 +162,13 @@ export const userRouter = router({
     batchApprove: adminProcedure
       .input(z.object({
         userIds: z.array(z.number()),
-        role: z.enum(["admin", "worker", "monitor"]).default("worker")
+        role: z.enum(["admin", "worker", "monitor", "employee"]).default("worker")
       }))
       .mutation(async ({ input, ctx }) => {
         const { batchApproveUsers, createAuditLog } = await import("../../db");
         
         // 일괄 승인
-        await batchApproveUsers(input.userIds, input.role);
+        await batchApproveUsers(input.userIds, input.role as "admin" | "worker" | "monitor");
         
         // 감사 로그 생성
         await createAuditLog({
@@ -206,7 +206,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.user.tenantId) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 거부할 수 없습니다.'
@@ -266,7 +266,7 @@ export const userRouter = router({
       .input(z.object({
         email: z.string().email(),
         name: z.string(),
-        role: z.enum(["admin", "worker", "monitor"]).default("worker"),
+        role: z.enum(["admin", "worker", "monitor", "employee"]).default("worker"),
         userMemo: z.string().optional()
       }))
       .mutation(async ({ input, ctx }) => {
@@ -276,7 +276,7 @@ export const userRouter = router({
         const { userId, tempPassword } = await inviteUser(
           input.email,
           input.name,
-          input.role,
+          input.role as "admin" | "worker" | "monitor",
           ctx.user.id,
           input.userMemo
         );
@@ -330,7 +330,7 @@ export const userRouter = router({
         }
         
         // tenant 격리 검증
-        if (targetUser.tenantId !== ctx.user.tenantId) {
+        if (targetUser.tenantId !== (ctx.tenantId ?? undefined)) {
           throw new TRPCError({
             code: 'FORBIDDEN',
             message: '다른 회사의 사용자는 삭제할 수 없습니다.'

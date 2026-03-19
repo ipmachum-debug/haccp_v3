@@ -35,18 +35,20 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 
-type UserRole = "admin" | "worker" | "monitor";
+type UserRole = "admin" | "worker" | "monitor" | "employee";
 
 const roleLabels: Record<UserRole, string> = {
   admin: "관리자",
   worker: "작업자",
   monitor: "모니터",
+  employee: "직원",
 };
 
 const roleColors: Record<UserRole, string> = {
   admin: "bg-red-100 text-red-800",
   worker: "bg-blue-100 text-blue-800",
   monitor: "bg-green-100 text-green-800",
+  employee: "bg-yellow-100 text-yellow-800",
 };
 
 export default function UserManagement() {
@@ -67,7 +69,7 @@ export default function UserManagement() {
       toast.success("역할이 변경되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`역할 변경 실패: ${error.message}`);
     },
   });
@@ -77,7 +79,7 @@ export default function UserManagement() {
       toast.success("상태가 변경되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });
@@ -87,35 +89,35 @@ export default function UserManagement() {
       toast.success("사용자가 삭제되었습니다");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`사용자 삭제 실패: ${error.message}`);
     },
   });
 
   const batchApproveMutation = trpc.user.batchApprove.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       setSelectedUsers([]);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`일괄 승인 실패: ${error.message}`);
     },
   });
 
   const batchRejectMutation = trpc.user.batchReject.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       setSelectedUsers([]);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`일괄 거부 실패: ${error.message}`);
     },
   });
 
   const inviteMutation = trpc.user.invite.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(`사용자가 초대되었습니다. 임시 비밀번호: ${data.tempPassword}`);
       setInviteDialogOpen(false);
       setInviteForm({
@@ -126,7 +128,7 @@ export default function UserManagement() {
       });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`초대 실패: ${error.message}`);
     },
   });
@@ -155,7 +157,7 @@ export default function UserManagement() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const pendingUserIds = users?.filter((u) => u.approvalStatus === "pending").map((u) => u.id) || [];
+      const pendingUserIds = users?.filter((u: any) => u.approvalStatus === "pending").map((u: any) => u.id) || [];
       setSelectedUsers(pendingUserIds);
     } else {
       setSelectedUsers([]);
@@ -190,11 +192,11 @@ export default function UserManagement() {
     if (!users) return [];
     switch (activeTab) {
       case "pending":
-        return users.filter((u) => u.approvalStatus === "pending");
+        return users.filter((u: any) => u.approvalStatus === "pending");
       case "approved":
-        return users.filter((u) => u.approvalStatus === "approved");
+        return users.filter((u: any) => u.approvalStatus === "approved");
       case "rejected":
-        return users.filter((u) => u.approvalStatus === "rejected");
+        return users.filter((u: any) => u.approvalStatus === "rejected");
       default:
         return users;
     }
@@ -266,6 +268,7 @@ export default function UserManagement() {
                     <SelectItem value="admin">관리자</SelectItem>
                     <SelectItem value="worker">작업자</SelectItem>
                     <SelectItem value="monitor">모니터</SelectItem>
+                    <SelectItem value="employee">직원</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -295,13 +298,13 @@ export default function UserManagement() {
         <div className="flex justify-between items-center mb-4">
           <TabsList>
             <TabsTrigger value="pending">
-              승인 대기 ({users?.filter((u) => u.approvalStatus === "pending").length || 0})
+              승인 대기 ({users?.filter((u: any) => u.approvalStatus === "pending").length || 0})
             </TabsTrigger>
             <TabsTrigger value="approved">
-              승인됨 ({users?.filter((u) => u.approvalStatus === "approved").length || 0})
+              승인됨 ({users?.filter((u: any) => u.approvalStatus === "approved").length || 0})
             </TabsTrigger>
             <TabsTrigger value="rejected">
-              거부됨 ({users?.filter((u) => u.approvalStatus === "rejected").length || 0})
+              거부됨 ({users?.filter((u: any) => u.approvalStatus === "rejected").length || 0})
             </TabsTrigger>
             <TabsTrigger value="all">전체 ({users?.length || 0})</TabsTrigger>
           </TabsList>
@@ -366,7 +369,7 @@ export default function UserManagement() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredUsers.map((user) => (
+                  filteredUsers.map((user: any) => (
                     <TableRow key={user.id}>
                       {activeTab === "pending" && (
                         <TableCell>
@@ -394,6 +397,7 @@ export default function UserManagement() {
                             <SelectItem value="admin">관리자</SelectItem>
                             <SelectItem value="worker">작업자</SelectItem>
                             <SelectItem value="monitor">모니터</SelectItem>
+                            <SelectItem value="employee">직원</SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>

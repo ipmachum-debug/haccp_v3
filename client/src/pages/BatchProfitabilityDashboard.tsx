@@ -38,11 +38,11 @@ export default function BatchProfitabilityDashboard() {
   const topProducts = profitabilityData?.slice(0, 10) || [];
   const bottomProducts = profitabilityData?.slice(-10).reverse() || [];
 
-  const totalRevenue = profitabilityData?.reduce((sum, p) => sum + p.totalRevenue, 0) || 0;
-  const totalCost = profitabilityData?.reduce((sum, p) => sum + (p.avgCost * p.batchCount), 0) || 0;
+  const totalRevenue = profitabilityData?.reduce((sum: any, p: any) => sum + p.totalRevenue, 0) || 0;
+  const totalCost = profitabilityData?.reduce((sum: any, p: any) => sum + (p.avgCost * p.batchCount), 0) || 0;
   const totalProfit = totalRevenue - totalCost;
   const avgMargin = profitabilityData && profitabilityData.length > 0
-    ? profitabilityData.reduce((sum, p) => sum + p.profitMargin, 0) / profitabilityData.length
+    ? profitabilityData.reduce((sum: any, p: any) => sum + p.profitMargin, 0) / profitabilityData.length
     : 0;
 
   return (
@@ -197,7 +197,7 @@ export default function BatchProfitabilityDashboard() {
                     outerRadius={120}
                     label={(entry) => `${entry.productName}: ${((entry.totalRevenue / totalRevenue) * 100).toFixed(1)}%`}
                   >
-                    {topProducts.slice(0, 8).map((entry, index) => (
+                    {topProducts.slice(0, 8).map((entry: any, index: any) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
@@ -240,7 +240,7 @@ export default function BatchProfitabilityDashboard() {
               {forecastHistory && forecastHistory.length > 0 ? (
                 <>
                   <ResponsiveContainer width="100%" height={400}>
-                    <LineChart data={forecastHistory.filter(f => f.actualRevenue !== null)}>
+                    <LineChart data={forecastHistory.filter((f: any) => f.actualRevenue !== null)}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="targetMonth" />
                       <YAxis yAxisId="left" />
@@ -378,7 +378,7 @@ export default function BatchProfitabilityDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {profitabilityData?.map((product) => (
+                    {profitabilityData?.map((product: any) => (
                       <tr key={product.productId} className="border-b hover:bg-muted/50">
                         <td className="p-2">{product.productName}</td>
                         <td className="text-right p-2">{product.batchCount}</td>

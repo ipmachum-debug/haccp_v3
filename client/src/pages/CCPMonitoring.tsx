@@ -22,7 +22,8 @@ import { FileText, BarChart3, Download, Settings, Cpu, Loader2, CheckCircle, XCi
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { CCPRecordsList } from "@/components/ccp/CCPRecordsList";
-import { CCPStats } from "@/components/ccp/CCPStats";
+import CcpStats from "./CcpStats";
+import CcpReportGenerator from "./CcpReportGenerator";
 import CCPLimitsManagement from "./CCPLimitsManagement";
 import DashboardLayout from "@/components/DashboardLayout";
 
@@ -955,11 +956,11 @@ export default function CCPMonitoring() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">CCP 모니터링</h1>
-            <p className="text-muted-foreground mt-2">
+            <h1 className="text-xl font-bold">CCP 모니터링</h1>
+            <p className="text-muted-foreground text-sm">
               중요관리점(CCP) 모니터링 기록 및 관리
             </p>
           </div>
@@ -980,7 +981,7 @@ export default function CCPMonitoring() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="records" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
@@ -992,7 +993,7 @@ export default function CCPMonitoring() {
             </TabsTrigger>
             <TabsTrigger value="limits" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
-              한계기준 설정
+              공정그룹설정
             </TabsTrigger>
             <TabsTrigger value="stats" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
@@ -1004,105 +1005,24 @@ export default function CCPMonitoring() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="records" className="space-y-6">
+          <TabsContent value="records" className="space-y-3">
             <CCPRecordsList />
           </TabsContent>
 
-          <TabsContent value="equipment" className="space-y-6">
+          <TabsContent value="equipment" className="space-y-3">
             <EquipmentBasedCcpForm />
           </TabsContent>
 
-          <TabsContent value="limits" className="space-y-6">
+          <TabsContent value="limits" className="space-y-3">
             <CCPLimitsManagement />
           </TabsContent>
 
-          <TabsContent value="stats" className="space-y-6">
-            <CCPStats />
+          <TabsContent value="stats" className="space-y-3">
+            <CcpStats />
           </TabsContent>
 
-          <TabsContent value="reports" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  CCP 점검 보고서 생성
-                </CardTitle>
-                <CardDescription>
-                  일일/주간/월간 CCP 점검 리포트를 PDF로 생성합니다
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">보고서 유형</label>
-                    <select
-                      value={pdfPeriod}
-                      onChange={(e) => setPdfPeriod(e.target.value as "daily" | "weekly" | "monthly")}
-                      className="w-full border rounded-md px-3 py-2"
-                    >
-                      <option value="daily">일일 보고서</option>
-                      <option value="weekly">주간 보고서</option>
-                      <option value="monthly">월간 보고서</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">CCP 타입 (선택)</label>
-                    <input
-                      value={reportCcpType}
-                      onChange={(e) => setReportCcpType(e.target.value)}
-                      placeholder="예: CCP-1A (전체는 빈칸)"
-                      className="w-full border rounded-md px-3 py-2"
-                    />
-                  </div>
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">시작 날짜</label>
-                    <input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} className="w-full border rounded-md px-3 py-2" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">종료 날짜</label>
-                    <input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} className="w-full border rounded-md px-3 py-2" />
-                  </div>
-                </div>
-                <Button
-                  onClick={() => {
-                    if (!reportStartDate || !reportEndDate) {
-                      toast.error("기간을 선택해주세요");
-                      return;
-                    }
-                    generateReportMutation.mutate(
-                      {
-                        reportType: pdfPeriod,
-                        startDate: reportStartDate,
-                        endDate: reportEndDate,
-                        ccpType: reportCcpType || undefined,
-                      },
-                      {
-                        onSuccess: (data) => {
-                          const link = document.createElement("a");
-                          link.href = `data:application/pdf;base64,${data.pdf}`;
-                          link.download = data.filename;
-                          link.click();
-                          toast.success("보고서가 생성되었습니다");
-                        },
-                        onError: (error) => {
-                          toast.error(`보고서 생성 실패: ${error.message}`);
-                        },
-                      }
-                    );
-                  }}
-                  disabled={generateReportMutation.isPending}
-                  className="w-full"
-                >
-                  {generateReportMutation.isPending ? (
-                    <><Download className="h-4 w-4 mr-2 animate-spin" />생성 중...</>
-                  ) : (
-                    <><Download className="h-4 w-4 mr-2" />보고서 생성 및 다운로드</>
-                  )}
-                </Button>
-              </CardContent>
-            </Card>
+          <TabsContent value="reports" className="space-y-3">
+            <CcpReportGenerator />
           </TabsContent>
         </Tabs>
       </div>

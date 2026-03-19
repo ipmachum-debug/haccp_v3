@@ -11,13 +11,14 @@ export default function PurchaseDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   
-  const { data: purchase, isLoading } = trpc.haccpIntegration.getPurchaseById.useQuery(
+  const { data: _purchaseRaw, isLoading } = trpc.haccpIntegration.getPurchaseById.useQuery(
     { id: parseInt(id!) },
     { enabled: !!id }
   );
+  const purchase = _purchaseRaw as any;
 
   const downloadPdfMutation = trpc.haccpIntegration.generatePurchasePdf.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       // PDF 다운로드
       const link = document.createElement("a");
       link.href = data.pdfUrl;
@@ -27,7 +28,7 @@ export default function PurchaseDetail() {
       document.body.removeChild(link);
       toast.success("거래명세서 PDF가 다운로드되었습니다.");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`PDF 생성 실패: ${error.message}`);
     },
   });

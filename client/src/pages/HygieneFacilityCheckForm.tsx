@@ -27,7 +27,7 @@ const initialChecklistItems = [
 
 export default function HygieneFacilityCheckForm() {
   const { toast } = useToast();
-  const [checklist, setChecklist] = useState(initialChecklistItems.reduce((acc, item) => ({ ...acc, [item.id]: '' }), {}));
+  const [checklist, setChecklist] = useState<Record<string, string>>(initialChecklistItems.reduce((acc, item) => ({ ...acc, [item.id]: '' }), {} as Record<string, string>));
   const [notes, setNotes] = useState('');
   const [actions, setActions] = useState('');
   const [operator, setOperator] = useState('');
@@ -50,7 +50,7 @@ export default function HygieneFacilityCheckForm() {
   };
 
   const handleBatchApprove = () => {
-    const allApproved = initialChecklistItems.reduce((acc, item) => ({ ...acc, [item.id]: '적합' }), {});
+    const allApproved = initialChecklistItems.reduce((acc, item) => ({ ...acc, [item.id]: '적합' }), {} as Record<string, string>);
     setChecklist(allApproved);
     toast({ title: '일괄 적용 완료', description: '모든 항목에 대해 \'적합\'으로 표시되었습니다.' });
   };

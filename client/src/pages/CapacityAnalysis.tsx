@@ -83,7 +83,7 @@ export default function CapacityAnalysis() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {capacityAnalysis.map((row) => (
+                {capacityAnalysis.map((row: any) => (
                   <TableRow key={row.period}>
                     <TableCell className="font-medium">{row.period}</TableCell>
                     <TableCell>{row.plannedCount}</TableCell>

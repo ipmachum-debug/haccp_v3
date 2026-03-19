@@ -63,7 +63,7 @@ export async function checkSubscriptionExpiry() {
           .set({
             status: "expired",
             isReadOnly: true,
-            gracePeriodEndDate: gracePeriodEnd.toISOString().split('T')[0],
+            gracePeriodEndDate: gracePeriodEnd,
           })
           .where(eq(tenants.id, tenant.id));
 

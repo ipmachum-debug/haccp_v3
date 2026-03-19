@@ -24,7 +24,7 @@ export const dailyLogRouter = router({
         const result = await db.execute(sql`
           SELECT id, form_date, form_data FROM h_generic_checklist_records
           WHERE form_type = 'daily_log'
-            AND tenant_id = ${ctx.user.tenantId}
+            AND tenant_id = ${ctx.tenantId}
             AND form_date < ${input.beforeDate}
             AND form_data IS NOT NULL
           ORDER BY form_date DESC
@@ -61,7 +61,7 @@ export const dailyLogRouter = router({
           FROM h_generic_checklist_records
           WHERE form_type = 'daily_log'
             AND form_date = ${input.logDate}
-            AND tenant_id = ${ctx.user.tenantId}
+            AND tenant_id = ${ctx.tenantId}
           ORDER BY created_at DESC LIMIT 1
         `);
         const rows = (result as any)[0] || [];
@@ -99,8 +99,8 @@ export const dailyLogRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const tenantId = ctx.user.tenantId;
-        const siteId = input.siteId || 1;
+        const tenantId = ctx.tenantId ?? undefined;
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
         // 기존 레코드 확인
         const existing = await db.execute(sql`
@@ -207,7 +207,7 @@ export const dailyLogRouter = router({
         // 기존 데이터와 병합 (배치 보존)
         const existing = await db.execute(sql`
           SELECT form_data FROM h_generic_checklist_records
-          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
         const oldRows = (existing as any)[0] || [];
         let oldFd: any = {};
@@ -224,7 +224,7 @@ export const dailyLogRouter = router({
         await db.execute(sql`
           UPDATE h_generic_checklist_records
           SET form_data = ${JSON.stringify(merged)}, updated_at = NOW()
-          WHERE id = ${input.id} AND tenant_id = ${ctx.user.tenantId}
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
         return { success: true };
       } catch (error) {
@@ -259,7 +259,7 @@ export const dailyLogRouter = router({
             ar.reference_type = 'checklist' AND ar.reference_id = r.id AND ar.request_type = 'daily_log'
           )
           WHERE r.form_type = 'daily_log'
-          AND r.tenant_id = ${ctx.user.tenantId}
+          AND r.tenant_id = ${ctx.tenantId}
           ${input?.siteId ? sql`AND r.site_id = ${input.siteId}` : sql``}
           ${input?.startDate ? sql`AND r.form_date >= ${input.startDate}` : sql``}
           ${input?.endDate ? sql`AND r.form_date <= ${input.endDate}` : sql``}

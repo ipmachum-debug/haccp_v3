@@ -140,6 +140,8 @@ export interface ParsedMaterial {
   category?: string;
   unit?: string;
   expiryWarningDays?: number;
+  safetyStock?: number;
+  storageMethod?: string;
   description?: string;
 }
 

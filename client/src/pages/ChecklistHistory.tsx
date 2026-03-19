@@ -44,7 +44,7 @@ export default function ChecklistHistory() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setLocation(`/checklist/${instanceId}`)}
+          onClick={() => setLocation(`/quality/checklists/${instanceId}`)}
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
@@ -66,7 +66,7 @@ export default function ChecklistHistory() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {history.map((record, index) => (
+          {history.map((record: any, index: any) => (
             <Card key={record.id} className="p-4 md:p-6">
               <div className="flex flex-col md:flex-row md:items-start gap-4">
                 {/* 타임라인 인디케이터 */}

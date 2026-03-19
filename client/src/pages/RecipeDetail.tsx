@@ -149,8 +149,8 @@ export default function RecipeDetail() {
                 </TableHeader>
                 <TableBody>
                   {recipe.lines
-                    .sort((a, b) => a.sortOrder - b.sortOrder)
-                    .map((line) => (
+                    .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+                    .map((line: any) => (
                       <TableRow key={line.id}>
                         <TableCell>{line.sortOrder}</TableCell>
                         <TableCell className="font-medium">

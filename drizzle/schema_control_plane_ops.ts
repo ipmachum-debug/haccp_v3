@@ -1,11 +1,10 @@
-import { tenants } from './schema_main';
 /**
  * Control Plane Schema - Operations & Monitoring
  * 슈퍼관리자 사용자, 운영, 모니터링, 감사로그
  */
 
 import { mysqlTable, varchar, text, timestamp, int, decimal, json, boolean, uniqueIndex, index } from "drizzle-orm/mysql-core";
-import { tenants } from "./schema_control_plane";
+import { tenants } from "./schema_main";
 
 // ============================================
 // 4. Super Admin 사용자/권한 (운영자용)

@@ -1,6 +1,6 @@
 // Service Worker for HACCP PWA
-// v2: 배포 시 캐시 충돌 방지 - Vite 해시 에셋은 캐시하지 않음
-const CACHE_NAME = 'haccp-v2';
+// v3: 배포 시 캐시 충돌 방지 - Vite 해시 에셋은 캐시하지 않음
+const CACHE_NAME = 'haccp-v3';
 
 // 설치 이벤트 - 즉시 활성화
 self.addEventListener('install', (event) => {
@@ -14,7 +14,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          // 모든 이전 캐시 삭제 (v1 포함)
+          // 모든 이전 캐시 삭제 (v1, v2 포함)
           if (cacheName !== CACHE_NAME) {
             console.log('Deleting old cache:', cacheName);
             return caches.delete(cacheName);

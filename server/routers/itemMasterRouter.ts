@@ -23,7 +23,7 @@ export const itemMasterRouter = router({
     }).optional())
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      const tenantId = ctx.user.tenantId;
+      const tenantId = ctx.tenantId ?? undefined;
       const page = input?.page ?? 1;
       const limit = input?.limit ?? 50;
       const offset = (page - 1) * limit;
@@ -74,7 +74,7 @@ export const itemMasterRouter = router({
         .from(itemMaster)
         .where(and(
           eq(itemMaster.id, input.id),
-          eq(itemMaster.tenantId, ctx.user.tenantId)
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined)
         ));
       return item ?? null;
     }),
@@ -86,16 +86,16 @@ export const itemMasterRouter = router({
       let code: string;
       switch (input.itemType) {
         case "own_product":
-          code = await generateProductCode(ctx.user.tenantId);
+          code = await generateProductCode(ctx.tenantId ?? undefined);
           break;
         case "raw_material":
-          code = await generateMaterialCode(ctx.user.tenantId);
+          code = await generateMaterialCode(ctx.tenantId ?? undefined);
           break;
         case "external_product":
-          code = await generateExternalProductCode(ctx.user.tenantId);
+          code = await generateExternalProductCode(ctx.tenantId ?? undefined);
           break;
         case "subsidiary":
-          code = await generateSubsidiaryCode(ctx.user.tenantId);
+          code = await generateSubsidiaryCode(ctx.tenantId ?? undefined);
           break;
         default:
           code = "UNKNOWN";
@@ -128,16 +128,16 @@ export const itemMasterRouter = router({
       if (!itemCode) {
         switch (input.itemType) {
           case "own_product":
-            itemCode = await generateProductCode(ctx.user.tenantId);
+            itemCode = await generateProductCode(ctx.tenantId ?? undefined);
             break;
           case "raw_material":
-            itemCode = await generateMaterialCode(ctx.user.tenantId);
+            itemCode = await generateMaterialCode(ctx.tenantId ?? undefined);
             break;
           case "external_product":
-            itemCode = await generateExternalProductCode(ctx.user.tenantId);
+            itemCode = await generateExternalProductCode(ctx.tenantId ?? undefined);
             break;
           case "subsidiary":
-            itemCode = await generateSubsidiaryCode(ctx.user.tenantId);
+            itemCode = await generateSubsidiaryCode(ctx.tenantId ?? undefined);
             break;
           default:
             itemCode = "UNKNOWN";
@@ -145,7 +145,7 @@ export const itemMasterRouter = router({
       }
       
       const result = await db.insert(itemMaster).values({
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
         itemCode,
         itemName: input.itemName,
         itemType: input.itemType,
@@ -165,9 +165,9 @@ export const itemMasterRouter = router({
       
       // 제품 타입이면 기본 kg SKU 자동 생성
       if (input.itemType === "own_product" || input.itemType === "external_product") {
-        const skuCode = await generateSkuCode(itemCode, ctx.user.tenantId);
+        const skuCode = await generateSkuCode(itemCode, ctx.tenantId ?? undefined);
         await db.insert(productSkus).values({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId ?? undefined,
           itemId: insertId,
           skuCode,
           skuName: `${input.itemName} (kg)`,
@@ -198,6 +198,7 @@ export const itemMasterRouter = router({
       isActive: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      console.log('[itemMaster.update] called with input:', JSON.stringify(input));
       const db = await getDb();
       const { id, ...updateData } = input;
       
@@ -219,8 +220,31 @@ export const itemMasterRouter = router({
         .set(cleanData)
         .where(and(
           eq(itemMaster.id, id),
-          eq(itemMaster.tenantId, ctx.user.tenantId)
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
         ));
+      
+      // h_products_v2 역방향 동기화 (legacyProductId가 있는 경우)
+      try {
+        const [item] = await db.select({ legacyProductId: itemMaster.legacyProductId, itemType: itemMaster.itemType })
+          .from(itemMaster)
+          .where(eq(itemMaster.id, id));
+        if (item?.legacyProductId && (item.itemType === 'own_product' || item.itemType === 'external_product')) {
+          const syncParts: any[] = [];
+          if (updateData.itemName !== undefined) syncParts.push(sql`product_name = ${updateData.itemName}`);
+          if (updateData.category !== undefined) syncParts.push(sql`category = ${updateData.category}`);
+          if (updateData.baseUnit !== undefined) syncParts.push(sql`unit = ${updateData.baseUnit}`);
+          if (updateData.shelfLifeDays !== undefined) syncParts.push(sql`shelf_life_days = ${updateData.shelfLifeDays}`);
+          if (updateData.description !== undefined) syncParts.push(sql`description = ${updateData.description}`);
+          if (updateData.isActive !== undefined) syncParts.push(sql`is_active = ${updateData.isActive}`);
+          if (syncParts.length > 0) {
+            await db.execute(
+              sql`UPDATE h_products_v2 SET ${sql.join(syncParts, sql`, `)} WHERE id = ${item.legacyProductId} AND tenant_id = ${ctx.tenantId}`
+            );
+          }
+        }
+      } catch (syncErr) {
+        console.error('h_products_v2 역방향 동기화 실패:', syncErr);
+      }
       
       return { success: true, message: "품목이 수정되었습니다." };
     }),
@@ -234,7 +258,7 @@ export const itemMasterRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(itemMaster.id, input.id),
-          eq(itemMaster.tenantId, ctx.user.tenantId)
+          eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       return { success: true, message: "품목이 비활성화되었습니다." };
     }),
@@ -252,7 +276,7 @@ export const itemMasterRouter = router({
       const db = await getDb();
       const categories = await db.select({ name: categoriesTable.name })
         .from(categoriesTable)
-        .where(eq(categoriesTable.tenantId, ctx.user.tenantId));
+        .where(eq(categoriesTable.tenantId, ctx.tenantId ?? undefined));
       const categoryNames = categories.map(c => c.name);
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet(
@@ -297,7 +321,7 @@ export const itemMasterRouter = router({
       }
       // 과세유형, 상태 드롭다운 제거 (DB 스키마에 없음)
       const buffer = await workbook.xlsx.writeBuffer();
-      const base64 = buffer.toString('base64');
+      const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
       return { success: true, filename: `${filename}_템플릿_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64 };
     }),
@@ -311,11 +335,11 @@ export const itemMasterRouter = router({
       const db = await getDb();
       const categories = await db.select({ id: categoriesTable.id, name: categoriesTable.name })
         .from(categoriesTable)
-        .where(eq(categoriesTable.tenantId, ctx.user.tenantId));
+        .where(eq(categoriesTable.tenantId, ctx.tenantId ?? undefined));
       const categoryMap = Object.fromEntries(categories.map(c => [c.id, c.name]));
       const categoryNames = categories.map(c => c.name);
       const items = await db.select().from(itemMaster)
-        .where(and(eq(itemMaster.tenantId, ctx.user.tenantId), eq(itemMaster.itemType, input.itemType)))
+        .where(and(eq(itemMaster.tenantId, ctx.tenantId ?? undefined), eq(itemMaster.itemType, input.itemType as any) ) as any)
         .orderBy(itemMaster.itemCode);
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet(input.itemType === 'own_product' ? '제품 목록' : input.itemType === 'raw_material' ? '원재료 목록' : '거래처 목록');
@@ -332,28 +356,29 @@ export const itemMasterRouter = router({
       if (input.itemType === 'supplier') {
         // 거래처 데이터는 h_suppliers 테이블에서 가져오기
         const suppliers = await db.select().from(sql`h_suppliers`)
-          .where(sql`tenant_id = ${ctx.user.tenantId}`);
+          .where(sql`tenant_id = ${ctx.tenantId}`);
         for (const supplier of suppliers) {
+          const s = supplier as any;
           const row = [
-            supplier.supplier_code || '',
-            supplier.business_number || '',
-            supplier.contact_person || '',
-            supplier.phone || '',
-            supplier.address || '',
-            supplier.supplier_type || '',
-            supplier.certifications || '',
-            supplier.rating || '',
-            supplier.email || '',
+            s.supplier_code || '',
+            s.business_number || '',
+            s.contact_person || '',
+            s.phone || '',
+            s.address || '',
+            s.supplier_type || '',
+            s.certifications || '',
+            s.rating || '',
+            s.email || '',
             '' // 비고
           ];
           worksheet.addRow(row);
         }
       } else {
         for (const item of items) {
-          const categoryName = item.categoryId ? categoryMap[item.categoryId] : item.category || '';
+          const categoryName = item.category ? categoryMap[item.category] : item.category || '';
           const row = input.itemType === 'own_product'
-            ? [item.itemCode, item.itemName, categoryName, item.baseUnit || item.unit, Math.round((item.shelfLifeDays || 0) / 30), item.description || '']
-            : [item.itemCode, item.itemName, categoryName, item.baseUnit || item.unit, item.shelfLifeDays || item.expiryWarningDays || 0, item.description || ''];
+            ? [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, Math.round((item.shelfLifeDays || 0) / 30), item.description || '']
+            : [item.itemCode, item.itemName, categoryName, item.baseUnit || (item as any).unit, item.shelfLifeDays || (item as any).expiryWarningDays || 0, item.description || ''];
           worksheet.addRow(row);
         }
       }
@@ -376,7 +401,7 @@ export const itemMasterRouter = router({
       }
       // 과세유형, 상태 드롭다운 제거 (DB 스키마에 없음)
       const buffer = await workbook.xlsx.writeBuffer();
-      const base64 = buffer.toString('base64');
+      const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
       const count = input.itemType === 'supplier' ? 0 : items.length;
       return { success: true, filename: `${filename}_전체_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64, count };
@@ -398,7 +423,7 @@ export const productSkuRouter = router({
         .from(productSkus)
         .where(and(
           eq(productSkus.itemId, input.itemId),
-          eq(productSkus.tenantId, ctx.user.tenantId),
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined),
           eq(productSkus.isActive, 1)
         ))
         .orderBy(desc(productSkus.isDefault), asc(productSkus.skuCode));
@@ -413,7 +438,7 @@ export const productSkuRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       const conditions = [
-        eq(productSkus.tenantId, ctx.user.tenantId),
+        eq(productSkus.tenantId, ctx.tenantId ?? undefined),
         eq(productSkus.isActive, 1),
       ];
       
@@ -440,7 +465,7 @@ export const productSkuRouter = router({
         .from(productSkus)
         .innerJoin(itemMaster, eq(productSkus.itemId, itemMaster.id))
         .where(and(
-          eq(productSkus.tenantId, ctx.user.tenantId),
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined),
           eq(productSkus.isActive, 1),
           eq(itemMaster.isActive, 1),
           ...(input?.itemType ? [eq(itemMaster.itemType, input.itemType)] : []),
@@ -460,8 +485,8 @@ export const productSkuRouter = router({
   // SKU 코드 자동 생성
   generateCode: tenantRequiredProcedure
     .input(z.object({ parentItemCode: z.string() }))
-    .query(async ({ input }) => {
-      const code = await generateSkuCode(input.parentItemCode, ctx.user.tenantId);
+    .query(async ({ input, ctx }) => {
+      const code = await generateSkuCode(input.parentItemCode, ctx.tenantId ?? undefined);
       return { code };
     }),
 
@@ -489,7 +514,7 @@ export const productSkuRouter = router({
           .set({ isDefault: 0 })
           .where(and(
             eq(productSkus.itemId, input.itemId),
-            eq(productSkus.tenantId, ctx.user.tenantId)
+            eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
           ));
       }
       
@@ -500,11 +525,11 @@ export const productSkuRouter = router({
         const [parentItem] = await db.select({ itemCode: itemMaster.itemCode })
           .from(itemMaster)
           .where(eq(itemMaster.id, input.itemId));
-        skuCode = await generateSkuCode(parentItem?.itemCode || String(input.itemId), ctx.user.tenantId);
+        skuCode = await generateSkuCode(parentItem?.itemCode || String(input.itemId), ctx.tenantId ?? undefined);
       }
 
       const result = await db.insert(productSkus).values({
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
         itemId: input.itemId,
         skuCode,
         skuName: input.skuName,
@@ -562,7 +587,7 @@ export const productSkuRouter = router({
             .set({ isDefault: 0 })
             .where(and(
               eq(productSkus.itemId, sku.itemId),
-              eq(productSkus.tenantId, ctx.user.tenantId)
+              eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
             ));
         }
       }
@@ -571,7 +596,7 @@ export const productSkuRouter = router({
         .set(cleanData)
         .where(and(
           eq(productSkus.id, id),
-          eq(productSkus.tenantId, ctx.user.tenantId)
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       
       return { success: true, message: "SKU가 수정되었습니다." };
@@ -586,7 +611,7 @@ export const productSkuRouter = router({
         .set({ isActive: 0 })
         .where(and(
           eq(productSkus.id, input.id),
-          eq(productSkus.tenantId, ctx.user.tenantId)
+          eq(productSkus.tenantId, ctx.tenantId ?? undefined as any) 
         ));
       return { success: true, message: "SKU가 비활성화되었습니다." };
     }),

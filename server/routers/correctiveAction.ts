@@ -26,7 +26,7 @@ export const correctiveActionRouter = router({
         ...input,
         occurredAt: new Date(input.occurredAt),
         detectedBy: ctx.user.id,
-      });
+      }, ctx.tenantId);
       return { id };
     }),
 
@@ -43,22 +43,22 @@ export const correctiveActionRouter = router({
       const id = await correctiveActionDb.createCorrectiveActionFromCcpDeviation({
         ...input,
         detectedBy: ctx.user.id,
-      });
+      }, ctx.tenantId);
       return { id };
     }),
 
   // 시정 조치 요청 상세 조회
   getById: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
-      return correctiveActionDb.getCorrectiveActionRequestById(input.id);
+    .query(async ({ input, ctx }) => {
+      return correctiveActionDb.getCorrectiveActionRequestById(input.id, ctx.tenantId);
     }),
 
   // 배치별 시정 조치 목록
   listByBatch: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
-    .query(async ({ input }) => {
-      return correctiveActionDb.getCorrectiveActionRequestsByBatch(input.batchId);
+    .query(async ({ input, ctx }) => {
+      return correctiveActionDb.getCorrectiveActionRequestsByBatch(input.batchId, ctx.tenantId);
     }),
 
   // 상태별 시정 조치 목록
@@ -66,14 +66,14 @@ export const correctiveActionRouter = router({
     .input(z.object({ 
       status: z.enum(["open", "investigating", "action_taken", "verifying", "closed", "reopened"]) 
     }))
-    .query(async ({ input }) => {
-      return correctiveActionDb.getCorrectiveActionRequestsByStatus(input.status);
+    .query(async ({ input, ctx }) => {
+      return correctiveActionDb.getCorrectiveActionRequestsByStatus(input.status, ctx.tenantId);
     }),
 
   // 전체 시정 조치 목록
   list: tenantRequiredProcedure
-    .query(async () => {
-      return correctiveActionDb.getAllCorrectiveActionRequests();
+    .query(async ({ ctx }) => {
+      return correctiveActionDb.getAllCorrectiveActionRequests(ctx.tenantId);
     }),
 
   // 즉시 조치 등록
@@ -90,7 +90,7 @@ export const correctiveActionRouter = router({
         immediateActionBy: ctx.user.id,
         immediateActionAt: new Date(),
         status: "investigating",
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -110,11 +110,11 @@ export const correctiveActionRouter = router({
         ]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await correctiveActionDb.updateCorrectiveActionRequest(input.id, {
         rootCauseAnalysis: input.rootCauseAnalysis,
         rootCauseCategory: input.rootCauseCategory,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -137,7 +137,7 @@ export const correctiveActionRouter = router({
         actionDueDate: input.actionDueDate,
         preventiveAction: input.preventiveAction,
         status: "action_taken",
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -149,11 +149,11 @@ export const correctiveActionRouter = router({
         actionCompletedDate: z.string(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await correctiveActionDb.updateCorrectiveActionRequest(input.id, {
         actionCompletedDate: input.actionCompletedDate,
         status: "verifying",
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -176,7 +176,7 @@ export const correctiveActionRouter = router({
         verifiedBy: ctx.user.id,
         verifiedDate: input.verifiedDate,
         status: input.isEffective === 1 ? "closed" : "reopened",
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -188,10 +188,10 @@ export const correctiveActionRouter = router({
         status: z.enum(["open", "investigating", "action_taken", "verifying", "closed", "reopened"]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await correctiveActionDb.updateCorrectiveActionRequest(input.id, {
         status: input.status,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
@@ -203,18 +203,18 @@ export const correctiveActionRouter = router({
         priority: z.enum(["low", "medium", "high", "critical"]),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       await correctiveActionDb.updateCorrectiveActionRequest(input.id, {
         priority: input.priority,
-      });
+      }, ctx.tenantId);
       return { success: true };
     }),
 
   // 시정 조치 삭제
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await correctiveActionDb.deleteCorrectiveActionRequest(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await correctiveActionDb.deleteCorrectiveActionRequest(input.id, ctx.tenantId);
       return { success: true };
     }),
 
@@ -233,22 +233,22 @@ export const correctiveActionRouter = router({
       const id = await correctiveActionDb.addCorrectiveActionAttachment({
         ...input,
         uploadedBy: ctx.user.id,
-      });
+      }, ctx.tenantId);
       return { id };
     }),
 
   // 첨부 파일 목록 조회
   listAttachments: tenantRequiredProcedure
     .input(z.object({ requestId: z.number() }))
-    .query(async ({ input }) => {
-      return correctiveActionDb.getCorrectiveActionAttachments(input.requestId);
+    .query(async ({ input, ctx }) => {
+      return correctiveActionDb.getCorrectiveActionAttachments(input.requestId, ctx.tenantId);
     }),
 
   // 첨부 파일 삭제
   deleteAttachment: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      await correctiveActionDb.deleteCorrectiveActionAttachment(input.id);
+    .mutation(async ({ input, ctx }) => {
+      await correctiveActionDb.deleteCorrectiveActionAttachment(input.id, ctx.tenantId);
       return { success: true };
     }),
 });

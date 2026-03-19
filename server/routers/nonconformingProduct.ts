@@ -75,7 +75,7 @@ export const nonconformingProductRouter = router({
         ...input,
         detectedBy: ctx.user.id,
         createdBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -96,15 +96,15 @@ export const nonconformingProductRouter = router({
         offset: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
-      return await ncpDb.getNonconformingProducts(input);
+    .query(async ({ input, ctx }) => {
+      return await ncpDb.getNonconformingProducts(input, ctx.tenantId);
     }),
 
   /**
    * 부적합 제품 상세 조회
    */
-  getById: tenantRequiredProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
-    return await ncpDb.getNonconformingProductById(input.id);
+  getById: tenantRequiredProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+    return await ncpDb.getNonconformingProductById(input.id, ctx.tenantId);
   }),
 
   /**
@@ -142,17 +142,17 @@ export const nonconformingProductRouter = router({
         notes: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      await ncpDb.updateNonconformingProduct(id, data);
+      await ncpDb.updateNonconformingProduct(id, data, ctx.tenantId);
       return { success: true };
     }),
 
   /**
    * 부적합 제품 삭제
    */
-  delete: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    await ncpDb.deleteNonconformingProduct(input.id);
+  delete: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    await ncpDb.deleteNonconformingProduct(input.id, ctx.tenantId);
     return { success: true };
   }),
 
@@ -166,8 +166,8 @@ export const nonconformingProductRouter = router({
         status: z.enum(["detected", "under_investigation", "pending_disposal", "disposed", "closed"]),
       })
     )
-    .mutation(async ({ input }) => {
-      await ncpDb.updateNonconformingProductStatus(input.id, input.status);
+    .mutation(async ({ input, ctx }) => {
+      await ncpDb.updateNonconformingProductStatus(input.id, input.status, ctx.tenantId);
       return { success: true };
     }),
 
@@ -175,7 +175,7 @@ export const nonconformingProductRouter = router({
    * 부적합 제품 승인
    */
   approve: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-    await ncpDb.approveNonconformingProduct(input.id, ctx.user.id);
+    await ncpDb.approveNonconformingProduct(input.id, ctx.user.id, ctx.tenantId);
     return { success: true };
   }),
 
@@ -202,7 +202,7 @@ export const nonconformingProductRouter = router({
       const id = await ncpDb.addAttachment({
         ...input,
         uploadedBy: ctx.user.id,
-        tenantId: ctx.user.tenantId,
+        tenantId: ctx.tenantId ?? undefined,
       });
       return { id };
     }),
@@ -210,15 +210,15 @@ export const nonconformingProductRouter = router({
   /**
    * 첨부 파일 목록 조회
    */
-  getAttachments: tenantRequiredProcedure.input(z.object({ ncpId: z.number() })).query(async ({ input }) => {
-    return await ncpDb.getAttachments(input.ncpId);
+  getAttachments: tenantRequiredProcedure.input(z.object({ ncpId: z.number() })).query(async ({ input, ctx }) => {
+    return await ncpDb.getAttachments(input.ncpId, ctx.tenantId);
   }),
 
   /**
    * 첨부 파일 삭제
    */
-  deleteAttachment: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-    await ncpDb.deleteAttachment(input.id);
+  deleteAttachment: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+    await ncpDb.deleteAttachment(input.id, ctx.tenantId);
     return { success: true };
   }),
 
@@ -237,15 +237,15 @@ export const nonconformingProductRouter = router({
         month: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
-      return await ncpDb.getNonconformingProductStats(input);
+    .query(async ({ input, ctx }) => {
+      return await ncpDb.getNonconformingProductStats(input, ctx.tenantId);
     }),
 
   /**
    * 부적합 제품 대시보드
    */
-  getDashboard: tenantRequiredProcedure.input(z.object({ siteId: z.number() })).query(async ({ input }) => {
-    return await ncpDb.getNonconformingProductDashboard(input.siteId);
+  getDashboard: tenantRequiredProcedure.input(z.object({ siteId: z.number() })).query(async ({ input, ctx }) => {
+    return await ncpDb.getNonconformingProductDashboard(input.siteId, ctx.tenantId);
   }),
 
   /**
@@ -259,8 +259,8 @@ export const nonconformingProductRouter = router({
         dateTo: z.string(),
       })
     )
-    .query(async ({ input }) => {
-      return await ncpDb.calculateNonconformityRate(input);
+    .query(async ({ input, ctx }) => {
+      return await ncpDb.calculateNonconformityRate(input, ctx.tenantId);
     }),
 
   /**
@@ -274,7 +274,7 @@ export const nonconformingProductRouter = router({
         dateTo: z.string(),
       })
     )
-    .query(async ({ input }) => {
-      return await ncpDb.generateNonconformingProductReport(input);
+    .query(async ({ input, ctx }) => {
+      return await ncpDb.generateNonconformingProductReport(input, ctx.tenantId);
     }),
 });

@@ -80,7 +80,7 @@ export function MaterialPriceChart({
   };
 
   const chartData = {
-    labels: priceHistory?.map((item) =>
+    labels: priceHistory?.map((item: any) =>
       new Date(item.date).toLocaleDateString("ko-KR", {
         month: "short",
         day: "numeric",
@@ -89,7 +89,7 @@ export function MaterialPriceChart({
     datasets: [
       {
         label: "단가",
-        data: priceHistory?.map((item) => item.price) || [],
+        data: priceHistory?.map((item: any) => item.price) || [],
         borderColor: "rgb(99, 102, 241)",
         backgroundColor: "rgba(99, 102, 241, 0.1)",
         tension: 0.3,

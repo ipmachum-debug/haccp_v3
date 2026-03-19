@@ -74,7 +74,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
-  role: mysqlEnum("role", ["super_admin", "admin", "worker", "monitor"]).default("worker").notNull(),
+  role: mysqlEnum("role", ["super_admin", "admin", "worker", "monitor", "employee"]).default("worker").notNull(),
   userType: mysqlEnum("user_type", ["b2b_partner", "general_user", "company_staff", "other", "client_admin", "employee"]).default("employee"),
   userMemo: text("user_memo"),
   companyName: varchar("company_name", { length: 255 }),
@@ -492,6 +492,13 @@ export const hBatches = mysqlTable("h_batches", {
   recipeId: bigint("recipe_id", { mode: "number" }),
   plannedQuantity: decimal("planned_quantity", { precision: 10, scale: 2 }).notNull(),
   actualQuantity: decimal("actual_quantity", { precision: 10, scale: 2 }),
+  actualYield: decimal("actual_yield", { precision: 10, scale: 2 }), // 실제 수율
+  lossQuantity: decimal("loss_quantity", { precision: 10, scale: 2 }), // 손실 수량
+  materialCost: decimal("material_cost", { precision: 15, scale: 2 }), // 재료비
+  laborCost: decimal("labor_cost", { precision: 15, scale: 2 }), // 노무비
+  overheadCost: decimal("overhead_cost", { precision: 15, scale: 2 }), // 경비
+  totalCost: decimal("total_cost", { precision: 15, scale: 2 }), // 총 원가
+  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }), // 단위 원가
   plannedDate: date("planned_date").notNull(),
   startTime: timestamp("start_time"),
   endTime: timestamp("end_time"),
@@ -1448,11 +1455,17 @@ export const bankTransactions = mysqlTable("bank_transactions", {
   // 거래 유형
   transactionType: mysqlEnum("transaction_type", ["deposit", "withdrawal"]).notNull(), // 입금/출금
   
+  // 상대방 정보
+  counterpartyText: varchar("counterparty_text", { length: 255 }), // 거래 상대방 이름
+
   // 회계 연동 (계정 과목 매칭)
   accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // 매칭된 계정 과목
   matchingStatus: mysqlEnum("match_status", ["unmatched", "partial", "matched"]).default("unmatched").notNull(), // 매칭 상태
   matchedBy: bigint("matched_by", { mode: "number" }), // 매칭 작업자 ID
   matchedAt: timestamp("matched_at"), // 매칭 일시
+  matchedPartnerId: bigint("matched_partner_id", { mode: "number" }), // 매칭된 거래처 ID
+  matchedLedgerType: varchar("matched_ledger_type", { length: 50 }), // 'ap', 'ar', 'manual'
+  matchedLedgerId: bigint("matched_ledger_id", { mode: "number" }), // apLedger.id, arLedger.id, etc.
   
   // 고액 거래 플래그
   isLargeAmount: mysqlEnum("is_high_amount", ["Y", "N"]).default("N").notNull(), // 고액 거래 여부

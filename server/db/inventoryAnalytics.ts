@@ -21,28 +21,24 @@ export interface InventoryTurnoverResult {
  * @returns 재고 회전율 결과
  */
 export async function calculateInventoryTurnover(
-  materialId?: number,
-  startDate?: Date,
-  endDate?: Date,
-  tenantId?: number
+  materialId: number | undefined,
+  startDate: Date | undefined,
+  endDate: Date | undefined,
+  tenantId: number
 ): Promise<InventoryTurnoverResult[]> {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
-  
+
   const start = startDate || new Date(new Date().getFullYear(), 0, 1);
   const end = endDate || new Date();
-  
+
   // WHERE 조건 구성 (materialId + tenantId 필터)
   const whereConditions: string[] = [];
   if (materialId) {
     whereConditions.push(`m.id = ${Number(materialId)}`);
   }
-  if (tenantId) {
-    whereConditions.push(`m.tenant_id = ${Number(tenantId)}`);
-  }
-  const whereClause = whereConditions.length > 0
-    ? sql`WHERE ${sql.raw(whereConditions.join(' AND '))}`
-    : sql``;
+  whereConditions.push(`m.tenant_id = ${Number(tenantId)}`);
+  const whereClause = sql`WHERE ${sql.raw(whereConditions.join(' AND '))}`;
   
   // 기간 내 원재료 사용량 조회 (배치 투입 기준)
   const usageQuery = sql`
@@ -93,9 +89,9 @@ export async function calculateInventoryTurnover(
  * @returns 재고 효율성 지표
  */
 export async function calculateEfficiencyMetrics(
-  startDate?: Date,
-  endDate?: Date,
-  tenantId?: number
+  startDate: Date | undefined,
+  endDate: Date | undefined,
+  tenantId: number
 ): Promise<{
   averageTurnoverRate: number;
   averageHoldingPeriod: number;

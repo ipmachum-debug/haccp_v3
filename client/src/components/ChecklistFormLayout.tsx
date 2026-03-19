@@ -58,6 +58,10 @@ interface ChecklistFormLayoutProps {
   extraActions?: ReactNode;
   // 문서 양식 + 입력 폼 영역
   children: ReactNode;
+  // 문서 제목 (인쇄/PDF용)
+  documentTitle?: string;
+  // 작성자 필드명
+  writerField?: string;
 }
 
 // ============================================================================
@@ -238,7 +242,7 @@ export default function ChecklistFormLayout({
   );
 
   const gcSaveMutation = trpc.genericChecklist.create.useMutation({
-    onSuccess: (result) => { setSavedRecordId(result.id); },
+    onSuccess: (result: any) => { setSavedRecordId(result.id); },
   });
   const gcUpdateMutation = trpc.genericChecklist.update.useMutation({});
 
@@ -610,4 +614,3 @@ export default function ChecklistFormLayout({
 // Export 공통 컴포넌트들 (각 폼에서 사용)
 // ============================================================================
 export { ApprovalStampTable, WriterSelectField };
-export type { ChecklistFormConfig };

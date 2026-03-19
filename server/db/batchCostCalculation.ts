@@ -4,7 +4,7 @@
  */
 
 import { getDb } from "../db";
-import { hBatches, hBatchMaterials, hInventoryLots, hProducts } from "../../drizzle/schema";
+import { hBatches, hBatchMaterials, hInventoryLots, hProductsV2 } from "../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
 /**
@@ -12,7 +12,7 @@ import { eq, and} from "drizzle-orm";
  * @param batchId 배치 ID
  * @returns 총 원재료 비용, 제품 판매가, 원가율
  */
-export async function calculateBatchCost(batchId: number, tenantId?: number) {
+export async function calculateBatchCost(batchId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -20,7 +20,7 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
   const [batch] = await db
     .select()
     .from(hBatches)
-    .where(and(eq(hBatches.tenantId, tenantId), eq(hBatches.id, batchId)));
+    .where(and(eq(hBatches.tenantId, tenantId as any) , eq(hBatches.id, batchId)) as any);
   if (!batch) {
     throw new Error(`Batch not found: ${batchId}`);
   }
@@ -29,7 +29,7 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
   const batchMaterials = await db
     .select()
     .from(hBatchMaterials)
-    .where(and(eq(hBatchMaterials.tenantId, tenantId), eq(hBatchMaterials.batchId, batchId)));
+    .where(and(eq(hBatchMaterials.tenantId, tenantId as any) , eq(hBatchMaterials.batchId, batchId)) as any);
   // 각 원재료의 LOT별 단가 조회 및 비용 계산
   let totalMaterialCost = 0;
 
@@ -39,7 +39,7 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
       const [lot] = await db
         .select()
         .from(hInventoryLots)
-        .where(eq(hInventoryLots.id, material.lotId));
+        .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, material.lotId)));
       if (lot && lot.unitPrice) {
         const unitPrice = parseFloat(lot.unitPrice);
         const quantityUsed = parseFloat(material.quantityUsed);
@@ -53,10 +53,10 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
   if (batch.productId) {
     const [product] = await db
       .select()
-      .from(hProducts)
-      .where(and(eq(hProducts.tenantId, tenantId), eq(hProducts.id, batch.productId)));
-    if (product && product.unitPrice) {
-      productPrice = parseFloat(product.unitPrice);
+      .from(hProductsV2)
+      .where(and(eq(hProductsV2.tenantId, tenantId as any) , eq(hProductsV2.id, batch.productId)) as any);
+    if (product && (product as any).unitPrice) {
+      productPrice = parseFloat((product as any).unitPrice);
     }
   }
 
@@ -76,9 +76,9 @@ export async function calculateBatchCost(batchId: number, tenantId?: number) {
  * 여러 배치의 원가 일괄 계산
  * @param batchIds 배치 ID 목록
  */
-export async function calculateBatchCosts(batchIds: number[], tenantId?: number) {
+export async function calculateBatchCosts(batchIds: number[], tenantId: number) {
   const results = await Promise.all(
-    batchIds.map((batchId) => calculateBatchCost(batchId))
+    batchIds.map((batchId) => calculateBatchCost(batchId, tenantId))
   );
   return results;
 }
@@ -86,7 +86,7 @@ export async function calculateBatchCosts(batchIds: number[], tenantId?: number)
 /**
  * 모든 배치의 원가 계산 (최근 100건)
  */
-export async function calculateAllBatchCosts(tenantId?: number) {
+export async function calculateAllBatchCosts(tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -95,5 +95,5 @@ export async function calculateAllBatchCosts(tenantId?: number) {
     .from(hBatches).where(eq(hBatches.tenantId, tenantId)).limit(100);
 
   const batchIds = batches.map((batch) => batch.id);
-  return await calculateBatchCosts(batchIds);
+  return await calculateBatchCosts(batchIds, tenantId);
 }

@@ -16,8 +16,8 @@ export const reportsRouter = router({
   // 위험 분석 보고서 데이터 조회
   getHazardAnalysisReport: tenantRequiredProcedure
     .input(z.object({ productId: z.number() }))
-    .query(async ({ input }) => {
-      const hazards = await hazardAnalysisDb.getHazardAnalysisByProduct(input.productId);
+    .query(async ({ input, ctx }) => {
+      const hazards = await hazardAnalysisDb.getHazardAnalysisByProduct(input.productId, ctx.tenantId);
       
       // 통계 계산
       const totalHazards = hazards.length;
@@ -50,11 +50,11 @@ export const reportsRouter = router({
         batchId: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       // 배치별 또는 전체 시정 조치 조회
       const actions = input.batchId
-        ? await correctiveActionDb.getCorrectiveActionRequestsByBatch(input.batchId)
-        : await correctiveActionDb.getCorrectiveActionRequestsByStatus("closed");
+        ? await correctiveActionDb.getCorrectiveActionRequestsByBatch(input.batchId, ctx.tenantId)
+        : await correctiveActionDb.getCorrectiveActionRequestsByStatus("closed", ctx.tenantId);
 
       // 날짜 필터링
       const filteredActions = actions.filter((action: any) => {
@@ -94,22 +94,22 @@ export const reportsRouter = router({
   // 교육 이수 증명서 데이터 조회
   getTrainingCertificate: tenantRequiredProcedure
     .input(z.object({ participantId: z.number() }))
-    .query(async ({ input }) => {
-      const participant = await trainingDb.getTrainingParticipantById(input.participantId);
+    .query(async ({ input, ctx }) => {
+      const participant = await trainingDb.getTrainingParticipantById(input.participantId, ctx.tenantId);
       
       if (!participant) {
         throw new Error("참가자 정보를 찾을 수 없습니다.");
       }
 
       // 일정 정보 조회
-      const schedule = await trainingDb.getTrainingScheduleById(participant.scheduleId);
+      const schedule = await trainingDb.getTrainingScheduleById(participant.scheduleId, ctx.tenantId);
       
       if (!schedule) {
         throw new Error("교육 일정 정보를 찾을 수 없습니다.");
       }
 
       // 과정 정보 조회
-      const course = await trainingDb.getTrainingCourseById(schedule.courseId);
+      const course = await trainingDb.getTrainingCourseById(schedule.courseId, ctx.tenantId);
       
       if (!course) {
         throw new Error("교육 과정 정보를 찾을 수 없습니다.");
@@ -130,8 +130,8 @@ export const reportsRouter = router({
   // 사용자별 교육 이수 현황 보고서
   getUserTrainingReport: tenantRequiredProcedure
     .input(z.object({ userId: z.number() }))
-    .query(async ({ input }) => {
-      const participants = await trainingDb.getTrainingParticipantsByUser(input.userId);
+    .query(async ({ input, ctx }) => {
+      const participants = await trainingDb.getTrainingParticipantsByUser(input.userId, ctx.tenantId);
 
       // 통계 계산
       const totalTrainings = participants.length;

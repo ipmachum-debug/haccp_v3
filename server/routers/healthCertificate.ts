@@ -210,7 +210,7 @@ export const healthCertificateRouter = router({
         ...input,
         status,
         createdBy: ctx.user.id,
-      });
+      } as any);
 
       return { success: true, id: result.insertId };
     }),
@@ -540,7 +540,7 @@ export const healthCertificateRouter = router({
             status,
             notes: row["비고"] || null,
             createdBy: ctx.user.id,
-          });
+          } as any);
 
           results.success++;
         } catch (error: any) {

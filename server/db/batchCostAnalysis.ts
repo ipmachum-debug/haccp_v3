@@ -48,7 +48,7 @@ export async function getBatchCostAnalysis(params: {
   startDate?: Date;
   endDate?: Date;
   limit?: number;
-}, tenantId?: number): Promise<BatchCostSummary[]> {
+}, tenantId: number): Promise<BatchCostSummary[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -56,7 +56,7 @@ export async function getBatchCostAnalysis(params: {
 
   // 배치 조회 조건
   const conditions = [];
-  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+  conditions.push(eq(hBatches.tenantId, tenantId));
   if (startDate) {
     conditions.push(gte(hBatches.plannedDate, startDate));
   }
@@ -110,7 +110,7 @@ export async function getBatchCostAnalysis(params: {
  * 특정 배치의 원재료별 비용 분석
  */
 export async function getBatchMaterialCostBreakdown(
-  batchId: number, tenantId?: number): Promise<MaterialCostBreakdown[]> {
+  batchId: number, tenantId: number): Promise<MaterialCostBreakdown[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -154,7 +154,7 @@ export async function getCostAnalysisPeriodSummary(params: {
   startDate: Date;
   endDate: Date;
   groupBy: "month" | "week" | "day";
-}, tenantId?: number): Promise<CostAnalysisPeriodSummary[]> {
+}, tenantId: number): Promise<CostAnalysisPeriodSummary[]> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -169,10 +169,10 @@ export async function getCostAnalysisPeriodSummary(params: {
     })
     .from(hBatches)
     .where(
-      and(eq(hBatches.tenantId, tenantId), 
+      and(eq(hBatches.tenantId, tenantId as any) , 
         gte(hBatches.plannedDate, startDate),
         lte(hBatches.plannedDate, endDate)
-      )
+      ) as any
     );
 
   // 기간별 그룹화
@@ -276,7 +276,7 @@ export async function getCostAnalysisPeriodSummary(params: {
 export async function getMaterialCostAnalysis(params: {
   startDate?: Date;
   endDate?: Date;
-}, tenantId?: number): Promise<{
+}, tenantId: number): Promise<{
   materialId: number;
   materialName: string;
   totalBatches: number;
@@ -294,9 +294,7 @@ export async function getMaterialCostAnalysis(params: {
 
   // 배치 조건
   const batchConditions = [];
-  if (tenantId) {
-    batchConditions.push(eq(hBatches.tenantId, tenantId));
-  }
+  batchConditions.push(eq(hBatches.tenantId, tenantId));
   if (startDate) {
     batchConditions.push(gte(hBatches.plannedDate, startDate));
   }

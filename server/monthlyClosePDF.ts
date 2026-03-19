@@ -119,7 +119,8 @@ export async function createMonthlyClosePDF(year: number, month: number): Promis
   const db = await getDb();
 
   // 월간 마감 데이터 조회
-  const closeData = await db
+  const dbAny = db as any;
+  const closeData = await dbAny
     .selectFrom("accounting_monthly_close")
     .selectAll()
     .where("year", "=", year)
@@ -134,7 +135,7 @@ export async function createMonthlyClosePDF(year: number, month: number): Promis
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
   const endDate = new Date(year, month, 0).toISOString().split("T")[0]; // 해당 월의 마지막 날
 
-  const topPurchases = await db
+  const topPurchases = await dbAny
     .selectFrom("accounting_purchases")
     .select([
       "transaction_date as date",
@@ -148,7 +149,7 @@ export async function createMonthlyClosePDF(year: number, month: number): Promis
     .limit(5)
     .execute();
 
-  const topSales = await db
+  const topSales = await dbAny
     .selectFrom("accounting_sales")
     .select([
       "transaction_date as date",

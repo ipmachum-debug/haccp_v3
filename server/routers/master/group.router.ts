@@ -23,7 +23,7 @@ export const groupRouter = router({
       }),
 
     // 그룹 목록 조회
-    list: tenantRequiredProcedure.query(async () => {
+    list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getAllGroups } = await import("../../db");
       return await getAllGroups();
     }),
@@ -65,7 +65,7 @@ export const groupRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { addGroupMember } = await import("../../db");
-        await addGroupMember(input);
+        await addGroupMember({ ...input, tenantId: ctx.tenantId ?? undefined });
         return { success: true };
       }),
 

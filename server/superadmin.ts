@@ -64,7 +64,7 @@ router.get("/users/pending", async (req, res) => {
     const pendingUsers = await db
       .select()
       .from(users)
-      .where(eq(users.isApproved, false))
+      .where(eq(users.approvalStatus, "pending"))
       .orderBy(desc(users.createdAt));
 
     res.json(pendingUsers);
@@ -84,7 +84,7 @@ router.post("/users/:userId/approve", async (req, res) => {
     await db
       .update(users)
       .set({ 
-        isApproved: true,
+        approvalStatus: "approved",
         role: role || "worker",
         updatedAt: new Date()
       })
@@ -92,14 +92,14 @@ router.post("/users/:userId/approve", async (req, res) => {
 
     // 감사 로그 기록
     await db.insert(auditLogs).values({
-      userId: req.user.id,
+      userId: (req as any).user.id,
       action: "USER_APPROVED",
       entityType: "user",
       entityId: userId,
       details: JSON.stringify({ role }),
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
-    });
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null
+    } as any);
 
     res.json({ success: true, message: "사용자가 승인되었습니다" });
   } catch (error) {
@@ -121,14 +121,14 @@ router.post("/users/:userId/reject", async (req, res) => {
 
     // 감사 로그 기록
     await db.insert(auditLogs).values({
-      userId: req.user.id,
+      userId: (req as any).user.id,
       action: "USER_REJECTED",
       entityType: "user",
       entityId: userId,
       details: JSON.stringify({ reason }),
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
-    });
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null
+    } as any);
 
     res.json({ success: true, message: "사용자가 거부되었습니다" });
   } catch (error) {
@@ -150,7 +150,7 @@ router.get("/tenants", async (req, res) => {
         id: tenants.id,
         name: tenants.name,
         slug: tenants.slug,
-        isActive: tenants.isActive,
+        status: tenants.status,
         createdAt: tenants.createdAt,
         userCount: sql<number>`(SELECT COUNT(*) FROM ${users} WHERE ${users.tenantId} = ${tenants.id})`
       })
@@ -204,21 +204,21 @@ router.post("/tenants", async (req, res) => {
     const result = await db.insert(tenants).values({
       name,
       slug,
-      isActive: true
+      status: "active"
     });
 
     // 감사 로그 기록
     await db.insert(auditLogs).values({
-      userId: req.user.id,
+      userId: (req as any).user.id,
       action: "TENANT_CREATED",
       entityType: "tenant",
-      entityId: result[0].insertId.toString(),
+      entityId: String((result[0] as any).insertId),
       details: JSON.stringify({ name, slug }),
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
-    });
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null
+    } as any);
 
-    res.json({ success: true, tenantId: result[0].insertId });
+    res.json({ success: true, tenantId: (result[0] as any).insertId });
   } catch (error) {
     console.error("테넌트 생성 오류:", error);
     res.status(500).json({ error: "테넌트 생성 실패" });
@@ -241,25 +241,25 @@ router.patch("/tenants/:tenantId/toggle", async (req, res) => {
       return res.status(404).json({ error: "테넌트를 찾을 수 없습니다" });
     }
 
-    const newStatus = !tenant[0].isActive;
+    const newStatus = tenant[0].status === "active" ? "suspended" : "active";
 
     await db
       .update(tenants)
-      .set({ isActive: newStatus })
+      .set({ status: newStatus as "active" | "suspended" })
       .where(eq(tenants.id, parseInt(tenantId)));
 
     // 감사 로그 기록
     await db.insert(auditLogs).values({
-      userId: req.user.id,
-      action: newStatus ? "TENANT_ACTIVATED" : "TENANT_DEACTIVATED",
+      userId: (req as any).user.id,
+      action: newStatus === "active" ? "TENANT_ACTIVATED" : "TENANT_DEACTIVATED",
       entityType: "tenant",
       entityId: tenantId,
-      details: JSON.stringify({ isActive: newStatus }),
-      ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
-    });
+      details: JSON.stringify({ status: newStatus }),
+      ipAddress: req.ip ?? null,
+      userAgent: req.headers["user-agent"] ?? null
+    } as any);
 
-    res.json({ success: true, isActive: newStatus });
+    res.json({ success: true, status: newStatus });
   } catch (error) {
     console.error("테넌트 상태 변경 오류:", error);
     res.status(500).json({ error: "테넌트 상태 변경 실패" });
@@ -278,11 +278,11 @@ router.get("/stats", async (req, res) => {
       // 전체 사용자 수
       db.select({ count: count() }).from(users),
       // 승인 대기 중인 사용자 수
-      db.select({ count: count() }).from(users).where(eq(users.isApproved, false)),
+      db.select({ count: count() }).from(users).where(eq(users.approvalStatus, "pending")),
       // 전체 테넌트 수
       db.select({ count: count() }).from(tenants),
       // 활성 테넌트 수
-      db.select({ count: count() }).from(tenants).where(eq(tenants.isActive, true))
+      db.select({ count: count() }).from(tenants).where(eq(tenants.status, "active"))
     ]);
 
     res.json({

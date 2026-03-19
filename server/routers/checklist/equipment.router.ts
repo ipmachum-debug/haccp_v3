@@ -1,8 +1,8 @@
 // equipment 라우터 - routers.ts에서 분리됨
+// ✅ P0 FIX: 모든 DB 호출에 ctx.tenantId 전달 (tenant 격리)
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { or } from "drizzle-orm";
 
 export const equipmentRouter = router({
     // 설비 프로필 생성
@@ -26,7 +26,7 @@ export const equipmentRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { createEquipment, createAuditLog } = await import("../../db");
         
-        const equipmentId = await createEquipment(input);
+        const equipmentId = await createEquipment(input, ctx.tenantId);
         
         await createAuditLog({
           userId: ctx.user.id,
@@ -52,7 +52,7 @@ export const equipmentRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getAllEquipments } = await import("../../db");
-        return await getAllEquipments(input);
+        return await getAllEquipments(input, ctx.tenantId);
       }),
     
     // 설비 프로필 상세 조회
@@ -60,7 +60,7 @@ export const equipmentRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getEquipmentById } = await import("../../db");
-        const equipment = await getEquipmentById(input.id);
+        const equipment = await getEquipmentById(input.id, ctx.tenantId);
         
         if (!equipment) {
           throw new TRPCError({
@@ -103,7 +103,7 @@ export const equipmentRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { updateEquipment, getEquipmentById, createAuditLog } = await import("../../db");
         
-        const oldEquipment = await getEquipmentById(input.id);
+        const oldEquipment = await getEquipmentById(input.id, ctx.tenantId);
         if (!oldEquipment) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -112,7 +112,7 @@ export const equipmentRouter = router({
         }
         
         const { id, ...updates } = input;
-        await updateEquipment(id, updates);
+        await updateEquipment(id, updates, ctx.tenantId);
         
         await createAuditLog({
           userId: ctx.user.id,
@@ -133,7 +133,7 @@ export const equipmentRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { deleteEquipment, getEquipmentById, createAuditLog } = await import("../../db");
         
-        const equipment = await getEquipmentById(input.id);
+        const equipment = await getEquipmentById(input.id, ctx.tenantId);
         if (!equipment) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -141,7 +141,7 @@ export const equipmentRouter = router({
           });
         }
         
-        await deleteEquipment(input.id);
+        await deleteEquipment(input.id, ctx.tenantId);
         
         await createAuditLog({
           userId: ctx.user.id,
@@ -161,6 +161,6 @@ export const equipmentRouter = router({
       .input(z.object({ ccpType: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getEquipmentsByCcpType } = await import("../../db");
-        return await getEquipmentsByCcpType(input.ccpType);
+        return await getEquipmentsByCcpType(input.ccpType, ctx.tenantId);
       })
 });

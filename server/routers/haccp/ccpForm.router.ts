@@ -9,7 +9,7 @@ export const ccpFormRouter = router({
     getByBatch: tenantRequiredProcedure
       .input(z.object({ batchId: z.number(), includeRows: z.boolean().optional() }))
       .query(async ({ input, ctx }) => {
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId!;
         if (input.includeRows) {
           const { getCcpFormRecordsWithRowsByBatch } = await import("../../db/ccpFormRecords");
           return getCcpFormRecordsWithRowsByBatch(input.batchId, tenantId);
@@ -28,7 +28,7 @@ export const ccpFormRouter = router({
     getByBatchGroup: tenantRequiredProcedure
       .input(z.object({ batchId: z.number(), includeRows: z.boolean().optional() }))
       .query(async ({ input, ctx }) => {
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId!;
         const { getRawConnection } = await import("../../db");
         const pool = await getRawConnection();
         // 1) batchId로 day_batch_group 조회
@@ -73,7 +73,7 @@ export const ccpFormRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getCcpFormRecordById } = await import("../../db/ccpFormRecords");
-        return getCcpFormRecordById(input.id, ctx.user.tenantId);
+        return getCcpFormRecordById(input.id, ctx.tenantId!);
       }),
 
     /** CCP 기록지 생성 또는 기존 조회 */
@@ -100,8 +100,8 @@ export const ccpFormRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { getOrCreateCcpFormRecord } = await import("../../db/ccpFormRecords");
         return getOrCreateCcpFormRecord({
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId ?? 1,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId ?? ctx.tenantId!) as number,
           batchId: input.batchId,
           ccpType: input.ccpType,
           workDate: input.workDate,
@@ -154,7 +154,7 @@ export const ccpFormRouter = router({
         if (rest.clMetalSensitivity !== undefined) updateData.clMetalSensitivity = rest.clMetalSensitivity;
         if (rest.clFeMm !== undefined) updateData.clFeMm = rest.clFeMm.toString();
         if (rest.clSusMm !== undefined) updateData.clSusMm = rest.clSusMm.toString();
-        await updateCcpFormRecord(id, updateData, ctx.user.tenantId);
+        await updateCcpFormRecord(id, updateData, ctx.tenantId!);
         
         // batchCount가 변경되면 누락된 행만 추가 (사용자 데이터 보호)
         if (rest.batchCount !== undefined) {
@@ -163,18 +163,18 @@ export const ccpFormRouter = router({
             const pool = await getRawConnection();
             const [frRows] = await pool.execute<any[]>(
               `SELECT batch_id FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`,
-              [id, ctx.user.tenantId]
+              [id, ctx.tenantId!]
             );
             const bId = (frRows as any[])[0]?.batch_id;
             if (bId) {
               // batch_count 초과 빈 행만 삭제 (사용자 입력 보호)
               await pool.execute(
                 `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? AND batch_seq > ? AND (result IS NULL OR result = '')`,
-                [id, ctx.user.tenantId, rest.batchCount]
+                [id, ctx.tenantId!, rest.batchCount]
               );
               // 누락된 행 추가
               const { syncCcpRowsToFormRows } = await import("../../db/ccpFormRecords");
-              await syncCcpRowsToFormRows({ batchId: bId, tenantId: ctx.user.tenantId });
+              await syncCcpRowsToFormRows({ batchId: bId, tenantId: ctx.tenantId! });
             }
           } catch (resyncErr) {
             console.error("[updateRecord] batchCount 변경 후 재동기화 실패:", resyncErr);
@@ -189,7 +189,7 @@ export const ccpFormRouter = router({
     resyncRows: workerProcedure
       .input(z.object({ batchId: z.number(), forceReset: z.boolean().optional() }))
       .mutation(async ({ input, ctx }) => {
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId!;
         const { getRawConnection } = await import("../../db");
         const pool = await getRawConnection();
         const [frRows] = await pool.execute<any[]>(
@@ -261,7 +261,7 @@ export const ccpFormRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { upsertCcpFormRow } = await import("../../db/ccpFormRecords");
         const rowId = await upsertCcpFormRow({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId!,
           formRecordId: input.formRecordId,
           batchSeq: input.batchSeq,
           equipmentId: input.equipmentId,
@@ -303,8 +303,21 @@ export const ccpFormRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteCcpFormRow } = await import("../../db/ccpFormRecords");
-        await deleteCcpFormRow(input.id, ctx.user.tenantId);
+        await deleteCcpFormRow(input.id, ctx.tenantId!);
         return { success: true };
+      }),
+
+    /** 기록지 일괄 삭제 (header + rows cascade) */
+    bulkDelete: workerProcedure
+      .input(z.object({ formRecordIds: z.array(z.number()) }))
+      .mutation(async ({ input, ctx }) => {
+        const { deleteCcpFormRecords } = await import("../../db/ccpFormRecords");
+        const result = await deleteCcpFormRecords(input.formRecordIds, ctx.tenantId!);
+        return {
+          success: true,
+          deletedCount: result.deletedCount,
+          message: `${result.deletedCount}건의 CCP 기록지가 삭제되었습니다.`,
+        };
       }),
 
     /** 기록지 제출 (승인 요청) */
@@ -320,8 +333,8 @@ export const ccpFormRouter = router({
         const { submitCcpFormRecord } = await import("../../db/ccpFormRecords");
         const approvalId = await submitCcpFormRecord({
           formRecordId: input.formRecordId,
-          tenantId: ctx.user.tenantId,
-          siteId: ctx.user.siteId ?? 1,
+          tenantId: ctx.tenantId!,
+          siteId: (ctx.user.siteId ?? ctx.tenantId!) as number,
           writerId: ctx.user.id,
           batchNumber: input.batchNumber,
           productName: input.productName ?? "",
@@ -343,7 +356,7 @@ export const ccpFormRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { upsertCcpEquipBatchSettings } = await import("../../db/ccpFormRecords");
         const id = await upsertCcpEquipBatchSettings({
-          tenantId: ctx.user.tenantId,
+          tenantId: ctx.tenantId!,
           processGroupId: input.processGroupId,
           groupMode: input.groupMode,
           intervalBetweenMin: input.intervalBetweenMin,
@@ -358,7 +371,7 @@ export const ccpFormRouter = router({
       .input(z.object({ processGroupId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getCcpEquipBatchSettings } = await import("../../db/ccpFormRecords");
-        return getCcpEquipBatchSettings(ctx.user.tenantId, input.processGroupId);
+        return getCcpEquipBatchSettings(ctx.tenantId!, input.processGroupId);
       }),
     /** BOM 배치 목표량 조회 (배치수 자동계산용) */
     getBomBatchKg: tenantRequiredProcedure
@@ -408,7 +421,7 @@ export const ccpFormRouter = router({
              FROM h_ccp_instances ci
              LEFT JOIN ccp_process_groups pg ON ci.process_group_id = pg.id
              WHERE ci.batch_id = ?`,
-            [input.batchId, ctx.user.tenantId]
+            [input.batchId, ctx.tenantId!]
           );
           const result = [];
           for (const inst of instRows as any[]) {
@@ -423,7 +436,7 @@ export const ccpFormRouter = router({
                WHERE pge.process_group_id = ? AND pge.tenant_id = ? AND pge.tenant_id = eq.tenant_id
                  AND eq.status = 'active'
                ORDER BY pge.sort_order ASC`,
-              [inst.process_group_id, ctx.user.tenantId]
+              [inst.process_group_id, ctx.tenantId!]
             );
             result.push({
               processGroupId: inst.process_group_id,
@@ -445,7 +458,7 @@ export const ccpFormRouter = router({
       .input(z.object({ batchId: z.number().optional() }))
       .mutation(async ({ input, ctx }) => {
         const { syncCcpRowsToFormRows } = await import("../../db/ccpFormRecords");
-        const tenantId = ctx.user.tenantId;
+        const tenantId = ctx.tenantId!;
 
         if (input.batchId) {
           // 특정 배치만 재동기화

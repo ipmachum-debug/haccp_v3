@@ -32,7 +32,7 @@ export default function EmployeeManagement() {
       utils.organization.employees.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`구성원 생성 실패: ${error.message}`);
     },
   });
@@ -43,7 +43,7 @@ export default function EmployeeManagement() {
       utils.organization.employees.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`구성원 수정 실패: ${error.message}`);
     },
   });
@@ -53,7 +53,7 @@ export default function EmployeeManagement() {
       toast.success("구성원이 삭제되었습니다.");
       utils.organization.employees.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`구성원 삭제 실패: ${error.message}`);
     },
   });

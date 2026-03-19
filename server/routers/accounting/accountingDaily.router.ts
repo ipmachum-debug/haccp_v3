@@ -18,12 +18,12 @@ export const accountingDailyRouter = router({
           closeDate: input.closeDate,
           largeAmountChecked: input.largeAmountChecked,
           userId: ctx.user.id
-        }, ctx.user.tenantId);
+        }, ctx.tenantId as any);
         
         // === 원료수불부 일일 마감 연동 ===
         try {
           const { autoUpdateFromDailyClose } = await import("../../db/materialLedger");
-          await autoUpdateFromDailyClose(input.closeDate, ctx.user.tenantId);
+          await autoUpdateFromDailyClose(input.closeDate.toISOString().split('T')[0], ctx.tenantId as any);
           console.log("[원료수불부] 일일 마감 자동 업데이트 완료:", input.closeDate);
         } catch (ledgerError) {
           console.error("[원료수불부] 일일 마감 연동 실패:", ledgerError);
@@ -37,7 +37,7 @@ export const accountingDailyRouter = router({
       .input(z.object({ targetDate: z.date() }))
       .query(async ({ input, ctx }) => {
         const { getDailyCloseStats } = await import("../../db/accountingDailyClose");
-        return await getDailyCloseStats(input.targetDate, ctx.user.tenantId);
+        return await getDailyCloseStats(input.targetDate, ctx.tenantId ?? undefined);
       }),
 
     // 마감 이력 조회
@@ -45,7 +45,7 @@ export const accountingDailyRouter = router({
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         const { getDailyCloseHistory } = await import("../../db/accountingDailyClose");
-        return await getDailyCloseHistory(input.limit, ctx.user.tenantId);
+        return await getDailyCloseHistory(input.limit, ctx.tenantId ?? undefined);
       }),
 
     // 특정 날짜 마감 여부 확인
@@ -53,6 +53,6 @@ export const accountingDailyRouter = router({
       .input(z.object({ targetDate: z.date() }))
       .query(async ({ input, ctx }) => {
         const { isDayClosed } = await import("../../db/accountingDailyClose");
-        return await isDayClosed(input.targetDate, ctx.user.tenantId);
+        return await isDayClosed(input.targetDate, ctx.tenantId ?? undefined);
       })
 });

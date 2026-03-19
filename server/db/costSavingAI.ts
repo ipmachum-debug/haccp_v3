@@ -6,6 +6,7 @@ import { invokeLLM } from "../_core/llm";
  * 원재료 가격 변동 추이 분석
  */
 export async function analyzePriceTrend(
+  tenantId: number,
   materialId: number,
   startDate: Date,
   endDate: Date
@@ -17,7 +18,7 @@ export async function analyzePriceTrend(
   const materialQuery = sql`
     SELECT id, material_code, material_name, unit_price
     FROM h_materials
-    WHERE id = ${materialId}
+    WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
   const materialResult: any = await db.execute(materialQuery);
   if (!materialResult || materialResult.length === 0) {
@@ -30,6 +31,7 @@ export async function analyzePriceTrend(
     SELECT new_price, changed_at
     FROM h_material_price_history
     WHERE material_id = ${materialId}
+      AND tenant_id = ${tenantId}
       AND changed_at >= ${startDate}
       AND changed_at <= ${endDate}
     ORDER BY changed_at ASC
@@ -73,7 +75,7 @@ export async function analyzePriceTrend(
 /**
  * 최적 구매 시점 추천
  */
-export async function recommendPurchaseTiming(materialId: number) {
+export async function recommendPurchaseTiming(tenantId: number, materialId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -82,7 +84,7 @@ export async function recommendPurchaseTiming(materialId: number) {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - 30);
 
-  const priceTrend = await analyzePriceTrend(materialId, startDate, endDate);
+  const priceTrend = await analyzePriceTrend(tenantId, materialId, startDate, endDate);
   if (!priceTrend) return null;
 
   let recommendedAction: "buy_now" | "wait" | "monitor" = "monitor";
@@ -117,7 +119,7 @@ export async function recommendPurchaseTiming(materialId: number) {
 /**
  * 대체 공급업체 추천
  */
-export async function recommendAlternativeSuppliers(materialId: number) {
+export async function recommendAlternativeSuppliers(tenantId: number, materialId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -125,7 +127,7 @@ export async function recommendAlternativeSuppliers(materialId: number) {
   const materialQuery = sql`
     SELECT id, material_code, material_name, unit_price
     FROM h_materials
-    WHERE id = ${materialId}
+    WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
   const materialResult: any = await db.execute(materialQuery);
   if (!materialResult || materialResult.length === 0) {
@@ -137,7 +139,7 @@ export async function recommendAlternativeSuppliers(materialId: number) {
   const supplierQuery = sql`
     SELECT id, supplier_code, supplier_name, contact_person, phone
     FROM h_suppliers
-    WHERE is_active = 1
+    WHERE is_active = 1 AND tenant_id = ${tenantId}
     LIMIT 5
   `;
   const suppliers: any = await db.execute(supplierQuery);
@@ -162,7 +164,7 @@ export async function recommendAlternativeSuppliers(materialId: number) {
 /**
  * AI 기반 원가 절감 제안 생성
  */
-export async function generateCostSavingProposal(materialId: number) {
+export async function generateCostSavingProposal(tenantId: number, materialId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
@@ -170,7 +172,7 @@ export async function generateCostSavingProposal(materialId: number) {
   const materialQuery = sql`
     SELECT id, material_code, material_name, unit_price
     FROM h_materials
-    WHERE id = ${materialId}
+    WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
   const materialResult: any = await db.execute(materialQuery);
   if (!materialResult || materialResult.length === 0) {
@@ -182,10 +184,10 @@ export async function generateCostSavingProposal(materialId: number) {
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - 90);
-  const priceTrend = await analyzePriceTrend(materialId, startDate, endDate);
+  const priceTrend = await analyzePriceTrend(tenantId, materialId, startDate, endDate);
 
   // 구매 시점 추천
-  const purchaseTiming = await recommendPurchaseTiming(materialId);
+  const purchaseTiming = await recommendPurchaseTiming(tenantId, materialId);
 
   // AI 인사이트 생성
   const aiPrompt = `

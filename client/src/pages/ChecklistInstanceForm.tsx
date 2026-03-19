@@ -57,7 +57,7 @@ export default function ChecklistInstanceForm() {
       toast({ title: "임시 저장되었습니다." });
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -67,7 +67,7 @@ export default function ChecklistInstanceForm() {
       toast({ title: "제출되었습니다." });
       setLocation("/checklist-instance");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -85,7 +85,7 @@ export default function ChecklistInstanceForm() {
   });
 
   const uploadAttachmentMutation = trpc.checklistInstance.uploadAttachment.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast({ title: "파일이 업로드되었습니다." });
       // 첨부파일 목록 업데이트
       if (selectedInstance) {
@@ -96,7 +96,7 @@ export default function ChecklistInstanceForm() {
         });
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

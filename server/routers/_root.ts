@@ -1,7 +1,8 @@
 // _root.ts - appRouter 조립 전용 (비즈니스 로직 없음)
 // 모든 라우터를 import하고 appRouter로 조립만 수행
 
-import { router } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
+import { z } from "zod";
 
 // ── 도메인별 라우터 (인라인에서 분리됨) ──
 import { accountingRouter, accountingDailyRouter, accountingDocumentsRouter, accountingMonthlyRouter, apLedgerRouter, arLedgerRouter, communicationLogsRouter, matchingRulesRouter, financialReportsRouter } from "./accounting";
@@ -11,7 +12,7 @@ import { dashboardRouter, pipelineRouter } from "./dashboard";
 import { ccpRouter, ccpFormRouter, ccpScheduleRouter, ccpTemplateRouter, finishedProductInspectionRouter, haccpIntegrationRouter, inspectionRouter, lotManagementRouter, visualInspectionRouter } from "./haccp";
 import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inventory";
 import { categoriesRouter, groupRouter, materialRouter, partnersRouter, supplierRouter, supplierEvaluationRouter, templateSettingsRouter } from "./master";
-import { batchRouter, batchScheduleRouter, costAnalysisRouter, costSavingAIRouter, dailyReportRouter, intermediateRouter, mfReportRouter, productRouter, productionRouter, productionDashboardRouter, productionPredictionRouter, productionScheduleRouter, recipeRouter, recipeApprovalRouter, recipeManagementRouter, scheduleOptimizationRouter } from "./production";
+import { batchRouter, batchApprovalRouter, batchCostRouter, batchScheduleRouter, costAnalysisRouter, costSavingAIRouter, dailyReportRouter, intermediateRouter, mfReportRouter, productRouter, productionRouter, productionDashboardRouter, productionPredictionRouter, productionScheduleRouter, recipeRouter, recipeApprovalRouter, recipeManagementRouter, scheduleOptimizationRouter, aiProductionParserRouter } from "./production";
 import { superadminRouter } from "./superadmin";
 import { approvalRouter, auditLogRouter, excelRouter, favoritesRouter, notificationRouter, notificationSettingsRouter, reportRouter, schedulerRouter, tenantRouter, uploadHistoryRouter, userRouter, supportRouter } from "./system";
 
@@ -22,6 +23,7 @@ import { adminRouter } from "./admin";
 import { adminEmployeeRouter } from "./adminEmployee";
 import { aiRouter } from "../routers-ai";
 import { auditLogsRouter } from "./auditLogs";
+import { boardRouter } from "./board.router";
 import { bankAccountRouter } from "./bankAccount";
 import { bankTransactionRouter } from "./bankTransaction";
 import { bankTransactionBulkRouter } from "./bankTransactionBulk";
@@ -90,6 +92,8 @@ export const appRouter = router({
   auth: authRouter,
   // ── production ──
   batch: batchRouter,
+  batchApproval: batchApprovalRouter,
+  batchCost: batchCostRouter,
   batchSchedule: batchScheduleRouter,
   product: productRouter,
   recipe: recipeRouter,
@@ -170,6 +174,7 @@ export const appRouter = router({
   costSavingAI: costSavingAIRouter,
   recipeApproval: recipeApprovalRouter,
   scheduleOptimization: scheduleOptimizationRouter,
+  aiProductionParser: aiProductionParserRouter,
   employee: employeeRouter,
   healthCertificate: healthCertificateRouter,
   calibration: calibrationRouter,
@@ -196,6 +201,7 @@ export const appRouter = router({
   accountCategories: accountCategoriesRouter,
   accountingAccountCategories: accountCategoriesRouter,
   bankAccount: bankAccountRouter,
+  board: boardRouter,
   bankTransaction: bankTransactionRouter,
   bankTransactionBulk: bankTransactionBulkRouter,
   // ── master ──
@@ -241,6 +247,13 @@ export const appRouter = router({
   visualInspection: visualInspectionRouter,
   finishedProductInspection: finishedProductInspectionRouter,
   lotManagement: lotManagementRouter,
+  // ── ai (실제 LLM 연동) ──
+  ai: aiRouter,
+  // ── company info (stub) ──
+  companyInfo: router({
+    get: tenantRequiredProcedure.query(async () => ({ companyName: '', businessNumber: '', representative: '', address: '', phone: '', email: '' })),
+    update: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  }),
 });
 
 export type AppRouter = typeof appRouter;

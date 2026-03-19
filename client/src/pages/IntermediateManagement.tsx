@@ -58,7 +58,7 @@ export default function IntermediateManagement() {
       setIsCreateDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });
@@ -70,7 +70,7 @@ export default function IntermediateManagement() {
       setIsEditDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -99,7 +99,7 @@ export default function IntermediateManagement() {
       toast.success("혼합재제가 삭제되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -111,7 +111,7 @@ export default function IntermediateManagement() {
       setIsComponentDialogOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`추가 실패: ${error.message}`);
     },
   });

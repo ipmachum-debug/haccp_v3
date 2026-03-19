@@ -8,7 +8,7 @@ export const templateSettingsRouter = router({
       .input(z.object({ templateType: z.string() }))
       .query(async ({ input, ctx }) => {
         const { getUserTemplateSettings } = await import("../../db/templateSettings.js");
-        return await getUserTemplateSettings(ctx.user.id, input.templateType, ctx.user.tenantId);
+        return await getUserTemplateSettings(ctx.user.id, input.templateType, ctx.tenantId ?? undefined);
       }),
     
     // 템플릿 설정 생성
@@ -33,7 +33,7 @@ export const templateSettingsRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getTemplateSetting } = await import("../../db/templateSettings.js");
-        return await getTemplateSetting(input.id, ctx.user.id, ctx.user.tenantId);
+        return await getTemplateSetting(input.id, ctx.user.id, ctx.tenantId ?? undefined);
       }),
     
     // 템플릿 설정 삭제
@@ -41,6 +41,6 @@ export const templateSettingsRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteTemplateSetting } = await import("../../db/templateSettings.js");
-        return await deleteTemplateSetting(input.id, ctx.user.id, ctx.user.tenantId);
+        return await deleteTemplateSetting(input.id, ctx.user.id, ctx.tenantId ?? undefined);
       })
 });

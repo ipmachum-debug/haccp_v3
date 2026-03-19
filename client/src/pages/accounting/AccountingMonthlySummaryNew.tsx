@@ -16,11 +16,11 @@ export default function AccountingMonthlySummaryNew() {
   const [highAmountThreshold, setHighAmountThreshold] = useState(1000000);
 
   const generateMutation = trpc.accountingMonthly.generateSummary.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success("월 마감 집계가 생성되었습니다.");
       setLocation(`/accounting/monthly-summary/${year}/${month}`);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`월 마감 생성 실패: ${error.message}`);
     },
   });

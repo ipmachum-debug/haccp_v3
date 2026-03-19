@@ -56,7 +56,7 @@ export function CCPStats() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {stats && stats.length > 0 ? (
-                stats.map((stat) => {
+                stats.map((stat: any) => {
                   const totalRecords = Number(stat.totalRecords) || 0;
                   const passedRecords = Number(stat.passedRecords) || 0;
                   const failedRecords = Number(stat.failedRecords) || 0;

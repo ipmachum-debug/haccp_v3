@@ -43,7 +43,7 @@ export async function createBatch(data: {
     productId: data.productId,
     recipeId: data.recipeId,
     plannedQuantity: data.plannedQuantity,
-    plannedDate: new Date(data.plannedDate),
+    plannedDate: data.plannedDate,
     status: "planned",
     createdBy: data.createdBy,
     notes: data.notes
@@ -103,7 +103,7 @@ export async function createBatch(data: {
             }));
           
           if (batchInputs.length > 0) {
-            await db.insert(hBatchInputs).values(batchInputs);
+            await db.insert(hBatchInputs).values(batchInputs as any);
           }
         }
       }

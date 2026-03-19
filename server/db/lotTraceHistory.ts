@@ -22,8 +22,9 @@ export async function saveLotTraceHistory(data: {
       searchLotNumber: data.searchLotNumber,
       resultData: data.resultData,
       userId: data.userId,
-      userName: data.userName
-    });
+      userName: data.userName,
+      tenantId,
+    } as any);
 
   return { success: true };
 }
@@ -37,7 +38,7 @@ export async function getLotTraceHistory(limit: number = 100, tenantId?: number)
 
   const history = await db
     .select()
-    .from(lotTraceHistory).where(eq(lotTraceHistory.tenantId, tenantId)).orderBy(desc(lotTraceHistory.createdAt))
+    .from(lotTraceHistory).where(eq(lotTraceHistory.tenantId, tenantId as any) ).orderBy(desc(lotTraceHistory.createdAt))
     .limit(limit);
 
   return history;
@@ -56,7 +57,7 @@ export async function getTopSearchedLots(tenantId?: number) {
       count: sql<number>`count(*)`.as("count"),
       lastSearchedAt: sql<string>`max(${lotTraceHistory.createdAt})`.as("last_searched_at")
     })
-    .from(lotTraceHistory).where(eq(lotTraceHistory.tenantId, tenantId)).groupBy(lotTraceHistory.searchLotNumber)
+    .from(lotTraceHistory).where(eq(lotTraceHistory.tenantId, tenantId as any) ).groupBy(lotTraceHistory.searchLotNumber)
     .orderBy(desc(sql`count(*)`))
     .limit(10);
 
@@ -95,7 +96,7 @@ export async function getLotTraceHistoryByLotNumber(lotNumber: string, tenantId?
   const history = await db
     .select()
     .from(lotTraceHistory)
-    .where(and(eq(lotTraceHistory.tenantId, tenantId), eq(lotTraceHistory.searchLotNumber, lotNumber)))    .orderBy(desc(lotTraceHistory.createdAt))
+    .where(and(eq(lotTraceHistory.tenantId, tenantId as any) , eq(lotTraceHistory.searchLotNumber, lotNumber)) as any)    .orderBy(desc(lotTraceHistory.createdAt))
     .limit(50);
 
   return history;

@@ -15,14 +15,14 @@ export default function InventoryForecastDashboard() {
   const { data: forecasts, isLoading } = trpc.inventory.getAdvancedForecast.useQuery({ days: forecastDays });
 
   // 선택된 원재료 필터링
-  const selectedForecast = forecasts?.find((f) => f && f.materialId === selectedMaterialId) || null;
+  const selectedForecast = forecasts?.find((f: any) => f && f.materialId === selectedMaterialId) || null;
 
   // 전체 원재료 목록 (선택 드롭다운용)
-  const materialOptions = forecasts?.filter((f) => f !== null) || [];
+  const materialOptions = forecasts?.filter((f: any) => f !== null) || [];
 
   // 자동 선택: 첫 번째 원재료 또는 critical 상태 원재료
   if (!selectedMaterialId && materialOptions.length > 0) {
-    const criticalMaterial = materialOptions.find((f) => f?.status === "critical");
+    const criticalMaterial = materialOptions.find((f: any) => f?.status === "critical");
     setSelectedMaterialId(criticalMaterial?.materialId || materialOptions[0]?.materialId || null);
   }
 
@@ -68,7 +68,7 @@ export default function InventoryForecastDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-red-600">
-                  {materialOptions.filter((f) => f?.status === "critical").length}개
+                  {materialOptions.filter((f: any) => f?.status === "critical").length}개
                 </div>
               </CardContent>
             </Card>
@@ -78,7 +78,7 @@ export default function InventoryForecastDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-yellow-600">
-                  {materialOptions.filter((f) => f?.status === "warning").length}개
+                  {materialOptions.filter((f: any) => f?.status === "warning").length}개
                 </div>
               </CardContent>
             </Card>
@@ -88,7 +88,7 @@ export default function InventoryForecastDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-green-600">
-                  {materialOptions.filter((f) => f?.status === "normal").length}개
+                  {materialOptions.filter((f: any) => f?.status === "normal").length}개
                 </div>
               </CardContent>
             </Card>
@@ -109,7 +109,7 @@ export default function InventoryForecastDashboard() {
                   <SelectValue placeholder="원재료를 선택하세요" />
                 </SelectTrigger>
                 <SelectContent>
-                  {materialOptions.map((forecast) => (
+                  {materialOptions.map((forecast: any) => (
                     <SelectItem key={forecast?.materialId} value={forecast?.materialId?.toString() || ""}>
                       {forecast?.materialName} - {forecast?.status === "critical" ? "🔴" : forecast?.status === "warning" ? "🟡" : "🟢"}
                     </SelectItem>

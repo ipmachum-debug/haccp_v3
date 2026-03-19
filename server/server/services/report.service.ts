@@ -15,7 +15,7 @@ export async function getCcpReportData(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
   
-  const { hCcpInstances, hCcpRows, hBatches, hProducts } = await import("../../drizzle/schema_main");
+  const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   
   // CCP 인스턴스 및 행 조회
   const ccpRecords = await db
@@ -23,7 +23,7 @@ export async function getCcpReportData(params: {
       instanceId: hCcpInstances.id,
       ccpType: hCcpInstances.ccpType,
       batchCode: hBatches.batchCode,
-      productName: hProducts.productName,
+      productName: hProductsV2.productName,
       rowId: hCcpRows.id,
       measuredAt: hCcpRows.measuredAt,
       tempC: hCcpRows.tempC,
@@ -35,7 +35,7 @@ export async function getCcpReportData(params: {
     })
     .from(hCcpInstances)
     .innerJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
-    .innerJoin(hProducts, eq(hBatches.productId, hProducts.id))
+    .innerJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .leftJoin(hCcpRows, eq(hCcpRows.instanceId, hCcpInstances.id))
     .where(
       and(

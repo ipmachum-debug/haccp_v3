@@ -189,7 +189,7 @@ export default function CostSavingAI() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {proposal.proposedActions.map((action, index) => (
+                      {proposal.proposedActions.map((action: any, index: any) => (
                         <div key={index} className="flex items-start gap-4 p-4 border rounded-lg">
                           <div className="flex-shrink-0">
                             {action.action === "immediate_purchase" && <ShoppingCart className="h-6 w-6 text-red-500" />}

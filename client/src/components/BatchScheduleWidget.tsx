@@ -34,7 +34,7 @@ export function BatchScheduleWidget() {
   const weekCount = weekSchedules?.length || 0;
 
   // 오늘 일정 상세 정보
-  const todayScheduleDetails = todaySchedules?.slice(0, 3).map((schedule) => {
+  const todayScheduleDetails = todaySchedules?.slice(0, 3).map((schedule: any) => {
     const batch = batches?.find((b: any) => b.id === schedule.batchId);
     return {
       id: schedule.id,
@@ -86,7 +86,7 @@ export function BatchScheduleWidget() {
         {todayScheduleDetails && todayScheduleDetails.length > 0 ? (
           <div className="space-y-2">
             <h4 className="text-sm font-semibold">오늘의 일정</h4>
-            {todayScheduleDetails.map((schedule) => (
+            {todayScheduleDetails.map((schedule: any) => (
               <div
                 key={schedule.id}
                 className="flex items-center justify-between p-2 rounded-md bg-muted/50 hover:bg-muted transition-colors"

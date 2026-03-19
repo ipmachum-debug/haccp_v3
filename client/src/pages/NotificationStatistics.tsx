@@ -28,23 +28,28 @@ export default function NotificationStatistics() {
 
   if (isLoading) {
     return (
-    
-
       <div className="flex items-center justify-center h-96">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
-    
-    
-  );
+    );
   }
 
   if (!stats) {
     return (
       <div className="flex items-center justify-center h-96">
-        <p className="text-muted-foreground">통계 데이터를 불러올 수 없습니다.</p>
+        <p className="text-muted-foreground">통계 데이터를 불러올 수 없습니다. 기간을 선택해주세요.</p>
       </div>
     );
   }
+
+  // Safely access data with defaults to prevent crashes
+  const safeTypeDistribution = stats.typeDistribution || [];
+  const safeAvgResolutionTime = stats.avgResolutionTime || [];
+  const safeUnresolvedTrend = stats.unresolvedTrend || [];
+  const safeTotalNotifications = stats.totalNotifications ?? 0;
+  const safeUnresolvedCount = stats.unresolvedCount ?? 0;
+  const safeResolvedCount = stats.resolvedCount ?? 0;
+  const safeOverallAvg = stats.overallAvgResolutionHours ?? 0;
 
   return (
     <div className="space-y-6">
@@ -120,7 +125,7 @@ export default function NotificationStatistics() {
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
-                data={stats.typeDistribution}
+                data={safeTypeDistribution}
                 cx="50%"
                 cy="50%"
                 labelLine={false}
@@ -129,7 +134,7 @@ export default function NotificationStatistics() {
                 fill="#8884d8"
                 dataKey="count"
               >
-                {stats.typeDistribution.map((entry: any, index: number) => (
+                {safeTypeDistribution.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
@@ -147,7 +152,7 @@ export default function NotificationStatistics() {
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={stats.avgResolutionTime}>
+            <BarChart data={safeAvgResolutionTime}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="type" />
               <YAxis />
@@ -167,7 +172,7 @@ export default function NotificationStatistics() {
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={stats.unresolvedTrend}>
+            <LineChart data={safeUnresolvedTrend}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
               <YAxis />
@@ -186,7 +191,7 @@ export default function NotificationStatistics() {
             <CardTitle className="text-sm font-medium">총 알림 수</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalNotifications}</div>
+            <div className="text-2xl font-bold">{safeTotalNotifications}</div>
           </CardContent>
         </Card>
         <Card>
@@ -194,7 +199,7 @@ export default function NotificationStatistics() {
             <CardTitle className="text-sm font-medium">미해결 알림</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{stats.unresolvedCount}</div>
+            <div className="text-2xl font-bold text-orange-600">{safeUnresolvedCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -202,7 +207,7 @@ export default function NotificationStatistics() {
             <CardTitle className="text-sm font-medium">해결된 알림</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.resolvedCount}</div>
+            <div className="text-2xl font-bold text-green-600">{safeResolvedCount}</div>
           </CardContent>
         </Card>
         <Card>
@@ -210,7 +215,7 @@ export default function NotificationStatistics() {
             <CardTitle className="text-sm font-medium">평균 해결 시간</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.overallAvgResolutionHours.toFixed(1)}시간</div>
+            <div className="text-2xl font-bold">{safeOverallAvg.toFixed(1)}시간</div>
           </CardContent>
         </Card>
       </div>

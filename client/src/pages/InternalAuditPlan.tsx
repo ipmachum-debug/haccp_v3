@@ -38,7 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Plus, Edit, FileText, CheckCircle } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 
-export default function InternalAuditPlan({ embedded }: { embedded?: boolean } = {}) {
+export default function InternalAuditPlan({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
@@ -57,7 +57,7 @@ export default function InternalAuditPlan({ embedded }: { embedded?: boolean } =
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -69,7 +69,7 @@ export default function InternalAuditPlan({ embedded }: { embedded?: boolean } =
       setIsEditOpen(false);
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

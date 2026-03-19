@@ -31,7 +31,7 @@ export default function ChecklistStatistics() {
     if (!instances) return null;
 
     const now = new Date();
-    const filteredInstances = instances.filter((instance) => {
+    const filteredInstances = instances.filter((instance: any) => {
       // 시간 범위 필터
       const createdAt = new Date(instance.createdAt || "");
       let timeLimit = new Date();
@@ -57,10 +57,10 @@ export default function ChecklistStatistics() {
     });
 
     const total = filteredInstances.length;
-    const completed = filteredInstances.filter((i) => i.status === "completed" || i.status === "approved").length;
-    const pending = filteredInstances.filter((i) => i.status === "pending" || i.status === "in_progress").length;
-    const rejected = filteredInstances.filter((i) => i.status === "rejected").length;
-    const approved = filteredInstances.filter((i) => i.status === "approved").length;
+    const completed = filteredInstances.filter((i: any) => i.status === "completed" || i.status === "approved").length;
+    const pending = filteredInstances.filter((i: any) => i.status === "pending" || i.status === "in_progress").length;
+    const rejected = filteredInstances.filter((i: any) => i.status === "rejected").length;
+    const approved = filteredInstances.filter((i: any) => i.status === "approved").length;
 
     // 완료율
     const completionRate = total > 0 ? (completed / total) * 100 : 0;
@@ -70,12 +70,12 @@ export default function ChecklistStatistics() {
 
     // 평균 소요 시간 (생성일 ~ 완료일)
     const completedInstances = filteredInstances.filter(
-      (i) => (i.status === "completed" || i.status === "approved") && i.completedAt && i.createdAt
+      (i: any) => (i.status === "completed" || i.status === "approved") && i.completedAt && i.createdAt
     );
     
     let avgCompletionTime = 0;
     if (completedInstances.length > 0) {
-      const totalTime = completedInstances.reduce((sum, instance) => {
+      const totalTime = completedInstances.reduce((sum: any, instance: any) => {
         const created = new Date(instance.createdAt!).getTime();
         const completed = new Date(instance.completedAt!).getTime();
         return sum + (completed - created);
@@ -85,7 +85,7 @@ export default function ChecklistStatistics() {
 
     // 카테고리별 통계
     const categoryStats: Record<string, { total: number; completed: number; rejected: number }> = {};
-    filteredInstances.forEach((instance) => {
+    filteredInstances.forEach((instance: any) => {
       const cat = instance.category || "기타";
       if (!categoryStats[cat]) {
         categoryStats[cat] = { total: 0, completed: 0, rejected: 0 };
@@ -101,12 +101,12 @@ export default function ChecklistStatistics() {
 
     // 상태별 통계
     const statusStats = {
-      pending: filteredInstances.filter((i) => i.status === "pending").length,
-      in_progress: filteredInstances.filter((i) => i.status === "in_progress").length,
-      completed: filteredInstances.filter((i) => i.status === "completed").length,
-      pending_review: filteredInstances.filter((i) => i.status === "pending_review").length,
-      approved: filteredInstances.filter((i) => i.status === "approved").length,
-      rejected: filteredInstances.filter((i) => i.status === "rejected").length,
+      pending: filteredInstances.filter((i: any) => i.status === "pending").length,
+      in_progress: filteredInstances.filter((i: any) => i.status === "in_progress").length,
+      completed: filteredInstances.filter((i: any) => i.status === "completed").length,
+      pending_review: filteredInstances.filter((i: any) => i.status === "pending_review").length,
+      approved: filteredInstances.filter((i: any) => i.status === "approved").length,
+      rejected: filteredInstances.filter((i: any) => i.status === "rejected").length,
     };
 
     return {
@@ -125,24 +125,24 @@ export default function ChecklistStatistics() {
 
   if (isLoading) {
     return (
-      <div className="container py-8">
+      <DashboardLayout>
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
-      </div>
+      </DashboardLayout>
     );
   }
 
   if (!statistics) {
     return (
-      <div className="container py-8">
+      <DashboardLayout>
         <Card>
           <CardContent className="py-12 text-center">
             <BarChart3 className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-lg text-muted-foreground">통계 데이터를 불러올 수 없습니다</p>
           </CardContent>
         </Card>
-      </div>
+      </DashboardLayout>
     );
   }
 

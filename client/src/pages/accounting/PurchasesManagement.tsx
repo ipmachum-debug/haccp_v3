@@ -155,7 +155,7 @@ function PurchasesManagementContent() {
         },
       ]);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

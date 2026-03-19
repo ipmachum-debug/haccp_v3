@@ -70,7 +70,7 @@ export default function MatchingRulesManagement() {
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });
@@ -81,7 +81,7 @@ export default function MatchingRulesManagement() {
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -91,7 +91,7 @@ export default function MatchingRulesManagement() {
       toast.success("매칭 규칙이 삭제되었습니다");
       utils.matchingRules.list.invalidate();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -231,7 +231,7 @@ export default function MatchingRulesManagement() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {rules.map((rule) => (
+                  {rules.map((rule: any) => (
                     <TableRow key={rule.id}>
                       <TableCell className="font-medium">{rule.name}</TableCell>
                       <TableCell>

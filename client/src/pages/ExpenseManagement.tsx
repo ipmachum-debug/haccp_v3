@@ -144,7 +144,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e) => toast({ title: "확정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "확정 실패", description: e.message, variant: "destructive" }),
   });
 
   const cancelMut = trpc.expense.cancel.useMutation({
@@ -155,7 +155,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
   });
 
   const deleteMut = trpc.expense.delete.useMutation({
@@ -164,7 +164,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
   });
 
   // ─── 엑셀 다운로드 ──────────────────
@@ -673,7 +673,7 @@ function ExpenseFormDialog({
   };
 
   const createMut = trpc.expense.create.useMutation({
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       if (pendingFiles.length > 0) {
         await uploadFiles(data.id);
       }
@@ -682,7 +682,7 @@ function ExpenseFormDialog({
       utils.expense.getSummary.invalidate();
       onClose();
     },
-    onError: (e) => toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
   });
 
   const updateMut = trpc.expense.update.useMutation({
@@ -695,7 +695,7 @@ function ExpenseFormDialog({
       utils.expense.getSummary.invalidate();
       onClose();
     },
-    onError: (e) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
 
   const totals = useMemo(() => {
@@ -1047,24 +1047,24 @@ function RecurringTab() {
 
   const createMut = trpc.expense.recurringCreate.useMutation({
     onSuccess: () => { toast({ title: "템플릿 등록 완료" }); setIsFormOpen(false); utils.expense.recurringList.invalidate(); },
-    onError: (e) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const updateMut = trpc.expense.recurringUpdate.useMutation({
     onSuccess: () => { toast({ title: "수정 완료" }); setIsFormOpen(false); setEditingTpl(null); utils.expense.recurringList.invalidate(); },
-    onError: (e) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const deleteMut = trpc.expense.recurringDelete.useMutation({
     onSuccess: () => { toast({ title: "삭제 완료" }); utils.expense.recurringList.invalidate(); },
-    onError: (e) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const generateMut = trpc.expense.recurringGenerate.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast({ title: "전표 생성 완료", description: `${data.voucherNo} 생성됨` });
       setGenId(null);
       utils.expense.recurringList.invalidate();
       utils.expense.list.invalidate();
     },
-    onError: (e) => toast({ title: "생성 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "생성 실패", description: e.message, variant: "destructive" }),
   });
 
   const RECURRENCE_LABEL: Record<string, string> = { monthly: "매월", quarterly: "분기", yearly: "매년" };
@@ -1148,7 +1148,7 @@ function RecurringTab() {
         onClose={() => { setIsFormOpen(false); setEditingTpl(null); }}
         editing={editingTpl}
         accounts={accountsQuery.data || []}
-        onSubmit={(data) => {
+        onSubmit={(data: any) => {
           if (editingTpl) {
             updateMut.mutate({ ...data, id: editingTpl.id });
           } else {
@@ -1278,13 +1278,13 @@ function UnpaidTab() {
   );
 
   const payMut = trpc.expense.unpaidPay.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast({ title: "지급 완료", description: data.isFullyPaid ? "완납 처리되었습니다." : `잔액: ${fmt(data.newBalance)}원` });
       setPayDialogVoucher(null);
       utils.expense.unpaidList.invalidate();
       if (historyVoucherId) utils.expense.unpaidPaymentHistory.invalidate();
     },
-    onError: (e) => toast({ title: "지급 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "지급 실패", description: e.message, variant: "destructive" }),
   });
 
   // 미지급 합계

@@ -16,10 +16,10 @@ export default function SuperAdminDashboard() {
   const { data: tenants, isLoading: tenantsLoading } = trpc.superadmin.listTenants.useQuery();
   const { data: actingTenant } = trpc.superadmin.getActingTenant.useQuery();
   const setActingTenantMutation = trpc.superadmin.setActingTenant.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       console.log("✅ 테넌트 전환:", data.message);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error("❌ 테넌트 전환 실패:", error.message);
     },
   });
@@ -75,7 +75,7 @@ export default function SuperAdminDashboard() {
                   disabled={tenantsLoading}
                 >
                   <option value="">전체 시스템 뷰</option>
-                  {tenants?.tenants.map((tenant) => (
+                  {tenants?.tenants.map((tenant: any) => (
                     <option key={tenant.id} value={tenant.id}>
                       {tenant.name} (ID: {tenant.id})
                     </option>
@@ -244,7 +244,7 @@ export default function SuperAdminDashboard() {
               <div className="text-center py-8 text-gray-500">로딩중...</div>
             ) : activities && activities.activities.length > 0 ? (
               <div className="space-y-4">
-                {activities.activities.map((activity, index) => (
+                {activities.activities.map((activity: any, index: any) => (
                   <div
                     key={index}
                     className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"

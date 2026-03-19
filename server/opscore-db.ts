@@ -4,11 +4,11 @@
  * HACCP-ONE에서 GOGOGOPICK DB에 접속하여 양방향 동기화를 수행합니다.
  */
 
-import mysql from "mysql2/promise";
+import mysql, { Pool } from "mysql2/promise";
 
-let pool: mysql.Pool | null = null;
+let pool: Pool | null = null;
 
-export function getOpscorePool(): mysql.Pool {
+export function getOpscorePool(): Pool {
   if (!pool) {
     const dbUrl = process.env.OPSCORE_DATABASE_URL;
     if (!dbUrl) {

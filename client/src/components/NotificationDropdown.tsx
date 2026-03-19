@@ -30,7 +30,7 @@ export default function NotificationDropdown() {
     return () => clearInterval(interval);
   }, [refetch, refetchAlerts]);
 
-  const unreadCount = notifications?.filter((n) => n.isRead === 0).length || 0;
+  const unreadCount = notifications?.filter((n: any) => n.isRead === 0).length || 0;
   const ccpAlertCount = ccpAlerts?.length || 0;
   const totalUnreadCount = unreadCount + ccpAlertCount;
   const recentNotifications = notifications?.slice(0, 5) || [];
@@ -108,7 +108,7 @@ export default function NotificationDropdown() {
               <div className="px-3 py-2 text-xs font-semibold text-muted-foreground">
                 CCP 점검 알림
               </div>
-              {ccpAlerts?.filter(alert => alert.batchId !== null).map((alert) => (
+              {ccpAlerts?.filter((alert: any) => alert.batchId !== null).map((alert: any) => (
                 <DropdownMenuItem
                   key={`ccp-${alert.id}`}
                   className="flex items-start gap-3 p-3 cursor-pointer bg-amber-50"
@@ -144,7 +144,7 @@ export default function NotificationDropdown() {
                   <div className="px-3 py-2 text-xs font-semibold text-muted-foreground">
                     일반 알림
                   </div>
-                  {recentNotifications.map((notification) => (
+                  {recentNotifications.map((notification: any) => (
                     <DropdownMenuItem
                       key={notification.id}
                       className={`flex items-start gap-3 p-3 cursor-pointer ${

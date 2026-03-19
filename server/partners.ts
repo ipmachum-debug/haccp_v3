@@ -71,42 +71,50 @@ export async function getAllPartners(filters?: {
 /**
  * 거래처 상세 조회
  */
-export async function getPartnerById(id: number) {
+export async function getPartnerById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
-  const [partner] = await db.select().from(partners).where(eq(partners.id, id));
+  const conditions: any[] = [eq(partners.id, id)];
+  if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
+  const [partner] = await db.select().from(partners).where(and(...conditions));
   return partner;
 }
 
 /**
  * 거래처 수정
  */
-export async function updatePartner(id: number, data: Partial<InsertPartner>) {
+export async function updatePartner(id: number, data: Partial<InsertPartner>, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
-  await db.update(partners).set(data).where(eq(partners.id, id));
+  const conditions: any[] = [eq(partners.id, id)];
+  if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
+  await db.update(partners).set(data).where(and(...conditions));
 }
 
 /**
  * 거래처 삭제 (소프트 삭제)
  */
-export async function deletePartner(id: number) {
+export async function deletePartner(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
-  await db.update(partners).set({ isActive: 0 }).where(eq(partners.id, id));
+  const conditions: any[] = [eq(partners.id, id)];
+  if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
+  await db.update(partners).set({ isActive: 0 }).where(and(...conditions));
 }
 
 /**
  * 사업자등록번호로 거래처 검색
  */
-export async function getPartnerByBizNo(bizNo: string) {
+export async function getPartnerByBizNo(bizNo: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
-  const [partner] = await db.select().from(partners).where(eq(partners.bizNo, bizNo));
+  const conditions: any[] = [eq(partners.bizNo, bizNo)];
+  if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
+  const [partner] = await db.select().from(partners).where(and(...conditions));
   return partner;
 }
 
@@ -247,7 +255,7 @@ export async function updateSupplierPartner(id: number, data: {
   certifications?: string;
   rating?: string;
   isActive?: number;
-}) {
+}, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not initialized");
 
@@ -264,7 +272,9 @@ export async function updateSupplierPartner(id: number, data: {
   if (data.rating !== undefined) updateData.rating = data.rating;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-  await db.update(partners).set(updateData).where(eq(partners.id, id));
+  const conditions: any[] = [eq(partners.id, id)];
+  if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
+  await db.update(partners).set(updateData).where(and(...conditions));
 }
 
 /**

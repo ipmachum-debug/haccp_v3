@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, Loader2, RefreshCw, Settings, ClipboardCheck } from "lucide-react";
+import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
@@ -55,7 +55,7 @@ export default function BatchDetail() {
   const utils = trpc.useUtils();
 
   const updateStatusMutation = trpc.batch.updateStatus.useMutation({
-    onSuccess: async (data, variables) => {
+    onSuccess: async (data: any, variables: any) => {
       toast.success("배치 상태가 변경되었습니다");
 
       // 배치 완료 시 승인 요청 자동 생성
@@ -75,14 +75,14 @@ export default function BatchDetail() {
         }
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
   // ── CCP 자동 생성 뮤테이션 ──
   const generateCcpMutation = trpc.batch.generateCcp.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       if (result.alreadyExists) {
         // 이미 있는 경우 조용히 refetch만
         refetchCcps();
@@ -111,7 +111,7 @@ export default function BatchDetail() {
         setTimeout(() => setLocation("/dashboard/approval"), 2000);
       }
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`CCP 생성 실패: ${error.message}`);
     },
   });
@@ -135,7 +135,7 @@ export default function BatchDetail() {
   }, [ccpLoading, isLoading, batch, ccpList]);
 
   const generateHaccpReportMutation = trpc.batch.generateHaccpReport.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       const byteCharacters = atob(result.pdf);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -151,13 +151,13 @@ export default function BatchDetail() {
       URL.revokeObjectURL(url);
       toast.success("HACCP 보고서가 다운로드되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`HACCP 보고서 생성 실패: ${error.message}`);
     },
   });
 
   const addMaterialInputMutation = trpc.inventory.addMaterialInput.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
@@ -165,7 +165,7 @@ export default function BatchDetail() {
       setSelectedLotId(null);
       setInputQuantity("");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`투입 실패: ${error.message}`);
     },
   });
@@ -176,18 +176,18 @@ export default function BatchDetail() {
       setRevenueInput("");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`오류: ${error.message}`);
     },
   });
 
   const deleteMaterialInputMutation = trpc.inventory.deleteMaterialInput.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -196,7 +196,7 @@ export default function BatchDetail() {
     onSuccess: () => {
       toast.success("배치 승인 요청이 전송되었습니다");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`승인 요청 실패: ${error.message}`);
     },
   });
@@ -206,7 +206,7 @@ export default function BatchDetail() {
       toast.success("배치가 승인되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
@@ -216,7 +216,7 @@ export default function BatchDetail() {
       toast.success("배치가 반려되었습니다");
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`반려 실패: ${error.message}`);
     },
   });
@@ -238,14 +238,14 @@ export default function BatchDetail() {
   };
 
   const bulkDeleteCcpMutation = trpc.ccp.bulkDelete.useMutation({
-    onSuccess: (result) => {
+    onSuccess: (result: any) => {
       toast.success(result.message);
       refetchCcps();
       setSelectedCcpIds([]);
       // 삭제 후 자동 재생성 허용 (ref 리셋)
       autoCreateAttempted.current = false;
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -436,6 +436,9 @@ export default function BatchDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {/* AI 리스크 요약 카드 */}
+        <BatchAIRiskCard batchId={batchId} />
 
         {/* 상태 관리 및 승인 */}
         <Card>
@@ -712,7 +715,7 @@ export default function BatchDetail() {
                     <div className="space-y-2">
                       <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
                       <div className="space-y-2">
-                        {batchCost.materialCosts.map((item, index) => (
+                        {batchCost.materialCosts.map((item: any, index: any) => (
                           <div key={item.materialId} className="p-3 border rounded-lg">
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium text-sm">{item.materialName}</span>
@@ -743,7 +746,7 @@ export default function BatchDetail() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={batchCost.materialCosts.map(item => ({
+                            data={batchCost.materialCosts.map((item: any) => ({
                               name: item.materialName,
                               value: item.totalCost,
                             }))}
@@ -755,7 +758,7 @@ export default function BatchDetail() {
                             fill="#8884d8"
                             dataKey="value"
                           >
-                            {batchCost.materialCosts.map((entry, index) => (
+                            {batchCost.materialCosts.map((entry: any, index: any) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>
@@ -1143,5 +1146,137 @@ CCP 기록지 수동 확인 후 승인 요청`,
         />
       )}
     </DashboardLayout>
+  );
+}
+
+// ============================================================================
+// AI 리스크 요약 카드 컴포넌트
+// ============================================================================
+function BatchAIRiskCard({ batchId }: { batchId: number }) {
+  const risk = trpc.ai.batchRiskSummary.useQuery(
+    { batchId },
+    { enabled: !!batchId, refetchInterval: 60000 }
+  );
+
+  if (!risk.data?.success || (risk.data.alertCount === 0 && !risk.data.riskScore)) {
+    return null; // 데이터 없으면 카드 숨김
+  }
+
+  const data = risk.data;
+  const riskColors: Record<string, string> = {
+    critical: "border-red-400 bg-red-50",
+    high: "border-orange-400 bg-orange-50",
+    medium: "border-yellow-300 bg-yellow-50",
+    low: "border-green-300 bg-green-50",
+  };
+  const riskLabels: Record<string, string> = {
+    critical: "위험",
+    high: "높음",
+    medium: "보통",
+    low: "양호",
+  };
+  const riskTextColors: Record<string, string> = {
+    critical: "text-red-700",
+    high: "text-orange-700",
+    medium: "text-yellow-700",
+    low: "text-green-700",
+  };
+
+  const level = data.riskLevel || "low";
+
+  return (
+    <Card className={`${riskColors[level] || ""}`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Brain className="w-5 h-5 text-indigo-600" />
+          AI 리스크 요약
+          {data.riskScore !== null && (
+            <Badge variant="outline" className={`ml-auto text-sm font-bold ${riskTextColors[level]}`}>
+              {riskLabels[level]} ({data.riskScore}점)
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3">
+          {/* 리스크 지표 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-red-500" />
+              <div>
+                <div className="text-xs text-muted-foreground">CCP 이탈</div>
+                <div className="font-semibold">{data.ccpDeviationCount}건</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-orange-500" />
+              <div>
+                <div className="text-xs text-muted-foreground">체크리스트 누락</div>
+                <div className="font-semibold">{data.checklistMissing}건</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-500" />
+              <div>
+                <div className="text-xs text-muted-foreground">AI 알림</div>
+                <div className="font-semibold">{data.alertCount}건</div>
+              </div>
+            </div>
+            {data.yieldDeviation !== null && (
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-blue-500" />
+                <div>
+                  <div className="text-xs text-muted-foreground">수율 편차</div>
+                  <div className="font-semibold">{data.yieldDeviation > 0 ? "+" : ""}{data.yieldDeviation}%</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 심각도별 알림 수 */}
+          {data.alertCount > 0 && (
+            <div className="flex gap-3 text-xs">
+              {data.bySeverity.critical > 0 && (
+                <span className="flex items-center gap-1 text-red-600 font-medium">
+                  <XCircle className="w-3 h-3" /> 위험 {data.bySeverity.critical}
+                </span>
+              )}
+              {data.bySeverity.high > 0 && (
+                <span className="flex items-center gap-1 text-orange-600 font-medium">
+                  <AlertTriangle className="w-3 h-3" /> 높음 {data.bySeverity.high}
+                </span>
+              )}
+              {data.bySeverity.medium > 0 && (
+                <span className="text-yellow-600 font-medium">보통 {data.bySeverity.medium}</span>
+              )}
+              {data.bySeverity.low > 0 && (
+                <span className="text-blue-600">낮음 {data.bySeverity.low}</span>
+              )}
+            </div>
+          )}
+
+          {/* 최근 알림 목록 (최대 3개) */}
+          {data.alerts.length > 0 && (
+            <div className="space-y-1 mt-2 border-t pt-2">
+              {data.alerts.slice(0, 3).map((alert: any) => (
+                <div key={alert.id} className="flex items-start gap-2 text-sm">
+                  <Badge variant="outline" className={`text-[10px] shrink-0 ${
+                    alert.severity === "critical" ? "bg-red-100 text-red-700" :
+                    alert.severity === "high" ? "bg-orange-100 text-orange-700" :
+                    "bg-yellow-100 text-yellow-700"
+                  }`}>
+                    {alert.severity === "critical" ? "위험" : alert.severity === "high" ? "높음" : "보통"}
+                  </Badge>
+                  <span className="text-muted-foreground truncate">{alert.title}</span>
+                </div>
+              ))}
+              {data.alerts.length > 3 && (
+                <p className="text-xs text-muted-foreground">외 {data.alerts.length - 3}건 더...</p>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

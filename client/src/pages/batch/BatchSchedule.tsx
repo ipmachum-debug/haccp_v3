@@ -65,7 +65,7 @@ export default function BatchSchedule() {
       toast.success("일정이 수정되었습니다.");
       refetch();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`일정 수정 실패: ${error.message}`);
     },
   });
@@ -78,7 +78,7 @@ export default function BatchSchedule() {
   const events: CalendarEvent[] = useMemo(() => {
     if (!schedules || !batches) return [];
 
-    return schedules.map((schedule) => {
+    return schedules.map((schedule: any) => {
       const batch = batches.find((b: any) => b.id === schedule.batchId);
       const scheduledDate = new Date(schedule.scheduledDate);
 

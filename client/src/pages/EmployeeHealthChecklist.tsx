@@ -72,7 +72,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`등록 실패: ${error.message}`);
     },
   });
@@ -86,7 +86,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -98,19 +98,19 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
 
   // 파일 업로드 mutation
   const uploadFileMutation = trpc.healthCertificate.uploadFile.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setUploadedFile(data);
       toast.success("파일이 업로드되었습니다.");
       setUploading(false);
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`업로드 실패: ${error.message}`);
       setUploading(false);
     },
@@ -118,14 +118,14 @@ export default function EmployeeHealthChecklist() {
 
   // Excel 일괄 업로드 mutation
   const bulkUploadMutation = trpc.healthCertificate.bulkUploadFromExcel.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setExcelResult(data);
       toast.success(`업로드 완료: 성공 ${data.success}건, 실패 ${data.failed}건`);
       setExcelUploading(false);
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`업로드 실패: ${error.message}`);
       setExcelUploading(false);
     },
@@ -170,7 +170,7 @@ export default function EmployeeHealthChecklist() {
     const formData = new FormData(e.currentTarget);
 
     const employeeId = Number(formData.get("employeeId"));
-    const employee = employees?.find((e) => e.id === employeeId);
+    const employee = employees?.find((e: any) => e.id === employeeId);
     
     const data = {
       employeeId,
@@ -395,7 +395,7 @@ export default function EmployeeHealthChecklist() {
                         <SelectValue placeholder="직원을 선택하세요" />
                       </SelectTrigger>
                       <SelectContent>
-                        {employees?.map((emp) => (
+                        {employees?.map((emp: any) => (
                           <SelectItem key={emp.id} value={emp.id.toString()}>
                             {emp.name} ({emp.positionName})
                           </SelectItem>

@@ -8,7 +8,7 @@ export const categoriesRouter = router({
       .input(z.object({ type: z.enum(["material", "product", "purchase", "sale"]) }))
       .query(async ({ input, ctx }) => {
         const { getCategoriesByType } = await import("../../db/categories");
-        return await getCategoriesByType(input.type, ctx.user.tenantId);
+        return await getCategoriesByType(input.type, ctx.tenantId ?? undefined);
       }),
 
     // 모든 카테고리 조회
@@ -33,7 +33,7 @@ export const categoriesRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { createCategory } = await import("../../db/categories");
-        return await createCategory(input, ctx.user.tenantId);
+        return await createCategory(input, ctx.tenantId ?? undefined);
       }),
 
     // 카테고리 수정
@@ -53,7 +53,7 @@ export const categoriesRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { id, ...updateData } = input;
         const { updateCategory } = await import("../../db/categories");
-        return await updateCategory(id, updateData, ctx.user.tenantId);
+        return await updateCategory(id, updateData, ctx.tenantId ?? undefined);
       }),
 
     // 카테고리 삭제
@@ -61,7 +61,7 @@ export const categoriesRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteCategory } = await import("../../db/categories");
-        return await deleteCategory(input.id, ctx.user.tenantId);
+        return await deleteCategory(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 카테고리 순서 변경
@@ -72,13 +72,13 @@ export const categoriesRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { reorderCategories } = await import("../../db/categories");
-        return await reorderCategories(input.type, input.categoryIds, ctx.user.tenantId);
+        return await reorderCategories(input.type, input.categoryIds, ctx.tenantId ?? undefined);
       }),
 
     // 기본 카테고리 시드
     seedDefaults: adminProcedure
       .mutation(async ({ ctx }) => {
         const { seedDefaultCategories } = await import("../../db/categories");
-        return await seedDefaultCategories(ctx.user.tenantId);
+        return await seedDefaultCategories(ctx.tenantId ?? undefined);
       })
 });
