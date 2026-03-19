@@ -250,9 +250,15 @@ export default function WeeklyLogForm() {
           {/* 1. 일반위생관리 */}
           <TabsContent value="hygiene" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>일반위생관리 및 공정점검표 (주간)</CardTitle>
-                <CardDescription>매주 작성 - 적합/부적합 체크</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>일반위생관리 및 공정점검표 (주간)</CardTitle>
+                  <CardDescription>매주 작성 - 적합/부적합 체크</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" className="text-xs gap-1"
+                  onClick={() => setHygieneChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                  ✓ 일괄 적합
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">
@@ -287,9 +293,15 @@ export default function WeeklyLogForm() {
           {/* 2. 방충방서 */}
           <TabsContent value="pest" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>방충방서 점검표 (주간)</CardTitle>
-                <CardDescription>해충 모니터링 및 방충시설 점검</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>방충방서 점검표 (주간)</CardTitle>
+                  <CardDescription>해충 모니터링 및 방충시설 점검</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" className="text-xs gap-1"
+                  onClick={() => setPestChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                  ✓ 일괄 적합
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">

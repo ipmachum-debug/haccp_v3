@@ -255,9 +255,15 @@ export default function MonthlyLogForm() {
           {/* 1. 일반위생관리 (월간) */}
           <TabsContent value="hygiene" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>일반위생관리 및 공정점검표 (월간)</CardTitle>
-                <CardDescription>매월 작성 - 적합/부적합 체크</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>일반위생관리 및 공정점검표 (월간)</CardTitle>
+                  <CardDescription>매월 작성 - 적합/부적합 체크</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" className="text-xs gap-1"
+                  onClick={() => setHygieneChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                  ✓ 일괄 적합
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">
@@ -292,9 +298,15 @@ export default function MonthlyLogForm() {
           {/* 2. CCP 검증점검표 (월간) */}
           <TabsContent value="ccp" className="space-y-4">
             <Card>
-              <CardHeader>
-                <CardTitle>중요관리점(CCP) 검증점검표 (월간)</CardTitle>
-                <CardDescription>가열공정 / 금속검출 - 적합/부적합 체크</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>중요관리점(CCP) 검증점검표 (월간)</CardTitle>
+                  <CardDescription>가열공정 / 금속검출 - 적합/부적합 체크</CardDescription>
+                </div>
+                <Button size="sm" variant="outline" className="text-xs gap-1"
+                  onClick={() => setCcpChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                  ✓ 일괄 적합
+                </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">

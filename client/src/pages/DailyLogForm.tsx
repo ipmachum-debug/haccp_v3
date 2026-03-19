@@ -375,8 +375,16 @@ export default function DailyLogForm() {
           <TabsContent value="hygiene" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>일반위생관리 및 공정점검표</CardTitle>
-                <CardDescription>매일 작성 - 적합/부적합 체크</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>일반위생관리 및 공정점검표</CardTitle>
+                    <CardDescription>매일 작성 - 적합/부적합 체크</CardDescription>
+                  </div>
+                  <Button size="sm" variant="outline" className="text-xs gap-1"
+                    onClick={() => setHygieneChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                    ✓ 일괄 적합
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="overflow-x-auto">
@@ -413,7 +421,15 @@ export default function DailyLogForm() {
           {/* 2. 이물관리 */}
           <TabsContent value="foreign" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>이물관리 점검표</CardTitle></CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>이물관리 점검표</CardTitle>
+                  <Button size="sm" variant="outline" className="text-xs gap-1"
+                    onClick={() => setForeignMaterialChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                    ✓ 일괄 적합
+                  </Button>
+                </div>
+              </CardHeader>
               <CardContent className="space-y-4">
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse border text-sm">
