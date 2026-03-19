@@ -796,7 +796,7 @@ export const batchRouter = router({
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
           try {
-            const { autoIssueMaterialsForBatch } = await import('./lib/autoMaterialIssue');
+            const { autoIssueMaterialsForBatch } = await import('../../lib/autoMaterialIssue');
             autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1) as any;
             if (!autoIssueResult?.success) {
               console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult?.errors);
