@@ -98,6 +98,7 @@ export async function createPurchase(params: {
     // h_material_inspections에 육안검사일지 자동 생성
     // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
     await db.insert(hMaterialInspections).values({
+      tenantId: tenantId,
       receivingId: purchase.insertId as number, // accounting_purchases.id
       inspectionDate: params.transactionDate,
       inspectorId: params.createdBy,
@@ -125,6 +126,7 @@ export async function createPurchase(params: {
           alertDate.setDate(alertDate.getDate() - category.alertDays);
           
           alerts.push({
+            tenantId: tenantId,
             siteId: 1,
             lotId: lot.insertId as number,
             alertType: "expiring_soon",
