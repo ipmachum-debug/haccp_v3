@@ -42,7 +42,7 @@ interface ProductionRecord {
 // CLI 인자 파싱
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
-const TENANT_ID = parseInt(args.find(a => a.startsWith("--tenant-id="))?.split("=")[1] || "1", 10);
+const TENANT_ID = parseInt(args.find(a => a.startsWith("--tenant-id="))?.split("=")[1] || "2", 10);
 const SITE_ID = 1;
 const CREATED_BY = 1;
 
