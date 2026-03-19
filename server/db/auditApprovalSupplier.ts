@@ -252,9 +252,18 @@ export async function getApprovalRequests(filters?: {
     checklistFormData: hGenericChecklistRecords.formData,
   })
     .from(hApprovalRequests)
-    .leftJoin(requesterUser, eq(hApprovalRequests.requestedBy, requesterUser.id))
-    .leftJoin(reviewerUser, eq(hApprovalRequests.reviewedBy, reviewerUser.id))
-    .leftJoin(approverUser, eq(hApprovalRequests.approvedBy, approverUser.id))
+    .leftJoin(requesterUser, and(
+      eq(hApprovalRequests.requestedBy, requesterUser.id),
+      filters?.tenantId ? eq(requesterUser.tenantId, filters.tenantId) : undefined
+    ))
+    .leftJoin(reviewerUser, and(
+      eq(hApprovalRequests.reviewedBy, reviewerUser.id),
+      filters?.tenantId ? eq(reviewerUser.tenantId, filters.tenantId) : undefined
+    ))
+    .leftJoin(approverUser, and(
+      eq(hApprovalRequests.approvedBy, approverUser.id),
+      filters?.tenantId ? eq(approverUser.tenantId, filters.tenantId) : undefined
+    ))
     .leftJoin(hGenericChecklistRecords, and(
       eq(hApprovalRequests.referenceId, hGenericChecklistRecords.id),
       or(eq(hApprovalRequests.referenceType, 'generic_checklist'), eq(hApprovalRequests.referenceType, 'checklist'))
@@ -319,9 +328,18 @@ export async function getApprovalRequestById(id: number) {
     },
   })
     .from(hApprovalRequests)
-    .leftJoin(requesterUser, eq(hApprovalRequests.requestedBy, requesterUser.id))
-    .leftJoin(reviewerUser, eq(hApprovalRequests.reviewedBy, reviewerUser.id))
-    .leftJoin(approverUser, eq(hApprovalRequests.approvedBy, approverUser.id))
+    .leftJoin(requesterUser, and(
+      eq(hApprovalRequests.requestedBy, requesterUser.id),
+      eq(requesterUser.tenantId, hApprovalRequests.tenantId)
+    ))
+    .leftJoin(reviewerUser, and(
+      eq(hApprovalRequests.reviewedBy, reviewerUser.id),
+      eq(reviewerUser.tenantId, hApprovalRequests.tenantId)
+    ))
+    .leftJoin(approverUser, and(
+      eq(hApprovalRequests.approvedBy, approverUser.id),
+      eq(approverUser.tenantId, hApprovalRequests.tenantId)
+    ))
     .where(eq(hApprovalRequests.id, id))
     .limit(1);
   return result.length > 0 ? result[0] : null;

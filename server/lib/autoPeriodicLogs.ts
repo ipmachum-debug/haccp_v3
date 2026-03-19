@@ -76,6 +76,32 @@ async function getApprovalSettingForType(
 }
 
 // ============================================================================
+// employee ID → user ID 변환 헬퍼
+// ============================================================================
+
+async function resolveEmployeeUserId(
+  tenantId: number,
+  employeeId: number | null,
+  fallbackUserId: number
+): Promise<number> {
+  if (!employeeId) return fallbackUserId;
+  try {
+    const db = await getDb();
+    if (!db) return fallbackUserId;
+    const result = await db.execute(sql`
+      SELECT user_id FROM h_employees WHERE id = ${employeeId} AND tenant_id = ${tenantId} LIMIT 1
+    `);
+    const empUserId = (result as any)[0]?.[0]?.user_id;
+    if (empUserId) return Number(empUserId);
+    console.warn(`[autoPeriodicLogs] 직원 #${employeeId}의 user_id가 없음, fallback userId=${fallbackUserId}`);
+    return fallbackUserId;
+  } catch (err) {
+    console.error('[autoPeriodicLogs] employee→user 변환 실패:', err);
+    return fallbackUserId;
+  }
+}
+
+// ============================================================================
 // 주간일지 기본 폼 데이터 (WeeklyLogForm.tsx 구조와 동일)
 // ============================================================================
 
@@ -232,7 +258,7 @@ export async function autoGenerateWeeklyLog(
     const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
 
     const title = `주간일지 - ${weekStart} ~ ${weekEnd}`;
-    const createdBy = approvalSetting.authorEmployeeId || userId;
+    const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
 
     const insertResult = await db.execute(sql`
       INSERT INTO h_generic_checklist_records
@@ -350,7 +376,7 @@ export async function autoGenerateMonthlyLog(
     const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
 
     const title = `월간일지 - ${yearMonth}`;
-    const createdBy = approvalSetting.authorEmployeeId || userId;
+    const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
 
     const insertResult = await db.execute(sql`
       INSERT INTO h_generic_checklist_records
@@ -452,7 +478,7 @@ export async function autoGenerateYearlyLog(
     const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
 
     const title = `연간일지 - ${year}년`;
-    const createdBy = approvalSetting.authorEmployeeId || userId;
+    const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
 
     const formData = {
       date: workDate,

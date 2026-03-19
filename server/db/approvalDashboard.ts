@@ -32,14 +32,19 @@ export async function getPendingApprovals(tenantId?: number) {
   const requesterMap = new Map();
   
   if (requesterIds.length > 0) {
+    // 같은 테넌트의 사용자만 조회 (테넌트 격리)
+    const conditions = [inArray(users.id, requesterIds)];
+    if (tenantId) {
+      conditions.push(eq(users.tenantId, tenantId));
+    }
     const requesters = await db
       .select({
         id: users.id,
         name: users.name
       })
       .from(users)
-      .where(inArray(users.id, requesterIds));
-    
+      .where(and(...conditions));
+
     requesters.forEach(user => {
       requesterMap.set(user.id, user.name);
     });
