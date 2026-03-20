@@ -286,15 +286,15 @@ async function importProduction(conn: mysql.Connection, wb: ExcelJS.Workbook, id
     // LOT 번호 생성: YYYYMMDD
     const lotNumber = dateKey;
 
-    // 배치 생성
+    // 배치 생성 (created_at을 planned_date로 설정하여 과거 데이터 정확히 반영)
     const [batchResult] = (await conn.execute(
       `INSERT INTO h_batches
        (tenant_id, site_id, batch_code, day_batch_group, batch_order, product_id,
         planned_quantity, actual_quantity, planned_date, status, mode,
-        lot_number, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'auto', ?, '엑셀 임포트', ?)`,
+        lot_number, notes, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'auto', ?, '엑셀 임포트', ?, ?, ?)`,
       [TENANT_ID, SITE_ID, batchCode, dayBatchGroup, dayBatchCounter[dateKey],
-       productId, p.qty, p.qty, p.date, lotNumber, CREATED_BY]
+       productId, p.qty, p.qty, p.date, lotNumber, CREATED_BY, p.date, p.date]
     )) as any[];
 
     const batchId = batchResult.insertId;

@@ -314,15 +314,15 @@ export async function deleteMaterialInput(inputId: number, tenantId?: number) {
 export async function getBatchMaterialInputs(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const { hBatchInputs, itemMaster } = await import("../../drizzle/schema.js");
+  const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
 
   return await db.select({
     id: hBatchInputs.id,
     batchId: hBatchInputs.batchId,
     materialId: hBatchInputs.materialId,
-    materialName: itemMaster.itemName,
-    materialCode: itemMaster.itemCode,
+    materialName: hMaterials.materialName,
+    materialCode: hMaterials.materialCode,
     lotId: hBatchInputs.lotId,
     plannedQuantity: hBatchInputs.plannedQuantity,
     actualQuantity: hBatchInputs.actualQuantity,
@@ -332,7 +332,7 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
     createdAt: hBatchInputs.createdAt
   })
   .from(hBatchInputs)
-  .leftJoin(itemMaster, eq(hBatchInputs.materialId, itemMaster.id))
+  .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
   .where(eq(hBatchInputs.batchId, batchId));
 }
 
