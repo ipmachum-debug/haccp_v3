@@ -267,15 +267,15 @@ async function generateCcpForBatch(
     // CCP 모니터링 기록지 생성
     let bomBatchKg: number | null = null;
     const [bomInfo] = (await conn.execute(
-      `SELECT v.batch_size_kg
+      `SELECT v.batch_target_kg
        FROM h_mf_reports r
        JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
        WHERE r.product_id = ? AND r.tenant_id = ?
        ORDER BY v.id DESC LIMIT 1`,
       [productId, TENANT_ID]
     )) as any[];
-    if ((bomInfo as any[]).length > 0 && (bomInfo as any[])[0].batch_size_kg) {
-      bomBatchKg = Number((bomInfo as any[])[0].batch_size_kg);
+    if ((bomInfo as any[]).length > 0 && (bomInfo as any[])[0].batch_target_kg) {
+      bomBatchKg = Number((bomInfo as any[])[0].batch_target_kg);
     }
 
     const batchCount = bomBatchKg && bomBatchKg > 0 ? Math.ceil(plannedQtyKg / bomBatchKg) : 1;
