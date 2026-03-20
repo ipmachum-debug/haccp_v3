@@ -9,7 +9,7 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 import mysql from "mysql2/promise";
 import ExcelJS from "exceljs";
-import { getEffectiveTenantId } from "../../_core/multiTenant";
+// getEffectiveTenantId 제거 → tenantRequiredProcedure가 ctx.tenantId 보장
 
 // ─── DB 연결 ───
 async function getDbConnection() {
@@ -106,7 +106,7 @@ export const excelImportRouter = router({
       }).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const tenantId = getEffectiveTenantId(ctx);
+      const tenantId = ctx.tenantId!;
       const buffer = Buffer.from(input.fileBase64, "base64");
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(buffer);
@@ -147,7 +147,7 @@ export const excelImportRouter = router({
   // ─── 임포트 상태 조회 ───
   status: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const tenantId = getEffectiveTenantId(ctx);
+      const tenantId = ctx.tenantId!;
       const conn = await getDbConnection();
 
       try {
