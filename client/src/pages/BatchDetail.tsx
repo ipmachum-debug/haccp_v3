@@ -16,6 +16,48 @@ import { CcpMonitoringForms } from "@/components/CcpMonitoringForms";
 import ApprovalTimeline from "@/components/ApprovalTimeline";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
+/** 배치 기본정보 요약 (BOM 배치량 + 배치수 + 처리모드 + 생성일) */
+function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
+  productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: any;
+}) {
+  const { data: bomData } = trpc.ccpForm.getBomBatchKg.useQuery(
+    { productId: productId! },
+    { enabled: !!productId }
+  );
+  const bomBatchKg = bomData?.bomBatchKg;
+  const batchCount = bomBatchKg && plannedQuantity && bomBatchKg > 0
+    ? Math.ceil(plannedQuantity / bomBatchKg) : null;
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t">
+      <div>
+        <div className="text-sm font-medium text-muted-foreground">BOM 1배치 기준량</div>
+        <div className="text-lg font-semibold mt-1">
+          {bomBatchKg ? `${bomBatchKg.toLocaleString("ko-KR")} kg` : <span className="text-muted-foreground">-</span>}
+        </div>
+      </div>
+      <div>
+        <div className="text-sm font-medium text-muted-foreground">배치 수</div>
+        <div className="text-lg font-semibold mt-1">
+          {batchCount ? (
+            <span>{batchCount}배치 <span className="text-sm font-normal text-muted-foreground">({plannedQuantity}kg ÷ {bomBatchKg}kg)</span></span>
+          ) : <span className="text-muted-foreground">-</span>}
+        </div>
+      </div>
+      <div>
+        <div className="text-sm font-medium text-muted-foreground">처리 모드</div>
+        <div className="text-lg font-semibold mt-1">{mode === "auto" ? "자동" : "수동"}</div>
+      </div>
+      <div>
+        <div className="text-sm font-medium text-muted-foreground">생성일</div>
+        <div className="text-lg font-semibold mt-1">
+          {new Date(createdAt).toLocaleDateString("ko-KR")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function BatchDetail() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -427,16 +469,24 @@ export default function BatchDetail() {
                 <div className="text-lg font-semibold mt-1">{(batch as any).productName || "-"}</div>
               </div>
               <div>
-                <div className="text-sm font-medium text-muted-foreground">처리 모드</div>
-                <div className="text-lg font-semibold mt-1">{batch.mode === "auto" ? "자동" : "수동"}</div>
+                <div className="text-sm font-medium text-muted-foreground">계획 수량</div>
+                <div className="text-lg font-semibold mt-1">
+                  {batch.plannedQuantity ? `${parseFloat(batch.plannedQuantity).toLocaleString("ko-KR")} kg` : "-"}
+                </div>
               </div>
               <div>
-                <div className="text-sm font-medium text-muted-foreground">생성일</div>
+                <div className="text-sm font-medium text-muted-foreground">계획일</div>
                 <div className="text-lg font-semibold mt-1">
-                  {new Date(batch.createdAt).toLocaleDateString("ko-KR")}
+                  {batch.plannedDate ? new Date(batch.plannedDate).toLocaleDateString("ko-KR") : "-"}
                 </div>
               </div>
             </div>
+            <BatchInfoSummary
+              productId={(batch as any).productId ? Number((batch as any).productId) : undefined}
+              plannedQuantity={batch.plannedQuantity ? parseFloat(batch.plannedQuantity) : undefined}
+              mode={batch.mode}
+              createdAt={batch.createdAt}
+            />
           </CardContent>
         </Card>
 
