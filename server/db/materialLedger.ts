@@ -14,20 +14,51 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
 // ===== 일별 원료수불 =====
 
-/** 특정 날짜의 원료수불 목록 조회 */
+/** 특정 날짜의 원료수불 목록 조회 - 모든 활성 원재료 표시 */
 export async function getDailyLedger(date: string, tenantId: number) {
   const db = await getRawConnection();
   const [rows] = await db.execute(
-    `SELECT d.id, d.material_id as materialId, d.ledger_date as ledgerDate,
-            d.receiving_qty as receivingQty, d.usage_qty as usageQty, 
-            d.adjustment_qty as adjustmentQty, d.running_stock as runningStock,
-            d.notes, d.source,
-            m.material_name as materialName, m.material_code as materialCode, m.unit
-     FROM material_ledger_daily d
-     JOIN h_materials m ON m.id = d.material_id
-     WHERE d.tenant_id = ? AND d.ledger_date = ?
+    `SELECT
+       m.id as material_id,
+       m.material_name,
+       m.material_code,
+       m.unit,
+       COALESCE(m.unit_price, 0) as unit_price,
+       COALESCE(d.id, 0) as id,
+       ? as ledger_date,
+       COALESCE(d.receiving_qty, 0) as receiving_qty,
+       COALESCE(d.usage_qty, 0) as usage_qty,
+       COALESCE(d.adjustment_qty, 0) as adjustment_qty,
+       COALESCE(d.running_stock, 0) as running_stock,
+       COALESCE(d.notes, '') as notes,
+       COALESCE(d.source, '') as source,
+       COALESCE(prev_agg.prev_running_stock, 0) as prev_stock,
+       COALESCE(
+         d.running_stock,
+         COALESCE(prev_agg.prev_running_stock, 0)
+           + COALESCE(d.receiving_qty, 0)
+           - COALESCE(d.usage_qty, 0)
+           + COALESCE(d.adjustment_qty, 0)
+       ) as current_stock,
+       ROUND(COALESCE(d.receiving_qty, 0) * COALESCE(m.unit_price, 0), 0) as receiving_amount,
+       ROUND(COALESCE(d.usage_qty, 0) * COALESCE(m.unit_price, 0), 0) as usage_amount
+     FROM h_materials m
+     LEFT JOIN material_ledger_daily d
+       ON d.material_id = m.id AND d.tenant_id = ? AND d.ledger_date = ?
+     LEFT JOIN (
+       SELECT d1.material_id, d1.running_stock as prev_running_stock
+       FROM material_ledger_daily d1
+       INNER JOIN (
+         SELECT material_id, MAX(ledger_date) as max_date
+         FROM material_ledger_daily
+         WHERE tenant_id = ? AND ledger_date < ?
+         GROUP BY material_id
+       ) d2 ON d1.material_id = d2.material_id AND d1.ledger_date = d2.max_date
+       WHERE d1.tenant_id = ?
+     ) prev_agg ON prev_agg.material_id = m.id
+     WHERE m.tenant_id = ? AND m.is_active = 1
      ORDER BY m.material_name`,
-    [tenantId, date]
+    [date, tenantId, date, tenantId, date, tenantId, tenantId]
   );
   return rows as any[];
 }
@@ -208,7 +239,7 @@ export async function onBatchCompleted(params: {
 export async function getMonthlyLedger(yearMonth: string, tenantId: number) {
   const db = await getRawConnection();
   const [rows] = await db.execute(
-    `SELECT ml.*, m.material_name as materialName, m.material_code as materialCode, m.unit
+    `SELECT ml.*, m.material_name, m.material_code, m.unit
      FROM material_ledger_monthly ml
      JOIN h_materials m ON m.id = ml.material_id
      WHERE ml.tenant_id = ? AND ml.\`year_month\` = ?
@@ -469,43 +500,51 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
 
 // ===== 대시보드 통계 =====
 
-/** 원료수불부 대시보드 요약 (오늘 기준) */
+/** 원료수불부 대시보드 요약 (당월 기준) */
 export async function getDashboardSummary(tenantId: number) {
   const db = await getRawConnection();
   const today = new Date().toISOString().split('T')[0];
   const yearMonth = today.substring(0, 7);
-  
-  // 오늘 입고/사용 건수
-  const [todayRows]: any = await db.execute(
-    `SELECT 
-       COUNT(CASE WHEN receiving_qty > 0 THEN 1 END) as receiving_count,
-       COUNT(CASE WHEN usage_qty > 0 THEN 1 END) as usage_count,
+  const startDate = `${yearMonth}-01`;
+
+  // 당월 입고/사용 합계
+  const [monthRows]: any = await db.execute(
+    `SELECT
        SUM(receiving_qty) as total_receiving,
        SUM(usage_qty) as total_usage
      FROM material_ledger_daily
-     WHERE tenant_id = ? AND ledger_date = ?`,
-    [tenantId, today]
+     WHERE tenant_id = ? AND ledger_date >= ? AND ledger_date <= ?`,
+    [tenantId, startDate, today]
   );
-  
+
+  // 당월 입고/사용 금액 합계
+  const [amountRows]: any = await db.execute(
+    `SELECT
+       SUM(d.receiving_qty * COALESCE(m.unit_price, 0)) as total_receiving_amount,
+       SUM(d.usage_qty * COALESCE(m.unit_price, 0)) as total_usage_amount
+     FROM material_ledger_daily d
+     JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+     WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?`,
+    [tenantId, startDate, today]
+  );
+
   // 이번 달 승인 상태
   const approval = await getApprovalStatus(yearMonth, tenantId);
-  
+
   // 총 원재료 수
   const [matCount]: any = await db.execute(
     `SELECT COUNT(*) as cnt FROM h_materials WHERE tenant_id = ? AND is_active = 1`,
     [tenantId]
   );
-  
+
   return {
-    today: {
-      receivingCount: Number(todayRows?.[0]?.receiving_count) || 0,
-      usageCount: Number(todayRows?.[0]?.usage_count) || 0,
-      totalReceiving: Number(todayRows?.[0]?.total_receiving) || 0,
-      totalUsage: Number(todayRows?.[0]?.total_usage) || 0,
-    },
-    currentMonth: yearMonth,
+    materialCount: Number(matCount?.[0]?.cnt) || 0,
+    yearMonth,
+    totalReceiving: Number(monthRows?.[0]?.total_receiving) || 0,
+    totalUsage: Number(monthRows?.[0]?.total_usage) || 0,
+    totalReceivingAmount: Math.round(Number(amountRows?.[0]?.total_receiving_amount) || 0),
+    totalUsageAmount: Math.round(Number(amountRows?.[0]?.total_usage_amount) || 0),
     approvalStatus: approval.status || 'not_submitted',
-    totalMaterials: Number(matCount?.[0]?.cnt) || 0,
   };
 }
 
@@ -582,7 +621,7 @@ export async function getMaterialChecklistData(date: string, tenantId: number) {
   const conn = await getRawConnection();
   // 해당 일자의 원재료 입고/사용 요약 - 체크리스트 항목으로 제공
   const [receiving]: any = await conn.execute(`
-    SELECT m.name as material_name, 
+    SELECT m.material_name, 
            COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
     FROM material_ledger_monthly d
     JOIN h_materials m ON m.id = d.material_id
@@ -591,7 +630,7 @@ export async function getMaterialChecklistData(date: string, tenantId: number) {
   `, [tenantId, date.substring(0, 7)]);
   
   const [usage]: any = await conn.execute(`
-    SELECT m.name as material_name,
+    SELECT m.material_name,
            COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
     FROM material_ledger_monthly d
     JOIN h_materials m ON m.id = d.material_id

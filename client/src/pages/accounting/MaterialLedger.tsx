@@ -133,7 +133,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
   });
 
   // 반려
-  const rejectMutation = trpc.materialLedger.rejectMonthly.useMutation({
+  const rejectMutation = trpc.materialLedger.reject.useMutation({
     onSuccess: () => {
       toast.success("월마감이 반려되었습니다.");
       refetchApproval();
@@ -208,7 +208,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
     const dayStr = String(editDialog.day).padStart(2, "0");
     const dateStr = `${selectedMonth}-${dayStr}`;
     updateMutation.mutate({
-      date: dateStr,
+      ledgerDate: dateStr,
       materialId: editDialog.materialId,
       receivingQty: editDialog.type === "receiving" ? val : undefined,
       usageQty: editDialog.type === "usage" ? val : undefined,

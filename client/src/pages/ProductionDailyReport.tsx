@@ -769,6 +769,17 @@ export function ProductionDailyReportContent() {
             {regenerateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             오늘 생성/갱신
           </Button>
+          {(reportList as any[]).some((r: any) => r.needsGeneration) && (
+            <Button variant="default" size="sm" onClick={async () => {
+              const pendingDates = (reportList as any[]).filter((r: any) => r.needsGeneration).map((r: any) => r.reportDate);
+              for (const d of pendingDates) {
+                try { regenerateMutation.mutate({ date: d }); } catch {}
+              }
+            }} disabled={regenerateMutation.isPending}>
+              {regenerateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              미생성 일괄 생성 ({(reportList as any[]).filter((r: any) => r.needsGeneration).length}건)
+            </Button>
+          )}
           {selectedIds.size > 0 && (
             <Button variant="destructive" size="sm" onClick={() => {
               if (window.confirm(`${selectedIds.size}건을 삭제하시겠습니까?`))
@@ -824,58 +835,71 @@ export function ProductionDailyReportContent() {
               </TableHeader>
               <TableBody>
                 {(reportList as any[]).map((r: any, idx: number) => (
-                  <TableRow key={r.id} className={cn(
+                  <TableRow key={r.id || `pending-${r.reportDate}`} className={cn(
                     "hover:bg-muted/50 cursor-pointer transition-colors",
+                    r.needsGeneration && "bg-amber-50/50 border-l-2 border-l-amber-400",
                     selectedIds.has(r.id) && "bg-blue-50/50",
                     r.approvalStatus === "approved" && "bg-green-50/30",
                     (r.approvalStatus === "pending_review" || r.approvalStatus === "pending_approval") && "bg-yellow-50/30"
                   )}>
                     <TableCell onClick={e => e.stopPropagation()}>
-                      <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} />
+                      {!r.needsGeneration && <Checkbox checked={selectedIds.has(r.id)} onCheckedChange={() => toggleSelect(r.id)} />}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell className="font-medium" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="font-medium" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       <div className="flex items-center gap-1.5">
-                        <FileText className="h-4 w-4 text-blue-500 shrink-0" />
+                        <FileText className={`h-4 w-4 shrink-0 ${r.needsGeneration ? "text-amber-500" : "text-blue-500"}`} />
                         {r.reportDate}
+                        {r.needsGeneration && <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1 text-amber-600 border-amber-300">미생성</Badge>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-center" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       <span className="font-bold">{r.totalBatches}</span>
                       <span className="text-xs text-muted-foreground ml-0.5">건</span>
                       {r.completedBatches > 0 && <span className="text-xs text-green-600 ml-1">({r.completedBatches}완료)</span>}
                     </TableCell>
-                    <TableCell className="text-right" onClick={() => setSelectedReportId(r.id)}>{safeNum(r.totalPlannedQty)}</TableCell>
-                    <TableCell className="text-right font-medium" onClick={() => setSelectedReportId(r.id)}>{safeNum(r.totalActualQty)}</TableCell>
-                    <TableCell className="text-center" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="text-right" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>{safeNum(r.totalPlannedQty)}</TableCell>
+                    <TableCell className="text-right font-medium" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>{safeNum(r.totalActualQty)}</TableCell>
+                    <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       <span className={cn("font-bold", r.achievementRate >= 90 ? "text-green-600" : r.achievementRate >= 50 ? "text-orange-600" : "text-red-600")}>
                         {r.achievementRate}%
                       </span>
                     </TableCell>
-                    <TableCell className="text-center" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       {r.ccpTotal > 0 ? r.ccpTotal : "-"}
                     </TableCell>
-                    <TableCell className="text-center" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       {r.issueCount > 0 ? <Badge variant="destructive" className="text-xs">{r.issueCount}</Badge> : <span className="text-muted-foreground">-</span>}
                     </TableCell>
-                    <TableCell className="text-center" onClick={() => setSelectedReportId(r.id)}>
-                      <ApprovalStatusBadge status={r.approvalStatus} />
+                    <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
+                      {r.needsGeneration ? <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">일보 미생성</Badge> : <ApprovalStatusBadge status={r.approvalStatus} />}
                     </TableCell>
-                    <TableCell className="text-center text-xs text-muted-foreground" onClick={() => setSelectedReportId(r.id)}>
+                    <TableCell className="text-center text-xs text-muted-foreground" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       {r.generatedAt ? format(new Date(r.generatedAt), "MM-dd HH:mm") : "-"}
                     </TableCell>
                     <TableCell className="text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedReportId(r.id)} title="상세보기">
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={(e) => {
-                          e.stopPropagation();
-                          if (window.confirm(`${r.reportDate} 생산일지를 삭제하시겠습니까?`))
-                            deleteMutation.mutate({ ids: [r.id] });
-                        }} title="삭제">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {r.needsGeneration ? (
+                          <Button variant="outline" size="sm" className="h-7 text-xs text-amber-600 border-amber-300 hover:bg-amber-50"
+                            onClick={() => regenerateMutation.mutate({ date: r.reportDate })}
+                            disabled={regenerateMutation.isPending}>
+                            {regenerateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                            생성
+                          </Button>
+                        ) : (
+                          <>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSelectedReportId(r.id)} title="상세보기">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm(`${r.reportDate} 생산일지를 삭제하시겠습니까?`))
+                                deleteMutation.mutate({ ids: [r.id] });
+                            }} title="삭제">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

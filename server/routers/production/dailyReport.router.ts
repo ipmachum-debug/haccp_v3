@@ -306,6 +306,7 @@ export const dailyReportRouter = router({
           const cfgRows = (settingResult as any)[0] || [];
           const cfg = (cfgRows as any[])[0] || {};
 
+          // 기존 생산일보 조회
           const result = await db.execute(sql`
             SELECT dr.id, dr.report_date, dr.summary, dr.generated_at,
               ar.id as approval_id, ar.status as approval_status,
@@ -329,7 +330,31 @@ export const dailyReportRouter = router({
             ORDER BY dr.report_date DESC
           `);
           const rows = (result as any)[0] || [];
-          return (rows as any[]).map((row: any) => {
+
+          // 배치가 있지만 일보가 없는 날짜 조회
+          const batchDatesResult = await db.execute(sql`
+            SELECT DATE(b.planned_date) as batch_date,
+              COUNT(*) as batch_count,
+              SUM(COALESCE(b.actual_quantity, b.planned_quantity)) as total_qty,
+              SUM(CASE WHEN b.status = 'completed' THEN 1 ELSE 0 END) as completed_count
+            FROM h_batches b
+            WHERE b.tenant_id = ${ctx.tenantId}
+              AND b.planned_date >= ${startDate}
+              AND b.planned_date < ${endDate}
+            GROUP BY DATE(b.planned_date)
+            ORDER BY batch_date DESC
+          `);
+          const batchDates = (batchDatesResult as any)[0] || [];
+
+          // 기존 일보 날짜 Set
+          const existingDates = new Set(
+            (rows as any[]).map((r: any) => {
+              const d = r.report_date instanceof Date ? r.report_date.toISOString().split('T')[0] : String(r.report_date);
+              return d;
+            })
+          );
+
+          const mapped = (rows as any[]).map((row: any) => {
             let summary: any = {};
             try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
             return {
@@ -346,15 +371,50 @@ export const dailyReportRouter = router({
               issueCount: summary?.issues?.length || 0,
               approvalId: row.approval_id || null,
               approvalStatus: row.approval_status || null,
-              // 승인설정의 역할 이름을 우선 사용 (설정된 작성/검토/승인 담당자 표시)
               requesterName: cfg.cfg_author_name || row.requester_name || null,
               approverName: cfg.cfg_approver_name || row.approver_name || null,
               reviewerName: cfg.cfg_reviewer_name || row.reviewer_name || null,
               approvedAt: row.approved_at || null,
               reviewedAt: row.reviewed_at || null,
               requestedAt: row.requested_at || null,
+              needsGeneration: false,
             };
           });
+
+          // 일보 미생성 날짜를 placeholder로 추가
+          for (const bd of (batchDates as any[])) {
+            const dateStr = bd.batch_date instanceof Date
+              ? bd.batch_date.toISOString().split('T')[0]
+              : String(bd.batch_date);
+            if (!existingDates.has(dateStr)) {
+              mapped.push({
+                id: 0,
+                reportDate: dateStr,
+                generatedAt: null,
+                totalBatches: Number(bd.batch_count) || 0,
+                completedBatches: Number(bd.completed_count) || 0,
+                totalPlannedQty: Number(bd.total_qty) || 0,
+                totalActualQty: Number(bd.total_qty) || 0,
+                achievementRate: 0,
+                ccpTotal: 0,
+                ccpDeviation: 0,
+                issueCount: 0,
+                approvalId: null,
+                approvalStatus: null,
+                requesterName: null,
+                approverName: null,
+                reviewerName: null,
+                approvedAt: null,
+                reviewedAt: null,
+                requestedAt: null,
+                needsGeneration: true,
+              });
+            }
+          }
+
+          // 날짜 내림차순 정렬
+          mapped.sort((a: any, b: any) => b.reportDate.localeCompare(a.reportDate));
+          return mapped;
         } catch (err) {
           console.error('[dailyReport.listReports]', err);
           return [];
