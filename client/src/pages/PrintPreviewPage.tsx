@@ -326,8 +326,13 @@ export default function PrintPreviewPage() {
         .ccp-print-table th, .ccp-print-table td { overflow: hidden; text-overflow: ellipsis; word-break: keep-all; box-sizing: border-box; }
         .ccp-print-table th { white-space: normal; line-height: 1.2; }
         /* 주간/월간/연간/일일 일지 테이블 오버플로우 방지 */
-        .print-page table { table-layout: fixed; width: 100%; }
-        .print-page td, .print-page th { word-break: break-all; word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
+        .print-page .print-content table { table-layout: fixed; width: 100%; }
+        .print-page .print-content td, .print-page .print-content th { word-break: break-all; word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
+        /* 헤더 영역 결재란 테이블은 고정 폭 유지 */
+        .print-page .print-header table { table-layout: auto; width: auto; }
+        .print-page .print-header td, .print-page .print-header th { word-break: normal; word-wrap: normal; overflow-wrap: normal; }
+        /* CCP 제목 테이블: 글자 단위 줄바꿈 방지 */
+        .print-page .print-content table.border-2 td { word-break: keep-all; }
       `}</style>
 
       <div className="no-print bg-blue-600 text-white p-4 sticky top-0 z-50 flex items-center justify-between">
@@ -348,7 +353,7 @@ export default function PrintPreviewPage() {
           <div key={index} className="print-page">
             {isCcpForm ? (
               /* CCP 기록지: 간소화된 헤더 (결재란은 CCP 양식 내부에 포함) */
-              <div className="flex items-start justify-between mb-1">
+              <div className="print-header flex items-start justify-between mb-1">
                 <div className="flex-1">
                   <div className="text-[9px] text-gray-400">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
                   <div className="text-[10px] text-gray-500 mt-0">
@@ -371,7 +376,7 @@ export default function PrintPreviewPage() {
               </div>
             ) : (
               /* 일반 문서: 기존 헤더 */
-              <div className="flex items-start justify-between mb-6">
+              <div className="print-header flex items-start justify-between mb-6">
                 <div className="flex-1">
                   <div className="text-xs text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
                   <h1 className="text-xl font-bold mb-2">{page.pageTitle}</h1>
@@ -394,7 +399,7 @@ export default function PrintPreviewPage() {
               </div>
             )}
             <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-2'}`} />
-            <div className={isCcpForm ? "mb-1" : "mb-4"}>{page.pageContent}</div>
+            <div className={`print-content ${isCcpForm ? "mb-1" : "mb-4"}`}>{page.pageContent}</div>
             <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
           </div>
           );
