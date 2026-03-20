@@ -216,6 +216,217 @@ async function importOpeningStock(conn: mysql.Connection, wb: ExcelJS.Workbook, 
 
 const openingStockQueue: Array<{ name: string; stock: number }> = [];
 
+// ─── CCP 자동 생성 (배치별) ───
+/**
+ * 배치 생성 후 CCP 인스턴스 + CCP rows + CCP 모니터링 기록지 자동 생성
+ * server/services/ccp-batch.ts의 autoCreateCcpInstancesForBatch() 로직을 재현
+ */
+async function generateCcpForBatch(
+  conn: mysql.Connection,
+  batchId: number,
+  productId: number,
+  productName: string,
+  workDate: string,
+  plannedQtyKg: number,
+) {
+  // ── 1. BOM 기반 공정그룹 조회
+  const [bomGroups] = (await conn.execute(
+    `SELECT DISTINCT
+       g.id, g.name, g.ccp_type,
+       g.temperature_min, g.temperature_max,
+       g.time_min, g.time_max,
+       g.pressure_min, g.pressure_max
+     FROM h_mf_reports r
+     JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
+     JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id AND i.process_group_id IS NOT NULL
+     JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = ? AND g.status = 'active' AND g.ccp_type != 'CCP-4P'
+     WHERE r.product_id = ? AND r.tenant_id = ?
+     GROUP BY g.id`,
+    [TENANT_ID, productId, TENANT_ID]
+  )) as any[];
+
+  // ── 2. 수동 매핑 공정그룹 (BOM에 없는 것만)
+  const bomIds = new Set((bomGroups as any[]).map((r: any) => Number(r.id)));
+  const [manualGroups] = (await conn.execute(
+    `SELECT g.id, g.name, g.ccp_type,
+       g.temperature_min, g.temperature_max, g.time_min, g.time_max,
+       g.pressure_min, g.pressure_max
+     FROM ccp_process_group_products gp
+     JOIN ccp_process_groups g ON g.id = gp.process_group_id AND g.tenant_id = ? AND g.status = 'active' AND g.ccp_type != 'CCP-4P'
+     WHERE gp.product_id = ? AND gp.tenant_id = ?`,
+    [TENANT_ID, productId, TENANT_ID]
+  )) as any[];
+
+  // ── 3. CCP-4P (금속검출) 항상 포함
+  const [metalGroups] = (await conn.execute(
+    `SELECT g.id, g.name, g.ccp_type,
+       g.temperature_min, g.temperature_max, g.time_min, g.time_max,
+       g.pressure_min, g.pressure_max
+     FROM ccp_process_groups g
+     WHERE g.tenant_id = ? AND g.ccp_type = 'CCP-4P' AND g.status = 'active'`,
+    [TENANT_ID]
+  )) as any[];
+
+  // dedup
+  const allGroups: any[] = [...(bomGroups as any[])];
+  for (const g of (manualGroups as any[])) {
+    if (!bomIds.has(Number(g.id))) {
+      allGroups.push(g);
+      bomIds.add(Number(g.id));
+    }
+  }
+  for (const g of (metalGroups as any[])) {
+    if (!bomIds.has(Number(g.id))) {
+      allGroups.push(g);
+    }
+  }
+
+  if (allGroups.length === 0) return; // 공정그룹 없으면 생성 불가
+
+  let ccpCount = 0;
+
+  for (const group of allGroups) {
+    const groupId = Number(group.id);
+    const ccpType = group.ccp_type;
+    const heatingMin = group.time_min != null ? Number(group.time_min) : 10;
+    const tempMin = group.temperature_min != null ? Number(group.temperature_min) : null;
+    const pressureMinMpa = group.pressure_min != null ? Number(group.pressure_min) : null;
+
+    // ── CCP 인스턴스 생성
+    const [insResult] = (await conn.execute(
+      `INSERT INTO h_ccp_instances
+         (site_id, work_date, ccp_type, process_group_id,
+          product_name, product_id, batch_id,
+          status, created_by, tenant_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)`,
+      [SITE_ID, workDate, ccpType, groupId,
+       productName, productId, batchId,
+       CREATED_BY, TENANT_ID, workDate]
+    )) as any[];
+    const instanceId = insResult.insertId;
+
+    // ── CCP rows 생성
+    if (ccpType === "CCP-4P") {
+      // 금속검출: Fe + SUS 2행
+      await conn.execute(
+        `INSERT INTO h_ccp_rows (instance_id, sort_order, row_type, result, note, auto_generated, tenant_id, created_at)
+         VALUES (?, 1, 'measurement', 'PASS', 'Fe (철) 기준 시편 검출 테스트', 1, ?, ?),
+                (?, 2, 'measurement', 'PASS', 'SUS (스테인리스) 기준 시편 검출 테스트', 1, ?, ?)`,
+        [instanceId, TENANT_ID, workDate, instanceId, TENANT_ID, workDate]
+      );
+    } else {
+      // 가열공정: 설비 목록 조회
+      const [equipRows] = (await conn.execute(
+        `SELECT ge.equipment_id, ge.sort_order, eq.name AS equipment_name,
+           eq.default_temperature, eq.default_pressure, eq.batch_operation_time, eq.default_time
+         FROM ccp_process_group_equipments ge
+         JOIN equipments eq ON eq.id = ge.equipment_id AND eq.tenant_id = ge.tenant_id AND eq.status = 'active'
+         WHERE ge.process_group_id = ? AND ge.tenant_id = ?
+         ORDER BY ge.sort_order, ge.equipment_id`,
+        [groupId, TENANT_ID]
+      )) as any[];
+
+      if ((equipRows as any[]).length === 0) {
+        // 설비 없으면 공정 한계기준으로 3행 생성
+        const tempC = tempMin?.toString() ?? null;
+        const pressureBar = pressureMinMpa != null ? (pressureMinMpa * 10).toFixed(2) : null;
+        for (let i = 1; i <= 3; i++) {
+          await conn.execute(
+            `INSERT INTO h_ccp_rows
+               (instance_id, sort_order, row_type, temp_c, duration_min, heating_min, pressure_bar,
+                result, auto_generated, tenant_id, created_at)
+             VALUES (?, ?, 'measurement', ?, ?, ?, ?, 'PASS', 1, ?, ?)`,
+            [instanceId, i, tempC, heatingMin, heatingMin, pressureBar, TENANT_ID, workDate]
+          );
+        }
+      } else {
+        // 설비별 1행
+        for (let idx = 0; idx < (equipRows as any[]).length; idx++) {
+          const eq = (equipRows as any[])[idx];
+          const eqTemp = eq.default_temperature != null ? Number(eq.default_temperature) : tempMin;
+          const eqPressureMpa = eq.default_pressure != null ? Number(eq.default_pressure) : pressureMinMpa;
+          const pressureBar = eqPressureMpa != null ? (eqPressureMpa * 10).toFixed(2) : null;
+          const eqDefaultTime = eq.default_time != null ? Number(eq.default_time) : heatingMin;
+          const cycleTotalMin = eq.batch_operation_time != null ? Number(eq.batch_operation_time) : null;
+          const durationMin = cycleTotalMin != null
+            ? cycleTotalMin + (heatingMin - eqDefaultTime)
+            : heatingMin;
+
+          await conn.execute(
+            `INSERT INTO h_ccp_rows
+               (instance_id, equipment_id, equipment_name, sort_order,
+                row_type, temp_c, duration_min, heating_min, cycle_total_min,
+                pressure_bar, result, auto_generated, tenant_id, created_at)
+             VALUES (?, ?, ?, ?, 'measurement', ?, ?, ?, ?, ?, 'PASS', 1, ?, ?)`,
+            [instanceId, eq.equipment_id, eq.equipment_name, idx + 1,
+             eqTemp?.toString() ?? null, durationMin, heatingMin, cycleTotalMin,
+             pressureBar, TENANT_ID, workDate]
+          );
+        }
+      }
+    }
+
+    // ── CCP 모니터링 기록지 (h_ccp_form_records) 생성
+    // BOM 배치량 조회 (배치수 계산용)
+    let bomBatchKg: number | null = null;
+    const [bomInfo] = (await conn.execute(
+      `SELECT v.batch_size_kg
+       FROM h_mf_reports r
+       JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
+       WHERE r.product_id = ? AND r.tenant_id = ?
+       ORDER BY v.id DESC LIMIT 1`,
+      [productId, TENANT_ID]
+    )) as any[];
+    if ((bomInfo as any[]).length > 0 && (bomInfo as any[])[0].batch_size_kg) {
+      bomBatchKg = Number((bomInfo as any[])[0].batch_size_kg);
+    }
+
+    const batchCount = bomBatchKg && bomBatchKg > 0 ? Math.ceil(plannedQtyKg / bomBatchKg) : 1;
+
+    // CL 한계기준 조회
+    const [clInfo] = (await conn.execute(
+      `SELECT min_temp_c, max_temp_c, min_duration_min, max_duration_min,
+              min_pressure_bar, max_pressure_bar, fe_sensitivity, sus_sensitivity
+       FROM product_ccp_specs
+       WHERE tenant_id = ? AND product_id = ? AND ccp_type = ? AND is_active = 1
+       LIMIT 1`,
+      [TENANT_ID, productId, ccpType]
+    )) as any[];
+
+    const cl = (clInfo as any[]).length > 0 ? (clInfo as any[])[0] : {};
+
+    await conn.execute(
+      `INSERT INTO h_ccp_form_records
+         (tenant_id, site_id, batch_id, ccp_type, work_date,
+          product_id, product_name, process_group_id, process_group_name,
+          bom_batch_kg, planned_qty_kg, batch_count,
+          equip_group_mode, equip_interval_min,
+          cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo,
+          cl_pressure_mpa_lo, cl_product_temp_lo,
+          cl_metal_sensitivity, cl_fe_mm, cl_sus_mm,
+          writer_id, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'sequential', 10,
+               ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+      [TENANT_ID, SITE_ID, batchId, ccpType, workDate,
+       productId, productName, groupId, group.name,
+       bomBatchKg, plannedQtyKg, batchCount,
+       cl.min_duration_min ?? null, cl.max_duration_min ?? null, cl.min_temp_c ?? null,
+       cl.min_pressure_bar != null ? (Number(cl.min_pressure_bar) / 10).toFixed(3) : null,
+       cl.min_temp_c ?? null,
+       cl.fe_sensitivity ?? 130, cl.cl_fe_mm ?? "2.0", cl.cl_sus_mm ?? "3.0",
+       CREATED_BY, workDate]
+    );
+
+    ccpCount++;
+  }
+
+  if (ccpCount > 0) {
+    ccpGeneratedCount += ccpCount;
+  }
+}
+
+let ccpGeneratedCount = 0;
+
 // ─── 3. 일일 생산 실적 → 배치 생성 ───
 async function importProduction(conn: mysql.Connection, wb: ExcelJS.Workbook, idMap: ReturnType<typeof loadIdMap>) {
   const ws = wb.getWorksheet("📦 일일 생산 입력");
@@ -286,19 +497,23 @@ async function importProduction(conn: mysql.Connection, wb: ExcelJS.Workbook, id
     // LOT 번호 생성: YYYYMMDD
     const lotNumber = dateKey;
 
-    // 배치 생성 (created_at을 planned_date로 설정하여 과거 데이터 정확히 반영)
+    // 배치 생성 (created_at, start_time을 planned_date 기준으로 설정)
+    const startTime = `${p.date} 09:00:00`; // CCP 시작 시간: 생산일 09:00
     const [batchResult] = (await conn.execute(
       `INSERT INTO h_batches
        (tenant_id, site_id, batch_code, day_batch_group, batch_order, product_id,
-        planned_quantity, actual_quantity, planned_date, status, mode,
+        planned_quantity, actual_quantity, planned_date, start_time, status, mode,
         lot_number, notes, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'auto', ?, '엑셀 임포트', ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', 'auto', ?, '엑셀 임포트', ?, ?, ?)`,
       [TENANT_ID, SITE_ID, batchCode, dayBatchGroup, dayBatchCounter[dateKey],
-       productId, p.qty, p.qty, p.date, lotNumber, CREATED_BY, p.date, p.date]
+       productId, p.qty, p.qty, p.date, startTime, lotNumber, CREATED_BY, p.date, p.date]
     )) as any[];
 
     const batchId = batchResult.insertId;
     batchCount++;
+
+    // CCP 인스턴스 + CCP rows + 모니터링 기록지 자동 생성
+    await generateCcpForBatch(conn, batchId, productId, p.productName, p.date, p.qty);
 
     // 배합비 기반 원료 투입량 계산 → h_batch_inputs
     const bom = bomMatrix[p.productName];
@@ -361,6 +576,7 @@ async function importProduction(conn: mysql.Connection, wb: ExcelJS.Workbook, id
 
   console.log(`  배치 생성: ${batchCount}건`);
   console.log(`  원료투입: ${inputCount}건`);
+  console.log(`  CCP 인스턴스 생성: ${ccpGeneratedCount}건`);
 
   // running_stock 재계산
   await recalculateRunningStock(conn, idMap);
@@ -522,6 +738,63 @@ async function importInspections(conn: mysql.Connection, wb: ExcelJS.Workbook) {
   console.log(`  육안검사일지: ${created}건 (날짜별 그룹)`);
 }
 
+// ─── 6. 기존 데이터 보정 ───
+/**
+ * 기존에 임포트된 배치의 created_at과 start_time 보정
+ * created_at이 planned_date와 다른 경우 (=현재 시간으로 잘못 들어간 경우) 수정
+ */
+async function fixExistingBatchDates(conn: mysql.Connection) {
+  console.log("\n=== 6. 기존 배치 날짜 보정 ===");
+
+  // created_at이 planned_date와 다른 배치 수정 (엑셀 임포트 배치만)
+  const [fixCreated] = (await conn.execute(
+    `UPDATE h_batches
+     SET created_at = planned_date,
+         updated_at = planned_date
+     WHERE tenant_id = ? AND mode = 'auto' AND notes = '엑셀 임포트'
+       AND DATE(created_at) != DATE(planned_date)`,
+    [TENANT_ID]
+  )) as any[];
+  console.log(`  created_at 보정: ${fixCreated.affectedRows ?? 0}건`);
+
+  // start_time이 없는 배치에 planned_date 09:00 설정
+  const [fixStart] = (await conn.execute(
+    `UPDATE h_batches
+     SET start_time = CONCAT(planned_date, ' 09:00:00')
+     WHERE tenant_id = ? AND mode = 'auto' AND notes = '엑셀 임포트'
+       AND start_time IS NULL`,
+    [TENANT_ID]
+  )) as any[];
+  console.log(`  start_time 보정: ${fixStart.affectedRows ?? 0}건`);
+
+  // CCP가 없는 배치에 대해 CCP 생성
+  const [batchesWithoutCcp] = (await conn.execute(
+    `SELECT b.id, b.product_id, p.product_name, b.planned_date, b.planned_quantity
+     FROM h_batches b
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
+     LEFT JOIN h_ccp_instances c ON c.batch_id = b.id AND c.tenant_id = b.tenant_id
+     WHERE b.tenant_id = ? AND b.mode = 'auto' AND b.notes = '엑셀 임포트'
+       AND c.id IS NULL`,
+    [TENANT_ID]
+  )) as any[];
+
+  let ccpFixed = 0;
+  for (const batch of (batchesWithoutCcp as any[])) {
+    if (!batch.product_id) continue;
+    const date = batch.planned_date instanceof Date
+      ? batch.planned_date.toISOString().slice(0, 10)
+      : String(batch.planned_date).slice(0, 10);
+    const qty = batch.planned_quantity ? Number(batch.planned_quantity) : 0;
+    await generateCcpForBatch(
+      conn, batch.id, batch.product_id,
+      batch.product_name || `제품#${batch.product_id}`,
+      date, qty
+    );
+    ccpFixed++;
+  }
+  console.log(`  CCP 보정 (기존 배치): ${ccpFixed}건 배치에 CCP 생성`);
+}
+
 // ─── 메인 ───
 async function main() {
   const excelPath = process.argv[2] || path.resolve(__dirname, "../HACCP_원료수불부_원가관리0320.xlsx");
@@ -543,6 +816,9 @@ async function main() {
     await importProduction(conn, wb, idMap);
     await importSales(conn, wb, idMap);
     await importInspections(conn, wb);
+
+    // 기존 데이터 보정: created_at, start_time이 누락된 배치 수정
+    await fixExistingBatchDates(conn);
 
     console.log("\n========================================");
     console.log("  ✅ 운영 데이터 임포트 완료!");
