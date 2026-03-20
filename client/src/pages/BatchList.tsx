@@ -344,6 +344,7 @@ export default function BatchList() {
                       <TableRow>
                         <TableHead>배치 코드</TableHead>
                         <TableHead>상태</TableHead>
+                        <TableHead className="text-right">계획 수량</TableHead>
                         <TableHead>작업일</TableHead>
                         {showCost && <TableHead className="text-right">총 비용</TableHead>}
                         {showCost && <TableHead className="text-right">원가율</TableHead>}
@@ -369,6 +370,9 @@ export default function BatchList() {
                             </div>
                           </TableCell>
                           <TableCell>{getStatusBadge(batch.status)}</TableCell>
+                          <TableCell className="text-right text-sm font-medium">
+                            {batch.plannedQuantity ? `${parseFloat(batch.plannedQuantity).toLocaleString("ko-KR")} kg` : "-"}
+                          </TableCell>
                           <TableCell className="text-sm">
                             {batch.plannedDate ? new Date(batch.plannedDate).toLocaleDateString("ko-KR") : "-"}
                           </TableCell>
@@ -446,7 +450,12 @@ export default function BatchList() {
                                   )}
                                 </div>
                               </div>
-                              <div>{getStatusBadge(batch.status)}</div>
+                              <div className="flex items-center gap-2">
+                                {getStatusBadge(batch.status)}
+                                {batch.plannedQuantity && (
+                                  <span className="text-xs text-muted-foreground font-medium">{parseFloat(batch.plannedQuantity).toLocaleString("ko-KR")} kg</span>
+                                )}
+                              </div>
                               {showCost && batchCosts[batch.id] !== undefined && (
                                 <div className="flex items-center gap-1 text-sm">
                                   <DollarSign className="h-4 w-4 text-muted-foreground" />
