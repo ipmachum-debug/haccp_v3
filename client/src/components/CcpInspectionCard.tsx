@@ -66,6 +66,7 @@ interface CcpRow {
   equipmentName?: string | null;
   heatingMin?: number | null;
   cycleTotalMin?: number | null;
+  batchNo?: number | null;
 }
 
 interface CcpInstance {
@@ -159,10 +160,12 @@ function EquipmentRowEdit({
   row,
   ccp,
   onSaved,
+  showBatchNo = false,
 }: {
   row: CcpRow;
   ccp: CcpInstance;
   onSaved: () => void;
+  showBatchNo?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [tempC, setTempC] = useState(row.tempC ?? "");
@@ -210,6 +213,13 @@ function EquipmentRowEdit({
         <td className="p-2 text-center font-mono text-xs text-muted-foreground">
           {row.sortOrder}
         </td>
+        {showBatchNo && (
+          <td className="p-2 text-center">
+            <Badge variant="outline" className="text-xs font-mono">
+              {row.batchNo ?? "-"}
+            </Badge>
+          </td>
+        )}
         <td className="p-2 font-medium text-sm">
           {row.equipmentName ?? `설비-${row.equipmentId}`}
         </td>
@@ -286,6 +296,13 @@ function EquipmentRowEdit({
       <td className="p-2 text-center font-mono text-xs text-muted-foreground">
         {row.sortOrder}
       </td>
+      {showBatchNo && (
+        <td className="p-2 text-center">
+          <Badge variant="outline" className="text-xs font-mono">
+            {row.batchNo ?? "-"}
+          </Badge>
+        </td>
+      )}
       <td className="p-2 font-medium text-sm text-primary">
         {row.equipmentName ?? `설비-${row.equipmentId}`}
       </td>
@@ -395,6 +412,9 @@ export function CcpInspectionCard({
   const equipmentRows = rows.filter(
     (r) => r.rowType === "measurement" && r.equipmentId != null,
   );
+
+  // batch_no가 있는 행이 있는지 확인
+  const hasBatchNo = equipmentRows.some((r) => r.batchNo != null && r.batchNo > 0);
 
   // 공정 기준 행: equipment 없는 측정 행 (예: CCP-4P Fe/SUS)
   const processRows = rows.filter(
@@ -623,6 +643,7 @@ export function CcpInspectionCard({
                       <thead>
                         <tr className="border-b bg-muted/30">
                           <th className="text-center p-2 font-medium w-8">#</th>
+                          {hasBatchNo && <th className="text-center p-2 font-medium w-16">배치</th>}
                           <th className="text-left p-2 font-medium">설비명</th>
                           <th className="text-left p-2 font-medium">온도(°C)</th>
                           <th className="text-left p-2 font-medium">압력(bar)</th>
@@ -640,6 +661,7 @@ export function CcpInspectionCard({
                             row={row}
                             ccp={ccp}
                             onSaved={onRecordSaved}
+                            showBatchNo={hasBatchNo}
                           />
                         ))}
                       </tbody>

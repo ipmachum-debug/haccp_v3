@@ -16,7 +16,7 @@
  * │   - default_temperature, default_pressure, batch_operation_time     │
  * │                                                                      │
  * │  생성 규칙                                                           │
- * │   CCP-1B/CCP-2B: 설비 1대 = CCP row 1행 (온도/압력/시간 설비기준)    │
+ * │   CCP-1B/CCP-2B: 설비 × 배치수 = CCP rows (온도/압력/시간 설비기준)  │
  * │   CCP-4P(금속검출): Fe row 1개 + SUS row 1개 (항상 포함)            │
  * │                                                                      │
  * │  deduplication                                                       │
@@ -224,7 +224,7 @@ export async function getProcessGroupsForProduct(args: {
  * ────────────────────────────────────────────────────────────────────
  *
  * ── 압력 단위 변환 ───────────────────────────────────────────────
- *  설비기준: equipments.default_pressure (bar 단위)
+ *  설비기준: equipments.default_pressure (MPa 단위)
  *  공정기준: ccp_process_groups.pressure_min (MPa 단위)
  *  h_ccp_rows.pressure_bar 컬럼 → bar 로 저장
  *  MPa → bar: × 10
@@ -236,6 +236,7 @@ async function createCcpRowsForGroup(
   equipments: EquipmentAssignment[],
   conn: any,
   tenantId: number,
+  batchCount: number = 1,
 ): Promise<void> {
   // ── CCP-4P: Fe + SUS 2행
   if (group.ccp_type === "CCP-4P") {
@@ -261,69 +262,79 @@ async function createCcpRowsForGroup(
     const pressureBar  = group.pressure_min != null ? (group.pressure_min * 10).toFixed(2) : null;
     const heatingMin   = group.time_min ?? 10;
 
-    for (let i = 1; i <= 3; i++) {
-      await conn.execute(
-        `INSERT INTO h_ccp_rows
-           (instance_id, sort_order, row_type, temp_c, duration_min,
-            heating_min, cycle_total_min, pressure_bar,
-            result, auto_generated, tenant_id)
-         VALUES (?, ?, 'measurement', ?, ?,
-                 ?, NULL, ?, 'PASS', 1, ?)`,
-        [instanceId, i, tempC, heatingMin, heatingMin, pressureBar, tenantId],
-      );
+    let sortIdx = 0;
+    for (let bn = 1; bn <= batchCount; bn++) {
+      for (let i = 1; i <= 3; i++) {
+        sortIdx++;
+        await conn.execute(
+          `INSERT INTO h_ccp_rows
+             (instance_id, batch_no, sort_order, row_type, temp_c, duration_min,
+              heating_min, cycle_total_min, pressure_bar,
+              result, auto_generated, tenant_id)
+           VALUES (?, ?, ?, 'measurement', ?, ?,
+                   ?, NULL, ?, 'PASS', 1, ?)`,
+          [instanceId, bn, sortIdx, tempC, heatingMin, heatingMin, pressureBar, tenantId],
+        );
+      }
     }
     return;
   }
 
-  // ── 설비 1대 = 1행
-  for (let idx = 0; idx < equipments.length; idx++) {
-    const eq = equipments[idx];
+  // ── 배치수 × 설비 = N행 (batchCount 기반)
+  let sortIdx = 0;
+  for (let bn = 1; bn <= batchCount; bn++) {
+    for (let idx = 0; idx < equipments.length; idx++) {
+      const eq = equipments[idx];
+      sortIdx++;
 
-    // 온도: 설비기준 우선 → 공정 한계기준 폴백
-    const tempC =
-      eq.default_temperature != null
-        ? eq.default_temperature.toString()
-        : group.temperature_min != null
-          ? group.temperature_min.toString()
-          : null;
+      // 온도: 설비기준 우선 → 공정 한계기준 폴백
+      const tempC =
+        eq.default_temperature != null
+          ? eq.default_temperature.toString()
+          : group.temperature_min != null
+            ? group.temperature_min.toString()
+            : null;
 
-    // 압력: 설비기준(bar) 우선 → 공정기준(MPa→bar) 폴백
-    const pressureBar =
-      eq.default_pressure != null
-        ? eq.default_pressure.toString()
-        : group.pressure_min != null
-          ? (group.pressure_min * 10).toFixed(2)
-          : null;
+      // 압력: 설비기준(MPa→bar) 우선 → 공정기준(MPa→bar) 폴백
+      // equipments.default_pressure는 MPa 단위이므로 ×10 으로 bar 변환
+      const pressureBar =
+        eq.default_pressure != null
+          ? (eq.default_pressure * 10).toFixed(2)
+          : group.pressure_min != null
+            ? (group.pressure_min * 10).toFixed(2)
+            : null;
 
-    // 시간 계산
-    const heatingMin     = group.time_min    ?? eq.default_time ?? 10;
-    const cycleTotalMin  = eq.batch_operation_time ?? null;
-    const eqDefaultHeat  = eq.default_time ?? heatingMin;
-    const durationMin    =
-      cycleTotalMin != null
-        ? cycleTotalMin + (heatingMin - eqDefaultHeat)
-        : heatingMin;
+      // 시간 계산
+      const heatingMin     = group.time_min    ?? eq.default_time ?? 10;
+      const cycleTotalMin  = eq.batch_operation_time ?? null;
+      const eqDefaultHeat  = eq.default_time ?? heatingMin;
+      const durationMin    =
+        cycleTotalMin != null
+          ? cycleTotalMin + (heatingMin - eqDefaultHeat)
+          : heatingMin;
 
-    await conn.execute(
-      `INSERT INTO h_ccp_rows
-         (instance_id, equipment_id, equipment_name, sort_order,
-          row_type, temp_c, duration_min, heating_min, cycle_total_min,
-          pressure_bar, result, auto_generated, tenant_id)
-       VALUES (?, ?, ?, ?, 'measurement', ?, ?, ?, ?,
-               ?, 'PASS', 1, ?)`,
-      [
-        instanceId,
-        eq.equipment_id,
-        eq.equipment_name,
-        idx + 1,
-        tempC,
-        durationMin,
-        heatingMin,
-        cycleTotalMin,
-        pressureBar,
-        tenantId,
-      ],
-    );
+      await conn.execute(
+        `INSERT INTO h_ccp_rows
+           (instance_id, batch_no, equipment_id, equipment_name, sort_order,
+            row_type, temp_c, duration_min, heating_min, cycle_total_min,
+            pressure_bar, result, auto_generated, tenant_id)
+         VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?,
+                 ?, 'PASS', 1, ?)`,
+        [
+          instanceId,
+          bn,
+          eq.equipment_id,
+          eq.equipment_name,
+          sortIdx,
+          tempC,
+          durationMin,
+          heatingMin,
+          cycleTotalMin,
+          pressureBar,
+          tenantId,
+        ],
+      );
+    }
   }
 }
 
@@ -342,14 +353,58 @@ export async function autoCreateCcpInstancesForBatch(args: {
   productName: string;
   createdBy?: number;
   tenantId?: number;
+  plannedQuantity?: number;
+  bomBatchKg?: number;
 }): Promise<{ instanceIds: number[]; groups: ProcessGroupInfo[] }> {
   const {
     siteId, workDate, batchId,
     productId, productName,
     createdBy, tenantId = 1,
+    plannedQuantity, bomBatchKg,
   } = args;
 
+  // batch_count 계산: 총생산량 / BOM 1배치 기준 중량
+  let batchCount = 1;
+  let _plannedQty = plannedQuantity;
+  let _bomBatchKg = bomBatchKg;
+
   const conn = await getRawConnection();
+
+  // plannedQuantity 미전달 시 h_batches에서 조회
+  if (!_plannedQty && batchId) {
+    try {
+      const [bRows] = await conn.execute<any[]>(
+        `SELECT planned_quantity FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        [batchId, tenantId],
+      );
+      if ((bRows as any[]).length > 0 && (bRows as any[])[0]?.planned_quantity) {
+        _plannedQty = parseFloat((bRows as any[])[0].planned_quantity);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // bomBatchKg 미전달 시 BOM에서 조회
+  if (!_bomBatchKg && productId) {
+    try {
+      const [vRows] = await conn.execute<any[]>(
+        `SELECT v.batch_target_kg
+         FROM h_mf_reports r
+         JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
+         WHERE r.product_id = ? AND r.tenant_id = ?
+         ORDER BY v.id DESC LIMIT 1`,
+        [productId, tenantId],
+      );
+      if ((vRows as any[]).length > 0 && (vRows as any[])[0]?.batch_target_kg) {
+        _bomBatchKg = parseFloat((vRows as any[])[0].batch_target_kg);
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (_bomBatchKg && _bomBatchKg > 0 && _plannedQty && _plannedQty > 0) {
+    batchCount = Math.ceil(_plannedQty / _bomBatchKg);
+    if (batchCount < 1) batchCount = 1;
+  }
+  console.log(`[ccp-batch] batchCount=${batchCount} (planned=${_plannedQty}kg, bomBatch=${_bomBatchKg}kg)`);
 
   // ── 1. 이미 생성된 공정그룹 ID 조회 (dedup)
   const [existingRows] = await conn.execute<any[]>(
@@ -431,12 +486,14 @@ export async function autoCreateCcpInstancesForBatch(args: {
       instanceIds.push(instanceId);
       existingGroupIds.add(group.id); // 다음 반복에서 중복 방지
 
-      // ── 6. 설비별 기본 행 생성
-      await createCcpRowsForGroup(instanceId, group, equipments, conn, tenantId);
+      // ── 6. 배치수 × 설비별 기본 행 생성 (CCP-4P 제외: batch_count 무시)
+      const groupBatchCount = group.ccp_type === 'CCP-4P' ? 1 : batchCount;
+      await createCcpRowsForGroup(instanceId, group, equipments, conn, tenantId, groupBatchCount);
 
       console.log(
         `[ccp-batch] ✓ "${group.name}"(${group.ccp_type}) ` +
         `instanceId=${instanceId} equipments=${equipments.length}대 ` +
+        `batchCount=${groupBatchCount} rows=${groupBatchCount * (group.ccp_type === 'CCP-4P' ? 2 : equipments.length || 3)} ` +
         `[${group.mapping_source}] batchId=${batchId}`,
       );
 

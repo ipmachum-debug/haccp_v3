@@ -72,6 +72,7 @@ export const batchRouter = router({
             productName,
             createdBy: ctx.user.id,
             tenantId,
+            plannedQuantity: input.plannedQuantity,
           });
           ccpCreated = result.instanceIds.length > 0;
           ccpCount = result.instanceIds.length;
