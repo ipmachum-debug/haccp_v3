@@ -275,9 +275,9 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
     );
     const prevStock = prevStockRows?.[0]?.end_stock ? Number(prevStockRows[0].end_stock) : 0;
     
-    // 일별 데이터 조회
+    // 일별 데이터 조회 (adjustment_qty 포함)
     const [dailyRows]: any = await db.execute(
-      `SELECT DAY(ledger_date) as day_num, receiving_qty, usage_qty
+      `SELECT DAY(ledger_date) as day_num, receiving_qty, usage_qty, adjustment_qty
        FROM material_ledger_daily
        WHERE tenant_id = ? AND material_id = ? AND ledger_date >= ? AND ledger_date <= ?`,
       [tenantId, mat.id, startDate, endDate]
@@ -286,7 +286,7 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
     // 일별 배열 초기화
     const rd: number[] = new Array(31).fill(0);
     const ud: number[] = new Array(31).fill(0);
-    let rt = 0, ut = 0;
+    let rt = 0, ut = 0, at = 0;
     
     for (const row of dailyRows) {
       const i = Number(row.day_num) - 1;
@@ -294,10 +294,12 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
       ud[i] = Number(row.usage_qty) || 0;
       rt += rd[i];
       ut += ud[i];
+      at += Number(row.adjustment_qty) || 0;
     }
     
     // 음수 재고는 0으로 클램핑 (입고 누락 또는 BOM 오류 시 발생 가능)
-    const endStock = Math.max(prevStock + rt - ut, 0);
+    // adjustment_qty 포함: 재고 조정(+/-)을 반영
+    const endStock = Math.max(prevStock + rt - ut + at, 0);
     
     await db.execute(
       `INSERT INTO material_ledger_monthly 

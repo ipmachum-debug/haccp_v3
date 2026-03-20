@@ -256,10 +256,11 @@ def main():
                 prev_row = cur.fetchone()
                 prev_stock = Decimal(str(prev_row['end_stock'])) if prev_row and prev_row['end_stock'] else Decimal('0')
 
-                # 당월 입고/사용 합계
+                # 당월 입고/사용/조정 합계
                 cur.execute("""
                     SELECT COALESCE(SUM(receiving_qty), 0) as rt,
-                           COALESCE(SUM(usage_qty), 0) as ut
+                           COALESCE(SUM(usage_qty), 0) as ut,
+                           COALESCE(SUM(adjustment_qty), 0) as at_
                     FROM material_ledger_daily
                     WHERE tenant_id = %s AND material_id = %s
                       AND ledger_date >= %s AND ledger_date <= %s
@@ -267,7 +268,8 @@ def main():
                 agg = cur.fetchone()
                 rt = Decimal(str(agg['rt'])) if agg['rt'] else Decimal('0')
                 ut = Decimal(str(agg['ut'])) if agg['ut'] else Decimal('0')
-                end_stock = max(prev_stock + rt - ut, Decimal('0'))
+                at_ = Decimal(str(agg['at_'])) if agg['at_'] else Decimal('0')
+                end_stock = max(prev_stock + rt - ut + at_, Decimal('0'))
 
                 if not DRY_RUN:
                     cur.execute("""

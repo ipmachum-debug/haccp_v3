@@ -71,9 +71,9 @@ for ym in months:
         prev_row = cur.fetchone()
         prev_stock = float(prev_row[0]) if prev_row else 0.0
         
-        # 일별 데이터
+        # 일별 데이터 (adjustment_qty 포함)
         cur.execute(
-            """SELECT DAY(ledger_date) as d, receiving_qty, usage_qty
+            """SELECT DAY(ledger_date) as d, receiving_qty, usage_qty, adjustment_qty
                FROM material_ledger_daily
                WHERE tenant_id=%s AND material_id=%s AND ledger_date >= %s AND ledger_date <= %s""",
             (TENANT_ID, mat_id, start_date, end_date)
@@ -82,18 +82,19 @@ for ym in months:
         
         rd = [0.0] * 31
         ud = [0.0] * 31
-        rt = ut = 0.0
-        for d, recv, usg in daily:
+        rt = ut = at = 0.0
+        for d, recv, usg, adj in daily:
             i = int(d) - 1
             rd[i] = float(recv or 0)
             ud[i] = float(usg or 0)
             rt += rd[i]
             ut += ud[i]
+            at += float(adj or 0)
         
-        if rt == 0 and ut == 0 and prev_stock == 0:
+        if rt == 0 and ut == 0 and at == 0 and prev_stock == 0:
             continue
         
-        end_stock = prev_stock + rt - ut
+        end_stock = prev_stock + rt - ut + at
         
         # Upsert
         placeholders = [TENANT_ID, mat_id, ym, prev_stock, rt] + rd + [ut] + ud + [end_stock]
