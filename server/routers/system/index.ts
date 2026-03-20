@@ -2,6 +2,7 @@
 export { approvalRouter } from "./approval.router";
 export { auditLogRouter } from "./auditLog.router";
 export { excelRouter } from "./excel.router";
+export { excelImportRouter } from "./excelImport.router";
 export { favoritesRouter } from "./favorites.router";
 export { notificationRouter } from "./notification.router";
 export { notificationSettingsRouter } from "./notificationSettings.router";

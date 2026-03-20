@@ -14,7 +14,7 @@ import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inve
 import { categoriesRouter, groupRouter, materialRouter, partnersRouter, supplierRouter, supplierEvaluationRouter, templateSettingsRouter } from "./master";
 import { batchRouter, batchApprovalRouter, batchCostRouter, batchScheduleRouter, costAnalysisRouter, costSavingAIRouter, dailyReportRouter, intermediateRouter, mfReportRouter, productRouter, productionRouter, productionDashboardRouter, productionPredictionRouter, productionScheduleRouter, recipeRouter, recipeApprovalRouter, recipeManagementRouter, scheduleOptimizationRouter, aiProductionParserRouter } from "./production";
 import { superadminRouter } from "./superadmin";
-import { approvalRouter, auditLogRouter, excelRouter, favoritesRouter, notificationRouter, notificationSettingsRouter, reportRouter, schedulerRouter, tenantRouter, uploadHistoryRouter, userRouter, supportRouter } from "./system";
+import { approvalRouter, auditLogRouter, excelRouter, excelImportRouter, favoritesRouter, notificationRouter, notificationSettingsRouter, reportRouter, schedulerRouter, tenantRouter, uploadHistoryRouter, userRouter, supportRouter } from "./system";
 
 // ── 기존 개별 라우터 파일 ──
 import { accountCategoriesRouter } from "./accountCategoriesRouter";
@@ -122,6 +122,7 @@ export const appRouter = router({
   // ── system ──
   auditLog: auditLogRouter,
   excel: excelRouter,
+  excelImport: excelImportRouter,
   // ── master ──
   material: materialRouter,
   // ── haccp ──

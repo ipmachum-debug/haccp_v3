@@ -21,7 +21,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -500,6 +500,7 @@ function DashboardLayoutContent({
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
+    { icon: Upload, label: "엑셀 데이터 임포트", path: "/dashboard/excel-import", roles: ["super_admin", "admin"] },
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
