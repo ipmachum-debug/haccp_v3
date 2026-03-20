@@ -193,7 +193,11 @@ export default function Dashboard() {
   const batches = batchesData?.items || [];
   const inProgressBatches = batches.filter((b: any) => b.status === "in_progress" || b.status === "running");
   const todayStr = new Date().toISOString().split("T")[0];
-  const completedToday = batches.filter((b: any) => b.status === "completed" && b.updatedAt?.startsWith(todayStr));
+  const completedToday = batches.filter((b: any) => {
+    if (b.status !== "completed") return false;
+    const updated = b.updatedAt ? new Date(b.updatedAt).toISOString().split("T")[0] : "";
+    return updated === todayStr;
+  });
 
   const unreadNotifications = notifications?.filter((n: any) => n.isRead === 0) || [];
   const expiryNotifications = notifications?.filter((n: any) => n.notificationType === "inventory_expiry" && n.isRead === 0) || [];
