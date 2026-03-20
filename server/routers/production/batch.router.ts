@@ -1686,5 +1686,174 @@ export const batchRouter = router({
       .query(async ({ input, ctx }) => {
         const { calculateBatchCost } = await import("../../db/batchCostCalculation");
         return await calculateBatchCost(input.batchId, ctx.tenantId!);
-      })
+      }),
+
+    // === 배치 Hydration (일괄 등록 배치 연관 데이터 자동 생성) ===
+
+    /** 생산현황 서버사이드 통계 (프론트 limit 문제 해결) */
+    productionStats: tenantRequiredProcedure
+      .input(z.object({
+        date: z.string().optional(), // YYYY-MM-DD, default today
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const conn = await getRawConnection();
+        if (!conn) return { todayPlanned: 0, inProgress: 0, completedToday: 0, total: 0, todayBatches: [], inProgressBatches: [], completedTodayBatches: [] };
+
+        const targetDate = input?.date || new Date().toISOString().split('T')[0];
+        const tenantId = ctx.tenantId!;
+
+        // 통계 카운트
+        const [stats] = await conn.execute<any[]>(
+          `SELECT
+            SUM(CASE WHEN planned_date = ? THEN 1 ELSE 0 END) as today_planned,
+            SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+            SUM(CASE WHEN status = 'completed' AND DATE(COALESCE(end_time, updated_at)) = ? THEN 1 ELSE 0 END) as completed_today,
+            COUNT(*) as total
+          FROM h_batches WHERE tenant_id = ?`,
+          [targetDate, targetDate, tenantId]
+        );
+        const s = (stats as any[])[0] || {};
+
+        // 오늘 계획 배치 상세
+        const [todayRows] = await conn.execute<any[]>(
+          `SELECT b.*, p.product_name, p.product_code
+           FROM h_batches b
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+           WHERE b.tenant_id = ? AND b.planned_date = ?
+           ORDER BY b.batch_code`,
+          [tenantId, targetDate]
+        );
+
+        // 진행중 배치 상세
+        const [ipRows] = await conn.execute<any[]>(
+          `SELECT b.*, p.product_name, p.product_code
+           FROM h_batches b
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+           WHERE b.tenant_id = ? AND b.status = 'in_progress'
+           ORDER BY b.planned_date DESC LIMIT 100`,
+          [tenantId]
+        );
+
+        // 오늘 완료 배치 상세
+        const [compRows] = await conn.execute<any[]>(
+          `SELECT b.*, p.product_name, p.product_code
+           FROM h_batches b
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+           WHERE b.tenant_id = ? AND b.status = 'completed'
+             AND DATE(COALESCE(b.end_time, b.updated_at)) = ?
+           ORDER BY b.batch_code`,
+          [tenantId, targetDate]
+        );
+
+        const mapRow = (r: any) => ({
+          id: r.id, batchCode: r.batch_code, productId: r.product_id,
+          productName: r.product_name || null, productCode: r.product_code || null,
+          plannedQuantity: r.planned_quantity, actualQuantity: r.actual_quantity,
+          plannedDate: r.planned_date, status: r.status,
+          startTime: r.start_time, endTime: r.end_time, createdAt: r.created_at,
+        });
+
+        return {
+          todayPlanned: Number(s.today_planned) || 0,
+          inProgress: Number(s.in_progress) || 0,
+          completedToday: Number(s.completed_today) || 0,
+          total: Number(s.total) || 0,
+          todayBatches: (todayRows as any[]).map(mapRow),
+          inProgressBatches: (ipRows as any[]).map(mapRow),
+          completedTodayBatches: (compRows as any[]).map(mapRow),
+        };
+      }),
+
+    // 생산량 추이 차트용 (서버사이드 집계)
+    productionChartData: tenantRequiredProcedure
+      .input(z.object({
+        period: z.enum(["daily", "weekly", "monthly"]).default("daily"),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const conn = await getRawConnection();
+        if (!conn) return [];
+        const tenantId = ctx.tenantId!;
+        const period = input?.period || "daily";
+
+        if (period === "daily") {
+          const [rows] = await conn.execute<any[]>(
+            `SELECT DATE(planned_date) as date_key,
+                    SUM(COALESCE(actual_quantity, planned_quantity)) as quantity,
+                    COUNT(*) as count
+             FROM h_batches
+             WHERE tenant_id = ? AND status = 'completed'
+               AND planned_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+             GROUP BY DATE(planned_date)
+             ORDER BY date_key`,
+            [tenantId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            date: r.date_key, quantity: Number(r.quantity) || 0, count: Number(r.count) || 0,
+          }));
+        } else if (period === "weekly") {
+          const [rows] = await conn.execute<any[]>(
+            `SELECT DATE(DATE_SUB(planned_date, INTERVAL WEEKDAY(planned_date) DAY)) as week_key,
+                    SUM(COALESCE(actual_quantity, planned_quantity)) as quantity,
+                    COUNT(*) as count
+             FROM h_batches
+             WHERE tenant_id = ? AND status = 'completed'
+               AND planned_date >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+             GROUP BY week_key
+             ORDER BY week_key`,
+            [tenantId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            week: r.week_key, quantity: Number(r.quantity) || 0, count: Number(r.count) || 0,
+          }));
+        } else {
+          const [rows] = await conn.execute<any[]>(
+            `SELECT DATE_FORMAT(planned_date, '%Y-%m') as month_key,
+                    SUM(COALESCE(actual_quantity, planned_quantity)) as quantity,
+                    COUNT(*) as count
+             FROM h_batches
+             WHERE tenant_id = ? AND status = 'completed'
+               AND planned_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+             GROUP BY month_key
+             ORDER BY month_key`,
+            [tenantId]
+          );
+          return (rows as any[]).map((r: any) => ({
+            month: r.month_key, quantity: Number(r.quantity) || 0, count: Number(r.count) || 0,
+          }));
+        }
+      }),
+
+    /** 누락 데이터 분석 (dry-run) */
+    hydrateAnalyze: workerProcedure
+      .input(z.object({
+        batchIds: z.array(z.number()).optional(),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const { findBatchesNeedingHydration } = await import("../../services/batchHydrator");
+        return await findBatchesNeedingHydration(ctx.tenantId!, input?.batchIds);
+      }),
+
+    /** 누락 연관 데이터 자동 생성 실행 */
+    hydrateExecute: workerProcedure
+      .input(z.object({
+        batchIds: z.array(z.number()).optional(),
+        steps: z.object({
+          batchInputs: z.boolean().optional(),
+          ccp: z.boolean().optional(),
+          schedule: z.boolean().optional(),
+          approval: z.boolean().optional(),
+          dailyReport: z.boolean().optional(),
+          materialLedger: z.boolean().optional(),
+        }).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { hydrateBatches } = await import("../../services/batchHydrator");
+        return await hydrateBatches({
+          tenantId: ctx.tenantId!,
+          siteId: 1, // default site
+          userId: ctx.user.id,
+          batchIds: input.batchIds,
+          steps: input.steps,
+        });
+      }),
 });

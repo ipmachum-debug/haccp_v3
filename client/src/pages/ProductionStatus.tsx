@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -18,37 +18,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 export default function ProductionStatus() {
   const [chartPeriod, setChartPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
-  // 생산 배치 목록 조회
-  const { data: batchData, isLoading: batchesLoading } = trpc.batch.list.useQuery({
-    status: undefined,
-    limit: 50,
-  });
 
-  // 제품 목록 조회 (매칭용)
-  const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });
-  const products = (_rawProducts as any)?.items ?? (Array.isArray(_rawProducts) ? _rawProducts : []);
+  // 서버사이드 통계 (전체 배치 기반 정확한 집계)
+  const { data: stats, isLoading: statsLoading } = trpc.batch.productionStats.useQuery({});
+  const { data: chartData = [] } = trpc.batch.productionChartData.useQuery({ period: chartPeriod });
 
-  const batches = batchData?.items || [];
-
-  // 제품 정보 매칭
-  const batchesWithProduct = useMemo(() => {
-    if (!products) return batches.map((batch: any) => ({
-      ...batch,
-      productName: "알 수 없음" as string,
-      productCode: "-" as string,
-      unit: "EA" as string,
-    }));
-    
-    return batches.map((batch: any) => {
-      const product = products.find((p: any) => p.id === batch.productId);
-      return {
-        ...batch,
-        productName: product?.productName || "알 수 없음",
-        productCode: product?.productCode || "-",
-        unit: product?.unit || "EA",
-      };
-    });
-  }, [batches, products]);
+  const todayBatches = stats?.todayBatches || [];
+  const inProgressBatches = stats?.inProgressBatches || [];
+  const completedTodayBatches = stats?.completedTodayBatches || [];
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive"> = {
@@ -70,92 +47,45 @@ export default function ProductionStatus() {
     );
   };
 
-  // 오늘 날짜 기준 필터링
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  
-  const todayBatches = batchesWithProduct.filter((batch: any) => {
-    const batchDate = new Date(batch.plannedDate);
-    batchDate.setHours(0, 0, 0, 0);
-    return batchDate.getTime() === today.getTime();
-  });
-
-  const inProgressBatches = batchesWithProduct.filter((batch: any) => batch.status === "in_progress");
-  
-  const completedTodayBatches = batchesWithProduct.filter((batch: any) => {
-    if (batch.status !== "completed" || !batch.completedAt) return false;
-    const completedDate = new Date(batch.completedAt);
-    completedDate.setHours(0, 0, 0, 0);
-    return completedDate.getTime() === today.getTime();
-  });
-
-  // 차트 데이터 생성
-  const chartData = useMemo(() => {
-    const completedBatches = batchesWithProduct.filter((batch: any) => batch.status === "completed" && batch.completedAt);
-    
-    if (chartPeriod === "daily") {
-      // 일별 데이터 (최근 30일)
-      const dailyData: Record<string, { date: string; quantity: number; count: number }> = {};
-      const last30Days = new Date();
-      last30Days.setDate(last30Days.getDate() - 30);
-      
-      completedBatches.forEach((batch: any) => {
-        const date = new Date(batch.completedAt!);
-        if (date >= last30Days) {
-          const dateKey = date.toISOString().split("T")[0];
-          if (!dailyData[dateKey]) {
-            dailyData[dateKey] = { date: dateKey, quantity: 0, count: 0 };
-          }
-          dailyData[dateKey].quantity += Number(batch.actualQuantity) || 0;
-          dailyData[dateKey].count += 1;
-        }
-      });
-      
-      return Object.values(dailyData).sort((a, b) => a.date.localeCompare(b.date));
-    } else if (chartPeriod === "weekly") {
-      // 주별 데이터 (최근 12주)
-      const weeklyData: Record<string, { week: string; quantity: number; count: number }> = {};
-      const last12Weeks = new Date();
-      last12Weeks.setDate(last12Weeks.getDate() - 84);
-      
-      completedBatches.forEach((batch: any) => {
-        const date = new Date(batch.completedAt!);
-        if (date >= last12Weeks) {
-          const weekStart = new Date(date);
-          weekStart.setDate(date.getDate() - date.getDay());
-          const weekKey = weekStart.toISOString().split("T")[0];
-          
-          if (!weeklyData[weekKey]) {
-            weeklyData[weekKey] = { week: weekKey, quantity: 0, count: 0 };
-          }
-          weeklyData[weekKey].quantity += Number(batch.actualQuantity) || 0;
-          weeklyData[weekKey].count += 1;
-        }
-      });
-      
-      return Object.values(weeklyData).sort((a, b) => a.week.localeCompare(b.week));
-    } else {
-      // 월별 데이터 (최근 12개월)
-      const monthlyData: Record<string, { month: string; quantity: number; count: number }> = {};
-      const last12Months = new Date();
-      last12Months.setMonth(last12Months.getMonth() - 12);
-      
-      completedBatches.forEach((batch: any) => {
-        const date = new Date(batch.completedAt!);
-        if (date >= last12Months) {
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-          
-          if (!monthlyData[monthKey]) {
-            monthlyData[monthKey] = { month: monthKey, quantity: 0, count: 0 };
-          }
-          monthlyData[monthKey].quantity += Number(batch.actualQuantity) || 0;
-          monthlyData[monthKey].count += 1;
-        }
-      });
-      
-      return Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
-    }
-  }, [batchesWithProduct, chartPeriod]);
+  const renderBatchTable = (batches: any[], dateField: "plannedDate" | "endTime" | "createdAt" = "plannedDate") => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>배치 코드</TableHead>
+          <TableHead>제품</TableHead>
+          <TableHead>계획 수량</TableHead>
+          <TableHead>실제 수량</TableHead>
+          <TableHead>{dateField === "endTime" ? "완료일" : "계획일"}</TableHead>
+          <TableHead>상태</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {batches.map((batch: any) => (
+          <TableRow key={batch.id}>
+            <TableCell className="font-medium">{batch.batchCode}</TableCell>
+            <TableCell>
+              <div>
+                <div className="font-medium">{batch.productName || "알 수 없음"}</div>
+                {batch.productCode && (
+                  <div className="text-sm text-muted-foreground">{batch.productCode}</div>
+                )}
+              </div>
+            </TableCell>
+            <TableCell>{batch.plannedQuantity}</TableCell>
+            <TableCell>{batch.actualQuantity || "-"}</TableCell>
+            <TableCell>
+              {batch[dateField]
+                ? new Date(batch[dateField]).toLocaleDateString("ko-KR")
+                : batch.plannedDate
+                  ? new Date(batch.plannedDate).toLocaleDateString("ko-KR")
+                  : "-"}
+            </TableCell>
+            <TableCell>{getStatusBadge(batch.status)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
 
   return (
     <div className="space-y-6">
@@ -167,7 +97,7 @@ export default function ProductionStatus() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{todayBatches.length}</div>
+            <div className="text-2xl font-bold">{stats?.todayPlanned || 0}</div>
             <p className="text-xs text-muted-foreground">배치</p>
           </CardContent>
         </Card>
@@ -178,7 +108,7 @@ export default function ProductionStatus() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inProgressBatches.length}</div>
+            <div className="text-2xl font-bold">{stats?.inProgress || 0}</div>
             <p className="text-xs text-muted-foreground">배치</p>
           </CardContent>
         </Card>
@@ -189,7 +119,7 @@ export default function ProductionStatus() {
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{completedTodayBatches.length}</div>
+            <div className="text-2xl font-bold">{stats?.completedToday || 0}</div>
             <p className="text-xs text-muted-foreground">배치</p>
           </CardContent>
         </Card>
@@ -200,7 +130,7 @@ export default function ProductionStatus() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{batchData?.total || 0}</div>
+            <div className="text-2xl font-bold">{stats?.total || 0}</div>
             <p className="text-xs text-muted-foreground">누적</p>
           </CardContent>
         </Card>
@@ -233,7 +163,7 @@ export default function ProductionStatus() {
             <ResponsiveContainer width="100%" height={350}>
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
+                <XAxis
                   dataKey={chartPeriod === "daily" ? "date" : chartPeriod === "weekly" ? "week" : "month"}
                   tick={{ fontSize: 12 }}
                 />
@@ -241,19 +171,19 @@ export default function ProductionStatus() {
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Legend />
-                <Line 
+                <Line
                   yAxisId="left"
-                  type="monotone" 
-                  dataKey="quantity" 
-                  stroke="#8884d8" 
+                  type="monotone"
+                  dataKey="quantity"
+                  stroke="#8884d8"
                   name="생산량"
                   strokeWidth={2}
                 />
-                <Line 
+                <Line
                   yAxisId="right"
-                  type="monotone" 
-                  dataKey="count" 
-                  stroke="#82ca9d" 
+                  type="monotone"
+                  dataKey="count"
+                  stroke="#82ca9d"
                   name="배치 수"
                   strokeWidth={2}
                 />
@@ -278,51 +208,13 @@ export default function ProductionStatus() {
               <CardTitle>오늘 생산 계획</CardTitle>
             </CardHeader>
             <CardContent>
-              {batchesLoading ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  로딩 중...
-                </div>
+              {statsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
               ) : todayBatches.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   오늘 계획된 배치가 없습니다.
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>배치 코드</TableHead>
-                      <TableHead>제품</TableHead>
-                      <TableHead>계획 수량</TableHead>
-                      <TableHead>실제 수량</TableHead>
-                      <TableHead>계획일</TableHead>
-                      <TableHead>상태</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {todayBatches.map((batch: any) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium">{batch.batchCode}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{batch.productName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {batch.productCode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{batch.plannedQuantity} {batch.unit}</TableCell>
-                        <TableCell>
-                          {batch.actualQuantity ? `${batch.actualQuantity} ${batch.unit}` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(batch.plannedDate).toLocaleDateString("ko-KR")}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              ) : renderBatchTable(todayBatches)}
             </CardContent>
           </Card>
         </TabsContent>
@@ -333,51 +225,13 @@ export default function ProductionStatus() {
               <CardTitle>진행중인 배치</CardTitle>
             </CardHeader>
             <CardContent>
-              {batchesLoading ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  로딩 중...
-                </div>
+              {statsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
               ) : inProgressBatches.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   진행중인 배치가 없습니다.
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>배치 코드</TableHead>
-                      <TableHead>제품</TableHead>
-                      <TableHead>계획 수량</TableHead>
-                      <TableHead>실제 수량</TableHead>
-                      <TableHead>시작일</TableHead>
-                      <TableHead>상태</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inProgressBatches.map((batch: any) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium">{batch.batchCode}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{batch.productName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {batch.productCode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{batch.plannedQuantity} {batch.unit}</TableCell>
-                        <TableCell>
-                          {batch.actualQuantity ? `${batch.actualQuantity} ${batch.unit}` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(batch.plannedDate).toLocaleString("ko-KR")}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              ) : renderBatchTable(inProgressBatches)}
             </CardContent>
           </Card>
         </TabsContent>
@@ -388,53 +242,13 @@ export default function ProductionStatus() {
               <CardTitle>오늘 완료된 배치</CardTitle>
             </CardHeader>
             <CardContent>
-              {batchesLoading ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  로딩 중...
-                </div>
+              {statsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
               ) : completedTodayBatches.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   오늘 완료된 배치가 없습니다.
                 </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>배치 코드</TableHead>
-                      <TableHead>제품</TableHead>
-                      <TableHead>계획 수량</TableHead>
-                      <TableHead>실제 수량</TableHead>
-                      <TableHead>완료일</TableHead>
-                      <TableHead>상태</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {completedTodayBatches.map((batch: any) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium">{batch.batchCode}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{batch.productName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {batch.productCode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{batch.plannedQuantity} {batch.unit}</TableCell>
-                        <TableCell>
-                          {batch.actualQuantity ? `${batch.actualQuantity} ${batch.unit}` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {batch.completedAt
-                            ? new Date(batch.completedAt).toLocaleString("ko-KR")
-                            : "-"}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              ) : renderBatchTable(completedTodayBatches, "endTime")}
             </CardContent>
           </Card>
         </TabsContent>
@@ -442,54 +256,12 @@ export default function ProductionStatus() {
         <TabsContent value="all" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>전체 배치 목록</CardTitle>
+              <CardTitle>전체 배치 ({stats?.total || 0}건)</CardTitle>
             </CardHeader>
             <CardContent>
-              {batchesLoading ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  로딩 중...
-                </div>
-              ) : batchesWithProduct.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  배치가 없습니다.
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>배치 코드</TableHead>
-                      <TableHead>제품</TableHead>
-                      <TableHead>계획 수량</TableHead>
-                      <TableHead>실제 수량</TableHead>
-                      <TableHead>계획일</TableHead>
-                      <TableHead>상태</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {batchesWithProduct.map((batch: any) => (
-                      <TableRow key={batch.id}>
-                        <TableCell className="font-medium">{batch.batchCode}</TableCell>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{batch.productName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {batch.productCode}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{batch.plannedQuantity} {batch.unit}</TableCell>
-                        <TableCell>
-                          {batch.actualQuantity ? `${batch.actualQuantity} ${batch.unit}` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {new Date(batch.plannedDate).toLocaleDateString("ko-KR")}
-                        </TableCell>
-                        <TableCell>{getStatusBadge(batch.status)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              <div className="text-center py-8 text-muted-foreground">
+                전체 배치는 생산관리 &gt; 배치 탭에서 확인하세요.
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
