@@ -102,7 +102,8 @@ export default function BatchDetail() {
       refetchCcps();
 
       // 자동 모드이고, CCP 자동 생성 성공 시 승인관리로 자동 이동 (중복 방지)
-      if (batch?.mode === "auto" && result.ccpCount > 0 && !autoNavigated.current) {
+      // 이미 completed인 배치(백업 데이터 등)는 리다이렉트하지 않음
+      if (batch?.mode === "auto" && batch?.status !== "completed" && result.ccpCount > 0 && !autoNavigated.current) {
         autoNavigated.current = true;
         toast.info("자동처리 완료: 승인관리로 이동합니다", {
           description: `CCP ${result.ccpCount}건 기록지 생성 완료 · 설비기준·공정기준 자동 삽입`,
@@ -118,11 +119,13 @@ export default function BatchDetail() {
 
   // ── 페이지 로드 후 CCP 자동 생성 트리거 ──
   // 배치 조회 + CCP 목록 조회가 완료되고, CCP가 0건이면 자동으로 생성 시도
+  // 이미 completed인 배치(백업/과거 데이터)는 자동 생성 건너뜀
   useEffect(() => {
     if (
       !ccpLoading &&
       !isLoading &&
       batch &&
+      batch.status !== "completed" &&
       ccpList !== undefined &&
       ccpList.length === 0 &&
       !autoCreateAttempted.current &&
