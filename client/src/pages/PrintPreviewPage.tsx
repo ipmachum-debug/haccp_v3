@@ -33,7 +33,7 @@ export default function PrintPreviewPage() {
   const [loading, setLoading] = useState(true);
   const printTriggered = useRef(false);
 
-  const { data: approvedRequests = [] } = trpc.approval.list.useQuery({ status: "approved" });
+  const { data: approvedRequests = [], isLoading: isApprovalLoading } = trpc.approval.list.useQuery({ status: "approved" });
   const { data: employees = [] } = trpc.organization.employees.list.useQuery();
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const trpcUtils = trpc.useUtils();
@@ -58,7 +58,18 @@ export default function PrintPreviewPage() {
 
   useEffect(() => {
     const loadDocuments = async () => {
-      if (ids.length === 0 || approvedRequests.length === 0) return;
+      // IDs가 없으면 로딩 종료
+      if (ids.length === 0) {
+        setLoading(false);
+        return;
+      }
+      // 승인 목록 로딩 중이면 대기
+      if (isApprovalLoading) return;
+      // 승인 목록이 비어있으면 로딩 종료
+      if (approvedRequests.length === 0) {
+        setLoading(false);
+        return;
+      }
       const docs: any[] = [];
       for (const id of ids) {
         const request = (approvedRequests as any[]).find((r: any) => r.id === id);
@@ -114,7 +125,7 @@ export default function PrintPreviewPage() {
       setLoading(false);
     };
     loadDocuments();
-  }, [ids.length, approvedRequests.length]);
+  }, [ids.length, approvedRequests.length, isApprovalLoading]);
 
   useEffect(() => {
     if (!loading && documents.length > 0 && !printTriggered.current) {
@@ -134,7 +145,17 @@ export default function PrintPreviewPage() {
 
   if (documents.length === 0) return (
     <div className="flex items-center justify-center min-h-screen">
-      <p className="text-gray-500">인쇄할 문서가 없습니다.</p>
+      <div className="text-center">
+        <p className="text-gray-500 text-lg mb-2">
+          {ids.length === 0 ? "문서 ID가 지정되지 않았습니다." : "인쇄할 문서가 없습니다."}
+        </p>
+        <p className="text-gray-400 text-sm mb-4">
+          {ids.length === 0
+            ? "문서인쇄 관리 페이지에서 승인된 문서를 선택해주세요."
+            : "승인된 문서를 찾을 수 없습니다. 문서가 승인되었는지 확인해주세요."}
+        </p>
+        <button onClick={() => window.close()} className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">닫기</button>
+      </div>
     </div>
   );
 
