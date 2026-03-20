@@ -111,12 +111,13 @@ export const materialLedgerRouter = router({
         const buffer = await generateMonthlyExcel(input.yearMonth, tenantId);
         return { base64: buffer.toString("base64"), filename: `원료수불부_${input.yearMonth}.xlsx` };
       }),
-    // 대시보드 요약 통계
+    // 대시보드 요약 통계 (yearMonth 지정 가능)
     getDashboard: tenantRequiredProcedure
-      .query(async ({ ctx }) => {
+      .input(z.object({ yearMonth: z.string().optional() }).optional())
+      .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
         const { getDashboardSummary } = await import("../../db/materialLedger");
-        return getDashboardSummary(tenantId);
+        return getDashboardSummary(tenantId, input?.yearMonth);
       }),
     // 체크리스트 연동 - 해당 일자의 원재료 입고/사용 요약
     getChecklistData: tenantRequiredProcedure

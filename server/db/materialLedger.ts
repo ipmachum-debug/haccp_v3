@@ -57,6 +57,7 @@ export async function getDailyLedger(date: string, tenantId: number) {
        WHERE d1.tenant_id = ?
      ) prev_agg ON prev_agg.material_id = m.id
      WHERE m.tenant_id = ? AND m.is_active = 1
+       AND m.material_name NOT LIKE '%정제수%'
      ORDER BY m.material_name`,
     [date, tenantId, date, tenantId, date, tenantId, tenantId]
   );
@@ -235,7 +236,7 @@ export async function onBatchCompleted(params: {
 
 // ===== 월별 원료수불부 =====
 
-/** 월별 원료수불부 조회 (엑셀 다운로드용) */
+/** 월별 원료수불부 조회 (엑셀 다운로드용) - 정제수 제외 */
 export async function getMonthlyLedger(yearMonth: string, tenantId: number) {
   const db = await getRawConnection();
   const [rows] = await db.execute(
@@ -243,6 +244,7 @@ export async function getMonthlyLedger(yearMonth: string, tenantId: number) {
      FROM material_ledger_monthly ml
      JOIN h_materials m ON m.id = ml.material_id
      WHERE ml.tenant_id = ? AND ml.\`year_month\` = ?
+       AND m.material_name NOT LIKE '%정제수%'
      ORDER BY m.material_name`,
     [tenantId, yearMonth]
   );
@@ -258,9 +260,9 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
   const endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
   const prevMonth = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
   
-  // 모든 원재료 가져오기
+  // 모든 원재료 가져오기 (정제수 제외 - 재료차감 항목이 아님)
   const [materials]: any = await db.execute(
-    `SELECT id, material_name FROM h_materials WHERE tenant_id = ? AND is_active = 1 ORDER BY material_name`,
+    `SELECT id, material_name FROM h_materials WHERE tenant_id = ? AND is_active = 1 AND material_name NOT LIKE '%정제수%' ORDER BY material_name`,
     [tenantId]
   );
   
@@ -294,7 +296,8 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
       ut += ud[i];
     }
     
-    const endStock = prevStock + rt - ut;
+    // 음수 재고는 0으로 클램핑 (입고 누락 또는 BOM 오류 시 발생 가능)
+    const endStock = Math.max(prevStock + rt - ut, 0);
     
     await db.execute(
       `INSERT INTO material_ledger_monthly 
@@ -500,40 +503,46 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
 
 // ===== 대시보드 통계 =====
 
-/** 원료수불부 대시보드 요약 (당월 기준) */
-export async function getDashboardSummary(tenantId: number) {
+/** 원료수불부 대시보드 요약 (지정월 또는 당월 기준) */
+export async function getDashboardSummary(tenantId: number, targetMonth?: string) {
   const db = await getRawConnection();
   const today = new Date().toISOString().split('T')[0];
-  const yearMonth = today.substring(0, 7);
+  const yearMonth = targetMonth || today.substring(0, 7);
+  const [yr, mo] = yearMonth.split('-').map(Number);
+  const lastDay = new Date(yr, mo, 0).getDate();
   const startDate = `${yearMonth}-01`;
+  const endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
 
-  // 당월 입고/사용 합계
+  // 해당월 입고/사용 합계 (정제수 제외)
   const [monthRows]: any = await db.execute(
     `SELECT
-       SUM(receiving_qty) as total_receiving,
-       SUM(usage_qty) as total_usage
-     FROM material_ledger_daily
-     WHERE tenant_id = ? AND ledger_date >= ? AND ledger_date <= ?`,
-    [tenantId, startDate, today]
+       SUM(d.receiving_qty) as total_receiving,
+       SUM(d.usage_qty) as total_usage
+     FROM material_ledger_daily d
+     JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+     WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?
+       AND m.material_name NOT LIKE '%정제수%'`,
+    [tenantId, startDate, endDate]
   );
 
-  // 당월 입고/사용 금액 합계
+  // 해당월 입고/사용 금액 합계 (정제수 제외)
   const [amountRows]: any = await db.execute(
     `SELECT
        SUM(d.receiving_qty * COALESCE(m.unit_price, 0)) as total_receiving_amount,
        SUM(d.usage_qty * COALESCE(m.unit_price, 0)) as total_usage_amount
      FROM material_ledger_daily d
      JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
-     WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?`,
-    [tenantId, startDate, today]
+     WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?
+       AND m.material_name NOT LIKE '%정제수%'`,
+    [tenantId, startDate, endDate]
   );
 
   // 이번 달 승인 상태
   const approval = await getApprovalStatus(yearMonth, tenantId);
 
-  // 총 원재료 수
+  // 총 원재료 수 (정제수 제외)
   const [matCount]: any = await db.execute(
-    `SELECT COUNT(*) as cnt FROM h_materials WHERE tenant_id = ? AND is_active = 1`,
+    `SELECT COUNT(*) as cnt FROM h_materials WHERE tenant_id = ? AND is_active = 1 AND material_name NOT LIKE '%정제수%'`,
     [tenantId]
   );
 

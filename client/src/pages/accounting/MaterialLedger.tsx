@@ -73,9 +73,9 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
   const [rejectReason, setRejectReason] = useState("");
 
   // ========== 데이터 조회 ==========
-  // 대시보드 요약
+  // 대시보드 요약 (선택된 월 기준)
   const { data: _dashboardRaw, refetch: refetchDashboard } =
-    trpc.materialLedger.getDashboard.useQuery();
+    trpc.materialLedger.getDashboard.useQuery({ yearMonth: selectedMonth });
   const dashboard = _dashboardRaw as any;
 
   // 일일 데이터

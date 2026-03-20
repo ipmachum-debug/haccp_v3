@@ -189,14 +189,14 @@ export async function generateMonthlyExcel(yearMonth: string, tenantId: number):
     noCell.value = i + 1;
     fillCell(noCell, isOdd ? COLORS.oddNo : COLORS.evenNo, '000000', false, 9);
 
-    // 원료명
+    // 원료명 (raw SQL은 snake_case로 반환)
     const nameCell = ws.getCell(rowNum, 2);
-    nameCell.value = row.materialName;
+    nameCell.value = row.material_name || row.materialName || '';
     fillCell(nameCell, isOdd ? COLORS.oddName : COLORS.evenName, '000000', false, 9);
     nameCell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
 
-    // 전월재고
-    const prevStock = Number(row.prev_stock) || 0;
+    // 전월재고 (음수는 0으로 클램핑)
+    const prevStock = Math.max(Number(row.prev_stock) || 0, 0);
     sumPrevStock += prevStock;
     const prevCell = ws.getCell(rowNum, 3);
     prevCell.value = prevStock;
@@ -247,8 +247,8 @@ export async function generateMonthlyExcel(yearMonth: string, tenantId: number):
       }
     }
 
-    // 월말재고
-    const endStock = Number(row.end_stock) || 0;
+    // 월말재고 (음수는 0으로 클램핑)
+    const endStock = Math.max(Number(row.end_stock) || 0, 0);
     sumEndStock += endStock;
     const endCell = ws.getCell(rowNum, 68);
     endCell.value = endStock;
