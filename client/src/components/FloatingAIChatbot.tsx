@@ -266,7 +266,7 @@ export default function FloatingAIChatbot() {
       {isHidden && !isOpen && (
         <button
           onClick={handleShow}
-          className="fixed bottom-5 right-5 sm:bottom-7 sm:right-7 z-50 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-95 cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+          className="fixed bottom-20 right-5 sm:bottom-24 sm:right-7 z-50 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-95 cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
         >
           <img src="/ai-hana-character.png" alt="하나" className="h-6 w-6 object-contain" />
           <span className="text-xs font-bold text-gray-700 dark:text-gray-200">AI 하나</span>
@@ -275,7 +275,7 @@ export default function FloatingAIChatbot() {
 
       {/* ===== 플로팅 버튼 ===== */}
       {!isOpen && !isHidden && (
-        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2">
+        <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-50 flex flex-col items-end gap-2">
           {/* 말풍선 */}
           {showBubble && (
             <div className="hana-bubble-enter relative flex items-center">
