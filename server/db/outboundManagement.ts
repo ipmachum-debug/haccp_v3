@@ -3,9 +3,9 @@
  * 배치 생산 시 원재료 출고 기록 및 h_inventory 재고 자동 차감
  */
 
-import { getDb } from "../db";
+import { getDb, getRawConnection } from "../db";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../drizzle/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
 /**
  * h_inventory 테이블 재고량 차감
@@ -145,61 +145,85 @@ export async function getOutboundHistory(params?: {
   startDate?: Date;
   endDate?: Date;
 }, tenantId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const conditions = [
-    eq(hInventoryTransactions.transactionType, "usage"),
-    eq(hMaterials.tenantId, tenantId)
-  ];
-
-  if (params?.materialId) {
-    // materialId로 필터링하려면 LOT를 조인해야 함
-    // 간단하게 하기 위해 여기서는 생략하고, 필요 시 추가 구현
+  // 1. h_inventory_transactions 기반 소모 이력 (새 completeBatch가 생성하는 데이터)
+  // 2. h_batch_inputs 기반 소모 이력 (기존 백업 데이터 포함 전체 배치 투입)
+  // 두 소스를 UNION하여 전체 소모 이력을 반환
+  const pool = await getRawConnection();
+  if (!pool) {
+    // fallback to drizzle
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+    return [];
   }
 
-  if (params?.batchId) {
-    conditions.push(eq(hInventoryTransactions.referenceId, params.batchId));
-  }
+  const queryParams: any[] = [tenantId];
+  let dateFilter = '';
+  let materialFilter = '';
+  let batchFilter = '';
 
   if (params?.startDate) {
-    conditions.push(gte(hInventoryTransactions.createdAt, params.startDate));
+    dateFilter += ' AND consumption_date >= ?';
+    const sd = params.startDate instanceof Date ? params.startDate.toISOString().split('T')[0] : params.startDate;
+    queryParams.push(sd);
   }
-
   if (params?.endDate) {
-    conditions.push(gte(hInventoryTransactions.createdAt, params.endDate));
+    dateFilter += ' AND consumption_date <= ?';
+    const ed = params.endDate instanceof Date ? params.endDate.toISOString().split('T')[0] : params.endDate;
+    queryParams.push(ed);
+  }
+  if (params?.materialId) {
+    materialFilter = ' AND material_id = ?';
+    queryParams.push(params.materialId);
+  }
+  if (params?.batchId) {
+    batchFilter = ' AND batch_id = ?';
+    queryParams.push(params.batchId);
   }
 
-  const results = await db
-    .select({
-      id: hInventoryTransactions.id,
-      lotId: hInventoryTransactions.lotId,
-      lotNumber: hInventoryLots.lotNumber,
-      materialName: hMaterials.materialName,
-      quantity: hInventoryTransactions.quantity,
-      unit: hInventoryTransactions.unit,
-      referenceType: hInventoryTransactions.referenceType,
-      referenceId: hInventoryTransactions.referenceId,
-      notes: hInventoryTransactions.notes,
-      createdAt: hInventoryTransactions.createdAt
-    })
-    .from(hInventoryTransactions)
-    .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(and(...conditions))
-    .orderBy(desc(hInventoryTransactions.createdAt))
-    .limit(params?.limit || 50);
+  const limitVal = params?.limit || 50;
+  queryParams.push(limitVal);
 
-  return results.map((row) => ({
-    id: row.id,
-    lotId: row.lotId,
-    lotNumber: row.lotNumber,
-    materialName: row.materialName,
-    quantity: parseFloat(row.quantity),
-    unit: row.unit,
-    referenceType: row.referenceType,
-    referenceId: row.referenceId,
-    notes: row.notes,
-    createdAt: row.createdAt
-  }));
+  // h_batch_inputs 기반 - 완료된 배치의 전체 투입 이력 (가장 정확)
+  const query = `
+    SELECT 
+      bi.id,
+      bi.batch_id as referenceId,
+      b.batch_code as lotNumber,
+      m.material_name as materialName,
+      ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) as quantity,
+      COALESCE(bi.unit, m.unit, 'kg') as unit,
+      'batch' as referenceType,
+      CONCAT('배치 ', b.batch_code, ' 투입') as notes,
+      COALESCE(b.completed_at, b.end_time, b.start_time) as consumption_date,
+      bi.material_id
+    FROM h_batch_inputs bi
+    JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = ?
+    JOIN h_materials m ON bi.material_id = m.id
+    WHERE b.status = 'completed'
+      AND bi.inventory_deducted = 1
+      ${dateFilter}
+      ${materialFilter}
+      ${batchFilter}
+    ORDER BY consumption_date DESC, bi.id DESC
+    LIMIT ?
+  `;
+
+  try {
+    const [rows]: any = await pool.execute(query, queryParams);
+    return (rows as any[]).map((row: any) => ({
+      id: row.id,
+      lotId: row.referenceId,
+      lotNumber: row.lotNumber,
+      materialName: row.materialName,
+      quantity: parseFloat(row.quantity || '0'),
+      unit: row.unit || 'kg',
+      referenceType: row.referenceType,
+      referenceId: row.referenceId,
+      notes: row.notes,
+      createdAt: row.consumption_date
+    }));
+  } catch (err) {
+    console.error('[getOutboundHistory] Error:', err);
+    return [];
+  }
 }
