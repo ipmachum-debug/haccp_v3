@@ -226,7 +226,7 @@ export async function getOutboundHistory(params?: {
       SELECT
         bi.id + 10000000 AS id,
         0 AS lotId,
-        b.batch_number AS lotNumber,
+        b.batch_code AS lotNumber,
         m.material_name AS materialName,
         ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
         COALESCE(bi.unit, m.unit, 'kg') AS unit,
@@ -234,7 +234,7 @@ export async function getOutboundHistory(params?: {
         bi.batch_id AS referenceId,
         'BATCH' AS sourceType,
         bi.batch_id AS sourceId,
-        CONCAT('배치 ', COALESCE(b.batch_number, b.id), ' 투입') AS notes,
+        CONCAT('배치 ', COALESCE(b.batch_code, b.id), ' 투입') AS notes,
         COALESCE(bi.input_time, b.start_time, b.created_at) AS transactionDate,
         bi.created_at AS createdAt,
         'batch_input' AS dataSource
