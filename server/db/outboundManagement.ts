@@ -136,9 +136,14 @@ export async function createOutboundRecord(params: {
 }
 
 /**
- * 출고 이력 조회
- * - h_inventory_transactions에서 transactionType='usage' 조회
- * - LOT 조인 + h_inventory 조인으로 materialName 확보 (lot_id=0인 경우도 처리)
+ * 출고/소모 이력 조회
+ *
+ * 두 가지 데이터 소스를 UNION하여 전체 소모 이력 반환:
+ * 1. h_inventory_transactions (transaction_type='usage') - 실제 LOT 차감 기록 + 수동 출고
+ * 2. h_batch_inputs (inventory_deducted=1) - 배치 투입 기록 (트랜잭션 미생성 건 포함)
+ *
+ * 중복 방지: h_inventory_transactions에 이미 source_id/source_line_id로 기록된
+ * h_batch_inputs는 제외 (NOT EXISTS)
  */
 export async function getOutboundHistory(params?: {
   limit?: number;
@@ -150,53 +155,103 @@ export async function getOutboundHistory(params?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // Raw SQL로 직접 조회 - LOT 없는 경우(lot_id=0)에도 material_name 확보
-  const conditions: string[] = [
+  // 날짜 파라미터 전처리
+  const startDateStr = params?.startDate
+    ? (params.startDate instanceof Date ? params.startDate.toISOString().split('T')[0] : params.startDate)
+    : null;
+  const endDateStr = params?.endDate
+    ? (params.endDate instanceof Date ? params.endDate.toISOString().split('T')[0] : params.endDate)
+    : null;
+
+  // 조건 빌드
+  const txnConditions: string[] = [
     `t.transaction_type = 'usage'`,
     `t.tenant_id = ${tenantId}`
   ];
+  const biConditions: string[] = [
+    `b.tenant_id = ${tenantId}`,
+    `b.status IN ('in_progress', 'completed')`,
+    `bi.inventory_deducted = 1`
+  ];
 
   if (params?.materialId) {
-    conditions.push(`COALESCE(l.material_id, inv.material_id) = ${params.materialId}`);
+    txnConditions.push(`COALESCE(l.material_id, inv.material_id) = ${params.materialId}`);
+    biConditions.push(`bi.material_id = ${params.materialId}`);
   }
 
   if (params?.batchId) {
-    conditions.push(`t.source_id = ${params.batchId}`);
+    txnConditions.push(`t.source_id = ${params.batchId}`);
+    biConditions.push(`bi.batch_id = ${params.batchId}`);
   }
 
-  if (params?.startDate) {
-    conditions.push(`t.transaction_date >= '${params.startDate.toISOString().split('T')[0]}'`);
+  if (startDateStr) {
+    txnConditions.push(`COALESCE(t.transaction_date, t.created_at) >= '${startDateStr}'`);
+    biConditions.push(`COALESCE(bi.input_time, b.start_time, b.created_at) >= '${startDateStr}'`);
   }
 
-  if (params?.endDate) {
-    conditions.push(`t.transaction_date <= '${params.endDate.toISOString().split('T')[0]}'`);
+  if (endDateStr) {
+    txnConditions.push(`COALESCE(t.transaction_date, t.created_at) <= '${endDateStr}'`);
+    biConditions.push(`COALESCE(bi.input_time, b.start_time, b.created_at) <= '${endDateStr}'`);
   }
 
   const limit = params?.limit || 50;
-  const whereClause = conditions.join(' AND ');
 
+  // UNION ALL: h_inventory_transactions + h_batch_inputs (중복 제외)
   const [rows]: any = await db.execute(sql.raw(`
-    SELECT
-      t.id,
-      t.lot_id AS lotId,
-      l.lot_number AS lotNumber,
-      COALESCE(m1.material_name, m2.material_name) AS materialName,
-      t.quantity,
-      t.unit,
-      t.reference_type AS referenceType,
-      t.reference_id AS referenceId,
-      t.source_type AS sourceType,
-      t.source_id AS sourceId,
-      t.notes,
-      t.transaction_date AS transactionDate,
-      t.created_at AS createdAt
-    FROM h_inventory_transactions t
-    LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
-    LEFT JOIN h_materials m1 ON m1.id = l.material_id
-    LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
-    LEFT JOIN h_materials m2 ON m2.id = inv.material_id
-    WHERE ${whereClause}
-    ORDER BY t.transaction_date DESC, t.created_at DESC
+    (
+      SELECT
+        t.id,
+        t.lot_id AS lotId,
+        l.lot_number AS lotNumber,
+        COALESCE(m1.material_name, m2.material_name) AS materialName,
+        ABS(t.quantity) AS quantity,
+        t.unit,
+        t.reference_type AS referenceType,
+        COALESCE(t.reference_id, t.source_id) AS referenceId,
+        t.source_type AS sourceType,
+        t.source_id AS sourceId,
+        t.notes,
+        COALESCE(t.transaction_date, t.created_at) AS transactionDate,
+        t.created_at AS createdAt,
+        'transaction' AS dataSource
+      FROM h_inventory_transactions t
+      LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
+      LEFT JOIN h_materials m1 ON m1.id = l.material_id
+      LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
+      LEFT JOIN h_materials m2 ON m2.id = inv.material_id
+      WHERE ${txnConditions.join(' AND ')}
+    )
+    UNION ALL
+    (
+      SELECT
+        bi.id + 10000000 AS id,
+        0 AS lotId,
+        b.batch_number AS lotNumber,
+        m.material_name AS materialName,
+        ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
+        COALESCE(bi.unit, m.unit, 'kg') AS unit,
+        'batch' AS referenceType,
+        bi.batch_id AS referenceId,
+        'BATCH' AS sourceType,
+        bi.batch_id AS sourceId,
+        CONCAT('배치 ', COALESCE(b.batch_number, b.id), ' 투입') AS notes,
+        COALESCE(bi.input_time, b.start_time, b.created_at) AS transactionDate,
+        bi.created_at AS createdAt,
+        'batch_input' AS dataSource
+      FROM h_batch_inputs bi
+      JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
+      JOIN h_materials m ON bi.material_id = m.id
+      WHERE ${biConditions.join(' AND ')}
+        AND NOT EXISTS (
+          SELECT 1 FROM h_inventory_transactions tx
+          WHERE tx.source_type = 'BATCH'
+            AND tx.source_id = bi.batch_id
+            AND tx.source_line_id = bi.id
+            AND tx.transaction_type = 'usage'
+            AND tx.tenant_id = ${tenantId}
+        )
+    )
+    ORDER BY transactionDate DESC, createdAt DESC
     LIMIT ${limit}
   `));
 
@@ -213,6 +268,7 @@ export async function getOutboundHistory(params?: {
     sourceId: row.sourceId,
     notes: row.notes,
     transactionDate: row.transactionDate,
-    createdAt: row.createdAt
+    createdAt: row.createdAt,
+    dataSource: row.dataSource
   }));
 }

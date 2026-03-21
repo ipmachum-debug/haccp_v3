@@ -723,41 +723,122 @@ export async function completeBatch(params: {
       return n.includes("정제수") || n.includes("purified water");
     };
 
-    // 원재료 소비 처리
+    // 원재료 소비 처리 (tenantId 격리 + FEFO LOT 차감)
+    // ⚠️ autoMaterialIssue(배치 시작 시)에서 이미 차감된 건은 건너뜀
+    const pool = await getRawConnection();
     for (const { input, materialName } of batchInputs) {
-      // 재고 차감
+      // 이미 autoMaterialIssue에서 차감 완료된 원재료는 원가만 집계하고 건너뜀
+      if (Number(input.inventoryDeducted) === 1) {
+        if (!isWater(materialName)) {
+          totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+        }
+        continue;
+      }
+
+      const qty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
+      if (qty <= 0) continue;
+
+      // 재고 차감 (tenantId 격리)
       await db
         .update(hInventory)
         .set({
-          totalQuantity: sql`total_quantity - ${input.actualQuantity || input.plannedQuantity}`,
-          availableQuantity: sql`available_quantity - ${input.actualQuantity || input.plannedQuantity}`
+          totalQuantity: sql`GREATEST(total_quantity - ${qty}, 0)`,
+          availableQuantity: sql`GREATEST(available_quantity - ${qty}, 0)`,
+          lastUpdated: new Date()
         })
-        .where(eq(hInventory.materialId, input.materialId));
+        .where(and(
+          eq(hInventory.materialId, input.materialId),
+          eq(hInventory.tenantId, tenantId || existingBatch.tenantId)
+        ));
 
-      // 재고 거래 기록 생성
-      await db.insert(hInventoryTransactions).values({
-        materialId: input.materialId,
-        transactionType: "out",
-        quantity: input.actualQuantity || input.plannedQuantity,
-        unitPrice: input.unitPrice || "0",
-        totalPrice: input.totalPrice || "0",
-        batchId: batchId,
-        transactionDate: new Date(),
-        notes: `배치 완료 - 원재료 소비 (배치 ID: ${batchId})`,
-        createdBy: 1, // TODO: completedBy 파라미터 추가
-      } as any);
+      // FEFO LOT 차감 시도
+      let lotId: number | null = null;
+      let unitCost = 0;
+      if (pool) {
+        try {
+          const [lots]: any = await pool.execute(
+            `SELECT l.id, l.available_quantity, l.unit_price
+             FROM h_inventory_lots l
+             JOIN h_inventory i ON l.inventory_id = i.id
+             WHERE i.material_id = ? AND i.tenant_id = ? AND l.status = 'available' AND l.available_quantity > 0
+             ORDER BY l.receipt_date ASC LIMIT 1`,
+            [input.materialId, tenantId || existingBatch.tenantId]
+          );
+          if ((lots as any[]).length > 0) {
+            const lot = (lots as any[])[0];
+            lotId = lot.id;
+            unitCost = parseFloat(lot.unit_price || "0");
+            await pool.execute(
+              `UPDATE h_inventory_lots SET available_quantity = GREATEST(available_quantity - ?, 0) WHERE id = ?`,
+              [qty, lotId]
+            );
+          }
+        } catch (_e) { /* LOT 차감 실패 시 inventory 차감만 유지 */ }
+      }
+
+      // 재고 거래 기록 생성 (transactionType: "usage"로 소모이력에 표시)
+      try {
+        if (pool) {
+          const txnDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          await pool.execute(
+            `INSERT INTO h_inventory_transactions 
+             (lot_id, transaction_type, quantity, unit, unit_cost, amount,
+              transaction_date, source_type, source_id, action_type, purpose, tenant_id)
+             VALUES (?, 'usage', ?, ?, ?, ?, ?, 'batch_completion', ?, 'AUTO_ISSUE', 'production', ?)`,
+            [
+              lotId || 0, -qty, input.unit || 'kg', unitCost, -(qty * unitCost),
+              txnDate, batchId, tenantId || existingBatch.tenantId
+            ]
+          );
+        }
+      } catch (_e) { /* 트랜잭션 기록 실패 시 무시 */ }
+
+      // 수불부 반영
+      try {
+        if (pool) {
+          const txnDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          await pool.execute(
+            `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, notes, source)
+             VALUES (?, ?, ?, ?, ?, 'batch_complete')
+             ON DUPLICATE KEY UPDATE usage_qty = usage_qty + ?, notes = CONCAT(COALESCE(notes,''), ', ', ?)`,
+            [
+              tenantId || existingBatch.tenantId, input.materialId, txnDate, qty,
+              `배치#${batchId} 완료`, qty, `배치#${batchId} 완료`
+            ]
+          );
+        }
+      } catch (_e) { /* 수불부 실패 시 무시 */ }
+
+      // inventory_deducted = 1 설정 (autoMaterialIssue와 동일한 플래그)
+      try {
+        await db
+          .update(hBatchInputs)
+          .set({
+            inventoryDeducted: 1,
+            actualQuantity: qty.toString(),
+            unitPrice: unitCost > 0 ? unitCost.toFixed(2) : (input.unitPrice || "0"),
+            totalPrice: unitCost > 0 ? (qty * unitCost).toFixed(2) : (input.totalPrice || "0"),
+            inputTime: new Date(),
+          })
+          .where(eq(hBatchInputs.id, input.id));
+      } catch (_e) { /* inventory_deducted 업데이트 실패 시 무시 */ }
 
       // 원가 누적 (정제수 제외)
       if (!isWater(materialName)) {
-        totalMaterialCost += parseFloat(input.totalPrice || "0");
+        const cost = unitCost > 0 ? qty * unitCost : parseFloat(input.totalPrice || "0");
+        totalMaterialCost += cost;
       }
     }
 
-    // 완제품 재고 입고
+    // 완제품 재고 입고 (tenantId 격리)
+    const tId = tenantId || existingBatch.tenantId;
     const finishedGoodsInventory = await db
       .select()
       .from(hInventory)
-      .where(eq(hInventory.productId, existingBatch.productId))
+      .where(and(
+        eq(hInventory.productId, existingBatch.productId),
+        eq(hInventory.tenantId, tId)
+      ))
       .limit(1);
 
     if (finishedGoodsInventory.length > 0) {
@@ -767,30 +848,12 @@ export async function completeBatch(params: {
           totalQuantity: sql`total_quantity + ${actualQuantity}`,
           availableQuantity: sql`available_quantity + ${actualQuantity}`
         })
-        .where(eq(hInventory.productId, existingBatch.productId));
-    } else {
-      await db.insert(hInventory).values({
-        productId: existingBatch.productId,
-        totalQuantity: actualQuantity.toString(),
-        availableQuantity: actualQuantity.toString(),
-        reservedQuantity: "0",
-        unit: "kg",
-        location: "완제품 창고"
-      } as any);
+        .where(and(
+          eq(hInventory.productId, existingBatch.productId),
+          eq(hInventory.tenantId, tId)
+        ));
     }
-
-    // 완제품 입고 거래 기록 (kg 기준 총량)
-    await db.insert(hInventoryTransactions).values({
-      materialId: existingBatch.productId,
-      transactionType: "in",
-      quantity: actualQuantity.toString(),
-      unitPrice: "0",
-      totalPrice: "0",
-      batchId: batchId,
-      transactionDate: new Date(),
-      notes: `배치 완료 - 완제품 입고 (배치 ID: ${batchId}, ${actualQuantity}kg)`,
-      createdBy: 1,
-    } as any);
+    // 완제품 입고 기록은 SKU LOT 생성에서 처리
   } catch (error) {
     console.error(`[배치 완료] 재고 정산 실패:`, error);
   }
