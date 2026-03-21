@@ -1116,5 +1116,25 @@ export const inventoryRouter = router({
       .query(async ({ ctx }) => {
         const { getProductOutboundStats } = await import("../../db/productOutboundManagement");
         return await getProductOutboundStats(ctx.tenantId!);
+      }),
+
+    /**
+     * 소급 재고 차감 - 배치 생산에서 누락된 원재료 출고 일괄 처리
+     * 백업 데이터 임포트 등으로 autoMaterialIssue가 실행되지 않은 배치들을 대상으로
+     * inventory_deducted=0인 batch_inputs를 찾아 소급 차감 실행
+     */
+    retroactiveDeduction: adminProcedure
+      .input(z.object({
+        batchId: z.number().optional(),   // 특정 배치만 처리 (없으면 전체)
+        dryRun: z.boolean().optional()    // true면 시뮬레이션만
+      }).optional())
+      .mutation(async ({ input, ctx }) => {
+        const { retroactiveInventoryDeduction } = await import("../../db/retroactiveDeduction");
+        return await retroactiveInventoryDeduction({
+          tenantId: ctx.tenantId!,
+          userId: ctx.user?.id || 0,
+          batchId: input?.batchId,
+          dryRun: input?.dryRun || false
+        });
       })
 });

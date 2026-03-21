@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck } from "lucide-react";
+import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -328,6 +328,84 @@ function PurchaseOrderTab() {
 }
 
 /* ═══════════════════════════════════════════════════
+   배치 재고 소급 차감 버튼 컴포넌트
+   ═══════════════════════════════════════════════════ */
+function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) {
+  const [status, setStatus] = useState<"idle" | "checking" | "running" | "done">("idle");
+  const [resultMsg, setResultMsg] = useState("");
+
+  const retroMut = trpc.inventory.retroactiveDeduction.useMutation({
+    onSuccess: (data: any) => {
+      if (data.processedBatches === 0) {
+        setResultMsg("모든 배치의 원재료가 이미 차감되어 있습니다.");
+      } else {
+        setResultMsg(`${data.processedBatches}개 배치 처리 완료 (원재료 ${data.totalDeducted}건 차감, 총 원가 ₩${data.totalCost.toLocaleString()})`);
+      }
+      setStatus("done");
+      onComplete();
+    },
+    onError: (e: any) => {
+      setResultMsg(`오류: ${e.message}`);
+      setStatus("done");
+    }
+  });
+
+  const dryRunMut = trpc.inventory.retroactiveDeduction.useMutation({
+    onSuccess: (data: any) => {
+      if (data.processedBatches === 0 && data.errors?.length) {
+        setResultMsg("차감 대상 배치가 없습니다.");
+        setStatus("idle");
+        return;
+      }
+      const details = data.details?.map((d: any) =>
+        `  - 배치 ${d.batchNumber}: 원재료 ${d.materialsIssued}건`
+      ).join("\n") || "";
+      if (confirm(`소급 차감 대상: ${data.processedBatches}개 배치\n\n${details}\n\n재고에서 원재료를 차감하시겠습니까?`)) {
+        setStatus("running");
+        retroMut.mutate({ dryRun: false });
+      } else {
+        setStatus("idle");
+      }
+    },
+    onError: (e: any) => {
+      setResultMsg(`확인 오류: ${e.message}`);
+      setStatus("idle");
+    }
+  });
+
+  const handleClick = useCallback(() => {
+    setStatus("checking");
+    setResultMsg("");
+    dryRunMut.mutate({ dryRun: true });
+  }, []);
+
+  if (status === "done" && resultMsg) {
+    return (
+      <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-green-700 dark:text-green-400">{resultMsg}</span>
+        <button onClick={() => { setStatus("idle"); setResultMsg(""); }} className="text-[10px] text-blue-600 underline">닫기</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={status === "checking" || status === "running"}
+        onClick={handleClick}
+        className="h-7 text-xs border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-400 dark:hover:bg-amber-950/30"
+      >
+        <Play className="h-3 w-3 mr-1" />
+        {status === "checking" ? "확인 중..." : status === "running" ? "차감 처리 중..." : "배치 재고 일괄 차감"}
+      </Button>
+      <span className="text-[10px] text-muted-foreground ml-2">백업 데이터 등으로 누락된 배치별 원재료 재고 차감 실행</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    원재료 수동 소모 (폐기/기타) — BOM 자동소모 안내
    ═══════════════════════════════════════════════════ */
 function ReleaseTab() {
@@ -435,23 +513,28 @@ function ReleaseTab() {
 
   return (
     <div className="space-y-5">
-      {/* BOM 자동 소모 안내 */}
+      {/* BOM 자동 소모 안내 + 소급 차감 */}
       <Card className="border-blue-200 bg-blue-50/30 dark:bg-blue-950/10 dark:border-blue-800">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/40 shrink-0">
               <Factory className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <div>
+            <div className="flex-1">
               <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-300 mb-1">생산 투입 시 원재료 자동 소모</h4>
               <p className="text-xs text-blue-600/80 dark:text-blue-400/80 leading-relaxed">
                 배치 생산 시 BOM(레시피)에 등록된 원재료가 <strong>자동으로 재고에서 차감</strong>됩니다.<br/>
                 이 탭은 <strong>폐기, 샘플 출고, 기타 수동 소모</strong> 처리에 사용하세요.
               </p>
-              <div className="flex gap-3 mt-2 text-[10px]">
+              <div className="flex items-center gap-3 mt-2 text-[10px] flex-wrap">
                 <span className="text-blue-600 dark:text-blue-400 font-medium flex items-center gap-1"><ShieldCheck className="h-3 w-3" />생산투입 = BOM 자동 차감</span>
                 <span className="text-orange-600 dark:text-orange-400 font-medium flex items-center gap-1"><PackageMinus className="h-3 w-3" />폐기/기타 = 수동 처리</span>
               </div>
+              <RetroactiveDeductionButton onComplete={() => {
+                utils.inventory.getDashboard.invalidate();
+                utils.inventory.getOutboundHistory.invalidate();
+                utils.inventory.list.invalidate();
+              }} />
             </div>
           </div>
         </CardContent>
@@ -619,16 +702,17 @@ function ReleaseTab() {
                 <TableHeader><TableRow>
                   <TH className="w-10 text-center">No</TH>
                   <TH>일시</TH><TH>품명</TH><TH>LOT</TH>
-                  <TH className="text-right">수량</TH><TH>사유</TH>
+                  <TH className="text-right">수량</TH><TH>출처</TH><TH>사유</TH>
                 </TableRow></TableHeader>
                 <TableBody>
                   {filteredHistory.map((r: any, i: number) => (
                     <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
                       <TD className="text-center text-muted-foreground">{i+1}</TD>
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.createdAt)}</TD>
+                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.transactionDate || r.createdAt)}</TD>
                       <TD className="font-medium">{r.materialName || "-"}</TD>
                       <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
-                      <TD className="text-right font-mono font-medium whitespace-nowrap">{r.quantity} {r.unit}</TD>
+                      <TD className="text-right font-mono font-medium whitespace-nowrap">{Math.abs(r.quantity)} {r.unit}</TD>
+                      <TD className="text-xs">{r.sourceType === "BATCH" ? <Badge variant="outline" className="text-[10px]">배치#{r.sourceId}</Badge> : r.sourceType || "수동"}</TD>
                       <TD className="text-muted-foreground truncate max-w-[250px]">{r.notes || "-"}</TD>
                     </TableRow>
                   ))}

@@ -5,7 +5,7 @@
 
 import { getDb } from "../db";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../drizzle/schema";
-import { eq, desc, and, gte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
 /**
  * h_inventory 테이블 재고량 차감
@@ -137,6 +137,8 @@ export async function createOutboundRecord(params: {
 
 /**
  * 출고 이력 조회
+ * - h_inventory_transactions에서 transactionType='usage' 조회
+ * - LOT 조인 + h_inventory 조인으로 materialName 확보 (lot_id=0인 경우도 처리)
  */
 export async function getOutboundHistory(params?: {
   limit?: number;
@@ -148,58 +150,69 @@ export async function getOutboundHistory(params?: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  const conditions = [
-    eq(hInventoryTransactions.transactionType, "usage"),
-    eq(hMaterials.tenantId, tenantId)
+  // Raw SQL로 직접 조회 - LOT 없는 경우(lot_id=0)에도 material_name 확보
+  const conditions: string[] = [
+    `t.transaction_type = 'usage'`,
+    `t.tenant_id = ${tenantId}`
   ];
 
   if (params?.materialId) {
-    // materialId로 필터링하려면 LOT를 조인해야 함
-    // 간단하게 하기 위해 여기서는 생략하고, 필요 시 추가 구현
+    conditions.push(`COALESCE(l.material_id, inv.material_id) = ${params.materialId}`);
   }
 
   if (params?.batchId) {
-    conditions.push(eq(hInventoryTransactions.referenceId, params.batchId));
+    conditions.push(`t.source_id = ${params.batchId}`);
   }
 
   if (params?.startDate) {
-    conditions.push(gte(hInventoryTransactions.createdAt, params.startDate));
+    conditions.push(`t.transaction_date >= '${params.startDate.toISOString().split('T')[0]}'`);
   }
 
   if (params?.endDate) {
-    conditions.push(gte(hInventoryTransactions.createdAt, params.endDate));
+    conditions.push(`t.transaction_date <= '${params.endDate.toISOString().split('T')[0]}'`);
   }
 
-  const results = await db
-    .select({
-      id: hInventoryTransactions.id,
-      lotId: hInventoryTransactions.lotId,
-      lotNumber: hInventoryLots.lotNumber,
-      materialName: hMaterials.materialName,
-      quantity: hInventoryTransactions.quantity,
-      unit: hInventoryTransactions.unit,
-      referenceType: hInventoryTransactions.referenceType,
-      referenceId: hInventoryTransactions.referenceId,
-      notes: hInventoryTransactions.notes,
-      createdAt: hInventoryTransactions.createdAt
-    })
-    .from(hInventoryTransactions)
-    .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
-    .leftJoin(hMaterials, eq(hInventoryLots.materialId, hMaterials.id))
-    .where(and(...conditions))
-    .orderBy(desc(hInventoryTransactions.createdAt))
-    .limit(params?.limit || 50);
+  const limit = params?.limit || 50;
+  const whereClause = conditions.join(' AND ');
 
-  return results.map((row) => ({
+  const [rows]: any = await db.execute(sql.raw(`
+    SELECT
+      t.id,
+      t.lot_id AS lotId,
+      l.lot_number AS lotNumber,
+      COALESCE(m1.material_name, m2.material_name) AS materialName,
+      t.quantity,
+      t.unit,
+      t.reference_type AS referenceType,
+      t.reference_id AS referenceId,
+      t.source_type AS sourceType,
+      t.source_id AS sourceId,
+      t.notes,
+      t.transaction_date AS transactionDate,
+      t.created_at AS createdAt
+    FROM h_inventory_transactions t
+    LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
+    LEFT JOIN h_materials m1 ON m1.id = l.material_id
+    LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
+    LEFT JOIN h_materials m2 ON m2.id = inv.material_id
+    WHERE ${whereClause}
+    ORDER BY t.transaction_date DESC, t.created_at DESC
+    LIMIT ${limit}
+  `));
+
+  return (rows as any[]).map((row: any) => ({
     id: row.id,
     lotId: row.lotId,
-    lotNumber: row.lotNumber,
-    materialName: row.materialName,
-    quantity: parseFloat(row.quantity),
+    lotNumber: row.lotNumber || null,
+    materialName: row.materialName || null,
+    quantity: parseFloat(row.quantity || "0"),
     unit: row.unit,
     referenceType: row.referenceType,
     referenceId: row.referenceId,
+    sourceType: row.sourceType,
+    sourceId: row.sourceId,
     notes: row.notes,
+    transactionDate: row.transactionDate,
     createdAt: row.createdAt
   }));
 }
