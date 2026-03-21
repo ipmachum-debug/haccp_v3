@@ -4,8 +4,15 @@
  */
 
 import { getDb } from "../db";
-import { hBatches, hBatchMaterials, hInventoryLots, hProductsV2 } from "../../drizzle/schema";
+import { hBatches, hBatchMaterials, hInventoryLots, hProductsV2, hMaterials } from "../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
+
+/** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
 
 /**
  * 배치별 원가 계산
@@ -25,15 +32,22 @@ export async function calculateBatchCost(batchId: number, tenantId: number) {
     throw new Error(`Batch not found: ${batchId}`);
   }
 
-  // 배치에 투입된 원재료 목록 조회
+  // 배치에 투입된 원재료 목록 조회 (원재료명 포함)
   const batchMaterials = await db
-    .select()
+    .select({
+      bm: hBatchMaterials,
+      materialName: hMaterials.materialName
+    })
     .from(hBatchMaterials)
+    .leftJoin(hMaterials, eq(hBatchMaterials.materialId, hMaterials.id))
     .where(and(eq(hBatchMaterials.tenantId, tenantId as any) , eq(hBatchMaterials.batchId, batchId)) as any);
-  // 각 원재료의 LOT별 단가 조회 및 비용 계산
+  // 각 원재료의 LOT별 단가 조회 및 비용 계산 (정제수 제외)
   let totalMaterialCost = 0;
 
-  for (const material of batchMaterials) {
+  for (const { bm: material, materialName } of batchMaterials) {
+    // 정제수는 가격 계산에서 제외
+    if (isWaterMaterial(materialName)) continue;
+
     if (material.lotId) {
       // LOT 정보 조회
       const [lot] = await db
@@ -68,7 +82,7 @@ export async function calculateBatchCost(batchId: number, tenantId: number) {
     totalMaterialCost: Math.round(totalMaterialCost),
     productPrice: Math.round(productPrice),
     costRate: Math.round(costRate * 100) / 100, // 소수점 2자리
-    materialCount: batchMaterials.length
+    materialCount: batchMaterials.filter(({ materialName }) => !isWaterMaterial(materialName)).length
   };
 }
 

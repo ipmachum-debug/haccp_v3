@@ -298,7 +298,8 @@ export async function updateBatch(
     plannedStartDate?: Date;
     plannedEndDate?: Date;
     status?: string;
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -312,10 +313,13 @@ export async function updateBatch(
   if (data.plannedEndDate !== undefined) updateData.plannedEndDate = data.plannedEndDate;
   if (data.status !== undefined) updateData.status = data.status;
 
+  const conditions: any[] = [eq(hBatches.id, batchId)];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+
   await db
     .update(hBatches)
     .set(updateData)
-    .where(eq(hBatches.id, batchId));
+    .where(and(...conditions));
 }
 
 export async function updateBatchSchedule(
@@ -324,7 +328,8 @@ export async function updateBatchSchedule(
     plannedDate?: Date;
     startTime?: Date;
     endTime?: Date;
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -336,22 +341,28 @@ export async function updateBatchSchedule(
   if (data.startTime !== undefined) updateData.startTime = data.startTime;
   if (data.endTime !== undefined) updateData.endTime = data.endTime;
 
+  const conditions: any[] = [eq(hBatches.id, batchId)];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+
   await db
     .update(hBatches)
     .set(updateData)
-    .where(eq(hBatches.id, batchId));
+    .where(and(...conditions));
 }
 
-export async function updateBatchStatus(batchId: number, status: string) {
+export async function updateBatchStatus(batchId: number, status: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { hBatches } = await import("../../drizzle/schema");
 
+  const conditions: any[] = [eq(hBatches.id, batchId)];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+
   await db
     .update(hBatches)
     .set({ status } as any)
-    .where(eq(hBatches.id, batchId));
+    .where(and(...conditions));
 }
 
 export async function deleteBatch(batchId: number, tenantId?: number) {
@@ -514,28 +525,29 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
   };
 }
 
-export async function getActiveBatches() {
+export async function getActiveBatches(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   const { sql } = await import("drizzle-orm");
 
-  // 최근 7일 이내의 배치 조회
+  // 최근 7일 이내의 배치 조회 (tenantId 격리)
+  const tenantFilter = tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``;
   const batchesRaw = await db.execute(sql`
     SELECT
-      b.batchId,
-      b.batchCode as batchNumber,
-      b.plannedQuantity as quantity,
-      b.plannedDate as startTime,
-      DATE_ADD(b.plannedDate, INTERVAL 8 HOUR) as expectedEndTime,
-      p.productName,
+      b.id as batchId,
+      b.batch_code as batchNumber,
+      b.planned_quantity as quantity,
+      b.planned_date as startTime,
+      DATE_ADD(b.planned_date, INTERVAL 8 HOUR) as expectedEndTime,
+      p.product_name as productName,
       'in_progress' as status,
-      (SELECT COUNT(*) FROM hCcpInstances WHERE batchId = b.batchId) as ccpCheckCount,
-      (SELECT COUNT(*) FROM hCcpInstances WHERE batchId = b.batchId AND status = 'completed') as ccpCheckCompletedCount
-    FROM hBatches b
+      (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id) as ccpCheckCount,
+      (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id AND status = 'completed') as ccpCheckCompletedCount
+    FROM h_batches b
     LEFT JOIN h_products_v2 p ON b.product_id = p.id
-    WHERE b.plannedDate >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-    ORDER BY b.plannedDate DESC
+    WHERE b.planned_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) ${tenantFilter}
+    ORDER BY b.planned_date DESC
     LIMIT 20
   `);
 
@@ -553,15 +565,18 @@ export async function getActiveBatches() {
   }));
 }
 
-export async function checkBatchCompletionReadiness(batchId: number) {
+export async function checkBatchCompletionReadiness(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  // 배치 정보 조회
+  // 배치 정보 조회 (tenantId 격리)
+  const conditions: any[] = [eq(hBatches.id, batchId)];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+
   const batches = await db
     .select()
     .from(hBatches)
-    .where(eq(hBatches.id, batchId))
+    .where(and(...conditions))
     .limit(1);
   const batch = batches[0];
 
@@ -642,16 +657,20 @@ export async function completeBatch(params: {
   revenue?: number;
   completionNotes?: string;
   idempotencyKey: string;
+  tenantId?: number;
 }) {
-  const { batchId, actualQuantity, defectQuantity, revenue, completionNotes, idempotencyKey } = params;
+  const { batchId, actualQuantity, defectQuantity, revenue, completionNotes, idempotencyKey, tenantId } = params;
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  // 1. idempotency 키 검증 (중복 완료 방지)
+  // 1. idempotency 키 검증 (중복 완료 방지, tenantId 격리)
+  const batchConditions: any[] = [eq(hBatches.id, batchId)];
+  if (tenantId) batchConditions.push(eq(hBatches.tenantId, tenantId));
+
   const existingBatches = await db
     .select()
     .from(hBatches)
-    .where(eq(hBatches.id, batchId))
+    .where(and(...batchConditions))
     .limit(1);
   const existingBatch = existingBatches[0];
 
@@ -980,11 +999,19 @@ export async function addBatchInput(input: {
   totalPrice?: string;
   notes?: string;
   createdBy: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { hBatchInputs } = await import("../../drizzle/schema");
+
+  // tenantId 격리: 배치 소유권 검증
+  if (input.tenantId) {
+    const batchCheck = await db.select({ id: hBatches.id }).from(hBatches)
+      .where(and(eq(hBatches.id, input.batchId), eq(hBatches.tenantId, input.tenantId))).limit(1);
+    if (batchCheck.length === 0) throw new Error("해당 배치에 대한 접근 권한이 없습니다");
+  }
 
   const [result] = await db.insert(hBatchInputs).values({
     batchId: input.batchId,
@@ -993,7 +1020,8 @@ export async function addBatchInput(input: {
     unitPrice: input.unitPrice || "0",
     totalPrice: input.totalPrice || "0",
     notes: input.notes || null,
-    createdBy: input.createdBy
+    createdBy: input.createdBy,
+    tenantId: input.tenantId || 1
   } as any);
 
   return Number(result.insertId);
