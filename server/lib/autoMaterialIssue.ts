@@ -15,6 +15,13 @@
 import { getDb } from "../db";
 import { eq, and, sql } from "drizzle-orm";
 
+/** 정제수(purified water) 여부 판별 - 원가 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
+
 interface AutoIssueResult {
   success: boolean;
   issuedMaterials: Array<{
@@ -107,11 +114,12 @@ export async function autoIssueMaterialsForBatch(
       const requiredQuantity = parseFloat(input.planned_quantity?.toString() || "0");
       const unit = input.unit || "kg";
       const materialName = input.material_name || `원재료 #${materialId}`;
-      const unitPrice = parseFloat(input.unit_price?.toString() || "0");
+      const isWater = isWaterMaterial(materialName);
+      const unitPrice = isWater ? 0 : parseFloat(input.unit_price?.toString() || "0");
 
       try {
         let issuedQuantity = requiredQuantity;
-        let materialCost = requiredQuantity * unitPrice;
+        let materialCost = requiredQuantity * unitPrice; // 정제수: 0
 
         // FEFO 로트 할당 시도 (재고 로트가 있는 경우)
         let lotAllocations: Array<{ lotId: number; quantity: number; unitCost: number }> = [];

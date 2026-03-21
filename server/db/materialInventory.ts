@@ -7,6 +7,13 @@ import { getDb } from "../db";
 import { hInventory, hMaterials, hInventoryLots } from "../../drizzle/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 
+/** 정제수(purified water) 여부 판별 - 원가 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
+
 /**
  * 모든 원재료의 현재 재고 수량 조회
  * h_materials와 h_inventory를 조인하여 원재료 정보와 재고 정보 함께 반환
@@ -60,6 +67,7 @@ export async function getMaterialsWithInventory(tenantId?: number) {
         }
       }
 
+      const isWater = isWaterMaterial(row.materialName);
       return {
         id: row.id,
         materialCode: row.materialCode,
@@ -67,15 +75,16 @@ export async function getMaterialsWithInventory(tenantId?: number) {
         category: row.category,
         unit: row.unit,
         safetyStockLevel: row.safetyStockLevel ? parseFloat(row.safetyStockLevel) : 0,
-        unitPrice: row.unitPrice ? parseFloat(row.unitPrice) : 0,
+        unitPrice: isWater ? 0 : (row.unitPrice ? parseFloat(row.unitPrice) : 0),
         expiryWarningDays: row.expiryWarningDays,
         isActive: row.isActive,
+        isWater, // 정제수 여부 플래그 (프론트에서 "원가제외" 표시용)
         // 재고 정보 (없으면 0)
         totalQuantity: row.totalQuantity ? parseFloat(row.totalQuantity) : 0,
         availableQuantity: row.availableQuantity ? parseFloat(row.availableQuantity) : 0,
         reservedQuantity: row.reservedQuantity ? parseFloat(row.reservedQuantity) : 0,
-        // 평균 단가 (최근 10건 기준)
-        averagePrice: averagePrice ? Math.round(averagePrice) : null
+        // 평균 단가 (최근 10건 기준, 정제수는 0)
+        averagePrice: isWater ? 0 : (averagePrice ? Math.round(averagePrice) : null)
       };
     })
   );
