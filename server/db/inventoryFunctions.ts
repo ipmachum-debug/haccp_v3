@@ -806,7 +806,7 @@ export async function getInventoryDashboard(tenantId?: number) {
   const [stockStats] = await db
     .select({
       totalLots: sql<number>`COUNT(*)`,
-      totalValue: sql<number>`SUM(${hInventoryLots.availableQuantity} * CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)))`,
+      totalValue: sql<number>`SUM(${hInventoryLots.availableQuantity} * COALESCE(CAST(${hInventoryLots.unitPrice} AS DECIMAL(10,2)), CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)), 0))`,
       availableLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END)`,
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
@@ -827,7 +827,14 @@ export async function getInventoryDashboard(tenantId?: number) {
       totalQuantity: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN ${hInventoryLots.availableQuantity} ELSE 0 END), 0)`,
       lotCount: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END), 0)`,
       unit: hMaterials.unit,
-      unitPrice: hMaterials.unitPrice,
+      masterUnitPrice: hMaterials.unitPrice,
+      // LOT 가중평균 단가: SUM(가용수량 × LOT단가) / SUM(가용수량) - 재고 있는 LOT만
+      lotWeightedAvgPrice: sql<number>`CASE
+        WHEN COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.unitPrice} IS NOT NULL THEN ${hInventoryLots.availableQuantity} ELSE 0 END), 0) > 0
+        THEN SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.unitPrice} IS NOT NULL THEN ${hInventoryLots.availableQuantity} * ${hInventoryLots.unitPrice} ELSE 0 END)
+           / SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.unitPrice} IS NOT NULL THEN ${hInventoryLots.availableQuantity} ELSE 0 END)
+        ELSE NULL
+      END`,
       safetyStockLevel: hMaterials.safetyStockLevel,
       expiryWarningDays: hMaterials.expiryWarningDays
     })
@@ -874,11 +881,19 @@ export async function getInventoryDashboard(tenantId?: number) {
       expiringSoonLots: Number(stockStats.expiringSoonLots) || 0,
       lowStockCount: lowStockMaterials.length
     },
-    materialStocks: materialStocks.map((m) => ({
-      ...m,
-      totalValue: m.totalQuantity * parseFloat(m.unitPrice || "0"),
-      isLowStock: parseFloat(m.safetyStockLevel || "0") > 0 && m.totalQuantity < parseFloat(m.safetyStockLevel || "0")
-    })),
+    materialStocks: materialStocks.map((m) => {
+      // 단가 우선순위: LOT 가중평균 단가 → 마스터 단가
+      const lotAvg = m.lotWeightedAvgPrice ? parseFloat(String(m.lotWeightedAvgPrice)) : null;
+      const masterPrice = m.masterUnitPrice ? parseFloat(String(m.masterUnitPrice)) : 0;
+      const effectivePrice = lotAvg ?? masterPrice;
+      return {
+        ...m,
+        unitPrice: effectivePrice > 0 ? effectivePrice.toFixed(2) : (m.masterUnitPrice || "0"),
+        totalValue: m.totalQuantity * effectivePrice,
+        priceSource: lotAvg !== null ? "lot" : "master",
+        isLowStock: parseFloat(m.safetyStockLevel || "0") > 0 && m.totalQuantity < parseFloat(m.safetyStockLevel || "0")
+      };
+    }),
     lowStockMaterials,
     expiringLots: expiringLots.map((row) => ({
       ...row.lot,

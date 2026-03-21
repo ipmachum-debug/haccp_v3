@@ -223,11 +223,21 @@ export async function autoIssueMaterialsForBatch(
           }
         }
 
-        // h_batch_inputs.inventory_deducted = 1, actual_quantity 업데이트
+        // h_batch_inputs.inventory_deducted = 1, actual_quantity + 실제단가 업데이트
+        // FEFO 할당된 LOT의 가중평균 단가로 unit_price/total_price 갱신
+        const effectiveUnitPrice = isWater ? 0 : (
+          lotAllocations.length > 0 && issuedQuantity > 0
+            ? materialCost / issuedQuantity  // LOT 가중평균 단가
+            : unitPrice                       // 폴백: 마스터 단가
+        );
+        const effectiveTotalPrice = isWater ? 0 : materialCost;
+
         await db.execute(sql`
-          UPDATE h_batch_inputs 
-          SET inventory_deducted = 1, 
+          UPDATE h_batch_inputs
+          SET inventory_deducted = 1,
               actual_quantity = ${issuedQuantity},
+              unit_price = ${effectiveUnitPrice.toFixed(2)},
+              total_price = ${effectiveTotalPrice.toFixed(2)},
               input_time = NOW(),
               input_by = ${userId}
           WHERE id = ${input.id} AND tenant_id = ${tenantId}

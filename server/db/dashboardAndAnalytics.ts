@@ -617,12 +617,21 @@ export async function getBatchCost(batchId: number) {
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
     .where(eq(hBatchInputs.batchId, batchId));
 
-  // 각 원재료별 비용 계산 (정제수는 비용 0으로 처리)
+  // 각 원재료별 비용 계산
+  // 우선순위: ① h_batch_inputs.unitPrice (FEFO LOT 실제단가) → ② h_materials.unitPrice (마스터 단가)
+  // 정제수는 비용 0으로 처리
   const materialCosts = inputs.map((item) => {
     const quantity = parseFloat(String(item.input.actualQuantity || item.input.plannedQuantity));
     const water = isWaterMaterial(item.material?.materialName);
-    const unitPrice = water ? 0 : (item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0);
-    const cost = quantity * unitPrice;
+
+    // h_batch_inputs에 FEFO 할당 시 저장된 실제단가 우선 사용
+    const batchInputUnitPrice = item.input.unitPrice ? parseFloat(String(item.input.unitPrice)) : null;
+    const masterUnitPrice = item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0;
+    const unitPrice = water ? 0 : (batchInputUnitPrice ?? masterUnitPrice);
+
+    // total_price가 있으면 직접 사용 (FEFO 가중평균 기반), 없으면 수량×단가
+    const batchInputTotalPrice = item.input.totalPrice ? parseFloat(String(item.input.totalPrice)) : null;
+    const cost = water ? 0 : (batchInputTotalPrice ?? quantity * unitPrice);
 
     return {
       materialId: item.input.materialId,
@@ -631,7 +640,8 @@ export async function getBatchCost(batchId: number) {
       unit: item.input.unit,
       unitPrice,
       totalCost: cost,
-      isWater: water
+      isWater: water,
+      priceSource: water ? "excluded" : (batchInputUnitPrice !== null ? "lot" : "master")
     };
   });
 
@@ -647,6 +657,7 @@ export async function getBatchCost(batchId: number) {
 
 /**
  * 여러 배치의 비용 조회 (배치 목록 페이지용)
+ * 단가 우선순위: ① h_batch_inputs.total_price (FEFO LOT 실제원가) → ② 수량 × h_materials.unit_price (마스터 단가)
  * 정제수는 비용 합계에서 제외
  */
 export async function getBatchCostSummary(batchIds: number[]) {
@@ -654,15 +665,22 @@ export async function getBatchCostSummary(batchIds: number[]) {
   if (!db) throw new Error("Database not available");
 
   const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
-  const { inArray, eq, sql, and, notLike } = await import("drizzle-orm");
+  const { inArray, eq, sql, and } = await import("drizzle-orm");
 
   if (batchIds.length === 0) return [];
 
   // 각 배치별 총 비용 계산 (정제수 제외)
+  // COALESCE: h_batch_inputs.total_price (LOT 실제원가) > actual_qty × h_batch_inputs.unit_price > actual_qty × h_materials.unit_price
   const result = await db
     .select({
       batchId: hBatchInputs.batchId,
-      totalCost: sql<string>`SUM(${hBatchInputs.actualQuantity} * ${hMaterials.unitPrice})`
+      totalCost: sql<string>`SUM(
+        COALESCE(
+          ${hBatchInputs.totalPrice},
+          COALESCE(${hBatchInputs.actualQuantity}, ${hBatchInputs.plannedQuantity})
+            * COALESCE(${hBatchInputs.unitPrice}, ${hMaterials.unitPrice}, 0)
+        )
+      )`
     })
     .from(hBatchInputs)
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))

@@ -121,13 +121,16 @@ export async function getBatchMaterialCostBreakdown(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // h_batch_inputs.unitPrice (FEFO LOT 실제단가) 우선, 없으면 h_materials.unitPrice (마스터 단가) 폴백
   const batchInputs = await db
     .select({
       materialId: hBatchInputs.materialId,
       materialName: hMaterials.materialName,
       plannedQuantity: hBatchInputs.plannedQuantity,
       actualQuantity: hBatchInputs.actualQuantity,
-      unitPrice: hMaterials.unitPrice
+      lotUnitPrice: hBatchInputs.unitPrice,       // FEFO LOT 실제단가
+      lotTotalPrice: hBatchInputs.totalPrice,      // FEFO LOT 실제원가
+      masterUnitPrice: hMaterials.unitPrice         // 마스터 단가 (폴백)
     })
     .from(hBatchInputs)
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
@@ -136,11 +139,18 @@ export async function getBatchMaterialCostBreakdown(
   return batchInputs.map((input) => {
     const plannedQuantity = Number(input.plannedQuantity || 0);
     const actualQuantity = Number(input.actualQuantity || 0);
-    // 정제수는 가격 계산에서 제외
     const water = isWaterMaterial(input.materialName);
-    const unitPrice = water ? 0 : Number(input.unitPrice || 0);
+
+    // 단가 우선순위: LOT 실제단가 → 마스터 단가
+    const lotPrice = input.lotUnitPrice ? Number(input.lotUnitPrice) : null;
+    const masterPrice = input.masterUnitPrice ? Number(input.masterUnitPrice) : 0;
+    const unitPrice = water ? 0 : (lotPrice ?? masterPrice);
+    const priceSource = water ? "excluded" : (lotPrice !== null ? "lot" : "master");
+
     const plannedCost = plannedQuantity * unitPrice;
-    const actualCost = actualQuantity * unitPrice;
+    // 실제원가: LOT total_price가 있으면 직접 사용 (FEFO 가중평균)
+    const lotTotal = input.lotTotalPrice ? Number(input.lotTotalPrice) : null;
+    const actualCost = water ? 0 : (lotTotal ?? actualQuantity * unitPrice);
     const costDifference = actualCost - plannedCost;
 
     return {
@@ -152,7 +162,8 @@ export async function getBatchMaterialCostBreakdown(
       plannedCost: Math.round(plannedCost * 100) / 100,
       actualCost: Math.round(actualCost * 100) / 100,
       costDifference: Math.round(costDifference * 100) / 100,
-      isWater: water
+      isWater: water,
+      priceSource  // "lot" | "master" | "excluded"
     };
   });
 }
