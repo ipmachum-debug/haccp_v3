@@ -852,21 +852,25 @@ export async function getBatchProfitability(batchId: number) {
 export async function getProfitabilityByProduct(filters?: {
   startDate?: Date;
   endDate?: Date;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema.js");
   const { and, gte, lte, eq, sql, isNotNull } = await import("drizzle-orm");
-  
-  const conditions = [isNotNull(hBatches.revenue)];
+
+  const conditions: any[] = [isNotNull(hBatches.revenue)];
+  if (filters?.tenantId) {
+    conditions.push(eq(hBatches.tenantId, filters.tenantId));
+  }
   if (filters?.startDate) {
     conditions.push(gte(hBatches.plannedDate, filters.startDate));
   }
   if (filters?.endDate) {
     conditions.push(lte(hBatches.plannedDate, filters.endDate));
   }
-  
+
   const stats = await db
     .select({
       productId: hBatches.productId,
@@ -880,23 +884,30 @@ export async function getProfitabilityByProduct(filters?: {
     .where(and(...conditions))
     .groupBy(hBatches.productId, hProductsV2.productName)
     .orderBy(sql`SUM(${hBatches.revenue}) DESC`);
-  
+
   // 각 제품의 평균 비용 계산
   const result = [];
   for (const stat of stats) {
     // 해당 제품의 모든 배치 비용 조회
+    const batchConditions: any[] = [
+      eq(hBatches.productId, stat.productId),
+      isNotNull(hBatches.revenue),
+    ];
+    if (filters?.tenantId) {
+      batchConditions.push(eq(hBatches.tenantId, filters.tenantId));
+    }
+    if (filters?.startDate) {
+      batchConditions.push(gte(hBatches.plannedDate, filters.startDate));
+    }
+    if (filters?.endDate) {
+      batchConditions.push(lte(hBatches.plannedDate, filters.endDate));
+    }
+
     const batches = await db
       .select({ id: hBatches.id })
       .from(hBatches)
-      .where(
-        and(
-          eq(hBatches.productId, stat.productId),
-          isNotNull(hBatches.revenue),
-          filters?.startDate ? gte(hBatches.plannedDate, filters.startDate) : undefined,
-          filters?.endDate ? lte(hBatches.plannedDate, filters.endDate) : undefined
-        )
-      );
-    
+      .where(and(...batchConditions));
+
     let totalCost = 0;
     for (const batch of batches) {
       const costResult = await getBatchCost(batch.id);
@@ -1278,14 +1289,17 @@ export async function createInventoryTurnoverAlert(materialId: number, turnoverR
 }
 
 // 월별 수익률 추이 조회
-export async function getProfitabilityTrendByMonth(startDate?: Date, endDate?: Date) {
+export async function getProfitabilityTrendByMonth(startDate?: Date, endDate?: Date, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hBatches, hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
   const { sql, gte, lte, and, isNotNull, eq } = await import("drizzle-orm");
-  
-  let conditions = [isNotNull(hBatches.revenue)];
+
+  let conditions: any[] = [isNotNull(hBatches.revenue)];
+  if (tenantId) {
+    conditions.push(eq(hBatches.tenantId, tenantId));
+  }
   if (startDate) {
     conditions.push(gte(hBatches.plannedDate, startDate));
   }
@@ -1325,14 +1339,17 @@ export async function getProfitabilityTrendByMonth(startDate?: Date, endDate?: D
 }
 
 // 분기별 수익률 추이 조회
-export async function getProfitabilityTrendByQuarter(startDate?: Date, endDate?: Date) {
+export async function getProfitabilityTrendByQuarter(startDate?: Date, endDate?: Date, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hBatches, hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
   const { sql, gte, lte, and, isNotNull, eq } = await import("drizzle-orm");
-  
-  let conditions = [isNotNull(hBatches.revenue)];
+
+  let conditions: any[] = [isNotNull(hBatches.revenue)];
+  if (tenantId) {
+    conditions.push(eq(hBatches.tenantId, tenantId));
+  }
   if (startDate) {
     conditions.push(gte(hBatches.plannedDate, startDate));
   }
@@ -1482,18 +1499,27 @@ function calculateTrend(data: number[]): number {
 }
 
 // 배치 수익성 예측 (지수 평활법 + 트렌드 기반)
-export async function getProfitabilityForecast() {
+export async function getProfitabilityForecast(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
-  
+
+  const { and: drizzleAnd, eq: drizzleEq } = await import("drizzle-orm");
+
   // 과거 3개월 데이터 조회
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
-  
+
+  const conditions: any[] = [
+    sql`${hBatches.plannedDate} >= ${threeMonthsAgo.toISOString().split('T')[0]}`
+  ];
+  if (tenantId) {
+    conditions.push(drizzleEq(hBatches.tenantId, tenantId));
+  }
+
   const batches = await db
     .select()
     .from(hBatches)
-    .where(sql`${hBatches.plannedDate} >= ${threeMonthsAgo.toISOString().split('T')[0]}`)
+    .where(drizzleAnd(...conditions))
     .orderBy(hBatches.plannedDate);
   
   if (batches.length === 0) {
@@ -1686,16 +1712,22 @@ export async function saveProfitabilityForecast(data: {
 }
 
 // 과거 예측값 조회 (실제값과 비교)
-export async function getProfitabilityForecastHistory() {
+export async function getProfitabilityForecastHistory(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hProfitabilityForecasts } = await import("../../drizzle/schema.js");
-  const { desc } = await import("drizzle-orm");
-  
-  const forecasts = await db
+  const { desc, eq: drizzleEq } = await import("drizzle-orm");
+
+  let query = db
     .select()
-    .from(hProfitabilityForecasts)
+    .from(hProfitabilityForecasts);
+
+  if (tenantId) {
+    query = query.where(drizzleEq(hProfitabilityForecasts.tenantId, tenantId)) as any;
+  }
+
+  const forecasts = await query
     .orderBy(desc(hProfitabilityForecasts.targetMonth))
     .limit(12); // 최근 12개월
   

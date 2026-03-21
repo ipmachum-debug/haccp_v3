@@ -31,7 +31,7 @@ export const batchCostRouter = router({
     .query(async ({ input, ctx }) => {
       const tenantId = ctx.tenantId;
       const { getProfitabilityByProduct } = await import("../../db");
-      return await getProfitabilityByProduct(input, tenantId ?? undefined);
+      return await getProfitabilityByProduct({ ...input, tenantId: tenantId ?? undefined });
     }),
 
   // 배치 매출액 업데이트
