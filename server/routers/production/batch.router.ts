@@ -791,8 +791,8 @@ export const batchRouter = router({
           });
         }
         
-        await updateBatchStatus(input.id, input.status);
-        
+        await updateBatchStatus(input.id, input.status, ctx.tenantId ?? undefined);
+
         // === 파이프라인 자동화: 배치 시작 시 원료 자동 출고 ===
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
@@ -1068,8 +1068,8 @@ export const batchRouter = router({
         }
         
         // 배치 상태를 under_review로 변경
-        await updateBatchStatus(input.batchId, "under_review");
-        
+        await updateBatchStatus(input.batchId, "under_review", ctx.tenantId ?? undefined);
+
         // 감사 로그 기록
         await createAuditLog({
           action: "batch.requestApproval",
@@ -1125,8 +1125,8 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 approved로 변경
-        await updateBatchStatus(input.batchId, "approved");
-        
+        await updateBatchStatus(input.batchId, "approved", ctx.tenantId ?? undefined);
+
         // 감사 로그 기록
         await createAuditLog({
           action: "batch.approve",
@@ -1166,8 +1166,8 @@ export const batchRouter = router({
         });
         
         // 배치 상태를 rejected로 변경
-        await updateBatchStatus(input.batchId, "rejected");
-        
+        await updateBatchStatus(input.batchId, "rejected", ctx.tenantId ?? undefined);
+
         // 감사 로그 기록
         await createAuditLog({
           action: "batch.reject",
@@ -1313,7 +1313,7 @@ export const batchRouter = router({
     // 활성 배치 목록 조회 (실시간 모니터링용)
     getActiveBatches: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getActiveBatches } = await import("../../db");
-      return await getActiveBatches();
+      return await getActiveBatches(ctx.tenantId ?? undefined);
     }),
     
     // 배치 완성도 체크 (미작성 문서 추적)
@@ -1329,7 +1329,7 @@ export const batchRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { checkBatchCompletionReadiness } = await import("../../db");
-        return await checkBatchCompletionReadiness(input.batchId);
+        return await checkBatchCompletionReadiness(input.batchId, ctx.tenantId ?? undefined);
       }),
     
     // 배치 완료 (admin 또는 관리자만 가능)
@@ -1364,7 +1364,8 @@ export const batchRouter = router({
             defectQuantity: input.defectQuantity,
             revenue: input.revenue,
             completionNotes: input.completionNotes,
-            idempotencyKey: input.idempotencyKey
+            idempotencyKey: input.idempotencyKey,
+            tenantId: ctx.tenantId ?? undefined
           });
           
           // 2. 감사 로그 기록
