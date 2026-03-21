@@ -3,10 +3,20 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { Eye, AlertTriangle, Droplets } from "lucide-react";
+
+const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
+
+/** 정제수(purified water) 판별 */
+function isWaterMaterial(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const n = name.toLowerCase();
+  return n.includes("정제수") || n.includes("purified water");
+}
 
 export default function BatchCostAnalysisDashboard() {
   const [startDate, setStartDate] = useState(() => {
@@ -15,246 +25,330 @@ export default function BatchCostAnalysisDashboard() {
     return date.toISOString().split("T")[0];
   });
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
 
-  // 배치별 비용 분석 데이터 조회
-  const { data: costAnalysis, isLoading } = trpc.batch.getCostAnalysis.useQuery({
-    startDate,
-    endDate,
-    limit: 50,
+  // 배치 목록 조회
+  const { data: batchesRaw, isLoading } = trpc.batch.list.useQuery({ limit: 200 });
+  const batches = (batchesRaw?.items || []) as any[];
+
+  // 기간 필터링
+  const filteredBatches = batches.filter((b: any) => {
+    const bDate = b.plannedDate || b.startTime || b.createdAt;
+    if (!bDate) return false;
+    const d = new Date(bDate).toISOString().split("T")[0];
+    return d >= startDate && d <= endDate;
   });
 
-  // 전체 요약 계산
-  const summary = costAnalysis
-    ? {
-        totalBatches: costAnalysis.length,
-        totalPlannedCost: costAnalysis.reduce((sum: any, b: any) => sum + b.plannedCost, 0),
-        totalActualCost: costAnalysis.reduce((sum: any, b: any) => sum + b.actualCost, 0),
-        underBudgetCount: costAnalysis.filter((b: any) => b.status === "under_budget").length,
-        onBudgetCount: costAnalysis.filter((b: any) => b.status === "on_budget").length,
-        overBudgetCount: costAnalysis.filter((b: any) => b.status === "over_budget").length,
-      }
-    : null;
+  // 배치 비용 조회
+  const batchIds = filteredBatches.map((b: any) => b.id);
+  const { data: costSummary } = trpc.batch.getCostSummary.useQuery(
+    { batchIds },
+    { enabled: batchIds.length > 0 }
+  );
 
-  const totalCostDifference = summary
-    ? summary.totalActualCost - summary.totalPlannedCost
+  // 선택된 배치의 원재료별 비용 상세
+  const { data: materialBreakdown } = trpc.batchCost.getMaterialCostBreakdownByBatch.useQuery(
+    { batchId: selectedBatchId! },
+    { enabled: !!selectedBatchId }
+  );
+
+  // 비용 맵 생성
+  const costMap: Record<number, number> = {};
+  costSummary?.forEach((c: any) => { costMap[c.batchId] = c.totalCost; });
+
+  // 배치 데이터 + 비용 합산
+  const batchesWithCost = filteredBatches.map((b: any) => {
+    const cost = costMap[b.id] || 0;
+    const qty = parseFloat(b.actualQuantity || b.plannedQuantity || "0");
+    const costPerKg = qty > 0 ? cost / qty : 0;
+    return { ...b, materialCost: cost, quantity: qty, costPerKg };
+  });
+
+  // 요약 통계
+  const totalBatches = batchesWithCost.length;
+  const totalMaterialCost = batchesWithCost.reduce((sum, b) => sum + b.materialCost, 0);
+  const totalQuantity = batchesWithCost.reduce((sum, b) => sum + b.quantity, 0);
+  const avgCostPerKg = totalQuantity > 0 ? totalMaterialCost / totalQuantity : 0;
+
+  // 단가 커버리지 (단가가 등록된 원재료 비율 - materialBreakdown 기반)
+  // 전체 배치의 커버리지는 개별 배치 상세에서만 확인 가능하므로 배치별로 표시
+
+  // 차트 데이터 (최근 10개)
+  const chartData = batchesWithCost
+    .filter(b => b.materialCost > 0)
+    .slice(-10)
+    .map((b) => ({
+      batchCode: b.batchCode || `B-${b.id}`,
+      costPerKg: Math.round(b.costPerKg),
+      materialCost: Math.round(b.materialCost),
+    }));
+
+  // 선택된 배치 정보
+  const selectedBatch = selectedBatchId ? batchesWithCost.find(b => b.id === selectedBatchId) : null;
+
+  // 다이얼로그 원재료 상세 계산
+  const dialogTotalCost = materialBreakdown
+    ? materialBreakdown.reduce((sum: number, m: any) => sum + (m.isWater ? 0 : (m.plannedCost || 0)), 0)
     : 0;
-  const avgCostDifferencePercent = summary && summary.totalPlannedCost > 0
-    ? ((totalCostDifference / summary.totalPlannedCost) * 100).toFixed(2)
-    : "0.00";
-
-  // 차트 데이터 준비
-  const chartData = costAnalysis?.slice(0, 10).map((batch: any) => ({
-    batchCode: batch.batchCode,
-    plannedCost: batch.plannedCost,
-    actualCost: batch.actualCost,
-  })) || [];
+  const dialogQty = selectedBatch?.quantity || 0;
+  const dialogCostPerKg = dialogQty > 0 ? dialogTotalCost / dialogQty : 0;
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">배치 생산 비용 분석 대시보드</h1>
-          <p className="text-muted-foreground">계획 원가 vs 실제 원가 비교 분석</p>
-        </div>
+      {/* 헤더 */}
+      <div>
+        <h1 className="text-2xl font-bold">배치별 재료원가 분석</h1>
+        <p className="text-muted-foreground text-sm">배치 투입량 × 입고단가 기반 실질 재료원가</p>
       </div>
 
       {/* 기간 선택 */}
       <Card>
         <CardHeader>
           <CardTitle>분석 기간 선택</CardTitle>
-          <CardDescription>비용 분석을 수행할 기간을 선택하세요</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex gap-4 items-end">
             <div className="flex-1">
-              <Label htmlFor="startDate">시작 날짜</Label>
-              <Input
-                id="startDate"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <Label>시작 날짜</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div className="flex-1">
-              <Label htmlFor="endDate">종료 날짜</Label>
-              <Input
-                id="endDate"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
+              <Label>종료 날짜</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
-            <Button onClick={() => {
-              // 쿼리 재실행 (날짜 변경 시 자동으로 재실행됨)
-            }}>
-              조회
-            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {isLoading && <div>데이터 로딩 중...</div>}
+      {isLoading && <div className="text-center py-8 text-muted-foreground">데이터 로딩 중...</div>}
 
-      {!isLoading && summary && (
+      {!isLoading && (
         <>
-          {/* 전체 요약 카드 */}
+          {/* 요약 카드 */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">전체 배치 수</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">전체 배치 수</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary.totalBatches}개</div>
+                <div className="text-3xl font-bold">{totalBatches}개</div>
+                <p className="text-xs text-muted-foreground">총 {totalQuantity.toLocaleString("ko-KR")} kg</p>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">계획 원가 합계</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">총 재료원가</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary.totalPlannedCost.toLocaleString()}원</div>
+                <div className="text-3xl font-bold text-emerald-700">₩{totalMaterialCost.toLocaleString("ko-KR")}</div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">실제 원가 합계</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">평균 kg당 원가</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{summary.totalActualCost.toLocaleString()}원</div>
+                <div className="text-3xl font-bold text-teal-600">₩{Math.round(avgCostPerKg).toLocaleString("ko-KR")}/kg</div>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">원가 차이</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">비용 등록 배치</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${totalCostDifference > 0 ? "text-red-600" : "text-green-600"}`}>
-                  {totalCostDifference > 0 ? "+" : ""}{totalCostDifference.toLocaleString()}원
+                <div className="text-3xl font-bold text-amber-600">
+                  {batchesWithCost.filter(b => b.materialCost > 0).length}개
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  {avgCostDifferencePercent}%
+                <p className="text-xs text-muted-foreground">
+                  비용 등록된 배치 수
                 </p>
               </CardContent>
             </Card>
           </div>
 
-          {/* 예산 상태 요약 */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* kg당 재료원가 바 차트 */}
+          {chartData.length > 0 && (
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-green-600">예산 절감</CardTitle>
+              <CardHeader>
+                <CardTitle>배치별 kg당 재료원가 (최근 10개)</CardTitle>
+                <CardDescription>배치별 재료원가를 kg 기준으로 비교</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600">{summary.underBudgetCount}개</div>
-                <p className="text-sm text-muted-foreground">
-                  전체의 {summary.totalBatches > 0 ? ((summary.underBudgetCount / summary.totalBatches) * 100).toFixed(1) : 0}%
-                </p>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="batchCode" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        formatter={(value: any) => [`₩${Number(value).toLocaleString("ko-KR")}`, "kg당 원가"]}
+                      />
+                      <Bar dataKey="costPerKg" name="kg당 원가" radius={[4, 4, 0, 0]}>
+                        {chartData.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">예산 준수</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summary.onBudgetCount}개</div>
-                <p className="text-sm text-muted-foreground">
-                  전체의 {summary.totalBatches > 0 ? ((summary.onBudgetCount / summary.totalBatches) * 100).toFixed(1) : 0}%
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-red-600">예산 초과</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">{summary.overBudgetCount}개</div>
-                <p className="text-sm text-muted-foreground">
-                  전체의 {summary.totalBatches > 0 ? ((summary.overBudgetCount / summary.totalBatches) * 100).toFixed(1) : 0}%
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          )}
 
-          {/* 비용 비교 차트 */}
+          {/* 배치별 상세 원가 테이블 */}
           <Card>
             <CardHeader>
-              <CardTitle>배치별 비용 비교 (최근 10개)</CardTitle>
-              <CardDescription>계획 원가 vs 실제 원가</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[400px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="batchCode" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="plannedCost" fill="#8884d8" name="계획 원가" />
-                    <Bar dataKey="actualCost" fill="#82ca9d" name="실제 원가" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* 배치별 상세 테이블 */}
-          <Card>
-            <CardHeader>
-              <CardTitle>배치별 상세 비용 분석</CardTitle>
-              <CardDescription>각 배치의 계획 원가와 실제 원가 비교</CardDescription>
+              <CardTitle>배치별 상세 원가</CardTitle>
+              <CardDescription>각 배치의 재료원가 상세 (클릭하여 원재료 내역 확인)</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>배치 코드</TableHead>
-                    <TableHead>생산 날짜</TableHead>
-                    <TableHead className="text-right">계획 원가</TableHead>
-                    <TableHead className="text-right">실제 원가</TableHead>
-                    <TableHead className="text-right">차이</TableHead>
-                    <TableHead className="text-right">차이율</TableHead>
-                    <TableHead>상태</TableHead>
+                    <TableHead>제품명</TableHead>
+                    <TableHead>생산일</TableHead>
+                    <TableHead className="text-right">생산량</TableHead>
+                    <TableHead className="text-right">재료원가</TableHead>
+                    <TableHead className="text-right">kg당 원가</TableHead>
+                    <TableHead className="text-center">상세</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {costAnalysis?.map((batch: any) => (
-                    <TableRow key={batch.batchId}>
-                      <TableCell className="font-medium">{batch.batchCode}</TableCell>
-                      <TableCell>{new Date(batch.plannedDate).toLocaleDateString("ko-KR")}</TableCell>
-                      <TableCell className="text-right">{batch.plannedCost.toLocaleString()}원</TableCell>
-                      <TableCell className="text-right">{batch.actualCost.toLocaleString()}원</TableCell>
-                      <TableCell className={`text-right ${batch.costDifference > 0 ? "text-red-600" : "text-green-600"}`}>
-                        {batch.costDifference > 0 ? "+" : ""}{batch.costDifference.toLocaleString()}원
-                      </TableCell>
-                      <TableCell className={`text-right ${batch.costDifferencePercent > 0 ? "text-red-600" : "text-green-600"}`}>
-                        {batch.costDifferencePercent > 0 ? "+" : ""}{batch.costDifferencePercent.toFixed(2)}%
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            batch.status === "under_budget"
-                              ? "secondary"
-                              : batch.status === "over_budget"
-                              ? "destructive"
-                              : "default"
-                          }
-                        >
-                          {batch.status === "under_budget"
-                            ? "절감"
-                            : batch.status === "over_budget"
-                            ? "초과"
-                            : "준수"}
-                        </Badge>
+                  {batchesWithCost.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        해당 기간에 배치 데이터가 없습니다.
                       </TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    batchesWithCost.map((batch) => (
+                      <TableRow key={batch.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setSelectedBatchId(batch.id)}>
+                        <TableCell className="font-medium">{batch.batchCode || `B-${batch.id}`}</TableCell>
+                        <TableCell>{batch.productName || "-"}</TableCell>
+                        <TableCell>
+                          {(batch.plannedDate || batch.startTime)
+                            ? new Date(batch.plannedDate || batch.startTime).toLocaleDateString("ko-KR")
+                            : "-"}
+                        </TableCell>
+                        <TableCell className="text-right">{batch.quantity > 0 ? `${batch.quantity.toLocaleString("ko-KR")} kg` : "-"}</TableCell>
+                        <TableCell className="text-right font-semibold">
+                          {batch.materialCost > 0 ? `₩${batch.materialCost.toLocaleString("ko-KR")}` : "-"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {batch.costPerKg > 0 ? `₩${Math.round(batch.costPerKg).toLocaleString("ko-KR")}/kg` : "-"}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <button
+                            className="p-1 rounded hover:bg-muted"
+                            onClick={(e) => { e.stopPropagation(); setSelectedBatchId(batch.id); }}
+                          >
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </>
       )}
+
+      {/* 원재료 상세 내역 다이얼로그 */}
+      <Dialog open={!!selectedBatchId} onOpenChange={(open) => { if (!open) setSelectedBatchId(null); }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedBatch?.batchCode || `B-${selectedBatchId}`} - 원재료 상세 내역
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* 요약 카드 */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="text-center p-3 bg-muted/50 rounded-lg">
+              <p className="text-xs text-muted-foreground">생산량</p>
+              <p className="text-lg font-bold">{dialogQty.toLocaleString("ko-KR")} kg</p>
+            </div>
+            <div className="text-center p-3 bg-muted/50 rounded-lg">
+              <p className="text-xs text-muted-foreground">재료원가</p>
+              <p className="text-lg font-bold">₩{dialogTotalCost.toLocaleString("ko-KR")}</p>
+            </div>
+            <div className="text-center p-3 bg-muted/50 rounded-lg">
+              <p className="text-xs text-muted-foreground">kg당 원가</p>
+              <p className="text-lg font-bold">₩{Math.round(dialogCostPerKg).toLocaleString("ko-KR")}</p>
+            </div>
+          </div>
+
+          {/* 원재료 목록 */}
+          <div className="max-h-[400px] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>원재료</TableHead>
+                  <TableHead className="text-right">투입량</TableHead>
+                  <TableHead className="text-right">단가</TableHead>
+                  <TableHead className="text-right">비용</TableHead>
+                  <TableHead className="text-right">비중</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {materialBreakdown?.map((m: any) => {
+                  const water = m.isWater || isWaterMaterial(m.materialName);
+                  const cost = water ? 0 : (m.plannedCost || 0);
+                  const ratio = dialogTotalCost > 0 ? (cost / dialogTotalCost * 100) : 0;
+
+                  return (
+                    <TableRow key={m.materialId} className={water ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}>
+                      <TableCell className="font-medium">
+                        <span className="flex items-center gap-1.5">
+                          {m.materialName}
+                          {water && (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:border-blue-800 font-semibold">
+                              <Droplets className="h-2.5 w-2.5 mr-0.5" />
+                              원가제외
+                            </Badge>
+                          )}
+                          {!water && m.unitPrice === 0 && (
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{m.plannedQuantity?.toLocaleString("ko-KR")} kg</TableCell>
+                      <TableCell className="text-right">
+                        {water ? "-" : (m.unitPrice > 0 ? `₩${m.unitPrice.toLocaleString("ko-KR")}` : "-")}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {water ? (
+                          <span className="text-blue-500">₩0</span>
+                        ) : (
+                          cost > 0 ? `₩${cost.toLocaleString("ko-KR")}` : "₩0"
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {water ? (
+                          <span className="text-blue-400 text-xs">-</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-emerald-500 rounded-full"
+                                style={{ width: `${Math.min(ratio, 100)}%` }}
+                              />
+                            </div>
+                            <span className="text-xs w-10 text-right">{ratio.toFixed(1)}%</span>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
