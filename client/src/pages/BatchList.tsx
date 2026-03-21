@@ -18,6 +18,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { Package, Plus, Download, DollarSign, Eye, EyeOff, ChevronRight, Trash2, CalendarDays, List, ChevronLeft } from "lucide-react";
 import { Link } from "wouter";
@@ -88,6 +94,9 @@ export default function BatchList() {
   const [showCost, setShowCost] = useState(false);
   const [batchCosts, setBatchCosts] = useState<Record<number, number>>({});
   const [batchCostRatios, setBatchCostRatios] = useState<Record<number, number | null>>({});
+
+  // 달력 날짜 상세 다이얼로그
+  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
 
   // 삭제 확인 다이얼로그
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; batchCode: string } | null>(null);
@@ -189,7 +198,7 @@ export default function BatchList() {
             <Button
               variant={viewMode === "calendar" ? "default" : "outline"}
               size="sm"
-              onClick={() => setViewMode("calendar")}
+              onClick={() => { setViewMode("calendar"); setPage(1); }}
               className="h-9"
             >
               <CalendarDays className="h-4 w-4 mr-1" />
@@ -315,7 +324,12 @@ export default function BatchList() {
                               </Link>
                             ))}
                             {dayBatches.length > 3 && (
-                              <div className="text-[10px] text-muted-foreground text-center">+{dayBatches.length - 3}건</div>
+                              <button
+                                onClick={() => setDayDetailDate(ds)}
+                                className="text-[10px] text-blue-500 hover:text-blue-700 font-medium text-center w-full cursor-pointer hover:underline"
+                              >
+                                +{dayBatches.length - 3}건
+                              </button>
                             )}
                           </div>
                         </div>
@@ -511,6 +525,39 @@ export default function BatchList() {
           />
         )}
       </div>
+
+      {/* 날짜 상세 다이얼로그 */}
+      <Dialog open={!!dayDetailDate} onOpenChange={(open) => { if (!open) setDayDetailDate(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {dayDetailDate ? new Date(dayDetailDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : ""} 배치 목록
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {dayDetailDate && (batchesByDate[dayDetailDate] || []).map((b: any) => (
+              <Link key={b.id} href={`/dashboard/batch/${b.id}`}>
+                <div className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[b.status] || "bg-gray-400"}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{b.productName || b.batchCode}</div>
+                    <div className="text-xs text-muted-foreground">{b.batchCode}</div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                    b.status === "completed" ? "bg-green-100 text-green-700" :
+                    b.status === "in_progress" ? "bg-blue-100 text-blue-700" :
+                    b.status === "shipped" ? "bg-purple-100 text-purple-700" :
+                    "bg-orange-100 text-orange-700"
+                  }`}>
+                    {STATUS_LABELS[b.status] || "계획"}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 배치 삭제 확인 다이얼로그 */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>

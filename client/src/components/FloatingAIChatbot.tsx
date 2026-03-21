@@ -113,7 +113,12 @@ export default function FloatingAIChatbot() {
   const [showCategories, setShowCategories] = useState(true);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const [showBubble, setShowBubble] = useState(true);
+  const [showBubble, setShowBubble] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('chatbot-bubble-dismissed') !== 'true';
+    }
+    return true;
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
   const chatMutation = trpc.ai.chat.useMutation();
   const clearHistoryMutation = trpc.ai.clearHistory.useMutation();
@@ -282,7 +287,7 @@ export default function FloatingAIChatbot() {
                 <p className="text-[11px] text-gray-400 mt-0.5">무엇이든 물어보세요!</p>
                 {/* 말풍선 닫기 */}
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowBubble(false); }}
+                  onClick={(e) => { e.stopPropagation(); setShowBubble(false); localStorage.setItem('chatbot-bubble-dismissed', 'true'); }}
                   className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center shadow-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                 >
                   <X className="h-3 w-3 text-gray-400" />
