@@ -546,16 +546,24 @@ async function getMonthlyCcpDeviationRate(days: number = 30) {
 // 배치 비용 계산
 // ============================================================================
 
+/** 정제수(purified water) 여부 판별 - 가격/재고 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
+
 /**
  * 배치별 원재료 투입 비용 계산
+ * 정제수는 투입량 표시는 하되 가격 계산에서 제외
  */
 export async function getBatchCost(batchId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
   const { eq, sql } = await import("drizzle-orm");
-  
+
   // 배치 원재료 투입 내역 조회 (원재료 정보 포함)
   const inputs = await db
     .select({
@@ -565,26 +573,28 @@ export async function getBatchCost(batchId: number) {
     .from(hBatchInputs)
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
     .where(eq(hBatchInputs.batchId, batchId));
-  
-  // 각 원재료별 비용 계산
+
+  // 각 원재료별 비용 계산 (정제수는 비용 0으로 처리)
   const materialCosts = inputs.map((item) => {
     const quantity = parseFloat(String(item.input.actualQuantity || item.input.plannedQuantity));
-    const unitPrice = item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0;
+    const water = isWaterMaterial(item.material?.materialName);
+    const unitPrice = water ? 0 : (item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0);
     const cost = quantity * unitPrice;
-    
+
     return {
       materialId: item.input.materialId,
       materialName: item.material?.materialName || "Unknown",
       quantity,
       unit: item.input.unit,
       unitPrice,
-      totalCost: cost
+      totalCost: cost,
+      isWater: water
     };
   });
-  
-  // 총 비용 계산
+
+  // 총 비용 계산 (정제수 제외)
   const totalCost = materialCosts.reduce((sum, item) => sum + item.totalCost, 0);
-  
+
   return {
     batchId,
     materialCosts,
@@ -594,17 +604,18 @@ export async function getBatchCost(batchId: number) {
 
 /**
  * 여러 배치의 비용 조회 (배치 목록 페이지용)
+ * 정제수는 비용 합계에서 제외
  */
 export async function getBatchCostSummary(batchIds: number[]) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  
+
   const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
-  const { inArray, eq, sql } = await import("drizzle-orm");
-  
+  const { inArray, eq, sql, and, notLike } = await import("drizzle-orm");
+
   if (batchIds.length === 0) return [];
-  
-  // 각 배치별 총 비용 계산
+
+  // 각 배치별 총 비용 계산 (정제수 제외)
   const result = await db
     .select({
       batchId: hBatchInputs.batchId,
@@ -612,9 +623,12 @@ export async function getBatchCostSummary(batchIds: number[]) {
     })
     .from(hBatchInputs)
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
-    .where(inArray(hBatchInputs.batchId, batchIds))
+    .where(and(
+      inArray(hBatchInputs.batchId, batchIds),
+      sql`${hMaterials.materialName} NOT LIKE '%정제수%'`
+    ))
     .groupBy(hBatchInputs.batchId);
-  
+
   return result.map((r) => ({
     batchId: Number(r.batchId),
     totalCost: parseFloat(r.totalCost || "0")
@@ -2020,7 +2034,7 @@ export async function getMaterialCostBreakdown(params: {
   
   const batchIds = batches.map((b: any) => b.id);
   
-  // 원재료별 원가 집계
+  // 원재료별 원가 집계 (정제수 제외)
   const result = await db
     .select({
       materialId: hBatchInputs.materialId,
@@ -2030,7 +2044,10 @@ export async function getMaterialCostBreakdown(params: {
     })
     .from(hBatchInputs)
     .innerJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
-    .where(sql`${hBatchInputs.batchId} IN (${sql.join(batchIds.map((id: any) => sql`${id}`), sql`, `)})`)
+    .where(and(
+      sql`${hBatchInputs.batchId} IN (${sql.join(batchIds.map((id: any) => sql`${id}`), sql`, `)})`,
+      sql`${hMaterials.materialName} NOT LIKE '%정제수%'`
+    ))
     .groupBy(hBatchInputs.materialId, hMaterials.materialName)
     .orderBy(desc(sql`SUM(${hBatchInputs.totalPrice})`));
   

@@ -769,10 +769,13 @@ export default function BatchDetail() {
                       <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
                       <div className="space-y-2">
                         {batchCost.materialCosts.map((item: any, index: any) => (
-                          <div key={item.materialId} className="p-3 border rounded-lg">
+                          <div key={item.materialId} className={`p-3 border rounded-lg ${item.isWater ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200' : ''}`}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-sm">{item.materialName}</span>
-                              <span className="font-bold">{item.totalCost.toLocaleString('ko-KR')}원</span>
+                              <span className="font-medium text-sm">
+                                {item.materialName}
+                                {item.isWater && <span className="ml-1 text-xs text-blue-500">(가격제외)</span>}
+                              </span>
+                              <span className="font-bold">{item.isWater ? '-' : `${item.totalCost.toLocaleString('ko-KR')}원`}</span>
                             </div>
                             <div className="text-xs text-muted-foreground space-y-1">
                               <div className="flex justify-between">
@@ -781,12 +784,14 @@ export default function BatchDetail() {
                               </div>
                               <div className="flex justify-between">
                                 <span>단가:</span>
-                                <span>{item.unitPrice.toLocaleString('ko-KR')}원/{item.unit}</span>
+                                <span>{item.isWater ? '-' : `${item.unitPrice.toLocaleString('ko-KR')}원/${item.unit}`}</span>
                               </div>
-                              <div className="flex justify-between">
-                                <span>비용 비율:</span>
-                                <span>{((item.totalCost / batchCost.totalCost) * 100).toFixed(1)}%</span>
-                              </div>
+                              {!item.isWater && (
+                                <div className="flex justify-between">
+                                  <span>비용 비율:</span>
+                                  <span>{batchCost.totalCost > 0 ? ((item.totalCost / batchCost.totalCost) * 100).toFixed(1) : 0}%</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -799,19 +804,19 @@ export default function BatchDetail() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={batchCost.materialCosts.map((item: any) => ({
+                            data={batchCost.materialCosts.filter((item: any) => !item.isWater).map((item: any) => ({
                               name: item.materialName,
                               value: item.totalCost,
                             }))}
                             cx="50%"
                             cy="50%"
                             labelLine={false}
-                            label={(entry) => `${((entry.value / batchCost.totalCost) * 100).toFixed(1)}%`}
+                            label={(entry) => `${batchCost.totalCost > 0 ? ((entry.value / batchCost.totalCost) * 100).toFixed(1) : 0}%`}
                             outerRadius={120}
                             fill="#8884d8"
                             dataKey="value"
                           >
-                            {batchCost.materialCosts.map((entry: any, index: any) => (
+                            {batchCost.materialCosts.filter((item: any) => !item.isWater).map((entry: any, index: any) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>

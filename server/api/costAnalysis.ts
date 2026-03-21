@@ -3,6 +3,13 @@ import { recipes, recipeLines } from "../../drizzle/schema/recipe";
 import { hMaterials } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 
+/** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
+
 /**
  * 레시피 기반 배치 원가 계산
  */
@@ -24,9 +31,10 @@ export async function calculateRecipeCost(recipeId: number, _tenantId?: number) 
     .leftJoin(hMaterials, eq(recipeLines.materialId, hMaterials.id))
     .where(eq(recipeLines.recipeId, recipeId));
 
-  // 원재료비 계산
+  // 원재료비 계산 (정제수 제외)
   let totalMaterialCost = 0;
   for (const line of lines) {
+    if (isWaterMaterial(line.materialName)) continue;
     const quantity = parseFloat(line.quantity || "0");
     const unitPrice = parseFloat(line.materialPrice || "0");
     totalMaterialCost += quantity * unitPrice;

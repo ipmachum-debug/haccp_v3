@@ -71,6 +71,11 @@ export async function getUserTraceStats(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const conditions: any[] = [sql`${lotTraceHistory.userName} IS NOT NULL`];
+  if (tenantId) {
+    conditions.push(eq(lotTraceHistory.tenantId, tenantId as any));
+  }
+
   const result = await db
     .select({
       userName: lotTraceHistory.userName,
@@ -78,7 +83,7 @@ export async function getUserTraceStats(tenantId?: number) {
       lastSearchedAt: sql<string>`max(${lotTraceHistory.createdAt})`.as("last_searched_at")
     })
     .from(lotTraceHistory)
-    .where(sql`${lotTraceHistory.userName} IS NOT NULL`)
+    .where(and(...conditions))
     .groupBy(lotTraceHistory.userName)
     .orderBy(desc(sql`count(*)`))
     .limit(10);

@@ -31,7 +31,10 @@ export async function getChecklistTemplates(filters: {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const conditions = [];
+  const conditions: any[] = [];
+  if (filters.tenantId) {
+    conditions.push(eq(checklistTemplates.tenantId, filters.tenantId));
+  }
   if (filters.category) {
     conditions.push(eq(checklistTemplates.category, filters.category as any));
   }
@@ -54,14 +57,19 @@ export async function getChecklistTemplates(filters: {
 /**
  * 체크리스트 템플릿 상세 조회 (항목 포함)
  */
-export async function getChecklistTemplateById(templateId: number) {
+export async function getChecklistTemplateById(templateId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+
+  const conditions: any[] = [eq(checklistTemplates.id, templateId)];
+  if (tenantId) {
+    conditions.push(eq(checklistTemplates.tenantId, tenantId));
+  }
 
   const [template] = await db
     .select()
     .from(checklistTemplates)
-    .where(eq(checklistTemplates.id, templateId))
+    .where(and(...conditions))
     .limit(1);
 
   if (!template) return null;
@@ -89,6 +97,7 @@ export async function createChecklistTemplate(data: {
   priority?: number;
   autoTriggerRules?: any;
   createdBy?: number;
+  tenantId?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
@@ -101,6 +110,7 @@ export async function createChecklistTemplate(data: {
     priority: data.priority || 0,
     autoTriggerRules: data.autoTriggerRules,
     createdBy: data.createdBy,
+    tenantId: data.tenantId || 1,
     isActive: 1
   } as any);
 
@@ -203,12 +213,13 @@ export async function updateChecklistTemplate(
     description?: string;
     defaultValue?: string;
     helpText?: string;
-  }>
+  }>,
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  // 템플릿 업데이트
+  // 템플릿 업데이트 (tenantId 격리)
   const updateData: any = {};
   if (data.name !== undefined) updateData.name = data.name;
   if (data.description !== undefined) updateData.description = data.description;
@@ -219,10 +230,12 @@ export async function updateChecklistTemplate(
   if (data.isActive !== undefined) updateData.isActive = data.isActive ? 1 : 0;
 
   if (Object.keys(updateData).length > 0) {
+    const conditions: any[] = [eq(checklistTemplates.id, templateId)];
+    if (tenantId) conditions.push(eq(checklistTemplates.tenantId, tenantId));
     await db
       .update(checklistTemplates)
       .set(updateData)
-      .where(eq(checklistTemplates.id, templateId));
+      .where(and(...conditions));
   }
 
   // 항목 업데이트 (제공된 경우)
@@ -253,14 +266,17 @@ export async function updateChecklistTemplate(
 /**
  * 체크리스트 템플릿 삭제 (비활성화)
  */
-export async function deleteChecklistTemplate(templateId: number) {
+export async function deleteChecklistTemplate(templateId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+
+  const conditions: any[] = [eq(checklistTemplates.id, templateId)];
+  if (tenantId) conditions.push(eq(checklistTemplates.tenantId, tenantId));
 
   await db
     .update(checklistTemplates)
     .set({ isActive: 0 })
-    .where(eq(checklistTemplates.id, templateId));
+    .where(and(...conditions));
 
   return { success: true };
 }

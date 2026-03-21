@@ -2,6 +2,13 @@ import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { getDb } from "../db";
 import { hBatches, hBatchInputs, hMaterials } from "../../drizzle/schema";
 
+/** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
+function isWaterMaterial(materialName: string | null | undefined): boolean {
+  if (!materialName) return false;
+  const name = materialName.toLowerCase();
+  return name.includes("정제수") || name.includes("purified water");
+}
+
 /**
  * 배치 생산 비용 분석
  */
@@ -129,7 +136,9 @@ export async function getBatchMaterialCostBreakdown(
   return batchInputs.map((input) => {
     const plannedQuantity = Number(input.plannedQuantity || 0);
     const actualQuantity = Number(input.actualQuantity || 0);
-    const unitPrice = Number(input.unitPrice || 0);
+    // 정제수는 가격 계산에서 제외
+    const water = isWaterMaterial(input.materialName);
+    const unitPrice = water ? 0 : Number(input.unitPrice || 0);
     const plannedCost = plannedQuantity * unitPrice;
     const actualCost = actualQuantity * unitPrice;
     const costDifference = actualCost - plannedCost;
@@ -142,7 +151,8 @@ export async function getBatchMaterialCostBreakdown(
       unitPrice,
       plannedCost: Math.round(plannedCost * 100) / 100,
       actualCost: Math.round(actualCost * 100) / 100,
-      costDifference: Math.round(costDifference * 100) / 100
+      costDifference: Math.round(costDifference * 100) / 100,
+      isWater: water
     };
   });
 }
@@ -337,7 +347,8 @@ export async function getMaterialCostAnalysis(params: {
     const materialId = input.materialId;
     const plannedQuantity = Number(input.plannedQuantity || 0);
     const actualQuantity = Number(input.actualQuantity || 0);
-    const unitPrice = Number(input.unitPrice || 0);
+    // 정제수는 가격 계산에서 제외
+    const unitPrice = isWaterMaterial(input.materialName) ? 0 : Number(input.unitPrice || 0);
 
     if (!materialMap[materialId]) {
       materialMap[materialId] = {

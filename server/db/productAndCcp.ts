@@ -15,19 +15,23 @@ export async function getAllProducts(tenantId?: number) {
   return await db.select().from(hProducts).where(and(...conditions)).orderBy(desc(hProducts.id));
 }
 
-export async function getProductById(productId: number) {
+export async function getProductById(productId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
   // Try h_products_v2 first (actual production data)
   try {
     const { hProductsV2 } = await import("../../drizzle/schema_main.js");
-    const v2result = await db.select().from(hProductsV2 as any).where(eq((hProductsV2 as any).id, productId)).limit(1);
+    const conditions: any[] = [eq((hProductsV2 as any).id, productId)];
+    if (tenantId) conditions.push(eq((hProductsV2 as any).tenantId, tenantId));
+    const v2result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
     if (v2result.length > 0) return v2result[0] as any;
   } catch (_e) { /* fallback */ }
   // Fallback to h_products
   const { hProducts } = await import("../../drizzle/schema.js");
-  const result = await db.select().from(hProducts).where(eq(hProducts.id, productId)).limit(1);
+  const conditions: any[] = [eq(hProducts.id, productId)];
+  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
+  const result = await db.select().from(hProducts).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -52,17 +56,20 @@ export async function getAllCcpTemplates(tenantId?: number) {
     .orderBy(desc(hCcpTemplates.priority), desc(hCcpTemplates.createdAt));
 }
 
-export async function getCcpTemplateById(id: number) {
+export async function getCcpTemplateById(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return null;
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
+
+  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   const results = await db
     .select()
     .from(hCcpTemplates)
-    .where(eq(hCcpTemplates.id, id));
+    .where(and(...conditions));
 
   return results[0] || null;
 }
@@ -103,30 +110,37 @@ export async function updateCcpTemplate(
     description?: string;
     priority?: number;
     isActive?: number;
-  }
+  },
+  tenantId?: number
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
+
+  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   await db
     .update(hCcpTemplates)
     .set(data)
-    .where(eq(hCcpTemplates.id, id));
+    .where(and(...conditions));
 
   return { success: true };
 }
 
-export async function deleteCcpTemplate(id: number) {
+export async function deleteCcpTemplate(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
 
-  await db.delete(hCcpTemplates).where(eq(hCcpTemplates.id, id));
+  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
+
+  await db.delete(hCcpTemplates).where(and(...conditions));
 
   return { success: true };
 }
@@ -134,18 +148,21 @@ export async function deleteCcpTemplate(id: number) {
 /**
  * 제품명으로 매칭되는 CCP 템플릿 조회 (우선순위 높은 순)
  */
-export async function findMatchingCcpTemplates(productName: string) {
+export async function findMatchingCcpTemplates(productName: string, tenantId?: number) {
   const db = await getDb();
   if (!db) return [];
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
-  const { eq, desc } = await import("drizzle-orm");
+  const { eq, desc, and } = await import("drizzle-orm");
 
-  // 활성화된 템플릿만 조회
+  // 활성화된 템플릿만 조회 (tenantId 격리)
+  const conditions: any[] = [eq(hCcpTemplates.isActive, 1)];
+  if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
+
   const templates = await db
     .select()
     .from(hCcpTemplates)
-    .where(eq(hCcpTemplates.isActive, 1))
+    .where(and(...conditions))
     .orderBy(desc(hCcpTemplates.priority));
 
   // 제품명 패턴 매칭 (간단한 부분 문자열 매칭)
