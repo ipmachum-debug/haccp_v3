@@ -6,7 +6,7 @@ import { eq, and } from "drizzle-orm";
 /**
  * 레시피 기반 배치 원가 계산
  */
-export async function calculateRecipeCost(recipeId: number) {
+export async function calculateRecipeCost(recipeId: number, _tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -57,14 +57,17 @@ export async function calculateRecipeCost(recipeId: number) {
 /**
  * 제품별 원가 통계 계산
  */
-export async function calculateProductCostStats(productId?: number) {
+export async function calculateProductCostStats(productId?: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   // 레시피 목록 조회
   let queryBuilder = db.select().from(recipes);
-  
-  const conditions = [eq(recipes.isActive, 1)];
+
+  const conditions: any[] = [eq(recipes.isActive, 1)];
+  if (tenantId) {
+    conditions.push(eq(recipes.tenantId, tenantId));
+  }
   if (productId) {
     conditions.push(eq(recipes.productId, productId));
   }

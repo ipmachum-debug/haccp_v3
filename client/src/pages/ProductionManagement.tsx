@@ -64,7 +64,8 @@ export default function ProductionManagement() {
                   data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-md"
               >
                 <TrendingUp className="h-4 w-4" />
-                수익
+                <span className="hidden sm:inline">원가비교</span>
+                <span className="sm:hidden">비교</span>
               </TabsTrigger>
             </TabsList>
           </div>

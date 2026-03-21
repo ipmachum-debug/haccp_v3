@@ -1228,7 +1228,7 @@ export const batchRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getProfitabilityByProduct } = await import("../../db");
-        return await getProfitabilityByProduct(input);
+        return await getProfitabilityByProduct({ ...input, tenantId: ctx.tenantId! });
       }),
     
     // 배치 매출액 업데이트
@@ -1254,7 +1254,7 @@ export const batchRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getProfitabilityTrendByMonth } = await import("../../db");
-        return await getProfitabilityTrendByMonth(input.startDate, input.endDate);
+        return await getProfitabilityTrendByMonth(input.startDate, input.endDate, ctx.tenantId!);
       }),
     
     // 분기별 수익률 추이 조회
@@ -1267,14 +1267,14 @@ export const batchRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getProfitabilityTrendByQuarter } = await import("../../db");
-        return await getProfitabilityTrendByQuarter(input.startDate, input.endDate);
+        return await getProfitabilityTrendByQuarter(input.startDate, input.endDate, ctx.tenantId!);
       }),
     
     // 배치 수익성 예측 (지수 평활법 + 트렌드 기반)
     getProfitabilityForecast: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getProfitabilityForecast } = await import("../../db");
-        return await getProfitabilityForecast();
+        return await getProfitabilityForecast(ctx.tenantId!);
       }),
     
     // 예측값 저장
@@ -1292,9 +1292,9 @@ export const batchRouter = router({
     
     // 과거 예측값 조회
     getForecastHistory: tenantRequiredProcedure
-      .query(async () => {
+      .query(async ({ ctx }) => {
         const { getProfitabilityForecastHistory } = await import("../../db");
-        return await getProfitabilityForecastHistory();
+        return await getProfitabilityForecastHistory(ctx.tenantId!);
       }),
     
     // 실제값 업데이트
