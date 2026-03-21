@@ -143,7 +143,7 @@ export async function autoIssueMaterialsForBatch(
               // FEFO 로트 할당 시도
               try {
                 const { allocateLotsFEFO } = await import("./fefoLotAllocation");
-                const allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId);
+                const allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, materialId);
                 
                 let totalAllocated = 0;
                 for (const alloc of allocations) {

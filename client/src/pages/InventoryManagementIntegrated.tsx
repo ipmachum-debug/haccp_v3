@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play } from "lucide-react";
+import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -415,21 +415,48 @@ function ReleaseTab() {
   const [releaseType, setReleaseType] = useState("disposal");
   const [memo, setMemo] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [historySearch, setHistorySearch] = useState("");
   const [submitProgress, setSubmitProgress] = useState<{ current: number; total: number } | null>(null);
+
+  // 월별 페이지네이션
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth() + 1);
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
 
   interface RI { id: number; lotId: string; materialName: string; availableQty: string; quantity: string; unit: string; unitPrice: string; amount: string; expiryDate: string; lotNumber: string; }
   const emptyRItem = (): RI => ({ id: Date.now() + Math.random(), lotId: "", materialName: "", availableQty: "", quantity: "", unit: "", unitPrice: "0", amount: "0", expiryDate: "", lotNumber: "" });
   const [items, setItems] = useState<RI[]>([emptyRItem()]);
-  const [hStart, setHStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split("T")[0]; });
-  const [hEnd, setHEnd] = useState(today);
 
   const { data: lots, isLoading: lotsLoading } = trpc.inventory.list.useQuery();
-  const { data: history, isLoading: hLoading } = trpc.inventory.getOutboundHistory.useQuery({ limit: 50, startDate: hStart, endDate: hEnd });
+  const { data: summary, isLoading: summaryLoading } = trpc.inventory.getConsumptionSummary.useQuery({ year: viewYear, month: viewMonth });
   const mut = trpc.inventory.releaseStock.useMutation({
-    onSuccess: () => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); utils.inventory.getOutboundHistory.invalidate(); },
+    onSuccess: () => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); utils.inventory.getConsumptionSummary.invalidate(); },
     onError: (e: any) => alert(`소모 처리 실패: ${e.message}`),
   });
+
+  // 월 이동
+  const prevMonth = () => {
+    if (viewMonth === 1) { setViewYear(y => y - 1); setViewMonth(12); }
+    else setViewMonth(m => m - 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+  const nextMonth = () => {
+    if (viewMonth === 12) { setViewYear(y => y + 1); setViewMonth(1); }
+    else setViewMonth(m => m + 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+  const goToday = () => {
+    const now = new Date();
+    setViewYear(now.getFullYear()); setViewMonth(now.getMonth() + 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+
+  const toggleDate = (date: string) => {
+    setExpandedDates(prev => { const s = new Set(prev); s.has(date) ? s.delete(date) : s.add(date); return s; });
+  };
+  const toggleMaterial = (key: string) => {
+    setExpandedMaterials(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  };
 
   // 가용 재고가 있는 LOT만 필터, FEFO 순서
   const availableLots = useMemo(() => {
@@ -469,23 +496,11 @@ function ReleaseTab() {
     setItems(p => p.map(i => i.id === itemId ? { ...i, lotId: lotIdStr, materialName: lot?.materialName || "", availableQty: lot?.availableQuantity || "0", unit: lot?.unit || "", unitPrice: lot?.unitPrice || "0", expiryDate: lot?.expiryDate || "", lotNumber: lot?.lotNumber || "", quantity: "", amount: "0" } : i));
   };
   const handleQty = (id: number, q: string) => setItems(p => p.map(i => i.id === id ? { ...i, quantity: q, amount: q && i.unitPrice ? (parseFloat(q) * parseFloat(i.unitPrice)).toFixed(0) : "0" } : i));
-  const handlePrice = (id: number, pr: string) => setItems(p => p.map(i => i.id === id ? { ...i, unitPrice: pr, amount: i.quantity && pr ? (parseFloat(i.quantity) * parseFloat(pr)).toFixed(0) : "0" } : i));
   const addItem = () => setItems(p => [...p, emptyRItem()]);
   const removeItem = (id: number) => { if (items.length > 1) setItems(p => p.filter(i => i.id !== id)); };
   const totalQty = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0);
-  const totalAmt = items.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const filledItems = items.filter(i => i.lotId && i.quantity && parseFloat(i.quantity) > 0);
   const hasOverflow = items.some(i => i.lotId && i.quantity && i.availableQty && parseFloat(i.quantity) > parseFloat(i.availableQty) && parseFloat(i.availableQty) > 0);
-
-  const filteredHistory = useMemo(() => {
-    if (!history) return [];
-    let list = history as any[];
-    if (historySearch.trim()) {
-      const q = historySearch.toLowerCase();
-      list = list.filter(r => r.materialName?.toLowerCase().includes(q) || r.lotNumber?.toLowerCase().includes(q) || r.notes?.toLowerCase().includes(q));
-    }
-    return list;
-  }, [history, historySearch]);
 
   const handleSubmit = async () => {
     if (!filledItems.length) { alert("소모할 품목을 선택하고 수량을 입력해주세요."); return; }
@@ -532,7 +547,7 @@ function ReleaseTab() {
               </div>
               <RetroactiveDeductionButton onComplete={() => {
                 utils.inventory.getDashboard.invalidate();
-                utils.inventory.getOutboundHistory.invalidate();
+                utils.inventory.getConsumptionSummary.invalidate();
                 utils.inventory.list.invalidate();
               }} />
             </div>
@@ -540,6 +555,7 @@ function ReleaseTab() {
         </CardContent>
       </Card>
 
+      {/* 수동 소모 입력 폼 */}
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
           <div className="flex items-center justify-between">
@@ -682,42 +698,152 @@ function ReleaseTab() {
         )}
       </Card>
 
-      {/* 소모 이력 */}
+      {/* 월별 소모 현황 요약 */}
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <SectionTitle icon={Clock} title="소모/투입 이력" desc={filteredHistory.length > 0 ? `${filteredHistory.length}건` : undefined} />
-            <div className="flex items-center gap-2 flex-wrap">
-              <input type="text" value={historySearch} onChange={e => setHistorySearch(e.target.value)} placeholder="품명/LOT/사유 검색" className="h-8 w-40 px-2.5 border rounded-lg text-xs bg-background focus:ring-2 focus:ring-orange-500/20 transition" />
-              <input type="date" value={hStart} onChange={e => setHStart(e.target.value)} className="h-8 px-2 border rounded-lg text-xs bg-background" />
-              <span className="text-xs text-muted-foreground">~</span>
-              <input type="date" value={hEnd} onChange={e => setHEnd(e.target.value)} className="h-8 px-2 border rounded-lg text-xs bg-background" />
+            <SectionTitle icon={Layers} title="월별 소모 현황" desc={summary ? `${summary.totalRecords}건` : undefined} />
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+              <button onClick={goToday} className="text-sm font-semibold min-w-[120px] text-center hover:text-orange-600 transition-colors">
+                {viewYear}년 {viewMonth}월
+              </button>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-3">
-          {hLoading ? <Loading /> : !filteredHistory.length ? <Empty text="소모 이력 없음" /> : (
-            <div className="overflow-x-auto">
-              <StyledTable>
-                <TableHeader><TableRow>
-                  <TH className="w-10 text-center">No</TH>
-                  <TH>일시</TH><TH>품명</TH><TH>LOT</TH>
-                  <TH className="text-right">수량</TH><TH>출처</TH><TH>사유</TH>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {filteredHistory.map((r: any, i: number) => (
-                    <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <TD className="text-center text-muted-foreground">{i+1}</TD>
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.transactionDate || r.createdAt)}</TD>
-                      <TD className="font-medium">{r.materialName || "-"}</TD>
-                      <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
-                      <TD className="text-right font-mono font-medium whitespace-nowrap">{Math.abs(r.quantity)} {r.unit}</TD>
-                      <TD className="text-xs">{r.sourceType === "BATCH" ? <Badge variant="outline" className="text-[10px]">배치#{r.sourceId}</Badge> : r.sourceType || "수동"}</TD>
-                      <TD className="text-muted-foreground truncate max-w-[250px]">{r.notes || "-"}</TD>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </StyledTable>
+          {summaryLoading ? <Loading /> : !summary || summary.totalRecords === 0 ? <Empty text={`${viewYear}년 ${viewMonth}월 소모 이력 없음`} /> : (
+            <div className="space-y-4">
+              {/* 월간 요약 카드 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatCard icon={PackageMinus} label="총 소모 건수" value={summary.totalRecords.toLocaleString()} color="orange" sub="건" />
+                <StatCard icon={Layers} label="원재료 종류" value={summary.materialTotals.length.toLocaleString()} color="blue" sub="종" />
+                <StatCard icon={Package} label="총 소모량" value={fmt(summary.grandTotalQuantity)} color="red" />
+                <StatCard icon={Calendar} label="소모 일수" value={summary.dailyGroups.length.toLocaleString()} color="slate" sub="일" />
+              </div>
+
+              {/* 원재료별 월간 소계 */}
+              {summary.materialTotals.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted/30 px-3 py-2 border-b">
+                    <h4 className="text-xs font-semibold text-muted-foreground">원재료별 월간 소계</h4>
+                  </div>
+                  <div className="divide-y">
+                    {summary.materialTotals.map((mt: any) => (
+                      <div key={mt.materialId} className="flex items-center justify-between px-3 py-2 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium">{mt.materialName}</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">{mt.count}건</Badge>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-400">{fmt(mt.totalQuantity)}</span>
+                          <span className="text-[10px] text-muted-foreground ml-1">{mt.unit}</span>
+                          {mt.totalAmount > 0 && (
+                            <span className="text-[10px] text-muted-foreground ml-2">{won(mt.totalAmount)}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 일별 그룹 (접이식) */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-muted/30 px-3 py-2 border-b">
+                  <h4 className="text-xs font-semibold text-muted-foreground">일별 소모 상세</h4>
+                </div>
+                <div className="divide-y">
+                  {summary.dailyGroups.map((day: any) => {
+                    const isDateExpanded = expandedDates.has(day.date);
+                    return (
+                      <div key={day.date}>
+                        {/* 날짜 헤더 */}
+                        <button onClick={() => toggleDate(day.date)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-muted/20 transition-colors text-left">
+                          <div className="flex items-center gap-2">
+                            {isDateExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                            <span className="text-xs font-semibold">{fmtDate(day.date)}</span>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{day.recordCount}건</Badge>
+                            <span className="text-[10px] text-muted-foreground">{day.materialGroups.length}종 원재료</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-400">
+                            {fmt(day.totalQuantity)}
+                            {day.totalAmount > 0 && <span className="text-muted-foreground font-normal ml-2">{won(day.totalAmount)}</span>}
+                          </span>
+                        </button>
+
+                        {/* 원재료 그룹 (날짜 확장 시) */}
+                        {isDateExpanded && (
+                          <div className="bg-muted/10 border-t">
+                            {day.materialGroups.map((mg: any) => {
+                              const matKey = `${day.date}-${mg.materialId}`;
+                              const isMatExpanded = expandedMaterials.has(matKey);
+                              return (
+                                <div key={matKey}>
+                                  {/* 원재료 소계 행 */}
+                                  <button onClick={() => toggleMaterial(matKey)}
+                                    className="w-full flex items-center justify-between px-6 py-2 hover:bg-muted/20 transition-colors text-left border-b border-dashed">
+                                    <div className="flex items-center gap-2">
+                                      {isMatExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                                      <span className="text-xs font-medium">{mg.materialName}</span>
+                                      <Badge variant="outline" className="text-[10px] px-1 py-0">{mg.items.length}건</Badge>
+                                    </div>
+                                    <span className="text-xs font-mono font-semibold">
+                                      {fmt(mg.subtotalQty)} <span className="text-muted-foreground font-normal">{mg.unit}</span>
+                                    </span>
+                                  </button>
+
+                                  {/* 개별 소모 상세 (원재료 확장 시) */}
+                                  {isMatExpanded && (
+                                    <div className="bg-background/50">
+                                      {mg.items.map((item: any, idx: number) => (
+                                        <div key={idx} className="flex items-center justify-between px-10 py-1.5 text-[11px] border-b border-dotted last:border-0">
+                                          <div className="flex items-center gap-3">
+                                            <span className="text-muted-foreground w-4 text-right">{idx+1}</span>
+                                            {item.sourceType === "BATCH" ? (
+                                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">배치#{item.sourceId}</Badge>
+                                            ) : (
+                                              <span className="text-muted-foreground">{item.sourceType || "수동"}</span>
+                                            )}
+                                            {item.lotNumber && <span className="font-mono text-muted-foreground">{item.lotNumber}</span>}
+                                            {item.notes && <span className="text-muted-foreground truncate max-w-[200px]">{item.notes}</span>}
+                                          </div>
+                                          <span className="font-mono whitespace-nowrap">
+                                            {fmt(item.quantity)} <span className="text-muted-foreground">{item.unit}</span>
+                                            {item.amount > 0 && <span className="text-muted-foreground ml-2">{won(item.amount)}</span>}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 월간 총합계 */}
+                <div className="bg-orange-50/50 dark:bg-orange-950/20 border-t-2 border-orange-300 dark:border-orange-800 px-3 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-bold">월간 합계</span>
+                  <div className="text-right">
+                    <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{summary.totalRecords}건</span>
+                    <span className="text-xs text-muted-foreground mx-2">|</span>
+                    <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{fmt(summary.grandTotalQuantity)}</span>
+                    {summary.grandTotalAmount > 0 && (
+                      <>
+                        <span className="text-xs text-muted-foreground mx-2">|</span>
+                        <span className="text-sm font-mono font-bold">{won(summary.grandTotalAmount)}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>

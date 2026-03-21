@@ -738,6 +738,22 @@ export const inventoryRouter = router({
         }, ctx.tenantId!);
       }),
 
+    // 소모 현황 월별 요약 (일별 그룹 + 원재료별 소계 + 총합계)
+    getConsumptionSummary: tenantRequiredProcedure
+      .input(
+        z.object({
+          year: z.number(),
+          month: z.number().min(1).max(12),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        const { getConsumptionSummary } = await import("../../db/outboundManagement");
+        return await getConsumptionSummary({
+          year: input.year,
+          month: input.month,
+        }, ctx.tenantId!);
+      }),
+
     // 재고 조정 (LOT 단위)
     adjustInventory: workerProcedure
       .input(

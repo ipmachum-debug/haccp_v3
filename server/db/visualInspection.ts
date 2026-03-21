@@ -824,39 +824,17 @@ export async function createMaterialReceivingWithLot(
   // 1. LOT 번호 자동 생성
   const lotNumber = await generateMaterialLotNumber(db, tenantId, params.materialCode, receiptDate);
 
-  // 2. h_inventory_lots에 LOT 생성
-  const lotResult = await db.execute(sql`
-    INSERT INTO h_inventory_lots 
-      (tenant_id, material_id, lot_number, quantity, available_quantity, unit,
-       unit_price, receipt_date, expiry_date, supplier_name, status)
-    VALUES 
-      (${tenantId}, ${params.materialId}, ${lotNumber}, 
-       ${params.quantity}, ${params.quantity}, ${params.unit},
-       ${params.unitPrice || null}, ${receiptDate}, ${params.expiryDate || null},
-       ${params.supplierName || null}, 'available')
-  `);
-  const lotId = Number((lotResult as any)[0]?.insertId || 0);
-
-  // 3. h_inventory_transactions에 입고 기록
-  await db.execute(sql`
-    INSERT INTO h_inventory_transactions
-      (tenant_id, lot_id, transaction_type, quantity, unit, unit_cost,
-       transaction_date, reference_type, source_type, action_type, notes, created_by)
-    VALUES
-      (${tenantId}, ${lotId}, 'receipt', ${params.quantity}, ${params.unit},
-       ${params.unitPrice || null}, ${receiptDate}, 'material_receiving', 'inbound', 'receipt',
-       ${params.notes || `원재료 입고 - ${lotNumber}`}, ${params.userId})
-  `);
-
-  // 4. h_inventory 재고 업데이트 (있으면 증가, 없으면 생성)
+  // 2. h_inventory 재고 업데이트 (있으면 증가, 없으면 생성) — LOT에 inventory_id를 설정하기 위해 먼저 처리
   const invCheck = await db.execute(sql`
     SELECT id, total_quantity, available_quantity FROM h_inventory
     WHERE tenant_id = ${tenantId} AND material_id = ${params.materialId}
     LIMIT 1
   `);
   const invRows = (invCheck as any)[0] || [];
+  let inventoryId: number;
   if ((invRows as any[]).length > 0) {
     const inv = (invRows as any[])[0];
+    inventoryId = Number(inv.id);
     const newTotal = parseFloat(inv.total_quantity) + params.quantity;
     const newAvail = parseFloat(inv.available_quantity) + params.quantity;
     await db.execute(sql`
@@ -864,11 +842,36 @@ export async function createMaterialReceivingWithLot(
         last_updated = NOW() WHERE id = ${inv.id}
     `);
   } else {
-    await db.execute(sql`
+    const insResult = await db.execute(sql`
       INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit)
       VALUES (${tenantId}, ${params.materialId}, ${params.quantity}, ${params.quantity}, 0, ${params.unit})
     `);
+    inventoryId = Number((insResult as any)[0]?.insertId || 0);
   }
+
+  // 3. h_inventory_lots에 LOT 생성 (inventory_id 연결 — FEFO 할당에 필수)
+  const lotResult = await db.execute(sql`
+    INSERT INTO h_inventory_lots
+      (tenant_id, inventory_id, material_id, lot_number, quantity, available_quantity, unit,
+       unit_price, receipt_date, expiry_date, supplier_name, status)
+    VALUES
+      (${tenantId}, ${inventoryId}, ${params.materialId}, ${lotNumber},
+       ${params.quantity}, ${params.quantity}, ${params.unit},
+       ${params.unitPrice || null}, ${receiptDate}, ${params.expiryDate || null},
+       ${params.supplierName || null}, 'available')
+  `);
+  const lotId = Number((lotResult as any)[0]?.insertId || 0);
+
+  // 4. h_inventory_transactions에 입고 기록
+  await db.execute(sql`
+    INSERT INTO h_inventory_transactions
+      (tenant_id, inventory_id, lot_id, transaction_type, quantity, unit, unit_cost,
+       transaction_date, reference_type, source_type, action_type, notes, created_by)
+    VALUES
+      (${tenantId}, ${inventoryId}, ${lotId}, 'receipt', ${params.quantity}, ${params.unit},
+       ${params.unitPrice || null}, ${receiptDate}, 'material_receiving', 'inbound', 'receipt',
+       ${params.notes || `원재료 입고 - ${lotNumber}`}, ${params.userId})
+  `);
 
   // 5. h_material_receivings에도 lot_number 업데이트 (있으면)
   await db.execute(sql`
