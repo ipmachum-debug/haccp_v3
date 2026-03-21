@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import type { SearchableSelectOption } from "@/components/ui/searchable-select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, ArrowLeft, Eye } from "lucide-react";
@@ -64,6 +66,25 @@ export default function MfReportCreate() {
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: intermediates, isLoading: intermediatesLoading } =
     trpc.intermediate.list.useQuery(undefined);
+
+  // 검색용 옵션 목록 생성
+  const productOptions: SearchableSelectOption[] = useMemo(() =>
+    (products || []).map((p: any) => ({
+      value: p.id.toString(),
+      label: `${p.productName} (${p.productCode})`,
+    })), [products]);
+
+  const materialOptions: SearchableSelectOption[] = useMemo(() =>
+    (materials || []).map((m: any) => ({
+      value: m.id.toString(),
+      label: `${m.materialName} (${m.materialCode})`,
+    })), [materials]);
+
+  const intermediateOptions: SearchableSelectOption[] = useMemo(() =>
+    (intermediates || []).map((i: any) => ({
+      value: i.id.toString(),
+      label: `${i.materialName} (${i.materialCode})`,
+    })), [intermediates]);
 
   const createMutation = trpc.mfReport.create.useMutation({
     onSuccess: () => {
@@ -179,22 +200,16 @@ export default function MfReportCreate() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="product">제품 선택 *</Label>
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                  <SelectTrigger id="product">
-                    <SelectValue placeholder="제품 선택" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {productsLoading ? (
-                      <div className="flex items-center justify-center p-4">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      </div>
-                    ) : products?.map((product: any) => (
-                      <SelectItem key={product.id} value={product.id.toString()}>
-                        {product.productName} ({product.productCode})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  id="product"
+                  options={productOptions}
+                  value={selectedProductId}
+                  onValueChange={setSelectedProductId}
+                  placeholder="제품 검색..."
+                  searchPlaceholder="제품명 또는 코드 검색..."
+                  emptyMessage="검색 결과가 없습니다"
+                  isLoading={productsLoading}
+                />
               </div>
 
               <div>
@@ -303,49 +318,31 @@ export default function MfReportCreate() {
                     {newIngredient.materialType === "RAW" ? "원재료" : "중간재"}
                   </Label>
                   {newIngredient.materialType === "MIXED" ? (
-                    <Select
+                    <SearchableSelect
+                      id="ingredient"
+                      options={intermediateOptions}
                       value={newIngredient.intermediateId?.toString() || ""}
                       onValueChange={(value) =>
-                        setNewIngredient({ ...newIngredient, intermediateId: parseInt(value), materialId: undefined })
+                        setNewIngredient({ ...newIngredient, intermediateId: value ? parseInt(value) : undefined, materialId: undefined })
                       }
-                    >
-                      <SelectTrigger id="ingredient">
-                        <SelectValue placeholder="중간재 선택" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {intermediatesLoading ? (
-                          <div className="flex items-center justify-center p-4">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          </div>
-                        ) : intermediates?.map((intermediate: any) => (
-                          <SelectItem key={intermediate.id} value={intermediate.id.toString()}>
-                            {intermediate.materialName} ({intermediate.materialCode})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder="중간재 검색..."
+                      searchPlaceholder="중간재명 또는 코드 검색..."
+                      emptyMessage="검색 결과가 없습니다"
+                      isLoading={intermediatesLoading}
+                    />
                   ) : (
-                    <Select
+                    <SearchableSelect
+                      id="ingredient"
+                      options={materialOptions}
                       value={newIngredient.materialId?.toString() || ""}
                       onValueChange={(value) =>
-                        setNewIngredient({ ...newIngredient, materialId: parseInt(value), intermediateId: undefined })
+                        setNewIngredient({ ...newIngredient, materialId: value ? parseInt(value) : undefined, intermediateId: undefined })
                       }
-                    >
-                      <SelectTrigger id="ingredient">
-                        <SelectValue placeholder="원재료 선택" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {materialsLoading ? (
-                          <div className="flex items-center justify-center p-4">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          </div>
-                        ) : materials?.map((material: any) => (
-                          <SelectItem key={material.id} value={material.id.toString()}>
-                            {material.materialName} ({material.materialCode})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder="원재료 검색..."
+                      searchPlaceholder="원재료명 또는 코드 검색..."
+                      emptyMessage="검색 결과가 없습니다"
+                      isLoading={materialsLoading}
+                    />
                   )}
                 </div>
               ) : (
@@ -374,49 +371,31 @@ export default function MfReportCreate() {
                   <div>
                     <Label htmlFor="flavorIngredient">부재료 선택</Label>
                     {newIngredient.intermediateId || (!newIngredient.materialId && !newIngredient.intermediateId) ? (
-                      <Select
+                      <SearchableSelect
+                        id="flavorIngredient"
+                        options={intermediateOptions}
                         value={newIngredient.intermediateId?.toString() || ""}
                         onValueChange={(value) =>
-                          setNewIngredient({ ...newIngredient, intermediateId: parseInt(value), materialId: undefined })
+                          setNewIngredient({ ...newIngredient, intermediateId: value ? parseInt(value) : undefined, materialId: undefined })
                         }
-                      >
-                        <SelectTrigger id="flavorIngredient">
-                          <SelectValue placeholder="중간재 선택" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {intermediatesLoading ? (
-                            <div className="flex items-center justify-center p-4">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            </div>
-                          ) : intermediates?.map((intermediate: any) => (
-                            <SelectItem key={intermediate.id} value={intermediate.id.toString()}>
-                              {intermediate.materialName} ({intermediate.materialCode})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        placeholder="중간재 검색..."
+                        searchPlaceholder="중간재명 또는 코드 검색..."
+                        emptyMessage="검색 결과가 없습니다"
+                        isLoading={intermediatesLoading}
+                      />
                     ) : (
-                      <Select
+                      <SearchableSelect
+                        id="flavorIngredient"
+                        options={materialOptions}
                         value={newIngredient.materialId?.toString() || ""}
                         onValueChange={(value) =>
-                          setNewIngredient({ ...newIngredient, materialId: parseInt(value), intermediateId: undefined })
+                          setNewIngredient({ ...newIngredient, materialId: value ? parseInt(value) : undefined, intermediateId: undefined })
                         }
-                      >
-                        <SelectTrigger id="flavorIngredient">
-                          <SelectValue placeholder="원재료 선택" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {materialsLoading ? (
-                            <div className="flex items-center justify-center p-4">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            </div>
-                          ) : materials?.map((material: any) => (
-                            <SelectItem key={material.id} value={material.id.toString()}>
-                              {material.materialName} ({material.materialCode})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        placeholder="원재료 검색..."
+                        searchPlaceholder="원재료명 또는 코드 검색..."
+                        emptyMessage="검색 결과가 없습니다"
+                        isLoading={materialsLoading}
+                      />
                     )}
                   </div>
                   <div>
