@@ -118,10 +118,11 @@ export async function createBatch(batch: {
           .orderBy(hMfIngredients.lineNo);
         const ingredients = ingredientsRaw;
 
-        // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준, 정제수 제외)
+        // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
+        // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
         if (ingredients.length > 0) {
           const batchInputs = ingredients
-            .filter((ing: any) => ing.materialId !== null && ing.materialId !== 191 && ing.isDeductible !== 0)
+            .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0)
             .map((ing: any) => {
               // 보정 배합비 사용 (없으면 법적 배합비 fallback)
               const ratio = ing.correctedQuantity
@@ -703,16 +704,27 @@ export async function completeBatch(params: {
   // 3. 원재료 소비 및 재고 정산
   let totalMaterialCost = 0;
   try {
-    const { hBatchInputs, hInventory, hInventoryTransactions } = await import("../../drizzle/schema");
+    const { hBatchInputs, hInventory, hInventoryTransactions, hMaterials } = await import("../../drizzle/schema");
 
-    // 배치 투입 내역 조회
+    // 배치 투입 내역 조회 (원재료명 포함)
     const batchInputs = await db
-      .select()
+      .select({
+        input: hBatchInputs,
+        materialName: hMaterials.materialName
+      })
       .from(hBatchInputs)
+      .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
       .where(eq(hBatchInputs.batchId, batchId));
 
+    // 정제수 판별 헬퍼
+    const isWater = (name: string | null) => {
+      if (!name) return false;
+      const n = name.toLowerCase();
+      return n.includes("정제수") || n.includes("purified water");
+    };
+
     // 원재료 소비 처리
-    for (const input of batchInputs) {
+    for (const { input, materialName } of batchInputs) {
       // 재고 차감
       await db
         .update(hInventory)
@@ -735,8 +747,10 @@ export async function completeBatch(params: {
         createdBy: 1, // TODO: completedBy 파라미터 추가
       } as any);
 
-      // 원가 누적
-      totalMaterialCost += parseFloat(input.totalPrice || "0");
+      // 원가 누적 (정제수 제외)
+      if (!isWater(materialName)) {
+        totalMaterialCost += parseFloat(input.totalPrice || "0");
+      }
     }
 
     // 완제품 재고 입고

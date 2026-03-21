@@ -771,9 +771,9 @@ export default function BatchDetail() {
                         {batchCost.materialCosts.map((item: any, index: any) => (
                           <div key={item.materialId} className={`p-3 border rounded-lg ${item.isWater ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200' : ''}`}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className="font-medium text-sm">
+                              <span className="font-medium text-sm flex items-center gap-1.5">
                                 {item.materialName}
-                                {item.isWater && <span className="ml-1 text-xs text-blue-500">(가격제외)</span>}
+                                {item.isWater && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border border-blue-200">원가제외</span>}
                               </span>
                               <span className="font-bold">{item.isWater ? '-' : `${item.totalCost.toLocaleString('ko-KR')}원`}</span>
                             </div>
