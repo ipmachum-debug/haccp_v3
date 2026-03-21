@@ -63,7 +63,7 @@ export async function retroactiveInventoryDeduction(
     }
 
     const [batchRows]: any = await db.execute(sql.raw(`
-      SELECT DISTINCT b.id, b.batch_number, b.status, b.created_by,
+      SELECT DISTINCT b.id, b.batch_code, b.status, b.created_by,
              COUNT(bi.id) AS pending_inputs,
              SUM(bi.planned_quantity) AS total_planned_qty
       FROM h_batches b
@@ -72,7 +72,7 @@ export async function retroactiveInventoryDeduction(
         AND b.status IN ('in_progress', 'completed')
         AND bi.inventory_deducted = 0
         ${batchFilter}
-      GROUP BY b.id, b.batch_number, b.status, b.created_by
+      GROUP BY b.id, b.batch_code, b.status, b.created_by
       ORDER BY b.id
     `));
 
@@ -90,7 +90,7 @@ export async function retroactiveInventoryDeduction(
       for (const batch of batches) {
         result.details.push({
           batchId: batch.id,
-          batchNumber: batch.batch_number || `B-${batch.id}`,
+          batchNumber: batch.batch_code || `B-${batch.id}`,
           status: batch.status,
           materialsIssued: Number(batch.pending_inputs),
           cost: 0,
@@ -107,7 +107,7 @@ export async function retroactiveInventoryDeduction(
 
     for (const batch of batches) {
       const batchId = Number(batch.id);
-      const batchNumber = batch.batch_number || `B-${batchId}`;
+      const batchNumber = batch.batch_code || `B-${batchId}`;
       const userId = params.userId || Number(batch.created_by) || 1;
 
       try {

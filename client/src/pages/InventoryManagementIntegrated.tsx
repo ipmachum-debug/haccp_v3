@@ -369,7 +369,7 @@ function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) 
     },
     onError: (e: any) => {
       setResultMsg(`확인 오류: ${e.message}`);
-      setStatus("idle");
+      setStatus("done");
     }
   });
 
