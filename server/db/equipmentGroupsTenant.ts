@@ -535,6 +535,7 @@ export async function getAllGroups(tenantId?: number) {
     })
     .from(userGroups)
     .leftJoin(users, eq(userGroups.createdBy, users.id))
+    .where(tenantId ? eq(userGroups.tenantId, tenantId) : undefined)
     .orderBy(desc(userGroups.createdAt));
 
   return groups;
@@ -557,10 +558,13 @@ export async function updateGroup(
 
   const { userGroups } = await import("../../drizzle/schema_main");
 
+  const conditions: any[] = [eq(userGroups.id, groupId)];
+  if (tenantId) conditions.push(eq(userGroups.tenantId, tenantId));
+
   await db
     .update(userGroups)
     .set(data)
-    .where(eq(userGroups.id, groupId));
+    .where(and(...conditions));
 
   return true;
 }
@@ -574,7 +578,10 @@ export async function deleteGroup(groupId: number, tenantId?: number) {
 
   const { userGroups } = await import("../../drizzle/schema_main");
 
-  await db.delete(userGroups).where(eq(userGroups.id, groupId));
+  const conditions: any[] = [eq(userGroups.id, groupId)];
+  if (tenantId) conditions.push(eq(userGroups.tenantId, tenantId));
+
+  await db.delete(userGroups).where(and(...conditions));
 
   return true;
 }
