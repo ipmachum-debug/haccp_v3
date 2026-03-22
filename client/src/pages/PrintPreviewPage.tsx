@@ -353,51 +353,13 @@ export default function PrintPreviewPage() {
           return (
           <div key={index} className="print-page">
             {isCcpForm ? (
-              /* CCP 기록지: 간소화된 헤더 (결재란은 CCP 양식 내부에 포함) */
-              <div className="print-header flex items-start justify-between mb-1">
-                <div className="flex-1">
-                  <div className="text-[10px] text-gray-500 mt-0">
-                    <span>문서번호: #{page.doc.id}</span>
-                    <span className="ml-2">작성일: {(() => {
-                      const d = page.doc.formData?.date || page.doc.requestedAt;
-                      if (!d) return "-";
-                      try { return new Date(String(d)).toLocaleDateString("ko-KR"); } catch { return String(d); }
-                    })()}</span>
-                    {page.doc.approvedAt && <span className="ml-2">승인일: {(() => { try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); } })()}</span>}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 ml-2">
-                  <ApprovalHeader
-                    authorName={page.doc.authorName}
-                    reviewerName={page.doc.reviewerName}
-                    approverName={page.doc.approverName}
-                    requestedAt={page.doc.requestedAt}
-                    reviewedAt={page.doc.reviewedAt}
-                    approvedAt={page.doc.approvedAt}
-                    compact={true}
-                  />
-                </div>
-              </div>
+              /* CCP 기록지: 결재란 없음 (CCP 양식 내부에 포함) */
+              <div className="print-header mb-0.5" />
             ) : (
-              /* 일반 문서: 헤더 (간결화 - 결재란 가로 배치) */
-              <div className="print-header flex items-start justify-between mb-3">
-                <div className="flex-1">
-                  <h1 className="text-lg font-bold mb-1">{page.pageTitle}</h1>
-                  <div className="text-xs text-gray-600 flex gap-3">
-                    <span>문서번호: #{page.doc.id}</span>
-                    <span>작성일: {(() => {
-                      // 배치일(formData.date) 우선, 없으면 requestedAt
-                      const batchDate = page.doc.formData?.date;
-                      const d = batchDate || page.doc.requestedAt;
-                      if (!d) return "-";
-                      try { return new Date(String(d)).toLocaleDateString("ko-KR"); } catch { return String(d); }
-                    })()}</span>
-                    {page.doc.approvedAt && <span>승인일: {(() => {
-                      try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); }
-                    })()}</span>}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 ml-3">
+              /* 일반 문서: 제목 왼쪽 + 결재란 오른쪽 (같은 줄) */
+              <div className="print-header flex items-start justify-between mb-1">
+                <div className="flex-1" />
+                <div className="flex-shrink-0">
                   <ApprovalHeader
                     authorName={page.doc.authorName}
                     reviewerName={page.doc.reviewerName}
@@ -410,7 +372,7 @@ export default function PrintPreviewPage() {
                 </div>
               </div>
             )}
-            <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-2'}`} />
+            <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-1'}`} />
             <div className={`print-content ${isCcpForm ? "mb-1" : "mb-4"}`}>{page.pageContent}</div>
             <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
           </div>
