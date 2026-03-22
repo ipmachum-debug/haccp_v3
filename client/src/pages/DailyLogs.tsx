@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CalendarIcon, FileText, Search, RefreshCw, ChevronLeft, ChevronRight,
-  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye
+  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2
 } from "lucide-react";
 import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -47,6 +47,7 @@ export default function DailyLogs() {
   const [keyword, setKeyword] = useState("");
 
   // API Query
+  const utils = trpc.useUtils();
   const { data: dailyLogs = [], isLoading, refetch } = trpc.dailyLog.list.useQuery({
     startDate,
     endDate,
@@ -54,6 +55,15 @@ export default function DailyLogs() {
     limit: 100,
     offset: 0
   });
+  const deleteMut = trpc.dailyLog.delete.useMutation({
+    onSuccess: () => { utils.dailyLog.list.invalidate(); },
+    onError: (e: any) => alert(`삭제 실패: ${e.message}`),
+  });
+  const handleDelete = (id: number, title: string, status: string) => {
+    if (status === 'approved') { alert('승인완료된 일지는 삭제할 수 없습니다.'); return; }
+    if (!confirm(`"${title}" 일일일지를 삭제하시겠습니까?\n\n※ 관련 승인요청도 함께 삭제됩니다.`)) return;
+    deleteMut.mutate({ id });
+  };
 
   // Filter by keyword
   const filteredLogs = useMemo(() => {
@@ -272,15 +282,29 @@ export default function DailyLogs() {
                           : "-"}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={() => navigate(`/daily-log/daily?id=${log.id}&date=${log.log_date}`)}
-                          title="상세 보기"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => navigate(`/daily-log/daily?id=${log.id}&date=${log.log_date}`)}
+                            title="상세 보기"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {log.status !== 'approved' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-400 hover:text-red-600"
+                              onClick={() => handleDelete(log.id, log.title, log.status)}
+                              disabled={deleteMut.isPending}
+                              title="삭제"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

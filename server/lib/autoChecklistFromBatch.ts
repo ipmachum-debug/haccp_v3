@@ -105,7 +105,39 @@ async function autoCreateChecklists(
 
     const instanceId = Number(result[0].insertId);
 
-    // 템플릿 항목 복사
+    // 이전 완료된 인스턴스에서 저장값 조회 (auto-fill)
+    let prevValues = new Map<number, string>();
+    try {
+      const prevInstances = await db
+        .select({ id: checklistInstances.id })
+        .from(checklistInstances)
+        .where(
+          and(
+            eq(checklistInstances.tenantId, tenantId),
+            eq(checklistInstances.templateId, tmpl.id),
+          ),
+        )
+        .orderBy(sql`${checklistInstances.createdAt} DESC`)
+        .limit(1);
+
+      if (prevInstances.length > 0) {
+        const prevItems = await db
+          .select({
+            templateItemId: checklistInstanceItems.templateItemId,
+            value: checklistInstanceItems.value,
+          })
+          .from(checklistInstanceItems)
+          .where(eq(checklistInstanceItems.instanceId, prevInstances[0].id));
+
+        for (const pi of prevItems) {
+          if (pi.templateItemId && pi.value) {
+            prevValues.set(pi.templateItemId, pi.value);
+          }
+        }
+      }
+    } catch {}
+
+    // 템플릿 항목 복사 (이전 값 auto-fill)
     const items = await db
       .select()
       .from(checklistTemplateItems)
@@ -122,7 +154,8 @@ async function autoCreateChecklists(
           description: item.description,
           sortOrder: item.sortOrder,
           tenantId,
-          isCompleted: 0,
+          value: prevValues.get(item.id) || null,
+          isCompleted: prevValues.has(item.id) ? 1 : 0,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })) as any,
