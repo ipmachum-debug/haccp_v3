@@ -86,7 +86,8 @@ export const dailyReportRouter = router({
         const batchResult = await db.execute(sql`
           SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
             b.start_time, b.end_time, b.planned_date,
-            p.product_name, p.product_code,
+            COALESCE(p.product_name, p1.product_name) as product_name,
+            COALESCE(p.product_code, p1.product_code) as product_code,
             COALESCE(sku.total_kg_sum, 0) as sku_actual_kg,
             COALESCE(pp.actual_quantity, 0) as perf_actual_quantity,
             ps.start_time as prod_start_time,
@@ -96,6 +97,7 @@ export const dailyReportRouter = router({
             ccp_time.ccp_last_time
           FROM h_batches b
           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
+          LEFT JOIN h_products p1 ON p1.id = b.product_id
           LEFT JOIN (
             SELECT batch_id, SUM(total_kg) as total_kg_sum
             FROM production_sku_output
@@ -120,8 +122,8 @@ export const dailyReportRouter = router({
             GROUP BY fr2.batch_id
           ) ccp_time ON ccp_time.batch_id = b.id
           WHERE b.tenant_id = ${tenantId}
-            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
-          ORDER BY b.created_at ASC
+            AND DATE(b.planned_date) = ${dateStr}
+          ORDER BY b.batch_order ASC, b.created_at ASC
         `);
         const batches = Array.isArray(batchResult) && Array.isArray(batchResult[0]) ? batchResult[0] : batchResult;
 
@@ -140,7 +142,7 @@ export const dailyReportRouter = router({
           INNER JOIN h_batches b ON fr.batch_id = b.id
           LEFT JOIN h_ccp_form_rows r ON r.form_record_id = fr.id AND r.tenant_id = ${tenantId}
           WHERE fr.tenant_id = ${tenantId}
-            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+            AND DATE(b.planned_date) = ${dateStr}
           GROUP BY fr.batch_id, fr.ccp_type, fr.status
         `);
         const ccpDetails = Array.isArray(ccpDetailResult) && Array.isArray(ccpDetailResult[0]) ? ccpDetailResult[0] : ccpDetailResult;
@@ -153,7 +155,7 @@ export const dailyReportRouter = router({
           FROM h_ccp_form_records fr
           INNER JOIN h_batches b ON fr.batch_id = b.id
           WHERE fr.tenant_id = ${tenantId}
-            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+            AND DATE(b.planned_date) = ${dateStr}
         `);
         const ccpStatsRaw = (ccpResult as any)[0]?.[0] || { total_ccp: 0, deviation_count: 0 };
         const ccpStats = {
@@ -170,7 +172,7 @@ export const dailyReportRouter = router({
           INNER JOIN h_batches b ON fr.batch_id = b.id
           LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ${tenantId}
           WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
-            AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+            AND DATE(b.planned_date) = ${dateStr}
           ORDER BY r.measurement_time ASC
         `);
         const issues = Array.isArray(issueResult) && Array.isArray(issueResult[0]) ? issueResult[0] : issueResult;

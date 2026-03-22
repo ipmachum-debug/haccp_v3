@@ -310,16 +310,19 @@ export async function generateLotNumber(productId: number, tenantId?: number): P
 export async function generateBatchCode(tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) {
-    // 데이터베이스 연결 실패 시 기본값 반환
+    // 데이터베이스 연결 실패 시 기본값 반환 (KST 기준)
     const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const kstDate = new Date(today.getTime() + 9 * 60 * 60 * 1000);
+    const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
     return `BATCH-${dateStr}-001`;
   }
 
   try {
-    // 오늘 날짜 기준으로 최근 배치 코드 조회
+    // 오늘 날짜 기준으로 최근 배치 코드 조회 (KST 기준)
     const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const kstOffset = 9 * 60; // UTC+9
+    const kstDate = new Date(today.getTime() + kstOffset * 60 * 1000);
+    const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
     const prefix = `BATCH-${dateStr}-`;
 
     const [result] = await db
