@@ -729,8 +729,25 @@ export async function completeBatch(params: {
     // ⚠️ autoMaterialIssue(배치 시작 시)에서 이미 차감된 건은 건너뜀
     //    단, actual_quantity와 TX 기록이 다를 경우 h_inventory/LOT 보정 수행
     const pool = await getRawConnection();
+
+    // 2중 차감 방지: 이미 이 배치에 대한 출고 기록이 있는지 사전 확인
+    let existingTxBatchIds = new Set<number>();
+    if (pool) {
+      try {
+        const [txRows]: any = await pool.execute(
+          `SELECT DISTINCT source_line_id FROM h_inventory_transactions
+           WHERE (source_type = 'BATCH' OR source_type = 'batch_completion')
+             AND source_id = ? AND transaction_type = 'usage' AND tenant_id = ?`,
+          [batchId, tenantId || existingBatch.tenantId]
+        );
+        for (const row of (txRows as any[])) {
+          if (row.source_line_id) existingTxBatchIds.add(Number(row.source_line_id));
+        }
+      } catch (_e) { /* 조회 실패 시 무시 - 기존 로직으로 폴백 */ }
+    }
+
     for (const { input, materialName } of batchInputs) {
-      // 이미 autoMaterialIssue에서 차감 완료된 원재료
+      // 이미 autoMaterialIssue에서 차감 완료된 원재료 (DB 플래그 기반)
       if (Number(input.inventoryDeducted) === 1) {
         if (!isWater(materialName)) {
           totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
@@ -775,6 +792,22 @@ export async function completeBatch(params: {
 
       const qty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
       if (qty <= 0) continue;
+
+      // 2중 차감 방지: h_inventory_transactions에 이미 이 input에 대한 출고 기록이 있으면 건너뜀
+      if (existingTxBatchIds.has(Number(input.id))) {
+        console.log(`[completeBatch] 배치#${batchId} ${materialName}: input#${input.id} 이미 출고 기록 존재, 중복 차감 방지 → 건너뜀`);
+        // inventory_deducted 플래그가 0이었던 것을 1로 보정
+        try {
+          await db
+            .update(hBatchInputs)
+            .set({ inventoryDeducted: 1 })
+            .where(eq(hBatchInputs.id, input.id));
+        } catch (_e) { /* 무시 */ }
+        if (!isWater(materialName)) {
+          totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+        }
+        continue;
+      }
 
       // 재고 차감 (tenantId 격리)
       await db
