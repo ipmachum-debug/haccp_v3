@@ -3,12 +3,13 @@
  * Render functions for weekly_log and yearly_log print preview
  */
 import React from "react";
+import { TitleWithApproval } from "./PrintHelpers";
 
 // ============================================================================
 // 주간일지 전용 렌더러 (2페이지: 위생관리 + 방충방서)
 // ============================================================================
 
-export function renderWeeklyLogPages(data: any): React.ReactNode[] {
+export function renderWeeklyLogPages(data: any, doc?: any): React.ReactNode[] {
   const d = data || {};
   const date = d.date || "";
   const checkerName = d.checkerName || "";
@@ -31,10 +32,7 @@ export function renderWeeklyLogPages(data: any): React.ReactNode[] {
   // ─── 페이지 1: 일반위생관리 (주간) ───
   const page1 = (
     <div>
-      <div className="text-center mb-4">
-        <h2 className="text-xl font-bold">일반위생관리 점검표 (주간)</h2>
-        <p className="text-sm text-gray-500">(주 1회 작성)</p>
-      </div>
+      <TitleWithApproval title="일반위생관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} />
       <div className="flex gap-8 mb-3 text-sm">
         <div><span className="font-medium">점검일자:</span> {date}</div>
         <div><span className="font-medium">점검자:</span> {checkerName || "-"}</div>
@@ -93,10 +91,7 @@ export function renderWeeklyLogPages(data: any): React.ReactNode[] {
   // ─── 페이지 2: 방충·방서관리 (주간) ───
   const page2 = (
     <div>
-      <div className="text-center mb-4">
-        <h2 className="text-xl font-bold">방충·방서관리 점검표 (주간)</h2>
-        <p className="text-sm text-gray-500">(주 1회 작성)</p>
-      </div>
+      <TitleWithApproval title="방충·방서관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} />
       <div className="flex gap-8 mb-3 text-sm">
         <div><span className="font-medium">점검일자:</span> {date}</div>
         <div><span className="font-medium">점검자:</span> {checkerName || "-"}</div>
@@ -168,7 +163,7 @@ const CALIBRATION_LABELS: Record<string, string> = {
   calibrationOvenWorkThermometer: "오븐 작업용 온도계",
 };
 
-export function renderYearlyLog(data: any): React.ReactNode {
+export function renderYearlyLog(data: any, doc?: any): React.ReactNode {
   const d = data || {};
   const year = d.year || "";
   const date = d.date || d.inspectionDate || "";
@@ -191,10 +186,7 @@ export function renderYearlyLog(data: any): React.ReactNode {
 
   return (
     <div>
-      <div className="text-center mb-4">
-        <h2 className="text-xl font-bold">연간 검교정 점검표</h2>
-        <p className="text-sm text-gray-500">{year}년 (연 1회 작성)</p>
-      </div>
+      <TitleWithApproval title="연간 검교정 점검표" subtitle={`${year}년 (연 1회 작성)`} doc={doc} />
       <div className="flex gap-8 mb-3 text-sm">
         <div><span className="font-medium">점검일자:</span> {date}</div>
         <div><span className="font-medium">점검자:</span> {inspector || "-"}</div>

@@ -113,6 +113,49 @@ export function ApprovalHeader({
 }
 
 // ============================================================================
+// 제목 + 결재란 통합 컴포넌트 (모든 문서 공통)
+// ┌──────────────────┬────┬────┬────┐
+// │  문서 제목        │작성│검토│승인│
+// │  [부제목]        │직인│직인│직인│
+// │                  │이름│이름│이름│
+// └──────────────────┴────┴────┴────┘
+// ============================================================================
+export function TitleWithApproval({
+  title, subtitle, doc
+}: {
+  title: string;
+  subtitle?: string;
+  doc?: any;
+}) {
+  const authorName = doc?.authorName || "";
+  const reviewerName = doc?.reviewerName || "";
+  const approverName = doc?.approverName || "";
+  const requestedAt = doc?.formData?.date || doc?.requestedAt || "";
+  const reviewedAt = doc?.reviewedAt || "";
+  const approvedAt = doc?.approvedAt || "";
+
+  return (
+    <div className="flex items-start justify-between mb-0">
+      <div className="flex-1 border-2 border-gray-700 text-center py-2 font-bold text-base mr-[-2px]">
+        {title}
+        {subtitle && <><br /><span className="text-sm font-normal text-gray-500">{subtitle}</span></>}
+      </div>
+      <div className="flex-shrink-0">
+        <ApprovalHeader
+          authorName={authorName}
+          reviewerName={reviewerName}
+          approverName={approverName}
+          requestedAt={requestedAt}
+          reviewedAt={reviewedAt}
+          approvedAt={approvedAt}
+          compact={true}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // 범용 행 테이블 렌더러
 // ============================================================================
 export function renderRowsTable(data: any, title: string, columns: {key: string; label: string}[]) {
