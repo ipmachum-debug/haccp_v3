@@ -1,4 +1,5 @@
 import FloatingAIChatbot from "@/components/FloatingAIChatbot";
+import FloatingAIBriefing from "@/components/FloatingAIBriefing";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -317,6 +318,7 @@ export default function DashboardLayout({
         </DashboardLayoutContent>
       </SidebarProvider>
       <FloatingAIChatbot />
+      <FloatingAIBriefing />
     </>
   );
 }

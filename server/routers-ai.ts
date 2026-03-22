@@ -1671,4 +1671,11 @@ export const aiRouter = router({
       const { validateJournalEntries } = await import("./db/aiJournalValidation");
       return validateJournalEntries(ctx.tenantId, input?.startDate, input?.endDate);
     }),
+
+  // ── AI 브리핑 (로그인 시 플로팅 메시지) ──
+  briefing: tenantRequiredProcedure
+    .query(async ({ ctx }) => {
+      const { generateAIBriefing } = await import("./db/aiBriefing");
+      return generateAIBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
+    }),
 });
