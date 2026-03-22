@@ -22,43 +22,7 @@ const SEVERITY_DOT = {
   info: "bg-blue-500",
 };
 
-/** 하나 아바타 SVG - 둥근 얼굴 + 헤드셋 */
-function HanaAvatar({ size = 40 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* 배경 원 */}
-      <circle cx="24" cy="24" r="23" fill="url(#hana-grad)" stroke="#10b981" strokeWidth="1.5"/>
-      {/* 얼굴 */}
-      <circle cx="24" cy="22" r="12" fill="#FFF5E6"/>
-      {/* 눈 */}
-      <ellipse cx="20" cy="20" rx="1.8" ry="2.2" fill="#334155"/>
-      <ellipse cx="28" cy="20" rx="1.8" ry="2.2" fill="#334155"/>
-      {/* 눈 반짝 */}
-      <circle cx="20.8" cy="19.2" r="0.7" fill="white"/>
-      <circle cx="28.8" cy="19.2" r="0.7" fill="white"/>
-      {/* 입 (미소) */}
-      <path d="M20 25.5 Q24 28.5 28 25.5" stroke="#e11d48" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
-      {/* 볼 터치 */}
-      <circle cx="17" cy="24" r="2" fill="#FECDD3" opacity="0.6"/>
-      <circle cx="31" cy="24" r="2" fill="#FECDD3" opacity="0.6"/>
-      {/* 헤드셋 */}
-      <path d="M12 20 Q12 12 24 12 Q36 12 36 20" stroke="#10b981" strokeWidth="2" fill="none" strokeLinecap="round"/>
-      <rect x="10" y="18" width="4" height="7" rx="2" fill="#10b981"/>
-      <rect x="34" y="18" width="4" height="7" rx="2" fill="#10b981"/>
-      {/* 마이크 */}
-      <path d="M36 25 L38 30 L40 30" stroke="#10b981" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-      <circle cx="40" cy="30" r="1.5" fill="#10b981"/>
-      {/* 머리카락 */}
-      <path d="M14 16 Q18 8 24 10 Q30 8 34 16" stroke="#1e293b" strokeWidth="2" fill="none" strokeLinecap="round"/>
-      <defs>
-        <linearGradient id="hana-grad" x1="0" y1="0" x2="48" y2="48">
-          <stop offset="0%" stopColor="#ecfdf5"/>
-          <stop offset="100%" stopColor="#d1fae5"/>
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
+
 
 export default function FloatingAIBriefing() {
   const [, navigate] = useLocation();
@@ -119,7 +83,7 @@ export default function FloatingAIBriefing() {
         {/* 헤더 - 하나 아바타 + 이름 */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-emerald-100 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/30">
           <div className="flex items-center gap-2.5">
-            <HanaAvatar size={32} />
+            <img src="/ai-hana-character.png" alt="하나" className="h-8 w-8 rounded-full object-cover object-top" />
             <div>
               <p className="text-[13px] font-bold text-emerald-800 dark:text-emerald-300">AI 비서 하나</p>
               <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60">오늘의 브리핑</p>
