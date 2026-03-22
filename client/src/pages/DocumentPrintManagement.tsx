@@ -143,16 +143,38 @@ export default function DocumentPrintManagement() {
     try { localStorage.setItem(printHistoryKey, JSON.stringify(history.slice(0, 100))); } catch {}
   }, [printHistoryKey]);
 
+  // 제목에서 날짜 추출 (예: "[CCP-CCP-1B] 2026-03-19 찹쌀떡" → "2026-03-19")
+  const extractDateFromTitle = useCallback((title: string): string => {
+    const match = title?.match(/(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : "";
+  }, []);
+
+  // 날짜 내림차순 정렬 (최신이 위)
+  const sortByDateDesc = useCallback((requests: any[]): any[] => {
+    return [...requests].sort((a, b) => {
+      const dateA = extractDateFromTitle(a.title || "");
+      const dateB = extractDateFromTitle(b.title || "");
+      if (dateA && dateB) {
+        const cmp = dateB.localeCompare(dateA);
+        if (cmp !== 0) return cmp;
+      }
+      if (dateA && !dateB) return -1;
+      if (!dateA && dateB) return 1;
+      // 같은 날짜면 제목 순서
+      return (a.title || "").localeCompare(b.title || "");
+    });
+  }, [extractDateFromTitle]);
+
   const filterRequests = useCallback((requests: any[], category?: string) => {
     let filtered = requests;
     if (category) filtered = filtered.filter(r => getCategoryForRequest(r.requestType) === category);
-    if (appliedFilters.dateFrom) filtered = filtered.filter(r => { const d = r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""; return d >= appliedFilters.dateFrom; });
-    if (appliedFilters.dateTo) filtered = filtered.filter(r => { const d = r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""; return d <= appliedFilters.dateTo; });
+    if (appliedFilters.dateFrom) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""); return d >= appliedFilters.dateFrom; });
+    if (appliedFilters.dateTo) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""); return d <= appliedFilters.dateTo; });
     if (appliedFilters.printStatus === "printed") filtered = filtered.filter(r => printedIds.has(r.id));
     else if (appliedFilters.printStatus === "unprinted") filtered = filtered.filter(r => !printedIds.has(r.id));
     if (appliedFilters.keyword) { const kw = appliedFilters.keyword.toLowerCase(); filtered = filtered.filter(r => (r.title || "").toLowerCase().includes(kw) || getRequestTypeLabel(r.requestType).toLowerCase().includes(kw)); }
-    return filtered;
-  }, [appliedFilters, printedIds]);
+    return sortByDateDesc(filtered);
+  }, [appliedFilters, printedIds, extractDateFromTitle, sortByDateDesc]);
 
   const unprintedRequests = approvedRequests.filter((r: any) => !printedIds.has(r.id));
   const printQueueFiltered = filterRequests(unprintedRequests);
@@ -482,7 +504,7 @@ export default function DocumentPrintManagement() {
             <CardContent className="p-0">
               {printedIds.size > 0 ? (
                 <>
-                  {approvedRequests.filter((r: any) => printedIds.has(r.id)).map((r: any) => renderDocumentRow(r, false, true))}
+                  {sortByDateDesc(approvedRequests.filter((r: any) => printedIds.has(r.id))).map((r: any) => renderDocumentRow(r, false, true))}
                   {printHistory.length > 0 && (
                     <div className="px-3 py-2 border-t">
                       <h4 className="text-[10px] font-medium text-gray-500 mb-1.5">최근 인쇄 기록</h4>
@@ -516,8 +538,8 @@ export default function DocumentPrintManagement() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {renderSelectionBar(allRequests)}
-              {allRequests.length > 0 ? allRequests.map((r: any) => {
+              {renderSelectionBar(sortByDateDesc(allRequests))}
+              {allRequests.length > 0 ? sortByDateDesc(allRequests).map((r: any) => {
                 const isSelected = selectedIds.includes(r.id);
                 const cat = getCategoryForRequest(r.requestType);
                 const catColor = CATEGORY_BADGE_COLORS[cat] || "";
