@@ -37,15 +37,15 @@ async function decreaseInventoryQuantity(params: {
     );
   }
 
-  // 재고 차감
-  const newTotalQuantity = currentTotal - params.quantityChange;
-  const newAvailableQuantity = currentAvailable - params.quantityChange;
+  // 재고 차감 (음수 방지)
+  const newTotalQuantity = Math.max(currentTotal - params.quantityChange, 0);
+  const newAvailableQuantity = Math.max(currentAvailable - params.quantityChange, 0);
 
   await params.db
     .update(hInventory)
     .set({
-      totalQuantity: newTotalQuantity.toString(),
-      availableQuantity: newAvailableQuantity.toString(),
+      totalQuantity: newTotalQuantity.toFixed(1),
+      availableQuantity: newAvailableQuantity.toFixed(1),
       lastUpdated: new Date()
     })
     .where(eq(hInventory.id, existingInventory.id));
@@ -96,14 +96,14 @@ export async function createOutboundRecord(params: {
     );
   }
 
-  // LOT 수량 차감 (quantity + available_quantity 모두 차감)
-  const newQty = parseFloat(lot.quantity) - params.quantity;
-  const newAvailQty = currentAvailQty - params.quantity;
+  // LOT 수량 차감 (quantity + available_quantity 모두 차감, 음수 방지)
+  const newQty = Math.max(parseFloat(lot.quantity) - params.quantity, 0);
+  const newAvailQty = Math.max(currentAvailQty - params.quantity, 0);
   await db
     .update(hInventoryLots)
     .set({
-      quantity: newQty.toString(),
-      availableQuantity: newAvailQty.toString()
+      quantity: newQty.toFixed(1),
+      availableQuantity: newAvailQty.toFixed(1)
     })
     .where(eq(hInventoryLots.id, params.lotId));
   // 재고 거래 내역 기록

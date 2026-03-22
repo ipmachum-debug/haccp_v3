@@ -413,15 +413,15 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                           <TableRow key={item.material_id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}>
                             <TableCell className="text-center sticky left-0 bg-inherit z-10">{idx + 1}</TableCell>
                             <TableCell className="font-medium sticky left-12 bg-inherit z-10">{item.material_name}</TableCell>
-                            <TableCell className="text-right">{Number(item.prev_stock || 0).toLocaleString()}</TableCell>
+                            <TableCell className="text-right">{Math.max(Number(item.prev_stock || 0), 0).toFixed(1)}</TableCell>
                             <TableCell className="text-right text-blue-600 font-medium">
-                              {Number(item.receiving_qty || 0).toLocaleString()}
+                              {Math.max(Number(item.receiving_qty || 0), 0).toFixed(1)}
                             </TableCell>
                             <TableCell className="text-right text-green-600 font-medium">
-                              {Number(item.usage_qty || 0).toLocaleString()}
+                              {Math.max(Number(item.usage_qty || 0), 0).toFixed(1)}
                             </TableCell>
                             <TableCell className="text-right font-bold">
-                              {Number(item.current_stock || 0).toLocaleString()}
+                              {Math.max(Number(item.current_stock || 0), 0).toFixed(1)}
                             </TableCell>
                             <TableCell className="text-right">{Number(item.unit_price || 0).toLocaleString()}</TableCell>
                             <TableCell className="text-right text-blue-600">
@@ -524,7 +524,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                                 <TableCell className="font-medium text-sm sticky left-12 bg-inherit z-10 whitespace-nowrap">
                                   {item.material_name}
                                 </TableCell>
-                                <TableCell className="text-right bg-gray-50">{Number(item.prev_stock || 0).toLocaleString()}</TableCell>
+                                <TableCell className="text-right bg-gray-50">{Math.max(Number(item.prev_stock || 0), 0).toFixed(1)}</TableCell>
                                 {Array.from({ length: daysInMonth }, (_, i) => {
                                   const dayKey = `receiving_day_${String(i + 1).padStart(2, "0")}`;
                                   const val = Number(item[dayKey] || 0);
@@ -558,7 +558,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                                   {Number(item.usage_total || 0).toLocaleString()}
                                 </TableCell>
                                 <TableCell className="text-right font-bold text-orange-700 bg-orange-50">
-                                  {Number(item.end_stock || 0).toLocaleString()}
+                                  {Math.max(Number(item.end_stock || 0), 0).toFixed(1)}
                                 </TableCell>
                               </TableRow>
                             );
