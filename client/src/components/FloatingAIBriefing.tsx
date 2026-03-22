@@ -3,152 +3,218 @@
  * 로그인 시 자동 표시 → 핵심 알림만 → 닫기
  *
  * 원칙: 위험(Risk) + 돈(Money) + 행동(Action) 만
- * 3개 이하, 보고용 X, 결정 유도용 O
+ * ≤3개, 보고용 X, 결정 유도용 O
+ *
+ * 5가지 분석 카테고리:
+ * 1. 🚨 재고 위험
+ * 2. 💰 원가 변화
+ * 3. ⚠️ 품질/HACCP
+ * 4. 📉 생산 이상
+ * 5. 📦 발주 필요
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import { X, Sparkles, ChevronRight, AlertTriangle, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 
-const SEVERITY_STYLES = {
+/* ── Severity styling ── */
+const SEVERITY_STYLES: Record<string, string> = {
   critical: "border-red-200 bg-red-50/80 dark:bg-red-950/30 dark:border-red-800",
   warning: "border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800",
   info: "border-blue-200 bg-blue-50/60 dark:bg-blue-950/20 dark:border-blue-800",
 };
-
-const SEVERITY_DOT = {
-  critical: "bg-red-500",
+const SEVERITY_DOT: Record<string, string> = {
+  critical: "bg-red-500 animate-pulse",
   warning: "bg-amber-500",
-  info: "bg-blue-500",
+  info: "bg-blue-400",
 };
+
+/* ── sessionStorage key for daily dismiss ── */
+const DISMISS_KEY = "ai-briefing-dismissed";
+
+function getTodayKST(): string {
+  return new Date(Date.now() + 9 * 3600_000).toISOString().split("T")[0];
+}
 
 export default function FloatingAIBriefing() {
   const [, navigate] = useLocation();
   const [visible, setVisible] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
-
-  // 오늘 이미 닫았는지 확인
-  useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    const lastDismissed = sessionStorage.getItem("ai-briefing-dismissed");
-    if (lastDismissed === today) {
-      setDismissed(true);
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem(DISMISS_KEY) === getTodayKST();
+    } catch {
+      return false;
     }
-  }, []);
+  });
 
+  /* ── Data fetch (only if not dismissed today) ── */
   const { data: briefing, isLoading } = trpc.ai.briefing.useQuery(undefined, {
     enabled: !dismissed,
-    staleTime: 5 * 60 * 1000, // 5분 캐시
+    staleTime: 5 * 60_000, // 5-minute cache
     retry: false,
   });
 
-  // 데이터 로드 후 애니메이션 표시
+  /* ── Slide-in after 0.8 s delay ── */
   useEffect(() => {
     if (briefing && !dismissed) {
       const timer = setTimeout(() => {
         setVisible(true);
-        setTimeout(() => setAnimateIn(true), 50);
-      }, 800); // 페이지 로드 후 0.8초 딜레이
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => setAnimateIn(true));
+        });
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [briefing, dismissed]);
 
-  const handleDismiss = () => {
+  /* ── Dismiss handler (hide for rest of the day) ── */
+  const handleDismiss = useCallback(() => {
     setAnimateIn(false);
     setTimeout(() => {
       setVisible(false);
       setDismissed(true);
-      const today = new Date().toISOString().split("T")[0];
-      sessionStorage.setItem("ai-briefing-dismissed", today);
-    }, 300);
-  };
+      try {
+        sessionStorage.setItem(DISMISS_KEY, getTodayKST());
+      } catch { /* quota exceeded – harmless */ }
+    }, 350);
+  }, []);
 
-  const handleAction = (url: string) => {
-    handleDismiss();
-    navigate(url);
-  };
+  /* ── Click item → navigate to page ── */
+  const handleAction = useCallback(
+    (url: string) => {
+      handleDismiss();
+      setTimeout(() => navigate(url), 400);
+    },
+    [handleDismiss, navigate],
+  );
 
   if (dismissed || !visible) return null;
 
   return (
-    <div className={`fixed inset-0 z-[9999] pointer-events-none flex items-start justify-center pt-16 sm:pt-24 transition-opacity duration-300 ${animateIn ? "opacity-100" : "opacity-0"}`}>
-      {/* 배경 오버레이 */}
+    <div
+      className={`
+        fixed inset-0 z-[9999] pointer-events-none
+        flex items-start justify-center pt-16 sm:pt-24
+        transition-opacity duration-350
+        ${animateIn ? "opacity-100" : "opacity-0"}
+      `}
+    >
+      {/* ── Backdrop ── */}
       <div
-        className={`fixed inset-0 bg-black/10 dark:bg-black/30 pointer-events-auto transition-opacity duration-300 ${animateIn ? "opacity-100" : "opacity-0"}`}
+        className={`
+          fixed inset-0 bg-black/10 dark:bg-black/30
+          pointer-events-auto
+          transition-opacity duration-350
+          ${animateIn ? "opacity-100" : "opacity-0"}
+        `}
         onClick={handleDismiss}
       />
 
-      {/* 카드 */}
-      <div className={`relative pointer-events-auto w-[90vw] max-w-[420px] rounded-2xl border shadow-2xl bg-white dark:bg-slate-900 overflow-hidden transition-all duration-500 ${animateIn ? "translate-y-0 scale-100" : "-translate-y-8 scale-95"}`}>
-        {/* 상단 헤더 */}
+      {/* ── Card ── */}
+      <div
+        className={`
+          relative pointer-events-auto
+          w-[92vw] max-w-[420px]
+          rounded-2xl border border-white/20 dark:border-slate-700
+          shadow-2xl
+          bg-white dark:bg-slate-900
+          overflow-hidden
+          transition-all duration-500 ease-out
+          ${animateIn
+            ? "translate-y-0 scale-100 opacity-100"
+            : "-translate-y-10 scale-95 opacity-0"
+          }
+        `}
+      >
+        {/* ── Header ── */}
         <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div>
-              <p className="text-white text-[13px] font-bold tracking-tight">AI 비서</p>
+              <p className="text-white text-[13px] font-bold tracking-tight">
+                AI 비서
+              </p>
               <p className="text-white/70 text-[10px]">오늘의 핵심 브리핑</p>
             </div>
           </div>
           <button
             onClick={handleDismiss}
             className="w-7 h-7 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+            aria-label="닫기"
           >
             <X className="h-3.5 w-3.5 text-white" />
           </button>
         </div>
 
-        {/* 컨텐츠 */}
+        {/* ── Content ── */}
         <div className="px-5 py-4">
           {isLoading ? (
-            <div className="flex items-center gap-3 py-4">
+            <div className="flex items-center gap-3 py-6 justify-center">
               <Loader2 className="h-5 w-5 text-emerald-500 animate-spin" />
               <span className="text-sm text-muted-foreground">분석 중...</span>
             </div>
           ) : briefing ? (
             <>
-              {/* 인사 */}
+              {/* ── Greeting ── */}
               <div className="mb-3.5">
                 <p className="text-[15px] leading-snug">
                   <span className="mr-1.5">👋</span>
                   <span className="font-semibold">{briefing.userName}님</span>
-                  <span className="text-muted-foreground ml-1">{briefing.greeting}</span>
+                  <span className="text-muted-foreground">{briefing.greeting}</span>
                 </p>
               </div>
 
-              {/* 알림 항목 */}
+              {/* ── Alert items (max 3) ── */}
               {briefing.items.length > 0 ? (
                 <div className="space-y-2">
                   {briefing.items.map((item: any, idx: number) => (
-                    <div
+                    <button
                       key={idx}
-                      className={`rounded-xl border px-3.5 py-2.5 ${SEVERITY_STYLES[item.severity as keyof typeof SEVERITY_STYLES] || SEVERITY_STYLES.info}`}
+                      onClick={() => item.actionUrl && handleAction(item.actionUrl)}
+                      className={`
+                        w-full text-left rounded-xl border px-3.5 py-2.5
+                        transition-all duration-200
+                        hover:shadow-md hover:scale-[1.01] active:scale-[0.99]
+                        ${SEVERITY_STYLES[item.severity] || SEVERITY_STYLES.info}
+                      `}
                     >
                       <div className="flex items-start gap-2.5">
+                        {/* icon + severity dot */}
                         <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${SEVERITY_DOT[item.severity as keyof typeof SEVERITY_DOT] || SEVERITY_DOT.info}`} />
+                          <div
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              SEVERITY_DOT[item.severity] || SEVERITY_DOT.info
+                            }`}
+                          />
                           <span className="text-sm">{item.icon}</span>
                         </div>
+
+                        {/* text */}
                         <div className="flex-1 min-w-0">
-                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">{item.label}</span>
-                          <p className="text-[13px] font-medium leading-snug mt-0.5">{item.message}</p>
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                            {item.label}
+                          </span>
+                          <p className="text-[13px] font-medium leading-snug mt-0.5">
+                            {item.message}
+                          </p>
                         </div>
+
+                        {/* action */}
                         {item.actionUrl && (
-                          <button
-                            onClick={() => handleAction(item.actionUrl)}
-                            className="shrink-0 mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5"
-                          >
-                            {item.actionLabel || '확인'}
+                          <span className="shrink-0 mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 whitespace-nowrap">
+                            {item.actionLabel || "확인 >"}
                             <ChevronRight className="h-3 w-3" />
-                          </button>
+                          </span>
                         )}
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               ) : (
+                /* ── No issues ── */
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 px-4 py-3 text-center">
                   <p className="text-sm text-emerald-700 dark:text-emerald-400">
                     <span className="mr-1">✅</span>
@@ -157,7 +223,7 @@ export default function FloatingAIBriefing() {
                 </div>
               )}
 
-              {/* 하단 조치 안내 */}
+              {/* ── Footer hint ── */}
               {briefing.items.length > 0 && (
                 <div className="mt-3 pt-3 border-t border-dashed">
                   <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
@@ -168,6 +234,7 @@ export default function FloatingAIBriefing() {
               )}
             </>
           ) : (
+            /* ── Load error ── */
             <div className="py-3 text-center text-sm text-muted-foreground">
               <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-amber-400" />
               브리핑을 불러올 수 없습니다
@@ -175,11 +242,17 @@ export default function FloatingAIBriefing() {
           )}
         </div>
 
-        {/* 하단 닫기 */}
+        {/* ── Dismiss button ── */}
         <div className="px-5 pb-4">
           <button
             onClick={handleDismiss}
-            className="w-full h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-muted-foreground transition-colors"
+            className="
+              w-full h-9 rounded-xl
+              bg-slate-100 hover:bg-slate-200
+              dark:bg-slate-800 dark:hover:bg-slate-700
+              text-xs font-medium text-muted-foreground
+              transition-colors
+            "
           >
             확인했습니다
           </button>
