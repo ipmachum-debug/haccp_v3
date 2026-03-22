@@ -76,10 +76,10 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const normalizeChecks = (raw: any, keys: string[]): Record<string, any> => {
     if (!raw) return {};
     if (!Array.isArray(raw)) return raw; // 이미 객체
-    // 배열이면 checkResult → boolean 변환
+    // 배열이면 checkResult → boolean 변환 ('yes', true, '적합' 모두 적합)
     const obj: Record<string, any> = {};
     raw.forEach((item: any, i: number) => {
-      if (keys[i]) obj[keys[i]] = item.checkResult === 'yes' || item.checkResult === true;
+      if (keys[i]) obj[keys[i]] = item.checkResult === 'yes' || item.checkResult === true || item.checkResult === '적합';
     });
     return obj;
   };
@@ -102,31 +102,82 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
           humidity: item.humidity || '',
           rapidFreezer: item.rapidFreezerTemp || '',
           freezer: item.freezerTemp || '',
-          pass: item.evaluation === 'pass' || item.evaluation === true,
+          pass: item.evaluation === 'pass' || item.evaluation === true || item.evaluation === '적합',
         };
-        // 자동 키 매핑
-        if (item.roomName?.includes('1') && item.timePeriod === '오전') obj.room1Morning = mapped;
-        else if (item.roomName?.includes('1') && item.timePeriod === '오후') obj.room1Afternoon = mapped;
-        else if (item.roomName?.includes('2') && item.timePeriod === '오전') obj.room2Morning = mapped;
-        else if (item.roomName?.includes('2') && item.timePeriod === '오후') obj.room2Afternoon = mapped;
-        else if (item.timePeriod === '오전') obj.morning = mapped;
-        else if (item.timePeriod === '오후') obj.afternoon = mapped;
+        // 자동 키 매핑 (roomName에 '1','2' 포함 또는 순서 기반)
+        const rn = item.roomName || '';
+        const isRoom1 = rn.includes('1') || rn.includes('재료실1');
+        const isRoom2 = rn.includes('2') || rn.includes('재료실2');
+        if (isRoom1 && item.timePeriod === '오전') obj.room1Morning = mapped;
+        else if (isRoom1 && item.timePeriod === '오후') obj.room1Afternoon = mapped;
+        else if (isRoom2 && item.timePeriod === '오전') obj.room2Morning = mapped;
+        else if (isRoom2 && item.timePeriod === '오후') obj.room2Afternoon = mapped;
+        else if (item.timePeriod === '오전' && !obj.room1Morning && !obj.morning) {
+          // 번호 없는 단일 룸 → room1 또는 morning에 배정
+          obj.room1Morning = mapped; obj.morning = mapped;
+        } else if (item.timePeriod === '오후' && !obj.room1Afternoon && !obj.afternoon) {
+          obj.room1Afternoon = mapped; obj.afternoon = mapped;
+        } else if (item.timePeriod === '오전') { obj.room2Morning = mapped; obj.morning = obj.morning || mapped; }
+        else if (item.timePeriod === '오후') { obj.room2Afternoon = mapped; obj.afternoon = obj.afternoon || mapped; }
       }
       return obj;
     }
     return raw; // 이미 객체
   };
-  const th = normTemp(d.temperatureHumidity);
-  const ft = normTemp(d.freezerTemperature);
-  const rt = normTemp(d.refrigeratorTemperature);
+  // temperatureRecords 통합 배열에서 roomName 기준으로 3개 카테고리 분리
+  const splitTemperatureRecords = (records: any[]) => {
+    const tempHumidity: any[] = []; // 원재료실
+    const freezer: any[] = [];      // 냉동창고/완제품창고(급속냉동고/냉동고)
+    const fridge: any[] = [];       // 냉장창고
+    for (const r of records) {
+      const name = (r.roomName || '').toLowerCase();
+      if (name.includes('원재료') || name.includes('재료실') || name.includes('작업장')) tempHumidity.push(r);
+      else if (name.includes('냉동') || name.includes('완제품') || name.includes('급속')) freezer.push(r);
+      else if (name.includes('냉장')) fridge.push(r);
+      else tempHumidity.push(r); // fallback
+    }
+    // 냉동 카테고리: 급속냉동고/냉동고/완제품창고를 오전/오후로 합산
+    // 같은 시간대의 여러 냉동 기록을 하나의 레코드로 병합 (rapidFreezer + freezer)
+    const mergeFreezerRecords = (recs: any[]): any[] => {
+      const byPeriod: Record<string, any> = {};
+      for (const r of recs) {
+        const period = r.timePeriod || '오전';
+        if (!byPeriod[period]) {
+          byPeriod[period] = { ...r, rapidFreezerTemp: null, freezerTemp: null };
+        }
+        const name = (r.roomName || '');
+        if (name.includes('급속') || name.includes('완제품')) {
+          byPeriod[period].rapidFreezerTemp = r.temperature;
+        } else if (name.includes('냉동')) {
+          byPeriod[period].freezerTemp = r.temperature;
+        }
+        // 시간/평가 최신 유지
+        if (r.checkTime) byPeriod[period].checkTime = r.checkTime;
+        if (r.evaluation) byPeriod[period].evaluation = r.evaluation;
+      }
+      return Object.values(byPeriod);
+    };
+    return { tempHumidity, freezer: mergeFreezerRecords(freezer), fridge };
+  };
+  // 기존 개별 필드 또는 통합 temperatureRecords 배열 모두 지원
+  let th = normTemp(d.temperatureHumidity);
+  let ft = normTemp(d.freezerTemperature);
+  let rt = normTemp(d.refrigeratorTemperature);
+  // temperatureRecords 통합 배열이 있고 개별 필드가 비어있으면 분리
+  if (Array.isArray(d.temperatureRecords) && d.temperatureRecords.length > 0) {
+    const split = splitTemperatureRecords(d.temperatureRecords);
+    if (!d.temperatureHumidity && split.tempHumidity.length > 0) th = normTemp(split.tempHumidity);
+    if (!d.freezerTemperature && split.freezer.length > 0) ft = normTemp(split.freezer);
+    if (!d.refrigeratorTemperature && split.fridge.length > 0) rt = normTemp(split.fridge);
+  }
   const date = d.date || "";
   const inspector = d.inspector || d.approval?.writerName || "";
   const confirmer = d.confirmer || "";
   const actionContent = d.actionContent || "";
   const actionTaker = d.actionTaker || "";
 
-  // 적합/부적합 판정: true, 'yes', 'pass' → 적합, 그 외(값 없으면 포함) → 부적합
-  const check = (v: any) => (v === true || v === 'yes' || v === 'pass') ? "적합" : "부적합";
+  // 적합/부적합 판정: true, 'yes', 'pass', '적합' → 적합, 그 외(값 없으면 포함) → 부적합
+  const check = (v: any) => (v === true || v === 'yes' || v === 'pass' || v === '적합') ? "적합" : "부적합";
   // 데이터 없으면 "-" 표시 (아예 미입력 상태)
   const checkOrDash = (v: any) => v === null || v === undefined ? "-" : check(v);
   const cellCls = "border border-gray-400 px-2 py-1 text-sm";
