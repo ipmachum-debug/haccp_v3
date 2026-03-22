@@ -1,13 +1,13 @@
 /**
- * AI 비서 플로팅 브리핑
- * 로그인 시 자동 표시 → 핵심 알림만 → 닫기
+ * AI 비서 "하나" 플로팅 브리핑
+ * 로그인 시 왼쪽 하단(계정정보 옆)에 말풍선으로 표시
  *
  * 원칙: 위험(Risk) + 돈(Money) + 행동(Action) 만
  * 3개 이하, 보고용 X, 결정 유도용 O
  */
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { X, Sparkles, ChevronRight, AlertTriangle, Loader2 } from "lucide-react";
+import { X, ChevronRight, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 
 const SEVERITY_STYLES = {
@@ -22,13 +22,50 @@ const SEVERITY_DOT = {
   info: "bg-blue-500",
 };
 
+/** 하나 아바타 SVG - 둥근 얼굴 + 헤드셋 */
+function HanaAvatar({ size = 40 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* 배경 원 */}
+      <circle cx="24" cy="24" r="23" fill="url(#hana-grad)" stroke="#10b981" strokeWidth="1.5"/>
+      {/* 얼굴 */}
+      <circle cx="24" cy="22" r="12" fill="#FFF5E6"/>
+      {/* 눈 */}
+      <ellipse cx="20" cy="20" rx="1.8" ry="2.2" fill="#334155"/>
+      <ellipse cx="28" cy="20" rx="1.8" ry="2.2" fill="#334155"/>
+      {/* 눈 반짝 */}
+      <circle cx="20.8" cy="19.2" r="0.7" fill="white"/>
+      <circle cx="28.8" cy="19.2" r="0.7" fill="white"/>
+      {/* 입 (미소) */}
+      <path d="M20 25.5 Q24 28.5 28 25.5" stroke="#e11d48" strokeWidth="1.2" fill="none" strokeLinecap="round"/>
+      {/* 볼 터치 */}
+      <circle cx="17" cy="24" r="2" fill="#FECDD3" opacity="0.6"/>
+      <circle cx="31" cy="24" r="2" fill="#FECDD3" opacity="0.6"/>
+      {/* 헤드셋 */}
+      <path d="M12 20 Q12 12 24 12 Q36 12 36 20" stroke="#10b981" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <rect x="10" y="18" width="4" height="7" rx="2" fill="#10b981"/>
+      <rect x="34" y="18" width="4" height="7" rx="2" fill="#10b981"/>
+      {/* 마이크 */}
+      <path d="M36 25 L38 30 L40 30" stroke="#10b981" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+      <circle cx="40" cy="30" r="1.5" fill="#10b981"/>
+      {/* 머리카락 */}
+      <path d="M14 16 Q18 8 24 10 Q30 8 34 16" stroke="#1e293b" strokeWidth="2" fill="none" strokeLinecap="round"/>
+      <defs>
+        <linearGradient id="hana-grad" x1="0" y1="0" x2="48" y2="48">
+          <stop offset="0%" stopColor="#ecfdf5"/>
+          <stop offset="100%" stopColor="#d1fae5"/>
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 export default function FloatingAIBriefing() {
   const [, navigate] = useLocation();
   const [visible, setVisible] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [animateIn, setAnimateIn] = useState(false);
 
-  // 오늘 이미 닫았는지 확인
   useEffect(() => {
     const today = new Date().toISOString().split("T")[0];
     const lastDismissed = sessionStorage.getItem("ai-briefing-dismissed");
@@ -39,17 +76,16 @@ export default function FloatingAIBriefing() {
 
   const { data: briefing, isLoading } = trpc.ai.briefing.useQuery(undefined, {
     enabled: !dismissed,
-    staleTime: 5 * 60 * 1000, // 5분 캐시
+    staleTime: 5 * 60 * 1000,
     retry: false,
   });
 
-  // 데이터 로드 후 애니메이션 표시
   useEffect(() => {
     if (briefing && !dismissed) {
       const timer = setTimeout(() => {
         setVisible(true);
         setTimeout(() => setAnimateIn(true), 50);
-      }, 800); // 페이지 로드 후 0.8초 딜레이
+      }, 1000);
       return () => clearTimeout(timer);
     }
   }, [briefing, dismissed]);
@@ -72,114 +108,88 @@ export default function FloatingAIBriefing() {
   if (dismissed || !visible) return null;
 
   return (
-    <div className={`fixed inset-0 z-[9999] pointer-events-none flex items-start justify-center pt-16 sm:pt-24 transition-opacity duration-300 ${animateIn ? "opacity-100" : "opacity-0"}`}>
-      {/* 배경 오버레이 */}
-      <div
-        className={`fixed inset-0 bg-black/10 dark:bg-black/30 pointer-events-auto transition-opacity duration-300 ${animateIn ? "opacity-100" : "opacity-0"}`}
-        onClick={handleDismiss}
-      />
+    <div className={`fixed z-[9998] transition-all duration-500 ease-out ${animateIn ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
+      style={{ left: "16px", bottom: "72px" }}>
 
-      {/* 카드 */}
-      <div className={`relative pointer-events-auto w-[90vw] max-w-[420px] rounded-2xl border shadow-2xl bg-white dark:bg-slate-900 overflow-hidden transition-all duration-500 ${animateIn ? "translate-y-0 scale-100" : "-translate-y-8 scale-95"}`}>
-        {/* 상단 헤더 */}
-        <div className="bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3.5 flex items-center justify-between">
+      {/* 말풍선 카드 */}
+      <div className="relative w-[340px] max-w-[calc(100vw-32px)] rounded-2xl border border-emerald-200 shadow-xl bg-white dark:bg-slate-900 dark:border-emerald-800 overflow-hidden">
+        {/* 말풍선 꼬리 (왼쪽 하단) */}
+        <div className="absolute -bottom-2 left-6 w-4 h-4 bg-white dark:bg-slate-900 border-b border-r border-emerald-200 dark:border-emerald-800 transform rotate-45" />
+
+        {/* 헤더 - 하나 아바타 + 이름 */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-emerald-100 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/30">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm">
-              <Sparkles className="h-4 w-4 text-white" />
-            </div>
+            <HanaAvatar size={32} />
             <div>
-              <p className="text-white text-[13px] font-bold tracking-tight">AI 비서</p>
-              <p className="text-white/70 text-[10px]">오늘의 핵심 브리핑</p>
+              <p className="text-[13px] font-bold text-emerald-800 dark:text-emerald-300">AI 비서 하나</p>
+              <p className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60">오늘의 브리핑</p>
             </div>
           </div>
           <button
             onClick={handleDismiss}
-            className="w-7 h-7 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+            className="w-6 h-6 rounded-full hover:bg-emerald-200/50 dark:hover:bg-emerald-800/50 flex items-center justify-center transition-colors"
           >
-            <X className="h-3.5 w-3.5 text-white" />
+            <X className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
           </button>
         </div>
 
         {/* 컨텐츠 */}
-        <div className="px-5 py-4">
+        <div className="px-4 py-3">
           {isLoading ? (
-            <div className="flex items-center gap-3 py-4">
-              <Loader2 className="h-5 w-5 text-emerald-500 animate-spin" />
-              <span className="text-sm text-muted-foreground">분석 중...</span>
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 className="h-4 w-4 text-emerald-500 animate-spin" />
+              <span className="text-xs text-muted-foreground">분석 중...</span>
             </div>
           ) : briefing ? (
             <>
               {/* 인사 */}
-              <div className="mb-3.5">
-                <p className="text-[15px] leading-snug">
-                  <span className="mr-1.5">👋</span>
-                  <span className="font-semibold">{briefing.userName}님</span>
-                  <span className="text-muted-foreground ml-1">{briefing.greeting}</span>
-                </p>
-              </div>
+              <p className="text-[13px] leading-snug mb-2.5">
+                <span className="mr-1">👋</span>
+                <span className="font-semibold">{briefing.userName}님</span>
+                <span className="text-muted-foreground ml-1">{briefing.greeting}</span>
+              </p>
 
               {/* 알림 항목 */}
               {briefing.items.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {briefing.items.map((item: any, idx: number) => (
                     <div
                       key={idx}
-                      className={`rounded-xl border px-3.5 py-2.5 ${SEVERITY_STYLES[item.severity as keyof typeof SEVERITY_STYLES] || SEVERITY_STYLES.info}`}
+                      className={`rounded-lg border px-3 py-2 cursor-pointer hover:shadow-sm transition-shadow ${SEVERITY_STYLES[item.severity as keyof typeof SEVERITY_STYLES] || SEVERITY_STYLES.info}`}
+                      onClick={() => item.actionUrl && handleAction(item.actionUrl)}
                     >
-                      <div className="flex items-start gap-2.5">
-                        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                      <div className="flex items-start gap-2">
+                        <div className="flex items-center gap-1 shrink-0 mt-0.5">
                           <div className={`w-1.5 h-1.5 rounded-full ${SEVERITY_DOT[item.severity as keyof typeof SEVERITY_DOT] || SEVERITY_DOT.info}`} />
-                          <span className="text-sm">{item.icon}</span>
+                          <span className="text-xs">{item.icon}</span>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">{item.label}</span>
-                          <p className="text-[13px] font-medium leading-snug mt-0.5">{item.message}</p>
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{item.label}</span>
+                          <p className="text-[12px] font-medium leading-snug">{item.message}</p>
                         </div>
                         {item.actionUrl && (
-                          <button
-                            onClick={() => handleAction(item.actionUrl)}
-                            className="shrink-0 mt-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-0.5"
-                          >
-                            {item.actionLabel || '확인'}
-                            <ChevronRight className="h-3 w-3" />
-                          </button>
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0 mt-1 text-muted-foreground" />
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 px-4 py-3 text-center">
-                  <p className="text-sm text-emerald-700 dark:text-emerald-400">
-                    <span className="mr-1">✅</span>
-                    현재 특이사항 없습니다. 좋은 하루 보내세요!
-                  </p>
-                </div>
-              )}
-
-              {/* 하단 조치 안내 */}
-              {briefing.items.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-dashed">
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-                    <span>👉</span>
-                    <span>항목을 클릭하면 해당 페이지로 이동합니다</span>
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 px-3 py-2 text-center">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                    ✅ 특이사항 없습니다. 좋은 하루 보내세요!
                   </p>
                 </div>
               )}
             </>
-          ) : (
-            <div className="py-3 text-center text-sm text-muted-foreground">
-              <AlertTriangle className="h-5 w-5 mx-auto mb-2 text-amber-400" />
-              브리핑을 불러올 수 없습니다
-            </div>
-          )}
+          ) : null}
         </div>
 
         {/* 하단 닫기 */}
-        <div className="px-5 pb-4">
+        <div className="px-4 pb-3">
           <button
             onClick={handleDismiss}
-            className="w-full h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-medium text-muted-foreground transition-colors"
+            className="w-full h-8 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-medium text-muted-foreground transition-colors"
           >
             확인했습니다
           </button>
