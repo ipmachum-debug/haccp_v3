@@ -725,12 +725,48 @@ export async function completeBatch(params: {
 
     // 원재료 소비 처리 (tenantId 격리 + FEFO LOT 차감)
     // ⚠️ autoMaterialIssue(배치 시작 시)에서 이미 차감된 건은 건너뜀
+    //    단, actual_quantity와 TX 기록이 다를 경우 h_inventory/LOT 보정 수행
     const pool = await getRawConnection();
     for (const { input, materialName } of batchInputs) {
-      // 이미 autoMaterialIssue에서 차감 완료된 원재료는 원가만 집계하고 건너뜀
+      // 이미 autoMaterialIssue에서 차감 완료된 원재료
       if (Number(input.inventoryDeducted) === 1) {
         if (!isWater(materialName)) {
           totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+        }
+        // actual vs TX 차이 보정: autoMaterialIssue가 planned 기반으로 TX를 기록했을 수 있음
+        // completeBatch 시점의 actual_quantity와 TX 기록량이 다르면 h_inventory/LOT를 보정
+        if (pool) {
+          try {
+            const actualQty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
+            const effectiveTenantId = tenantId || existingBatch.tenantId;
+            // 이 배치+원재료에 대한 TX 출고량 합산 (양수 = 차감된 양)
+            const [txRows]: any = await pool.execute(
+              `SELECT COALESCE(SUM(ABS(quantity)), 0) as tx_total
+               FROM h_inventory_transactions
+               WHERE source_type IN ('BATCH','batch_completion') 
+                 AND (source_id = ? OR reference_id = ?)
+                 AND lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ? AND tenant_id = ?)
+                 AND transaction_type = 'usage'
+                 AND tenant_id = ?`,
+              [batchId, batchId, input.materialId, effectiveTenantId, effectiveTenantId]
+            );
+            const txTotal = parseFloat((txRows as any[])?.[0]?.tx_total || "0");
+            const diff = txTotal - actualQty; // 양수면 TX가 더 많이 차감 → 재고 복원 필요
+            if (Math.abs(diff) > 0.01) {
+              console.log(`[completeBatch] 배치#${batchId} ${materialName}: TX차감(${txTotal}) vs actual(${actualQty}), diff=${diff.toFixed(3)} → h_inventory 보정`);
+              // h_inventory 보정: diff만큼 재고 복원(양수) 또는 추가차감(음수)
+              await pool.execute(
+                `UPDATE h_inventory 
+                 SET total_quantity = GREATEST(total_quantity + ?, 0),
+                     available_quantity = GREATEST(available_quantity + ?, 0),
+                     last_updated = NOW()
+                 WHERE material_id = ? AND tenant_id = ?`,
+                [diff, diff, input.materialId, effectiveTenantId]
+              );
+            }
+          } catch (adjustErr: any) {
+            console.error(`[completeBatch] TX-actual 보정 실패: ${adjustErr.message}`);
+          }
         }
         continue;
       }
