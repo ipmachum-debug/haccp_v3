@@ -440,9 +440,9 @@ function StockSyncButton({ onComplete }: { onComplete: () => void }) {
         return;
       }
       const summary = data.details?.map((d: any) =>
-        `  - ${d.materialName}: ${d.consumedQty.toFixed(1)}${d.unit}`
+        `  - ${d.materialName}: ${d.warnings?.[0] || `${d.consumedQty.toFixed(1)}${d.unit}`}`
       ).join("\n") || "";
-      if (confirm(`재고 동기화 대상: ${data.details?.length || 0}개 원재료\n\n${summary}\n\n소모 데이터 기준으로 현황 재고를 차감하시겠습니까?\n\n※ LOT의 available_quantity와 h_inventory가 감소합니다.`)) {
+      if (confirm(`재고 동기화 대상: ${data.details?.length || 0}개 원재료\n\n${summary}\n\n소모 데이터 기준으로 현황 재고를 차감하시겠습니까?\n(소모총량 - 기차감량 = 미반영분만 차감)\n\n※ LOT의 available_quantity와 h_inventory가 감소합니다.`)) {
         setStatus("running");
         syncMut.mutate({ dryRun: false });
       } else {
