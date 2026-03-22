@@ -63,7 +63,7 @@ export const CHECKLIST_LABEL_MAP: Record<string, string> = {
 };
 
 // ============================================================================
-// 상단 결재란 컴포넌트 (컴팩트 버전 - 인쇄 시 공간 절약)
+// 상단 결재란 컴포넌트 (독립 사용 시 - CCP 등)
 // ============================================================================
 export function ApprovalHeader({
   authorName, reviewerName, approverName,
@@ -76,36 +76,33 @@ export function ApprovalHeader({
 }) {
   const sealSize = compact ? 30 : 42;
   const cellHeight = compact ? "36px" : "50px";
-  const minW = compact ? "150px" : "180px";
   const colW = compact ? "50px" : "60px";
+  const b = "border border-gray-600";
   return (
-    <table className="border-collapse border border-gray-600 text-xs" style={{ minWidth: minW }}>
+    <table className="border-collapse border border-gray-600 text-xs">
       <thead>
-        <tr>
-          <th colSpan={3} className="border border-gray-600 px-1 py-0 bg-gray-100 text-center font-bold text-[10px]">결 재</th>
-        </tr>
         <tr className="bg-gray-50">
-          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>작 성</th>
-          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>검 토</th>
-          <th className={`border border-gray-600 px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>승 인</th>
+          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>작 성</th>
+          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>검 토</th>
+          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>승 인</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
             {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미작성</div>}
           </td>
-          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
             {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미검토</div>}
           </td>
-          <td className="border border-gray-600 px-0.5 py-0.5 text-center align-middle" style={{ height: cellHeight }}>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
             {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미승인</div>}
           </td>
         </tr>
         <tr className="bg-gray-50">
-          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{authorName || "-"}</td>
-          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{reviewerName || "-"}</td>
-          <td className="border border-gray-600 px-0.5 py-0 text-center text-[8px] text-gray-600">{approverName || "-"}</td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{authorName || "-"}</td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{reviewerName || "-"}</td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{approverName || "-"}</td>
         </tr>
       </tbody>
     </table>
@@ -114,18 +111,23 @@ export function ApprovalHeader({
 
 // ============================================================================
 // 제목 + 결재란 통합 컴포넌트 (모든 문서 공통)
-// ┌──────────────────┬────┬────┬────┐
-// │  문서 제목        │작성│검토│승인│
-// │  [부제목]        │직인│직인│직인│
-// │                  │이름│이름│이름│
-// └──────────────────┴────┴────┴────┘
+// 하나의 테이블로 제목·결재란·정보행을 연결하여 빈틈 없이 렌더링
+// ┌──────────────────────────┬────┬────┬────┐
+// │       문서 제목           │작성│검토│승인│
+// │       (부제목)           ├────┼────┼────┤
+// │                          │ 印 │ 印 │ 印 │
+// ├──────────────────────────┼────┼────┼────┤
+// │ 점검일자: ... 작성자: ...│이름│이름│이름│
+// └──────────────────────────┴────┴────┴────┘
 // ============================================================================
 export function TitleWithApproval({
-  title, subtitle, doc
+  title, subtitle, doc, infoLeft
 }: {
   title: string;
   subtitle?: string;
   doc?: any;
+  /** 3번째 행 왼쪽 영역 (점검일자, 작성자 등) - ReactNode */
+  infoLeft?: React.ReactNode;
 }) {
   const authorName = doc?.authorName || "";
   const reviewerName = doc?.reviewerName || "";
@@ -133,25 +135,50 @@ export function TitleWithApproval({
   const requestedAt = doc?.formData?.date || doc?.requestedAt || "";
   const reviewedAt = doc?.reviewedAt || "";
   const approvedAt = doc?.approvedAt || "";
+  const b = "border border-gray-600";
+  const colW = "50px";
+  const sealSize = 30;
 
   return (
-    <div className="flex items-start justify-between mb-0">
-      <div className="flex-1 border-2 border-gray-700 text-center py-2 font-bold text-base mr-[-2px]">
-        {title}
-        {subtitle && <><br /><span className="text-sm font-normal text-gray-500">{subtitle}</span></>}
-      </div>
-      <div className="flex-shrink-0">
-        <ApprovalHeader
-          authorName={authorName}
-          reviewerName={reviewerName}
-          approverName={approverName}
-          requestedAt={requestedAt}
-          reviewedAt={reviewedAt}
-          approvedAt={approvedAt}
-          compact={true}
-        />
-      </div>
-    </div>
+    <table className="w-full border-collapse text-xs mb-0" style={{ borderBottom: "none" }}>
+      <tbody>
+        {/* Row 1: 제목(rowspan=2) + 작성/검토/승인 라벨 */}
+        <tr>
+          <td
+            rowSpan={2}
+            className={`${b} text-center align-middle font-bold text-base`}
+            style={{ padding: "8px 12px" }}
+          >
+            {title}
+            {subtitle && <><br /><span className="text-sm font-normal text-gray-500">{subtitle}</span></>}
+          </td>
+          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>작 성</td>
+          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>검 토</td>
+          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>승 인</td>
+        </tr>
+        {/* Row 2: 날인(직인) */}
+        <tr>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
+            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미작성</div>}
+          </td>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
+            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미검토</div>}
+          </td>
+          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
+            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미승인</div>}
+          </td>
+        </tr>
+        {/* Row 3: 정보행 (점검일자/작성자 등) + 이름 */}
+        <tr className="bg-gray-50">
+          <td className={`${b} px-3 py-1 text-sm`}>
+            {infoLeft || <span className="text-gray-400">-</span>}
+          </td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{authorName || "-"}</td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{reviewerName || "-"}</td>
+          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{approverName || "-"}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 

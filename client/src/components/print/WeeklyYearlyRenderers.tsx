@@ -32,11 +32,7 @@ export function renderWeeklyLogPages(data: any, doc?: any): React.ReactNode[] {
   // ─── 페이지 1: 일반위생관리 (주간) ───
   const page1 = (
     <div>
-      <TitleWithApproval title="일반위생관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} />
-      <div className="flex gap-8 mb-3 text-sm">
-        <div><span className="font-medium">점검일자:</span> {date}</div>
-        <div><span className="font-medium">점검자:</span> {checkerName || "-"}</div>
-      </div>
+      <TitleWithApproval title="일반위생관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} infoLeft={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {doc?.authorName || checkerName || "-"}</>} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
@@ -91,11 +87,7 @@ export function renderWeeklyLogPages(data: any, doc?: any): React.ReactNode[] {
   // ─── 페이지 2: 방충·방서관리 (주간) ───
   const page2 = (
     <div>
-      <TitleWithApproval title="방충·방서관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} />
-      <div className="flex gap-8 mb-3 text-sm">
-        <div><span className="font-medium">점검일자:</span> {date}</div>
-        <div><span className="font-medium">점검자:</span> {checkerName || "-"}</div>
-      </div>
+      <TitleWithApproval title="방충·방서관리 점검표 (주간)" subtitle="(주 1회 작성)" doc={doc} infoLeft={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {doc?.authorName || checkerName || "-"}</>} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
@@ -186,11 +178,7 @@ export function renderYearlyLog(data: any, doc?: any): React.ReactNode {
 
   return (
     <div>
-      <TitleWithApproval title="연간 검교정 점검표" subtitle={`${year}년 (연 1회 작성)`} doc={doc} />
-      <div className="flex gap-8 mb-3 text-sm">
-        <div><span className="font-medium">점검일자:</span> {date}</div>
-        <div><span className="font-medium">점검자:</span> {inspector || "-"}</div>
-      </div>
+      <TitleWithApproval title="연간 검교정 점검표" subtitle={`${year}년 (연 1회 작성)`} doc={doc} infoLeft={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {doc?.authorName || inspector || "-"}</>} />
 
       {/* 검교정 항목 테이블 */}
       <div className="text-sm font-bold mb-1 mt-4">1. 계측기기 검교정 현황</div>

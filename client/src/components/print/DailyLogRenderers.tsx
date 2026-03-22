@@ -20,8 +20,8 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const authorName = doc?.authorName || "";
   const approverName = doc?.approverName || "";
 
-  const TitleRow = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-    <TitleWithApproval title={title} subtitle={subtitle} doc={doc} />
+  const TitleRow = ({ title, subtitle, info }: { title: string; subtitle?: string; info?: React.ReactNode }) => (
+    <TitleWithApproval title={title} subtitle={subtitle} doc={doc} infoLeft={info} />
   );
 
   // 자동생성 일일일지(batches 형태) - 위생 점검 데이터 없이 배치 목록만 있는 경우
@@ -136,11 +136,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   // 페이지 1: 일반위생관리 및 공정점검표
   const page1 = (
     <div>
-      <TitleRow title="일반위생관리 및 공정점검표" subtitle="(매일 작성)" />
-      <div className="flex gap-8 mb-3 text-sm">
-        <div><span className="font-medium">점검일자:</span> {date}</div>
-        <div><span className="font-medium">점검자:</span> {inspector}</div>
-      </div>
+      <TitleRow title="일반위생관리 및 공정점검표" subtitle="(매일 작성)" info={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {authorName || inspector || "-"}</>} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
@@ -184,15 +180,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   // 페이지 2: 이물관리 점검표
   const page2 = (
     <div>
-      <TitleRow title="이물관리 점검표" />
-      <div className="flex gap-8 mb-2 text-sm">
-        <div><span className="font-medium">점검일자:</span> {date}</div>
-        <div><span className="font-medium">점검자:</span> {inspector}</div>
-      </div>
-      <div className="flex gap-8 mb-3 text-sm text-gray-600">
-        <div>검사방법: 육안검사</div>
-        <div>점검주기: 1회/일</div>
-      </div>
+      <TitleRow title="이물관리 점검표" info={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {authorName || inspector || "-"} &nbsp;&nbsp; <span className="text-gray-600">검사방법: 육안검사 | 점검주기: 1회/일</span></>} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
@@ -240,11 +228,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const r2a = th.room2Afternoon || {};
   const page3 = (
     <div>
-      <TitleRow title="원재료실 온/습도 점검기록지" />
-      <div className="flex gap-8 mb-2 text-sm">
-        <div><span className="font-medium">일자:</span> {date}</div>
-        <div><span className="font-medium">작성자:</span> {inspector}</div>
-      </div>
+      <TitleRow title="원재료실 온/습도 점검기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 온도: 1℃~35℃, 습도: 65%이하</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
@@ -283,11 +267,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const fa = ft.afternoon || {};
   const page4 = (
     <div>
-      <TitleRow title="급속냉동고 / 냉동고 온도 점검기록지" />
-      <div className="flex gap-8 mb-2 text-sm">
-        <div><span className="font-medium">일자:</span> {date}</div>
-        <div><span className="font-medium">작성자:</span> {inspector}</div>
-      </div>
+      <TitleRow title="급속냉동고 / 냉동고 온도 점검기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 급속냉동고: -27℃ 이하, 냉동고: -18℃ 이하</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
@@ -324,11 +304,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const ra = rt.afternoon || {};
   const page5 = (
     <div>
-      <TitleRow title="원재료 냉장고 온도 점검 기록지" />
-      <div className="flex gap-8 mb-2 text-sm">
-        <div><span className="font-medium">일자:</span> {date}</div>
-        <div><span className="font-medium">작성자:</span> {inspector}</div>
-      </div>
+      <TitleRow title="원재료 냉장고 온도 점검 기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 0℃~10℃</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>

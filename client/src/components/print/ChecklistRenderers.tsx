@@ -127,8 +127,7 @@ export function renderWaterManagementCheck(data: any, title: string, checkItems:
   });
   return (
     <div>
-      <TitleWithApproval title={title} doc={doc} />
-      {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검주기: {data.checkCycle || '-'} | 점검자: {data.inspector || '-'}</p>}
+      <TitleWithApproval title={title} doc={doc} infoLeft={data.checkDate ? <><span className="font-medium">점검일:</span> {data.checkDate} &nbsp;&nbsp; <span className="font-medium">점검주기:</span> {data.checkCycle || '-'} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {doc?.authorName || data.inspector || '-'}</> : undefined} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead><tr className="bg-blue-50">
           <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
@@ -194,8 +193,7 @@ export function renderPersonalHygieneCheck(data: any, doc?: any) {
   const filledRows = employeeRows.filter((r: any) => r.name && r.name.trim() !== '');
   return (
     <div>
-      <TitleWithApproval title="개인 위생관리 점검표" doc={doc} />
-      {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검자: {data.inspector || '-'}</p>}
+      <TitleWithApproval title="개인 위생관리 점검표" doc={doc} infoLeft={data.checkDate ? <><span className="font-medium">점검일:</span> {data.checkDate} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {doc?.authorName || data.inspector || '-'}</> : undefined} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead><tr className="bg-blue-50">
           <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
