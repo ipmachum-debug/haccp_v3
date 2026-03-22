@@ -65,18 +65,63 @@ export function renderDailyLogPages(data: any): React.ReactNode[] {
     return [autoPage];
   }
 
-  const hc = d.hygieneChecks || {};
-  const fc = d.foreignMaterialChecks || {};
-  const th = d.temperatureHumidity || {};
-  const ft = d.freezerTemperature || {};
-  const rt = d.refrigeratorTemperature || {};
+  // hygieneChecks/foreignMaterialChecks: 배열이면 객체로 변환, 객체면 그대로
+  const normalizeChecks = (raw: any, keys: string[]): Record<string, any> => {
+    if (!raw) return {};
+    if (!Array.isArray(raw)) return raw; // 이미 객체
+    // 배열이면 checkResult → boolean 변환
+    const obj: Record<string, any> = {};
+    raw.forEach((item: any, i: number) => {
+      if (keys[i]) obj[keys[i]] = item.checkResult === 'yes' || item.checkResult === true;
+    });
+    return obj;
+  };
+  const hygieneKeys = ['hygiene1','hygiene2','hygiene3','pest1','facility1','storage1','process1','process2','process3','process4','pest2','cleaning1','facility2','ccp1','storage2','inspection1','transport1','transport2'];
+  const foreignKeys = ['material1','material2','material3','process1','process2','process3','worker1','worker2','worker3','equipment1','equipment2','equipment3','pest1','pest2'];
+  const hc = normalizeChecks(d.hygieneChecks, hygieneKeys);
+  const fc = normalizeChecks(d.foreignMaterialChecks, foreignKeys);
+
+  // 온도: 배열이면 객체로 변환
+  const normTemp = (raw: any): any => {
+    if (!raw) return {};
+    if (Array.isArray(raw)) {
+      // DailyLogForm 배열 구조 → 인쇄 객체 구조
+      const obj: any = {};
+      for (const item of raw) {
+        const key = `${item.roomName || ''}${item.timePeriod || ''}`.replace(/\s/g, '');
+        const mapped: any = {
+          time: item.checkTime || '',
+          temp: item.temperature || item.rapidFreezerTemp || '',
+          humidity: item.humidity || '',
+          rapidFreezer: item.rapidFreezerTemp || '',
+          freezer: item.freezerTemp || '',
+          pass: item.evaluation === 'pass' || item.evaluation === true,
+        };
+        // 자동 키 매핑
+        if (item.roomName?.includes('1') && item.timePeriod === '오전') obj.room1Morning = mapped;
+        else if (item.roomName?.includes('1') && item.timePeriod === '오후') obj.room1Afternoon = mapped;
+        else if (item.roomName?.includes('2') && item.timePeriod === '오전') obj.room2Morning = mapped;
+        else if (item.roomName?.includes('2') && item.timePeriod === '오후') obj.room2Afternoon = mapped;
+        else if (item.timePeriod === '오전') obj.morning = mapped;
+        else if (item.timePeriod === '오후') obj.afternoon = mapped;
+      }
+      return obj;
+    }
+    return raw; // 이미 객체
+  };
+  const th = normTemp(d.temperatureHumidity);
+  const ft = normTemp(d.freezerTemperature);
+  const rt = normTemp(d.refrigeratorTemperature);
   const date = d.date || "";
   const inspector = d.inspector || d.approval?.writerName || "";
   const confirmer = d.confirmer || "";
   const actionContent = d.actionContent || "";
   const actionTaker = d.actionTaker || "";
 
-  const check = (v: any) => v === true ? "✓ 적합" : "부적합";
+  // 적합/부적합 판정: true, 'yes', 'pass' → 적합, 그 외(값 없으면 포함) → 부적합
+  const check = (v: any) => (v === true || v === 'yes' || v === 'pass') ? "적합" : "부적합";
+  // 데이터 없으면 "-" 표시 (아예 미입력 상태)
+  const checkOrDash = (v: any) => v === null || v === undefined ? "-" : check(v);
   const cellCls = "border border-gray-400 px-2 py-1 text-sm";
   const headCls = "border border-gray-400 px-2 py-1 text-sm font-medium bg-gray-50";
   const secCls = "border border-gray-400 px-2 py-1 text-sm font-bold bg-blue-50";
@@ -219,10 +264,10 @@ export function renderDailyLogPages(data: any): React.ReactNode[] {
           </tr>
         </thead>
         <tbody>
-          <tr><td className={cellCls + " font-medium"}>원재료실1 오전</td><td className={cellCls + " text-center"}>{r1m.time || "-"}</td><td className={cellCls + " text-center"}>{r1m.temp || "-"}</td><td className={cellCls + " text-center"}>{r1m.humidity || "-"}</td><td className={cellCls + " text-center"}>{r1m.pass ? "적합" : "부적합"}</td></tr>
-          <tr><td className={cellCls + " font-medium"}>원재료실1 오후</td><td className={cellCls + " text-center"}>{r1a.time || "-"}</td><td className={cellCls + " text-center"}>{r1a.temp || "-"}</td><td className={cellCls + " text-center"}>{r1a.humidity || "-"}</td><td className={cellCls + " text-center"}>{r1a.pass ? "적합" : "부적합"}</td></tr>
-          <tr><td className={cellCls + " font-medium"}>원재료실2 오전</td><td className={cellCls + " text-center"}>{r2m.time || "-"}</td><td className={cellCls + " text-center"}>{r2m.temp || "-"}</td><td className={cellCls + " text-center"}>{r2m.humidity || "-"}</td><td className={cellCls + " text-center"}>{r2m.pass ? "적합" : "부적합"}</td></tr>
-          <tr><td className={cellCls + " font-medium"}>원재료실2 오후</td><td className={cellCls + " text-center"}>{r2a.time || "-"}</td><td className={cellCls + " text-center"}>{r2a.temp || "-"}</td><td className={cellCls + " text-center"}>{r2a.humidity || "-"}</td><td className={cellCls + " text-center"}>{r2a.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실1 오전</td><td className={cellCls + " text-center"}>{r1m.time || "-"}</td><td className={cellCls + " text-center"}>{r1m.temp || "-"}</td><td className={cellCls + " text-center"}>{r1m.humidity || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(r1m.pass)}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실1 오후</td><td className={cellCls + " text-center"}>{r1a.time || "-"}</td><td className={cellCls + " text-center"}>{r1a.temp || "-"}</td><td className={cellCls + " text-center"}>{r1a.humidity || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(r1a.pass)}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실2 오전</td><td className={cellCls + " text-center"}>{r2m.time || "-"}</td><td className={cellCls + " text-center"}>{r2m.temp || "-"}</td><td className={cellCls + " text-center"}>{r2m.humidity || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(r2m.pass)}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>원재료실2 오후</td><td className={cellCls + " text-center"}>{r2a.time || "-"}</td><td className={cellCls + " text-center"}>{r2a.temp || "-"}</td><td className={cellCls + " text-center"}>{r2a.humidity || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(r2a.pass)}</td></tr>
         </tbody>
       </table>
       <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
@@ -264,8 +309,8 @@ export function renderDailyLogPages(data: any): React.ReactNode[] {
           </tr>
         </thead>
         <tbody>
-          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{fm.time || "-"}</td><td className={cellCls + " text-center"}>{fm.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fm.freezer || "-"}</td><td className={cellCls + " text-center"}>{fm.pass ? "적합" : "부적합"}</td></tr>
-          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{fa.time || "-"}</td><td className={cellCls + " text-center"}>{fa.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fa.freezer || "-"}</td><td className={cellCls + " text-center"}>{fa.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{fm.time || "-"}</td><td className={cellCls + " text-center"}>{fm.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fm.freezer || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(fm.pass)}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{fa.time || "-"}</td><td className={cellCls + " text-center"}>{fa.rapidFreezer || "-"}</td><td className={cellCls + " text-center"}>{fa.freezer || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(fa.pass)}</td></tr>
         </tbody>
       </table>
       <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
@@ -306,8 +351,8 @@ export function renderDailyLogPages(data: any): React.ReactNode[] {
           </tr>
         </thead>
         <tbody>
-          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{rm.time || "-"}</td><td className={cellCls + " text-center"}>{rm.temp || "-"}</td><td className={cellCls + " text-center"}>{rm.pass ? "적합" : "부적합"}</td></tr>
-          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{ra.time || "-"}</td><td className={cellCls + " text-center"}>{ra.temp || "-"}</td><td className={cellCls + " text-center"}>{ra.pass ? "적합" : "부적합"}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오전</td><td className={cellCls + " text-center"}>{rm.time || "-"}</td><td className={cellCls + " text-center"}>{rm.temp || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(rm.pass)}</td></tr>
+          <tr><td className={cellCls + " font-medium"}>오후</td><td className={cellCls + " text-center"}>{ra.time || "-"}</td><td className={cellCls + " text-center"}>{ra.temp || "-"}</td><td className={cellCls + " text-center"}>{checkOrDash(ra.pass)}</td></tr>
         </tbody>
       </table>
       <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
