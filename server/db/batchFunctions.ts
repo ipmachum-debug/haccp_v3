@@ -822,7 +822,7 @@ export async function completeBatch(params: {
               transaction_date, source_type, source_id, action_type, purpose, tenant_id)
              VALUES (?, 'usage', ?, ?, ?, ?, ?, 'batch_completion', ?, 'AUTO_ISSUE', 'production', ?)`,
             [
-              lotId || 0, -qty, input.unit || 'kg', unitCost, -(qty * unitCost),
+              lotId || 0, qty, input.unit || 'kg', unitCost, qty * unitCost,
               txnDate, batchId, tenantId || existingBatch.tenantId
             ]
           );
