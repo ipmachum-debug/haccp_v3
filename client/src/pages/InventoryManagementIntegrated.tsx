@@ -406,6 +406,107 @@ function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) 
 }
 
 /* ═══════════════════════════════════════════════════
+   소모 데이터 → 현황(재고) 일괄 동기화 버튼
+   ═══════════════════════════════════════════════════ */
+function StockSyncButton({ onComplete }: { onComplete: () => void }) {
+  const [status, setStatus] = useState<"idle" | "checking" | "running" | "done">("idle");
+  const [resultMsg, setResultMsg] = useState("");
+  const [details, setDetails] = useState<any[]>([]);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const syncMut = trpc.inventory.syncStockFromConsumption.useMutation({
+    onSuccess: (data: any) => {
+      if (data.materialsProcessed === 0 && data.errors?.length) {
+        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
+        setDetails([]);
+      } else {
+        setResultMsg(`${data.materialsProcessed}개 원재료 동기화 완료 (총 ${data.totalDeducted.toFixed(1)} 차감)`);
+        setDetails(data.details || []);
+      }
+      setStatus("done");
+      onComplete();
+    },
+    onError: (e: any) => {
+      setResultMsg(`오류: ${e.message}`);
+      setStatus("done");
+    }
+  });
+
+  const dryRunMut = trpc.inventory.syncStockFromConsumption.useMutation({
+    onSuccess: (data: any) => {
+      if (data.materialsProcessed === 0 && data.errors?.length) {
+        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
+        setStatus("done");
+        return;
+      }
+      const summary = data.details?.map((d: any) =>
+        `  - ${d.materialName}: ${d.warnings?.[0] || `${d.consumedQty.toFixed(1)}${d.unit}`}`
+      ).join("\n") || "";
+      if (confirm(`재고 동기화 대상: ${data.details?.length || 0}개 원재료\n\n${summary}\n\n소모 데이터 기준으로 현황 재고를 차감하시겠습니까?\n(소모총량 - 기차감량 = 미반영분만 차감)\n\n※ LOT의 available_quantity와 h_inventory가 감소합니다.`)) {
+        setStatus("running");
+        syncMut.mutate({ dryRun: false });
+      } else {
+        setStatus("idle");
+      }
+    },
+    onError: (e: any) => {
+      setResultMsg(`확인 오류: ${e.message}`);
+      setStatus("done");
+    }
+  });
+
+  const handleClick = useCallback(() => {
+    setStatus("checking");
+    setResultMsg("");
+    setDetails([]);
+    dryRunMut.mutate({ dryRun: true });
+  }, []);
+
+  if (status === "done" && resultMsg) {
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-emerald-700 dark:text-emerald-400">{resultMsg}</span>
+          <button onClick={() => { setStatus("idle"); setResultMsg(""); setDetails([]); }} className="text-[10px] text-blue-600 underline">닫기</button>
+          {details.length > 0 && (
+            <button onClick={() => setShowDetails(!showDetails)} className="text-[10px] text-blue-600 underline">
+              {showDetails ? "상세 접기" : "상세 보기"}
+            </button>
+          )}
+        </div>
+        {showDetails && details.length > 0 && (
+          <div className="text-[10px] text-muted-foreground space-y-0.5 pl-2 border-l-2 border-emerald-200 dark:border-emerald-800">
+            {details.map((d: any, i: number) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="font-medium">{d.materialName}</span>
+                <span>소모 {d.consumedQty.toFixed(1)} → LOT차감 {d.deductedQty.toFixed(1)}{d.unit}</span>
+                {d.warnings?.length > 0 && <span className="text-amber-500">{d.warnings[0]}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={status === "checking" || status === "running"}
+        onClick={handleClick}
+        className="h-7 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+      >
+        <RefreshCw className={`h-3 w-3 mr-1 ${status === "running" ? "animate-spin" : ""}`} />
+        {status === "checking" ? "확인 중..." : status === "running" ? "동기화 중..." : "소모→현황 재고 동기화"}
+      </Button>
+      <span className="text-[10px] text-muted-foreground ml-2">소모 탭 집계 데이터를 현황 재고에 일괄 반영</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    원재료 수동 소모 (폐기/기타) — BOM 자동소모 안내
    ═══════════════════════════════════════════════════ */
 function ReleaseTab() {
@@ -546,6 +647,11 @@ function ReleaseTab() {
                 <span className="text-orange-600 dark:text-orange-400 font-medium flex items-center gap-1"><PackageMinus className="h-3 w-3" />폐기/기타 = 수동 처리</span>
               </div>
               <RetroactiveDeductionButton onComplete={() => {
+                utils.inventory.getDashboard.invalidate();
+                utils.inventory.getConsumptionSummary.invalidate();
+                utils.inventory.list.invalidate();
+              }} />
+              <StockSyncButton onComplete={() => {
                 utils.inventory.getDashboard.invalidate();
                 utils.inventory.getConsumptionSummary.invalidate();
                 utils.inventory.list.invalidate();

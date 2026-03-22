@@ -754,6 +754,22 @@ export const inventoryRouter = router({
         }, ctx.tenantId!);
       }),
 
+    // 소모 데이터 기반 재고 일괄 동기화 (현황 차감)
+    syncStockFromConsumption: workerProcedure
+      .input(
+        z.object({
+          dryRun: z.boolean().optional().default(false),
+        }).optional()
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { syncStockFromConsumption } = await import("../../db/outboundManagement");
+        return await syncStockFromConsumption(
+          ctx.tenantId!,
+          ctx.user?.id || 1,
+          input?.dryRun ?? false
+        );
+      }),
+
     // 재고 조정 (LOT 단위)
     adjustInventory: workerProcedure
       .input(
