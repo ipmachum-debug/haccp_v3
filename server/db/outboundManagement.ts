@@ -532,39 +532,42 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
     // ================================================================
 
     // 1. 원재료별: 입고총량, 소모총량, 현재 INV가용량, LOT가용합계
+    //    HAVING → 서브쿼리 wrapping (MySQL 8 strict mode 호환)
     const [auditRows]: any = await db.execute(sql.raw(`
-      SELECT
-        m.id AS materialId,
-        m.material_name AS materialName,
-        COALESCE(m.unit, 'kg') AS unit,
-        COALESCE(lot_sum.totalReceipt, 0) AS totalReceipt,
-        COALESCE(lot_sum.lotAvail, 0) AS lotAvail,
-        COALESCE(inv.invId, 0) AS invId,
-        COALESCE(inv.invAvail, 0) AS invAvail,
-        COALESCE(bi_sum.totalConsumed, 0) AS totalConsumed,
-        GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0)) AS correctStock
-      FROM h_materials m
-      LEFT JOIN (
-        SELECT material_id, SUM(quantity) AS totalReceipt, SUM(available_quantity) AS lotAvail
-        FROM h_inventory_lots WHERE tenant_id = ${tenantId} GROUP BY material_id
-      ) lot_sum ON m.id = lot_sum.material_id
-      LEFT JOIN (
-        SELECT id AS invId, material_id, available_quantity AS invAvail
-        FROM h_inventory WHERE tenant_id = ${tenantId}
-      ) inv ON m.id = inv.material_id
-      LEFT JOIN (
-        SELECT bi.material_id, SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) AS totalConsumed
-        FROM h_batch_inputs bi
-        JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
-        WHERE bi.tenant_id = ${tenantId}
-          AND b.status IN ('in_progress', 'completed')
-        GROUP BY bi.material_id
-      ) bi_sum ON m.id = bi_sum.material_id
-      WHERE m.tenant_id = ${tenantId}
-        AND (lot_sum.totalReceipt IS NOT NULL OR bi_sum.totalConsumed IS NOT NULL)
-      HAVING ABS(COALESCE(inv.invAvail, 0) - GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0))) > 0.01
-         OR ABS(COALESCE(lot_sum.lotAvail, 0) - GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0))) > 0.01
-      ORDER BY ABS(COALESCE(inv.invAvail, 0) - GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0))) DESC
+      SELECT * FROM (
+        SELECT
+          m.id AS materialId,
+          m.material_name AS materialName,
+          COALESCE(m.unit, 'kg') AS unit,
+          COALESCE(lot_sum.totalReceipt, 0) AS totalReceipt,
+          COALESCE(lot_sum.lotAvail, 0) AS lotAvail,
+          COALESCE(inv.invId, 0) AS invId,
+          COALESCE(inv.invAvail, 0) AS invAvail,
+          COALESCE(bi_sum.totalConsumed, 0) AS totalConsumed,
+          GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0)) AS correctStock
+        FROM h_materials m
+        LEFT JOIN (
+          SELECT material_id, SUM(quantity) AS totalReceipt, SUM(available_quantity) AS lotAvail
+          FROM h_inventory_lots WHERE tenant_id = ${tenantId} GROUP BY material_id
+        ) lot_sum ON m.id = lot_sum.material_id
+        LEFT JOIN (
+          SELECT id AS invId, material_id, available_quantity AS invAvail
+          FROM h_inventory WHERE tenant_id = ${tenantId}
+        ) inv ON m.id = inv.material_id
+        LEFT JOIN (
+          SELECT bi.material_id, SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) AS totalConsumed
+          FROM h_batch_inputs bi
+          JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
+          WHERE bi.tenant_id = ${tenantId}
+            AND b.status IN ('in_progress', 'completed')
+          GROUP BY bi.material_id
+        ) bi_sum ON m.id = bi_sum.material_id
+        WHERE m.tenant_id = ${tenantId}
+          AND (lot_sum.totalReceipt IS NOT NULL OR bi_sum.totalConsumed IS NOT NULL)
+      ) t
+      WHERE ABS(invAvail - correctStock) > 0.01
+         OR ABS(lotAvail - correctStock) > 0.01
+      ORDER BY ABS(invAvail - correctStock) DESC
     `));
 
     const materials = auditRows as any[];
