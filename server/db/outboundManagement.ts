@@ -484,3 +484,281 @@ export async function getConsumptionSummary(params: {
     totalRecords,
   };
 }
+
+/**
+ * 재고 동기화: 소모 데이터 기반으로 현황(h_inventory + h_inventory_lots) 일괄 차감
+ *
+ * 용도: 백업 데이터 임포트, DB 직접 입력 등으로 소모 기록(h_batch_inputs)은 있으나
+ *       실제 재고(h_inventory_lots.available_quantity, h_inventory)에 반영되지 않은 경우
+ *
+ * 처리 로직:
+ * 1. h_batch_inputs에서 inventory_deducted=1이지만 h_inventory_transactions에 미반영된 건 조회
+ * 2. 원재료별 미반영 소모량 집계
+ * 3. 각 원재료에 대해:
+ *    a. h_inventory 조회/생성, inventory_id 확보
+ *    b. FEFO 순서로 LOT에서 available_quantity 차감
+ *    c. h_inventory_transactions에 출고 기록 생성
+ *    d. h_inventory.total_quantity, available_quantity 차감
+ * 4. 결과 요약 반환
+ */
+export async function syncStockFromConsumption(tenantId: number, userId: number, dryRun: boolean = false) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = {
+    success: true,
+    dryRun,
+    materialsProcessed: 0,
+    totalDeducted: 0,
+    details: [] as Array<{
+      materialId: number;
+      materialName: string;
+      consumedQty: number;
+      deductedQty: number;
+      unit: string;
+      lotAllocations: number;
+      warnings: string[];
+    }>,
+    errors: [] as string[],
+  };
+
+  try {
+    // 1. 미반영 소모 조회: h_batch_inputs(deducted=1) 중 h_inventory_transactions에 없는 건
+    const [unsyncedRows]: any = await db.execute(sql.raw(`
+      SELECT
+        bi.material_id AS materialId,
+        m.material_name AS materialName,
+        COALESCE(bi.unit, m.unit, 'kg') AS unit,
+        SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) AS totalConsumed,
+        COUNT(*) AS recordCount
+      FROM h_batch_inputs bi
+      JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
+      JOIN h_materials m ON bi.material_id = m.id
+      WHERE bi.tenant_id = ${tenantId}
+        AND b.status IN ('in_progress', 'completed')
+        AND bi.inventory_deducted = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM h_inventory_transactions tx
+          WHERE tx.source_type = 'BATCH'
+            AND tx.source_id = bi.batch_id
+            AND tx.source_line_id = bi.id
+            AND tx.transaction_type = 'usage'
+            AND tx.tenant_id = ${tenantId}
+        )
+      GROUP BY bi.material_id, m.material_name, COALESCE(bi.unit, m.unit, 'kg')
+      ORDER BY totalConsumed DESC
+    `));
+
+    const unsyncedMaterials = unsyncedRows as any[];
+
+    if (!unsyncedMaterials || unsyncedMaterials.length === 0) {
+      result.errors.push("동기화 대상이 없습니다. 모든 소모가 이미 재고에 반영되었습니다.");
+      return result;
+    }
+
+    console.log(`[syncStock] 미반영 소모: ${unsyncedMaterials.length}개 원재료 (tenantId: ${tenantId})`);
+
+    if (dryRun) {
+      // 시뮬레이션 모드
+      for (const mat of unsyncedMaterials) {
+        result.details.push({
+          materialId: Number(mat.materialId),
+          materialName: mat.materialName,
+          consumedQty: parseFloat(mat.totalConsumed),
+          deductedQty: 0,
+          unit: mat.unit,
+          lotAllocations: 0,
+          warnings: [`[시뮬레이션] 미반영 소모 ${parseFloat(mat.totalConsumed).toFixed(2)}${mat.unit} (${mat.recordCount}건)`],
+        });
+      }
+      result.materialsProcessed = unsyncedMaterials.length;
+      return result;
+    }
+
+    // 2. 각 원재료별 LOT 차감 처리
+    const transactionDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000)
+      .toISOString().split('T')[0];
+
+    for (const mat of unsyncedMaterials) {
+      const materialId = Number(mat.materialId);
+      const materialName = mat.materialName || `원재료#${materialId}`;
+      const totalConsumed = parseFloat(mat.totalConsumed);
+      const unit = mat.unit || 'kg';
+      const warnings: string[] = [];
+
+      try {
+        // 2a. h_inventory 조회/생성
+        const [invRows]: any = await db.execute(sql.raw(`
+          SELECT id, total_quantity, available_quantity
+          FROM h_inventory
+          WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
+          LIMIT 1
+        `));
+
+        let inventoryId: number;
+        let currentTotal: number;
+        let currentAvail: number;
+
+        if ((invRows as any[]).length > 0) {
+          const inv = (invRows as any[])[0];
+          inventoryId = Number(inv.id);
+          currentTotal = parseFloat(inv.total_quantity || "0");
+          currentAvail = parseFloat(inv.available_quantity || "0");
+        } else {
+          // h_inventory 레코드 없으면 생성 (0으로)
+          const [insResult]: any = await db.execute(sql.raw(`
+            INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit)
+            VALUES (${tenantId}, ${materialId}, 0, 0, 0, '${unit}')
+          `));
+          inventoryId = Number((insResult as any)?.insertId || 0);
+          currentTotal = 0;
+          currentAvail = 0;
+          warnings.push("h_inventory 레코드 신규 생성");
+        }
+
+        // LOT에 inventory_id 연결 (누락된 경우)
+        await db.execute(sql.raw(`
+          UPDATE h_inventory_lots
+          SET inventory_id = ${inventoryId}
+          WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
+            AND (inventory_id IS NULL OR inventory_id = 0)
+        `));
+
+        // 2b. FEFO 순서로 LOT에서 차감
+        const [lotRows]: any = await db.execute(sql.raw(`
+          SELECT id, available_quantity, unit_price, lot_number, expiry_date
+          FROM h_inventory_lots
+          WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
+            AND available_quantity > 0.001
+          ORDER BY COALESCE(expiry_date, '9999-12-31') ASC, id ASC
+        `));
+
+        const lots = lotRows as any[];
+        let remaining = totalConsumed;
+        let totalDeductedFromLots = 0;
+        let lotAllocCount = 0;
+
+        for (const lot of lots) {
+          if (remaining <= 0.001) break;
+
+          const lotAvail = parseFloat(lot.available_quantity || "0");
+          const deductQty = Math.min(remaining, lotAvail);
+          const unitCost = parseFloat(lot.unit_price || "0");
+          const amount = deductQty * unitCost;
+
+          // LOT available_quantity 차감
+          const newAvail = lotAvail - deductQty;
+          await db.execute(sql.raw(`
+            UPDATE h_inventory_lots
+            SET available_quantity = ${newAvail.toFixed(4)}
+            WHERE id = ${lot.id}
+          `));
+
+          // h_inventory_transactions 출고 기록
+          await db.execute(sql.raw(`
+            INSERT INTO h_inventory_transactions
+            (inventory_id, lot_id, transaction_type, quantity, unit, unit_cost, amount,
+             transaction_date, source_type, source_id,
+             action_type, purpose, performed_by, created_by, tenant_id, notes)
+            VALUES
+            (${inventoryId}, ${lot.id}, 'usage', '${(-deductQty).toFixed(4)}', '${unit}',
+             '${unitCost.toFixed(2)}', '${(-amount).toFixed(2)}',
+             '${transactionDate}', 'SYNC', 0,
+             'STOCK_SYNC', 'consumption_sync', ${userId}, ${userId}, ${tenantId},
+             '소모 데이터 기반 재고 동기화 - ${materialName}')
+          `));
+
+          remaining -= deductQty;
+          totalDeductedFromLots += deductQty;
+          lotAllocCount++;
+        }
+
+        if (remaining > 0.001) {
+          warnings.push(`재고 부족: ${remaining.toFixed(2)}${unit} 미차감 (LOT 가용량 초과)`);
+        }
+
+        // 2c. h_inventory 총량 차감
+        const newTotal = Math.max(0, currentTotal - totalDeductedFromLots);
+        const newAvailable = Math.max(0, currentAvail - totalDeductedFromLots);
+        await db.execute(sql.raw(`
+          UPDATE h_inventory
+          SET total_quantity = ${newTotal.toFixed(4)},
+              available_quantity = ${newAvailable.toFixed(4)},
+              last_updated = NOW()
+          WHERE id = ${inventoryId}
+        `));
+
+        // 2d. h_batch_inputs에 대해 h_inventory_transactions 기록 생성 (개별 매핑)
+        // 향후 중복 처리 방지를 위해 source_type='BATCH', source_id, source_line_id 설정
+        const [biRows]: any = await db.execute(sql.raw(`
+          SELECT bi.id, bi.batch_id, COALESCE(bi.actual_quantity, bi.planned_quantity) AS qty
+          FROM h_batch_inputs bi
+          JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
+          WHERE bi.material_id = ${materialId}
+            AND bi.tenant_id = ${tenantId}
+            AND b.status IN ('in_progress', 'completed')
+            AND bi.inventory_deducted = 1
+            AND NOT EXISTS (
+              SELECT 1 FROM h_inventory_transactions tx
+              WHERE tx.source_type = 'BATCH'
+                AND tx.source_id = bi.batch_id
+                AND tx.source_line_id = bi.id
+                AND tx.transaction_type = 'usage'
+                AND tx.tenant_id = ${tenantId}
+            )
+        `));
+
+        for (const bi of (biRows as any[])) {
+          const biQty = parseFloat(bi.qty || "0");
+          await db.execute(sql.raw(`
+            INSERT INTO h_inventory_transactions
+            (inventory_id, lot_id, transaction_type, quantity, unit,
+             transaction_date, source_type, source_id, source_line_id,
+             action_type, purpose, performed_by, created_by, tenant_id, notes)
+            VALUES
+            (${inventoryId}, 0, 'usage', '${(-biQty).toFixed(4)}', '${unit}',
+             '${transactionDate}', 'BATCH', ${bi.batch_id}, ${bi.id},
+             'STOCK_SYNC', 'consumption_sync', ${userId}, ${userId}, ${tenantId},
+             '배치#${bi.batch_id} 소모 동기화 - ${materialName}')
+          `));
+        }
+
+        result.details.push({
+          materialId,
+          materialName,
+          consumedQty: totalConsumed,
+          deductedQty: totalDeductedFromLots,
+          unit,
+          lotAllocations: lotAllocCount,
+          warnings,
+        });
+
+        result.totalDeducted += totalDeductedFromLots;
+        result.materialsProcessed++;
+
+        console.log(`[syncStock] ${materialName}: 소모 ${totalConsumed.toFixed(2)} → LOT차감 ${totalDeductedFromLots.toFixed(2)}${unit} (${lotAllocCount}개 LOT)`);
+
+      } catch (matErr: any) {
+        result.errors.push(`${materialName}: ${matErr.message}`);
+        result.details.push({
+          materialId,
+          materialName,
+          consumedQty: totalConsumed,
+          deductedQty: 0,
+          unit,
+          lotAllocations: 0,
+          warnings: [`오류: ${matErr.message}`],
+        });
+      }
+    }
+
+    console.log(`[syncStock] 완료: ${result.materialsProcessed}개 원재료, 총 ${result.totalDeducted.toFixed(2)} 차감`);
+
+  } catch (error: any) {
+    console.error("[syncStock] 오류:", error);
+    result.success = false;
+    result.errors.push(error.message || "알 수 없는 오류");
+  }
+
+  return result;
+}
