@@ -286,36 +286,6 @@ export const dailyLogRouter = router({
         `);
         const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
 
-        // 해당 기간의 생산 품목 조회 (날짜별 제품명)
-        let productsByDate: Record<string, string[]> = {};
-        try {
-          const startD = input?.startDate || '';
-          const endD = input?.endDate || '';
-          if (startD && endD) {
-            const batchResult = await db.execute(sql`
-              SELECT DATE(b.planned_date) as batch_date, p.product_name
-              FROM h_batches b
-              LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
-              WHERE b.tenant_id = ${ctx.tenantId}
-                AND b.planned_date >= ${startD}
-                AND b.planned_date <= ${endD}
-              ORDER BY b.planned_date DESC, b.id
-            `);
-            const batchRows = (batchResult as any)[0] || [];
-            for (const br of (batchRows as any[])) {
-              const dateStr = br.batch_date instanceof Date
-                ? br.batch_date.toISOString().split('T')[0]
-                : String(br.batch_date || '');
-              if (!dateStr) continue;
-              if (!productsByDate[dateStr]) productsByDate[dateStr] = [];
-              const pName = br.product_name || '';
-              if (pName && !productsByDate[dateStr].includes(pName)) {
-                productsByDate[dateStr].push(pName);
-              }
-            }
-          }
-        } catch {}
-
         return (rows as any[]).map((r: any) => {
           let formData: any = {};
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
@@ -343,7 +313,6 @@ export const dailyLogRouter = router({
             hygieneTotal, hygieneChecked,
             foreignTotal, foreignChecked,
             hasTemp,
-            productNames: productsByDate[logDate] || [],
             createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || ''),
             updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || ''),
           };

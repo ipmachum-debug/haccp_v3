@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CalendarIcon, FileText, Search, RefreshCw, ChevronLeft, ChevronRight,
-  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2, Thermometer, ShieldCheck, Package
+  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2, Thermometer, ShieldCheck
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -70,8 +70,7 @@ export default function DailyLogs() {
     return dailyLogs.filter((log: any) =>
       (log.title || "").toLowerCase().includes(kw) ||
       (log.log_date || "").includes(kw) ||
-      (log.creator_name || "").toLowerCase().includes(kw) ||
-      (log.productNames || []).some((n: string) => n.toLowerCase().includes(kw))
+      (log.creator_name || "").toLowerCase().includes(kw)
     );
   }, [dailyLogs, keyword]);
 
@@ -197,7 +196,7 @@ export default function DailyLogs() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="날짜, 작성자, 생산품목 검색..."
+                placeholder="날짜, 작성자 검색..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 className="pl-8 h-8 text-sm"
@@ -231,7 +230,6 @@ export default function DailyLogs() {
                     <TableHead className="w-[100px] text-center">위생점검</TableHead>
                     <TableHead className="w-[100px] text-center">이물관리</TableHead>
                     <TableHead className="w-[80px] text-center">온도기록</TableHead>
-                    <TableHead>해당일 생산품목</TableHead>
                     <TableHead className="w-[80px]">작성자</TableHead>
                     <TableHead className="w-[90px] text-center">상태</TableHead>
                     <TableHead className="w-[90px] text-center">승인상태</TableHead>
@@ -275,18 +273,6 @@ export default function DailyLogs() {
                       <TableCell className="text-center">
                         {log.hasTemp ? (
                           <Thermometer className="h-4 w-4 text-green-500 mx-auto" />
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {log.productNames && log.productNames.length > 0 ? (
-                          <div className="flex items-start gap-1 max-w-[250px]">
-                            <Package className="h-3.5 w-3.5 text-blue-400 mt-0.5 shrink-0" />
-                            <span className="text-xs text-muted-foreground truncate" title={log.productNames.join(", ")}>
-                              {log.productNames.join(", ")}
-                            </span>
-                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
