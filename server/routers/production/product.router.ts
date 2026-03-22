@@ -188,6 +188,53 @@ export const productRouter = router({
         } catch (syncErr) {
           console.error('item_master 동기화 실패:', syncErr);
         }
+
+        // h_products (레거시) 동기화
+        if (rest.productName) {
+          try {
+            const { hProducts } = await import("../../../drizzle/schema.js");
+            await db.update(hProducts).set({ productName: rest.productName } as any).where(
+              and(eq(hProducts.id, id), eq(hProducts.tenantId, ctx.tenantId ?? undefined as any) )
+            );
+          } catch (_e) { /* 레거시 테이블 없을 수 있음 */ }
+        }
+
+        // CCP 비정규화 제품명 동기화 (해당 제품의 배치에 연결된 CCP 레코드)
+        if (rest.productName) {
+          try {
+            const { getRawConnection } = await import("../../db/index.js");
+            const pool = await getRawConnection();
+            if (pool) {
+              // h_ccp_instances - 배치 기반 CCP 인스턴스
+              await pool.execute(
+                `UPDATE h_ccp_instances ci
+                 JOIN h_batches b ON ci.batch_id = b.id
+                 SET ci.product_name = ?
+                 WHERE b.product_id = ? AND b.tenant_id = ?`,
+                [rest.productName, id, ctx.tenantId]
+              );
+              // h_ccp_form_records - CCP 폼 레코드
+              await pool.execute(
+                `UPDATE h_ccp_form_records cfr
+                 JOIN h_batches b ON cfr.batch_id = b.id
+                 SET cfr.product_name = ?
+                 WHERE b.product_id = ? AND b.tenant_id = ?`,
+                [rest.productName, id, ctx.tenantId]
+              );
+              // h_ccp_form_rows - CCP 폼 데이터 행
+              await pool.execute(
+                `UPDATE h_ccp_form_rows r
+                 JOIN h_ccp_form_records cfr ON r.form_record_id = cfr.id
+                 JOIN h_batches b ON cfr.batch_id = b.id
+                 SET r.product_name = ?
+                 WHERE b.product_id = ? AND b.tenant_id = ?`,
+                [rest.productName, id, ctx.tenantId]
+              );
+            }
+          } catch (ccpSyncErr) {
+            console.error('CCP 제품명 동기화 실패:', ccpSyncErr);
+          }
+        }
         
         return { success: true };
       }),
