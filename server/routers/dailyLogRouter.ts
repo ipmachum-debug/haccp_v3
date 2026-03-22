@@ -285,20 +285,65 @@ export const dailyLogRouter = router({
           LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
         `);
         const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
+
+        // 해당 기간의 생산 품목 조회 (날짜별 제품명)
+        let productsByDate: Record<string, string[]> = {};
+        try {
+          const startD = input?.startDate || '';
+          const endD = input?.endDate || '';
+          if (startD && endD) {
+            const batchResult = await db.execute(sql`
+              SELECT DATE(b.planned_date) as batch_date, p.product_name
+              FROM h_batches b
+              LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+              WHERE b.tenant_id = ${ctx.tenantId}
+                AND b.planned_date >= ${startD}
+                AND b.planned_date <= ${endD}
+              ORDER BY b.planned_date DESC, b.id
+            `);
+            const batchRows = (batchResult as any)[0] || [];
+            for (const br of (batchRows as any[])) {
+              const dateStr = br.batch_date instanceof Date
+                ? br.batch_date.toISOString().split('T')[0]
+                : String(br.batch_date || '');
+              if (!dateStr) continue;
+              if (!productsByDate[dateStr]) productsByDate[dateStr] = [];
+              const pName = br.product_name || '';
+              if (pName && !productsByDate[dateStr].includes(pName)) {
+                productsByDate[dateStr].push(pName);
+              }
+            }
+          }
+        } catch {}
+
         return (rows as any[]).map((r: any) => {
           let formData: any = {};
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           const hc = formData.hygieneChecks || {};
           const hasHygieneData = typeof hc === 'object' && Object.values(hc).some((v: any) => v !== null && v !== undefined);
+          // 위생점검 항목수 카운트
+          const hygieneTotal = typeof hc === 'object' ? Object.keys(hc).length : 0;
+          const hygieneChecked = typeof hc === 'object' ? Object.values(hc).filter((v: any) => v === '적합' || v === 'Y' || v === true).length : 0;
+          // 이물관리 항목수 카운트
+          const fc = formData.foreignMaterialChecks || {};
+          const foreignTotal = typeof fc === 'object' ? Object.keys(fc).length : 0;
+          const foreignChecked = typeof fc === 'object' ? Object.values(fc).filter((v: any) => v === '적합' || v === 'Y' || v === true).length : 0;
+          // 온도 기록 여부
+          const hasTemp = !!(formData.roomTemperatures || formData.freezerTemperatures || formData.fridgeTemperatures);
+
           // 작성자: 문서결재설정 작성자 우선, 없으면 같은 테넌트의 users.name
           const displayAuthor = authorEmployeeName || r.creator_name || "-";
+          const logDate = r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || '');
           return {
             id: r.id, siteId: r.site_id,
-            log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
+            log_date: logDate,
             title: r.title, status: r.status, creator_name: displayAuthor,
             approval_request_id: r.approval_request_id, approval_status: r.approval_status,
-            batches: formData.batches || [], totalBatches: formData.totalBatches || 0,
-            totalPlannedQty: formData.totalPlannedQty || 0, hasHygieneData,
+            hasHygieneData,
+            hygieneTotal, hygieneChecked,
+            foreignTotal, foreignChecked,
+            hasTemp,
+            productNames: productsByDate[logDate] || [],
             createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || ''),
             updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || ''),
           };

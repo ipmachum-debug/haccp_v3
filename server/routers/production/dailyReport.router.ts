@@ -348,6 +348,30 @@ export const dailyReportRouter = router({
           `);
           const batchDates = (batchDatesResult as any)[0] || [];
 
+          // 날짜별 생산 품목명 조회
+          const productNamesResult = await db.execute(sql`
+            SELECT DATE(b.planned_date) as batch_date, p.product_name
+            FROM h_batches b
+            LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+            WHERE b.tenant_id = ${ctx.tenantId}
+              AND b.planned_date >= ${startDate}
+              AND b.planned_date < ${endDate}
+            ORDER BY b.planned_date DESC, b.id
+          `);
+          const productNamesRows = (productNamesResult as any)[0] || [];
+          const productsByDate: Record<string, string[]> = {};
+          for (const pn of (productNamesRows as any[])) {
+            const dateStr = pn.batch_date instanceof Date
+              ? pn.batch_date.toISOString().split('T')[0]
+              : String(pn.batch_date || '');
+            if (!dateStr) continue;
+            if (!productsByDate[dateStr]) productsByDate[dateStr] = [];
+            const name = pn.product_name || '';
+            if (name && !productsByDate[dateStr].includes(name)) {
+              productsByDate[dateStr].push(name);
+            }
+          }
+
           // 기존 일보 날짜 Set
           const existingDates = new Set(
             (rows as any[]).map((r: any) => {
@@ -359,9 +383,10 @@ export const dailyReportRouter = router({
           const mapped = (rows as any[]).map((row: any) => {
             let summary: any = {};
             try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
+            const reportDate = row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date);
             return {
               id: row.id,
-              reportDate: row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date),
+              reportDate,
               generatedAt: row.generated_at,
               totalBatches: summary?.production?.totalBatches || 0,
               completedBatches: summary?.production?.completedBatches || 0,
@@ -380,6 +405,7 @@ export const dailyReportRouter = router({
               reviewedAt: row.reviewed_at || null,
               requestedAt: row.requested_at || null,
               needsGeneration: false,
+              productNames: productsByDate[reportDate] || [],
             };
           });
 
@@ -410,6 +436,7 @@ export const dailyReportRouter = router({
                 reviewedAt: null,
                 requestedAt: null,
                 needsGeneration: true,
+                productNames: productsByDate[dateStr] || [],
               });
             }
           }
