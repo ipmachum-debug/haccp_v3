@@ -156,8 +156,8 @@ export async function autoIssueMaterialsForBatch(
                      transaction_date, source_type, source_id, source_line_id, 
                      action_type, purpose, performed_by, created_by, tenant_id)
                     VALUES 
-                    (${inventoryId}, ${alloc.lotId}, 'usage', ${(-alloc.quantity).toString()}, ${unit},
-                     ${alloc.unitCost.toString()}, ${(-amount).toString()},
+                    (${inventoryId}, ${alloc.lotId}, 'usage', ${alloc.quantity.toString()}, ${unit},
+                     ${alloc.unitCost.toString()}, ${amount.toString()},
                      ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
                      'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId})
                   `);
@@ -165,7 +165,7 @@ export async function autoIssueMaterialsForBatch(
                   // h_inventory_lots 가용 재고 차감
                   await db.execute(sql`
                     UPDATE h_inventory_lots 
-                    SET available_quantity = available_quantity - ${alloc.quantity}
+                    SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
                     WHERE id = ${alloc.lotId}
                   `);
 
@@ -183,8 +183,8 @@ export async function autoIssueMaterialsForBatch(
                 // h_inventory 총 재고 차감
                 await db.execute(sql`
                   UPDATE h_inventory 
-                  SET total_quantity = total_quantity - ${issuedQuantity},
-                      available_quantity = available_quantity - ${issuedQuantity},
+                  SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
+                      available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
                       last_updated = NOW()
                   WHERE id = ${inventoryId}
                 `);
@@ -212,8 +212,8 @@ export async function autoIssueMaterialsForBatch(
                action_type, purpose, performed_by, created_by, tenant_id,
                reference_type, reference_id, notes)
               VALUES 
-              (0, 'usage', ${(-requiredQuantity).toString()}, ${unit},
-               ${unitPrice.toString()}, ${(-materialCost).toString()},
+              (0, 'usage', ${requiredQuantity.toString()}, ${unit},
+               ${unitPrice.toString()}, ${materialCost.toString()},
                ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
                'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
                'batch', ${batchId}, ${`${materialName} 자동출고 (재고미등록)`})
