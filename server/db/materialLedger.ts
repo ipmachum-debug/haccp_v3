@@ -26,20 +26,21 @@ export async function getDailyLedger(date: string, tenantId: number) {
        COALESCE(m.unit_price, 0) as unit_price,
        COALESCE(d.id, 0) as id,
        ? as ledger_date,
-       COALESCE(d.receiving_qty, 0) as receiving_qty,
-       COALESCE(d.usage_qty, 0) as usage_qty,
-       COALESCE(d.adjustment_qty, 0) as adjustment_qty,
-       COALESCE(d.running_stock, 0) as running_stock,
+       ROUND(COALESCE(d.receiving_qty, 0), 1) as receiving_qty,
+       ROUND(COALESCE(d.usage_qty, 0), 1) as usage_qty,
+       ROUND(COALESCE(d.adjustment_qty, 0), 1) as adjustment_qty,
+       ROUND(GREATEST(COALESCE(d.running_stock, 0), 0), 1) as running_stock,
        COALESCE(d.notes, '') as notes,
        COALESCE(d.source, '') as source,
-       COALESCE(prev_agg.prev_running_stock, 0) as prev_stock,
-       COALESCE(
-         d.running_stock,
-         COALESCE(prev_agg.prev_running_stock, 0)
-           + COALESCE(d.receiving_qty, 0)
-           - COALESCE(d.usage_qty, 0)
-           + COALESCE(d.adjustment_qty, 0)
-       ) as current_stock,
+       ROUND(GREATEST(COALESCE(prev_agg.prev_running_stock, 0), 0), 1) as prev_stock,
+       ROUND(GREATEST(
+         COALESCE(
+           d.running_stock,
+           COALESCE(prev_agg.prev_running_stock, 0)
+             + COALESCE(d.receiving_qty, 0)
+             - COALESCE(d.usage_qty, 0)
+             + COALESCE(d.adjustment_qty, 0)
+         ), 0), 1) as current_stock,
        ROUND(COALESCE(d.receiving_qty, 0) * COALESCE(m.unit_price, 0), 0) as receiving_amount,
        ROUND(COALESCE(d.usage_qty, 0) * COALESCE(m.unit_price, 0), 0) as usage_amount
      FROM h_materials m

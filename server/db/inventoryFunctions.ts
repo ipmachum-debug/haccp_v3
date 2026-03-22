@@ -806,7 +806,7 @@ export async function getInventoryDashboard(tenantId?: number) {
   const [stockStats] = await db
     .select({
       totalLots: sql<number>`COUNT(*)`,
-      totalValue: sql<number>`SUM(${hInventoryLots.availableQuantity} * COALESCE(CAST(${hInventoryLots.unitPrice} AS DECIMAL(10,2)), CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)), 0))`,
+      totalValue: sql<number>`SUM(GREATEST(${hInventoryLots.availableQuantity}, 0) * COALESCE(CAST(${hInventoryLots.unitPrice} AS DECIMAL(10,2)), CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)), 0))`,
       availableLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END)`,
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
@@ -824,7 +824,7 @@ export async function getInventoryDashboard(tenantId?: number) {
       materialId: hMaterials.id,
       materialName: hMaterials.materialName,
       materialCode: hMaterials.materialCode,
-      totalQuantity: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN ${hInventoryLots.availableQuantity} ELSE 0 END), 0)`,
+      totalQuantity: sql<number>`ROUND(GREATEST(COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN GREATEST(${hInventoryLots.availableQuantity}, 0) ELSE 0 END), 0), 0), 1)`,
       lotCount: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END), 0)`,
       unit: hMaterials.unit,
       masterUnitPrice: hMaterials.unitPrice,
