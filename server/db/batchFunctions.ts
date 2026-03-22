@@ -447,9 +447,11 @@ export async function generateBatchCode(productId: number, tenantId?: number) {
     }
   } catch { /* use default code */ }
 
-  // 2. 오늘 날짜 문자열 생성 (YYYYMMDD)
+  // 2. 오늘 날짜 문자열 생성 (YYYYMMDD) - KST 기준
   const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+  const kstOffset = 9 * 60; // UTC+9
+  const kstDate = new Date(today.getTime() + kstOffset * 60 * 1000);
+  const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
 
   // 3. 해당 날짜의 기존 배치 수 조회 (tenantId 격리)
   const countParams: any[] = tenantId
