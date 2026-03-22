@@ -189,10 +189,11 @@ export default function PrintPreviewPage() {
     };
 
     if (doc.formType === "daily_log") {
-      const pages = renderDailyLogPages(doc.formData);
+      const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+      const pages = renderDailyLogPages(doc.formData, enrichedDoc);
       pages.forEach((pageContent, idx) => {
         allPages.push({
-          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+          doc: enrichedDoc,
           pageContent,
           pageTitle: DAILY_LOG_PAGE_TITLES[idx] || `일일일지 ${idx + 1}`,
           pageIndex: idx,
@@ -352,28 +353,8 @@ export default function PrintPreviewPage() {
           const isCcpForm = ["batch_production", "batch_approval", "ccp_form"].includes(page.doc.formType || "");
           return (
           <div key={index} className="print-page">
-            {isCcpForm ? (
-              /* CCP 기록지: 결재란 없음 (CCP 양식 내부에 포함) */
-              <div className="print-header mb-0.5" />
-            ) : (
-              /* 일반 문서: 제목 왼쪽 + 결재란 오른쪽 (같은 줄) */
-              <div className="print-header flex items-start justify-between mb-1">
-                <div className="flex-1" />
-                <div className="flex-shrink-0">
-                  <ApprovalHeader
-                    authorName={page.doc.authorName}
-                    reviewerName={page.doc.reviewerName}
-                    approverName={page.doc.approverName}
-                    requestedAt={page.doc.formData?.date || page.doc.requestedAt}
-                    reviewedAt={page.doc.reviewedAt}
-                    approvedAt={page.doc.approvedAt}
-                    compact={true}
-                  />
-                </div>
-              </div>
-            )}
-            <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-1'}`} />
-            <div className={`print-content ${isCcpForm ? "mb-1" : "mb-4"}`}>{page.pageContent}</div>
+            {/* 결재란은 각 페이지 렌더러 내부 TitleRow에 포함됨 */}
+            <div className="print-content mb-2">{page.pageContent}</div>
             <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
           </div>
           );
