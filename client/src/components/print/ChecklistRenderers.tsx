@@ -7,12 +7,12 @@
  * - renderProductTestReport
  */
 import React from "react";
-import { CHECKLIST_LABEL_MAP } from "./PrintHelpers";
+import { CHECKLIST_LABEL_MAP, TitleWithApproval } from "./PrintHelpers";
 
 // ============================================================================
 // 체크리스트 항목 렌더러 (범용)
 // ============================================================================
-export function renderChecklistItems(data: any, title: string) {
+export function renderChecklistItems(data: any, title: string, doc?: any) {
   const rawChecklist = data?.checklist || data?.checklistItems || data?.checkItems || data?.items || data?.data || [];
   const sections = data?.sections || [];
 
@@ -22,7 +22,7 @@ export function renderChecklistItems(data: any, title: string) {
     if (entries.length > 0) {
       return (
         <div>
-          <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+          <TitleWithApproval title={title} doc={doc} />
           <table className="w-full border-collapse border border-gray-400 text-sm">
             <thead><tr className="bg-blue-50">
               <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
@@ -62,7 +62,7 @@ export function renderChecklistItems(data: any, title: string) {
   if (sections.length > 0) {
     return (
       <div>
-        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <TitleWithApproval title={title} doc={doc} />
         {sections.map((s: any, sIdx: number) => (
           <div key={sIdx} className="mb-3">
             <h3 className="font-bold text-sm mb-1 bg-gray-100 px-2 py-1">{s.title || s.name}</h3>
@@ -91,7 +91,7 @@ export function renderChecklistItems(data: any, title: string) {
   }
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+      <TitleWithApproval title={title} doc={doc} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead><tr className="bg-blue-50">
           <th className="border border-gray-400 px-2 py-1 w-10">No.</th>
@@ -127,7 +127,7 @@ export function renderWaterManagementCheck(data: any, title: string, checkItems:
   });
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+      <TitleWithApproval title={title} doc={doc} />
       {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검주기: {data.checkCycle || '-'} | 점검자: {data.inspector || '-'}</p>}
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead><tr className="bg-blue-50">
@@ -181,7 +181,7 @@ export function renderWaterManagementCheck(data: any, title: string, checkItems:
 // ============================================================================
 // 개인위생 점검표 전용 렌더러 (employeeRows + checkColumns 구조)
 // ============================================================================
-export function renderPersonalHygieneCheck(data: any) {
+export function renderPersonalHygieneCheck(data: any, doc?: any) {
   const employeeRows = data?.employeeRows || [];
   const checkColumns = data?.checkColumns || [
     { id: 'health', label: '건강상태' },
@@ -194,7 +194,7 @@ export function renderPersonalHygieneCheck(data: any) {
   const filledRows = employeeRows.filter((r: any) => r.name && r.name.trim() !== '');
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">개인 위생관리 점검표</h2></div>
+      <TitleWithApproval title="개인 위생관리 점검표" doc={doc} />
       {data.checkDate && <p className="text-sm mb-1">점검일: {data.checkDate} | 점검자: {data.inspector || '-'}</p>}
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead><tr className="bg-blue-50">
@@ -235,7 +235,7 @@ export function renderPersonalHygieneCheck(data: any) {
 // ============================================================================
 // 제품검사 성적서
 // ============================================================================
-export function renderProductTestReport(data: any) {
+export function renderProductTestReport(data: any, doc?: any) {
   const items = data?.items || data?.rows || data?.data || [];
   const productName = data?.productName || "";
   const lotNo = data?.lotNo || "";
@@ -245,7 +245,7 @@ export function renderProductTestReport(data: any) {
   const correctiveAction = data?.correctiveAction || "";
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">제품검사 성적서</h2></div>
+      <TitleWithApproval title="제품검사 성적서" doc={doc} />
       {(productName || lotNo || formDate) && (
         <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
           <tbody>

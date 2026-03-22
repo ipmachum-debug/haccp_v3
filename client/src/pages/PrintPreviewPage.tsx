@@ -201,11 +201,12 @@ export default function PrintPreviewPage() {
         });
       });
     } else if (doc.formType === "weekly_log") {
-      const weeklyPages = renderWeeklyLogPages(doc.formData);
+      const weeklyEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+      const weeklyPages = renderWeeklyLogPages(doc.formData, weeklyEnrichedDoc);
       const weeklyPageTitles = ["일반위생관리 점검표 (주간)", "방충·방서관리 점검표 (주간)"];
       weeklyPages.forEach((pageContent, idx) => {
         allPages.push({
-          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+          doc: weeklyEnrichedDoc,
           pageContent,
           pageTitle: weeklyPageTitles[idx] || `주간일지 ${idx + 1}`,
           pageIndex: idx,
@@ -213,9 +214,10 @@ export default function PrintPreviewPage() {
         });
       });
     } else if (doc.formType === "yearly_log") {
+      const yearlyEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
       allPages.push({
-        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-        pageContent: renderYearlyLog(doc.formData),
+        doc: yearlyEnrichedDoc,
+        pageContent: renderYearlyLog(doc.formData, yearlyEnrichedDoc),
         pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
         pageIndex: 0,
         totalPages: 1,
@@ -307,9 +309,10 @@ export default function PrintPreviewPage() {
         totalPages: 1,
       });
     } else {
+      const genericEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
       allPages.push({
-        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-        pageContent: renderFormContent(doc.formData, doc.formType),
+        doc: genericEnrichedDoc,
+        pageContent: renderFormContent(doc.formData, doc.formType, genericEnrichedDoc),
         pageTitle: FORM_TYPE_LABELS[doc.formType] || doc.title || doc.requestType || "체크리스트",
         pageIndex: 0,
         totalPages: 1,
@@ -326,9 +329,9 @@ export default function PrintPreviewPage() {
         .ccp-print-table { table-layout: fixed; width: 100%; }
         .ccp-print-table th, .ccp-print-table td { overflow: hidden; text-overflow: ellipsis; word-break: keep-all; box-sizing: border-box; }
         .ccp-print-table th { white-space: normal; line-height: 1.2; }
-        /* 주간/월간/연간/일일 일지 테이블 오버플로우 방지 */
-        .print-page .print-content table { table-layout: fixed; width: 100%; }
-        .print-page .print-content td, .print-page .print-content th { word-break: break-all; word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; overflow: hidden; max-width: 0; }
+        /* 일지/체크리스트 테이블 오버플로우 방지 - auto layout으로 컬럼 폭 자동 배분 */
+        .print-page .print-content table { table-layout: auto; width: 100%; }
+        .print-page .print-content td, .print-page .print-content th { word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
         .print-page .print-content td { font-size: 11px; line-height: 1.3; padding: 3px 4px; }
         /* 헤더 영역 결재란 테이블은 고정 폭 유지 */
         .print-page .print-header table { table-layout: auto; width: auto; }

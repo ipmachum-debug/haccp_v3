@@ -10,7 +10,7 @@
  * - renderTrainingLog
  */
 import React from "react";
-import { ApprovalHeader } from "./PrintHelpers";
+import { TitleWithApproval } from "./PrintHelpers";
 
 // ============================================================================
 // daily_log 5페이지 전용 렌더러
@@ -20,30 +20,8 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const authorName = doc?.authorName || "";
   const approverName = doc?.approverName || "";
 
-  const reviewerName = doc?.reviewerName || "";
-  const requestedAt = doc?.formData?.date || doc?.requestedAt || "";
-  const reviewedAt = doc?.reviewedAt || "";
-  const approvedAt = doc?.approvedAt || "";
-
-  /** 제목 왼쪽 + 결재란(작성-검토-승인 직인) 오른쪽 */
   const TitleRow = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-    <div className="flex items-start justify-between mb-0">
-      <div className="flex-1 border-2 border-gray-700 text-center py-2 font-bold text-base mr-[-2px]">
-        {title}
-        {subtitle && <><br /><span className="text-sm font-normal text-gray-500">{subtitle}</span></>}
-      </div>
-      <div className="flex-shrink-0">
-        <ApprovalHeader
-          authorName={authorName}
-          reviewerName={reviewerName}
-          approverName={approverName}
-          requestedAt={requestedAt}
-          reviewedAt={reviewedAt}
-          approvedAt={approvedAt}
-          compact={true}
-        />
-      </div>
-    </div>
+    <TitleWithApproval title={title} subtitle={subtitle} doc={doc} />
   );
 
   // 자동생성 일일일지(batches 형태) - 위생 점검 데이터 없이 배치 목록만 있는 경우
