@@ -320,6 +320,49 @@ export default function PrintPreviewPage() {
     }
   });
 
+  // ── PDF 저장 시 파일명 자동 생성 (document.title → 브라우저 PDF 파일명) ──
+  useEffect(() => {
+    if (allPages.length === 0) return;
+
+    const generatePdfTitle = () => {
+      const firstDoc = documents[0];
+      if (!firstDoc) return "HACCP_문서";
+
+      // 1) 제목: formType 라벨 또는 문서 타이틀
+      const formType = firstDoc.formType || firstDoc.requestType || "";
+      const titleLabel = FORM_TYPE_LABELS[formType] || firstDoc.title || formType;
+
+      // 2) 날짜: formData.date > formData.workDate > requestedAt
+      const fd = firstDoc.formData || {};
+      let dateStr = fd.date || fd.workDate || fd.checkDate || fd.inspectionDate || fd.formDate || "";
+      if (!dateStr && firstDoc.requestedAt) {
+        const d = firstDoc.requestedAt instanceof Date ? firstDoc.requestedAt : new Date(firstDoc.requestedAt);
+        if (!isNaN(d.getTime())) dateStr = d.toISOString().split("T")[0];
+      }
+      const datePart = dateStr ? `_${dateStr.replace(/\//g, "-")}` : "";
+
+      // 3) CCP: 제품명 추가
+      let productPart = "";
+      if (["batch_production", "batch_approval", "ccp_form"].includes(formType)) {
+        const ccpRecords = fd.ccpFormRecords || [];
+        const ccpRecord = fd.ccpFormRecord?.record || fd.ccpFormRecord;
+        const productName = ccpRecords[0]?.productName || ccpRecords[0]?.product_name
+          || ccpRecord?.productName || ccpRecord?.product_name
+          || fd.productName || "";
+        if (productName) productPart = `_${productName}`;
+      }
+
+      // 4) 여러 문서 선택 시 건수 표시
+      const countPart = documents.length > 1 ? `_외${documents.length - 1}건` : "";
+
+      return `${titleLabel}${datePart}${productPart}${countPart}`;
+    };
+
+    const originalTitle = document.title;
+    document.title = generatePdfTitle();
+    return () => { document.title = originalTitle; };
+  }, [allPages.length, documents]);
+
   return (
     <>
       <style>{`
