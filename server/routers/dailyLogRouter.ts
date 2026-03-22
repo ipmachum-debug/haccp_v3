@@ -247,14 +247,31 @@ export const dailyLogRouter = router({
       try {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
+
+        // 문서결재설정에서 작성자 employee 조회
+        let authorEmployeeName: string | null = null;
+        try {
+          const settingResult = await db.execute(sql`
+            SELECT e.name AS author_name
+            FROM h_document_approval_settings das
+            JOIN h_employees e ON e.id = das.author_employee_id AND e.tenant_id = das.tenant_id
+            WHERE das.document_type = 'daily_log' AND das.tenant_id = ${ctx.tenantId} AND das.is_active = 1
+            LIMIT 1
+          `);
+          const settingRows = (settingResult as any)[0] || [];
+          if (settingRows.length > 0) {
+            authorEmployeeName = settingRows[0].author_name || null;
+          }
+        } catch {}
+
         const result = await db.execute(sql`
           SELECT
             r.id, r.site_id, r.form_date AS log_date, r.title, r.status, r.form_data,
-            r.created_at, r.updated_at,
+            r.created_at, r.updated_at, r.created_by,
             u.name AS creator_name,
             ar.id AS approval_request_id, ar.status AS approval_status
           FROM h_generic_checklist_records r
-          LEFT JOIN users u ON r.created_by = u.id
+          LEFT JOIN users u ON r.created_by = u.id AND u.tenant_id = ${ctx.tenantId}
           LEFT JOIN h_approval_requests ar ON (
             ar.reference_type = 'checklist' AND ar.reference_id = r.id AND ar.request_type = 'daily_log'
           )
@@ -273,10 +290,12 @@ export const dailyLogRouter = router({
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           const hc = formData.hygieneChecks || {};
           const hasHygieneData = typeof hc === 'object' && Object.values(hc).some((v: any) => v !== null && v !== undefined);
+          // 작성자: 문서결재설정 작성자 우선, 없으면 같은 테넌트의 users.name
+          const displayAuthor = authorEmployeeName || r.creator_name || "-";
           return {
             id: r.id, siteId: r.site_id,
             log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
-            title: r.title, status: r.status, creator_name: r.creator_name,
+            title: r.title, status: r.status, creator_name: displayAuthor,
             approval_request_id: r.approval_request_id, approval_status: r.approval_status,
             batches: formData.batches || [], totalBatches: formData.totalBatches || 0,
             totalPlannedQty: formData.totalPlannedQty || 0, hasHygieneData,
@@ -287,6 +306,40 @@ export const dailyLogRouter = router({
       } catch (error) {
         console.error('[dailyLog.list]', error);
         return [];
+      }
+    }),
+
+  // ── 일일일지 삭제 ──
+  delete: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        // 승인완료된 건은 삭제 불가
+        const checkResult = await db.execute(sql`
+          SELECT status FROM h_generic_checklist_records
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId} AND form_type = 'daily_log'
+        `);
+        const checkRows = (checkResult as any)[0] || [];
+        if (checkRows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: '일일일지를 찾을 수 없습니다' });
+        if (checkRows[0].status === 'approved') throw new TRPCError({ code: 'FORBIDDEN', message: '승인완료된 일지는 삭제할 수 없습니다' });
+        // 관련 승인요청 삭제
+        await db.execute(sql`
+          DELETE FROM h_approval_requests
+          WHERE reference_type = 'checklist' AND reference_id = ${input.id}
+            AND request_type = 'daily_log' AND tenant_id = ${ctx.tenantId}
+        `);
+        // 일일일지 삭제
+        await db.execute(sql`
+          DELETE FROM h_generic_checklist_records
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId} AND form_type = 'daily_log'
+        `);
+        return { success: true, message: '일일일지가 삭제되었습니다' };
+      } catch (error: any) {
+        if (error.code === 'NOT_FOUND' || error.code === 'FORBIDDEN') throw error;
+        console.error('[dailyLog.delete]', error);
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '삭제 실패' });
       }
     }),
 });

@@ -282,6 +282,28 @@ export async function deleteChecklistTemplate(templateId: number, tenantId?: num
 }
 
 /**
+ * 체크리스트 인스턴스 삭제
+ */
+export async function deleteChecklistInstance(instanceId: number, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+
+  // 승인완료된 인스턴스는 삭제 불가
+  const conditions: any[] = [eq(checklistInstances.id, instanceId)];
+  if (tenantId) conditions.push(eq(checklistInstances.tenantId, tenantId));
+  const [existing] = await db.select({ status: checklistInstances.status }).from(checklistInstances).where(and(...conditions));
+  if (!existing) throw new Error("체크리스트를 찾을 수 없습니다");
+  if (existing.status === 'approved') throw new Error("승인완료된 체크리스트는 삭제할 수 없습니다");
+
+  // 인스턴스 항목 삭제
+  await db.delete(checklistInstanceItems).where(eq(checklistInstanceItems.instanceId, instanceId));
+  // 인스턴스 삭제
+  await db.delete(checklistInstances).where(and(...conditions));
+
+  return { success: true };
+}
+
+/**
  * 체크리스트 인스턴스 생성 (템플릿 기반)
  */
 export async function createChecklistInstanceFromTemplate(data: {
@@ -331,14 +353,17 @@ export async function createChecklistInstanceFromTemplate(data: {
 /**
  * 체크리스트 인스턴스 조회 (항목 포함)
  */
-export async function getChecklistInstanceById(instanceId: number) {
+export async function getChecklistInstanceById(instanceId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+
+  const conditions: any[] = [eq(checklistInstances.id, instanceId)];
+  if (tenantId) conditions.push(eq(checklistInstances.tenantId, tenantId));
 
   const [instance] = await db
     .select()
     .from(checklistInstances)
-    .where(eq(checklistInstances.id, instanceId))
+    .where(and(...conditions))
     .limit(1);
 
   if (!instance) return null;
