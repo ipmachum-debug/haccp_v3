@@ -27,11 +27,28 @@ export async function createPartner(data: InsertPartner & { tenantId?: number })
     const db = await getDb();
     if (!db) throw new Error("Database not initialized");
     
-    const [result] = await db.insert(partners).values(data);
+    // 빈 문자열을 null로 변환 (MySQL varchar 컬럼 호환성)
+    const cleanData: any = { ...data };
+    const nullableFields = [
+      'bizNo', 'supplierCode', 'supplierType', 'certifications', 'rating',
+      'ceoName', 'contactPerson', 'bizType', 'bizItem', 'address',
+      'phone', 'fax', 'email', 'bankName', 'bankAccount'
+    ];
+    for (const field of nullableFields) {
+      if (cleanData[field] === '' || cleanData[field] === undefined) {
+        cleanData[field] = null;
+      }
+    }
+    
+    const [result] = await db.insert(partners).values(cleanData);
     console.log("[createPartner] Insert result:", result);
     return result.insertId;
-  } catch (error) {
+  } catch (error: any) {
     console.error("[createPartner] Error:", error);
+    // 사업자번호 중복 에러 처리
+    if (error?.code === 'ER_DUP_ENTRY' || error?.message?.includes('Duplicate entry') || error?.message?.includes('partners_tenant_biz_no_unique')) {
+      throw new Error("동일한 사업자등록번호가 이미 등록되어 있습니다.");
+    }
     throw error;
   }
 }
@@ -222,22 +239,31 @@ export async function createSupplierPartner(data: {
     supplierCode = "SUP-" + String(maxNum + 1).padStart(3, "0");
   }
 
-  const [result] = await db.insert(partners).values({
-    tenantId: data.tenantId,
-    partnerType: "supplier",
-    companyName: data.supplierName,
-    bizNo: data.businessNumber || null,
-    supplierCode,
-    supplierType: data.supplierType || "거래처",
-    ceoName: data.contactPerson || null,
-    phone: data.phone || null,
-    email: data.email || null,
-    address: data.address || null,
-    certifications: data.certifications || null,
-    rating: data.rating || null,
-  });
+  try {
+    const [result] = await db.insert(partners).values({
+      tenantId: data.tenantId,
+      partnerType: "supplier",
+      companyName: data.supplierName,
+      bizNo: data.businessNumber || null,
+      supplierCode,
+      supplierType: data.supplierType || "거래처",
+      ceoName: data.contactPerson || null,
+      contactPerson: data.contactPerson || null,
+      phone: data.phone || null,
+      email: data.email || null,
+      address: data.address || null,
+      certifications: data.certifications || null,
+      rating: data.rating || null,
+    });
 
-  return result.insertId;
+    return result.insertId;
+  } catch (error: any) {
+    console.error("[createSupplierPartner] Error:", error);
+    if (error?.code === 'ER_DUP_ENTRY' || error?.message?.includes('Duplicate entry') || error?.message?.includes('partners_tenant_biz_no_unique')) {
+      throw new Error("동일한 사업자등록번호가 이미 등록되어 있습니다.");
+    }
+    throw error;
+  }
 }
 
 /**

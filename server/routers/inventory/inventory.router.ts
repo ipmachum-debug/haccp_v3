@@ -1150,6 +1150,90 @@ export const inventoryRouter = router({
         return await getProductOutboundStats(ctx.tenantId!);
       }),
 
+    // 제품 출고 + 매출 일괄 등록 (PDF/Excel 데이터 임포트용)
+    // LOT/배치 연결 없이 출고/매출 기록만 생성 (과거 데이터 임포트)
+    bulkCreateProductOutbound: adminProcedure
+      .input(z.object({
+        items: z.array(z.object({
+          releaseDate: z.string(), // YYYY-MM-DD
+          partnerName: z.string(), // 거래처명 (B2C면 "B2C(전자상거래)" 등)
+          partnerId: z.number().optional().nullable(),
+          deliveryType: z.string(), // B2B, B2C, 위탁
+          productName: z.string(),
+          quantity: z.number(),
+          unitWeight: z.number().optional(), // 단위중량(g)
+          unitPrice: z.number().optional(), // 단가
+          unit: z.string().optional(), // EA, kg 등
+          releaseType: z.string().optional(), // sale, delivery
+          notes: z.string().optional(),
+        }))
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { ensureProductOutboundTable } = await import("../../db/productOutboundManagement");
+        const { getRawConnection } = await import("../../db");
+        await ensureProductOutboundTable();
+        const conn = await getRawConnection();
+        
+        let successCount = 0;
+        let failCount = 0;
+        const errors: { index: number; message: string }[] = [];
+        
+        for (let i = 0; i < input.items.length; i++) {
+          const item = input.items[i];
+          try {
+            const totalAmount = item.quantity * (item.unitPrice || 0);
+            const releaseType = item.releaseType || (item.deliveryType === 'B2C' ? 'sale' : 'delivery');
+            
+            // h_product_outbound 레코드 생성 (LOT/배치 없이)
+            const [insertResult] = await conn.execute(
+              `INSERT INTO h_product_outbound (
+                tenant_id, batch_id, lot_id, product_name, quantity, unit, unit_price, total_amount,
+                partner_id, partner_name, release_date, release_type, lot_number, notes, status, created_by, created_at
+              ) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, 'confirmed', ?, NOW())`,
+              [
+                ctx.tenantId!, item.productName, item.quantity,
+                item.unit || 'EA', item.unitPrice || 0, totalAmount,
+                item.partnerId || null, item.partnerName,
+                item.releaseDate, releaseType,
+                item.notes || `${item.deliveryType} 납품${item.unitWeight ? ` (${item.unitWeight}g)` : ''}`,
+                ctx.user.id
+              ]
+            );
+            const outboundId = (insertResult as any).insertId;
+            
+            // 매출전표 자동 생성 (sale/delivery)
+            if (releaseType === 'sale' || releaseType === 'delivery') {
+              try {
+                await conn.execute(
+                  `INSERT INTO accounting_sales (
+                    tenant_id, transaction_date, partner_id, item_name, quantity, unit, unit_price,
+                    total_amount, status, notes, source_type, source_id, created_by, created_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'product_outbound', ?, ?, NOW())`,
+                  [
+                    ctx.tenantId!, item.releaseDate,
+                    item.partnerId || null,
+                    item.productName,
+                    item.quantity, item.unit || 'EA', item.unitPrice || 0,
+                    totalAmount,
+                    `${item.deliveryType} 출고 일괄등록 (거래처: ${item.partnerName})`,
+                    outboundId, ctx.user.id
+                  ]
+                );
+              } catch (err) {
+                console.error('[bulkCreateProductOutbound] 매출전표 생성 실패:', err);
+              }
+            }
+            
+            successCount++;
+          } catch (e: any) {
+            failCount++;
+            errors.push({ index: i, message: e.message || "등록 실패" });
+          }
+        }
+        
+        return { successCount, failCount, errors, total: input.items.length };
+      }),
+
     /**
      * 소급 재고 차감 - 배치 생산에서 누락된 원재료 출고 일괄 처리
      * 백업 데이터 임포트 등으로 autoMaterialIssue가 실행되지 않은 배치들을 대상으로

@@ -172,6 +172,10 @@ async function startServer() {
       const { getDb } = await import("../db");
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
+      
+      // 자동 마이그레이션 실행 (누락된 컬럼 추가 등)
+      const { runStartupMigrations } = await import("../db/startupMigrations");
+      await runStartupMigrations();
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
     }
