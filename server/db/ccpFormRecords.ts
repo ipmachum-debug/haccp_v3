@@ -1070,6 +1070,27 @@ export async function syncCcpRowsToFormRows(params: {
       } catch { /* 설정 조회 실패 시 기본값 사용 */ }
     }
 
+    // ═══ 1배치당 운영시간(batch_operation_time) 조회 ═══
+    // equipments 테이블의 batch_operation_time은 설비 1배치 총 운영시간 (예: 교반기 70분)
+    // ★ h_ccp_rows.duration_min은 가열시간(10분)이므로 cycleDuration으로 사용하면 안됨!
+    //    batch_operation_time이 "같은 설비가 다음 라운드를 시작할 수 있는 최소 간격"
+    let pgBatchOperationTime = 70; // 기본 70분 (교반기 기준)
+    if (processGroupId && ccpType !== "CCP-4P") {
+      try {
+        const [botRows] = await rawConn.execute<any[]>(
+          `SELECT e.batch_operation_time
+           FROM ccp_process_group_equipments pge
+           JOIN equipments e ON e.id = pge.equipment_id AND e.tenant_id = pge.tenant_id
+           WHERE pge.process_group_id = ? AND pge.tenant_id = ? AND e.batch_operation_time IS NOT NULL
+           ORDER BY pge.sort_order LIMIT 1`,
+          [processGroupId, tenantId],
+        );
+        if ((botRows as any[]).length > 0 && (botRows as any[])[0].batch_operation_time) {
+          pgBatchOperationTime = Number((botRows as any[])[0].batch_operation_time);
+        }
+      } catch { /* 조회 실패 시 기본값 사용 */ }
+    }
+
     // ═══ Issue 3: 투입량 계산 ═══
     // BOM에서 해당 공정그룹 투입량(정제수 제외)이 있으면 사용, 없으면 총생산량 폴백
     // ★ localBomInputQtyMap 사용: CCP 인스턴스 product_id 기반 BOM 폴백 포함
@@ -1858,24 +1879,37 @@ export async function syncCcpRowsToFormRows(params: {
         } else if (adjustedStartTime) {
           // 측정시간이 없으면 기존 계산 로직 폴백
           measurementTime = adjustedStartTime;
-          const cycleDuration = row.duration_min != null ? Number(row.duration_min) : 70;
+          // ★ cycleDuration = 1배치당 운영시간 (equipment.batch_operation_time)
+          //    예: 교반기 70분, 증숙기 34분
+          //    ⚠ row.duration_min은 가열시간(10분)이므로 cycleDuration으로 사용하면 안됨!
+          //    같은 설비가 다음 라운드를 시작할 수 있는 최소 간격 = batch_operation_time
+          const cycleDuration = pgBatchOperationTime;
+          // 가열시간 (CCP 측정은 가열 완료 후 수행)
+          const heatingMin = row.heating_min != null ? Number(row.heating_min) 
+                           : (row.duration_min != null ? Number(row.duration_min) : 10);
 
           if (pgGroupMode === "concurrent") {
-            measurementTime = adjustedStartTime;
+            // 동시 운전: 모든 설비가 동시 시작 → 측정시간 = 시작 + 가열시간
+            measurementTime = addMinutesToTime(adjustedStartTime, heatingMin);
 
           } else if (pgGroupMode === "grouped") {
+            // 그룹 운전: pgBatchSize 대씩 동시 시작, 다음 그룹은 interval 후
+            // 같은 그룹 내 설비는 동시 시작, 다음 라운드는 cycleDuration 후
             const groupsPerRound = Math.max(1, Math.ceil(equipCount / pgBatchSize));
             const groupIndex = Math.floor(globalSeqIdx / pgBatchSize);
             const roundIndex = Math.floor(groupIndex / groupsPerRound);
             const groupInRound = groupIndex % groupsPerRound;
-            const offsetMin = roundIndex * cycleDuration + groupInRound * pgIntervalMin;
+            const offsetMin = roundIndex * cycleDuration + groupInRound * pgIntervalMin + heatingMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
             // sequential (기본) - 글로벌 인덱스 사용으로 교차배치 설비 순환 지원
+            // 설비별 순차 시작: equipIdx=0 → T, equipIdx=1 → T+interval, equipIdx=2 → T+2*interval
+            // 같은 설비 다음 라운드: T + cycleDuration (batch_operation_time)
+            // 측정시간 = 시작시점 + 가열시간(heatingMin)
             const equipIndex = globalSeqIdx % equipCount;
             const roundIndex = Math.floor(globalSeqIdx / equipCount);
-            const offsetMin = roundIndex * cycleDuration + equipIndex * pgIntervalMin;
+            const offsetMin = roundIndex * cycleDuration + equipIndex * pgIntervalMin + heatingMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
           }
         }
@@ -1932,7 +1966,7 @@ export async function syncCcpRowsToFormRows(params: {
       }
     }
 
-    console.log(`[syncCcpRowsToFormRows] form_record=${formRecordId}(${ccpType}, pg=${processGroupId}) ← rows synced (batchCount=${totalBatchCount}, equipCount=${equipCount}, inputQty=${inputQtyKg}kg, processStart=${processStartTime}, batchStart=${batchStartTime}, randomOffset=${randomOffsetMin}min, mode=${pgGroupMode}, interval=${pgIntervalMin}min)`);
+    console.log(`[syncCcpRowsToFormRows] form_record=${formRecordId}(${ccpType}, pg=${processGroupId}) ← rows synced (batchCount=${totalBatchCount}, equipCount=${equipCount}, inputQty=${inputQtyKg}kg, processStart=${processStartTime}, batchStart=${batchStartTime}, randomOffset=${randomOffsetMin}min, mode=${pgGroupMode}, interval=${pgIntervalMin}min, batchOpTime=${pgBatchOperationTime}min)`);
   }
 
   return { synced: totalSynced };
