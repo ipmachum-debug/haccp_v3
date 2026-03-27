@@ -956,14 +956,19 @@ export async function getInventoryTrend(params: {
     .groupBy(sql`DATE(${hInventoryTransactions.createdAt})`)
     .orderBy(sql`DATE(${hInventoryTransactions.createdAt})`);
 
-  return trend.map((row) => ({
-    date: row.date,
-    receiptQuantity: row.receiptQuantity || 0,
-    usageQuantity: row.usageQuantity || 0,
-    adjustmentQuantity: row.adjustmentQuantity || 0,
-    netChange: (row.receiptQuantity || 0) - (row.usageQuantity || 0) + (row.adjustmentQuantity || 0),
-    transactionCount: row.transactionCount || 0
-  }));
+  return trend.map((row) => {
+    const receipt = Number(row.receiptQuantity) || 0;
+    const usage = Number(row.usageQuantity) || 0;
+    const adjustment = Number(row.adjustmentQuantity) || 0;
+    return {
+      date: row.date,
+      receiptQuantity: receipt,
+      usageQuantity: usage,
+      adjustmentQuantity: adjustment,
+      netChange: receipt - usage + adjustment,
+      transactionCount: Number(row.transactionCount) || 0
+    };
+  });
 }
 
 /**

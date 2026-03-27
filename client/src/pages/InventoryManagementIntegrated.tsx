@@ -9,6 +9,7 @@ import { TableBody, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import LotTraceabilityModal from "@/components/LotTraceabilityModal";
+import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 
 /* ─── Extracted components ─── */
 import { fmt, fmtDate, won, Empty, Loading, StatCard, StyledTable, TH, TD, SectionTitle } from "@/components/inventory/InventoryHelpers";
@@ -36,8 +37,35 @@ export default function InventoryManagement() {
     return { startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0] };
   }, [trendPeriod]);
 
-  const { data: trend, isLoading: isLoadingTrend } = trpc.inventory.getTrend.useQuery(trendDates);
-  const { data: turnoverAnalysis, isLoading: isLoadingTurnover } = trpc.inventory.getTurnoverAnalysis.useQuery(trendDates);
+  const { data: rawTrend, isLoading: isLoadingTrend } = trpc.inventory.getTrend.useQuery(trendDates);
+  const { data: rawTurnoverAnalysis, isLoading: isLoadingTurnover } = trpc.inventory.getTurnoverAnalysis.useQuery(trendDates);
+
+  // 회전율 데이터 정규화: Number 변환 + 효율 한국어 라벨
+  const turnoverAnalysis = useMemo(() => {
+    if (!rawTurnoverAnalysis) return rawTurnoverAnalysis;
+    const efficiencyMap: Record<string, string> = { high: "양호", medium: "적정", low: "주의" };
+    return (rawTurnoverAnalysis as any[]).map((m: any) => ({
+      ...m,
+      turnoverRate: Number(m.turnoverRate) || 0,
+      averageHoldingPeriod: Number(m.averageHoldingPeriod) || 0,
+      usageQuantity: Number(m.usageQuantity) || 0,
+      averageInventory: Number(m.averageInventory) || 0,
+      efficiency: efficiencyMap[m.efficiency] || m.efficiency,
+    }));
+  }, [rawTurnoverAnalysis]);
+
+  // NaN 방어: 서버 데이터 Number 변환
+  const trend = useMemo(() => {
+    if (!rawTrend) return rawTrend;
+    return (rawTrend as any[]).map((r: any) => ({
+      ...r,
+      receiptQuantity: Number(r.receiptQuantity) || 0,
+      usageQuantity: Number(r.usageQuantity) || 0,
+      adjustmentQuantity: Number(r.adjustmentQuantity) || 0,
+      netChange: Number(r.netChange) || ((Number(r.receiptQuantity) || 0) - (Number(r.usageQuantity) || 0) + (Number(r.adjustmentQuantity) || 0)),
+      transactionCount: Number(r.transactionCount) || 0,
+    }));
+  }, [rawTrend]);
 
   return (
     <DashboardLayout>
@@ -127,34 +155,7 @@ export default function InventoryManagement() {
                 </CardHeader>
                 <CardContent className="p-3">
                   {isLoadingTrend ? <Loading /> : !trend?.length ? <Empty text="선택 기간에 데이터 없음" /> : (
-                    <StyledTable>
-                      <TableHeader>
-                        <TableRow>
-                          <TH>일자</TH>
-                          <TH>입고</TH>
-                          <TH>소모</TH>
-                          <TH>조정</TH>
-                          <TH>순변동</TH>
-                          <TH className="text-center">건수</TH>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {trend.map((r: any) => (
-                          <TableRow key={r.date} className="hover:bg-muted/30">
-                            <TD className="font-mono">{r.date}</TD>
-                            <TD className="text-emerald-600 dark:text-emerald-400 font-medium">+{fmt(r.receiptQuantity)}</TD>
-                            <TD className="text-red-500 dark:text-red-400 font-medium">-{fmt(r.usageQuantity)}</TD>
-                            <TD>{fmt(r.adjustmentQuantity)}</TD>
-                            <TD>
-                              <Badge variant={Number(r.netChange || 0) >= 0 ? "default" : "secondary"} className="text-xs px-2.5 py-1 font-mono">
-                                {Number(r.netChange || 0) >= 0 ? "+" : ""}{fmt(r.netChange)}
-                              </Badge>
-                            </TD>
-                            <TD className="text-center">{r.transactionCount}</TD>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </StyledTable>
+                    <TrendTablePaginated data={trend} />
                   )}
                 </CardContent>
               </Card>
@@ -172,41 +173,7 @@ export default function InventoryManagement() {
                 </CardHeader>
                 <CardContent className="p-3">
                   {isLoadingTurnover ? <Loading /> : !turnoverAnalysis?.length ? <Empty text="데이터 없음" /> : (
-                    <StyledTable>
-                      <TableHeader>
-                        <TableRow>
-                          <TH>원재료</TH>
-                          <TH>소모량</TH>
-                          <TH>재고</TH>
-                          <TH>회전율</TH>
-                          <TH>재고일수</TH>
-                          <TH>효율</TH>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {turnoverAnalysis.map((m: any) => (
-                          <TableRow key={m.materialId} className="hover:bg-muted/30">
-                            <TD>
-                              <span className="font-medium">{m.materialName}</span>
-                              <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
-                            </TD>
-                            <TD>{fmt(m.usageQuantity)}</TD>
-                            <TD>{fmt(m.averageInventory)}</TD>
-                            <TD>
-                              <Badge variant={m.turnoverRate >= 1 ? "default" : "secondary"} className="text-xs px-2.5 py-1">
-                                {m.turnoverRate.toFixed(2)}
-                              </Badge>
-                            </TD>
-                            <TD>{m.averageHoldingPeriod.toFixed(0)}일</TD>
-                            <TD>
-                              <span className={`font-semibold ${m.efficiency === "양호" ? "text-emerald-600" : m.efficiency === "적정" ? "text-blue-600" : "text-amber-600"}`}>
-                                {m.efficiency}
-                              </span>
-                            </TD>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </StyledTable>
+                    <TurnoverTablePaginated data={turnoverAnalysis} />
                   )}
                 </CardContent>
               </Card>
@@ -246,6 +213,140 @@ export default function InventoryManagement() {
         <LotTraceabilityModal open={lotModalOpen} onOpenChange={setLotModalOpen} />
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   추이 테이블 (페이지네이션 + 정렬)
+   ═══════════════════════════════════════════════════ */
+function TrendTablePaginated({ data }: { data: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(data, {
+    defaultSort: { key: "date", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (["receiptQuantity", "usageQuantity", "adjustmentQuantity", "netChange", "transactionCount"].includes(key)) {
+        const aVal = Number(a[key]) || 0;
+        const bVal = Number(b[key]) || 0;
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = String(a[key] || "");
+      const bVal = String(b[key] || "");
+      return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    },
+  });
+
+  return (
+    <>
+      <StyledTable>
+        <TableHeader>
+          <TableRow>
+            <SortableHeader label="일자" sortKey="date" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="입고" sortKey="receiptQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="소모" sortKey="usageQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="조정" sortKey="adjustmentQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="순변동" sortKey="netChange" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="건수" sortKey="transactionCount" currentSort={sort} onSort={handleSort} align="center" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {pageData.map((r: any) => {
+            const nc = Number(r.netChange) || 0;
+            return (
+              <TableRow key={r.date} className="hover:bg-muted/30">
+                <TD className="font-mono">{r.date}</TD>
+                <TD className="text-right text-emerald-600 dark:text-emerald-400 font-medium">+{fmt(r.receiptQuantity)}</TD>
+                <TD className="text-right text-red-500 dark:text-red-400 font-medium">{fmt(r.usageQuantity)}</TD>
+                <TD className="text-right">{fmt(r.adjustmentQuantity)}</TD>
+                <TD className="text-right">
+                  <Badge variant={nc >= 0 ? "default" : "secondary"} className="text-xs px-2.5 py-1 font-mono">
+                    {nc >= 0 ? "+" : ""}{fmt(nc)}
+                  </Badge>
+                </TD>
+                <TD className="text-center">{r.transactionCount}</TD>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </StyledTable>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   회전율 테이블 (페이지네이션 + 정렬)
+   ═══════════════════════════════════════════════════ */
+function TurnoverTablePaginated({ data }: { data: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(data, {
+    defaultSort: { key: "turnoverRate", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (["turnoverRate", "usageQuantity", "averageInventory", "averageHoldingPeriod"].includes(key)) {
+        const aVal = Number(a[key]) || 0;
+        const bVal = Number(b[key]) || 0;
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = String(a[key] || "");
+      const bVal = String(b[key] || "");
+      return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
+    },
+  });
+
+  return (
+    <>
+      <StyledTable>
+        <TableHeader>
+          <TableRow>
+            <SortableHeader label="원재료" sortKey="materialName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="소모량" sortKey="usageQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="재고" sortKey="averageInventory" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="회전율" sortKey="turnoverRate" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="재고일수" sortKey="averageHoldingPeriod" currentSort={sort} onSort={handleSort} align="right" />
+            <TH className="text-center">효율</TH>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {pageData.map((m: any) => (
+            <TableRow key={m.materialId} className="hover:bg-muted/30">
+              <TD>
+                <span className="font-medium">{m.materialName}</span>
+                <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
+              </TD>
+              <TD className="text-right">{fmt(m.usageQuantity)}</TD>
+              <TD className="text-right">{fmt(m.averageInventory)}</TD>
+              <TD className="text-right">
+                <Badge variant={Number(m.turnoverRate) >= 1 ? "default" : "secondary"} className="text-xs px-2.5 py-1">
+                  {Number(m.turnoverRate).toFixed(2)}
+                </Badge>
+              </TD>
+              <TD className="text-right">{Number(m.averageHoldingPeriod).toFixed(0)}일</TD>
+              <TD className="text-center">
+                <span className={`font-semibold ${m.efficiency === "양호" ? "text-emerald-600" : m.efficiency === "적정" ? "text-blue-600" : "text-amber-600"}`}>
+                  {m.efficiency}
+                </span>
+              </TD>
+            </TableRow>
+          ))}
+        </TableBody>
+      </StyledTable>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
   );
 }
 
@@ -971,7 +1072,7 @@ function ReceiptTab() {
 
   const { data: _raw } = trpc.material.list.useQuery({ limit: 9999 });
   const mats: any[] = (_raw as any)?.items ?? (Array.isArray(_raw) ? _raw : []);
-  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 50 });
+  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 9999 });
 
   const createMut = trpc.lotManagement.createReceivingWithLot.useMutation({
     onSuccess: (r: any) => {
@@ -1114,57 +1215,95 @@ function ReceiptTab() {
 
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-          <SectionTitle icon={Clock} title="입고 내역" />
+          <SectionTitle icon={Clock} title="입고 내역" desc={receipts ? `총 ${receipts.length}건` : undefined} />
         </CardHeader>
         <CardContent className="p-3">
           {isLoading ? <Loading /> : !receipts?.length ? <Empty text="입고 내역 없음" /> : (
-            <>
-              {/* 데스크톱: 테이블 (스와이프 가능) */}
-              <div className="hidden sm:block">
-                <StyledTable>
-                  <TableHeader><TableRow>
-                    <TH>입고일</TH><TH>LOT</TH><TH>원재료</TH>
-                    <TH className="text-right">수량</TH><TH className="text-right">단가</TH><TH>공급업체</TH><TH>소비기한</TH>
-                  </TableRow></TableHeader>
-                  <TableBody>
-                    {receipts.map((r: any) => (
-                      <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                        <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
-                        <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
-                        <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
-                        <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
-                        <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
-                        <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
-                        <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </StyledTable>
-              </div>
-
-              {/* 모바일: 카드 리스트 */}
-              <div className="sm:hidden space-y-2">
-                {receipts.map((r: any) => (
-                  <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-sm truncate">{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></p>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5 border-t text-xs">
-                      <div className="flex justify-between"><span className="text-muted-foreground">수량</span><span className="font-mono font-semibold">{r.quantity} {r.unit}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">단가</span><span className="font-mono">{r.unitPrice ? won(r.unitPrice) : "-"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">LOT</span><span className="font-mono truncate ml-1">{r.lotNumber || "-"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">소비기한</span><span>{fmtDate(r.expiryDate)}</span></div>
-                      {r.supplierName && <div className="col-span-2 flex justify-between"><span className="text-muted-foreground">공급업체</span><span>{r.supplierName}</span></div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
+            <ReceiptListPaginated receipts={receipts} />
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   입고 내역 페이지네이션 + 정렬 컴포넌트
+   ═══════════════════════════════════════════════════ */
+function ReceiptListPaginated({ receipts }: { receipts: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(receipts, {
+    defaultSort: { key: "receiptDate", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      let aVal = a[key], bVal = b[key];
+      if (key === "receiptDate") {
+        aVal = a.receiptDate || a.createdAt || "";
+        bVal = b.receiptDate || b.createdAt || "";
+      }
+      if (["quantity", "unitPrice"].includes(key)) {
+        aVal = parseFloat(aVal || "0"); bVal = parseFloat(bVal || "0");
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      aVal = String(aVal || ""); bVal = String(bVal || "");
+      return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
+    },
+  });
+
+  return (
+    <>
+      <div className="hidden sm:block">
+        <StyledTable>
+          <TableHeader><TableRow>
+            <SortableHeader label="입고일" sortKey="receiptDate" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="LOT" sortKey="lotNumber" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="원재료" sortKey="materialName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="수량" sortKey="quantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="단가" sortKey="unitPrice" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="공급업체" sortKey="supplierName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="소비기한" sortKey="expiryDate" currentSort={sort} onSort={handleSort} />
+          </TableRow></TableHeader>
+          <TableBody>
+            {pageData.map((r: any) => (
+              <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
+                <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
+                <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
+                <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
+                <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
+                <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
+                <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
+                <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
+              </TableRow>
+            ))}
+          </TableBody>
+        </StyledTable>
+      </div>
+      <div className="sm:hidden space-y-2">
+        {pageData.map((r: any) => (
+          <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-sm truncate">{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></p>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5 border-t text-xs">
+              <div className="flex justify-between"><span className="text-muted-foreground">수량</span><span className="font-mono font-semibold">{r.quantity} {r.unit}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">단가</span><span className="font-mono">{r.unitPrice ? won(r.unitPrice) : "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">LOT</span><span className="font-mono truncate ml-1">{r.lotNumber || "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">소비기한</span><span>{fmtDate(r.expiryDate)}</span></div>
+              {r.supplierName && <div className="col-span-2 flex justify-between"><span className="text-muted-foreground">공급업체</span><span>{r.supplierName}</span></div>}
+            </div>
+          </div>
+        ))}
+      </div>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
   );
 }
 
