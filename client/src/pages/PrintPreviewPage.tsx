@@ -33,8 +33,8 @@ export default function PrintPreviewPage() {
   const [loading, setLoading] = useState(true);
   const printTriggered = useRef(false);
 
-  const { data: approvedRequests = [], isLoading: isApprovalLoading } = trpc.approval.list.useQuery({ status: "approved" });
-  const { data: employees = [] } = trpc.organization.employees.list.useQuery();
+  // 속도 개선: 전체 승인 목록 대신 개별 ID만 조회
+  const { data: employees = [], isLoading: isEmployeesLoading } = trpc.organization.employees.list.useQuery();
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const trpcUtils = trpc.useUtils();
 
@@ -63,22 +63,30 @@ export default function PrintPreviewPage() {
         setLoading(false);
         return;
       }
-      // 승인 목록 로딩 중이면 대기
-      if (isApprovalLoading) return;
-      // 승인 목록이 비어있으면 로딩 종료
-      if (approvedRequests.length === 0) {
-        setLoading(false);
-        return;
-      }
+      // 직원 목록 로딩 중이면 대기
+      if (isEmployeesLoading) return;
+
       const docs: any[] = [];
       for (const id of ids) {
-        const request = (approvedRequests as any[]).find((r: any) => r.id === id);
+        // 속도 개선: 개별 승인 요청만 조회 (전체 목록 로딩 불필요)
+        let request: any = null;
+        try {
+          request = await trpcUtils.approval.getById.fetch({ id });
+        } catch (e) { console.error(`승인 요청 #${id} 조회 실패:`, e); }
         if (!request) continue;
         let formData = null;
         let formType = request.requestType || "";
 
+        // ── production_daily: 생산일지 (referenceId = h_daily_reports.id)
+        if (request.requestType === "production_daily" && request.referenceId) {
+          try {
+            const report = await trpcUtils.dailyReport.getReportById.fetch({ id: Number(request.referenceId) });
+            formData = report ? { ...report.summary, reportDate: report.reportDate } : null;
+            formType = "production_daily";
+          } catch (e) { console.error("생산일지 조회 오류:", e); }
+        }
         // ── batch_plan (일괄 배치 그룹): referenceId = 첫 배치ID → 그룹 내 모든 배치 CCP 기록지 조회
-        if (request.requestType === "batch_plan" && request.referenceId) {
+        else if (request.requestType === "batch_plan" && request.referenceId) {
           try {
             const ccpRecords = await trpcUtils.ccpForm.getByBatchGroup.fetch({ batchId: Number(request.referenceId), includeRows: true });
             formData = { ccpFormRecords: ccpRecords || [], batchId: request.referenceId };
@@ -125,7 +133,7 @@ export default function PrintPreviewPage() {
       setLoading(false);
     };
     loadDocuments();
-  }, [ids.length, approvedRequests.length, isApprovalLoading]);
+  }, [ids.length, isEmployeesLoading]);
 
   useEffect(() => {
     if (!loading && documents.length > 0 && !printTriggered.current) {
@@ -193,6 +201,121 @@ export default function PrintPreviewPage() {
           doc: yearlyEnrichedDoc,
           pageContent: renderYearlyLog(doc.formData, yearlyEnrichedDoc),
           pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      } else if (doc.formType === "production_daily") {
+        // 생산일지 전용 렌더링
+        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        const fd = doc.formData || {};
+        const batches = fd.production?.batches || [];
+        const ccp = fd.ccp || {};
+        const reportDate = fd.reportDate || fd.date || '';
+        pages.push({
+          doc: enrichedDoc,
+          pageContent: (
+            <div>
+              <ApprovalHeader title="생 산 일 지" subtitle="Production Daily Report" date={`작업일: ${reportDate}`} doc={enrichedDoc} />
+              {/* 요약 */}
+              <table className="w-full border-collapse border border-gray-500 text-xs mt-3 mb-3">
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">총 배치</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{fd.production?.totalBatches || 0}건</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">완료 배치</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{fd.production?.completedBatches || 0}건</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">계획 생산량</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{(fd.production?.totalPlannedQty || 0).toLocaleString()} kg</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">실제 생산량</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{(fd.production?.totalActualQty || 0).toLocaleString()} kg</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center">달성률</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center font-bold">{fd.production?.achievementRate || 0}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* 배치별 생산 실적 */}
+              <h3 className="font-bold text-sm mb-1">📋 배치별 생산 실적</h3>
+              <table className="w-full border-collapse border border-gray-500 text-xs mb-3">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-400 px-1 py-1 text-center w-8">No</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">배치코드</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">제품명</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">계획(kg)</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">실제(kg)</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">상태</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">시작</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">종료</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">CCP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((b: any, idx: number) => (
+                    <tr key={idx}>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{idx + 1}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{b.batchCode}</td>
+                      <td className="border border-gray-400 px-1 py-0.5">{b.productName}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.plannedQuantity || 0).toLocaleString()}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.actualQuantity || 0).toLocaleString()}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{b.status === 'completed' ? '완료' : b.status === 'in_progress' ? '진행중' : b.status}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.startTime ? String(b.startTime).substring(11, 16) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.endTime ? String(b.endTime).substring(11, 16) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{(b.ccpDetails || []).length > 0 ? (b.ccpDetails || []).every((c: any) => c.failCount === 0) ? '✓' : '!' : '-'}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-50 font-bold">
+                    <td colSpan={3} className="border border-gray-400 px-1 py-1 text-center">합 계</td>
+                    <td className="border border-gray-400 px-1 py-1 text-right">{(fd.production?.totalPlannedQty || 0).toLocaleString()}</td>
+                    <td className="border border-gray-400 px-1 py-1 text-right">{(fd.production?.totalActualQty || 0).toLocaleString()}</td>
+                    <td colSpan={3} className="border border-gray-400 px-1 py-1 text-center">{fd.production?.completedBatches || 0}/{fd.production?.totalBatches || 0} 완료</td>
+                    <td className="border border-gray-400 px-1 py-1 text-center"></td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* CCP 점검 요약 */}
+              <h3 className="font-bold text-sm mb-1">⊙ CCP 점검 요약</h3>
+              <table className="w-full border-collapse border border-gray-500 text-xs mb-3">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-400 px-2 py-1 text-center">총 점검</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">정상</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">이탈</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">준수율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{ccp.totalRecords || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center text-blue-600">{ccp.normalCount || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center text-red-600 font-bold">{ccp.deviationCount || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center font-bold">{ccp.complianceRate || '100.0'}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* 특이사항 / 개선 */}
+              <table className="w-full border-collapse border border-gray-500 text-xs">
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 w-28 text-center">특이사항</td>
+                    <td className="border border-gray-400 px-2 py-2">{(fd.issues || []).length > 0 ? (fd.issues || []).map((i: any) => `${i.batchCode}: ${i.note || i.ccpType}`).join(', ') : '없음'}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">개선조치 및 결과</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">조치자</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">확인</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ),
+          pageTitle: `생산일지 - ${reportDate}`,
           pageIndex: 0,
           totalPages: 1,
         });

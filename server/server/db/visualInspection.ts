@@ -313,7 +313,7 @@ export async function getOrCreateMonthlyLog(
   return { id: result.id, created: true };
 }
 
-/** 원재료 입고 데이터 가져오기 (h_inbound + h_inventory_lots → 육안검사 항목으로 변환) */
+/** 원재료 입고 데이터 가져오기 (h_material_receivings → 육안검사 항목으로 변환) */
 export async function fetchMaterialReceivingsForMonth(
   db: any, tenantId: number, year: number, month: number
 ) {
@@ -322,116 +322,80 @@ export async function fetchMaterialReceivingsForMonth(
   const endYear = month === 12 ? year + 1 : year;
   const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
-  // 1차: 입고전표(h_inbound_headers + h_inbound_lines) 기반 조회
-  const inboundResult = await db.execute(sql`
-    SELECT ih.id as header_id, ih.inbound_date, ih.notes as header_notes,
-           il.id as line_id, il.lot_number, il.purchase_quantity, il.purchase_unit,
-           il.expiry_date,
+  const result = await db.execute(sql`
+    SELECT mr.id, mr.received_date, mr.lot_number, mr.quantity, mr.unit,
+           mr.expiry_date, mr.notes,
            m.material_name, m.category
-    FROM h_inbound_headers ih
-    JOIN h_inbound_lines il ON il.header_id = ih.id AND il.tenant_id = ${tenantId}
-    LEFT JOIN h_materials m ON m.id = il.material_id AND m.tenant_id = ${tenantId}
-    WHERE ih.tenant_id = ${tenantId}
-      AND ih.inbound_date >= ${startDate}
-      AND ih.inbound_date < ${endDate}
-    ORDER BY ih.inbound_date ASC, il.id ASC
+    FROM h_material_receivings mr
+    LEFT JOIN h_materials m ON m.id = mr.material_id AND m.tenant_id = ${tenantId}
+    WHERE mr.tenant_id = ${tenantId}
+      AND mr.received_date >= ${startDate}
+      AND mr.received_date < ${endDate}
+    ORDER BY mr.received_date ASC, mr.id ASC
   `);
-  const inboundRows = (inboundResult as any)[0] || [];
-
-  // 2차: 입고전표에 없는 LOT (직접 생성된 LOT) - h_inventory_lots에서 보충
-  const lotResult = await db.execute(sql`
-    SELECT lot.id, lot.lot_number, lot.receipt_date, lot.quantity, lot.unit,
-           lot.expiry_date, lot.supplier_name,
-           m.material_name, m.category
-    FROM h_inventory_lots lot
-    LEFT JOIN h_materials m ON m.id = lot.material_id AND m.tenant_id = ${tenantId}
-    WHERE lot.tenant_id = ${tenantId}
-      AND lot.material_id IS NOT NULL
-      AND lot.receipt_date >= ${startDate}
-      AND lot.receipt_date < ${endDate}
-    ORDER BY lot.receipt_date ASC, lot.id ASC
-  `);
-  const lotRows = (lotResult as any)[0] || [];
-
-  // 입고전표 기반 항목
-  const seenLots = new Set<string>();
-  const items: any[] = [];
-
-  for (const r of inboundRows as any[]) {
-    const lot = r.lot_number || '';
-    if (lot) seenLots.add(lot);
-    items.push({
-      receiptDate: r.inbound_date ? String(r.inbound_date).substring(5) : '',
-      productName: r.material_name || '',
-      importCertOrigin: '국내',
-      testReportAvail: '○',
-      expiryDate: r.expiry_date ? String(r.expiry_date) : '',
-      manufactureDate: '',
-      qualityRetainDate: '',
-      vehicleTemp: '○',
-      vehicleCondition: '○',
-      palletCondition: '○',
-      normalApproved: '○',
-      foreignMatter: '○',
-      labelAllergen: '○',
-      labelManager: '',
-      compliance: '적합',
-      correctiveAction: '',
-      note: lot ? `LOT: ${lot}` : '',
-    });
-  }
-
-  // LOT 테이블에서 입고전표에 없는 건 보충
-  for (const r of lotRows as any[]) {
-    const lot = r.lot_number || '';
-    if (lot && seenLots.has(lot)) continue; // 이미 입고전표에서 가져온 건
-    if (lot) seenLots.add(lot);
-    items.push({
-      receiptDate: r.receipt_date ? String(r.receipt_date).substring(5) : '',
-      productName: r.material_name || '',
-      importCertOrigin: '국내',
-      testReportAvail: '○',
-      expiryDate: r.expiry_date ? String(r.expiry_date) : '',
-      manufactureDate: '',
-      qualityRetainDate: '',
-      vehicleTemp: '○',
-      vehicleCondition: '○',
-      palletCondition: '○',
-      normalApproved: '○',
-      foreignMatter: '○',
-      labelAllergen: '○',
-      labelManager: '',
-      compliance: '적합',
-      correctiveAction: '',
-      note: lot ? `LOT: ${lot}` : '',
-    });
-  }
-
-  return items;
+  const rows = (result as any)[0] || [];
+  return (rows as any[]).map((r: any) => ({
+    receiptDate: r.received_date ? String(r.received_date).substring(5) : '', // MM-DD
+    productName: r.material_name || '',
+    importCertOrigin: '국내',
+    testReportAvail: '○',
+    expiryDate: r.expiry_date || '',
+    manufactureDate: '',
+    qualityRetainDate: '',
+    vehicleTemp: '○',
+    vehicleCondition: '○',
+    palletCondition: '○',
+    normalApproved: '○',
+    foreignMatter: '○',
+    labelAllergen: '○',
+    labelManager: '',
+    compliance: '적합',
+    correctiveAction: '',
+    note: r.lot_number ? `LOT: ${r.lot_number}` : '',
+  }));
 }
 
 /** 관리자용: 원재료 입고 → 육안검사 항목 자동 동기화 (신규 입고건만 추가) */
 export async function syncReceivingsToInspectionLog(
   db: any, tenantId: number, logId: number, year: number, month: number
 ) {
-  // fetchMaterialReceivingsForMonth 재사용하여 입고 데이터 조회
-  const receivings = await fetchMaterialReceivingsForMonth(db, tenantId, year, month);
-  if (!receivings.length) return { synced: 0 };
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const endMonth = month === 12 ? 1 : month + 1;
+  const endYear = month === 12 ? year + 1 : year;
+  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
-  // 이미 반영된 항목 확인 (LOT 또는 date+name 매칭)
+  // 1) 현재 월의 모든 입고 데이터 조회
+  const recvResult = await db.execute(sql`
+    SELECT mr.id, mr.received_date, mr.lot_number, mr.quantity, mr.unit,
+           mr.expiry_date, mr.notes,
+           m.material_name, m.category
+    FROM h_material_receivings mr
+    LEFT JOIN h_materials m ON m.id = mr.material_id AND m.tenant_id = ${tenantId}
+    WHERE mr.tenant_id = ${tenantId}
+      AND mr.received_date >= ${startDate}
+      AND mr.received_date < ${endDate}
+    ORDER BY mr.received_date ASC, mr.id ASC
+  `);
+  const receivings = (recvResult as any)[0] || [];
+  if (!(receivings as any[]).length) return { synced: 0 };
+
+  // 2) 이미 반영된 항목 확인 (material_receiving_id 또는 receipt_date+product_name 매칭)
   const existingResult = await db.execute(sql`
     SELECT receipt_date, product_name, note FROM h_visual_inspection_items
     WHERE log_id = ${logId} AND tenant_id = ${tenantId}
   `);
   const existingItems = (existingResult as any)[0] || [];
-  const existingSet = new Set<string>();
-  for (const e of existingItems as any[]) {
-    const lotMatch = (e.note || '').match(/LOT:\s*(\S+)/);
-    if (lotMatch) existingSet.add(`lot:${lotMatch[1]}`);
-    existingSet.add(`${e.receipt_date}|${e.product_name}`);
-  }
+  const existingSet = new Set(
+    (existingItems as any[]).map((e: any) => {
+      // LOT 번호로 정확 매칭
+      const lotMatch = (e.note || '').match(/LOT:\s*(\S+)/);
+      if (lotMatch) return `lot:${lotMatch[1]}`;
+      // fallback: date+name
+      return `${e.receipt_date}|${e.product_name}`;
+    })
+  );
 
-  // 신규 입고건만 필터링 후 삽입
+  // 3) 신규 입고건만 필터링 후 삽입
   let synced = 0;
   const maxSort = await db.execute(sql`
     SELECT COALESCE(MAX(sort_order), -1) as max_sort FROM h_visual_inspection_items
@@ -439,13 +403,16 @@ export async function syncReceivingsToInspectionLog(
   `);
   let sortOrder = Number(((maxSort as any)[0] as any[])[0]?.max_sort ?? -1) + 1;
 
-  for (const r of receivings) {
-    const lotMatch = (r.note || '').match(/LOT:\s*(\S+)/);
-    const lotKey = lotMatch ? `lot:${lotMatch[1]}` : null;
-    const fallbackKey = `${r.receiptDate}|${r.productName}`;
+  for (const r of receivings as any[]) {
+    const lotKey = r.lot_number ? `lot:${r.lot_number}` : null;
+    const dateStr = r.received_date ? String(r.received_date).substring(5) : '';
+    const nameStr = r.material_name || '';
+    const fallbackKey = `${dateStr}|${nameStr}`;
 
+    // 이미 존재하면 skip
     if ((lotKey && existingSet.has(lotKey)) || existingSet.has(fallbackKey)) continue;
 
+    const note = r.lot_number ? `LOT: ${r.lot_number}` : '';
     await db.execute(sql`
       INSERT INTO h_visual_inspection_items
         (tenant_id, log_id, receipt_date, product_name, import_cert_origin,
@@ -454,12 +421,13 @@ export async function syncReceivingsToInspectionLog(
          foreign_matter, label_allergen, label_manager, compliance,
          corrective_action, note, sort_order)
       VALUES
-        (${tenantId}, ${logId}, ${r.receiptDate}, ${r.productName}, ${r.importCertOrigin},
-         ${r.testReportAvail}, ${r.expiryDate}, ${r.manufactureDate}, ${r.qualityRetainDate},
-         ${r.vehicleTemp}, ${r.vehicleCondition}, ${r.palletCondition}, ${r.normalApproved},
-         ${r.foreignMatter}, ${r.labelAllergen}, ${r.labelManager}, ${r.compliance},
-         ${r.correctiveAction}, ${r.note}, ${sortOrder})
+        (${tenantId}, ${logId}, ${dateStr}, ${nameStr}, ${'국내'},
+         ${'○'}, ${r.expiry_date || ''}, ${''}, ${''},
+         ${'○'}, ${'○'}, ${'○'}, ${'○'},
+         ${'○'}, ${'○'}, ${''}, ${'적합'},
+         ${''}, ${note}, ${sortOrder})
     `);
+    // 추가된 항목을 existingSet에 반영 (중복 방지)
     if (lotKey) existingSet.add(lotKey);
     existingSet.add(fallbackKey);
     sortOrder++;

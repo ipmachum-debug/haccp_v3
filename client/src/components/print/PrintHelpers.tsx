@@ -46,6 +46,7 @@ export const FORM_TYPE_LABELS: Record<string, string> = {
   batch_approval: "배치 CCP 기록지",
   ccp_form: "CCP 모니터링 기록지",
   ccp_checklist: "CCP 체크리스트",
+  production_daily: "생산일지",
 };
 
 export const DAILY_LOG_PAGE_TITLES = [
