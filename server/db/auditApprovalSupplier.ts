@@ -164,6 +164,24 @@ export async function createApprovalRequest(data: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // ★ 중복 방지: 동일 reference_type + reference_id 조합이 이미 존재하면 기존 ID 반환
+  if (data.referenceType && data.referenceId) {
+    const existing = await db.select({ id: hApprovalRequests.id })
+      .from(hApprovalRequests)
+      .where(
+        and(
+          eq(hApprovalRequests.tenantId, data.tenantId),
+          eq(hApprovalRequests.referenceType, data.referenceType),
+          eq(hApprovalRequests.referenceId, data.referenceId),
+        )
+      )
+      .limit(1);
+    if (existing.length > 0) {
+      console.log(`[createApprovalRequest] 이미 존재 (${data.referenceType}/${data.referenceId}) → approval #${existing[0].id} 반환`);
+      return existing[0].id;
+    }
+  }
+
   const [result] = await db.insert(hApprovalRequests).values({
     tenantId: data.tenantId,
     siteId: data.siteId,

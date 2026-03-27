@@ -595,6 +595,25 @@ export async function submitCcpFormRecord(params: {
   workDate: string;
 }) {
   const rawConn = await getRawConnection();
+
+  // ★ 중복 방지: 동일 form_record에 대한 승인 요청이 이미 있으면 기존 ID 반환
+  const [existingApproval] = await rawConn.execute<any[]>(
+    `SELECT id FROM h_approval_requests
+     WHERE reference_type = 'ccp_form_record' AND reference_id = ? AND tenant_id = ?
+     LIMIT 1`,
+    [params.formRecordId, params.tenantId]
+  );
+  if ((existingApproval as any[])[0]?.id) {
+    const existingId = (existingApproval as any[])[0].id;
+    console.log(`[submitCcpFormRecord] 이미 승인요청 존재 (form_record=${params.formRecordId}, approval=${existingId}) → 중복 생성 방지`);
+    // approval_request_id 연결이 누락된 경우 보정
+    await rawConn.execute(
+      `UPDATE h_ccp_form_records SET status='submitted', approval_request_id=? WHERE id=? AND tenant_id=? AND approval_request_id IS NULL`,
+      [existingId, params.formRecordId, params.tenantId]
+    );
+    return existingId;
+  }
+
   // 상태 업데이트 (P0: tenant_id 격리)
   await rawConn.execute(
     `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
