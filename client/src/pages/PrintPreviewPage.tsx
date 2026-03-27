@@ -13,7 +13,7 @@
  */
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader } from "@/components/print/PrintHelpers";
+import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader, TitleWithApproval } from "@/components/print/PrintHelpers";
 import { renderDailyLogPages } from "@/components/print/DailyLogRenderers";
 import { renderWeeklyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
 import { renderCcpBatchSummary, renderCcpFormRecord } from "@/components/print/CcpRenderers";
@@ -77,11 +77,13 @@ export default function PrintPreviewPage() {
         let formData = null;
         let formType = request.requestType || "";
 
-        // ── production_daily: 생산일지 (referenceId = h_daily_reports.id)
+        // ── production_daily: 생산일지 (referenceId = h_daily_reports.id, 실시간 데이터 재생성)
         if (request.requestType === "production_daily" && request.referenceId) {
           try {
             const report = await trpcUtils.dailyReport.getReportById.fetch({ id: Number(request.referenceId) });
-            formData = report ? { ...report.summary, reportDate: report.reportDate } : null;
+            if (report) {
+              formData = { ...report.summary, reportDate: report.reportDate };
+            }
             formType = "production_daily";
           } catch (e) { console.error("생산일지 조회 오류:", e); }
         }
@@ -206,16 +208,24 @@ export default function PrintPreviewPage() {
         });
       } else if (doc.formType === "production_daily") {
         // 생산일지 전용 렌더링
-        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
         const fd = doc.formData || {};
+        const reportDate = fd.reportDate || fd.date || '';
+        // 승인 정보: formData.approval에서 우선, 없으면 doc에서
+        const approval = fd.approval || {};
+        const pdRequestedAt = approval.requestedAt || requestedAt;
+        const pdReviewedAt = approval.reviewedAt || reviewedAt;
+        const pdApprovedAt = approval.approvedAt || approvedAt;
+        const enrichedDoc = {
+          ...doc, ...safeDocDates, authorName, reviewerName, approverName,
+          requestedAt: pdRequestedAt, reviewedAt: pdReviewedAt, approvedAt: pdApprovedAt,
+        };
         const batches = fd.production?.batches || [];
         const ccp = fd.ccp || {};
-        const reportDate = fd.reportDate || fd.date || '';
         pages.push({
           doc: enrichedDoc,
           pageContent: (
             <div>
-              <ApprovalHeader title="생 산 일 지" subtitle="Production Daily Report" date={`작업일: ${reportDate}`} doc={enrichedDoc} />
+              <TitleWithApproval title="생 산 일 지" doc={enrichedDoc} infoLeft={<span>작업일: {reportDate}</span>} />
               {/* 요약 */}
               <table className="w-full border-collapse border border-gray-500 text-xs mt-3 mb-3">
                 <tbody>
@@ -258,8 +268,8 @@ export default function PrintPreviewPage() {
                       <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.plannedQuantity || 0).toLocaleString()}</td>
                       <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.actualQuantity || 0).toLocaleString()}</td>
                       <td className="border border-gray-400 px-1 py-0.5 text-center">{b.status === 'completed' ? '완료' : b.status === 'in_progress' ? '진행중' : b.status}</td>
-                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.startTime ? String(b.startTime).substring(11, 16) : '-'}</td>
-                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.endTime ? String(b.endTime).substring(11, 16) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.startTime ? String(b.startTime).includes('T') ? String(b.startTime).substring(11, 16) : String(b.startTime).substring(0, 5) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.endTime ? String(b.endTime).includes('T') ? String(b.endTime).substring(11, 16) : String(b.endTime).substring(0, 5) : '-'}</td>
                       <td className="border border-gray-400 px-1 py-0.5 text-center">{(b.ccpDetails || []).length > 0 ? (b.ccpDetails || []).every((c: any) => c.failCount === 0) ? '✓' : '!' : '-'}</td>
                     </tr>
                   ))}
