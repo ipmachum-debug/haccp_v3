@@ -1211,15 +1211,15 @@ export async function syncCcpRowsToFormRows(params: {
     }
 
     // ═══ 공정별 시작시간 결정 ═══
-    // 교반공정(PG 1): batchStartTime 사용 (배치 시작시간 = 교반 시작, 통상 새벽 5시경)
-    // 증숙/오븐 등 후속공정: 해당 공정그룹 설비의 work_start_time 사용
-    //   (교반 3시간 후 실제 생산 시작 → 증숙 08:40경, 오븐 09:00경)
-    // 금속검출(CCP-4P): 별도 로직으로 처리 (아래 CCP-4P 섹션)
-    let processStartTime: string = batchStartTime; // 기본값: 배치 시작시간 (교반용)
+    // ★ 모든 공정은 설비(equipments) 테이블의 work_start_time을 기준 시작시간으로 사용
+    //    - 교반-가열공정(PG 1): work_start_time = 05:00 → 기준 05:10 (±10분 랜덤)
+    //    - 증숙공정(PG 2,3): work_start_time = 08:40 → 기준 08:40 (±10분 랜덤)
+    //    - 오븐공정(PG 4): work_start_time = 09:00 → 기준 09:00 (±10분 랜덤)
+    //    - 금속검출(CCP-4P, PG 5): 별도 로직 (아래 CCP-4P 섹션, 기준 09:20)
+    // ★ batchStartTime(h_batches.start_time)은 사용하지 않음 → 배치마다 다르므로 기록지 규칙에 부적합
+    let processStartTime: string = "05:10"; // 기본값: 교반공정 시작시간
 
-    // 교반공정이 아닌 경우: 설비의 work_start_time 사용
-    // ★ 교반공정(process_group_id = 1) 외의 공정은 별도 시작시간이 있음
-    if (processGroupId && processGroupId !== 1 && ccpType !== "CCP-4P") {
+    if (processGroupId && ccpType !== "CCP-4P") {
       try {
         const [equipTimeRows] = await rawConn.execute<any[]>(
           `SELECT e.work_start_time
@@ -1230,17 +1230,24 @@ export async function syncCcpRowsToFormRows(params: {
           [processGroupId, tenantId],
         );
         if ((equipTimeRows as any[]).length > 0 && (equipTimeRows as any[])[0].work_start_time) {
-          const equipStartStr = String((equipTimeRows as any[])[0].work_start_time).slice(0, 5);
-          processStartTime = equipStartStr;
-          console.log(`[syncCcpRowsToFormRows] 공정별 시작시간: processGroup=${processGroupId} → equipWorkStart=${equipStartStr} (batchStart=${batchStartTime})`);
+          const rawWorkStart = String((equipTimeRows as any[])[0].work_start_time).slice(0, 5);
+          // 교반공정(work_start=05:00) → 실제 CCP 기록 기준 05:10
+          // 증숙공정(work_start=08:40) → 그대로 08:40
+          // 오븐공정(work_start=09:00) → 그대로 09:00
+          if (rawWorkStart === "05:00") {
+            processStartTime = "05:10";
+          } else {
+            processStartTime = rawWorkStart;
+          }
+          console.log(`[syncCcpRowsToFormRows] 공정별 시작시간: processGroup=${processGroupId} → workStart=${rawWorkStart} → processStart=${processStartTime}`);
         }
       } catch (eqTimeErr) {
         console.error(`[syncCcpRowsToFormRows] 설비 시작시간 조회 실패 (processGroup=${processGroupId}):`, eqTimeErr);
       }
     }
 
-    // ═══ 랜덤 오프셋 (0-10분) 적용 ═══
-    // 모든 공정(교반, 증숙, 오븐, 금속검출)에 작업시작 시점으로부터 0-10분 랜덤 오프셋
+    // ═══ 랜덤 오프셋 (±10분) 적용 ═══
+    // 공정 시작시간에서 -10 ~ +10분 범위의 랜덤 오프셋
     // 일괄적이면 외부점검시 이상하게 생각하므로 자연스럽게 분산
     // seed: batchId + processGroupId + ccpType hash → 동일 배치에 대해 동일 오프셋 (재현성)
     const seededRandom = (seed: number): number => {
@@ -1251,7 +1258,7 @@ export async function syncCcpRowsToFormRows(params: {
       return (s & 0x7FFFFFFF) / 0x7FFFFFFF;
     };
     const randomSeed = batchId * 1000 + (processGroupId || 0) * 100 + ccpType.charCodeAt(4);
-    const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
+    const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 21) - 10; // -10 ~ +10
     const adjustedStartTime = processStartTime ? addMinutesToTime(processStartTime, randomOffsetMin) : processStartTime;
 
     if (ccpType === "CCP-4P") {
@@ -1306,7 +1313,7 @@ export async function syncCcpRowsToFormRows(params: {
       // → 같은 날짜의 모든 배치가 동일한 오프셋을 사용하여 시간대가 순차적으로 배분됨
       const dateStr = fr.work_date ? String(fr.work_date).slice(0, 10) : "";
       const metalSeed = computeSeed(0, dateStr, equipId);
-      const metalRandomOffset = computeRandomOffset(metalSeed, 0, 10);
+      const metalRandomOffset = computeRandomOffset(metalSeed, -10, 10);
 
       const WORK_START = addMinToTime2(equipWorkStart, metalRandomOffset);
       const workStartMin = timeToMin(WORK_START);
