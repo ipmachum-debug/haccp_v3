@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -377,6 +378,7 @@ export function VisualInspectionLogContent() {
   const [editItems, setEditItems] = useState<InspectionItem[]>([]);
   const [initialized, setInitialized] = useState(false);
   const autoImportDone = useRef(false);
+  const { isAdmin } = useAuth();
 
   // ---- API: monthly document auto-create/fetch ----
   const getOrCreateMutation = (trpc as any).visualInspection.getOrCreateMonthly.useMutation({
@@ -409,10 +411,10 @@ export function VisualInspectionLogContent() {
     { enabled: !!logId, refetchOnWindowFocus: true }
   );
 
-  // ---- API: material receivings for auto-import ----
+  // ---- API: material receivings for auto-import (작업자용) ----
   const { data: materialReceivings } = (trpc as any).visualInspection.fetchMaterialReceivings.useQuery(
     { year: currentYear, month: currentMonth },
-    { enabled: !!logId }
+    { enabled: !!logId && !isAdmin }  // 작업자만 수동 가져오기용 조회
   );
 
   // ---- API: previous defaults for auto-complete ----
@@ -420,6 +422,25 @@ export function VisualInspectionLogContent() {
     { year: currentYear, month: currentMonth },
     { enabled: !!logId }
   );
+
+  // ---- 관리자용: 입고 데이터 자동 동기화 ----
+  const syncMutation = (trpc as any).visualInspection.syncReceivings.useMutation({
+    onSuccess: (r: any) => {
+      if (r.synced > 0) {
+        toast.success(`원재료 입고 ${r.synced}건 자동 반영 완료`);
+        refetchDetail();
+      }
+    },
+    onError: (e: any) => console.error('[syncReceivings]', e.message),
+  });
+
+  // 관리자: logId 확정 시 자동 동기화 실행
+  useEffect(() => {
+    if (isAdmin && logId && initialized && !autoImportDone.current) {
+      autoImportDone.current = true;
+      syncMutation.mutate({ logId, year: currentYear, month: currentMonth });
+    }
+  }, [isAdmin, logId, initialized]);
 
   const saveMutation = (trpc as any).visualInspection.saveItems.useMutation({
     onSuccess: () => {
@@ -576,9 +597,20 @@ export function VisualInspectionLogContent() {
           )}
           {editMode && (
             <>
-              <Button size="sm" variant="outline" onClick={handleImportMaterials}>
-                <Import className="h-4 w-4 mr-1" /> 입고 자동가져오기
-              </Button>
+              {!isAdmin && (
+                <Button size="sm" variant="outline" onClick={handleImportMaterials}>
+                  <Import className="h-4 w-4 mr-1" /> 입고 자동가져오기
+                </Button>
+              )}
+              {isAdmin && (
+                <Button size="sm" variant="outline" onClick={() => {
+                  if (!logId) return;
+                  syncMutation.mutate({ logId, year: currentYear, month: currentMonth });
+                }} disabled={syncMutation.isPending}>
+                  {syncMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Import className="h-4 w-4 mr-1" />}
+                  입고 동기화
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={handleBulkPass}>
                 <Wand2 className="h-4 w-4 mr-1" /> 전체 적합
               </Button>

@@ -1855,12 +1855,12 @@ export async function getInventoryConsumptionPattern(materialId: number) {
   // 과거 30일간의 재고 변화 데이터 조회
   const consumptionData = await db.execute(sql`
     SELECT 
-      DATE(createdAt) as date,
-      SUM(CASE WHEN changeType = 'out' THEN ABS(changeQuantity) ELSE 0 END) as dailyConsumption
-    FROM hInventoryTransactions
-    WHERE id = ${materialId}
-      AND createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-    GROUP BY DATE(createdAt)
+      DATE(created_at) as date,
+      SUM(CASE WHEN transaction_type = 'outbound' THEN ABS(quantity) ELSE 0 END) as dailyConsumption
+    FROM h_inventory_transactions
+    WHERE lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ${materialId})
+      AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+    GROUP BY DATE(created_at)
     ORDER BY date DESC
   `);
   

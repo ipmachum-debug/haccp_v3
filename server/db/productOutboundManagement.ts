@@ -424,14 +424,13 @@ export async function getProductOutboundHistory(params: {
   if (params.batchId) { where += ` AND o.batch_id = ?`; values.push(params.batchId); }
   if (params.partnerId) { where += ` AND o.partner_id = ?`; values.push(params.partnerId); }
   if (params.releaseType) { where += ` AND o.release_type = ?`; values.push(params.releaseType); }
-  if (params.startDate) { where += ` AND o.release_date >= ?`; values.push(params.startDate); }
-  if (params.endDate) { where += ` AND o.release_date <= ?`; values.push(params.endDate); }
+  if (params.startDate) { where += ` AND REPLACE(o.release_date, '.', '-') >= ?`; values.push(params.startDate); }
+  if (params.endDate) { where += ` AND REPLACE(o.release_date, '.', '-') <= ?`; values.push(params.endDate); }
   if (params.search) { where += ` AND (o.product_name LIKE ? OR o.partner_name LIKE ? OR o.lot_number LIKE ?)`; const s = `%${params.search}%`; values.push(s, s, s); }
 
-  const limit = params.limit || 50;
-  values.push(limit);
+  const limit = params.limit || 500;
 
-  const [rows] = await conn.execute(
+  const [rows] = await conn.query(
     `SELECT o.id, o.batch_id, o.lot_id, o.product_name, o.quantity, o.unit, o.unit_price, o.total_amount,
             o.partner_id, o.partner_name, o.release_date, o.release_type, o.lot_number,
             o.notes, o.status, o.created_at,
@@ -439,8 +438,8 @@ export async function getProductOutboundHistory(params: {
      FROM h_product_outbound o
      LEFT JOIN h_batches b ON o.batch_id = b.id
      ${where}
-     ORDER BY o.release_date DESC, o.created_at DESC
-     LIMIT ?`,
+     ORDER BY REPLACE(o.release_date, '.', '-') DESC, o.created_at DESC
+     LIMIT ${Number(limit)}`,
     values
   );
 
@@ -538,9 +537,9 @@ export async function getProductOutboundTrend(params: {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
-  const [rows] = await conn.execute(
+  const [rows] = await conn.query(
     `SELECT 
-      DATE(o.release_date) as date,
+      DATE_FORMAT(DATE(REPLACE(o.release_date, '.', '-')), '%Y-%m-%d') as date,
       SUM(CASE WHEN o.release_type IN ('sale', 'delivery') THEN o.quantity ELSE 0 END) as sale_quantity,
       SUM(CASE WHEN o.release_type = 'sample' THEN o.quantity ELSE 0 END) as sample_quantity,
       SUM(CASE WHEN o.release_type = 'return' THEN o.quantity ELSE 0 END) as return_quantity,
@@ -548,14 +547,14 @@ export async function getProductOutboundTrend(params: {
       COUNT(*) as transaction_count
      FROM h_product_outbound o
      WHERE o.tenant_id = ? AND o.status != 'cancelled'
-       AND o.release_date >= ? AND o.release_date <= ?
-     GROUP BY DATE(o.release_date)
-     ORDER BY DATE(o.release_date)`,
+       AND REPLACE(o.release_date, '.', '-') >= ? AND REPLACE(o.release_date, '.', '-') <= ?
+     GROUP BY date
+     ORDER BY date`,
     [tenantId, params.startDate, params.endDate]
   );
 
   return (rows as any[]).map(r => ({
-    date: r.date,
+    date: String(r.date),
     saleQuantity: parseFloat(r.sale_quantity || "0"),
     sampleQuantity: parseFloat(r.sample_quantity || "0"),
     returnQuantity: parseFloat(r.return_quantity || "0"),
@@ -572,7 +571,7 @@ export async function getProductTurnoverAnalysis(params: {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
-  const [rows] = await conn.execute(
+  const [rows] = await conn.query(
     `SELECT 
       b.product_id,
       COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
@@ -596,7 +595,7 @@ export async function getProductTurnoverAnalysis(params: {
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
        SELECT o2.batch_id,
-              SUM(CASE WHEN o2.release_date >= ? AND o2.release_date <= ? THEN o2.quantity ELSE 0 END) as total_outbound,
+              SUM(CASE WHEN REPLACE(o2.release_date, '.', '-') >= ? AND REPLACE(o2.release_date, '.', '-') <= ? THEN o2.quantity ELSE 0 END) as total_outbound,
               SUM(o2.quantity) as all_outbound
        FROM h_product_outbound o2
        WHERE o2.tenant_id = ? AND o2.status != 'cancelled'
@@ -605,7 +604,7 @@ export async function getProductTurnoverAnalysis(params: {
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
      GROUP BY b.product_id, im.item_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
      ORDER BY outbound_quantity DESC`,
-    [params.startDate, params.endDate, params.startDate, params.endDate, tenantId, tenantId, tenantId]
+    [params.startDate, params.endDate, tenantId, params.startDate, params.endDate, tenantId, tenantId]
   );
 
   return (rows as any[]).map(r => {
@@ -635,13 +634,13 @@ export async function getProductOutboundStats(tenantId: number) {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
-  const [rows] = await conn.execute(
+  const [rows] = await conn.query(
     `SELECT 
       COUNT(*) as total_outbounds,
       COALESCE(SUM(CASE WHEN status != 'cancelled' THEN quantity ELSE 0 END), 0) as total_quantity,
       COALESCE(SUM(CASE WHEN status != 'cancelled' THEN total_amount ELSE 0 END), 0) as total_amount,
-      COALESCE(SUM(CASE WHEN release_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status != 'cancelled' THEN quantity ELSE 0 END), 0) as month_quantity,
-      COALESCE(SUM(CASE WHEN release_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status != 'cancelled' THEN total_amount ELSE 0 END), 0) as month_amount,
+      COALESCE(SUM(CASE WHEN REPLACE(release_date, '.', '-') >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 30 DAY), '%Y-%m-%d') AND status != 'cancelled' THEN quantity ELSE 0 END), 0) as month_quantity,
+      COALESCE(SUM(CASE WHEN REPLACE(release_date, '.', '-') >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 30 DAY), '%Y-%m-%d') AND status != 'cancelled' THEN total_amount ELSE 0 END), 0) as month_amount,
       COUNT(DISTINCT partner_id) as partner_count
      FROM h_product_outbound
      WHERE tenant_id = ?`,
