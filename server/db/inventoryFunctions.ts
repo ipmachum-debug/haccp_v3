@@ -922,7 +922,6 @@ export async function getInventoryTrend(params: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 기본값 설정 (최근 30일)
   const endDate = params.endDate || todayKST();
   const startDate = params.startDate || toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
@@ -930,40 +929,35 @@ export async function getInventoryTrend(params: {
   const { sql, and, eq } = await import("drizzle-orm");
 
   const conditions = [
-    sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
-    sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
+    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
+    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
+    eq(hInventoryTransactions.tenantId, params.tenantId),
   ];
 
   if (params.materialId) {
     conditions.push(eq(hInventoryLots.materialId, params.materialId));
   }
 
-  // hInventoryLots → hMaterials JOIN으로 tenantId 필터링 (별도 서브쿼리)
-  if (params.tenantId) {
-    const { hMaterials } = await import("../../drizzle/schema");
-    conditions.push(sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})`);
-  }
-
   const trend = await db
     .select({
-      date: sql<string>`DATE(${hInventoryTransactions.createdAt})`,
-      receiptQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'receipt' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
-      usageQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'usage' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
+      date: sql<string>`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`,
+      receiptQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'receipt' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
+      usageQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'usage' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
       adjustmentQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'adjustment' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
       transactionCount: sql<number>`COUNT(*)`
     })
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(...conditions))
-    .groupBy(sql`DATE(${hInventoryTransactions.createdAt})`)
-    .orderBy(sql`DATE(${hInventoryTransactions.createdAt})`);
+    .groupBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`)
+    .orderBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`);
 
   return trend.map((row) => {
     const receipt = Number(row.receiptQuantity) || 0;
     const usage = Number(row.usageQuantity) || 0;
     const adjustment = Number(row.adjustmentQuantity) || 0;
     return {
-      date: row.date,
+      date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date || ""),
       receiptQuantity: receipt,
       usageQuantity: usage,
       adjustmentQuantity: adjustment,
@@ -993,23 +987,23 @@ export async function getInventoryTurnoverAnalysis(params: {
   const { hInventoryTransactions, hMaterials, hInventoryLots } = await import("../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
-  // 1. 기간 내 사용량 조회 (lotId를 통해 materialId 얻기)
+  // 1. 기간 내 사용량 조회 - tenant_id 직접 필터 + transaction_date 기준 + ABS
   const usageData = await db
     .select({
       materialId: hInventoryLots.materialId,
-      totalUsage: sql<number>`SUM(${hInventoryTransactions.quantity})`
+      totalUsage: sql<number>`SUM(ABS(${hInventoryTransactions.quantity}))`
     })
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(
       eq(hInventoryTransactions.transactionType, "usage"),
-      sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
-      sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
-      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+      eq(hInventoryTransactions.tenantId, params.tenantId),
+      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
+      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
     ))
     .groupBy(hInventoryLots.materialId);
 
-  // 2. 현재 재고 조회
+  // 2. 현재 재고 조회 - tenant_id 직접 필터
   const currentStock = await db
     .select({
       materialId: hInventoryLots.materialId,
@@ -1018,7 +1012,7 @@ export async function getInventoryTurnoverAnalysis(params: {
     .from(hInventoryLots)
     .where(and(
       eq(hInventoryLots.status, "available"),
-      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+      eq(hInventoryLots.tenantId, params.tenantId),
     ))
     .groupBy(hInventoryLots.materialId);
 

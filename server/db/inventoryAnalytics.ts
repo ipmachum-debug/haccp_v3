@@ -40,20 +40,43 @@ export async function calculateInventoryTurnover(
   whereConditions.push(`m.tenant_id = ${Number(tenantId)}`);
   const whereClause = sql`WHERE ${sql.raw(whereConditions.join(' AND '))}`;
   
-  // 기간 내 원재료 사용량 조회 (배치 투입 기준)
+  // 기간 내 원재료 사용량 조회 (배치 투입 + inventory_transactions 통합)
   const usageQuery = sql`
-    SELECT 
+    SELECT
       m.id as material_id,
       m.material_code,
       m.material_name,
-      COALESCE(SUM(bi.quantity), 0) as usage_quantity,
-      AVG(inv.total_quantity) as avg_inventory
+      COALESCE(batch_usage.total_qty, 0) + COALESCE(txn_usage.total_qty, 0) as usage_quantity,
+      COALESCE(lot_stock.total_qty, 1) as avg_inventory
     FROM h_materials m
-    LEFT JOIN h_batch_inputs bi ON m.id = bi.material_id 
-      AND bi.created_at >= ${start} AND bi.created_at <= ${end}
-    LEFT JOIN h_inventory inv ON m.id = inv.material_id
+    LEFT JOIN (
+      SELECT material_id, SUM(ABS(quantity)) as total_qty
+      FROM h_batch_inputs
+      WHERE tenant_id = ${Number(tenantId)}
+        AND COALESCE(input_time, created_at) >= ${start}
+        AND COALESCE(input_time, created_at) <= ${end}
+        AND inventory_deducted = 1
+      GROUP BY material_id
+    ) batch_usage ON m.id = batch_usage.material_id
+    LEFT JOIN (
+      SELECT l.material_id, SUM(ABS(t.quantity)) as total_qty
+      FROM h_inventory_transactions t
+      JOIN h_inventory_lots l ON t.lot_id = l.id
+      WHERE t.tenant_id = ${Number(tenantId)}
+        AND t.transaction_type = 'usage'
+        AND COALESCE(t.transaction_date, t.created_at) >= ${start}
+        AND COALESCE(t.transaction_date, t.created_at) <= ${end}
+      GROUP BY l.material_id
+    ) txn_usage ON m.id = txn_usage.material_id
+    LEFT JOIN (
+      SELECT material_id, SUM(available_quantity) as total_qty
+      FROM h_inventory_lots
+      WHERE tenant_id = ${Number(tenantId)} AND status = 'available'
+      GROUP BY material_id
+    ) lot_stock ON m.id = lot_stock.material_id
     ${whereClause}
-    GROUP BY m.id, m.material_code, m.material_name
+    GROUP BY m.id, m.material_code, m.material_name,
+             batch_usage.total_qty, txn_usage.total_qty, lot_stock.total_qty
   `;
   
   const results: any = await db.execute(usageQuery);
