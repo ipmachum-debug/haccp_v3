@@ -11,6 +11,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
 import WriterSelect from "@/components/WriterSelect";
 
+import { todayLocal } from "../lib/dateUtils";
+
 interface CustomPeriodLogModalProps {
   open: boolean;
   onClose: () => void;
@@ -20,8 +22,8 @@ interface CustomPeriodLogModalProps {
 export function CustomPeriodLogModal({ open, onClose, tenantId }: CustomPeriodLogModalProps) {
   const { toast } = useToast();
   const [formData, setFormData] = useState({
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: todayLocal(),
+    endDate: todayLocal(),
     inspector: "",
     logType: "위생점검",
     content: "",

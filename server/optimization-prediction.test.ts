@@ -4,6 +4,8 @@ import { getDb } from "./db";
 import { hBatches, hProducts, hMaterials, hInventoryLots, hInventoryTransactions } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
 
+import { toKSTDate, todayKST } from "./utils/timezone";
+
 describe("생산 일정 최적화 및 재고 예측 분석", () => {
   let testProductId: number;
   let testMaterialId: number;
@@ -15,7 +17,7 @@ describe("생산 일정 최적화 및 재고 예측 분석", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트 제품 생성
     const product = await db
@@ -111,8 +113,8 @@ describe("생산 일정 최적화 및 재고 예측 분석", () => {
   });
 
   it("생산 일정 최적화 제안 조회", async () => {
-    const startDate = new Date().toISOString().split("T")[0];
-    const endDate = new Date(Date.now() + 86400000 * 7).toISOString().split("T")[0];
+    const startDate = todayKST();
+    const endDate = toKSTDate(new Date(Date.now() + 86400000 * 7));
 
     const result = await caller.productionSchedule.optimizeSchedule({
       startDate,
@@ -126,7 +128,7 @@ describe("생산 일정 최적화 및 재고 예측 분석", () => {
   });
 
   it("배치 일정 변경 적용", async () => {
-    const newDate = new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0];
+    const newDate = toKSTDate(new Date(Date.now() + 86400000 * 3));
 
     const result = await caller.productionSchedule.applyOptimization({
       batchId: testBatchId,

@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 원재료 출고 POST 로직
  *
@@ -38,7 +40,7 @@ export async function postMaterialOutbound(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 출고 문서 조회 및 상태 검증 (tenant_id 필터 적용)
   const outbound = await db
@@ -90,7 +92,7 @@ export async function postMaterialOutbound(
         transactionType: "usage", // 원재료 사용
         quantity: (-allocation.quantity).toString(), // 음수 (출고)
         unit: outbound.unit,
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         sourceType: "OUTBOUND",
         sourceId: `OUTBOUND-${outboundId}`,
         sourceLineId: `OUTBOUND-${outboundId}-1`,
@@ -115,7 +117,7 @@ export async function postMaterialOutbound(
     0
   );
 
-  const transactionDate = new Date().toISOString().split("T")[0];
+  const transactionDate = todayKST();
 
   // system_code 기반 계정 조회
   const wipAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.WIP || "WIP", "1130", "재공품");

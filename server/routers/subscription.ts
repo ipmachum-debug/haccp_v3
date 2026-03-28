@@ -5,6 +5,8 @@ import { tenants, subscriptionNotifications, packageFeatures } from "../../drizz
 import { eq, and, lte, gte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 구독 관리 라우터
  * ✅ P0 FIX: IDOR 위험 제거 - tenantId를 input에서 받지 않고 ctx에서 파생
@@ -47,8 +49,8 @@ export const subscriptionRouter = router({
       return {
         success: true,
         message: "구독 정보가 업데이트되었습니다.",
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
+        startDate: formatLocalDate(startDate),
+        endDate: formatLocalDate(endDate),
       };
     }),
 
@@ -99,7 +101,7 @@ export const subscriptionRouter = router({
       return {
         success: true,
         message: `구독이 ${input.additionalDays}일 연장되었습니다.`,
-        newEndDate: newEndDate.toISOString().split('T')[0],
+        newEndDate: formatLocalDate(newEndDate),
         totalDays: newTotalDays,
       };
     }),
@@ -426,8 +428,8 @@ export const subscriptionRouter = router({
         .where(
           and(
             sql`${tenants.subscriptionEndDate} IS NOT NULL`,
-            sql`${tenants.subscriptionEndDate} <= ${targetDate.toISOString().split('T')[0]}`,
-            sql`${tenants.subscriptionEndDate} >= ${today.toISOString().split('T')[0]}`
+            sql`${tenants.subscriptionEndDate} <= ${formatLocalDate(targetDate)}`,
+            sql`${tenants.subscriptionEndDate} >= ${formatLocalDate(today)}`
           )
         );
 

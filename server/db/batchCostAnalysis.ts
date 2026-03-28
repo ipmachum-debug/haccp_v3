@@ -2,6 +2,8 @@ import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { getDb } from "../db";
 import { hBatches, hBatchInputs, hMaterials } from "../../drizzle/schema";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
 function isWaterMaterial(materialName: string | null | undefined): boolean {
   if (!materialName) return false;
@@ -57,7 +59,7 @@ export async function getBatchCostAnalysis(params: {
   limit?: number;
 }, tenantId: number): Promise<BatchCostSummary[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { startDate, endDate, limit = 100 } = params;
 
@@ -119,7 +121,7 @@ export async function getBatchCostAnalysis(params: {
 export async function getBatchMaterialCostBreakdown(
   batchId: number, tenantId: number): Promise<MaterialCostBreakdown[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // h_batch_inputs.unitPrice (FEFO LOT 실제단가) 우선, 없으면 h_materials.unitPrice (마스터 단가) 폴백
   const batchInputs = await db
@@ -177,7 +179,7 @@ export async function getCostAnalysisPeriodSummary(params: {
   groupBy: "month" | "week" | "day";
 }, tenantId: number): Promise<CostAnalysisPeriodSummary[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { startDate, endDate, groupBy } = params;
 
@@ -209,7 +211,7 @@ export async function getCostAnalysisPeriodSummary(params: {
       const weekNumber = getWeekNumber(date);
       period = `${date.getFullYear()}-W${String(weekNumber).padStart(2, "0")}`;
     } else {
-      period = date.toISOString().split("T")[0];
+      period = formatLocalDate(date);
     }
 
     if (!periodMap[period]) {
@@ -309,7 +311,7 @@ export async function getMaterialCostAnalysis(params: {
   totalCostDifference: number;
 }[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { startDate, endDate } = params;
 

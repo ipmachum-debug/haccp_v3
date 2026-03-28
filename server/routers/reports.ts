@@ -4,6 +4,8 @@ import * as hazardAnalysisDb from "../db/hazardAnalysis";
 import * as correctiveActionDb from "../db/correctiveAction";
 import * as trainingDb from "../db/training";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * HACCP 7원칙 보고서 생성 라우터
  */
@@ -121,7 +123,7 @@ export const reportsRouter = router({
         course,
         certificateInfo: {
           certificateNumber: participant.certificateNumber,
-          issuedDate: new Date().toISOString().split('T')[0],
+          issuedDate: todayKST(),
           expiryDate: participant.expiryDate,
         },
       };

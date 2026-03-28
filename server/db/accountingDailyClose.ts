@@ -8,6 +8,8 @@ import { getDb } from "../db";
 import * as schema from "../../drizzle/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 일일 마감 실행
  */
@@ -18,7 +20,7 @@ export async function executeDailyClose(data: {
 }, tenantId: number) {
   const { closeDate, largeAmountChecked, userId } = data;
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 해당 날짜 통계 조회
   const stats = await getDailyCloseStats(closeDate, tenantId);
@@ -31,7 +33,7 @@ export async function executeDailyClose(data: {
   }
 
   // 3. 마감 기록 생성
-  const closeDateStr = closeDate.toISOString().split("T")[0]; // YYYY-MM-DD
+  const closeDateStr = formatLocalDate(closeDate); // YYYY-MM-DD
   const [result] = await db.insert(schema.accountingDailyClose).values({
     tenantId: tenantId,
     closeDate: closeDateStr,
@@ -61,9 +63,9 @@ export async function executeDailyClose(data: {
  */
 export async function getDailyCloseStats(targetDate: Date, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const dateStr = targetDate.toISOString().split("T")[0]; // YYYY-MM-DD
+  const dateStr = formatLocalDate(targetDate); // YYYY-MM-DD
   const startOfDay = dateStr;
   const endOfDay = dateStr;
 
@@ -142,7 +144,7 @@ export async function getDailyCloseStats(targetDate: Date, tenantId: number) {
  */
 export async function getDailyCloseHistory(limit = 30, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db
     .select()
@@ -157,9 +159,9 @@ export async function getDailyCloseHistory(limit = 30, tenantId: number) {
  */
 export async function isDayClosed(targetDate: Date, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const closeDateStr = targetDate.toISOString().split("T")[0];
+  const closeDateStr = formatLocalDate(targetDate);
   const conditions: any[] = [
     eq(schema.accountingDailyClose.closeDate, closeDateStr),
     eq(schema.accountingDailyClose.tenantId, tenantId)

@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { Pencil, Trash2, Plus } from "lucide-react";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 export default function EmployeeManagement() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
@@ -77,7 +79,7 @@ export default function EmployeeManagement() {
         name: employee.name || "",
         departmentId: employee.departmentId?.toString() || "",
         positionId: employee.positionId?.toString() || "",
-        hireDate: employee.hireDate ? new Date(employee.hireDate).toISOString().split('T')[0] : "",
+        hireDate: employee.hireDate ? formatLocalDate(new Date(employee.hireDate)) : "",
       });
     } else {
       setEditingEmployee(null);

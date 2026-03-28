@@ -36,7 +36,7 @@ export async function createAuditLog(input: CreateAuditLogInput) {
 
 export async function getAuditLogs(limit: number = 100, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [];
   if (tenantId) conditions.push(eq(auditLogs.tenantId, tenantId));
@@ -53,7 +53,7 @@ export async function getAuditLogs(limit: number = 100, tenantId?: number) {
 
 export async function getAuditLogsByEntity(entityType: string, entityId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [
     eq(auditLogs.entityType, entityType),
@@ -70,7 +70,7 @@ export async function getAuditLogsByEntity(entityType: string, entityId: number,
 
 export async function getAuditLogsByUser(userId: number, limit: number = 50, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [eq(auditLogs.userId, userId)];
   if (tenantId) conditions.push(eq(auditLogs.tenantId, tenantId));
@@ -114,7 +114,7 @@ export async function createSupplier(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hSuppliers).values(data as any);
   return result.insertId;
 }
@@ -133,13 +133,13 @@ export async function updateSupplier(id: number, data: {
   isActive?: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(hSuppliers).set(data).where(and(eq(hSuppliers.id, id), eq(hSuppliers.tenantId, tenantId)));
 }
 
 export async function deleteSupplier(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(hSuppliers).set({ isActive: 0 }).where(and(eq(hSuppliers.id, id), eq(hSuppliers.tenantId, tenantId)));
 }
 
@@ -162,7 +162,25 @@ export async function createApprovalRequest(data: {
   requestedBy: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
+
+  // ★ 중복 방지: 동일 reference_type + reference_id 조합이 이미 존재하면 기존 ID 반환
+  if (data.referenceType && data.referenceId) {
+    const existing = await db.select({ id: hApprovalRequests.id })
+      .from(hApprovalRequests)
+      .where(
+        and(
+          eq(hApprovalRequests.tenantId, data.tenantId),
+          eq(hApprovalRequests.referenceType, data.referenceType),
+          eq(hApprovalRequests.referenceId, data.referenceId),
+        )
+      )
+      .limit(1);
+    if (existing.length > 0) {
+      console.log(`[createApprovalRequest] 이미 존재 (${data.referenceType}/${data.referenceId}) → approval #${existing[0].id} 반환`);
+      return existing[0].id;
+    }
+  }
 
   const [result] = await db.insert(hApprovalRequests).values({
     tenantId: data.tenantId,
@@ -191,7 +209,7 @@ export async function getApprovalRequests(filters?: {
   requestedBy?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions: any[] = [];
   if (filters?.tenantId) {
     conditions.push(eq(hApprovalRequests.tenantId, filters.tenantId));
@@ -282,7 +300,7 @@ export async function getApprovalRequests(filters?: {
  */
 export async function getApprovalRequestById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const requesterUser = aliasedTable(users, "req_detail");
   const reviewerUser = aliasedTable(users, "rev_detail");
@@ -349,7 +367,7 @@ export async function getApprovalRequestById(id: number) {
  */
 export async function approveRequest(requestId: number, approvedBy: number, notes?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 승인 요청 정보 먼저 조회 (배치ID, 문서ID 확인)
   const requestInfo = await db.select().from(hApprovalRequests).where(eq(hApprovalRequests.id, requestId)).limit(1);
@@ -423,7 +441,7 @@ export async function approveRequest(requestId: number, approvedBy: number, note
  */
 export async function rejectRequest(requestId: number, rejectedBy: number, rejectionReason: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.update(hApprovalRequests)
     .set({
@@ -451,7 +469,7 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
  */
 export async function getApprovalHistory(requestId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // tenantId is accepted for tenant isolation at the router level;
   // the history is scoped via requestId which is already tenant-scoped.
@@ -466,7 +484,7 @@ export async function getApprovalHistory(requestId: number, tenantId?: number) {
  */
 export async function getPendingApprovalCount(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [eq(hApprovalRequests.status, "pending")];
   if (tenantId) {
@@ -485,7 +503,7 @@ export async function getPendingApprovalCount(tenantId?: number) {
  */
 export async function cancelApprovalRequest(requestId: number, cancelledBy: number, reason?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 요청 상태 확인
   const request = await getApprovalRequestById(requestId);
@@ -538,7 +556,7 @@ export async function createSupplierEvaluation(data: {
   recommendations?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 전체 평균 점수 계산
   const overallScore = (
@@ -565,7 +583,7 @@ export async function createSupplierEvaluation(data: {
  */
 export async function getSupplierEvaluations(supplierId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select().from(hSupplierEvaluations);
 
@@ -581,7 +599,7 @@ export async function getSupplierEvaluations(supplierId?: number) {
  */
 export async function getSupplierEvaluationStats(supplierId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const evaluations = await db
     .select()
@@ -616,7 +634,7 @@ export async function getSupplierEvaluationStats(supplierId: number) {
  */
 async function updateSupplierRating(supplierId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const stats = await getSupplierEvaluationStats(supplierId);
 
@@ -678,7 +696,7 @@ export async function saveNotificationSettings(data: {
   businessHoursEnd?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const existing = await getNotificationSettings(data.userId);
 

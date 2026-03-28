@@ -27,7 +27,7 @@ export async function createCommunicationLog(data: {
 }) {
   try {
     const db = await getDb();
-    if (!db) throw new Error("Database not initialized");
+    if (!db) throw new Error("DB 연결 실패");
     
     // 거래처 메모는 반드시 partner_id > 0이어야 함
     const partnerId = Number(data.partnerId);
@@ -103,7 +103,7 @@ export async function getCommunicationLogs(filters: {
   sortOrder?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     // Raw SQL로 JOIN 쿼리 실행 (작성자 이름 + 거래처명 포함)
@@ -171,7 +171,7 @@ export async function getCommunicationLogs(filters: {
  */
 export async function getCommunicationLogById(logId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     const rows = await db.execute(sql.raw(`
@@ -210,7 +210,7 @@ export async function updateCommunicationLog(
   authorId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const setData: any = {};
   if (data.content !== undefined) setData.content = data.content;
@@ -236,7 +236,7 @@ export async function updateCommunicationLog(
  */
 export async function deleteCommunicationLog(logId: number, tenantId: number, authorId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 관련 댓글, 파일, 알림도 삭제 (cascade가 안 될 경우 대비)
   try {
@@ -270,7 +270,7 @@ export async function updateCommunicationLogStatus(data: {
   userId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(communicationLogs)
@@ -307,7 +307,7 @@ export async function updateCommunicationLogStatus(data: {
  */
 export async function getCommunicationLogStats(partnerId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const stats = await db
     .select({
@@ -331,7 +331,7 @@ export async function createComment(data: {
   authorId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(communicationLogComments).values({
     tenantId: data.tenantId,
@@ -369,7 +369,7 @@ export async function createComment(data: {
  */
 export async function getComments(logId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     const rows = await db.execute(sql.raw(`
@@ -400,7 +400,7 @@ export async function getComments(logId: number, tenantId: number) {
  */
 export async function deleteComment(commentId: number, tenantId: number, authorId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(communicationLogComments)
@@ -428,7 +428,7 @@ export async function attachFile(data: {
   uploadedBy: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(communicationLogFiles).values(data);
   return result.insertId;
@@ -439,7 +439,7 @@ export async function attachFile(data: {
  */
 export async function getFiles(logId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db
     .select()
@@ -452,7 +452,7 @@ export async function getFiles(logId: number, tenantId: number) {
  */
 export async function deleteFile(fileId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(communicationLogFiles)
@@ -466,7 +466,7 @@ export async function deleteFile(fileId: number, tenantId: number) {
  */
 export async function getNotifications(userId: number, tenantId: number, unreadOnly: boolean = false) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [
     eq(communicationLogNotifications.userId, userId),
@@ -489,7 +489,7 @@ export async function getNotifications(userId: number, tenantId: number, unreadO
  */
 export async function markNotificationAsRead(notificationId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(communicationLogNotifications)
@@ -509,7 +509,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
  */
 export async function markAllNotificationsAsRead(userId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(communicationLogNotifications)

@@ -142,7 +142,7 @@ export const mfReportRouter = router({
     // 맛(Flavor) 목록 조회
     listFlavors: tenantRequiredProcedure.query(async ({ ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       return await db.select().from(hMfFlavors).where(eq((hMfFlavors as any).tenantId, ctx.tenantId ?? undefined));
     }),
     

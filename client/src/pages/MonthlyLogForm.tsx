@@ -18,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 일반위생관리 월간 점검항목
 const DEFAULT_MONTHLY_HYGIENE = [
   { category: "청소소독", itemOrder: 1, itemText: "작업장 전체 대청소 및 소독 실시 여부", checkResult: null as string | null },
@@ -60,7 +62,7 @@ export default function MonthlyLogForm() {
   const paramDate = params.get("date");
   const paramId = params.get("id");
 
-  const [logDate, setLogDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(paramDate || todayLocal());
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");

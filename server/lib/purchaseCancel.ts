@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 매입 CANCEL 로직 (역거래 패턴)
  *
@@ -14,7 +16,7 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
  */
 export async function cancelPurchase(purchaseId: number, userId: number, tenantId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 매입 전표 조회 (tenant_id 필터 적용)
   const purchase = await db
@@ -66,7 +68,7 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
         transactionType: "adjustment",
         quantity: (-Number(purchase.quantity || 0)).toString(),
         unit: purchase.unit || "EA",
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         referenceType: sourceType,
         sourceId: purchaseId,
         unitCost: purchase.unitPrice?.toString() || "0",
@@ -99,7 +101,7 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
   // 7. 회계 역분개 생성 (expense_journal_entries/lines)
   const totalAmount = Number(purchase.totalAmount || 0);
   const conn = await getRawConnection();
-  const cancelDate = new Date().toISOString().split("T")[0];
+  const cancelDate = todayKST();
 
   const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");

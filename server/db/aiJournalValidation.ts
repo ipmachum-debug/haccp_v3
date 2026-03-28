@@ -12,6 +12,8 @@
 
 import { getRawConnection } from "../db";
 
+import { formatLocalDate, toKSTDate } from "../utils/timezone";
+
 // ============================================================================
 // 타입 정의
 // ============================================================================
@@ -260,8 +262,8 @@ export async function validateJournalEntries(
   endDate?: string
 ): Promise<JournalValidationReport> {
   const now = new Date();
-  const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-  const end = endDate || now.toISOString().split("T")[0];
+  const start = startDate || toKSTDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  const end = endDate || formatLocalDate(now);
 
   const conn = await getRawConnection();
 

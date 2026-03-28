@@ -9,6 +9,8 @@
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 
+import { toKSTDate, formatLocalDate, toKSTTimestamp} from "../utils/timezone";
+
 // ============================================================================
 // 타입 정의
 // ============================================================================
@@ -207,7 +209,7 @@ async function checkLowStockMaterials(db: any, tenantId: number): Promise<{
 // ============================================================================
 async function generateDailyReport(db: any, tenantId: number, dateStr: string, summary: DailyClosingSummary): Promise<boolean> {
   try {
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const now = toKSTTimestamp(new Date());
     
     // 생산 실적 조회
     const productionResult = await db.execute(sql`
@@ -326,7 +328,7 @@ async function createClosingNotification(db: any, tenantId: number, data: {
   actionUrl?: string;
 }) {
   try {
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const now = toKSTTimestamp(new Date());
     await db.execute(sql`
       INSERT INTO h_notifications 
       (user_id, notification_type, title, message, reference_type, reference_id, priority, is_read, action_url, is_resolved, created_at, tenant_id)
@@ -344,7 +346,7 @@ async function createClosingNotification(db: any, tenantId: number, data: {
 // ============================================================================
 export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
   const today = new Date();
-  const dateStr = today.toISOString().split('T')[0];
+  const dateStr = formatLocalDate(today);
   const summaries: DailyClosingSummary[] = [];
   
   console.log(`[일일마감] ========== ${dateStr} 일일 마감 시작 ==========`);
@@ -710,7 +712,7 @@ export function initDailyClosingScheduler() {
           // 전체 테넌트 목록 조회
           const tenantsResult = await db.execute(sql`SELECT DISTINCT tenant_id FROM h_batches WHERE tenant_id IS NOT NULL`);
           const tenants = ((tenantsResult as any)[0] || []) as any[];
-          const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const todayStr = toKSTDate(new Date(Date.now() + 9 * 60 * 60 * 1000));
           const { autoRegenerateProductionDaily } = await import('../lib/autoProductionDaily');
           for (const t of tenants) {
             try {

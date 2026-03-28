@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { getDb } from "./db";
 import { createPurchase, createSale, updatePurchase, updateSale } from "./db/haccpIntegration";
 
+import { todayKST } from "./utils/timezone";
+
 describe("전체 회계 흐름 테스트", () => {
   let testUserId: number;
   let testPartnerId: number;
@@ -61,7 +63,7 @@ describe("전체 회계 흐름 테스트", () => {
   describe("1. 매입/매출 거래 생성 및 계정 과목 지정", () => {
     it("매입 거래를 생성하고 계정 과목을 지정할 수 있어야 함", async () => {
       const purchase = await createPurchase({
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         partnerId: testPartnerId,
         itemName: "테스트 원재료",
         quantity: 100,
@@ -80,7 +82,7 @@ describe("전체 회계 흐름 테스트", () => {
 
     it("매출 거래를 생성하고 계정 과목을 지정할 수 있어야 함", async () => {
       const sale = await createSale({
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         partnerId: testPartnerId,
         itemName: "테스트 제품",
         quantity: 50,
@@ -152,7 +154,7 @@ describe("전체 회계 흐름 테스트", () => {
       const { accountingPurchases, accountingSales } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
 
       const purchases = await db
         .select()
@@ -173,7 +175,7 @@ describe("전체 회계 흐름 테스트", () => {
       const { accountingPurchases } = await import("../drizzle/schema");
       const { eq, sum } = await import("drizzle-orm");
 
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
 
       const categoryTotal = await db
         .select({

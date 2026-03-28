@@ -7,7 +7,7 @@ import { sql, eq, and, gte, lte } from "drizzle-orm";
  */
 export async function getChecklistStatsByCategory(category: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -61,7 +61,7 @@ export async function getChecklistStatsByCategory(category: string, tenantId?: n
  */
 export async function getTodayChecklistStats(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);

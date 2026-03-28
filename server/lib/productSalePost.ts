@@ -4,6 +4,7 @@ import { accountingSales } from "../../drizzle/schema_accounting_extended";
 import { eq } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
+import { formatLocalDate } from "../utils/timezone";
 
 /**
  * 제품 출고/판매 POST 로직
@@ -28,7 +29,7 @@ export async function postProductSale(
   userId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 판매 문서 조회 및 상태 검증
   const sale = await db
@@ -67,7 +68,7 @@ export async function postProductSale(
   const conn = await getRawConnection();
   const entryDate = typeof sale.transactionDate === 'string'
     ? sale.transactionDate
-    : (sale.transactionDate as Date).toISOString().split('T')[0];
+    : formatLocalDate(sale.transactionDate as Date);
 
   const [jeResult] = await conn.execute(
     `INSERT INTO expense_journal_entries

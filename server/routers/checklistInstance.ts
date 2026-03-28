@@ -13,6 +13,8 @@ import { storagePut } from "../storage";
 import { invokeLLM } from "../_core/llm";
 import { requireTenantId } from "../helpers/tenantGuards";
 
+import { todayKST, formatLocalDate} from "../utils/timezone";
+
 /**
  * 체크리스트 인스턴스 라우터
  * 실제 체크리스트 작성/제출/승인 로직
@@ -36,7 +38,7 @@ export const checklistInstanceRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       const conditions = [eq(checklistInstances.tenantId, tenantId)];
@@ -79,7 +81,7 @@ export const checklistInstanceRouter = router({
     .input(z.object({ id: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       const instance = await db.query.checklistInstances.findFirst({
@@ -113,7 +115,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 템플릿 존재 확인 (같은 테넌트의 것만)
@@ -161,7 +163,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)
@@ -214,7 +216,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)
@@ -264,7 +266,7 @@ export const checklistInstanceRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)
@@ -306,7 +308,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)
@@ -356,7 +358,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)
@@ -406,7 +408,7 @@ export const checklistInstanceRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 템플릿 조회 (테넌트 격리)
@@ -426,7 +428,7 @@ export const checklistInstanceRouter = router({
         where: and(
           eq(checklistInstances.tenantId, tenantId),
           eq(checklistInstances.templateId, input.templateId),
-          gte(checklistInstances.targetDate, thirtyDaysAgo.toISOString().split('T')[0]),
+          gte(checklistInstances.targetDate, formatLocalDate(thirtyDaysAgo)),
           eq(checklistInstances.status, "approved")
         ),
         orderBy: [desc(checklistInstances.targetDate)],
@@ -461,7 +463,7 @@ ${index + 1}. 기간: ${instance.periodKey}
       prompt += `
 **요청 사항:**
 1. 최근 기록을 참고하여 유사한 패턴으로 작성해주세요.
-2. 현재 날짜는 ${new Date().toISOString().split('T')[0]}입니다.
+2. 현재 날짜는 ${todayKST()}입니다.
 3. 현실적이고 구체적인 내용으로 작성해주세요.
 4. JSON 형식으로 반환해주세요. (key-value 형태)
 
@@ -520,7 +522,7 @@ ${index + 1}. 기간: ${instance.periodKey}
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
       const tenantId = requireTenantId(ctx);
 
       // 인스턴스 존재 확인 (테넌트 격리)

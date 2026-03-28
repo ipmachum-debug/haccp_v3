@@ -16,6 +16,8 @@ import { getRawConnection } from "../db";
 import { createNotification } from "./notificationFunctions";
 import type { RuleEvaluationResult } from "../../drizzle/schema/aiEngine";
 
+import { todayKST, toKSTDate } from "../utils/timezone";
+
 // ============================================================================
 // 시스템 기본 규칙 정의 (20+ 규칙)
 // ============================================================================
@@ -215,7 +217,7 @@ export const SYSTEM_RULES = {
  * 전체 규칙 평가 실행 (오늘 기준)
  */
 export async function evaluateAllRules(tenantId: number, targetDate?: string): Promise<RuleEvaluationResult[]> {
-  const date = targetDate || new Date().toISOString().split("T")[0];
+  const date = targetDate || todayKST();
   const results: RuleEvaluationResult[] = [];
 
   // 병렬 실행 (독립적인 규칙들)
@@ -349,9 +351,9 @@ async function evaluateCustomCondition(
   // 시간 범위 결정
   let startDate = date;
   if (timeRange === "7days") {
-    startDate = new Date(new Date(date).getTime() - 7 * 86400000).toISOString().split("T")[0];
+    startDate = toKSTDate(new Date(new Date(date).getTime() - 7 * 86400000));
   } else if (timeRange === "30days") {
-    startDate = new Date(new Date(date).getTime() - 30 * 86400000).toISOString().split("T")[0];
+    startDate = toKSTDate(new Date(new Date(date).getTime() - 30 * 86400000));
   }
 
   let actualValue: number | null = null;
@@ -1096,7 +1098,7 @@ export async function saveAlerts(tenantId: number, results: RuleEvaluationResult
  */
 export async function getAIDashboardSummary(tenantId: number, date?: string) {
   const conn = await getRawConnection();
-  const targetDate = date || new Date().toISOString().split("T")[0];
+  const targetDate = date || todayKST();
 
   // 활성 알림 집계
   const [alertCounts] = await conn.execute(

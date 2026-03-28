@@ -24,6 +24,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { formatLocalDate } from "../../lib/dateUtils";
+
 import {
   Calendar,
   Download,
@@ -45,7 +47,7 @@ import {
 
 // 날짜 유틸
 function formatDate(d: Date) {
-  return d.toISOString().split("T")[0];
+  return formatLocalDate(d);
 }
 function getYearMonth(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;

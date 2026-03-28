@@ -94,7 +94,7 @@ function evaluateCondition(
  */
 export async function autoMatchBankTransactionsAdvanced(bankAccountId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 매칭되지 않은 거래 조회
   const unmatched = await db
@@ -215,7 +215,7 @@ export async function autoMatchBankTransactionsAdvanced(bankAccountId: number) {
  */
 export async function getMatchCandidates(transactionId: number): Promise<MatchCandidate[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 거래 조회
   const [tx] = await db

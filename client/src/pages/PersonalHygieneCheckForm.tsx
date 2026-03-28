@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Settings, Plus, Trash2, Edit, CheckCircle2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 점검 항목 타입 정의
 interface CheckColumn {
   id: string;
@@ -44,7 +46,7 @@ const initialEmployeeRows: EmployeeRow[] = Array.from({ length: 10 }, () => ({ n
 
 export default function PersonalHygieneCheckForm() {
   // 폼 고유 state
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [inspector, setInspector] = useState("");
   const [checkColumns, setCheckColumns] = useState<CheckColumn[]>(DEFAULT_CHECK_COLUMNS);
   const [employeeRows, setEmployeeRows] = useState<EmployeeRow[]>(initialEmployeeRows);

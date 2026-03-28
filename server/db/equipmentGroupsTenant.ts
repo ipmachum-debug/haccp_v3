@@ -25,7 +25,7 @@ export async function createEquipment(equipment: {
   notes?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { equipments } = await import("../../drizzle/schema");
 
@@ -96,7 +96,7 @@ export async function getAllEquipments(filters?: {
  */
 export async function getEquipmentById(equipmentId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { equipments } = await import("../../drizzle/schema");
   const { and: andOp } = await import("drizzle-orm");
@@ -144,7 +144,7 @@ export async function updateEquipment(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { equipments } = await import("../../drizzle/schema");
 
@@ -177,7 +177,7 @@ export async function updateEquipment(
  */
 export async function deleteEquipment(equipmentId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { equipments } = await import("../../drizzle/schema");
   const { and: andOp } = await import("drizzle-orm");
@@ -236,7 +236,7 @@ export async function getBatchSchedule(params: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
@@ -277,7 +277,7 @@ export async function getBatchSchedule(params: {
  */
 export async function calculateMaterialRequirements(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, recipes, recipeLines, hMaterials, hInventoryLots } = await import("../../drizzle/schema");
   const { eq, and, sql } = await import("drizzle-orm");
@@ -390,7 +390,7 @@ export async function analyzeProductionCapacity(params: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
@@ -441,7 +441,7 @@ export async function analyzeProductionCapacityByProduct(params: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema");
   const { and, eq, sql } = await import("drizzle-orm");
@@ -691,7 +691,7 @@ export async function getUserGroups(userId: number, tenantId?: number) {
  */
 export async function getTenantDetail(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   const rawConn = await getRawConnection();
   if (!rawConn) throw new Error("Raw connection failed");
 
@@ -766,7 +766,7 @@ export async function getTenantDetail(tenantId: number) {
  */
 export async function getAllTenants() {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   const rawConn = await getRawConnection();
   if (!rawConn) throw new Error("Raw connection failed");
 

@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
  */
 export async function getMonthlyAccountingSummary(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -56,7 +56,7 @@ export async function getMonthlyAccountingSummary(tenantId: number) {
  */
 export async function getExpensesByCategory(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const now = new Date();
   const currentYear = now.getFullYear();

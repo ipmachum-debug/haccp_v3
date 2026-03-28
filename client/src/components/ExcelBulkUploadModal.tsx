@@ -29,6 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import { fuzzyMatchItem, fuzzyMatchPartner, autoMatchHeaders, type FuzzyMatchResult } from "@/lib/fuzzyMatch";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 타입 정의
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -250,7 +252,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         const numDate = Number(transactionDate);
         if (!isNaN(numDate) && numDate > 30000 && numDate < 60000) {
           const d = new Date((numDate - 25569) * 86400 * 1000);
-          transactionDate = d.toISOString().split('T')[0];
+          transactionDate = formatLocalDate(d);
         } else {
           transactionDate = transactionDate
             .replace(/[./]/g, '-')
@@ -468,7 +470,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 8 }, { wch: 10 },
         { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 6 }, { wch: 15 },
       ];
-      XLSX.writeFile(wb, `매입_일괄등록_양식_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `매입_일괄등록_양식_${todayLocal()}.xlsx`);
     } else {
       const templateData = [
         ['거래일자', '거래처', '품목명', '수량', '단가', '공급가액', '부가세', '합계', '포장규격(단위)', '비고'],
@@ -482,7 +484,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 8 }, { wch: 10 },
         { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 15 },
       ];
-      XLSX.writeFile(wb, `매출_일괄등록_양식_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `매출_일괄등록_양식_${todayLocal()}.xlsx`);
     }
     toast({ title: "양식 다운로드 완료" });
   };

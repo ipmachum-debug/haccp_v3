@@ -11,7 +11,7 @@ describe("포장규격 관련 기능 테스트", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 고유한 코드 생성 (타임스탬프 사용)
     const timestamp = Date.now();
@@ -59,7 +59,7 @@ describe("포장규격 관련 기능 테스트", () => {
 
     // h_inventory_lots에서 재고량 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const { hInventoryLots } = await import("../drizzle/schema");
     const [lot] = await db
@@ -92,7 +92,7 @@ describe("포장규격 관련 기능 테스트", () => {
 
     // h_inventory_lots에서 재고량 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const { hInventoryLots } = await import("../drizzle/schema");
     const lots = await db
@@ -108,7 +108,7 @@ describe("포장규격 관련 기능 테스트", () => {
 
   it("거래처 등록 시 사업자번호 없이 등록 가능", async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const timestamp = Date.now();
     const [partner] = await db.insert(partners).values({
@@ -134,7 +134,7 @@ describe("포장규격 관련 기능 테스트", () => {
 
   it("원재료 등록 시 기본 포장규격 저장", async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const timestamp = Date.now();
     const [material] = await db.insert(hMaterials).values({

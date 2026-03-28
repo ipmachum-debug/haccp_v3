@@ -12,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 const locales = {
   ko: ko,
 };
@@ -67,8 +69,8 @@ export default function CcpCalendar() {
     }
     
     return {
-      startDate: start.toISOString().split("T")[0],
-      endDate: end.toISOString().split("T")[0],
+      startDate: formatLocalDate(start),
+      endDate: formatLocalDate(end),
     };
   }, [date, view]);
 

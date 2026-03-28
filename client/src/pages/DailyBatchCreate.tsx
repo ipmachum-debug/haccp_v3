@@ -17,6 +17,8 @@ import {
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+import { todayLocal } from "../lib/dateUtils";
+
 interface BatchItem {
   id: string;
   productId: string;
@@ -61,7 +63,7 @@ export default function DailyBatchCreate() {
   const { user } = useAuth();
 
   // Global settings
-  const [workDate, setWorkDate] = useState(new Date().toISOString().split("T")[0]);
+  const [workDate, setWorkDate] = useState(todayLocal());
   const [dayStartTime, setDayStartTime] = useState("09:00");
   const [defaultMode, setDefaultMode] = useState<"auto" | "manual">("auto");
   const [memo, setMemo] = useState("");

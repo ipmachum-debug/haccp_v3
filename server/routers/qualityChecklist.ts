@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════
+// qualityChecklist.ts - 품질 체크리스트 tRPC 라우터
+// 템플릿 CRUD, 인스턴스 관리, 승인 플로우, 통계,
+// 이력 추적, 버전 관리, AI 자동 완성
+// ═══════════════════════════════════════════════════════════════
 import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
@@ -13,17 +18,25 @@ import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { isTemplateCategoryInMapCategory } from "../../shared/categoryMapping";
 import { requireTenantId } from "../helpers/tenantGuards";
 
+import { todayKST, formatLocalDate} from "../utils/timezone";
+
 /**
  * 품질 체크리스트 라우터
- * Phase 1: 템플릿 관리
- * Phase 2: 체크리스트 인스턴스 관리
- * Phase 3: 승인 플로우
- * Phase 77-79: 이력 추적, 실시간 협업, 모바일 최적화
- * 
- * P0 FIX: 모든 쿼리에 tenantId 조건 추가
+ * - 템플릿 CRUD (생성/수정/삭제/복제)
+ * - 인스턴스 CRUD (생성/저장/완료)
+ * - 승인 플로우 (지정/승인/반려/일괄)
+ * - 통계 (완료율, 기한 초과, 주간/월간)
+ * - 이력 추적 (항목별/인스턴스별 변경 이력)
+ * - 템플릿 버전 관리 (생성/조회/롤백)
+ * - AI 기반 자동 완성 (과거 데이터 분석)
+ *
+ * P0: 모든 쿼리에 tenantId 조건 필수
  */
 export const qualityChecklistRouter = router({
-  // ==================== 템플릿 관리 ====================
+
+  // ═══════════════════════════════════════════════════════════════
+  // 템플릿 CRUD (checklist_templates)
+  // ═══════════════════════════════════════════════════════════════
   
   /**
    * 템플릿 목록 조회
@@ -37,7 +50,7 @@ export const qualityChecklistRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const conditions: any[] = [eq(checklistTemplates.tenantId, tenantId)];
@@ -66,7 +79,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const template = await db
@@ -121,7 +134,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const result = await db.insert(checklistTemplates).values({
@@ -178,7 +191,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const updateData: any = {
@@ -212,7 +225,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 먼저 테넌트 소속 확인
@@ -249,7 +262,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 템플릿 소속 확인
@@ -291,7 +304,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       // tenant 검증: 부모 템플릿 소유권 확인
@@ -330,7 +343,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       // tenant 검증: 부모 템플릿 소유권 확인
@@ -360,7 +373,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 원본 템플릿 조회 (테넌트 격리)
@@ -421,7 +434,9 @@ export const qualityChecklistRouter = router({
       return { id: newTemplateId };
     }),
 
-  // ==================== 체크리스트 인스턴스 관리 ====================
+  // ═══════════════════════════════════════════════════════════════
+  // 체크리스트 인스턴스 관리 (checklist_instances)
+  // ═══════════════════════════════════════════════════════════════
 
   /**
    * 체크리스트 인스턴스 생성
@@ -436,7 +451,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 템플릿 확인 (테넌트 격리)
@@ -505,7 +520,7 @@ export const qualityChecklistRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const conditions: any[] = [eq(checklistInstances.tenantId, tenantId)];
@@ -565,7 +580,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       const instance = await db
@@ -613,7 +628,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 현재 항목 조회
@@ -692,7 +707,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       await db
@@ -708,7 +723,9 @@ export const qualityChecklistRouter = router({
       return { success: true };
     }),
 
-  // ==================== 승인 플로우 ====================
+  // ═══════════════════════════════════════════════════════════════
+  // 승인 플로우 (지정, 승인, 반려, 일괄)
+  // ═══════════════════════════════════════════════════════════════
 
   /**
    * 승인자 지정
@@ -722,7 +739,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       await db
@@ -749,7 +766,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       await db
@@ -778,7 +795,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       await db
@@ -807,7 +824,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       if (input.instanceIds.length === 0) {
@@ -842,7 +859,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       if (input.instanceIds.length === 0) {
@@ -874,7 +891,7 @@ export const qualityChecklistRouter = router({
    */
   getPendingApprovals: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
     const tenantId = requireTenantId(ctx);
     
     const instances = await db
@@ -901,16 +918,18 @@ export const qualityChecklistRouter = router({
     return instances;
   }),
 
-  // ==================== 통계 ====================
+  // ═══════════════════════════════════════════════════════════════
+  // 체크리스트 통계 (완료율, 기한 초과, 주간/월간)
+  // ═══════════════════════════════════════════════════════════════
 
   /**
    * 체크리스트 통계 조회
    */
   getStatistics: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
     const tenantId = requireTenantId(ctx);
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayKST();
 
     const inProgressCount = await db
       .select({ count: sql<number>`count(*)` })
@@ -950,7 +969,7 @@ export const qualityChecklistRouter = router({
     // 주간 완료율 (이번 주 월~일)
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Monday
-    const weekStartStr = weekStart.toISOString().split("T")[0];
+    const weekStartStr = formatLocalDate(weekStart);
 
     const weeklyTotal = await db
       .select({ count: sql<number>`count(*)` })
@@ -1009,7 +1028,9 @@ export const qualityChecklistRouter = router({
     };
   }),
 
-  // ==================== 이력 추적 (Phase 77) ====================
+  // ═══════════════════════════════════════════════════════════════
+  // 이력 추적 (항목별/인스턴스별 변경 이력)
+  // ═══════════════════════════════════════════════════════════════
 
   /**
    * 체크리스트 항목 이력 조회
@@ -1018,7 +1039,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ instanceItemId: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       // tenant 검증: instanceItem → instance → tenantId 체인 확인
@@ -1062,7 +1083,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ instanceId: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
       
       // 인스턴스 테넌트 소속 확인
@@ -1099,7 +1120,9 @@ export const qualityChecklistRouter = router({
       return history;
     }),
 
-  // ==================== 템플릿 버전 관리 ====================
+  // ═══════════════════════════════════════════════════════════════
+  // 템플릿 버전 관리 (생성, 조회, 롤백)
+  // ═══════════════════════════════════════════════════════════════
   
   createTemplateVersion: tenantRequiredProcedure
     .input(
@@ -1111,7 +1134,7 @@ export const qualityChecklistRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       // 템플릿 조회 (테넌트 격리)
@@ -1175,7 +1198,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ templateId: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       // 템플릿 소속 확인
@@ -1203,7 +1226,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ versionId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       const { checklistTemplateVersions } = await import("../../drizzle/schema/checklistTemplateVersion");
@@ -1290,7 +1313,9 @@ export const qualityChecklistRouter = router({
       };
     }),
 
-  // ==================== AI 기반 자동 완성 ====================
+  // ═══════════════════════════════════════════════════════════════
+  // AI 기반 자동 완성 (과거 데이터 분석 → 제안)
+  // ═══════════════════════════════════════════════════════════════
   
   getSuggestions: tenantRequiredProcedure
     .input(
@@ -1302,7 +1327,7 @@ export const qualityChecklistRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       const templateItem = await db
@@ -1426,7 +1451,7 @@ export const qualityChecklistRouter = router({
     .input(z.object({ templateId: z.number() }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
-      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
       const tenantId = requireTenantId(ctx);
 
       const items = await db
@@ -1491,7 +1516,7 @@ export const qualityChecklistRouter = router({
 
   getRecentByCategory: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
     const tenantId = requireTenantId(ctx);
 
     const categories = ["CCP", "SANITATION", "QUALITY", "SAFETY", "TRAINING", "MAINTENANCE"] as const;

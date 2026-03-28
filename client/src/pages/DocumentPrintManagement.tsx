@@ -26,6 +26,8 @@ import {
 } from "lucide-react";
 import { ApprovalSealRow } from "@/components/SealGenerator";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 // 요청 유형별 카테고리 매핑
 const REQUEST_TYPE_CATEGORIES: Record<string, string> = {
   ccp_review: "ccp", ccp_checklist: "ccp", ccp_deviation: "ccp", batch_plan: "ccp",
@@ -168,8 +170,8 @@ export default function DocumentPrintManagement() {
   const filterRequests = useCallback((requests: any[], category?: string) => {
     let filtered = requests;
     if (category) filtered = filtered.filter(r => getCategoryForRequest(r.requestType) === category);
-    if (appliedFilters.dateFrom) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""); return d >= appliedFilters.dateFrom; });
-    if (appliedFilters.dateTo) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? new Date(r.approvedAt).toISOString().split("T")[0] : ""); return d <= appliedFilters.dateTo; });
+    if (appliedFilters.dateFrom) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? formatLocalDate(new Date(r.approvedAt)) : ""); return d >= appliedFilters.dateFrom; });
+    if (appliedFilters.dateTo) filtered = filtered.filter(r => { const d = extractDateFromTitle(r.title || "") || (r.approvedAt ? formatLocalDate(new Date(r.approvedAt)) : ""); return d <= appliedFilters.dateTo; });
     if (appliedFilters.printStatus === "printed") filtered = filtered.filter(r => printedIds.has(r.id));
     else if (appliedFilters.printStatus === "unprinted") filtered = filtered.filter(r => !printedIds.has(r.id));
     if (appliedFilters.keyword) { const kw = appliedFilters.keyword.toLowerCase(); filtered = filtered.filter(r => (r.title || "").toLowerCase().includes(kw) || getRequestTypeLabel(r.requestType).toLowerCase().includes(kw)); }

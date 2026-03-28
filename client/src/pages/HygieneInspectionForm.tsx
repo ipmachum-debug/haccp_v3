@@ -10,6 +10,8 @@ import { Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "hygiene_inspection",
   title: "위생 검사 작성",
@@ -35,7 +37,7 @@ const initialItems: InspectionItem[] = [
 
 export default function HygieneInspectionForm() {
   const [inspectionArea, setInspectionArea] = useState("");
-  const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().split("T")[0]);
+  const [inspectionDate, setInspectionDate] = useState(todayLocal());
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<InspectionItem[]>(initialItems);
 

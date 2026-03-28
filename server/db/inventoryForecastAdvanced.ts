@@ -52,7 +52,7 @@ function isKoreanHoliday(date: Date): boolean {
  */
 async function analyzeUsagePatterns(materialId: number, days: number = 90, tenantId: number): Promise<UsagePattern[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const pastDate = new Date();
   pastDate.setDate(pastDate.getDate() - days);
@@ -246,7 +246,7 @@ JSON 형식으로 응답: { "adjustmentFactor": 1.0, "reasoning": "이유" }`
  */
 export async function getAdvancedInventoryForecast(days: number = 90, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료별 현재 재고 조회 (tenant 격리)
   const materials = await db

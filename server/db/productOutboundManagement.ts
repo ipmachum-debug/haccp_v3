@@ -424,14 +424,14 @@ export async function getProductOutboundHistory(params: {
   if (params.batchId) { where += ` AND o.batch_id = ?`; values.push(params.batchId); }
   if (params.partnerId) { where += ` AND o.partner_id = ?`; values.push(params.partnerId); }
   if (params.releaseType) { where += ` AND o.release_type = ?`; values.push(params.releaseType); }
-  if (params.startDate) { where += ` AND o.release_date >= ?`; values.push(params.startDate); }
-  if (params.endDate) { where += ` AND o.release_date <= ?`; values.push(params.endDate); }
+  // release_date가 VARCHAR이므로 다양한 형식 대응 (YYYY-MM-DD, YYYY.MM.DD 등)
+  if (params.startDate) { where += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?`; values.push(params.startDate); }
+  if (params.endDate) { where += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?`; values.push(params.endDate); }
   if (params.search) { where += ` AND (o.product_name LIKE ? OR o.partner_name LIKE ? OR o.lot_number LIKE ?)`; const s = `%${params.search}%`; values.push(s, s, s); }
 
-  const limit = params.limit || 50;
-  values.push(limit);
+  const limit = Math.min(Math.max(parseInt(String(params.limit || 50), 10), 1), 2000);
 
-  const [rows] = await conn.execute(
+  const [rows] = await conn.query(
     `SELECT o.id, o.batch_id, o.lot_id, o.product_name, o.quantity, o.unit, o.unit_price, o.total_amount,
             o.partner_id, o.partner_name, o.release_date, o.release_type, o.lot_number,
             o.notes, o.status, o.created_at,
@@ -440,7 +440,7 @@ export async function getProductOutboundHistory(params: {
      LEFT JOIN h_batches b ON o.batch_id = b.id
      ${where}
      ORDER BY o.release_date DESC, o.created_at DESC
-     LIMIT ?`,
+     LIMIT ${limit}`,
     values
   );
 
@@ -548,9 +548,10 @@ export async function getProductOutboundTrend(params: {
       COUNT(*) as transaction_count
      FROM h_product_outbound o
      WHERE o.tenant_id = ? AND o.status != 'cancelled'
-       AND o.release_date >= ? AND o.release_date <= ?
-     GROUP BY DATE(o.release_date)
-     ORDER BY DATE(o.release_date)`,
+       AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?
+       AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?
+     GROUP BY REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')
+     ORDER BY REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')`,
     [tenantId, params.startDate, params.endDate]
   );
 
@@ -596,7 +597,7 @@ export async function getProductTurnoverAnalysis(params: {
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
        SELECT o2.batch_id,
-              SUM(CASE WHEN o2.release_date >= ? AND o2.release_date <= ? THEN o2.quantity ELSE 0 END) as total_outbound,
+              SUM(CASE WHEN REPLACE(REPLACE(o2.release_date, '.', '-'), ' ', '') >= ? AND REPLACE(REPLACE(o2.release_date, '.', '-'), ' ', '') <= ? THEN o2.quantity ELSE 0 END) as total_outbound,
               SUM(o2.quantity) as all_outbound
        FROM h_product_outbound o2
        WHERE o2.tenant_id = ? AND o2.status != 'cancelled'
@@ -640,8 +641,8 @@ export async function getProductOutboundStats(tenantId: number) {
       COUNT(*) as total_outbounds,
       COALESCE(SUM(CASE WHEN status != 'cancelled' THEN quantity ELSE 0 END), 0) as total_quantity,
       COALESCE(SUM(CASE WHEN status != 'cancelled' THEN total_amount ELSE 0 END), 0) as total_amount,
-      COALESCE(SUM(CASE WHEN release_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status != 'cancelled' THEN quantity ELSE 0 END), 0) as month_quantity,
-      COALESCE(SUM(CASE WHEN release_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status != 'cancelled' THEN total_amount ELSE 0 END), 0) as month_amount,
+      COALESCE(SUM(CASE WHEN REPLACE(REPLACE(release_date, '.', '-'), ' ', '') >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 30 DAY), '%Y-%m-%d') AND status != 'cancelled' THEN quantity ELSE 0 END), 0) as month_quantity,
+      COALESCE(SUM(CASE WHEN REPLACE(REPLACE(release_date, '.', '-'), ' ', '') >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 30 DAY), '%Y-%m-%d') AND status != 'cancelled' THEN total_amount ELSE 0 END), 0) as month_amount,
       COUNT(DISTINCT partner_id) as partner_count
      FROM h_product_outbound
      WHERE tenant_id = ?`,
@@ -657,4 +658,29 @@ export async function getProductOutboundStats(tenantId: number) {
     monthAmount: parseFloat(stats.month_amount || "0"),
     partnerCount: Number(stats.partner_count)
   };
+}
+
+/* ───────── 제품별 출고 합계 (현황 탭 재고 계산용) ───────── */
+export async function getProductOutboundByProduct(tenantId: number) {
+  await ensureProductOutboundTable();
+  const conn = await getRawConnection();
+
+  const [rows] = await conn.execute(
+    `SELECT 
+      product_name as productName,
+      COALESCE(SUM(CASE WHEN status != 'cancelled' THEN quantity ELSE 0 END), 0) as totalOutbound,
+      COUNT(CASE WHEN status != 'cancelled' THEN 1 END) as outboundCount,
+      MAX(CASE WHEN status != 'cancelled' THEN release_date END) as lastReleaseDate
+     FROM h_product_outbound
+     WHERE tenant_id = ?
+     GROUP BY product_name`,
+    [tenantId]
+  );
+
+  return (rows as any[]).map(r => ({
+    productName: r.productName,
+    totalOutbound: parseFloat(r.totalOutbound || "0"),
+    outboundCount: Number(r.outboundCount || 0),
+    lastReleaseDate: r.lastReleaseDate || null,
+  }));
 }

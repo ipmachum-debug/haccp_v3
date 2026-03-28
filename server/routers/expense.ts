@@ -14,6 +14,8 @@ import { TRPCError } from "@trpc/server";
 import { resolveSystemAccount, getPaymentSystemAccount, insertJournalLine, postExpenseVoucher, cancelExpenseJournal } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { formatLocalDate } from "../utils/timezone";
+
 function getEffectiveTenantId(ctx: any): number {
   const tenantId = ctx.tenantId;
   if (!tenantId) {
@@ -480,7 +482,7 @@ export const expenseRouter = router({
       // 이번달 기본
       const now = new Date();
       const startDate = p.startDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      const endDate = p.endDate || now.toISOString().split("T")[0];
+      const endDate = p.endDate || formatLocalDate(now);
 
       const [rows] = await conn.execute(
         `SELECT

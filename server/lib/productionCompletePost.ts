@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 생산 완료 POST 로직
  *
@@ -51,7 +53,7 @@ export async function postProductionComplete(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 조회 및 상태 검증 (tenant_id 필터 적용)
   const batch = await db
@@ -108,7 +110,7 @@ export async function postProductionComplete(
       transactionType: "receipt",
       quantity: actualQuantity.toString(),
       unit: "kg", // 생산 기본단위는 kg
-      transactionDate: new Date().toISOString().split("T")[0],
+      transactionDate: todayKST(),
       sourceType: "PRODUCTION",
       sourceId: `BATCH-${batchId}`,
       sourceLineId: `BATCH-${batchId}-1`,
@@ -127,7 +129,7 @@ export async function postProductionComplete(
   }
 
   // 6. 회계 원장 생성 (복식부기: WIP → 제품재고) - system_code 기반
-  const transactionDate = new Date().toISOString().split("T")[0];
+  const transactionDate = todayKST();
 
   // system_code 기반 계정 조회
   const inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1140", "제품재고");

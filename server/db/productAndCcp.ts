@@ -1,6 +1,8 @@
-import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray } from "drizzle-orm";
+import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, type SQL } from "drizzle-orm";
 import { getDb, getRawConnection } from "./connection";
 import { hCcpDeviations, hCcpInstances, hCcpRows, hProducts, hProductsV2, hMaterials, hBatchInputs } from "../../drizzle/schema";
+
+import { toKSTDate } from "../utils/timezone";
 
 // ==================== 제품 관리 ====================
 export async function getAllProducts(tenantId?: number) {
@@ -10,7 +12,7 @@ export async function getAllProducts(tenantId?: number) {
   const { hProducts } = await import("../../drizzle/schema.js");
   const { eq, and, desc } = await import("drizzle-orm");
   // ✅ P0 FIX: 소프트삭제 + 테넌트 격리
-  const conditions: any[] = [eq(hProducts.isActive, 1)];
+  const conditions: SQL[] = [eq(hProducts.isActive, 1)];
   if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
   return await db.select().from(hProducts).where(and(...conditions)).orderBy(desc(hProducts.id));
 }
@@ -22,14 +24,14 @@ export async function getProductById(productId: number, tenantId?: number) {
   // Try h_products_v2 first (actual production data)
   try {
     const { hProductsV2 } = await import("../../drizzle/schema_main.js");
-    const conditions: any[] = [eq((hProductsV2 as any).id, productId)];
+    const conditions: SQL[] = [eq((hProductsV2 as any).id, productId)];
     if (tenantId) conditions.push(eq((hProductsV2 as any).tenantId, tenantId));
     const v2result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
     if (v2result.length > 0) return v2result[0] as any;
   } catch (_e) { /* fallback */ }
   // Fallback to h_products
   const { hProducts } = await import("../../drizzle/schema.js");
-  const conditions: any[] = [eq(hProducts.id, productId)];
+  const conditions: SQL[] = [eq(hProducts.id, productId)];
   if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
   const result = await db.select().from(hProducts).where(and(...conditions)).limit(1);
   return result.length > 0 ? result[0] : undefined;
@@ -63,7 +65,7 @@ export async function getCcpTemplateById(id: number, tenantId?: number) {
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
   const { eq, and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  const conditions: SQL[] = [eq(hCcpTemplates.id, id)];
   if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   const results = await db
@@ -84,7 +86,7 @@ export async function createCcpTemplate(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
 
@@ -114,12 +116,12 @@ export async function updateCcpTemplate(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
   const { eq, and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  const conditions: SQL[] = [eq(hCcpTemplates.id, id)];
   if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   await db
@@ -132,12 +134,12 @@ export async function updateCcpTemplate(
 
 export async function deleteCcpTemplate(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpTemplates } = await import("../../drizzle/schema.js");
   const { eq, and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hCcpTemplates.id, id)];
+  const conditions: SQL[] = [eq(hCcpTemplates.id, id)];
   if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   await db.delete(hCcpTemplates).where(and(...conditions));
@@ -156,7 +158,7 @@ export async function findMatchingCcpTemplates(productName: string, tenantId?: n
   const { eq, desc, and } = await import("drizzle-orm");
 
   // 활성화된 템플릿만 조회 (tenantId 격리)
-  const conditions: any[] = [eq(hCcpTemplates.isActive, 1)];
+  const conditions: SQL[] = [eq(hCcpTemplates.isActive, 1)];
   if (tenantId) conditions.push(eq(hCcpTemplates.tenantId, tenantId));
 
   const templates = await db
@@ -201,7 +203,7 @@ export async function getRecipeByProductId(productId: number) {
 // ==================== CCP 자동 생성 ====================
 export async function generateCcpForBatch(batchId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 정보 조회
   const { getBatchById } = await import("../db.js");
@@ -261,10 +263,10 @@ export async function createProduct(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hProducts } = await import("../../drizzle/schema.js");
-  const values: any = {
+  const values: Record<string, unknown> = {
     productCode: data.productCode,
     productName: data.productName,
     category: data.category,
@@ -289,7 +291,7 @@ export async function createRecipe(data: {
   createdBy: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hRecipeHeaders } = await import("../../drizzle/schema.js");
   const result = await db.insert(hRecipeHeaders).values({
@@ -311,7 +313,7 @@ export async function addRecipeCcp(data: {
   correctiveAction: string | null;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hRecipeCcp } = await import("../../drizzle/schema.js");
   const result = await db.insert(hRecipeCcp).values(data as any);
@@ -319,22 +321,30 @@ export async function addRecipeCcp(data: {
 }
 
 // ==================== CCP 인스턴스 조회 ====================
-export async function getCcpInstanceById(instanceId: number) {
+export async function getCcpInstanceById(instanceId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return null;
 
   const { hCcpInstances } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
 
-  const result = await db.select().from(hCcpInstances).where(eq(hCcpInstances.id, instanceId));
+  const conditions = tenantId
+    ? and(eq(hCcpInstances.id, instanceId), eq(hCcpInstances.tenantId, tenantId))
+    : eq(hCcpInstances.id, instanceId);
+  const result = await db.select().from(hCcpInstances).where(conditions);
   return result[0] || null;
 }
 
-export async function getCcpInstancesByBatchId(batchId: number) {
+export async function getCcpInstancesByBatchId(batchId: number, tenantId?: number) {
   const pool = await getRawConnection();
 
-  // 1. 인스턴스 + 공정그룹 정보 조회
-  const [instances] = await pool.execute<any[]>(
+  // 1. 인스턴스 + 공정그룹 정보 조회 (tenant_id 격리)
+  const whereClause = tenantId
+    ? `WHERE i.batch_id = ? AND i.tenant_id = ?`
+    : `WHERE i.batch_id = ?`;
+  const params = tenantId ? [batchId, tenantId] : [batchId];
+
+  const [instances] = await pool.execute<Record<string, unknown>[]>(
     `SELECT
        i.id, i.site_id AS siteId, i.work_date AS workDate,
        i.ccp_type AS ccpType, i.product_name AS productName,
@@ -347,18 +357,19 @@ export async function getCcpInstancesByBatchId(batchId: number) {
        pg.pressure_min AS pressureMin, pg.pressure_max AS pressureMax
      FROM h_ccp_instances i
      LEFT JOIN ccp_process_groups pg ON pg.id = i.process_group_id
-     WHERE i.batch_id = ?
+     ${whereClause}
      ORDER BY i.id`,
-    [batchId]
+    params
   );
 
   // 2. 각 인스턴스의 행(row) + 설비 정보 조회
-  const instanceIds = (instances as any[]).map((r: any) => r.id);
-  let rowsMap: Record<number, any[]> = {};
+  const instanceIds = (instances as Record<string, unknown>[]).map((r) => r.id as number);
+  let rowsMap: Record<number, Record<string, unknown>[]> = {};
 
   if (instanceIds.length > 0) {
     const placeholders = instanceIds.map(() => "?").join(",");
-    const [rows] = await pool.execute<any[]>(
+    const rowParams = tenantId ? [...instanceIds, tenantId] : instanceIds;
+    const [rows] = await pool.execute<Record<string, unknown>[]>(
       `SELECT
          r.id, r.instance_id AS instanceId, r.sort_order AS sortOrder,
          r.row_type AS rowType, r.measured_at AS measuredAt,
@@ -370,20 +381,20 @@ export async function getCcpInstancesByBatchId(batchId: number) {
          r.batch_no AS batchNo,
          r.tenant_id AS tenantId, r.created_at AS createdAt
        FROM h_ccp_rows r
-       WHERE r.instance_id IN (${placeholders})
+       WHERE r.instance_id IN (${placeholders})${tenantId ? ' AND r.tenant_id = ?' : ''}
        ORDER BY r.instance_id, r.sort_order`,
-      instanceIds
+      rowParams
     );
-    for (const row of (rows as any[])) {
-      const iid = row.instanceId;
+    for (const row of (rows as Record<string, unknown>[])) {
+      const iid = row.instanceId as number;
       if (!rowsMap[iid]) rowsMap[iid] = [];
       rowsMap[iid].push(row);
     }
   }
 
-  return (instances as any[]).map((inst: any) => ({
+  return (instances as Record<string, unknown>[]).map((inst) => ({
     ...inst,
-    rows: rowsMap[inst.id] ?? [],
+    rows: rowsMap[inst.id as number] ?? [],
   }));
 }
 
@@ -407,7 +418,7 @@ export async function createCcpRow(data: {
   cycleTotalMin?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpRows } = await import("../../drizzle/schema.js");
   const result = await db.insert(hCcpRows).values(data as any);
   return result;
@@ -428,7 +439,7 @@ export async function updateCcpRow(rowId: number, data: {
 }) {
   const conn = await getRawConnection();
   const sets: string[] = [];
-  const vals: any[] = [];
+  const vals: (string | number | Date | undefined)[] = [];
   if (data.tempC !== undefined)        { sets.push("temp_c = ?");          vals.push(data.tempC); }
   if (data.durationMin !== undefined)  { sets.push("duration_min = ?");    vals.push(data.durationMin); }
   if (data.pressureBar !== undefined)  { sets.push("pressure_bar = ?");    vals.push(data.pressureBar); }
@@ -448,7 +459,7 @@ export async function updateCcpRow(rowId: number, data: {
  */
 export async function getCcpRowsByInstanceId(instanceId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpRows } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
   return await db.select().from(hCcpRows).where(eq(hCcpRows.instanceId, instanceId)).orderBy(hCcpRows.sortOrder);
@@ -459,11 +470,11 @@ export async function getCcpRowsByInstanceId(instanceId: number) {
  */
 export async function updateCcpInstanceStatus(instanceId: number, status: "draft" | "submitted" | "approved" | "rejected", userId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpInstances } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
 
-  const updateData: any = { status };
+  const updateData: Record<string, unknown> = { status };
 
   if (status === "submitted") {
     updateData.submittedAt = new Date();
@@ -484,7 +495,7 @@ export async function getAllCcpRecords(filters?: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpInstances, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
 
@@ -536,7 +547,7 @@ export async function getAllCcpRecords(filters?: {
 // CCP 일괄 삭제
 export async function deleteCcpInstances(instanceIds: number[], tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpInstances, hCcpRows } = await import("../../drizzle/schema");
   const { inArray, and, eq } = await import("drizzle-orm");
@@ -564,7 +575,7 @@ export async function deleteCcpInstances(instanceIds: number[], tenantId?: numbe
 // CCP 이탈 건수 조회
 export async function getCcpDeviationCount(instanceId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpRows } = await import("../../drizzle/schema");
   const { eq, and, sql } = await import("drizzle-orm");
 
@@ -602,9 +613,9 @@ export async function createCcpInstance(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpInstances } = await import("../../drizzle/schema.js");
-  const values: any = { ...data };
+  const values: Record<string, unknown> = { ...data };
   if (data.tenantId) values.tenantId = data.tenantId;
   const result = await db.insert(hCcpInstances).values(values);
   return Number(result[0].insertId);
@@ -628,7 +639,7 @@ export async function updateProduct(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hProducts } = await import("../../drizzle/schema.js");
 
@@ -643,12 +654,12 @@ export async function updateProduct(
 // 제품 삭제 (소프트 삭제)
 export async function deleteProduct(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hProducts } = await import("../../drizzle/schema.js");
   const { and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hProducts.id, id)];
+  const conditions: SQL[] = [eq(hProducts.id, id)];
   if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
   await db
     .update(hProducts)
@@ -674,11 +685,11 @@ export async function updateMaterial(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hMaterials } = await import("../../drizzle/schema.js");
 
-  const updateData: any = {};
+  const updateData: Record<string, unknown> = {};
   if (data.materialName) updateData.materialName = data.materialName;
   if (data.materialCode) updateData.materialCode = data.materialCode;
   if (data.category) updateData.category = data.category;
@@ -698,12 +709,12 @@ export async function updateMaterial(
 // 원재료 삭제 (소프트 삭제)
 export async function deleteMaterial(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hMaterials } = await import("../../drizzle/schema.js");
   const { and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hMaterials.id, id)];
+  const conditions: SQL[] = [eq(hMaterials.id, id)];
   if (tenantId) conditions.push(eq(hMaterials.tenantId, tenantId));
   await db
     .update(hMaterials)
@@ -730,7 +741,7 @@ export async function createCcpDeviation(data: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(hCcpDeviations).values({
     ccpInstanceId: data.ccpInstanceId,
@@ -762,10 +773,10 @@ export async function getCcpDeviationTrend(days: number = 7) {
     .from(hCcpDeviations)
     .where(gte(hCcpDeviations.deviationDate, startDate))
     .groupBy(sql`DATE(${hCcpDeviations.deviationDate})`)
-    .orderBy(sql`DATE(${hCcpDeviations.deviationDate})`) as any;
+    .orderBy(sql`DATE(${hCcpDeviations.deviationDate})`);
 
-  return deviations.map((d: any) => ({
-    date: new Date(d.date).toISOString().split("T")[0],
+  return deviations.map((d) => ({
+    date: toKSTDate(new Date(d.date)),
     count: Number(d.count)
   }));
 }
@@ -825,7 +836,7 @@ export async function getCcpDeviationStatsByMonth(filters?: {
   endDate?: Date;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpDeviations } = await import("../../drizzle/schema.js");
   const { and, gte, lte, sql } = await import("drizzle-orm");
@@ -862,7 +873,7 @@ export async function getCcpDeviationStatsByProduct(filters?: {
   endDate?: Date;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpDeviations, hCcpInstances, hProductsV2 } = await import("../../drizzle/schema.js");
   const { and, gte, lte, eq, sql } = await import("drizzle-orm");
@@ -901,7 +912,7 @@ export async function getCcpDeviationStatsByCcpType(filters?: {
   endDate?: Date;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpDeviations, hCcpInstances } = await import("../../drizzle/schema.js");
   const { and, gte, lte, eq, sql } = await import("drizzle-orm");

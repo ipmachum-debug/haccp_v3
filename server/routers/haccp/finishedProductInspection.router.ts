@@ -40,7 +40,9 @@ export const finishedProductInspectionRouter = router({
           quantity: z.string().default(''),
           packagingStatus: z.string().default('○'),
           labelStatus: z.string().default('○'),
+          shipMethod: z.string().default('차량배송'),
           temperature: z.string().default(''),
+          iceBoxStatus: z.string().default('○'),
           result: z.string().default('적합'),
           correctiveAction: z.string().default(''),
           note: z.string().default(''),
@@ -89,6 +91,17 @@ export const finishedProductInspectionRouter = router({
           console.error('[finishedProductInspection.fetchBatches]', err);
           return [];
         }
+      }),
+
+    // 관리자용: 출고 데이터 → 검사 항목 자동 동기화
+    syncOutbounds: tenantRequiredProcedure
+      .input(z.object({ logId: z.number(), year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { syncOutboundsToFinishedProductLog } = await import("../../db/visualInspection");
+        return await syncOutboundsToFinishedProductLog(db, ctx.tenantId ?? undefined, input.logId, input.year, input.month);
       }),
 
     // 이전 입력 데이터 기반 자동완성 (제품명별 최신 값)

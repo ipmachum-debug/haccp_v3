@@ -12,7 +12,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 
 export async function listDepartments(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db.select().from(hDepartments)
     .where(tenantId ? eq(hDepartments.tenantId, tenantId) : undefined)
     .orderBy(hDepartments.departmentName);
@@ -20,7 +20,7 @@ export async function listDepartments(tenantId?: number) {
 
 export async function getDepartmentById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDepartments.id, id)];
   if (tenantId) conditions.push(eq(hDepartments.tenantId, tenantId));
   const [department] = await db.select().from(hDepartments).where(and(...conditions));
@@ -33,7 +33,7 @@ export async function createDepartment(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hDepartments).values(data);
   return result;
 }
@@ -44,7 +44,7 @@ export async function updateDepartment(id: number, data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDepartments.id, id)];
   if (data.tenantId) conditions.push(eq(hDepartments.tenantId, data.tenantId));
   const { tenantId, ...updateData } = data;
@@ -54,7 +54,7 @@ export async function updateDepartment(id: number, data: {
 
 export async function deleteDepartment(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDepartments.id, id)];
   if (tenantId) conditions.push(eq(hDepartments.tenantId, tenantId));
   await db.delete(hDepartments).where(and(...conditions));
@@ -66,7 +66,7 @@ export async function deleteDepartment(id: number, tenantId?: number) {
 
 export async function listPositions(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db.select().from(hPositions)
     .where(tenantId ? eq(hPositions.tenantId, tenantId) : undefined)
     .orderBy(hPositions.level);
@@ -74,7 +74,7 @@ export async function listPositions(tenantId?: number) {
 
 export async function getPositionById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hPositions.id, id)];
   if (tenantId) conditions.push(eq(hPositions.tenantId, tenantId));
   const [position] = await db.select().from(hPositions).where(and(...conditions));
@@ -89,7 +89,7 @@ export async function createPosition(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hPositions).values(data as any);
   return result;
 }
@@ -102,7 +102,7 @@ export async function updatePosition(id: number, data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hPositions.id, id)];
   if (data.tenantId) conditions.push(eq(hPositions.tenantId, data.tenantId));
   const { tenantId, ...updateData } = data;
@@ -112,7 +112,7 @@ export async function updatePosition(id: number, data: {
 
 export async function deletePosition(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hPositions.id, id)];
   if (tenantId) conditions.push(eq(hPositions.tenantId, tenantId));
   await db.delete(hPositions).where(and(...conditions));
@@ -124,7 +124,7 @@ export async function deletePosition(id: number, tenantId?: number) {
 
 export async function listEmployees(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db
     .select({
       id: hEmployees.id,
@@ -149,7 +149,7 @@ export async function listEmployees(tenantId?: number) {
 
 export async function getEmployeeById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hEmployees.id, id)];
   if (tenantId) conditions.push(eq(hEmployees.tenantId, tenantId));
   const [employee] = await db
@@ -209,7 +209,7 @@ export async function createEmployee(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hEmployees).values(data);
   return result;
 }
@@ -225,7 +225,7 @@ export async function updateEmployee(id: number, data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hEmployees.id, id)];
   if (data.tenantId) conditions.push(eq(hEmployees.tenantId, data.tenantId));
   const { tenantId, ...updateData } = data;
@@ -235,7 +235,7 @@ export async function updateEmployee(id: number, data: {
 
 export async function deleteEmployee(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hEmployees.id, id)];
   if (tenantId) conditions.push(eq(hEmployees.tenantId, tenantId));
   await db.delete(hEmployees).where(and(...conditions));
@@ -247,7 +247,7 @@ export async function deleteEmployee(id: number, tenantId?: number) {
 
 export async function listDocumentApprovalSettings(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions: any[] = [eq(hDocumentApprovalSettings.isActive, true)];
   if (tenantId) {
     conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
@@ -271,7 +271,7 @@ export async function listDocumentApprovalSettings(tenantId?: number) {
 
 export async function getDocumentApprovalSettingById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDocumentApprovalSettings.id, id)];
   if (tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
   const [setting] = await db
@@ -283,7 +283,7 @@ export async function getDocumentApprovalSettingById(id: number, tenantId?: numb
 
 export async function getDocumentApprovalSettingByType(documentType: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [setting] = await db
     .select()
     .from(hDocumentApprovalSettings)
@@ -306,7 +306,7 @@ export async function createDocumentApprovalSetting(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hDocumentApprovalSettings).values(data as any);
   return result;
 }
@@ -321,7 +321,7 @@ export async function updateDocumentApprovalSetting(id: number, data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDocumentApprovalSettings.id, id)];
   if (data.tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, data.tenantId));
   const { tenantId, ...updateData } = data;
@@ -331,7 +331,7 @@ export async function updateDocumentApprovalSetting(id: number, data: {
 
 export async function deleteDocumentApprovalSetting(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hDocumentApprovalSettings.id, id)];
   if (tenantId) conditions.push(eq(hDocumentApprovalSettings.tenantId, tenantId));
   await db.update(hDocumentApprovalSettings)

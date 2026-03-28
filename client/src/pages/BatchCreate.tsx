@@ -19,6 +19,8 @@ import { useLocation } from "wouter";
 import { toast } from "sonner";
 import confetti from "canvas-confetti";
 
+import { todayLocal } from "../lib/dateUtils";
+
 /** SKU별 실제 생산수량 상태 */
 interface SkuActualInput {
   skuId: number;
@@ -39,7 +41,7 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
   // ── 입력 상태 ──
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [plannedQuantityKg, setPlannedQuantityKg] = useState<string>("");
-  const [productionDate, setProductionDate] = useState(new Date().toISOString().split("T")[0]);
+  const [productionDate, setProductionDate] = useState(todayLocal());
   const [batchCode, setBatchCode] = useState("");
   const [batchStartTime, setBatchStartTime] = useState("09:00");
 

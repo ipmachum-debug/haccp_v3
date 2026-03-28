@@ -16,7 +16,7 @@ export const schedulerRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         const { hSchedulerLogs } = await import("../../../drizzle/schema");
         const logs = await db
@@ -38,7 +38,7 @@ export const schedulerRouter = router({
       try {
         // 설정값 로드
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         const settings = await db
           .select()

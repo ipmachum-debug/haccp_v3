@@ -11,6 +11,9 @@
 import { getRawConnection } from "../db";
 import { resolveSystemAccount, insertJournalLine } from "./journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
+import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
+
+import { todayKST } from "../utils/timezone";
 
 // ===== 일별 원료수불 =====
 
@@ -62,7 +65,7 @@ export async function getDailyLedger(date: string, tenantId: number) {
      ORDER BY m.material_name`,
     [date, tenantId, date, tenantId, date, tenantId, tenantId]
   );
-  return rows as any[];
+  return rows as Record<string, unknown>[];
 }
 
 /** 일별 수불 데이터 upsert (자동 또는 수동) */
@@ -79,24 +82,26 @@ export async function upsertDailyLedger(data: {
   const { materialId, ledgerDate, receivingQty, usageQty, adjustmentQty, notes = '', source = 'manual' } = data;
   
   // 기존 데이터 조회 (있으면 기존 값에 누적)
-  const [existingRows]: any = await db.execute(
+  const existingResult = await db.execute(
     `SELECT receiving_qty, usage_qty, adjustment_qty FROM material_ledger_daily
      WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
     [tenantId, materialId, ledgerDate]
   );
-  
+  const existingRows = getRows<{ receiving_qty: number; usage_qty: number; adjustment_qty: number }>(existingResult);
+
   const existing = existingRows?.[0];
   const finalReceiving = receivingQty !== undefined ? receivingQty : (existing ? Number(existing.receiving_qty) : 0);
   const finalUsage = usageQty !== undefined ? usageQty : (existing ? Number(existing.usage_qty) : 0);
   const finalAdjustment = adjustmentQty !== undefined ? adjustmentQty : (existing ? Number(existing.adjustment_qty) : 0);
   
   // 전일 재고 조회
-  const [prevRows]: any = await db.execute(
+  const prevResult = await db.execute(
     `SELECT running_stock FROM material_ledger_daily
      WHERE tenant_id = ? AND material_id = ? AND ledger_date < ?
      ORDER BY ledger_date DESC LIMIT 1`,
     [tenantId, materialId, ledgerDate]
   );
+  const prevRows = getRows<{ running_stock: number }>(prevResult);
   const prevStock = prevRows?.[0]?.running_stock ? Number(prevRows[0].running_stock) : 0;
   const runningStock = prevStock + finalReceiving - finalUsage + finalAdjustment;
   
@@ -146,12 +151,13 @@ export async function onPurchaseCreated(params: {
     
     // 기존 일별 데이터에서 현재 입고량 가져오기
     const db = await getRawConnection();
-    const [existingRows]: any = await db.execute(
+    const existResult = await db.execute(
       `SELECT receiving_qty FROM material_ledger_daily
        WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
       [tenantId, params.materialId, params.transactionDate]
     );
-    const currentReceiving = existingRows?.[0] ? Number(existingRows[0].receiving_qty) : 0;
+    const existRows = getRows<{ receiving_qty: number }>(existResult);
+    const currentReceiving = existRows?.[0] ? Number(existRows[0].receiving_qty) : 0;
     
     await upsertDailyLedger({
       materialId: params.materialId,
@@ -182,25 +188,27 @@ export async function onBatchCompleted(params: {
     const db = await getRawConnection();
     
     // h_batch_inputs에서 해당 배치의 원재료 투입 내역 조회
-    const [batchInputs]: any = await db.execute(
-      `SELECT material_id, 
+    interface BatchInput { material_id: number; used_qty: number }
+    const batchInputResult = await db.execute(
+      `SELECT material_id,
               COALESCE(actual_quantity, planned_quantity) as used_qty
        FROM h_batch_inputs
        WHERE batch_id = ? AND tenant_id = ?`,
       [params.batchId, tenantId]
     );
-    
+    const batchInputs = getRows<BatchInput>(batchInputResult);
+
     // h_batch_inputs가 비어있으면 h_production_material_usage에서 조회
-    let inputs = batchInputs;
+    let inputs: BatchInput[] = batchInputs;
     if (!inputs || inputs.length === 0) {
-      const [pmuRows]: any = await db.execute(
+      const pmuResult = await db.execute(
         `SELECT material_id,
                 COALESCE(actual_quantity, planned_quantity) as used_qty
          FROM h_production_material_usage
          WHERE batch_id = ? AND tenant_id = ?`,
         [params.batchId, tenantId]
       );
-      inputs = pmuRows;
+      inputs = getRows<BatchInput>(pmuResult);
     }
     
     let updatedCount = 0;
@@ -210,12 +218,13 @@ export async function onBatchCompleted(params: {
       
       if (materialId && usedQty > 0) {
         // 기존 일별 데이터에서 현재 사용량 가져오기
-        const [existingRows]: any = await db.execute(
+        const usageResult = await db.execute(
           `SELECT usage_qty FROM material_ledger_daily
            WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
           [tenantId, materialId, params.completionDate]
         );
-        const currentUsage = existingRows?.[0] ? Number(existingRows[0].usage_qty) : 0;
+        const usageRows = getRows<{ usage_qty: number }>(usageResult);
+        const currentUsage = usageRows?.[0] ? Number(usageRows[0].usage_qty) : 0;
         
         await upsertDailyLedger({
           materialId,
@@ -249,7 +258,7 @@ export async function getMonthlyLedger(yearMonth: string, tenantId: number) {
      ORDER BY m.material_name`,
     [tenantId, yearMonth]
   );
-  return rows as any[];
+  return rows as Record<string, unknown>[];
 }
 
 /** 일별 데이터에서 월별 집계 생성/갱신 */
@@ -262,27 +271,30 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
   const prevMonth = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
   
   // 모든 원재료 가져오기 (정제수 제외 - 재료차감 항목이 아님)
-  const [materials]: any = await db.execute(
+  const matResult = await db.execute(
     `SELECT id, material_name FROM h_materials WHERE tenant_id = ? AND is_active = 1 AND material_name NOT LIKE '%정제수%' ORDER BY material_name`,
     [tenantId]
   );
+  const materials = getRows<{ id: number; material_name: string }>(matResult);
   
   for (const mat of materials) {
     // 전월 재고
-    const [prevStockRows]: any = await db.execute(
+    const prevStockResult = await db.execute(
       `SELECT end_stock FROM material_ledger_monthly
        WHERE tenant_id = ? AND material_id = ? AND \`year_month\` = ?`,
       [tenantId, mat.id, prevMonth]
     );
+    const prevStockRows = getRows<{ end_stock: number }>(prevStockResult);
     const prevStock = prevStockRows?.[0]?.end_stock ? Number(prevStockRows[0].end_stock) : 0;
-    
+
     // 일별 데이터 조회 (adjustment_qty 포함)
-    const [dailyRows]: any = await db.execute(
+    const dailyResult = await db.execute(
       `SELECT DAY(ledger_date) as day_num, receiving_qty, usage_qty, adjustment_qty
        FROM material_ledger_daily
        WHERE tenant_id = ? AND material_id = ? AND ledger_date >= ? AND ledger_date <= ?`,
       [tenantId, mat.id, startDate, endDate]
     );
+    const dailyRows = getRows<{ day_num: number; receiving_qty: number; usage_qty: number; adjustment_qty: number }>(dailyResult);
     
     // 일별 배열 초기화
     const rd: number[] = new Array(31).fill(0);
@@ -379,10 +391,11 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
 /** 월마감 승인 상태 조회 */
 export async function getApprovalStatus(yearMonth: string, tenantId: number) {
   const db = await getRawConnection();
-  const [rows]: any = await db.execute(
+  const result = await db.execute(
     `SELECT * FROM material_ledger_approval WHERE tenant_id = ? AND \`year_month\` = ?`,
     [tenantId, yearMonth]
   );
+  const rows = getRows(result);
   return rows?.[0] || { status: 'not_submitted', yearMonth };
 }
 
@@ -444,16 +457,18 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
   const db = await getRawConnection();
   
   // 1. 해당 날짜의 입고 데이터 집계 (h_inventory_lots 기반)
-  const [receivingRows]: any = await db.execute(
+  interface DailyCloseRow { material_id: number; total_receiving?: number; total_usage?: number }
+  const recvResult = await db.execute(
     `SELECT material_id, SUM(quantity) as total_receiving
      FROM h_inventory_lots
      WHERE tenant_id = ? AND receipt_date = ? AND material_id IS NOT NULL
      GROUP BY material_id`,
     [tenantId, closeDate]
   );
-  
+  const receivingRows = getRows<DailyCloseRow>(recvResult);
+
   // 2. 해당 날짜에 완료된 배치의 원재료 사용량 집계 (h_batch_inputs 기반)
-  const [usageRows]: any = await db.execute(
+  const usageResult = await db.execute(
     `SELECT bi.material_id, SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) as total_usage
      FROM h_batch_inputs bi
      JOIN h_batches pb ON pb.id = bi.batch_id
@@ -461,11 +476,12 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
      GROUP BY bi.material_id`,
     [tenantId, closeDate]
   );
-  
+  const usageRows = getRows<DailyCloseRow>(usageResult);
+
   // 3. h_batch_inputs가 비어있으면 h_production_material_usage에서 조회
   let finalUsageRows = usageRows;
   if (!usageRows || usageRows.length === 0) {
-    const [pmuRows]: any = await db.execute(
+    const pmuResult = await db.execute(
       `SELECT pmu.material_id, SUM(COALESCE(pmu.actual_quantity, pmu.planned_quantity)) as total_usage
        FROM h_production_material_usage pmu
        JOIN h_batches pb ON pb.id = pmu.batch_id
@@ -473,7 +489,7 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
        GROUP BY pmu.material_id`,
       [tenantId, closeDate]
     );
-    finalUsageRows = pmuRows;
+    finalUsageRows = getRows<DailyCloseRow>(pmuResult);
   }
   
   // 4. 입고량 반영
@@ -509,7 +525,7 @@ export async function autoUpdateFromDailyClose(closeDate: string, tenantId: numb
 /** 원료수불부 대시보드 요약 (지정월 또는 당월 기준) */
 export async function getDashboardSummary(tenantId: number, targetMonth?: string) {
   const db = await getRawConnection();
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayKST();
   const yearMonth = targetMonth || today.substring(0, 7);
   const [yr, mo] = yearMonth.split('-').map(Number);
   const lastDay = new Date(yr, mo, 0).getDate();
@@ -517,7 +533,7 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
   const endDate = `${yearMonth}-${String(lastDay).padStart(2, '0')}`;
 
   // 해당월 입고/사용 합계 (정제수 제외)
-  const [monthRows]: any = await db.execute(
+  const monthResult = await db.execute(
     `SELECT
        SUM(d.receiving_qty) as total_receiving,
        SUM(d.usage_qty) as total_usage
@@ -527,9 +543,10 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
        AND m.material_name NOT LIKE '%정제수%'`,
     [tenantId, startDate, endDate]
   );
+  const monthRows = getRows<{ total_receiving: number; total_usage: number }>(monthResult);
 
   // 해당월 입고/사용 금액 합계 (정제수 제외)
-  const [amountRows]: any = await db.execute(
+  const amountResult = await db.execute(
     `SELECT
        SUM(d.receiving_qty * COALESCE(m.unit_price, 0)) as total_receiving_amount,
        SUM(d.usage_qty * COALESCE(m.unit_price, 0)) as total_usage_amount
@@ -539,18 +556,20 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
        AND m.material_name NOT LIKE '%정제수%'`,
     [tenantId, startDate, endDate]
   );
+  const amountRows = getRows<{ total_receiving_amount: number; total_usage_amount: number }>(amountResult);
 
   // 이번 달 승인 상태
   const approval = await getApprovalStatus(yearMonth, tenantId);
 
   // 총 원재료 수 (정제수 제외)
-  const [matCount]: any = await db.execute(
+  const matCountResult = await db.execute(
     `SELECT COUNT(*) as cnt FROM h_materials WHERE tenant_id = ? AND is_active = 1 AND material_name NOT LIKE '%정제수%'`,
     [tenantId]
   );
+  const matCountRows = getRows<{ cnt: number }>(matCountResult);
 
   return {
-    materialCount: Number(matCount?.[0]?.cnt) || 0,
+    materialCount: Number(matCountRows?.[0]?.cnt) || 0,
     yearMonth,
     totalReceiving: Number(monthRows?.[0]?.total_receiving) || 0,
     totalUsage: Number(monthRows?.[0]?.total_usage) || 0,
@@ -601,13 +620,13 @@ export async function syncToAccounting(
   }
   
   // expense_journal_entries/lines에 복식부기 분개 생성
-  const [jeResult] = await conn.execute(
+  const jeResult = await conn.execute(
     `INSERT INTO expense_journal_entries
        (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
      VALUES (?, NULL, ?, ?, ?, ?, ?)`,
     [tenantId, date, `[원재료수불] ${description}`, amount, amount, userId]
   );
-  const journalEntryId = Number((jeResult as any).insertId);
+  const journalEntryId = getInsertId(jeResult);
 
   // 차변 라인
   await insertJournalLine(conn, {
@@ -632,16 +651,18 @@ export async function syncToAccounting(
 export async function getMaterialChecklistData(date: string, tenantId: number) {
   const conn = await getRawConnection();
   // 해당 일자의 원재료 입고/사용 요약 - 체크리스트 항목으로 제공
-  const [receiving]: any = await conn.execute(`
-    SELECT m.material_name, 
+  interface ChecklistItem { material_name: string; qty: number }
+  const recvResult = await conn.execute(`
+    SELECT m.material_name,
            COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
     FROM material_ledger_monthly d
     JOIN h_materials m ON m.id = d.material_id
     WHERE d.tenant_id = ? AND d.\`year_month\` = ?
     AND COALESCE(d.receiving_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
   `, [tenantId, date.substring(0, 7)]);
-  
-  const [usage]: any = await conn.execute(`
+  const receiving = getRows<ChecklistItem>(recvResult);
+
+  const usageResult = await conn.execute(`
     SELECT m.material_name,
            COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) as qty
     FROM material_ledger_monthly d
@@ -649,13 +670,14 @@ export async function getMaterialChecklistData(date: string, tenantId: number) {
     WHERE d.tenant_id = ? AND d.\`year_month\` = ?
     AND COALESCE(d.usage_day_${String(new Date(date).getDate()).padStart(2, '0')}, 0) > 0
   `, [tenantId, date.substring(0, 7)]);
-  
+  const usage = getRows<ChecklistItem>(usageResult);
+
   return {
     date,
-    receivingItems: receiving || [],
-    usageItems: usage || [],
-    receivingCount: receiving?.length || 0,
-    usageCount: usage?.length || 0
+    receivingItems: receiving,
+    usageItems: usage,
+    receivingCount: receiving.length,
+    usageCount: usage.length
   };
   // ※ getRawConnection()은 Pool 싱글턴 → release() 호출 금지
 }

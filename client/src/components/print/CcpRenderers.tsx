@@ -7,6 +7,8 @@
 import React from "react";
 import { TitleWithApproval } from "./PrintHelpers";
 
+import { formatLocalDate } from "../../lib/dateUtils";
+
 // ============================================================================
 // batch_production: 배치 CCP 기록지 요약 (기록지 없을 때)
 // ============================================================================
@@ -46,7 +48,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   // Date 객체 -> string 안전 변환 헬퍼
   const s = (v: any): string => {
     if (!v) return "";
-    if (v instanceof Date) return v.toISOString().split("T")[0];
+    if (v instanceof Date) return formatLocalDate(v);
     return String(v);
   };
 

@@ -12,6 +12,8 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 export const weeklyLogsRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
   getPreviousFormData: tenantRequiredProcedure
@@ -38,7 +40,7 @@ export const weeklyLogsRouter = router({
         } catch { return null; }
         return {
           sourceDate: row.form_date instanceof Date
-            ? row.form_date.toISOString().split('T')[0]
+            ? formatLocalDate(row.form_date)
             : String(row.form_date),
           formData: fd,
         };
@@ -73,7 +75,7 @@ export const weeklyLogsRouter = router({
         return {
           id: r.id,
           siteId: r.site_id,
-          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
+          logDate: r.form_date instanceof Date ? formatLocalDate(r.form_date) : String(r.form_date),
           title: r.title,
           status: r.status,
           formData: fd,
@@ -254,7 +256,7 @@ export const weeklyLogsRouter = router({
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           return {
             id: r.id, siteId: r.site_id,
-            log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
+            log_date: r.log_date instanceof Date ? formatLocalDate(r.log_date) : String(r.log_date || ''),
             title: r.title, status: r.status, creator_name: r.creator_name,
             approval_request_id: r.approval_request_id, approval_status: r.approval_status,
             formData,

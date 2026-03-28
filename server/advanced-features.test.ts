@@ -3,6 +3,8 @@ import { getDb, predictAllInventoryShortage, generatePurchaseOrderSuggestions, g
 import { hMaterials, hInventoryLots, hInventoryTransactions, hBatches, hProducts } from "../drizzle/schema_main";
 import { eq } from "drizzle-orm";
 
+import { toKSTDate, todayKST } from "./utils/timezone";
+
 describe("Phase 119-121: 재고 예측, LLM 최적화, 생산 효율성 대시보드", () => {
   let testMaterialId: number;
   let testProductId: number;
@@ -11,7 +13,7 @@ describe("Phase 119-121: 재고 예측, LLM 최적화, 생산 효율성 대시�
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트 원재료 생성
     const material = await db.insert(hMaterials).values({
@@ -116,8 +118,8 @@ describe("Phase 119-121: 재고 예측, LLM 최적화, 생산 효율성 대시�
   });
 
   it("배치별 원가 분석 (getCostAnalysis)", async () => {
-    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = toKSTDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+    const endDate = todayKST();
     
     const result = await getBatchCostAnalysis({ startDate, endDate });
     
@@ -133,8 +135,8 @@ describe("Phase 119-121: 재고 예측, LLM 최적화, 생산 효율성 대시�
   });
 
   it("생산 시간 추이 분석 (getProductionTimeAnalysis)", async () => {
-    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = toKSTDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+    const endDate = todayKST();
     
     const result = await getProductionTimeAnalysis({ startDate, endDate });
     
@@ -149,8 +151,8 @@ describe("Phase 119-121: 재고 예측, LLM 최적화, 생산 효율성 대시�
   });
 
   it("불량률 분석 (getDefectRateAnalysis)", async () => {
-    const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-    const endDate = new Date().toISOString().split("T")[0];
+    const startDate = toKSTDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+    const endDate = todayKST();
     
     const result = await getDefectRateAnalysis({ startDate, endDate });
     

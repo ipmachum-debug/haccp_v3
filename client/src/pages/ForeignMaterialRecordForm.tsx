@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "foreign_material_record",
   title: "이물 관리 기록",
@@ -13,7 +15,7 @@ const config: ChecklistFormConfig = {
 };
 
 const initialData = {
-  detectionDate: new Date().toISOString().split("T")[0],
+  detectionDate: todayLocal(),
   detectionLocation: "",
   materialType: "",
   severity: "low" as "low" | "medium" | "high" | "critical",

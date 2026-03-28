@@ -11,7 +11,7 @@ import { eq, inArray, and} from "drizzle-orm";
  */
 export async function getPendingApprovals(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 승인 요청 테이블에서 모든 승인 항목 조회
   const requests = await db

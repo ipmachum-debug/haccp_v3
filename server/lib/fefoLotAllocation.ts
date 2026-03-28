@@ -23,7 +23,7 @@ export async function allocateLotsFEFO(
   materialId?: number
 ): Promise<Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }>> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
   let availableLots = await db
@@ -133,7 +133,7 @@ export async function saveLotAllocations(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { docLineLots } = await import("../../drizzle/schema_inventory_accounting");
 

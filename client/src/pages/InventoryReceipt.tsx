@@ -12,6 +12,8 @@ import { PackagePlus, Loader2, DollarSign } from "lucide-react";
 import { useLocation } from "wouter";
 import { Checkbox } from "@/components/ui/checkbox";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function InventoryReceipt() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");
@@ -19,7 +21,7 @@ export default function InventoryReceipt() {
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("kg");
   const [expiryDate, setExpiryDate] = useState("");
-  const [receiptDate, setReceiptDate] = useState(new Date().toISOString().split("T")[0]);
+  const [receiptDate, setReceiptDate] = useState(todayLocal());
   const [autoCreatePurchase, setAutoCreatePurchase] = useState(true);
   const [unitPrice, setUnitPrice] = useState("");
   const [supplierId, setSupplierId] = useState<number | null>(null);
@@ -78,7 +80,7 @@ export default function InventoryReceipt() {
       setSupplierId(null);
       setSupplierName("");
       setExpiryDate("");
-      setReceiptDate(new Date().toISOString().split("T")[0]);
+      setReceiptDate(todayLocal());
       refetchLots();
     },
     onError: (error: any) => {
@@ -112,7 +114,7 @@ export default function InventoryReceipt() {
       setSupplierId(null);
       setSupplierName("");
       setExpiryDate("");
-      setReceiptDate(new Date().toISOString().split("T")[0]);
+      setReceiptDate(todayLocal());
       refetchLots();
     },
     onError: (error: any) => {

@@ -19,7 +19,7 @@ export async function createNotification(data: {
   metadata?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [notification] = await db.insert(hNotifications).values({
     ...data,
     tenantId: data.tenantId,
@@ -31,7 +31,7 @@ export async function createNotification(data: {
 
 export async function getNotifications(userId?: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [];
   if (userId) conditions.push(eq(hNotifications.userId, userId));
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
@@ -50,7 +50,7 @@ export async function getNotifications(userId?: number, tenantId?: number) {
 
 export async function markNotificationAsRead(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   await db
@@ -61,7 +61,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId?: 
 
 export async function deleteNotification(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   await db
@@ -71,7 +71,7 @@ export async function deleteNotification(notificationId: number, tenantId?: numb
 
 export async function checkAndCreateExpiryNotifications(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const sevenDaysFromNow = new Date();
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
 
@@ -115,7 +115,7 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
 // 모든 알림 읽음 처리
 export async function markAllNotificationsAsRead(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hNotifications } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
@@ -131,7 +131,7 @@ export async function markAllNotificationsAsRead(userId: number) {
 // 모든 알림 삭제
 export async function deleteAllNotifications(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hNotifications } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
@@ -147,7 +147,7 @@ export async function deleteAllNotifications(userId: number) {
 // 검사 결과 부적합 발생 시 알림 생성
 export async function checkAndCreateInspectionFailureAlerts() {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hInspectionRecords, hNotifications, users } = await import("../../drizzle/schema.js");
   const { eq, and, gte } = await import("drizzle-orm");
@@ -218,7 +218,7 @@ export async function checkAndCreateInspectionFailureAlerts() {
  */
 export async function markNotificationAsResolved(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
@@ -234,7 +234,7 @@ export async function markNotificationAsResolved(notificationId: number, tenantI
  */
 export async function getNotificationStatistics(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { sql } = await import("drizzle-orm");
 
@@ -320,7 +320,7 @@ export async function getNotificationStatistics(startDate?: string, endDate?: st
 
 export async function getNotificationCountsByType(userId?: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.isRead, 0)];
   if (userId) conditions.push(eq(hNotifications.userId, userId));
@@ -387,7 +387,7 @@ export async function deleteMultipleNotifications(notificationIds: number[], ten
 // 읽은 알림 자동 삭제 (30일 경과)
 export async function deleteOldReadNotifications(days: number = 30, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -407,7 +407,7 @@ export async function deleteOldReadNotifications(days: number = 30, tenantId?: n
 // 특정 타입 알림 자동 아카이브
 export async function archiveNotificationsByType(notificationType: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.notificationType, notificationType)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));

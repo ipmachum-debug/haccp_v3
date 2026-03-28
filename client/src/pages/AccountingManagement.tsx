@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,8 @@ import { toast } from "sonner";
 import { Plus, Download, TrendingUp, TrendingDown, DollarSign, Calendar, Filter, Edit, Trash2, BarChart3, FileText } from "lucide-react";
 import * as XLSX from "xlsx";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function AccountingManagement() {
   return (
     <DashboardLayout>
@@ -25,10 +28,11 @@ export default function AccountingManagement() {
 }
 
 function AccountingManagementContent() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'dashboard');
   const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<any>(null);
   const [transactionForm, setTransactionForm] = useState({
-    transactionDate: new Date().toISOString().split("T")[0],
+    transactionDate: todayLocal(),
     type: "expense" as "income" | "expense",
     amount: "",
     categoryId: "",
@@ -37,8 +41,8 @@ function AccountingManagementContent() {
 
   // 필터 상태
   const [filters, setFilters] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0],
-    endDate: new Date().toISOString().split("T")[0],
+    startDate: formatLocalDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    endDate: todayLocal(),
     type: "all" as "all" | "income" | "expense",
     categoryId: "all",
   });
@@ -111,7 +115,7 @@ function AccountingManagementContent() {
 
   const resetForm = () => {
     setTransactionForm({
-      transactionDate: new Date().toISOString().split("T")[0],
+      transactionDate: todayLocal(),
       type: "expense",
       amount: "",
       categoryId: "",
@@ -350,7 +354,7 @@ function AccountingManagementContent() {
         </div>
       )}
 
-      <Tabs defaultValue="dashboard" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="dashboard">
             <BarChart3 className="h-4 w-4 mr-2" />

@@ -5,7 +5,10 @@ import BankAccountTab from "@/components/bank/BankAccountTab";
 import BankTransactionTab from "@/components/bank/BankTransactionTab";
 import MatchingRuleTab from "@/components/bank/MatchingRuleTab";
 
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
+
 export default function BankManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'transactions');
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -16,7 +19,7 @@ export default function BankManagement() {
           </p>
         </div>
 
-        <Tabs defaultValue="transactions" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="transactions">은행 거래 내역</TabsTrigger>
             <TabsTrigger value="rules">매칭 규칙 관리</TabsTrigger>

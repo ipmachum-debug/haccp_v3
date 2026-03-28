@@ -19,8 +19,6 @@ export async function processAutoApprovals() {
   }
 
   try {
-    console.log("[승인 자동화] 자동 승인 조건 체크 시작");
-
     // [보안] 활성 테넌트 목록 조회
     const activeTenants = await db
       .select({ id: tenants.id })
@@ -115,18 +113,13 @@ export async function processAutoApprovals() {
               )
             );
 
-          console.log(`[승인 자동화] [tenant:${tenantId}] 자동 승인 처리: ${request.title} (${reason})`);
           processedCount++;
         }
       }
 
-      if (processedCount > 0) {
-        console.log(`[승인 자동화] [tenant:${tenantId}] ${processedCount}개 승인 요청 자동 처리 완료`);
-      }
       totalProcessedCount += processedCount;
     }
 
-    console.log(`[승인 자동화] 전체 ${totalProcessedCount}개 승인 요청 자동 처리 완료`);
     return { success: true, processedCount: totalProcessedCount };
   } catch (error) {
     console.error("[승인 자동화] Error:", error);
@@ -145,8 +138,6 @@ export async function assignReviewers() {
   }
 
   try {
-    console.log("[승인 자동화] 검토자 자동 배정 시작");
-
     // [보안] 활성 테넌트 목록 조회
     const activeTenants = await db
       .select({ id: tenants.id })
@@ -204,17 +195,12 @@ export async function assignReviewers() {
         //   })
         //   .where(eq(hApprovalRequests.id, request.id));
 
-        console.log(`[승인 자동화] [tenant:${tenantId}] 검토자 배정: ${request.title} → ${reviewer.name}`);
         assignedCount++;
       }
 
-      if (assignedCount > 0) {
-        console.log(`[승인 자동화] [tenant:${tenantId}] ${assignedCount}개 승인 요청에 검토자 배정 완료`);
-      }
       totalAssignedCount += assignedCount;
     }
 
-    console.log(`[승인 자동화] 전체 ${totalAssignedCount}개 승인 요청에 검토자 배정 완료`);
     return { success: true, assignedCount: totalAssignedCount };
   } catch (error) {
     console.error("[승인 자동화] Error:", error);

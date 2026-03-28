@@ -19,7 +19,7 @@ import {
  */
 export async function traceLotForward(lotId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 원재료 LOT 정보 조회
   const [lot] = await db
@@ -90,7 +90,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
  */
 export async function traceLotBackward(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 정보 조회
   const [batch] = await db
@@ -148,7 +148,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
  */
 export async function traceLotByProductLotNumber(lotNumber: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. LOT 번호로 배치 조회 (h_batch_products 테이블에서)
   const [batchProduct] = await db
@@ -168,7 +168,7 @@ export async function traceLotByProductLotNumber(lotNumber: string, tenantId?: n
  */
 export async function traceLotByMaterialLotNumber(lotNumber: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. LOT 번호로 원재료 LOT 조회
   const [lot] = await db

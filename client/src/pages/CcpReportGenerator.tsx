@@ -10,11 +10,13 @@ import { Badge } from "../components/ui/badge";
 import { FileDown, FileText, Calendar, BarChart3, AlertTriangle, CheckCircle2, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function CcpReportGenerator() {
   const [reportType, setReportType] = useState<string>("daily");
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: formatLocalDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+    endDate: todayLocal(),
   });
   const [selectedCcpType, setSelectedCcpType] = useState<string>("all");
 

@@ -13,12 +13,15 @@ import ExcelJS from "exceljs";
 
 // ─── DB 연결 ───
 async function getDbConnection() {
-  return mysql.createConnection({
+  const conn = await mysql.createConnection({
     host: "localhost",
     user: "root",
     password: "G0ld3n!T1004#Sec",
     database: "haccp_tenant_db",
   });
+  // KST 타임존 설정
+  await conn.query("SET time_zone = '+09:00'");
+  return conn;
 }
 
 function formatDate(val: any): string {

@@ -172,7 +172,8 @@ async function main() {
       }
       
       // usage 트랜잭션 생성 (lot_id가 없어도 기록)
-      const txnDate = inp.planned_date || new Date().toISOString().split('T')[0];
+      const now = new Date();
+      const txnDate = inp.planned_date || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       
       if (lotId) {
         await pool.execute(

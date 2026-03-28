@@ -40,6 +40,8 @@ import { AlertTriangle, Plus, Edit, FileText, Download, CheckCircle, XCircle } f
 import { RiskMatrix } from "@/components/RiskMatrix";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number>(1);
@@ -177,7 +179,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
       yPos += 10;
     });
     
-    doc.save(`hazard-analysis-report-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`hazard-analysis-report-${todayLocal()}.pdf`);
     alert("보고서가 성공적으로 다운로드되었습니다.");
   };
 

@@ -12,7 +12,7 @@ export async function addRetryTask(data: {
   maxRetries?: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [retry] = await db.insert(hBatchCompletionRetries).values({
       tenantId,
@@ -32,7 +32,7 @@ export async function addRetryTask(data: {
  */
 export async function getPendingRetryTasks(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return await db
     .select()
@@ -54,7 +54,7 @@ export async function updateRetryTaskStatus(
   status: "retrying" | "success" | "failed",
   errorMessage?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(hBatchCompletionRetries)
@@ -70,7 +70,7 @@ export async function updateRetryTaskStatus(
  */
 export async function incrementRetryCount(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [retry] = await db
     .select()
@@ -99,7 +99,7 @@ export async function incrementRetryCount(id: number, tenantId?: number) {
  */
 export async function getFailedRetryTasks(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return await db
     .select()
@@ -112,6 +112,6 @@ export async function getFailedRetryTasks(tenantId?: number) {
  */
 export async function deleteRetryTask(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db.delete(hBatchCompletionRetries).where(and(eq(hBatchCompletionRetries.tenantId, tenantId as any) , eq(hBatchCompletionRetries.id, id)) as any);}

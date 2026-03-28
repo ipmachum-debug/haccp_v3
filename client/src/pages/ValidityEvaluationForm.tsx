@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "validity_evaluation",
   title: "유효성 평가",
@@ -13,7 +15,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function ValidityEvaluationForm() {
-  const [evaluationDate, setEvaluationDate] = useState(new Date().toISOString().split("T")[0]);
+  const [evaluationDate, setEvaluationDate] = useState(todayLocal());
   const [evaluationType, setEvaluationType] = useState("");
   const [evaluationScope, setEvaluationScope] = useState("");
   const [evaluationResult, setEvaluationResult] = useState("pass");

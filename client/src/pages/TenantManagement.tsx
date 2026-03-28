@@ -60,6 +60,8 @@ import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function TenantManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -81,7 +83,7 @@ export default function TenantManagement() {
   const [subscriptionForm, setSubscriptionForm] = useState({
     subscriptionPackage: "basic" as "basic" | "pro",
     subscriptionDays: 30,
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: todayLocal(),
   });
 
   // GOGOGOPICK 연동 폼 상태
@@ -297,7 +299,7 @@ export default function TenantManagement() {
     setSubscriptionForm({
       subscriptionPackage: tenant.subscriptionPackage || "basic",
       subscriptionDays: tenant.subscriptionDays || 30,
-      startDate: tenant.subscriptionStartDate || new Date().toISOString().split('T')[0],
+      startDate: tenant.subscriptionStartDate || todayLocal(),
     });
     setSubscriptionTab("haccp");
     setSubscriptionDialogOpen(true);

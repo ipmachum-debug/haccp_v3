@@ -10,6 +10,8 @@
 import { getDb } from "../db";
 import { sql, eq } from "drizzle-orm";
 
+import { todayKST } from "../utils/timezone";
+
 interface AutoApprovalResult {
   success: boolean;
   documentInstanceId: number | null;
@@ -23,7 +25,7 @@ export async function autoCreateApprovalRequest(
   pdfUrl?: string | null
 ): Promise<AutoApprovalResult> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     const { hBatches } = await import("../../drizzle/schema");
@@ -36,7 +38,7 @@ export async function autoCreateApprovalRequest(
     const siteId = Number(batch.siteId);
     const tenantId = Number(batch.tenantId);
     const productId = Number(batch.productId);
-    const workDate = new Date().toISOString().split("T")[0];
+    const workDate = todayKST();
 
     const productInfo = await db.execute(sql`
       SELECT product_name, product_code FROM h_products_v2 WHERE id = ${productId} AND tenant_id = ${tenantId} LIMIT 1
@@ -144,7 +146,7 @@ export async function reviewApprovalRequest(
   comments?: string
 ): Promise<{ success: boolean; message: string }> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     await db.execute(sql`
@@ -189,7 +191,7 @@ export async function finalApproveRequest(
   comments?: string
 ): Promise<{ success: boolean; message: string; inventoryTriggered?: boolean }> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
     await db.execute(sql`
@@ -271,7 +273,7 @@ export async function bulkApproveDocuments(
   comments?: string
 ): Promise<{ success: boolean; approved: number; failed: number; errors: string[] }> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   let approved = 0;
   let failed = 0;
@@ -307,10 +309,10 @@ export async function createBatchPrintGroup(
   tenantId: number
 ): Promise<{ success: boolean; groupId: number | null; message: string }> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   try {
-    const workDate = new Date().toISOString().split("T")[0];
+    const workDate = todayKST();
 
     const groupResult = await db.execute(sql`
       INSERT INTO document_batch_print_groups

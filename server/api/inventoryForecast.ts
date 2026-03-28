@@ -14,7 +14,7 @@ import { eq, and, gte, sql, desc } from "drizzle-orm";
  */
 export async function calculateUsagePattern(materialId: number, tenantId: number, days: number = 30) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
@@ -73,7 +73,7 @@ export async function calculateUsagePattern(materialId: number, tenantId: number
  */
 export async function predictStockout(materialId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 현재 재고 조회
   const inventory = await db
@@ -138,7 +138,7 @@ export async function predictStockout(materialId: number, tenantId: number) {
  */
 export async function recommendPurchase(materialId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 정보 조회
   const material = await db
@@ -206,7 +206,7 @@ export async function recommendPurchase(materialId: number, tenantId: number) {
  */
 export async function getAllPurchaseRecommendations(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 해당 테넌트의 원재료 조회
   const materials = await db
@@ -245,7 +245,7 @@ export async function getAllPurchaseRecommendations(tenantId: number) {
  */
 export async function checkLowStockPrediction(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const recommendations = await getAllPurchaseRecommendations(tenantId);
   const notifications: Array<{
@@ -279,7 +279,7 @@ export async function checkLowStockPrediction(tenantId: number) {
  */
 export async function createLowStockNotifications(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const notifications = await checkLowStockPrediction(tenantId);
   const createdNotifications: Array<{

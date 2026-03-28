@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,7 @@ import {
 } from "@/components/ui/tabs";
 
 export default function EmployeeApproval() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'pending');
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [action, setAction] = useState<"approve" | "reject" | "delete" | null>(null);
   const [adminMemo, setAdminMemo] = useState("");
@@ -193,7 +195,7 @@ export default function EmployeeApproval() {
         </div>
 
         {/* 탭 */}
-        <Tabs defaultValue="pending" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full max-w-md grid-cols-2">
             <TabsTrigger value="pending">
               승인 대기 ({pendingUsers.length})

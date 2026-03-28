@@ -10,6 +10,8 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 월 마감 요약 생성 또는 업데이트
  */
@@ -113,8 +115,8 @@ export async function calculateMonthlySummary(year: number, month: number, tenan
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0); // 다음 달 0일 = 이번 달 마지막 날
   
-  const startDateStr = startDate.toISOString().split('T')[0];
-  const endDateStr = endDate.toISOString().split('T')[0];
+  const startDateStr = formatLocalDate(startDate);
+  const endDateStr = formatLocalDate(endDate);
   
   // 일일 마감 데이터 조회
   const dailyCloses = await db
@@ -181,8 +183,8 @@ export async function extractHighAmountTransactions(
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0);
   
-  const startDateStr = startDate.toISOString().split('T')[0];
-  const endDateStr = endDate.toISOString().split('T')[0];
+  const startDateStr = formatLocalDate(startDate);
+  const endDateStr = formatLocalDate(endDate);
   
   // 일일 마감 데이터 조회
   const dailyCloses = await db

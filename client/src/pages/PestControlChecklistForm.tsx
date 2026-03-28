@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "pest_control_checklist",
   title: "방충·방서 점검표",
@@ -66,7 +68,7 @@ export default function PestControlChecklistForm() {
   });
 
   const onDataRestore = (data: any) => {
-    if (data.checkDate) setCheckDate(data.checkDate instanceof Date ? data.checkDate.toISOString().split("T")[0] : data.checkDate);
+    if (data.checkDate) setCheckDate(data.checkDate instanceof Date ? formatLocalDate(data.checkDate) : data.checkDate);
     if (data.specialNotes) setSpecialNotes(data.specialNotes);
     if (data.rows && data.rows.length > 0) {
       setRows(data.rows.map((r: any) => ({

@@ -9,7 +9,7 @@ describe("Phase 123: 발주 제안 승인/거부 워크플로우", () => {
   
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
     
     // 테스트 원재료 생성
     const [material] = await db
@@ -50,7 +50,7 @@ describe("Phase 123: 발주 제안 승인/거부 워크플로우", () => {
     
     // LOT 생성 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
     
     const [lot] = await db
       .select()

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -17,6 +18,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function ProductionStatus() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'today');
   const [chartPeriod, setChartPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
 
   // 서버사이드 통계 (전체 배치 기반 정확한 집계)
@@ -194,7 +196,7 @@ export default function ProductionStatus() {
       </Card>
 
       {/* 생산 현황 탭 */}
-      <Tabs defaultValue="today" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="today">오늘</TabsTrigger>
           <TabsTrigger value="in-progress">진행중</TabsTrigger>

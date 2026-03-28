@@ -29,7 +29,7 @@ describe("User Management API", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     adminEmail = `admin-${Date.now()}@test.com`;
     workerEmail = `worker-${Date.now()}@test.com`;
@@ -141,7 +141,7 @@ describe("User Management API", () => {
     
     // 변경된 역할 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
     
     const [updatedUser] = await db
       .select()
@@ -203,7 +203,7 @@ describe("User Management API", () => {
     
     // 비활성화 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
     
     const [deactivatedUser] = await db
       .select()

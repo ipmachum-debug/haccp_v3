@@ -8,7 +8,10 @@ import ProductsTab from "@/components/masterData/ProductsTab";
 import MaterialsTab from "@/components/masterData/MaterialsTab";
 import SuppliersTab from "@/components/masterData/SuppliersTab";
 
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
+
 export default function MasterDataManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'products');
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -20,7 +23,7 @@ export default function MasterDataManagement() {
           </div>
         </div>
 
-        <Tabs defaultValue="products" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package className="h-4 w-4" />

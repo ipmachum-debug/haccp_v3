@@ -17,6 +17,8 @@ import { Package, Plus, AlertTriangle, Download, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function Inventory() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [materialId, setMaterialId] = useState<number | null>(null);
@@ -24,7 +26,7 @@ export default function Inventory() {
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("kg");
   const [expiryDate, setExpiryDate] = useState("");
-  const [receiptDate, setReceiptDate] = useState(new Date().toISOString().split("T")[0]);
+  const [receiptDate, setReceiptDate] = useState(todayLocal());
 
   const { data: lots, isLoading, refetch } = trpc.inventory.list.useQuery();
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
@@ -42,7 +44,7 @@ export default function Inventory() {
       setQuantity("");
       setUnit("kg");
       setExpiryDate("");
-      setReceiptDate(new Date().toISOString().split("T")[0]);
+      setReceiptDate(todayLocal());
     },
     onError: (error: any) => {
       toast.error(`입고 실패: ${error.message}`);

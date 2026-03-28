@@ -7,7 +7,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
  */
 export async function getBatchStatusSummary(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const summary = await db
     .select({
@@ -24,7 +24,7 @@ export async function getBatchStatusSummary(tenantId?: number) {
  */
 export async function getInProgressBatches(limit: number = 10, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const batches = await db
     .select()
@@ -40,7 +40,7 @@ export async function getInProgressBatches(limit: number = 10, tenantId?: number
  */
 export async function getCompletedBatches(limit: number = 10, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const batches = await db
     .select()
@@ -56,7 +56,7 @@ export async function getCompletedBatches(limit: number = 10, tenantId?: number)
  */
 export async function getPendingApprovalBatches(limit: number = 10, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 완료 상태이면서 승인 이력이 없거나 pending 상태인 배치
   const conditions = [
@@ -92,7 +92,7 @@ export async function getPendingApprovalBatches(limit: number = 10, tenantId?: n
  */
 export async function getBatchDashboardData(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [summary, inProgress, completed, pendingApproval] = await Promise.all([
     getBatchStatusSummary(tenantId),

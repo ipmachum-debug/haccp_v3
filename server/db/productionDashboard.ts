@@ -7,7 +7,7 @@ import { hBatches } from "../../drizzle/schema_main";
  */
 export async function getActiveBatches(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const now = new Date();
 
   const batches = await db
@@ -48,7 +48,7 @@ export async function getActiveBatches(tenantId?: number) {
  */
 export async function getBatchStats(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const stats = await db
     .select({

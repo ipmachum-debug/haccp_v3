@@ -958,7 +958,7 @@ function renderGenericData(data: any, formType: string) {
                 <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
                 {keys.map((k, i) => (
                   <td key={i} className="border border-gray-400 px-2 py-1 text-center">
-                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? row[k].toISOString().split("T")[0] : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
+                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? row[k].toLocaleDateString("sv-SE") : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
                   </td>
                 ))}
               </tr>
@@ -1068,7 +1068,7 @@ function renderCcpFormRecord(fr: any, doc: any) {
   // Date 객체 -> string 안전 변환 헬퍼
   const s = (v: any): string => {
     if (!v) return "";
-    if (v instanceof Date) return v.toISOString().split("T")[0];
+    if (v instanceof Date) return v.toLocaleDateString("sv-SE");
     return String(v);
   };
 

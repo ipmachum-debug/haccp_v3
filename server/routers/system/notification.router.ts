@@ -112,7 +112,7 @@ export const notificationRouter = router({
     getNotificationRetentionPolicy: tenantRequiredProcedure
       .query(async () => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
         
         const [setting] = await db
           .select()
@@ -129,7 +129,7 @@ export const notificationRouter = router({
       .input(z.object({ days: z.number().min(1).max(365) }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
         
         // 기존 설정 확인
         const [existing] = await db

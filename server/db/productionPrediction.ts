@@ -7,6 +7,8 @@ import { getDb } from "../db";
 import { hBatches, hBatchMaterials, hMaterials } from "../../drizzle/schema";
 import { eq, and, gte, sql, desc } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 배치 생산 예측 데이터 조회
  */
@@ -45,7 +47,7 @@ export async function getProductionPredictionData(productId?: number, tenantId?:
       validBatchCount++;
 
       productionTimeChart.push({
-        date: batch.plannedDate.toISOString().split('T')[0],
+        date: formatLocalDate(batch.plannedDate),
         actual: Math.round(productionTime * 10) / 10,
         predicted: 0, // 예측값은 나중에 계산
       });
@@ -94,7 +96,7 @@ export async function getProductionPredictionData(productId?: number, tenantId?:
   const predictionAccuracy = 85;
 
   const accuracyChart = batches.slice(0, 10).map((batch) => ({
-    date: batch.plannedDate.toISOString().split('T')[0],
+    date: formatLocalDate(batch.plannedDate),
     accuracy: Math.round((Math.random() * 20 + 75)), // 임시 데이터 (75-95%)
   }));
 

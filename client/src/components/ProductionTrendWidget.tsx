@@ -6,6 +6,8 @@ import { TrendingUp, Package, Download } from "lucide-react";
 import { convertToCSV, downloadCSV } from "@/lib/csvExport";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export function ProductionTrendWidget() {
   const [days, setDays] = useState<number>(7);
   const { data, isLoading } = trpc.dashboard.getProductionTrend.useQuery({ days });
@@ -84,7 +86,7 @@ export function ProductionTrendWidget() {
                   { key: "count", label: "배치 수" },
                 ]
               );
-              downloadCSV(csv, `배치_생산_추이_${new Date().toISOString().split("T")[0]}.csv`);
+              downloadCSV(csv, `배치_생산_추이_${todayLocal()}.csv`);
               toast.success("CSV 파일이 다운로드되었습니다");
             }}
             className="text-xs"

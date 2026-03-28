@@ -13,7 +13,7 @@ export async function saveLotTraceHistory(data: {
   userName?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .insert(lotTraceHistory)
@@ -34,7 +34,7 @@ export async function saveLotTraceHistory(data: {
  */
 export async function getLotTraceHistory(limit: number = 100, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const history = await db
     .select()
@@ -49,7 +49,7 @@ export async function getLotTraceHistory(limit: number = 100, tenantId?: number)
  */
 export async function getTopSearchedLots(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result = await db
     .select({
@@ -69,7 +69,7 @@ export async function getTopSearchedLots(tenantId?: number) {
  */
 export async function getUserTraceStats(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [sql`${lotTraceHistory.userName} IS NOT NULL`];
   if (tenantId) {
@@ -96,7 +96,7 @@ export async function getUserTraceStats(tenantId?: number) {
  */
 export async function getLotTraceHistoryByLotNumber(lotNumber: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const history = await db
     .select()

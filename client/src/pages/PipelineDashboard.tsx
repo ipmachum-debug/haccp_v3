@@ -35,6 +35,8 @@ import {
 import { trpc } from '@/lib/trpc';
 import { useAuth } from '@/_core/hooks/useAuth';
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 파이프라인 단계 정의
 const PIPELINE_STAGES = [
   { id: 'recipe', name: '레시피', icon: FileText, step: 1 },
@@ -134,7 +136,7 @@ export const PipelineDashboardContent: React.FC = () => {
   const { user } = useAuth();
   const siteId = (user as any)?.siteId || 1;
   const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    todayLocal()
   );
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [sensors] = useState<SensorData[]>(MOCK_SENSORS);

@@ -1,3 +1,9 @@
+// ═══════════════════════════════════════════════════════════════
+// routers-ai.ts - AI 통합 tRPC 라우터
+// 챗봇(Action Engine), 규칙엔진, 기준서→체크리스트,
+// 지식베이스(RAG), 알림, Context Layer, 커스텀 규칙,
+// 이상탐지, 예측분석, HACCP 계획서, 보고서 내러티브
+// ═══════════════════════════════════════════════════════════════
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
@@ -8,6 +14,8 @@ import { getRawConnection } from "./db";
 import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/aiActionEngine";
 import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
 import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
+
+import { toKSTDate, todayKST } from "./utils/timezone";
 
 // ============================================================================
 // HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
@@ -260,7 +268,9 @@ Q: 모바일에서도 사용할 수 있나요?
 A: 네, 웹 브라우저를 통해 모바일에서도 접속 가능하며, "모바일 빠른 점검" 기능은 모바일에 최적화되어 있습니다.
 `;
 
-// 대화 히스토리 저장 (메모리 + DB 영속화)
+// ═══════════════════════════════════════════════════════════════
+// 대화 히스토리 관리 (메모리 캐시 + DB 영속화)
+// ═══════════════════════════════════════════════════════════════
 const conversationHistory = new Map<string, Array<{ role: string; content: string }>>();
 
 /** DB에서 대화 히스토리 복구 (서버 재시작 시) */
@@ -501,7 +511,7 @@ export const aiRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const tenantId = ctx.tenantId;
-        const date = input?.date || new Date().toISOString().split("T")[0];
+        const date = input?.date || todayKST();
 
         const results = await evaluateAllRules(tenantId, date);
         const savedCount = await saveAlerts(tenantId, results);
@@ -555,7 +565,7 @@ export const aiRouter = router({
         console.error("[AI Dashboard Error]", error?.message || error);
         return {
           success: false,
-          date: input?.date || new Date().toISOString().split("T")[0],
+          date: input?.date || todayKST(),
           activeAlerts: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
           recentAlerts: [],
           batchRiskSummary: { high: 0, medium: 0, low: 0 },
@@ -1405,8 +1415,10 @@ export const aiRouter = router({
     }),
 
   // ============================================================================
-  // P8-2: AI 이상탐지 (Anomaly Detection)
+  // P8: AI 고급 분석 (이상탐지, 예측, HACCP 계획서, 보고서)
   // ============================================================================
+
+  /** AI 이상탐지 (CCP/체크리스트/설비 패턴 분석) */
   detectAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const { detectAnomalies } = await import("./db/aiAnomalyDetection");
@@ -1564,7 +1576,7 @@ export const aiRouter = router({
         const rows = Array.isArray(raw) && Array.isArray(raw[0]) ? raw[0] : raw;
         return (rows as any[]).map((r: any) => ({
           ...r,
-          date: r.date ? new Date(r.date).toISOString().split("T")[0] : r.date,
+          date: r.date ? toKSTDate(new Date(r.date)) : r.date,
         }));
       };
 
@@ -1632,8 +1644,10 @@ export const aiRouter = router({
     }),
 
   // ============================================================================
-  // ERP AI: 비용 이상탐지
+  // ERP AI: 회계/재무 AI 분석 (비용, 현금흐름, AP/AR, 분개검증)
   // ============================================================================
+
+  /** 비용 이상탐지 (월별 비용 패턴 기반) */
   detectExpenseAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");

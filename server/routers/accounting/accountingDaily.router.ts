@@ -3,6 +3,8 @@ import { adminProcedure, tenantRequiredProcedure, router } from "../../_core/trp
 import { z } from "zod";
 import { lt, or } from "drizzle-orm";
 
+import { formatLocalDate } from "../../utils/timezone";
+
 export const accountingDailyRouter = router({
     // 일일 마감 실행
     execute: adminProcedure
@@ -23,7 +25,7 @@ export const accountingDailyRouter = router({
         // === 원료수불부 일일 마감 연동 ===
         try {
           const { autoUpdateFromDailyClose } = await import("../../db/materialLedger");
-          await autoUpdateFromDailyClose(input.closeDate.toISOString().split('T')[0], ctx.tenantId as any);
+          await autoUpdateFromDailyClose(formatLocalDate(input.closeDate), ctx.tenantId as any);
           console.log("[원료수불부] 일일 마감 자동 업데이트 완료:", input.closeDate);
         } catch (ledgerError) {
           console.error("[원료수불부] 일일 마감 연동 실패:", ledgerError);

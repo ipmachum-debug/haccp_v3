@@ -1,3 +1,9 @@
+// ═══════════════════════════════════════════════════════════════
+// mfReportAPI.ts - 품목제조보고(BOM) DB 함수
+// 보고서 CRUD, 버전 관리, 원재료 배합비, 맛(Flavor),
+// 승인 워크플로, PDF 출력, 보정 배합비, 오차 분석,
+// 공정그룹 매핑, 배치 배합비 조정 계산
+// ═══════════════════════════════════════════════════════════════
 import { getDb } from "../db";
 import {
   hMfReports,
@@ -13,9 +19,11 @@ import PDFDocument from "pdfkit";
 import * as path from "path";
 import * as fs from "fs";
 
-/**
- * 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음)
- */
+// ═══════════════════════════════════════════════════════════════
+// PDF 한글 폰트 유틸리티
+// ═══════════════════════════════════════════════════════════════
+
+/** 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음) */
 function findFontPath(fontName: string): string | null {
   const possiblePaths = [
     path.join(process.cwd(), "fonts", fontName),
@@ -58,12 +66,14 @@ function registerKoreanFont(doc: any): { regular: string; bold: string } {
   };
 }
 
-/**
- * 품목제조보고 목록 조회
- */
+// ═══════════════════════════════════════════════════════════════
+// 품목제조보고 CRUD (h_mf_reports)
+// ═══════════════════════════════════════════════════════════════
+
+/** 품목제조보고 목록 조회 (tenantId 필터) */
 export async function getMfReports(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   return db
     .select({
@@ -86,7 +96,7 @@ export async function getMfReports(tenantId: number) {
  */
 export async function getMfReportDetail(mfReportId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 품목제조보고 기본 정보
   const report = await db
@@ -183,7 +193,7 @@ export async function createMfReport(data: {
   batchTargetKg?: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 품목제조보고 마스터 생성
   const [reportResult] = await db.insert(hMfReports).values({
@@ -246,9 +256,11 @@ export async function createMfReport(data: {
   return mfReportId;
 }
 
-/**
- * 품목제조보고 버전 생성
- */
+// ═══════════════════════════════════════════════════════════════
+// 버전 관리 (h_mf_report_versions)
+// ═══════════════════════════════════════════════════════════════
+
+/** 품목제조보고 버전 생성 (자동 버전 번호 증가) */
 export async function createMfReportVersion(data: {
   mfReportId: number;
   effectiveFrom: string;
@@ -257,7 +269,7 @@ export async function createMfReportVersion(data: {
   createdBy?: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 최신 버전 번호 조회
   const latestVersion = await db
@@ -284,9 +296,11 @@ export async function createMfReportVersion(data: {
 
 
 
-/**
- * 맛(Flavor) 생성
- */
+// ═══════════════════════════════════════════════════════════════
+// 맛(Flavor) 및 원재료 구성 관리
+// ═══════════════════════════════════════════════════════════════
+
+/** 맛(Flavor) 생성 */
 export async function createMfFlavor(data: {
   mfReportVersionId: number;
   flavorCode: string;
@@ -294,7 +308,7 @@ export async function createMfFlavor(data: {
   appliesToSku?: string;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db.insert(hMfFlavors).values(data);
   
@@ -314,7 +328,7 @@ export async function addMfIngredient(data: {
   isDeductible: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db.insert(hMfIngredients).values(data);
   
@@ -326,7 +340,7 @@ export async function addMfIngredient(data: {
  */
 export async function getMfReportVersionDetail(versionId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 버전 기본 정보
   const version = await db
@@ -387,7 +401,7 @@ export async function getMfReportVersionDetail(versionId: number, tenantId: numb
  */
 export async function getMfReportVersionByDate(mfReportId: number, date: string, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const version = await db
     .select()
@@ -414,7 +428,7 @@ export async function getMfReportVersionByDate(mfReportId: number, date: string,
  */
 export async function getMfReportVersions(mfReportId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   return db
     .select()
@@ -436,7 +450,7 @@ export async function updateMfIngredient(
     originNote?: string;
   }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(hMfIngredients)
@@ -451,7 +465,7 @@ export async function updateMfIngredient(
  */
 export async function deleteMfIngredient(ingredientId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .delete(hMfIngredients)
@@ -467,7 +481,7 @@ export async function bulkUpdateMfReportStatus(
   ids: number[],
   status: "ACTIVE" | "INACTIVE" | "ARCHIVED", tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(hMfReports)
@@ -482,7 +496,7 @@ export async function bulkUpdateMfReportStatus(
  */
 export async function bulkDeleteMfReports(ids: number[], tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 관련 버전 및 원재료 구성도 함께 삭제
   for (const id of ids) {
@@ -513,12 +527,14 @@ export async function bulkDeleteMfReports(ids: number[], tenantId: number) {
   return { success: true, count: ids.length };
 }
 
-/**
- * 일괄 PDF 출력
- */
+// ═══════════════════════════════════════════════════════════════
+// 일괄 처리 (상태 변경, 삭제, PDF)
+// ═══════════════════════════════════════════════════════════════
+
+/** 일괄 PDF 출력 (여러 보고서를 한 PDF로 결합) */
 export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const reports: any[] = [];
   
@@ -561,15 +577,17 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
   });
 }
 
-/**
- * 승인 요청
- */
+// ═══════════════════════════════════════════════════════════════
+// 승인 워크플로 (요청, 승인, 반려, 이력)
+// ═══════════════════════════════════════════════════════════════
+
+/** 승인 요청 (버전 상태 PENDING + 이력 기록) */
 export async function requestMfReportApproval(
   mfReportVersionId: number,
   requestedBy: number,
   comment?: string, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 버전 상태를 PENDING으로 변경
   await db
@@ -597,7 +615,7 @@ export async function approveMfReportVersion(
   approvedBy: number,
   comment?: string, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 버전 상태를 APPROVED로 변경
   await db
@@ -629,7 +647,7 @@ export async function rejectMfReportVersion(
   rejectedBy: number,
   reason: string, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 버전 상태를 REJECTED로 변경
   await db
@@ -659,7 +677,7 @@ export async function rejectMfReportVersion(
  */
 export async function getMfReportApprovalHistory(mfReportVersionId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { hMfReportApprovals } = await import("../../drizzle/schema_recipe_new");
   const { users } = await import("../../drizzle/schema_main");
@@ -679,6 +697,10 @@ export async function getMfReportApprovalHistory(mfReportVersionId: number, tena
     .orderBy(desc(hMfReportApprovals.actionAt));
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// 배치 소요량 계산 및 재고 차감
+// ═══════════════════════════════════════════════════════════════
 
 /**
  * 배치 생산량 입력 → g 환산 계산
@@ -701,7 +723,7 @@ export async function calculateBatchRequirements(
   flavorName?: string;
 }>> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 품목제조보고 버전 정보 조회
   const version = await db
@@ -785,7 +807,7 @@ export async function deductInventoryByMfReport(data: {
   createdBy?: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 소요량 계산
   const requirements = await calculateBatchRequirements(data.versionId, data.batchKg, tenantId);
@@ -861,6 +883,10 @@ export async function deductInventoryByMfReport(data: {
 }
 
 
+// ═══════════════════════════════════════════════════════════════
+// 표시사항 라벨 출력 (요약형/상세형 PDF)
+// ═══════════════════════════════════════════════════════════════
+
 /**
  * 표시사항 출력 기능 (요약형/상세형)
  * - 요약형: 품목제조보고 그대로 출력
@@ -868,7 +894,7 @@ export async function deductInventoryByMfReport(data: {
  */
 export async function generateIngredientLabel(versionId: number, mode: "summary" | "detailed", tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 품목제조보고 버전 조회
   const version = await db
@@ -1047,7 +1073,7 @@ const WATER_MATERIAL_ID = 191; // 정제수 material_id
 
 export async function calculateAndSaveCorrectedRatios(versionId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const ingredients = await db
     .select()
@@ -1084,7 +1110,7 @@ export async function calculateAndSaveCorrectedRatios(versionId: number) {
 // ============================================================
 export async function getDeviationAnalysis(versionId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   const { hBatches, hBatchInputs } = await import("../../drizzle/schema");
   const { itemMaster } = await import("../../drizzle/schema");
   
@@ -1262,7 +1288,7 @@ export async function getIngredientProcessMappings(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [rows] = await db.execute(sql`
     SELECT 
@@ -1305,7 +1331,7 @@ export async function saveIngredientProcessMappings(
   }>
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.execute(sql`
     DELETE FROM mf_ingredient_process_mapping 
@@ -1335,7 +1361,7 @@ export async function getProcessAdjustments(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [rows] = await db.execute(sql`
     SELECT 
@@ -1372,7 +1398,7 @@ export async function saveProcessAdjustments(
   }>
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.execute(sql`
     DELETE FROM mf_process_adjustments 
@@ -1409,7 +1435,7 @@ export async function calculateAdjustedBatchFormula(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 원재료 구성 조회
   const [ingredientRows] = await db.execute(sql`
@@ -1599,7 +1625,7 @@ export async function updateMfReport(data: {
   }>;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const mfReportId = data.mfReportId;
 

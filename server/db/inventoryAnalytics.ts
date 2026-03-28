@@ -27,7 +27,7 @@ export async function calculateInventoryTurnover(
   tenantId: number
 ): Promise<InventoryTurnoverResult[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const start = startDate || new Date(new Date().getFullYear(), 0, 1);
   const end = endDate || new Date();

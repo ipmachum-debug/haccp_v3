@@ -6,6 +6,8 @@ import { getDb } from "../db";
 import { materialInspectionRecords, hygieneInspectionRecords, shippingInspectionRecords } from "../../drizzle/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 검사 통계 대시보드 데이터 조회
  */
@@ -14,7 +16,7 @@ export async function getInspectionDashboardStatistics(params: {
   range: "week" | "month" | "quarter";
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const now = new Date();
   const startDate = new Date();
@@ -32,8 +34,8 @@ export async function getInspectionDashboardStatistics(params: {
       break;
   }
 
-  const startDateStr = startDate.toISOString().split('T')[0];
-  const endDateStr = now.toISOString().split('T')[0];
+  const startDateStr = formatLocalDate(startDate);
+  const endDateStr = formatLocalDate(now);
 
   // 검사 유형에 따라 테이블 선택
   let table;

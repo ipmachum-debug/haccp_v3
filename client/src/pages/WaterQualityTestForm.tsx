@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "water_quality_test",
   title: "수질 검사 기록",
@@ -14,7 +16,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function WaterQualityTestForm() {
-  const [testDate, setTestDate] = useState(new Date().toISOString().split("T")[0]);
+  const [testDate, setTestDate] = useState(todayLocal());
   const [testLocation, setTestLocation] = useState("");
   const [ph, setPh] = useState("");
   const [turbidity, setTurbidity] = useState("");

@@ -8,6 +8,8 @@ import { checklistTemplates, checklistInstances, checklistTemplateItems, checkli
 import { eq, and, desc, lt } from "drizzle-orm";
 import { notifyOwner } from "./_core/notification";
 
+import { todayKST } from "./utils/timezone";
+
 /**
  * 일일 체크리스트 자동 생성
  */
@@ -23,7 +25,7 @@ export async function generateDailyChecklists() {
       .from(checklistTemplates)
       .where(eq(checklistTemplates.isActive, 1));
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayKST();
     let createdCount = 0;
 
     for (const template of templates) {
@@ -94,7 +96,7 @@ export async function checkOverdueChecklists() {
     const db = await getDb();
     if (!db) return;
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayKST();
 
     const overdueInstances = await db
       .select()

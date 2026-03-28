@@ -7,6 +7,8 @@ import { TRPCError } from "@trpc/server";
 import { storagePut } from "../storage";
 import * as XLSX from "xlsx";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * ✅ P0 SECURITY FIX: healthCertificate 라우터
  *
@@ -122,7 +124,7 @@ export const healthCertificateRouter = router({
       if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
       const tenantId = ctx.tenantId!;
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayKST();
 
       const myEmployeeIds = await getTenantEmployeeIds(db, tenantId);
       if (myEmployeeIds.length === 0) return [];

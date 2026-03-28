@@ -2,6 +2,8 @@ import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as hazardAnalysisDb from "../db/hazardAnalysis";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 위험 분석 시스템 라우터 (HACCP 원칙 1)
  */
@@ -64,7 +66,7 @@ export const hazardAnalysisRouter = router({
       await hazardAnalysisDb.updateHazardAnalysis(input.id, {
         status: "approved",
         approvedBy: ctx.user.id,
-        approvedDate: new Date().toISOString().split("T")[0],
+        approvedDate: todayKST(),
       }, ctx.tenantId);
       return { success: true };
     }),
@@ -97,7 +99,7 @@ export const hazardAnalysisRouter = router({
         await hazardAnalysisDb.updateHazardAnalysis(id, {
           ...data,
           approvedBy: ctx.user.id,
-          approvedDate: new Date().toISOString().split("T")[0],
+          approvedDate: todayKST(),
         }, ctx.tenantId);
       } else {
         await hazardAnalysisDb.updateHazardAnalysis(id, data, ctx.tenantId);

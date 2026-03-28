@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "water_usage_check",
   title: "용수 사용 점검",
@@ -13,7 +15,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function WaterUsageCheckForm() {
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [usageArea, setUsageArea] = useState("");
   const [waterSource, setWaterSource] = useState("");
   const [usageAmount, setUsageAmount] = useState(0);

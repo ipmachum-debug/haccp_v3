@@ -10,7 +10,7 @@ export async function getCcpComplianceStats(params: {
   endDate: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpRows } = await import("../../drizzle/schema_main");
   const { and, gte, lte, eq, sql } = await import("drizzle-orm");
@@ -77,7 +77,7 @@ export async function getCcpDeviationTrend(params: {
   endDate: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpRows } = await import("../../drizzle/schema_main");
   const { and, gte, lte, eq, sql } = await import("drizzle-orm");

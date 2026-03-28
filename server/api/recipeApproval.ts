@@ -10,7 +10,7 @@ import { eq, and, desc } from "drizzle-orm";
 // 승인 대기 중인 품목제조보고 목록 조회
 export async function getPendingRecipes(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const pendingRecipes = await db
     .select()
@@ -24,7 +24,7 @@ export async function getPendingRecipes(tenantId: number) {
 // 품목제조보고 승인
 export async function approveRecipe(tenantId: number, input: { recipeId: number; userId: number }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [recipe] = await db
     .select()
@@ -59,7 +59,7 @@ export async function rejectRecipe(tenantId: number, input: {
   reason: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [recipe] = await db
     .select()
@@ -91,7 +91,7 @@ export async function rejectRecipe(tenantId: number, input: {
 // 품목제조보고 상세 조회 (승인 정보 포함)
 export async function getRecipeWithApprovalInfo(tenantId: number, recipeId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [recipe] = await db
     .select()
@@ -113,7 +113,7 @@ export async function getRecipeApprovalHistory(tenantId: number, filters?: {
   endDate?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(recipes.tenantId, tenantId)];
 

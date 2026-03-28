@@ -33,6 +33,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Eye, Edit, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function MaterialInspection() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
@@ -81,7 +83,7 @@ export default function MaterialInspection() {
     materialCode: "",
     materialName: "",
     lotNumber: "",
-    inspectionDate: new Date().toISOString().split("T")[0],
+    inspectionDate: todayLocal(),
     inspectorName: "",
     supplierName: "",
     notes: "",

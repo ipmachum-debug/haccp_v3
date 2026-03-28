@@ -18,7 +18,7 @@ export const productRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         
         const page = input?.page || 1;
@@ -67,7 +67,7 @@ export const productRouter = router({
     exportAll: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         
         const items = await db
@@ -115,7 +115,7 @@ export const productRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         const { shelfLifeMonths, ...rest } = input;
         const shelfLifeDays = shelfLifeMonths ? shelfLifeMonths * 30 : undefined;
@@ -163,7 +163,7 @@ export const productRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         const { id, shelfLifeMonths, ...rest } = input;
         const shelfLifeDays = shelfLifeMonths ? shelfLifeMonths * 30 : undefined;
@@ -242,7 +242,7 @@ export const productRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         await db.update(hProductsV2).set({ isActive: 0 } as any).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId ?? undefined as any) ));
         
@@ -284,16 +284,15 @@ export const productRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
         const { createUploadHistory } = await import("../../db/uploadHistory.js");
         
         const results = { successCount: 0, insertCount: 0, updateCount: 0, failureCount: 0, errors: [] as any[] };
-        
-        // 현재 최대 코드 번호 조회
-        const maxResult = await db.execute(sql`SELECT MAX(CAST(SUBSTRING(product_code, 5) AS UNSIGNED)) as maxNum FROM h_products_v2 WHERE tenant_id = ${ctx.tenantId} AND product_code REGEXP '^PRD-[0-9]+$'`);
-        let codeCounter = Number((maxResult as any)[0]?.[0]?.maxNum || (maxResult as any)[0]?.maxNum || 0);
-        
+
+        // 통일된 제품코드 생성기 사용 (숫자 형식: 30001, 30002...)
+        const { generateProductCode } = await import("../../db/codeGenerator.js");
+
         for (let i = 0; i < input.products.length; i++) {
           try {
             const product = input.products[i];
@@ -321,12 +320,11 @@ export const productRouter = router({
               }
               results.updateCount++;
             } else {
-              codeCounter++;
-              const productCode = "PRD-" + String(codeCounter).padStart(3, "0");
+              const productCode = product.productCode || await generateProductCode(ctx.tenantId ?? undefined);
               
               const insertResult = await db.insert(hProductsV2).values({
                 tenantId: ctx.tenantId ?? undefined,
-                productCode: product.productCode || productCode,
+                productCode,
                 productName: product.productName.trim(),
                 category: product.category || null,
                 unit: product.unit || null,

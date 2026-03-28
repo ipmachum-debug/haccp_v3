@@ -1,5 +1,7 @@
 import { eq, and, desc, gte, lte, or } from "drizzle-orm";
 import { getDb } from "../db";
+import { formatLocalDate } from "../utils/timezone";
+
 import {
   hTrainingCourses,
   hTrainingSchedules,
@@ -33,7 +35,7 @@ export async function createTrainingCourse(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(hTrainingCourses).values(data);
   return result.insertId;
@@ -42,7 +44,7 @@ export async function createTrainingCourse(data: {
 // ✅ P0 FIX: tenantId 필수 (optional 제거)
 export async function getTrainingCourseById(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db
     .select()
@@ -54,7 +56,7 @@ export async function getTrainingCourseById(id: number, tenantId: number) {
 
 export async function getAllTrainingCourses(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return db
     .select()
@@ -71,7 +73,7 @@ export async function getTrainingCoursesByCategory(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return db
     .select()
@@ -88,7 +90,7 @@ export async function getTrainingCoursesByCategory(
 
 export async function getMandatoryTrainingCourses(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return db
     .select()
@@ -122,7 +124,7 @@ export async function updateTrainingCourse(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hTrainingCourses)
@@ -133,7 +135,7 @@ export async function updateTrainingCourse(
 // ✅ P0 FIX: tenantId 필수 (optional 제거) + tenant 필터 적용
 export async function deleteTrainingCourse(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hTrainingCourses)
@@ -160,7 +162,7 @@ export async function createTrainingSchedule(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(hTrainingSchedules).values({
     ...data,
@@ -173,7 +175,7 @@ export async function createTrainingSchedule(data: {
 // ✅ P0 FIX: tenantId 필수 추가
 export async function getTrainingScheduleById(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db
     .select()
@@ -186,7 +188,7 @@ export async function getTrainingScheduleById(id: number, tenantId: number) {
 // ✅ P0 FIX: tenantId 필수
 export async function getTrainingSchedulesByCourse(courseId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return db
     .select()
@@ -201,7 +203,7 @@ export async function getTrainingSchedulesByCourse(courseId: number, tenantId: n
 // ✅ P0 FIX: tenantId 필수
 export async function getUpcomingTrainingSchedules(siteId: number | undefined, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -241,7 +243,7 @@ export async function updateTrainingSchedule(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { ...data };
   if (data.scheduledDate) updateData.scheduledDate = new Date(data.scheduledDate);
@@ -255,7 +257,7 @@ export async function updateTrainingSchedule(
 // ✅ P0 FIX: tenantId 필수 추가
 export async function deleteTrainingSchedule(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(hTrainingSchedules)
@@ -272,7 +274,7 @@ export async function registerTrainingParticipant(data: {
   userId: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 스케줄이 현재 테넌트 소속인지 검증
   const schedule = await getTrainingScheduleById(data.scheduleId, tenantId);
@@ -293,7 +295,7 @@ export async function registerTrainingParticipant(data: {
 // ✅ P0 FIX: 참가자 조회 시 테넌트 소속 검증 (JOIN 기반)
 export async function getTrainingParticipantById(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 참가자 → 스케줄 → 테넌트 경로로 소속 검증
   const results = await db
@@ -312,7 +314,7 @@ export async function getTrainingParticipantById(id: number, tenantId: number) {
 // ✅ P0 FIX: 스케줄별 참가자 조회 시 테넌트 검증
 export async function getTrainingParticipantsBySchedule(scheduleId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 스케줄 소속 먼저 검증
   const schedule = await getTrainingScheduleById(scheduleId, tenantId);
@@ -329,7 +331,7 @@ export async function getTrainingParticipantsBySchedule(scheduleId: number, tena
 // ✅ P0 FIX: 사용자별 참가 이력 조회 시 테넌트 필터
 export async function getTrainingParticipantsByUser(userId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 테넌트 소속 스케줄과 JOIN하여 필터
   const results = await db
@@ -361,7 +363,7 @@ export async function updateTrainingParticipant(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 참가자 소속 검증
   const participant = await getTrainingParticipantById(id, tenantId);
@@ -381,7 +383,7 @@ export async function updateTrainingParticipant(
 // ✅ P0 FIX: tenantId 필수 추가
 export async function deleteTrainingParticipant(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const participant = await getTrainingParticipantById(id, tenantId);
   if (!participant) {
@@ -414,7 +416,7 @@ export async function createTrainingReminder(data: {
   expiryDate: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(hTrainingReminders).values({
     ...data,
@@ -428,7 +430,7 @@ export async function createTrainingReminder(data: {
 // ✅ P0 FIX: tenantId 추가하여 필터 (알림 → 참가자 → 스케줄 → 테넌트)
 export async function getTrainingRemindersByUser(userId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // tenantId가 제공되면 테넌트 소속 알림만 반환
   if (tenantId) {
@@ -464,7 +466,7 @@ export async function getTrainingRemindersByUser(userId: number, tenantId?: numb
 // ✅ P0 FIX: tenantId 필터 추가 (시스템 배치 작업은 전체 반환)
 export async function getPendingTrainingReminders(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -498,7 +500,7 @@ export async function getPendingTrainingReminders(tenantId?: number) {
 
 export async function markTrainingReminderAsSent(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hTrainingReminders)
@@ -513,7 +515,7 @@ export async function markTrainingReminderAsSent(id: number, tenantId?: number) 
 // ✅ P0 FIX: tenantId 필수 추가
 export async function issueCertificate(participantId: number, certificateUrl: string, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const participant = await getTrainingParticipantById(participantId, tenantId);
   if (!participant) {
@@ -534,7 +536,7 @@ export async function issueCertificate(participantId: number, certificateUrl: st
     certificateIssued: 1,
     certificateNumber,
     certificateUrl,
-    expiryDate: expiryDate?.toISOString().split("T")[0]
+    expiryDate: expiryDate ? formatLocalDate(expiryDate) : undefined
   }, tenantId);
 
   return { certificateNumber, expiryDate };

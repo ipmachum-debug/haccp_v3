@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
  */
 export async function generateMaterialCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
@@ -31,7 +31,7 @@ export async function generateMaterialCode(tenantId?: number): Promise<string> {
  */
 export async function generateProductCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const tenantFilter1 = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
@@ -61,7 +61,7 @@ export async function generateProductCode(tenantId?: number): Promise<string> {
  */
 export async function generateExternalProductCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
@@ -84,7 +84,7 @@ export async function generateExternalProductCode(tenantId?: number): Promise<st
  */
 export async function generateSubsidiaryCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
@@ -108,7 +108,7 @@ export async function generateSubsidiaryCode(tenantId?: number): Promise<string>
  */
 export async function generateSkuCode(parentItemCode: string, tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const prefix = `${parentItemCode}-`;
@@ -132,7 +132,7 @@ export async function generateSkuCode(parentItemCode: string, tenantId?: number)
  */
 export async function generateSupplierCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   try {
     const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
@@ -155,7 +155,7 @@ export async function generateSupplierCode(tenantId?: number): Promise<string> {
  */
 export async function generatePurchaseCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { accountingPurchases } = await import("../../drizzle/schema_accounting_extended.js");
   const { eq } = await import("drizzle-orm");
@@ -176,7 +176,7 @@ export async function generatePurchaseCode(tenantId?: number): Promise<string> {
  */
 export async function generateSaleCode(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { accountingSales } = await import("../../drizzle/schema_accounting_extended.js");
   const { eq } = await import("drizzle-orm");

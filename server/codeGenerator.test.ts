@@ -7,9 +7,9 @@ describe("자동 코드 생성 테스트", () => {
     expect(code).toMatch(/^MAT-\d{3}$/);
   });
 
-  it("제품 코드 생성 (PRD-XXX)", async () => {
+  it("제품 코드 생성 (숫자 5자리, 30000번대)", async () => {
     const code = await generateProductCode();
-    expect(code).toMatch(/^PRD-\d{3}$/);
+    expect(code).toMatch(/^\d{5}$/);
   });
 
   it("공급업체 코드 생성 (SUP-XXX)", async () => {

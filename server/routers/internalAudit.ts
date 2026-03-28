@@ -2,6 +2,8 @@ import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as auditDb from "../db/internalAudit";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 내부 감사 라우터 (HACCP 원칙 6)
  */
@@ -81,7 +83,7 @@ export const internalAuditRouter = router({
       await auditDb.updateAuditPlan(input.id, {
         status: "approved",
         approvedBy: ctx.user.id,
-        approvedDate: new Date().toISOString().split("T")[0],
+        approvedDate: todayKST(),
       }, tenantId ?? undefined);
       return { success: true };
     }),
@@ -193,7 +195,7 @@ export const internalAuditRouter = router({
       const tenantId = ctx.tenantId;
       await auditDb.updateAudit(input.id, {
         status: "in_progress",
-        actualStartDate: new Date().toISOString().split("T")[0],
+        actualStartDate: todayKST(),
       }, tenantId ?? undefined);
       return { success: true };
     }),
@@ -205,7 +207,7 @@ export const internalAuditRouter = router({
       const tenantId = ctx.tenantId;
       await auditDb.updateAudit(input.id, {
         status: "completed",
-        actualEndDate: new Date().toISOString().split("T")[0],
+        actualEndDate: todayKST(),
       }, tenantId ?? undefined);
       return { success: true };
     }),
@@ -396,7 +398,7 @@ export const internalAuditRouter = router({
       const tenantId = ctx.tenantId;
       await auditDb.updateFinding(input.id, {
         status: "resolved",
-        resolvedDate: new Date().toISOString().split("T")[0],
+        resolvedDate: todayKST(),
       }, tenantId ?? undefined);
       return { success: true };
     }),
@@ -409,7 +411,7 @@ export const internalAuditRouter = router({
       await auditDb.updateFinding(input.id, {
         status: "verified",
         verifiedBy: ctx.user.id,
-        verifiedDate: new Date().toISOString().split("T")[0],
+        verifiedDate: todayKST(),
       }, tenantId ?? undefined);
       return { success: true };
     }),

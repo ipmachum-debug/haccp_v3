@@ -25,6 +25,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { todayLocal } from "../lib/dateUtils";
+
 import {
   ArrowLeft,
   Save,
@@ -87,7 +89,7 @@ export default function EmployeeHealthCheckForm() {
   const printRef = useRef<HTMLDivElement>(null);
 
   // 헤더 정보
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
 
   // 결재 정보
   const [approval, setApproval] = useState<ApprovalInfo>({
@@ -317,7 +319,7 @@ export default function EmployeeHealthCheckForm() {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocal();
       
       // 전체 폼 데이터를 formData에 저장
       const formData = {

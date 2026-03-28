@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "water_management_check",
   title: "용수관리 점검표",
@@ -50,7 +52,7 @@ const initialCheckItems: CheckItem[] = [
 
 export default function WaterManagementCheckForm() {
   const { toast } = useToast();
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [inspector, setInspector] = useState("");
   const [checkCycle] = useState("1회 / 주");
   const [checkItems, setCheckItems] = useState<CheckItem[]>(initialCheckItems.map(item => ({ ...item })));

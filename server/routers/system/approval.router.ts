@@ -295,7 +295,7 @@ export const approvalRouter = router({
         const { getApprovalRequestById } = await import("../../db");
         const db = (await import("../../db")).getDb();
         const dbConn = await db;
-        if (!dbConn) throw new Error("Database not available");
+        if (!dbConn) throw new Error("DB 연결 실패");
 
         const request = await getApprovalRequestById(input.requestId);
         if (!request) {
@@ -332,7 +332,7 @@ export const approvalRouter = router({
         const tenantId = ctx.tenantId;
         const db = (await import("../../db")).getDb();
         const dbConn = await db;
-        if (!dbConn) throw new Error("Database not available");
+        if (!dbConn) throw new Error("DB 연결 실패");
 
         if (input.requestIds.length === 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "삭제할 항목을 선택해주세요" });

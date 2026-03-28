@@ -42,7 +42,7 @@ export async function retroactiveInventoryDeduction(
   params: RetroactiveDeductionParams
 ): Promise<RetroactiveDeductionResult> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result: RetroactiveDeductionResult = {
     success: true,

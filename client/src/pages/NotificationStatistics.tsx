@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82ca9d"];
 
 export default function NotificationStatistics() {
@@ -22,8 +24,8 @@ export default function NotificationStatistics() {
     const end = new Date();
     const start = new Date();
     start.setDate(start.getDate() - days);
-    setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
+    setStartDate(formatLocalDate(start));
+    setEndDate(formatLocalDate(end));
   };
 
   if (isLoading) {

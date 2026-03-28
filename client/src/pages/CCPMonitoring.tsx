@@ -27,6 +27,8 @@ import CcpReportGenerator from "./CcpReportGenerator";
 import CCPLimitsManagement from "./CCPLimitsManagement";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 // CCP 유형 정의 (공통)
 const ccpTypes = [
   { value: "CCP-1B", label: "CCP-1B (가열/증숙)" },
@@ -945,7 +947,7 @@ export default function CCPMonitoring() {
 
       const link = document.createElement("a");
       link.href = `data:application/pdf;base64,${result.pdf}`;
-      link.download = `CCP_모니터링_${pdfPeriod}_${selectedCcpType}_${today.toISOString().split("T")[0]}.pdf`;
+      link.download = `CCP_모니터링_${pdfPeriod}_${selectedCcpType}_${formatLocalDate(today)}.pdf`;
       link.click();
 
       toast.success("PDF 보고서가 성공적으로 생성되었습니다.");

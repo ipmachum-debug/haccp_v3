@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,8 @@ import * as XLSX from "xlsx";
 import { EditSaleDialog } from "@/components/EditSaleDialog";
 import { useLocation } from "wouter";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
+
+import { todayLocal } from "../lib/dateUtils";
 
 export default function SalesList() {
   return (
@@ -116,6 +119,32 @@ function SalesListContent() {
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [sales]);
 
+  // 페이지네이션 + 정렬
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(sales, {
+    defaultSort: { key: "transactionDate", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      let aVal = a[key], bVal = b[key];
+      // numeric fields
+      if (["quantity", "unitPrice", "amount", "taxAmount"].includes(key)) {
+        aVal = parseFloat(aVal || "0"); bVal = parseFloat(bVal || "0");
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      // date
+      if (key === "transactionDate") {
+        aVal = aVal || ""; bVal = bVal || "";
+        return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      // string
+      aVal = String(aVal || ""); bVal = String(bVal || "");
+      const cmp = aVal.localeCompare(bVal, "ko");
+      return dir === "asc" ? cmp : -cmp;
+    },
+  });
+
   // 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
     setSelectedIds(checked ? sales.map((s: any) => s.id) : []);
@@ -159,7 +188,7 @@ function SalesListContent() {
       return;
     }
     const selected = sales.filter((s: any) => selectedIds.includes(s.id));
-    downloadExcel(selected, "선택 매출조회", `선택_매출조회_${new Date().toISOString().split("T")[0]}.xlsx`);
+    downloadExcel(selected, "선택 매출조회", `선택_매출조회_${todayLocal()}.xlsx`);
   };
 
   // 전체 다운로드
@@ -168,7 +197,7 @@ function SalesListContent() {
       toast({ title: "데이터 없음", description: "다운로드할 데이터가 없습니다.", variant: "destructive" });
       return;
     }
-    downloadExcel(sales, "매출조회", `매출조회_${new Date().toISOString().split("T")[0]}.xlsx`);
+    downloadExcel(sales, "매출조회", `매출조회_${todayLocal()}.xlsx`);
   };
 
   const downloadExcel = (data: any[], sheetName: string, fileName: string) => {
@@ -403,7 +432,7 @@ function SalesListContent() {
                 <FileText className="h-4 w-4" />
                 매출 거래 내역
               </CardTitle>
-              <span className="text-sm text-muted-foreground">총 {sales.length}건</span>
+              <span className="text-sm text-muted-foreground">총 {totalItems.toLocaleString()}건 중 {startIdx}-{endIdx}</span>
             </div>
           </CardHeader>
           <CardContent>
@@ -420,22 +449,23 @@ function SalesListContent() {
                 <p className="text-sm mt-1">필터 조건을 변경하거나 새로운 거래를 등록해주세요.</p>
               </div>
             ) : (
+              <>
               <div className="rounded-lg border overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30">
                       <TableHead className="w-[44px]">
                         <Checkbox
-                          checked={selectedIds.length === sales.length && sales.length > 0}
-                          onCheckedChange={handleSelectAll}
+                          checked={selectedIds.length === pageData.length && pageData.length > 0}
+                          onCheckedChange={(checked) => setSelectedIds(checked ? pageData.map((s: any) => s.id) : [])}
                         />
                       </TableHead>
-                      <TableHead className="text-xs font-semibold">거래일자</TableHead>
-                      <TableHead className="text-xs font-semibold">거래처명</TableHead>
-                      <TableHead className="text-xs font-semibold">품목명</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">수량</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">단가</TableHead>
-                      <TableHead className="text-xs font-semibold text-right">금액</TableHead>
+                      <SortableHeader label="거래일자" sortKey="transactionDate" currentSort={sort} onSort={handleSort} />
+                      <SortableHeader label="거래처명" sortKey="partnerName" currentSort={sort} onSort={handleSort} />
+                      <SortableHeader label="품목명" sortKey="itemName" currentSort={sort} onSort={handleSort} />
+                      <SortableHeader label="수량" sortKey="quantity" currentSort={sort} onSort={handleSort} align="right" />
+                      <SortableHeader label="단가" sortKey="unitPrice" currentSort={sort} onSort={handleSort} align="right" />
+                      <SortableHeader label="금액" sortKey="amount" currentSort={sort} onSort={handleSort} align="right" />
                       <TableHead className="text-xs font-semibold text-right">세금</TableHead>
                       <TableHead className="text-xs font-semibold text-right">합계</TableHead>
                       <TableHead className="text-xs font-semibold">증빙</TableHead>
@@ -444,7 +474,7 @@ function SalesListContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sales.map((sale: any) => {
+                    {pageData.map((sale: any) => {
                       const amount = parseFloat(sale.amount || "0");
                       const tax = parseFloat(sale.taxAmount || "0");
                       return (
@@ -501,6 +531,17 @@ function SalesListContent() {
                   </TableBody>
                 </Table>
               </div>
+              <PaginationBar
+                totalItems={totalItems}
+                totalPages={totalPages}
+                currentPage={pagination.page}
+                pageSize={pagination.pageSize}
+                startIdx={startIdx}
+                endIdx={endIdx}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
+              </>
             )}
           </CardContent>
         </Card>

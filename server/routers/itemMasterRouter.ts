@@ -7,6 +7,8 @@ import { itemMaster, productSkus } from "../../drizzle/schema";
 import { eq, and, desc, asc, like, or, sql, inArray } from "drizzle-orm";
 import { generateSkuCode, generateExternalProductCode, generateSubsidiaryCode, generateProductCode, generateMaterialCode } from "../db/codeGenerator.js";
 
+import { todayKST } from "../utils/timezone";
+
 export const itemMasterRouter = router({
   // ============================================================
   // 품목 마스터 CRUD
@@ -323,7 +325,7 @@ export const itemMasterRouter = router({
       const buffer = await workbook.xlsx.writeBuffer();
       const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
-      return { success: true, filename: `${filename}_템플릿_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64 };
+      return { success: true, filename: `${filename}_템플릿_${todayKST()}.xlsx`, data: base64 };
     }),
 
   // 2. 전체 다운로드 (현재 데이터를 템플릿 양식으로)
@@ -404,7 +406,7 @@ export const itemMasterRouter = router({
       const base64 = Buffer.from(buffer).toString('base64');
       const filename = input.itemType === 'own_product' ? '제품' : input.itemType === 'raw_material' ? '원재료' : '거래처';
       const count = input.itemType === 'supplier' ? 0 : items.length;
-      return { success: true, filename: `${filename}_전체_${new Date().toISOString().split('T')[0]}.xlsx`, data: base64, count };
+      return { success: true, filename: `${filename}_전체_${todayKST()}.xlsx`, data: base64, count };
     }),
 });
 

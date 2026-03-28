@@ -3,6 +3,8 @@ import { getDb } from "../db";
 import { checklistSchedules, checklistInstances, checklistTemplates, tenants } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 
+import { formatLocalDate, toKSTTimestamp} from "../utils/timezone";
+
 /**
  * 체크리스트 자동 생성 스케줄러
  * 주기별로 인스턴스를 자동 생성
@@ -141,7 +143,7 @@ async function generateInstancesForFrequency(frequencyType: string, periodKeyFn:
           tenantId,
           templateId: schedule.templateId,
           periodKey,
-          dueDate: dueDate.toISOString().replace('T', ' ').replace('Z', ''),
+          dueDate: toKSTTimestamp(dueDate),
           status: "pending",
           createdBy: 0, // 시스템 생성
         });
@@ -177,7 +179,7 @@ async function generateWeeklyInstances() {
     (today, schedule) => {
       const endOfWeek = new Date(today);
       endOfWeek.setDate(endOfWeek.getDate() + (7 - endOfWeek.getDay()));
-      return calculateDueDate(endOfWeek.toISOString().split("T")[0], schedule.dueTime, Number(schedule.gracePeriodHours));
+      return calculateDueDate(formatLocalDate(endOfWeek), schedule.dueTime, Number(schedule.gracePeriodHours));
     }
   );
 }
@@ -191,7 +193,7 @@ async function generateMonthlyInstances() {
     (today) => generatePeriodKey(today, "MONTHLY"),
     (today, schedule) => {
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      return calculateDueDate(endOfMonth.toISOString().split("T")[0], schedule.dueTime, Number(schedule.gracePeriodHours));
+      return calculateDueDate(formatLocalDate(endOfMonth), schedule.dueTime, Number(schedule.gracePeriodHours));
     }
   );
 }

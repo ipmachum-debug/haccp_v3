@@ -46,7 +46,7 @@ interface StatsArgs {
  */
 export async function getCcpStatsOverview(args: StatsArgs): Promise<CcpStatsOverview> {
   const dbInstance = await db.getDb();
-  if (!dbInstance) throw new Error("Database not available");
+  if (!dbInstance) throw new Error("DB 연결 실패");
 
   const { hBatches, hCcpInstances } = await import("../../drizzle/schema.js");
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");
@@ -108,7 +108,7 @@ export async function getCcpStatsOverview(args: StatsArgs): Promise<CcpStatsOver
  */
 export async function getCcpStatsByProduct(args: StatsArgs): Promise<CcpStatsByProduct[]> {
   const dbInstance = await db.getDb();
-  if (!dbInstance) throw new Error("Database not available");
+  if (!dbInstance) throw new Error("DB 연결 실패");
 
   const { hBatches, hCcpInstances, hProductsV2 } = await import("../../drizzle/schema.js");
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");
@@ -154,7 +154,7 @@ export async function getCcpStatsByProduct(args: StatsArgs): Promise<CcpStatsByP
  */
 export async function getCcpStatsByCcpType(args: StatsArgs): Promise<CcpStatsByCcpType[]> {
   const dbInstance = await db.getDb();
-  if (!dbInstance) throw new Error("Database not available");
+  if (!dbInstance) throw new Error("DB 연결 실패");
 
   const { hBatches, hCcpInstances } = await import("../../drizzle/schema.js");
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");
@@ -199,7 +199,7 @@ export async function getCcpStatsTrend(args: {
   tenantId: number;
 }): Promise<CcpStatsTrend[]> {
   const dbInstance = await db.getDb();
-  if (!dbInstance) throw new Error("Database not available");
+  if (!dbInstance) throw new Error("DB 연결 실패");
 
   const { hBatches, hCcpInstances } = await import("../../drizzle/schema.js");
   const { sql, and, gte, lte, eq } = await import("drizzle-orm");

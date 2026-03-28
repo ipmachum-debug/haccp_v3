@@ -15,6 +15,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "material_inspection",
   title: "원재료 검사 기록 작성",
@@ -60,7 +62,7 @@ export default function MaterialInspectionForm() {
   const [materialName, setMaterialName] = useState("");
   const [lotNumber, setLotNumber] = useState("");
   const [inspectionDate, setInspectionDate] = useState(
-    new Date().toISOString().split("T")[0]
+    todayLocal()
   );
   const [supplierName, setSupplierName] = useState("");
   const [notes, setNotes] = useState("");

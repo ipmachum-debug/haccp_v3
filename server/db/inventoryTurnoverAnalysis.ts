@@ -9,7 +9,7 @@ import { eq, and, gte, sql } from "drizzle-orm";
  */
 export async function getInventoryTurnoverAnalysis(periodDays: number = 90, tenantId?: number) {
   const dbInstance = await getDb();
-  if (!dbInstance) throw new Error("Database connection failed");
+  if (!dbInstance) throw new Error("DB 연결 실패");
   const db = dbInstance;
   
   const startDate = new Date();

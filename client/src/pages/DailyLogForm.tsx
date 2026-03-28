@@ -19,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
   { category: "작업전", subcategory: "개인위생", itemOrder: 1, itemText: "위생복장과 이물 복장이 구분하여 보관되고 있는가?", checkResult: null as string | null },
@@ -86,7 +88,7 @@ export default function DailyLogForm() {
   const paramDate = params.get("date");
   const paramId = params.get("id");
 
-  const [logDate, setLogDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(paramDate || todayLocal());
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");

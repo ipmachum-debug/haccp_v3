@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "hygiene_checklist",
   title: "일반위생관리 체크리스트",
@@ -56,7 +58,7 @@ export default function HygieneChecklistForm() {
       setFormData({
         ...initialData,
         ...data,
-        checkDate: data.checkDate ? new Date(data.checkDate).toISOString().split('T')[0] : "",
+        checkDate: data.checkDate ? formatLocalDate(new Date(data.checkDate)) : "",
       });
     }
   };

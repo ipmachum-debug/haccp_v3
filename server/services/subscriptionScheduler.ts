@@ -2,6 +2,8 @@ import { getDb } from "../db";
 import { tenants, subscriptionNotifications } from "../../drizzle/schema_main";
 import { eq, and, lte, gte, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 구독 만료 알림 스케줄러
  * 매일 실행되어 만료 예정 테넌트에게 알림 전송
@@ -70,7 +72,7 @@ export async function checkSubscriptionExpiry() {
         await sendNotification(tenant.id, "expired", 
           `구독이 만료되었습니다. 7일 유예기간 동안 읽기 전용 모드로 전환됩니다. 구독을 연장해주세요.`);
 
-        console.log(`[Subscription Scheduler] Tenant ${tenant.name} (ID: ${tenant.id}) expired, grace period until ${gracePeriodEnd.toISOString().split('T')[0]}`);
+        console.log(`[Subscription Scheduler] Tenant ${tenant.name} (ID: ${tenant.id}) expired, grace period until ${formatLocalDate(gracePeriodEnd)}`);
       }
 
       // 유예기간 종료 - 완전 차단

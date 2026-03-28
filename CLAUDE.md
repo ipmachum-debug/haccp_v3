@@ -413,3 +413,75 @@ git rebase origin/main
 git push -f origin genspark_ai_developer
 # PR #8: https://github.com/ipmachum-debug/haccp_v3/pull/8
 ```
+
+---
+
+## 전수조사 결과 (2026-03-28)
+
+### 테넌트 격리 현황
+- **전체 상태**: ✅ 안전 (99%+ 테이블 tenant_id 포함)
+- **미들웨어**: `tenantRequiredProcedure` 전면 적용, super admin actingTenantId 감사 로깅
+- **수정 완료**: `getCcpInstancesByBatchId()` / `getCcpInstanceById()` tenant_id 필터 추가
+- **수정 완료**: `getPartnerById()` DB 레벨 tenant 필터 적용
+- **수정 완료**: `deleteBatch()` tenantId 필수화 (없으면 throw)
+- **주의 테이블**: `h_batch_pdf_logs` (tenant_id 미보유, batchId 간접 격리)
+- **유니크 제약 개선 필요**: batch_code, biz_no, material_code → `(tenant_id, code)` 복합 유니크 권장
+
+### 보안 개선 현황
+- [x] CORS 허용 도메인 제한 (`process.env.CORS_ORIGINS` 기반)
+- [x] 세션 시크릿 폴백 경고 로그 추가
+- [ ] 비밀번호 정책 강화 (min 6 → min 8 + 복잡도)
+- [ ] Rate Limiting 미적용
+- [ ] 환경변수 유효성 검증 스키마 미구현
+
+### 에러 처리 현황
+- 에러 throw 2,173건 / catch 683건 / 조용한 catch ~40곳
+- DB 연결 에러 메시지 4종 혼재 → 통일 필요
+- 한국어/영어 혼재 (~60/40%) → 한국어 통일 권장
+- 구조적 로깅 시스템 도입 (server/utils/logger.ts)
+
+### 코드 품질 개선 현황
+- **초대형 파일 분할 완료**: `AIDashboard.tsx` → 17개 서브컴포넌트, `dashboardAndAnalytics.ts` → 3개 모듈
+- **any 타입 제거 진행중**: materialLedger.ts, productAndCcp.ts, verification.ts, partners.ts 완료
+- **deprecated 테이블**: `accounting_categories`, `accounting_accounts_v2`, `accounting_transactions`
+- **중복 스키마/디렉토리 제거 완료**: `drizzle/drizzle/`, `server/server/`, `server_new_files/`
+- **테스트 추가**: dbHelpers, logger, useTabWithUrl, auth, journalHelper, tenantIsolation, paginatedSort
+- **N+1 쿼리**: `dashboardAndAnalytics.ts` 재고부족 대시보드
+
+### 개선 로드맵
+```
+Week 1-2: 보안 (비밀번호 정책, Rate Limiting, 환경변수 검증)
+Week 3-4: 성능 (N+1 쿼리, 페이지네이션, DB 인덱스)
+Week 5-6: 코드 품질 (파일 분할, any 제거, deprecated 정리)
+Week 7-8: 아키텍처 (구조적 로깅, 에러 표준화, 캐시 레이어)
+=======
+- [x] 세션 시크릿 폴백 경고 로그 + 동적 폴백
+- [x] 비밀번호 정책 강화 (min 8자 이상)
+- [x] Rate Limiting (IP당 분당 200회, 429 응답)
+- [x] 환경변수 유효성 검증 (`validateEnvVars()` 서버 시작 전)
+
+### 에러 처리 현황
+- [x] DB 연결 에러 메시지 한국어 통일 완료 ("DB 연결 실패", 704건)
+- [x] 구조적 로깅 시스템 도입 (`server/utils/logger.ts`: logInfo/logWarn/logError/logSecurity)
+- [ ] 에러 코드 표준화 (TRPCError 코드 통일)
+- [ ] 조용한 catch 블록 ~40곳 → 점진적 개선
+
+### 코드 품질 현황
+- [x] **레거시 파일 제거**: `server_new_files/` (8,663줄 routers.ts 포함) 삭제
+- [x] **중복 디렉토리 제거**: `drizzle/drizzle/`(158파일) + `server/server/`(149파일) 삭제
+- [x] **디버그 console.log 제거**: 72건 (batch.router, ccpFormRecords, batchFunctions 등)
+- [x] **N+1 쿼리 수정**: `getLowStockMaterials()` → 단일 JOIN+GROUP BY
+- [x] **DB 헬퍼 유틸**: `server/utils/dbHelpers.ts` (getRows/getFirstRow/getInsertId)
+- **any 타입**: 클라이언트 2,960+건 (점진적 개선 필요)
+- **deprecated 테이블**: `accounting_categories`, `accounting_transactions` (@deprecated 유지)
+- **테스트 커버리지**: 3% → 13 케이스 추가 (logger, tenant격리, tabUrl)
+
+### 개선 로드맵 (2026-03-28 기준)
+```
+✅ Week 1-2: 보안 (CORS, 시크릿, tenant격리, N+1, 환경변수검증, Rate Limiting)
+✅ Week 3-4: 성능 (비밀번호, Partner tenant, deleteBatch 필수화)
+✅ Week 5-6: 코드 품질 (파일삭제 20,000줄, DB에러 통일, console.log 제거, 로깅 도입)
+⏳ Week 7-8: 타입 안전성 (any 제거 2,960건 - 점진적)
+⏳ Week 9-12: 테스트/문서 (커버리지 70%, API 문서화)
+>>>>>>> origin/claude/fix-inventory-consumption-hcnFv
+```

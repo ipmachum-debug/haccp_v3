@@ -23,6 +23,8 @@ import { useLocation } from "wouter";
 import * as XLSX from "xlsx";
 import { fuzzyMatchItem, fuzzyMatchPartner, autoMatchHeaders, type FuzzyMatchResult } from "@/lib/fuzzyMatch";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 타입 정의
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -189,7 +191,7 @@ function SalesBulkUploadContent() {
         const numDate = Number(transactionDate);
         if (!isNaN(numDate) && numDate > 30000 && numDate < 60000) {
           const d = new Date((numDate - 25569) * 86400 * 1000);
-          transactionDate = d.toISOString().split('T')[0];
+          transactionDate = formatLocalDate(d);
         } else {
           transactionDate = transactionDate
             .replace(/[./]/g, '-')
@@ -365,7 +367,7 @@ function SalesBulkUploadContent() {
       { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 8 }, { wch: 10 },
       { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 15 },
     ];
-    XLSX.writeFile(wb, `매출_일괄등록_양식_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `매출_일괄등록_양식_${todayLocal()}.xlsx`);
     toast({ title: "양식 다운로드 완료" });
   };
 

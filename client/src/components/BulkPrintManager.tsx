@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { jsPDF } from "jspdf";
 import { generateSealImage } from "./SealGenerator";
 
+import { todayLocal } from "../lib/dateUtils";
+
 interface Document {
   id: number;
   type: string;
@@ -159,7 +161,7 @@ export const BulkPrintManager: React.FC<BulkPrintManagerProps> = ({
           isFirstPage = false;
         });
 
-        doc.save(`일괄인쇄_${new Date().toISOString().split("T")[0]}.pdf`);
+        doc.save(`일괄인쇄_${todayLocal()}.pdf`);
       } else {
         // 개별 인쇄 - 각각 별도 PDF로
         selectedDocuments.forEach((document) => {

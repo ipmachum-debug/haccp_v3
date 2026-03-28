@@ -50,6 +50,8 @@ import { EditPurchaseDialog } from "@/components/EditPurchaseDialog";
 import { useLocation } from "wouter";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function PurchasesList() {
   return (
     <DashboardLayout>
@@ -230,7 +232,7 @@ function PurchasesListContent() {
       return;
     }
     const selected = purchases.filter((p: any) => selectedIds.includes(p.id));
-    downloadExcel(selected, "선택 매입 목록", `선택_매입_목록_${new Date().toISOString().split("T")[0]}.xlsx`);
+    downloadExcel(selected, "선택 매입 목록", `선택_매입_목록_${todayLocal()}.xlsx`);
   };
 
   // 전체 다운로드
@@ -239,7 +241,7 @@ function PurchasesListContent() {
       toast({ title: "데이터 없음", description: "다운로드할 데이터가 없습니다.", variant: "destructive" });
       return;
     }
-    downloadExcel(purchases, "매입 목록", `매입_목록_${new Date().toISOString().split("T")[0]}.xlsx`);
+    downloadExcel(purchases, "매입 목록", `매입_목록_${todayLocal()}.xlsx`);
   };
 
   const downloadExcel = (data: any[], sheetName: string, fileName: string) => {

@@ -18,7 +18,7 @@ describe("Batch Management Integration Tests", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     const timestamp = Date.now();
     

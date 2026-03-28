@@ -6,7 +6,7 @@ import { getDb } from "../db";
  */
 export async function getDailyProduction(date: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
@@ -48,7 +48,7 @@ export async function getDailyProduction(date: string, tenantId?: number) {
  */
 export async function getDailyCcpRecords(date: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { hCcpInstances, hCcpRows, hBatches } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
@@ -91,7 +91,7 @@ export async function getDailyCcpRecords(date: string, tenantId?: number) {
  */
 export async function getDailyIssues(date: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte } = await import("drizzle-orm");
@@ -134,7 +134,7 @@ export async function getDailyIssues(date: string, tenantId?: number) {
  */
 export async function getDailySummary(date: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { hBatches, hCcpRows } = await import("../../drizzle/schema_main");
   const { and, gte, lte, eq, count, sum, sql } = await import("drizzle-orm");

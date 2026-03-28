@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -50,16 +51,21 @@ interface FinishedProductItem {
   quantity: string;
   packagingStatus: string;
   labelStatus: string;
-  temperature: string;
+  shipMethod: string;       // 차량배송 | 택배(아이스박스)
+  temperature: string;      // 차량배송 시 온도
+  iceBoxStatus: string;     // 택배 시 아이스박스 여부 (○/×)
   result: string;
   correctiveAction: string;
   note: string;
   batchId?: number | null;
 }
 
+const SHIP_METHODS = ["차량배송", "택배(아이스박스)"];
+
 const emptyItem = (): FinishedProductItem => ({
   shipDate: '', productName: '', lotNumber: '', quantity: '',
-  packagingStatus: '\u25CB', labelStatus: '\u25CB', temperature: '',
+  packagingStatus: '\u25CB', labelStatus: '\u25CB',
+  shipMethod: '차량배송', temperature: '', iceBoxStatus: '\u25CB',
   result: '\uC801\uD569', correctiveAction: '', note: '',
 });
 
@@ -103,7 +109,8 @@ function generatePrintHTML(items: FinishedProductItem[], year: number, month: nu
       <td class="td-right">${item.quantity}</td>
       <td class="${markClass(item.packagingStatus)}">${item.packagingStatus}</td>
       <td class="${markClass(item.labelStatus)}">${item.labelStatus}</td>
-      <td>${item.temperature}</td>
+      <td>${item.shipMethod || '차량배송'}</td>
+      <td>${item.shipMethod === '택배(아이스박스)' ? (item.iceBoxStatus || '○') : (item.temperature || '')}</td>
       <td class="${resultClass(item.result)}">${item.result}</td>
       <td class="td-left">${item.correctiveAction || ''}</td>
     </tr>`).join('');
@@ -276,7 +283,8 @@ function FinishedProductDocument({
             <th className={thCls} style={{width:'55px'}}>수량</th>
             <th className={thCls} style={{width:'45px'}}>포장<br/>상태</th>
             <th className={thCls} style={{width:'45px'}}>표시<br/>사항</th>
-            <th className={thCls} style={{width:'45px'}}>온도<br/>(&#x2103;)</th>
+            <th className={thCls} style={{width:'60px'}}>출고<br/>방식</th>
+            <th className={thCls} style={{width:'55px'}}>온도(℃)/<br/>아이스박스</th>
             <th className={thCls} style={{width:'45px'}}>판정</th>
             <th className={thCls}>부적합시<br/>조치내용</th>
           </tr>
@@ -291,7 +299,8 @@ function FinishedProductDocument({
               <td className={`${bCls} px-1 py-0.5 text-[9px] text-right`}>{item.quantity}</td>
               <td className={`${tdCls} ${markColor(item.packagingStatus)}`}>{item.packagingStatus}</td>
               <td className={`${tdCls} ${markColor(item.labelStatus)}`}>{item.labelStatus}</td>
-              <td className={tdCls}>{item.temperature}</td>
+              <td className={`${tdCls} text-[8px]`}>{item.shipMethod || '차량'}</td>
+              <td className={tdCls}>{item.shipMethod === '택배(아이스박스)' ? (item.iceBoxStatus || '○') : (item.temperature || '')}</td>
               <td className={`${tdCls} ${resultColor(item.result)}`}>{item.result}</td>
               <td className={`${bCls} px-1 py-0.5 text-[9px] text-left`}>{item.correctiveAction || ''}</td>
             </tr>
@@ -321,6 +330,8 @@ export function FinishedProductInspectionLogContent() {
   const [editMode, setEditMode] = useState(false);
   const [editItems, setEditItems] = useState<FinishedProductItem[]>([]);
   const [initialized, setInitialized] = useState(false);
+  const autoSyncDone = useRef(false);
+  const { isAdmin } = useAuth();
 
   // ---- API: Auto getOrCreate monthly ----
   const getOrCreateMutation = (trpc as any).finishedProductInspection.getOrCreateMonthly.useMutation({
@@ -339,6 +350,7 @@ export function FinishedProductInspectionLogContent() {
     setInitialized(false);
     setLogId(null);
     setEditMode(false);
+    autoSyncDone.current = false;
     getOrCreateMutation.mutate({ year: currentYear, month: currentMonth });
   }, [currentYear, currentMonth]);
 
@@ -348,10 +360,10 @@ export function FinishedProductInspectionLogContent() {
     { enabled: !!logId, refetchOnWindowFocus: true }
   );
 
-  // ---- API: Fetch batches for auto-import ----
+  // ---- API: Fetch batches for auto-import (작업자용) ----
   const { data: batchData } = (trpc as any).finishedProductInspection.fetchBatches.useQuery(
     { year: currentYear, month: currentMonth },
-    { enabled: !!logId }
+    { enabled: !!logId && !isAdmin }
   );
 
   // ---- API: Previous defaults for auto-complete ----
@@ -359,6 +371,25 @@ export function FinishedProductInspectionLogContent() {
     { year: currentYear, month: currentMonth },
     { enabled: !!logId }
   );
+
+  // ---- 관리자용: 출고 데이터 자동 동기화 ----
+  const syncMutation = (trpc as any).finishedProductInspection.syncOutbounds.useMutation({
+    onSuccess: (r: any) => {
+      if (r.synced > 0) {
+        toast.success(`완제품 출고 ${r.synced}건 자동 반영 완료`);
+        refetchDetail();
+      }
+    },
+    onError: (e: any) => console.error('[syncOutbounds]', e.message),
+  });
+
+  // 관리자: logId 확정 시 자동 동기화
+  useEffect(() => {
+    if (isAdmin && logId && initialized && !autoSyncDone.current) {
+      autoSyncDone.current = true;
+      syncMutation.mutate({ logId, year: currentYear, month: currentMonth });
+    }
+  }, [isAdmin, logId, initialized]);
 
   const saveMutation = (trpc as any).finishedProductInspection.saveItems.useMutation({
     onSuccess: () => {
@@ -407,7 +438,20 @@ export function FinishedProductInspectionLogContent() {
   };
   const updateItem = (idx: number, field: keyof FinishedProductItem, value: string) => {
     setEditItems(prev => {
-      const updated = prev.map((item, i) => i === idx ? { ...item, [field]: value } : item);
+      const updated = prev.map((item, i) => {
+        if (i !== idx) return item;
+        const newItem = { ...item, [field]: value };
+        // 출고방식 변경 시 자동 처리
+        if (field === 'shipMethod') {
+          if (value === '택배(아이스박스)') {
+            newItem.iceBoxStatus = '○';  // 아이스박스 자동 적합
+            newItem.temperature = '';     // 온도 초기화
+          } else {
+            newItem.iceBoxStatus = '';
+          }
+        }
+        return newItem;
+      });
       // Auto-complete: when productName changes, fill from previousDefaults
       if (field === 'productName' && value && previousDefaults && previousDefaults[value]) {
         const defaults = previousDefaults[value];
@@ -429,11 +473,24 @@ export function FinishedProductInspectionLogContent() {
   // ---- Auto-import batches with previous defaults ----
   const handleImportBatches = () => {
     if (!batchData || batchData.length === 0) {
-      toast.info("해당 월의 배치 데이터가 없습니다. 수동으로 입력해주세요.");
+      toast.info("해당 월의 출고 데이터가 없습니다. 수동으로 입력해주세요.");
       return;
     }
+    // 기존 항목의 키 세트 (날짜+제품명+수량으로 중복 판별)
     const existingWithData = editItems.filter(i => i.productName);
-    const newItems = [...existingWithData, ...batchData.map((b: any) => {
+    const existingKeys = new Set(
+      existingWithData.map(i => `${i.shipDate}|${i.productName}|${i.quantity}`)
+    );
+    // 중복 아닌 신규 항목만 필터링
+    const newOnly = batchData.filter((b: any) => {
+      const key = `${b.shipDate || ''}|${b.productName || ''}|${String(b.quantity || '')}`;
+      return !existingKeys.has(key);
+    });
+    if (newOnly.length === 0) {
+      toast.info("모든 출고 데이터가 이미 반영되어 있습니다.");
+      return;
+    }
+    const imported = newOnly.map((b: any) => {
       const item: FinishedProductItem = {
         shipDate: b.shipDate || '',
         productName: b.productName || '',
@@ -441,10 +498,12 @@ export function FinishedProductInspectionLogContent() {
         quantity: String(b.quantity || ''),
         packagingStatus: b.packagingStatus || '\u25CB',
         labelStatus: b.labelStatus || '\u25CB',
+        shipMethod: '차량배송',
         temperature: b.temperature || '',
+        iceBoxStatus: '\u25CB',
         result: b.result || '\uC801\uD569',
         correctiveAction: '',
-        note: '',
+        note: b.note || '',
         batchId: b.batchId || null,
       };
       // Apply previous defaults if available
@@ -453,9 +512,10 @@ export function FinishedProductInspectionLogContent() {
         if (!item.temperature) item.temperature = d.temperature || '';
       }
       return item;
-    })];
-    setEditItems(newItems.length > 0 ? newItems : [emptyItem()]);
-    toast.success(`배치 데이터 ${batchData.length}건 가져오기 완료`);
+    });
+    const merged = [...existingWithData, ...imported];
+    setEditItems(merged.length > 0 ? merged : [emptyItem()]);
+    toast.success(`출고 데이터 ${newOnly.length}건 추가 (기존 ${existingWithData.length}건 유지, 중복 ${batchData.length - newOnly.length}건 제외)`);
   };
 
   // ---- Bulk pass ----
@@ -516,7 +576,7 @@ export function FinishedProductInspectionLogContent() {
           {editMode && (
             <>
               <Button size="sm" variant="outline" onClick={handleImportBatches}>
-                <Import className="h-4 w-4 mr-1" /> 배치 자동가져오기
+                <Import className="h-4 w-4 mr-1" /> 출고 가져오기
               </Button>
               <Button size="sm" variant="outline" onClick={handleBulkPass}>
                 <Wand2 className="h-4 w-4 mr-1" /> 전체 적합
@@ -599,7 +659,8 @@ export function FinishedProductInspectionLogContent() {
                   <th className="border border-gray-300 px-1 py-1.5 text-center w-20">수량</th>
                   <th className="border border-gray-300 px-1 py-1.5 text-center w-16">포장상태</th>
                   <th className="border border-gray-300 px-1 py-1.5 text-center w-16">표시사항</th>
-                  <th className="border border-gray-300 px-1 py-1.5 text-center w-16">온도</th>
+                  <th className="border border-gray-300 px-1 py-1.5 text-center w-24">출고방식</th>
+                  <th className="border border-gray-300 px-1 py-1.5 text-center w-20">온도/아이스박스</th>
                   <th className="border border-gray-300 px-1 py-1.5 text-center w-16">판정</th>
                   <th className="border border-gray-300 px-1 py-1.5 text-center min-w-[80px]">조치내용</th>
                   <th className="border border-gray-300 px-1 py-1.5 text-center w-8"></th>
@@ -615,7 +676,21 @@ export function FinishedProductInspectionLogContent() {
                     <td className="border border-gray-200 p-0.5"><Input className="h-7 text-xs" value={item.quantity} placeholder="0" onChange={e => updateItem(idx, 'quantity', e.target.value)} /></td>
                     <td className="border border-gray-200 p-0.5"><MarkSelect value={item.packagingStatus} onChange={v => updateItem(idx, 'packagingStatus', v)} /></td>
                     <td className="border border-gray-200 p-0.5"><MarkSelect value={item.labelStatus} onChange={v => updateItem(idx, 'labelStatus', v)} /></td>
-                    <td className="border border-gray-200 p-0.5"><Input className="h-7 text-xs" value={item.temperature} placeholder="0&#x2103;" onChange={e => updateItem(idx, 'temperature', e.target.value)} /></td>
+                    <td className="border border-gray-200 p-0.5">
+                      <Select value={item.shipMethod || '차량배송'} onValueChange={v => updateItem(idx, 'shipMethod', v)}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {SHIP_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="border border-gray-200 p-0.5">
+                      {(item.shipMethod || '차량배송') === '택배(아이스박스)' ? (
+                        <MarkSelect value={item.iceBoxStatus || '○'} onChange={v => updateItem(idx, 'iceBoxStatus', v)} />
+                      ) : (
+                        <Input className="h-7 text-xs" value={item.temperature} placeholder="0℃" onChange={e => updateItem(idx, 'temperature', e.target.value)} />
+                      )}
+                    </td>
                     <td className="border border-gray-200 p-0.5"><MarkSelect value={item.result} onChange={v => updateItem(idx, 'result', v)} options={RESULT_OPTIONS} /></td>
                     <td className="border border-gray-200 p-0.5"><Input className="h-7 text-xs" value={item.correctiveAction} placeholder="" onChange={e => updateItem(idx, 'correctiveAction', e.target.value)} /></td>
                     <td className="border border-gray-200 text-center p-0.5">

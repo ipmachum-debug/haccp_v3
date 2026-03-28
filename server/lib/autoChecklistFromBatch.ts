@@ -13,6 +13,8 @@ import {
 } from "../../drizzle/schema/checklist";
 import { eq, and, sql } from "drizzle-orm";
 
+import { todayKST } from "../utils/timezone";
+
 export interface AutoChecklistResult {
   created: number;
   templateNames: string[];
@@ -52,7 +54,7 @@ async function autoCreateChecklists(
   const db = await getDb();
   if (!db) return { created: 0, templateNames: [] };
 
-  const dateStr = targetDate || new Date().toISOString().split("T")[0];
+  const dateStr = targetDate || todayKST();
 
   // frequency가 일치하고 활성인 템플릿 조회
   const templates = await db

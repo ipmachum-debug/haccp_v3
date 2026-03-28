@@ -23,6 +23,8 @@ import {
 import { Plus, Trash2, Save, Search, FileText } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../../lib/dateUtils";
+
 const ITEM_TYPE_LABELS: Record<string, string> = {
   raw_material: "원재료",
   own_product: "자사제품",
@@ -69,7 +71,7 @@ export default function SalesManagement() {
 function SalesManagementContent() {
   const { toast } = useToast();
   
-  const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [transactionDate, setTransactionDate] = useState<string>(todayLocal());
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>("");
   const [selectedPartnerName, setSelectedPartnerName] = useState<string>("");
   const [memo, setMemo] = useState<string>("");
@@ -140,7 +142,7 @@ function SalesManagementContent() {
       // 폼 초기화
       setSelectedPartnerId("");
       setSelectedPartnerName("");
-      setTransactionDate(new Date().toISOString().split("T")[0]);
+      setTransactionDate(todayLocal());
       setMemo("");
       setItems([
         {

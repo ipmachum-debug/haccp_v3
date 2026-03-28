@@ -5,6 +5,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 원재료 출고 CANCEL 로직 (역분개 패턴)
  *
@@ -30,7 +32,7 @@ export async function cancelMaterialOutbound(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 출고 문서 조회 및 상태 검증 (tenant_id 필터 적용)
   const outbound = await db
@@ -76,7 +78,7 @@ export async function cancelMaterialOutbound(
         transactionType: "adjustment", // 조정
         quantity: (-parseFloat(originalTx.quantity || "0")).toString(), // 부호 반대
         unit: originalTx.unit,
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         sourceType: "OUTBOUND",
         sourceId: `OUTBOUND-${outboundId}`,
         sourceLineId: originalTx.sourceLineId,
@@ -97,7 +99,7 @@ export async function cancelMaterialOutbound(
   }
 
   // 4. 회계 역분개 생성 (DR/CR 반대) - expense_journal_entries + lines
-  const transactionDate = new Date().toISOString().split("T")[0];
+  const transactionDate = todayKST();
   const description = `원재료 출고 취소 (출고 #${outboundId})`;
 
   // 원본 분개 조회: [원재료출고] 마커로 원본 journal entry 찾기

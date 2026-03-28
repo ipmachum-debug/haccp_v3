@@ -28,6 +28,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
+import { todayLocal } from "../lib/dateUtils";
+
 interface IngredientRow {
   materialId?: number;
   intermediateId?: number;
@@ -154,7 +156,7 @@ export default function MfReportCreate() {
     createMutation.mutate({
       productId: parseInt(selectedProductId),
       reportNo: reportCode,
-      reportDate: new Date().toISOString().split('T')[0],
+      reportDate: todayLocal(),
       yieldBasis,
       unitWeightG: unitWeightG ? parseFloat(unitWeightG) : undefined,
       batchTargetKg: batchTargetKg ? parseFloat(batchTargetKg) : undefined,

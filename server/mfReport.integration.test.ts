@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { getDb } from "./db";
 import { eq } from "drizzle-orm";
+import { todayKST } from "./utils/timezone";
+
 import {
   calculateBatchRequirements,
   deductInventoryByMfReport,
@@ -23,7 +25,7 @@ describe("품목제조보고 시스템 통합 테스트", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트용 품목제조보고 버전 ID 조회 (실제 데이터 사용)
     const { hMfReportVersions } = await import("../drizzle/schema_recipe_new");
@@ -77,7 +79,7 @@ describe("품목제조보고 시스템 통합 테스트", () => {
       return;
     }
 
-    const productionDate = new Date().toISOString().split("T")[0];
+    const productionDate = todayKST();
     const producedQuantity = 200; // 200개 생산
 
     const result = await deductInventoryByMfReport({
@@ -170,7 +172,7 @@ describe("품목제조보고 시스템 통합 테스트", () => {
 
     // 각 중간재의 구성 요소 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const { hMixedMaterialComponents } = await import("../drizzle/schema_recipe_new");
 

@@ -11,7 +11,7 @@ describe("Material Receipt & LOT Management", () => {
   beforeAll(async () => {
     // 테스트용 원재료 생성
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const uniqueCode = `TEST-MAT-${Date.now()}`;
     const [material] = await db.insert(hMaterials).values({
@@ -53,7 +53,7 @@ describe("Material Receipt & LOT Management", () => {
 
     // LOT 생성 확인
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     const lots = await db.select().from(hInventoryLots).where(eq(hInventoryLots.id, testLotId));
     const lotData = lots[0];

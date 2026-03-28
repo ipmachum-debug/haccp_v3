@@ -10,6 +10,8 @@ import { trpc } from "@/lib/trpc";
 import { X, ChevronRight, Loader2 } from "lucide-react";
 import { useLocation } from "wouter";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const SEVERITY_STYLES = {
   critical: "border-red-200 bg-red-50/80 dark:bg-red-950/30 dark:border-red-800",
   warning: "border-amber-200 bg-amber-50/60 dark:bg-amber-950/20 dark:border-amber-800",
@@ -31,7 +33,7 @@ export default function FloatingAIBriefing() {
   const [animateIn, setAnimateIn] = useState(false);
 
   useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayLocal();
     const lastDismissed = sessionStorage.getItem("ai-briefing-dismissed");
     if (lastDismissed === today) {
       setDismissed(true);
@@ -59,7 +61,7 @@ export default function FloatingAIBriefing() {
     setTimeout(() => {
       setVisible(false);
       setDismissed(true);
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocal();
       sessionStorage.setItem("ai-briefing-dismissed", today);
     }, 300);
   };

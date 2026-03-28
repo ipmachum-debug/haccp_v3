@@ -10,10 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FileText } from "lucide-react";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function ChecklistCreate() {
   const [, setLocation] = useLocation();
   const [templateId, setTemplateId] = useState<string>("");
-  const [scheduledDate, setScheduledDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [scheduledDate, setScheduledDate] = useState<string>(todayLocal());
 
   const { data: templates } = trpc.qualityChecklist.listTemplates.useQuery({ isActive: true });
 

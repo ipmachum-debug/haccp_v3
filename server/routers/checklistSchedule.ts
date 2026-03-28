@@ -79,7 +79,7 @@ export const checklistScheduleRouter = router({
    */
   getTemplates: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     const tenantId = ctx.tenantId!;
 
@@ -112,7 +112,7 @@ export const checklistScheduleRouter = router({
     )
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 
@@ -173,7 +173,7 @@ export const checklistScheduleRouter = router({
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 
@@ -221,7 +221,7 @@ export const checklistScheduleRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 
@@ -263,7 +263,7 @@ export const checklistScheduleRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 
@@ -310,7 +310,7 @@ export const checklistScheduleRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 
@@ -343,7 +343,7 @@ export const checklistScheduleRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       const tenantId = ctx.tenantId!;
 

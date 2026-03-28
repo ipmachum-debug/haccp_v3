@@ -9,6 +9,8 @@ import { materialInspectionRecords, hygieneInspectionRecords, shippingInspection
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { notifyOwner } from "../_core/notification";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 주간 검사 리포트 생성 및 알림
  */
@@ -25,8 +27,8 @@ export async function generateWeeklyInspectionReport() {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 7);
 
-    const startDateStr = startDate.toISOString().split('T')[0];
-    const endDateStr = endDate.toISOString().split('T')[0];
+    const startDateStr = formatLocalDate(startDate);
+    const endDateStr = formatLocalDate(endDate);
 
     // [보안] 활성 테넌트 목록 조회
     const activeTenants = await db
@@ -143,8 +145,8 @@ export async function generateMonthlyInspectionReport() {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 30);
 
-    const startDateStr = startDate.toISOString().split('T')[0];
-    const endDateStr = endDate.toISOString().split('T')[0];
+    const startDateStr = formatLocalDate(startDate);
+    const endDateStr = formatLocalDate(endDate);
 
     // [보안] 활성 테넌트 목록 조회
     const activeTenants = await db

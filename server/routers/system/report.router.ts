@@ -2,6 +2,8 @@
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 
+import { formatLocalDate } from "../../utils/timezone";
+
 export const reportRouter = router({
     // 배치별 PDF 보고서 생성
     generateBatchPDF: tenantRequiredProcedure
@@ -73,7 +75,7 @@ export const reportRouter = router({
         return {
           success: true,
           pdf: base64Pdf,
-          filename: `${input.reportType}_ccp_report_${startDate.toISOString().split('T')[0]}.pdf`
+          filename: `${input.reportType}_ccp_report_${formatLocalDate(startDate)}.pdf`
         };
       })
 });

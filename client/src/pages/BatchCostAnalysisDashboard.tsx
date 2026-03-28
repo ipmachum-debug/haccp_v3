@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { Eye, AlertTriangle, Droplets } from "lucide-react";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
 
 /** 정제수(purified water) 판별 */
@@ -22,9 +24,9 @@ export default function BatchCostAnalysisDashboard() {
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 1);
-    return date.toISOString().split("T")[0];
+    return formatLocalDate(date);
   });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(() => todayLocal());
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
 
   // 배치 목록 조회
@@ -35,7 +37,7 @@ export default function BatchCostAnalysisDashboard() {
   const filteredBatches = batches.filter((b: any) => {
     const bDate = b.plannedDate || b.startTime || b.createdAt;
     if (!bDate) return false;
-    const d = new Date(bDate).toISOString().split("T")[0];
+    const d = formatLocalDate(new Date(bDate));
     return d >= startDate && d <= endDate;
   });
 

@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 생산 완료 CANCEL 로직 (역거래 패턴)
  *
@@ -31,7 +33,7 @@ export async function cancelProductionComplete(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 조회 및 상태 검증 (tenant_id 필터 적용)
   const batch = await db
@@ -77,7 +79,7 @@ export async function cancelProductionComplete(
         transactionType: "adjustment",
         quantity: (-parseFloat(originalTx.quantity || "0")).toString(),
         unit: originalTx.unit,
-        transactionDate: new Date().toISOString().split("T")[0],
+        transactionDate: todayKST(),
         sourceType: "PRODUCTION",
         sourceId: `BATCH-${batchId}`,
         sourceLineId: originalTx.sourceLineId,
@@ -99,7 +101,7 @@ export async function cancelProductionComplete(
 
   // 4. 원본 회계 분개 조회 (description 패턴 매칭)
   const conn = await getRawConnection();
-  const transactionDate = new Date().toISOString().split("T")[0];
+  const transactionDate = todayKST();
 
   const [originalEntries] = await conn.execute(
     `SELECT id, total_debit, total_credit FROM expense_journal_entries

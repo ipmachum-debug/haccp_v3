@@ -8,7 +8,7 @@ import { eq, and } from "drizzle-orm";
 
 export async function getUserWidgetSettings(userId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result = await db
     .select()
@@ -24,7 +24,7 @@ export async function updateWidgetVisibility(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 기존 설정이 있는지 확인
   const existing = await db
@@ -69,7 +69,7 @@ export async function batchUpdateWidgetSettings(data: {
   widgets: Array<{ widgetId: string; isVisible: number }>;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   for (const widget of data.widgets) {
     await updateWidgetVisibility({

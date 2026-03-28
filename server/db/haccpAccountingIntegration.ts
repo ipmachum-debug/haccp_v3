@@ -1,5 +1,7 @@
 import { getRawConnection } from "../db";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * HACCP 재고 시스템과 회계 시스템 자동 연동
  */
@@ -80,7 +82,7 @@ export async function createPurchaseFromReceipt(tenantId: number, transactionId:
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
-      transaction.receipt_date || new Date().toISOString().split("T")[0],
+      transaction.receipt_date || todayKST(),
       transaction.supplier_name || "미지정 공급업체",
       transaction.material_name || "재료",
       quantity,
@@ -182,7 +184,7 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
-      transaction.receipt_date || new Date().toISOString().split("T")[0],
+      transaction.receipt_date || todayKST(),
       "미지정 고객", // 기본값 (추후 고객 정보 연동 시 수정)
       transaction.sku_name
         ? `${transaction.product_name || "제품"} [${transaction.sku_name}]`

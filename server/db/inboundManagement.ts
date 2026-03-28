@@ -7,6 +7,8 @@ import { getDb } from "../db";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * h_inventory 테이블 재고량 업데이트
  * 입고/출고 시 총 재고량과 가용 재고량 증가/감소
@@ -57,7 +59,7 @@ async function updateInventoryQuantity(params: {
  */
 export async function generateLotNumber(materialCode: string, tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const today = new Date();
   const dateStr = today.toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
@@ -98,7 +100,7 @@ export async function createInboundReceipt(params: {
   createdBy: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 정보 조회
   const [material] = await db
@@ -190,7 +192,7 @@ export async function getInboundHistory(params: {
   search?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const limit = params.limit || 50;
 
@@ -207,11 +209,11 @@ export async function getInboundHistory(params: {
   }
   
   if (params.startDate) {
-    conditions.push(gte(hInventoryLots.receiptDate, params.startDate.toISOString().split("T")[0]));
+    conditions.push(gte(hInventoryLots.receiptDate, formatLocalDate(params.startDate)));
   }
 
   if (params.endDate) {
-    conditions.push(lte(hInventoryLots.receiptDate, params.endDate.toISOString().split("T")[0]));
+    conditions.push(lte(hInventoryLots.receiptDate, formatLocalDate(params.endDate)));
   }
   
   // supplierId 필터는 supplierName으로 대체 (클라이언트 측에서 처리)

@@ -18,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 일반위생관리 주간 점검항목
 const DEFAULT_WEEKLY_HYGIENE = [
   { category: "청소소독", itemOrder: 1, itemText: "냉장창고 내부 청소 상태는 양호한가?", checkResult: null as string | null },
@@ -53,7 +55,7 @@ export default function WeeklyLogForm() {
   const paramDate = params.get("date");
   const paramId = params.get("id");
 
-  const [logDate, setLogDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(paramDate || todayLocal());
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");

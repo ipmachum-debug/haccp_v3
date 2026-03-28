@@ -9,6 +9,8 @@ import { checkCcpInspectionReminders, checkOverdueCcpInspections } from "./sched
 import { initChecklistScheduler } from "./checklistScheduler";
 import { checkHealthCertificateReminders, resetExpiredCertificateReminders } from "./schedulers/healthCertificateReminder";
 
+import { todayKST } from "./utils/timezone";
+
 /**
  * 재고 회전율 알림 스케줄러
  * 매일 오전 9시에 자동으로 실행되어 임계값 이하의 회전율을 가진 원재료에 대해 알림을 생성합니다.
@@ -162,7 +164,7 @@ export function initScheduler() {
         .from(tenants)
         .where(eq(tenants.status, "active"));
       
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
       
       for (const tenant of activeTenants) {
         try {

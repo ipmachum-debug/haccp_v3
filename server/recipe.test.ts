@@ -11,7 +11,7 @@ describe("Recipe Management API", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 관리자 사용자 생성 또는 조회
     const existingAdmin = await db

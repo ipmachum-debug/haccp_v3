@@ -25,6 +25,8 @@ import { Plus, Trash2, Save, Search, FileText, Building2, X, Package, FileSpread
 import { useToast } from "@/hooks/use-toast";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
+import { todayLocal } from "../lib/dateUtils";
+
 /* ─── Partner inline search/autocomplete ─── */
 function PartnerInlineSearch({ selectedId, selectedName, onSelect, onClear, partnerType, label = "거래처 *" }: {
   selectedId: string; selectedName: string;
@@ -171,7 +173,7 @@ function PurchasesManagementContent() {
   const { toast } = useToast();
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
 
-  const [transactionDate, setTransactionDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [transactionDate, setTransactionDate] = useState<string>(todayLocal());
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>("");
   const [selectedPartnerName, setSelectedPartnerName] = useState<string>("");
   const [memo, setMemo] = useState<string>("");
@@ -245,7 +247,7 @@ function PurchasesManagementContent() {
       // 폼 초기화
       setSelectedPartnerId("");
       setSelectedPartnerName("");
-      setTransactionDate(new Date().toISOString().split("T")[0]);
+      setTransactionDate(todayLocal());
       setMemo("");
       setItems([
         {

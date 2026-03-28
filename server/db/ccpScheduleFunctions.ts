@@ -19,7 +19,7 @@ export async function createCcpSchedules(
   count: number = 30
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpSchedules } = await import("../../drizzle/schema_main");
 
   const schedules = [];
@@ -59,7 +59,7 @@ export async function getCcpSchedules(filters?: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpSchedules, hCcpInstances } = await import("../../drizzle/schema_main");
 
   const conditions = [];
@@ -115,7 +115,7 @@ export async function completeCcpSchedule(
   note?: string
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpSchedules } = await import("../../drizzle/schema_main");
 
   await db
@@ -134,7 +134,7 @@ export async function completeCcpSchedule(
  */
 export async function getTodayCcpSchedules() {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
   const { hCcpSchedules, hCcpInstances } = await import("../../drizzle/schema_main");
 
   const today = new Date();
@@ -166,7 +166,7 @@ export async function getTodayCcpSchedules() {
 // CCP 점검 일정 날짜 변경
 export async function updateCcpScheduleDate(scheduleId: number, newDate: Date) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hCcpSchedules } = await import("../../drizzle/schema");
 

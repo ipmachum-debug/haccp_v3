@@ -1,5 +1,7 @@
 import { eq, and, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { getDb } from "../db";
+import { todayKST, formatLocalDate} from "../utils/timezone";
+
 import {
   hInternalAuditPlans,
   hInternalAudits,
@@ -411,10 +413,10 @@ export async function getUpcomingAudits(params: {
   const db = await getDb();
   const { siteId, days = 30, tenantId } = params;
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayKST();
   const futureDate = new Date();
   futureDate.setDate(futureDate.getDate() + days);
-  const futureDateStr = futureDate.toISOString().split("T")[0];
+  const futureDateStr = formatLocalDate(futureDate);
 
   const conditions: any[] = [
     eq(hInternalAudits.tenantId, tenantId),

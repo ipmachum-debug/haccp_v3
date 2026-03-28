@@ -30,6 +30,8 @@ import {
 import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function PartnersQuery() {
   return (
     <DashboardLayout>
@@ -199,7 +201,7 @@ function PartnersQueryContent() {
     const ws = XLSX.utils.json_to_sheet(excelData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, `거래처조회_${sheetName}_${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(wb, `거래처조회_${sheetName}_${todayLocal()}.xlsx`);
     toast({ title: "다운로드 완료", description: "엑셀 파일이 다운로드되었습니다." });
   };
 

@@ -14,6 +14,7 @@
 
 import { getDb } from "../db";
 import { eq, and, sql } from "drizzle-orm";
+import { todayKST } from "../utils/timezone";
 
 /** 정제수(purified water) 여부 판별 - 원가 계산에서 제외 대상 */
 function isWaterMaterial(materialName: string | null | undefined): boolean {
@@ -46,7 +47,7 @@ export async function autoIssueMaterialsForBatch(
   userId: number
 ): Promise<AutoIssueResult> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result: AutoIssueResult = {
     success: true,
@@ -103,8 +104,7 @@ export async function autoIssueMaterialsForBatch(
       return result;
     }
 
-    const transactionDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000)
-      .toISOString().split('T')[0];
+    const transactionDate = todayKST();
 
     // 3. 각 원재료별 출고 처리
     for (const input of batchInputs) {

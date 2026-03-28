@@ -12,7 +12,7 @@ export async function analyzePriceTrend(
   endDate: Date
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 정보 조회
   const materialQuery = sql`
@@ -77,7 +77,7 @@ export async function analyzePriceTrend(
  */
 export async function recommendPurchaseTiming(tenantId: number, materialId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 최근 30일 가격 추이 조회
   const endDate = new Date();
@@ -121,7 +121,7 @@ export async function recommendPurchaseTiming(tenantId: number, materialId: numb
  */
 export async function recommendAlternativeSuppliers(tenantId: number, materialId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 정보 조회
   const materialQuery = sql`
@@ -166,7 +166,7 @@ export async function recommendAlternativeSuppliers(tenantId: number, materialId
  */
 export async function generateCostSavingProposal(tenantId: number, materialId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 정보 조회
   const materialQuery = sql`

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,8 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import LotTraceabilityModal from "@/components/LotTraceabilityModal";
+import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 
 export default function InventoryManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'current');
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
   const [lotModalOpen, setLotModalOpen] = useState(false);
   
@@ -55,7 +58,7 @@ export default function InventoryManagement() {
           </Button>
         </div>
 
-        <Tabs defaultValue="current" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-9 gap-1">
             <TabsTrigger value="current" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
@@ -258,63 +261,7 @@ export default function InventoryManagement() {
             )}
             
             {/* 원재료별 재고 현황 */}
-            <Card>
-              <CardHeader>
-                <CardTitle>원재료별 재고 현황</CardTitle>
-                <CardDescription>
-                  전체 원재료의 재고 현황 및 가치
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoadingDashboard ? (
-                  <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
-                ) : !dashboard || dashboard.materialStocks.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    재고 데이터가 없습니다.
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>원재료</TableHead>
-                        <TableHead>총 수량</TableHead>
-                        <TableHead>LOT 수</TableHead>
-                        <TableHead>단가</TableHead>
-                        <TableHead>총 가치</TableHead>
-                        <TableHead>상태</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {dashboard.materialStocks.map((material: any) => (
-                        <TableRow key={material.materialId}>
-                          <TableCell>
-                            <div>
-                              <div className="font-medium">{material.materialName}</div>
-                              <div className="text-sm text-muted-foreground">{material.materialCode}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {Number(material.totalQuantity).toFixed(2)} {material.unit}
-                          </TableCell>
-                          <TableCell>{material.lotCount}</TableCell>
-                          <TableCell>₩{parseFloat(material.unitPrice || "0").toLocaleString()}</TableCell>
-                          <TableCell className="font-medium">
-                            ₩{material.totalValue.toLocaleString()}
-                          </TableCell>
-                          <TableCell>
-                            {material.isLowStock ? (
-                              <Badge variant="destructive">재고 부족</Badge>
-                            ) : (
-                              <Badge variant="secondary">정상</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+            <MaterialStockTable materialStocks={dashboard?.materialStocks || []} isLoading={isLoadingDashboard} />
           </TabsContent>
 
           {/* 이동 추이 탭 */}
@@ -782,15 +729,20 @@ function ReleaseTab() {
   );
 }
 
-// 입고관리 탭 컴포넌트
+// 입고관리 탭 컴포넌트 (페이지네이션 + 정렬)
 function ReceiptTab() {
-  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 50 });
-  
+  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 500 });
+  const pg = usePaginatedSort(receipts || [], { defaultSort: { key: 'receiptDate', direction: 'desc' } });
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>입고 내역</CardTitle>
-        <CardDescription>재고 입고 이력을 확인합니다.</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>입고 내역</CardTitle>
+            <CardDescription>재고 입고 이력을 확인합니다.</CardDescription>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -798,30 +750,33 @@ function ReceiptTab() {
         ) : !receipts || receipts.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">입고 내역이 없습니다.</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>입고일</TableHead>
-                <TableHead>LOT 번호</TableHead>
-                <TableHead>원재료</TableHead>
-                <TableHead>수량</TableHead>
-                <TableHead>유통기한</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {receipts.map((receipt: any) => (
-                <TableRow key={receipt.id}>
-                  <TableCell>{new Date(receipt.receiptDate).toLocaleDateString("ko-KR")}</TableCell>
-                  <TableCell className="font-medium">{receipt.lotNumber}</TableCell>
-                  <TableCell>{receipt.materialName}</TableCell>
-                  <TableCell>{receipt.quantity} {receipt.unit}</TableCell>
-                  <TableCell>
-                    {receipt.expiryDate ? new Date(receipt.expiryDate).toLocaleDateString("ko-KR") : "-"}
-                  </TableCell>
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableHeader label="입고일" sortKey="receiptDate" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="LOT 번호" sortKey="lotNumber" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="원재료" sortKey="materialName" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="수량" sortKey="quantity" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="유통기한" sortKey="expiryDate" currentSort={pg.sort} onSort={pg.handleSort} />
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {pg.pageData.map((receipt: any) => (
+                  <TableRow key={receipt.id}>
+                    <TableCell>{receipt.receiptDate ? new Date(receipt.receiptDate).toLocaleDateString("ko-KR") : "-"}</TableCell>
+                    <TableCell className="font-medium">{receipt.lotNumber}</TableCell>
+                    <TableCell>{receipt.materialName}</TableCell>
+                    <TableCell>{receipt.quantity} {receipt.unit}</TableCell>
+                    <TableCell>
+                      {receipt.expiryDate ? new Date(receipt.expiryDate).toLocaleDateString("ko-KR") : "-"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <PaginationBar totalItems={pg.totalItems} totalPages={pg.totalPages} currentPage={pg.pagination.page} pageSize={pg.pagination.pageSize} startIdx={pg.startIdx} endIdx={pg.endIdx} onPageChange={pg.setPage} onPageSizeChange={pg.setPageSize} />
+          </>
         )}
       </CardContent>
     </Card>
@@ -935,6 +890,70 @@ function AdjustmentTab() {
             {adjustMutation.isPending ? "처리 중..." : "조정 처리"}
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// 원재료별 재고 현황 테이블 (페이지네이션 + 정렬)
+function MaterialStockTable({ materialStocks, isLoading }: { materialStocks: any[]; isLoading: boolean }) {
+  const pg = usePaginatedSort(materialStocks, { defaultSort: { key: 'materialName', direction: 'asc' } });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>원재료별 재고 현황</CardTitle>
+            <CardDescription>전체 원재료의 재고 현황 및 가치</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
+        ) : materialStocks.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">재고 데이터가 없습니다.</div>
+        ) : (
+          <>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <SortableHeader label="원재료" sortKey="materialName" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="총 수량" sortKey="totalQuantity" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="LOT 수" sortKey="lotCount" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="단가" sortKey="unitPrice" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <SortableHeader label="총 가치" sortKey="totalValue" currentSort={pg.sort} onSort={pg.handleSort} />
+                  <TableHead className="text-xs">상태</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pg.pageData.map((material: any) => (
+                  <TableRow key={material.materialId}>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">{material.materialName}</div>
+                        <div className="text-sm text-muted-foreground">{material.materialCode}</div>
+                      </div>
+                    </TableCell>
+                    <TableCell>{Number(material.totalQuantity).toFixed(2)} {material.unit}</TableCell>
+                    <TableCell>{material.lotCount}</TableCell>
+                    <TableCell>₩{parseFloat(material.unitPrice || "0").toLocaleString()}</TableCell>
+                    <TableCell className="font-medium">₩{material.totalValue.toLocaleString()}</TableCell>
+                    <TableCell>
+                      {material.isLowStock ? (
+                        <Badge variant="destructive">재고 부족</Badge>
+                      ) : (
+                        <Badge variant="secondary">정상</Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <PaginationBar totalItems={pg.totalItems} totalPages={pg.totalPages} currentPage={pg.pagination.page} pageSize={pg.pagination.pageSize} startIdx={pg.startIdx} endIdx={pg.endIdx} onPageChange={pg.setPage} onPageSizeChange={pg.setPageSize} />
+          </>
+        )}
       </CardContent>
     </Card>
   );

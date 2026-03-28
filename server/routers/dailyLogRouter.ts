@@ -13,6 +13,8 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 export const dailyLogRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
   getPreviousFormData: tenantRequiredProcedure
@@ -39,7 +41,7 @@ export const dailyLogRouter = router({
         } catch { return null; }
         return {
           sourceDate: row.form_date instanceof Date
-            ? row.form_date.toISOString().split('T')[0]
+            ? formatLocalDate(row.form_date)
             : String(row.form_date),
           formData: fd,
         };
@@ -74,7 +76,7 @@ export const dailyLogRouter = router({
         return {
           id: r.id,
           siteId: r.site_id,
-          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
+          logDate: r.form_date instanceof Date ? formatLocalDate(r.form_date) : String(r.form_date),
           title: r.title,
           status: r.status,
           formData: fd,
@@ -303,7 +305,7 @@ export const dailyLogRouter = router({
 
           // 작성자: 문서결재설정 작성자 우선, 없으면 같은 테넌트의 users.name
           const displayAuthor = authorEmployeeName || r.creator_name || "-";
-          const logDate = r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || '');
+          const logDate = r.log_date instanceof Date ? formatLocalDate(r.log_date) : String(r.log_date || '');
           return {
             id: r.id, siteId: r.site_id,
             log_date: logDate,

@@ -1,5 +1,7 @@
 import { eq, and, desc, or } from "drizzle-orm";
 import { getDb } from "../db";
+import { todayKST } from "../utils/timezone";
+
 import {
   hCorrectiveActionRequests,
   hCorrectiveActionAttachments
@@ -15,10 +17,10 @@ import {
 
 export async function generateRequestNumber(tenantId?: number): Promise<string> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // CAR-YYYYMMDD-XXX 형식
-  const today = new Date().toISOString().split("T")[0].replace(/-/g, "");
+  const today = todayKST().replace(/-/g, "");
   const prefix = `CAR-${today}`;
 
   const [lastRequest] = await db
@@ -48,7 +50,7 @@ export async function createCorrectiveActionRequest(data: {
   priority?: "low" | "medium" | "high" | "critical";
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const requestNumber = await generateRequestNumber();
 
@@ -64,7 +66,7 @@ export async function createCorrectiveActionRequest(data: {
 
 export async function getCorrectiveActionRequestById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db
     .select()
@@ -75,7 +77,7 @@ export async function getCorrectiveActionRequestById(id: number, tenantId?: numb
 
 export async function getCorrectiveActionRequestsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return db
     .select()
@@ -86,7 +88,7 @@ export async function getCorrectiveActionRequestsByBatch(batchId: number, tenant
 export async function getCorrectiveActionRequestsByStatus(
   status: "open" | "investigating" | "action_taken" | "verifying" | "closed" | "reopened", tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return db
     .select()
@@ -96,7 +98,7 @@ export async function getCorrectiveActionRequestsByStatus(
 
 export async function getAllCorrectiveActionRequests(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return db
     .select()
@@ -126,7 +128,7 @@ export async function updateCorrectiveActionRequest(
     preventiveAction?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { ...data };
   if (data.actionStartDate) updateData.actionStartDate = new Date(data.actionStartDate);
@@ -141,7 +143,7 @@ export async function updateCorrectiveActionRequest(
 
 export async function deleteCorrectiveActionRequest(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 첨부 파일도 함께 삭제
   await db
@@ -164,7 +166,7 @@ export async function addCorrectiveActionAttachment(data: {
   uploadedBy: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db.insert(hCorrectiveActionAttachments).values({
       ...data, tenantId } as any);
@@ -173,7 +175,7 @@ export async function addCorrectiveActionAttachment(data: {
 
 export async function getCorrectiveActionAttachments(requestId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   return db
     .select()
@@ -182,7 +184,7 @@ export async function getCorrectiveActionAttachments(requestId: number, tenantId
 
 export async function deleteCorrectiveActionAttachment(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .delete(hCorrectiveActionAttachments)

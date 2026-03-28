@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +21,7 @@ import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 
 export default function Today() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'batches');
   const today = new Date();
   const todayStr = format(today, "yyyy-MM-dd");
 
@@ -111,7 +113,7 @@ export default function Today() {
         </div>
 
         {/* 업무 목록 탭 */}
-        <Tabs defaultValue="batches" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList>
             <TabsTrigger value="batches">
               <Package className="h-4 w-4 mr-2" />

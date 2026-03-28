@@ -28,7 +28,8 @@ export const authRouter = router({
       .input(
         z.object({
           email: z.string().email(),
-          password: z.string().min(6),
+          // 비밀번호 정책: 최소 8자 이상
+          password: z.string().min(8, "비밀번호는 최소 8자 이상이어야 합니다"),
           name: z.string().min(1),
           userType: z.enum(["b2b_partner", "general_user", "company_staff", "other", "client_admin", "employee"]).default("employee"),
           userMemo: z.string().optional(),
@@ -104,7 +105,7 @@ export const authRouter = router({
 
         // 데이터베이스에 토큰 저장
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         await (db as any).execute(
           "INSERT INTO h_password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
@@ -138,7 +139,7 @@ export const authRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         // 토큰 조회
         const [tokenRecord] = await (db as any).execute(

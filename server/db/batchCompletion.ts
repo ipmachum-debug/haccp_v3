@@ -8,7 +8,7 @@ import { getCcpRecordsByInstanceId } from "./ccpRecords";
  */
 export async function checkBatchCompletion(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 배치 정보 조회
   const batch = await db

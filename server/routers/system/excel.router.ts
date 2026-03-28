@@ -2,6 +2,8 @@
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 
+import { todayKST } from "../../utils/timezone";
+
 export const excelRouter = router({
     // 배치 데이터 Excel 내보내기
     exportBatches: tenantRequiredProcedure
@@ -26,7 +28,7 @@ export const excelRouter = router({
         
         return {
           data: base64,
-          filename: `batches_${new Date().toISOString().split("T")[0]}.xlsx`
+          filename: `batches_${todayKST()}.xlsx`
         };
       }),
     
@@ -47,7 +49,7 @@ export const excelRouter = router({
         
         return {
           data: base64,
-          filename: `inventory_${new Date().toISOString().split("T")[0]}.xlsx`
+          filename: `inventory_${todayKST()}.xlsx`
         };
       }),
     

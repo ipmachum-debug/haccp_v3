@@ -15,7 +15,7 @@ export async function listBatches(params?: {
   offset?: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select().from(hBatches).where(eq(hBatches.tenantId, tenantId));
 
@@ -55,7 +55,7 @@ export async function listBatches(params?: {
  */
 export async function getBatchById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [batch] = await db
     .select()
@@ -80,7 +80,7 @@ export async function createBatch(data: {
   createdBy: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [batch] = await db.insert(hBatches).values({
       tenantId,
@@ -118,7 +118,7 @@ export async function updateBatch(
     status?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hBatches)
@@ -134,7 +134,7 @@ export async function updateBatch(
  */
 export async function deleteBatch(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.delete(hBatches).where(and(eq(hBatches.tenantId, tenantId), eq(hBatches.id, id)));}
 
@@ -143,7 +143,7 @@ export async function deleteBatch(id: number, tenantId?: number) {
  */
 export async function startBatch(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hBatches)
@@ -176,7 +176,7 @@ export async function completeBatch(
     notes?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(hBatches)
@@ -357,7 +357,7 @@ export async function getBatchStatistics(params: {
   endDate: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [];
   if (tenantId) conditions.push(eq(hProductionLogs.tenantId, tenantId));

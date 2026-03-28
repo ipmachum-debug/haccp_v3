@@ -4,6 +4,7 @@ import { hInventoryTransactions, hInventoryLots } from "../../drizzle/schema/par
 import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
+import { formatLocalDate } from "../utils/timezone";
 
 /**
  * 매입 POST 로직
@@ -16,7 +17,7 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
  */
 export async function postPurchase(purchaseId: number, userId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 매입 전표 조회
   const purchase = await db
@@ -99,7 +100,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   const conn = await getRawConnection();
   const entryDate = typeof purchase.transactionDate === 'string'
     ? purchase.transactionDate
-    : (purchase.transactionDate as Date).toISOString().split('T')[0];
+    : formatLocalDate(purchase.transactionDate as Date);
 
   const [jeResult] = await conn.execute(
     `INSERT INTO expense_journal_entries

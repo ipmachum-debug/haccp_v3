@@ -16,6 +16,8 @@
 
 import { getRawConnection } from "../db";
 
+import { toKSTDate, todayKST } from "../utils/timezone";
+
 // ============================================================================
 // 1. 배치 요약 + 리스크 점수
 // ============================================================================
@@ -183,7 +185,7 @@ export async function getCcpEventSummary(
   options: { startDate?: string; endDate?: string; ccpType?: string } = {}
 ): Promise<CcpEventSummary[]> {
   const conn = await getRawConnection();
-  const date = options.startDate || new Date().toISOString().split("T")[0];
+  const date = options.startDate || todayKST();
   const endDate = options.endDate || date;
 
   const ccpFilter = options.ccpType ? "AND hci.ccp_type = ?" : "";
@@ -258,7 +260,7 @@ export type ChecklistStatus = {
 
 export async function getChecklistStatus(tenantId: number, date?: string): Promise<ChecklistStatus> {
   const conn = await getRawConnection();
-  const targetDate = date || new Date().toISOString().split("T")[0];
+  const targetDate = date || todayKST();
 
   // 일일 템플릿 수
   const [templates] = await conn.execute(
@@ -331,8 +333,8 @@ export async function getDeviationHistory(
   options: { startDate?: string; endDate?: string; limit?: number } = {}
 ): Promise<DeviationRecord[]> {
   const conn = await getRawConnection();
-  const startDate = options.startDate || new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-  const endDate = options.endDate || new Date().toISOString().split("T")[0];
+  const startDate = options.startDate || toKSTDate(new Date(Date.now() - 30 * 86400000));
+  const endDate = options.endDate || todayKST();
   const limit = options.limit || 50;
 
   // CCP 이탈
@@ -406,7 +408,7 @@ export type EquipmentHealthSummary = {
 
 export async function getEquipmentHealth(tenantId: number): Promise<EquipmentHealthSummary> {
   const conn = await getRawConnection();
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayKST();
 
   const [equipments] = await conn.execute(
     `SELECT e.id, e.code, e.name, e.type, e.status,
@@ -486,7 +488,7 @@ export type DailyOverview = {
 
 export async function getDailyOverview(tenantId: number, date?: string): Promise<DailyOverview> {
   const conn = await getRawConnection();
-  const targetDate = date || new Date().toISOString().split("T")[0];
+  const targetDate = date || todayKST();
 
   // 생산 현황
   const [prodStats] = await conn.execute(
@@ -754,8 +756,8 @@ export type AuditReadiness = {
 
 export async function getAuditReadiness(tenantId: number, periodDays: number = 90): Promise<AuditReadiness> {
   const conn = await getRawConnection();
-  const startDate = new Date(Date.now() - periodDays * 86400000).toISOString().split("T")[0];
-  const today = new Date().toISOString().split("T")[0];
+  const startDate = toKSTDate(new Date(Date.now() - periodDays * 86400000));
+  const today = todayKST();
 
   const categories: AuditReadiness["categories"] = [];
 
