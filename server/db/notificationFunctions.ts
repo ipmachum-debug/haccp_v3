@@ -245,84 +245,98 @@ export async function getNotificationStatistics(startDate?: string, endDate?: st
 
   const { sql } = await import("drizzle-orm");
 
+  // ★ 실제 DB 컬럼명 사용 (snake_case) — Drizzle sql`` 내 raw SQL 부분
   let dateFilter = sql``;
   if (startDate && endDate) {
-    dateFilter = sql` AND createdAt >= ${startDate} AND createdAt <= ${endDate}`;
+    dateFilter = sql` AND created_at >= ${startDate} AND created_at <= ${endDate}`;
   } else if (startDate) {
-    dateFilter = sql` AND createdAt >= ${startDate}`;
+    dateFilter = sql` AND created_at >= ${startDate}`;
   } else if (endDate) {
-    dateFilter = sql` AND createdAt <= ${endDate}`;
+    dateFilter = sql` AND created_at <= ${endDate}`;
   }
 
   const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
 
-  // ★ 성능 개선: 6개 쿼리 → 3개로 통합
-  // 1) 총 알림 + 미해결 + 평균해결시간 통합 조회
-  const summaryRaw: any = await db.execute(sql`
-    SELECT
-      COUNT(*) as totalCount,
-      SUM(CASE WHEN isResolved = 0 THEN 1 ELSE 0 END) as unresolvedCount,
-      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL
-          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
-    FROM ${hNotifications}
-    WHERE 1=1${dateFilter}${tenantFilter}
-  `);
-  const summary = Array.isArray(summaryRaw) && summaryRaw[0] ? (Array.isArray(summaryRaw[0]) ? summaryRaw[0][0] : summaryRaw[0]) : {};
-  const totalNotifications = Number(summary?.totalCount || 0);
-  const unresolvedCount = Number(summary?.unresolvedCount || 0);
-  const resolvedCount = totalNotifications - unresolvedCount;
-  const overallAvgResolutionHours = Number(summary?.avgHours || 0);
+  try {
+    // 1) 총 알림 + 미해결 + 평균해결시간
+    const summaryRaw: any = await db.execute(sql`
+      SELECT
+        COUNT(*) as totalCount,
+        SUM(CASE WHEN is_resolved = 0 THEN 1 ELSE 0 END) as unresolvedCount,
+        AVG(CASE WHEN is_resolved = 1 AND resolved_at IS NOT NULL
+            THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) ELSE NULL END) as avgHours
+      FROM h_notifications
+      WHERE 1=1${dateFilter}${tenantFilter}
+    `);
+    const summary = Array.isArray(summaryRaw) && summaryRaw[0] ? (Array.isArray(summaryRaw[0]) ? summaryRaw[0][0] : summaryRaw[0]) : {};
+    const totalNotifications = Number(summary?.totalCount || 0);
+    const unresolvedCount = Number(summary?.unresolvedCount || 0);
+    const resolvedCount = totalNotifications - unresolvedCount;
+    const overallAvgResolutionHours = Number(summary?.avgHours || 0);
 
-  // 2) 타입별 빈도 + 해결시간 통합 조회
-  const typeStatsRaw = await db.execute(sql`
-    SELECT
-      notificationType as type,
-      COUNT(*) as count,
-      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL
-          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
-    FROM ${hNotifications}
-    WHERE 1=1${dateFilter}${tenantFilter}
-    GROUP BY notificationType
-  `);
-  const typeRows = Array.isArray(typeStatsRaw) && Array.isArray(typeStatsRaw[0]) ? typeStatsRaw[0] : typeStatsRaw;
-  const typeDistribution = (typeRows as any[]).map((row: any) => ({
-    name: row.type || "기타",
-    count: Number(row.count)
-  }));
-  const avgResolutionTime = (typeRows as any[])
-    .filter((row: any) => row.avgHours != null)
-    .map((row: any) => ({
-      type: row.type || "기타",
-      avgHours: Number(row.avgHours || 0)
+    // 2) 타입별 빈도 + 해결시간
+    const typeStatsRaw = await db.execute(sql`
+      SELECT
+        notification_type as type,
+        COUNT(*) as count,
+        AVG(CASE WHEN is_resolved = 1 AND resolved_at IS NOT NULL
+            THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) ELSE NULL END) as avgHours
+      FROM h_notifications
+      WHERE 1=1${dateFilter}${tenantFilter}
+      GROUP BY notification_type
+    `);
+    const typeRows = Array.isArray(typeStatsRaw) && Array.isArray(typeStatsRaw[0]) ? typeStatsRaw[0] : typeStatsRaw;
+    const typeDistribution = (typeRows as any[]).map((row: any) => ({
+      name: row.type || "기타",
+      count: Number(row.count)
+    }));
+    const avgResolutionTime = (typeRows as any[])
+      .filter((row: any) => row.avgHours != null)
+      .map((row: any) => ({
+        type: row.type || "기타",
+        avgHours: Number(row.avgHours || 0)
+      }));
+
+    // 3) 미해결 알림 추이
+    let trendDateFilter = dateFilter;
+    if (!startDate && !endDate) {
+      trendDateFilter = sql` AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    }
+    const unresolvedTrendRaw = await db.execute(sql`
+      SELECT DATE(created_at) as date, COUNT(*) as count
+      FROM h_notifications
+      WHERE is_resolved = 0${trendDateFilter}${tenantFilter}
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `);
+    const trendRows = Array.isArray(unresolvedTrendRaw) && Array.isArray(unresolvedTrendRaw[0]) ? unresolvedTrendRaw[0] : unresolvedTrendRaw;
+    const unresolvedTrend = (trendRows as any[]).map((row: any) => ({
+      date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date || ""),
+      count: Number(row.count)
     }));
 
-  // 3) 미해결 알림 추이
-  let trendDateFilter = dateFilter;
-  if (!startDate && !endDate) {
-    trendDateFilter = sql` AND createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    return {
+      totalNotifications,
+      unresolvedCount,
+      resolvedCount,
+      typeDistribution,
+      avgResolutionTime,
+      unresolvedTrend,
+      overallAvgResolutionHours,
+    };
+  } catch (err) {
+    console.error("[getNotificationStatistics] 쿼리 실패:", err);
+    // 에러 시에도 빈 데이터 반환 (프론트 크래시 방지)
+    return {
+      totalNotifications: 0,
+      unresolvedCount: 0,
+      resolvedCount: 0,
+      typeDistribution: [],
+      avgResolutionTime: [],
+      unresolvedTrend: [],
+      overallAvgResolutionHours: 0,
+    };
   }
-  const unresolvedTrendRaw = await db.execute(sql`
-    SELECT DATE(createdAt) as date, COUNT(*) as count
-    FROM ${hNotifications}
-    WHERE isResolved = 0${trendDateFilter}${tenantFilter}
-    GROUP BY DATE(createdAt)
-    ORDER BY date ASC
-  `);
-  const trendRows = Array.isArray(unresolvedTrendRaw) && Array.isArray(unresolvedTrendRaw[0]) ? unresolvedTrendRaw[0] : unresolvedTrendRaw;
-  const unresolvedTrend = (trendRows as any[]).map((row: any) => ({
-    date: row.date,
-    count: Number(row.count)
-  }));
-
-  return {
-    totalNotifications,
-    unresolvedCount,
-    resolvedCount,
-    typeDistribution,
-    avgResolutionTime,
-    overallAvgResolutionHours,
-    unresolvedTrend
-  };
 }
 
 export async function getNotificationCountsByType(userId?: number, tenantId?: number) {
