@@ -15,7 +15,7 @@ import { todayKST } from "../utils/timezone";
  * 모든 DB 조작이 단일 트랜잭션으로 묶여 있어
  * 중간 실패 시 전체 롤백됩니다.
  */
-export async function cancelPurchase(purchaseId: number, userId: number, tenantId: number): Promise<void> {
+export async function cancelPurchase(purchaseId: number, userId: number, tenantId: number): Promise<{ alreadyProcessed: boolean }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -32,6 +32,11 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
 
   if (!purchase) {
     throw new Error(`매입 전표 ID ${purchaseId}를 찾을 수 없습니다.`);
+  }
+
+  // 멱등성: 이미 취소됨
+  if (purchase.status === "cancelled") {
+    return { alreadyProcessed: true };
   }
 
   if (purchase.status !== "paid") {
@@ -63,8 +68,16 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
   const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
 
-  // 트랜잭션으로 묶어서 실행 (역거래 + 회계역분개 + 상태변경)
-  await withTransaction(async (conn) => {
+  // 트랜잭션 + FOR UPDATE 잠금으로 멱등성 보장
+  return await withTransaction(async (conn) => {
+    // 비관적 잠금: 트랜잭션 내 재검증
+    const [lockRows] = await conn.execute(
+      `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+      [purchaseId, tenantId]
+    );
+    const currentStatus = (lockRows as any[])[0]?.status;
+    if (currentStatus === "cancelled") return { alreadyProcessed: true };
+    if (currentStatus !== "paid") throw new Error(`확정된 전표만 취소할 수 있습니다. (현재: ${currentStatus})`);
     if (originalInventoryTx) {
       const lotId = originalInventoryTx.lotId;
 
@@ -119,7 +132,7 @@ export async function cancelPurchase(purchaseId: number, userId: number, tenantI
       `UPDATE accounting_purchases SET status = 'cancelled', canceled_at = NOW(), canceled_by = ? WHERE id = ? AND tenant_id = ?`,
       [userId, purchaseId, tenantId]
     );
+    console.log(`[CANCEL] 매입 전표 ID ${purchaseId} 취소 완료 (역거래 생성)`);
+    return { alreadyProcessed: false };
   });
-
-  console.log(`[CANCEL] 매입 전표 ID ${purchaseId} 취소 완료 (역거래 생성)`);
 }

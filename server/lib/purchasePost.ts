@@ -6,19 +6,23 @@ import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 import { formatLocalDate } from "../utils/timezone";
 
 /**
- * 매입 POST 로직 (트랜잭션 보장)
+ * 매입 POST 로직 (트랜잭션 + 멱등성 보장)
  *
  * pending/approved 상태의 매입 전표를 paid(확정)로 전환하고,
  * 재고 원장(h_inventory_transactions)과 회계 원장에 자동 반영
  *
- * 모든 DB 조작이 단일 트랜잭션으로 묶여 있어
- * 중간 실패 시 전체 롤백됩니다.
+ * **멱등성:**
+ * - 트랜잭션 내부에서 SELECT ... FOR UPDATE로 상태를 잠금
+ * - 이미 paid 상태면 조용히 반환 (중복 호출 안전)
+ *
+ * **트랜잭션:**
+ * - LOT + 재고원장 + 회계분개 + 상태변경이 원자적으로 실행
  */
-export async function postPurchase(purchaseId: number, userId: number): Promise<void> {
+export async function postPurchase(purchaseId: number, userId: number): Promise<{ alreadyProcessed: boolean }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 1. 매입 전표 조회 (트랜잭션 밖에서 - 읽기 전용)
+  // 1. 사전 조회 (읽기 전용 - 빠른 실패)
   const purchase = await db
     .select()
     .from(accountingPurchases)
@@ -29,17 +33,17 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   if (!purchase) {
     throw new Error(`매입 전표 ID ${purchaseId}를 찾을 수 없습니다.`);
   }
-
-  if (purchase.status === "paid") {
-    throw new Error(`이미 확정된 전표입니다. (ID: ${purchaseId})`);
-  }
-
   if (purchase.status === "cancelled") {
     throw new Error(`취소된 전표는 확정할 수 없습니다. (ID: ${purchaseId})`);
   }
 
   const tenantId = purchase.tenantId;
-  if (!tenantId) throw new Error('[P0 보안] tenantId is required for purchasePost');
+  if (!tenantId) throw new Error('[보안] tenantId is required for purchasePost');
+
+  // 이미 처리됨 → 멱등 반환
+  if (purchase.status === "paid") {
+    return { alreadyProcessed: true };
+  }
 
   const docId = `PURCHASE-${purchaseId}`;
   const lotNumber = `LOT-${Date.now()}-${purchaseId}`;
@@ -51,15 +55,29 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     ? purchase.transactionDate
     : formatLocalDate(purchase.transactionDate as Date);
 
-  // 시스템 계정 조회 (트랜잭션 밖에서 - 읽기 전용)
+  // 시스템 계정 조회 (트랜잭션 밖 - 읽기 전용)
   const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
   const vatAcc = taxAmount > 0
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
     : null;
 
-  // 2. 트랜잭션으로 묶어서 실행 (LOT + 재고원장 + 회계분개 + 상태변경)
-  await withTransaction(async (conn) => {
+  // 2. 트랜잭션 + FOR UPDATE 잠금
+  return await withTransaction(async (conn) => {
+    // (0) 비관적 잠금: 트랜잭션 내 재검증
+    const [lockRows] = await conn.execute(
+      `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+      [purchaseId, tenantId]
+    );
+    const currentStatus = (lockRows as any[])[0]?.status;
+    if (currentStatus === "paid") {
+      // 다른 요청이 먼저 처리 → 멱등 반환
+      return { alreadyProcessed: true };
+    }
+    if (currentStatus === "cancelled") {
+      throw new Error(`취소된 전표는 확정할 수 없습니다. (ID: ${purchaseId})`);
+    }
+
     // (A) LOT 생성
     const [lotResult] = await conn.execute(
       `INSERT INTO h_inventory_lots
@@ -88,7 +106,6 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     );
     const journalEntryId = Number((jeResult as any).insertId);
 
-    // (C-1) 차변: 원재료
     let sortOrder = 0;
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
@@ -97,7 +114,6 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
     });
 
-    // (C-2) 차변: 부가세대급금
     if (vatAcc && taxAmount > 0) {
       await insertJournalLine(conn, {
         tenantId, journalEntryId,
@@ -107,7 +123,6 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       });
     }
 
-    // (C-3) 대변: 외상매입금
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
@@ -116,12 +131,13 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       partnerId: (purchase as any).partnerId || null,
     });
 
-    // (D) 매입 전표 상태 업데이트
+    // (D) 상태 전환
     await conn.execute(
       `UPDATE accounting_purchases SET status = 'paid', posted_at = NOW(), posted_by = ? WHERE id = ? AND tenant_id = ?`,
       [userId, purchaseId, tenantId]
     );
-  });
 
-  console.log(`[POST] 매입 전표 ID ${purchaseId} 확정 완료 (LOT: ${lotNumber})`);
+    console.log(`[POST] 매입 전표 ID ${purchaseId} 확정 완료 (LOT: ${lotNumber})`);
+    return { alreadyProcessed: false };
+  });
 }

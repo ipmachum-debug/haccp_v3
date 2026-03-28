@@ -1,5 +1,4 @@
 /**
-import { generateDocumentPDF, generateBatchPrintPDF } from "../documentPDFGenerator";
  * 문서 출력 관리 tRPC 라우터
  */
 import { z } from "zod";
@@ -7,6 +6,8 @@ import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 import { assertSiteOwned, requireTenantId } from "../helpers/tenantGuards";
+import { generateDocumentPDF, generateBatchPrintPDF } from "../lib/documentPdfGenerator";
+import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
 
 export const documentPrintRouter = router({
   // ============================================================================
@@ -205,12 +206,25 @@ export const documentPrintRouter = router({
         throw new Error("승인된 문서만 출력할 수 있습니다");
       }
 
-      // PDF 생성 미구현 - 가짜 URL을 DB에 저장하지 않음
-      // TODO: jsPDF 또는 서버사이드 PDF 생성 구현 후 실제 URL 저장
+      // 실제 PDF 생성
+      const docRow = getFirstRow(documentResult);
+      if (!docRow) throw new Error("문서를 찾을 수 없습니다");
+
+      const pdfBase64 = generateDocumentPDF(docRow as any);
+
+      // PDF URL 저장 (base64 data URI - 클라이언트에서 직접 다운로드)
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE document_instances
+        SET pdf_generated_at = ${now}, updated_at = ${now}
+        WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
+      `);
+
       return {
-        success: false,
-        pdfUrl: null,
-        message: "PDF 생성 기능이 아직 구현되지 않았습니다. 관리자에게 문의하세요."
+        success: true,
+        pdfBase64,
+        fileName: `document_${input.documentId}_${Date.now()}.pdf`,
+        message: "PDF가 생성되었습니다."
       };
     }),
 
@@ -306,15 +320,30 @@ export const documentPrintRouter = router({
       `;
 
       const documents = await db.execute(documentsQuery);
+      const docRows = getRows(documents);
 
-      // PDF 생성 미구현 - 가짜 URL을 DB에 저장하지 않음
-      // TODO: 통합 PDF 생성 구현 후 실제 URL 저장
+      if (docRows.length === 0) {
+        return { success: false, pdfBase64: null, documentCount: 0, message: "출력할 문서가 없습니다." };
+      }
+
+      // 실제 통합 PDF 생성
+      const groupName = (getFirstRow(groupResult) as any)?.group_name || `그룹 #${input.groupId}`;
+      const pdfBase64 = generateBatchPrintPDF(docRows as any[], groupName);
+
+      // PDF 생성 시각 기록
+      const now = new Date().toISOString();
+      await db.execute(sql`
+        UPDATE document_batch_print_groups
+        SET pdf_generated_at = ${now}, updated_at = ${now}
+        WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
+      `);
 
       return {
-        success: false,
-        pdfUrl: null,
-        documentCount: (documents[0] as any[])?.length || 0,
-        message: "통합 PDF 생성 기능이 아직 구현되지 않았습니다. 관리자에게 문의하세요."
+        success: true,
+        pdfBase64,
+        fileName: `batch_print_${input.groupId}_${Date.now()}.pdf`,
+        documentCount: docRows.length,
+        message: `${docRows.length}건의 문서가 통합 PDF로 생성되었습니다.`
       };
     }),
 
