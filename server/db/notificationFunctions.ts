@@ -1,4 +1,4 @@
-import { eq, and, lte, gte, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, lte, gte, desc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./connection";
 import { hNotifications, hInventoryLots, hMaterials, hInspectionRecords, users } from "../../drizzle/schema";
 
@@ -34,19 +34,24 @@ export async function getNotifications(userId?: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const conditions = [];
-  if (userId) conditions.push(eq(hNotifications.userId, userId));
+  // userId=0은 브로드캐스트 알림 — 현재 유저 알림 + 전체 알림 모두 조회
+  if (userId) {
+    conditions.push(or(eq(hNotifications.userId, userId), eq(hNotifications.userId, 0)));
+  }
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   if (conditions.length > 0) {
     return await db
       .select()
       .from(hNotifications)
       .where(and(...conditions))
-      .orderBy(desc(hNotifications.createdAt));
+      .orderBy(desc(hNotifications.createdAt))
+      .limit(200);
   }
   return await db
     .select()
     .from(hNotifications)
-    .orderBy(desc(hNotifications.createdAt));
+    .orderBy(desc(hNotifications.createdAt))
+    .limit(200);
 }
 
 export async function markNotificationAsRead(notificationId: number, tenantId?: number) {
