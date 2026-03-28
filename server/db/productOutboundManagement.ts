@@ -531,28 +531,78 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
 }
 
 /* ───────── 제품 출고 추이 (일별) ───────── */
+/**
+ * 실제 출고 데이터를 3개 소스에서 통합 조회:
+ * 1. h_product_outbound (직접 출고 기록 - 있는 경우)
+ * 2. h_inventory_transactions (transaction_type='usage', product 관련)
+ * 3. accounting_sales (매출 전표)
+ */
 export async function getProductOutboundTrend(params: {
   startDate: string;
   endDate: string;
 }, tenantId: number) {
-  await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
+  // 3개 소스를 UNION ALL로 통합하여 일별 집계
   const [rows] = await conn.execute(
-    `SELECT 
-      DATE(o.release_date) as date,
-      SUM(CASE WHEN o.release_type IN ('sale', 'delivery') THEN o.quantity ELSE 0 END) as sale_quantity,
-      SUM(CASE WHEN o.release_type = 'sample' THEN o.quantity ELSE 0 END) as sample_quantity,
-      SUM(CASE WHEN o.release_type = 'return' THEN o.quantity ELSE 0 END) as return_quantity,
-      SUM(o.total_amount) as total_amount,
-      COUNT(*) as transaction_count
-     FROM h_product_outbound o
-     WHERE o.tenant_id = ? AND o.status != 'cancelled'
-       AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?
-       AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?
-     GROUP BY REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')
-     ORDER BY REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')`,
-    [tenantId, params.startDate, params.endDate]
+    `SELECT
+      trend_date as date,
+      SUM(sale_qty) as sale_quantity,
+      SUM(sample_qty) as sample_quantity,
+      SUM(return_qty) as return_quantity,
+      SUM(amount) as total_amount,
+      SUM(tx_count) as transaction_count
+    FROM (
+      -- 소스 1: h_product_outbound (직접 출고)
+      SELECT
+        DATE(REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')) as trend_date,
+        CASE WHEN o.release_type IN ('sale', 'delivery') THEN o.quantity ELSE 0 END as sale_qty,
+        CASE WHEN o.release_type = 'sample' THEN o.quantity ELSE 0 END as sample_qty,
+        CASE WHEN o.release_type = 'return' THEN o.quantity ELSE 0 END as return_qty,
+        COALESCE(o.total_amount, 0) as amount,
+        1 as tx_count
+      FROM h_product_outbound o
+      WHERE o.tenant_id = ? AND o.status != 'cancelled'
+        AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?
+        AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?
+
+      UNION ALL
+
+      -- 소스 2: h_inventory_transactions (usage - 제품/원재료 출고)
+      SELECT
+        DATE(COALESCE(t.transaction_date, t.created_at)) as trend_date,
+        ABS(t.quantity) as sale_qty,
+        0 as sample_qty,
+        0 as return_qty,
+        ABS(COALESCE(t.amount, 0)) as amount,
+        1 as tx_count
+      FROM h_inventory_transactions t
+      WHERE t.tenant_id = ? AND t.transaction_type = 'usage'
+        AND DATE(COALESCE(t.transaction_date, t.created_at)) >= ?
+        AND DATE(COALESCE(t.transaction_date, t.created_at)) <= ?
+
+      UNION ALL
+
+      -- 소스 3: accounting_sales (매출 전표 - confirmed)
+      SELECT
+        DATE(s.transaction_date) as trend_date,
+        COALESCE(s.quantity, 0) as sale_qty,
+        0 as sample_qty,
+        0 as return_qty,
+        COALESCE(s.total_amount, 0) as amount,
+        1 as tx_count
+      FROM accounting_sales s
+      WHERE s.tenant_id = ? AND s.status IN ('confirmed', 'received', 'paid')
+        AND DATE(s.transaction_date) >= ?
+        AND DATE(s.transaction_date) <= ?
+    ) combined
+    GROUP BY trend_date
+    ORDER BY trend_date`,
+    [
+      tenantId, params.startDate, params.endDate,  // h_product_outbound
+      tenantId, params.startDate, params.endDate,  // h_inventory_transactions
+      tenantId, params.startDate, params.endDate,  // accounting_sales
+    ]
   );
 
   return (rows as any[]).map(r => ({
@@ -596,12 +646,12 @@ export async function getProductTurnoverAnalysis(params: {
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
-       SELECT o2.batch_id,
-              SUM(CASE WHEN REPLACE(REPLACE(o2.release_date, '.', '-'), ' ', '') >= ? AND REPLACE(REPLACE(o2.release_date, '.', '-'), ' ', '') <= ? THEN o2.quantity ELSE 0 END) as total_outbound,
-              SUM(o2.quantity) as all_outbound
-       FROM h_product_outbound o2
-       WHERE o2.tenant_id = ? AND o2.status != 'cancelled'
-       GROUP BY o2.batch_id
+       SELECT source_id as batch_id,
+              SUM(CASE WHEN DATE(COALESCE(transaction_date, created_at)) >= ? AND DATE(COALESCE(transaction_date, created_at)) <= ? THEN ABS(quantity) ELSE 0 END) as total_outbound,
+              SUM(ABS(quantity)) as all_outbound
+       FROM h_inventory_transactions
+       WHERE tenant_id = ? AND transaction_type = 'usage' AND source_type = 'BATCH'
+       GROUP BY source_id
      ) outbound ON b.id = outbound.batch_id
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
      GROUP BY b.product_id, im.item_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
