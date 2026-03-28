@@ -80,8 +80,9 @@ export async function calculateInventoryTurnover(
   `;
   
   const results: any = await db.execute(usageQuery);
-  
-  return (results as any[]).map((row: any) => {
+  const rows = Array.isArray(results) && Array.isArray(results[0]) ? results[0] : results;
+
+  return (rows as any[]).map((row: any) => {
     const usageQuantity = Number(row.usage_quantity) || 0;
     const avgInventory = Number(row.avg_inventory) || 1;
     const turnoverRate = usageQuantity / avgInventory;
