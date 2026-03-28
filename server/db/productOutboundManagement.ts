@@ -606,7 +606,9 @@ export async function getProductOutboundTrend(params: {
   );
 
   return (rows as any[]).map(r => ({
-    date: r.date,
+    date: r.date instanceof Date
+      ? r.date.toISOString().slice(0, 10)
+      : String(r.date || ""),
     saleQuantity: parseFloat(r.sale_quantity || "0"),
     sampleQuantity: parseFloat(r.sample_quantity || "0"),
     returnQuantity: parseFloat(r.return_quantity || "0"),
