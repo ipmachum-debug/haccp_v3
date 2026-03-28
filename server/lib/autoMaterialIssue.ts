@@ -12,7 +12,7 @@
  * 7. 수불부 반영 (material_ledger_daily)
  */
 
-import { getDb } from "../db";
+import { getDb, withTransaction } from "../db";
 import { eq, and, sql } from "drizzle-orm";
 import { todayKST } from "../utils/timezone";
 
@@ -147,28 +147,6 @@ export async function autoIssueMaterialsForBatch(
                 
                 let totalAllocated = 0;
                 for (const alloc of allocations) {
-                  const amount = alloc.quantity * alloc.unitCost;
-                  
-                  // h_inventory_transactions에 출고 기록
-                  await db.execute(sql`
-                    INSERT INTO h_inventory_transactions 
-                    (inventory_id, lot_id, transaction_type, quantity, unit, unit_cost, amount,
-                     transaction_date, source_type, source_id, source_line_id, 
-                     action_type, purpose, performed_by, created_by, tenant_id)
-                    VALUES 
-                    (${inventoryId}, ${alloc.lotId}, 'usage', ${alloc.quantity.toString()}, ${unit},
-                     ${alloc.unitCost.toString()}, ${amount.toString()},
-                     ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
-                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId})
-                  `);
-
-                  // h_inventory_lots 가용 재고 차감
-                  await db.execute(sql`
-                    UPDATE h_inventory_lots 
-                    SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
-                    WHERE id = ${alloc.lotId}
-                  `);
-
                   totalAllocated += alloc.quantity;
                   lotAllocations.push({
                     lotId: alloc.lotId,
@@ -176,18 +154,43 @@ export async function autoIssueMaterialsForBatch(
                     unitCost: alloc.unitCost
                   });
                 }
-                
+
                 issuedQuantity = totalAllocated;
                 materialCost = allocations.reduce((sum, a) => sum + a.quantity * a.unitCost, 0);
 
-                // h_inventory 총 재고 차감
-                await db.execute(sql`
-                  UPDATE h_inventory 
-                  SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
-                      available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
-                      last_updated = NOW()
-                  WHERE id = ${inventoryId}
-                `);
+                // LOT 차감 + 재고 차감 + 거래기록을 트랜잭션으로 묶음
+                await withTransaction(async (txConn) => {
+                  for (const alloc of allocations) {
+                    const amount = alloc.quantity * alloc.unitCost;
+                    // h_inventory_transactions 출고 기록
+                    await txConn.execute(
+                      `INSERT INTO h_inventory_transactions
+                        (inventory_id, lot_id, transaction_type, quantity, unit, unit_cost, amount,
+                         transaction_date, source_type, source_id, source_line_id,
+                         action_type, purpose, performed_by, created_by, tenant_id)
+                       VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, ?, 'AUTO_ISSUE', 'production', ?, ?, ?)`,
+                      [inventoryId, alloc.lotId, alloc.quantity.toString(), unit,
+                       alloc.unitCost.toString(), amount.toString(),
+                       transactionDate, batchId, input.id, userId, userId, tenantId]
+                    );
+                    // h_inventory_lots 가용 재고 차감
+                    await txConn.execute(
+                      `UPDATE h_inventory_lots
+                       SET available_quantity = GREATEST(available_quantity - ?, 0)
+                       WHERE id = ? AND tenant_id = ?`,
+                      [alloc.quantity, alloc.lotId, tenantId]
+                    );
+                  }
+                  // h_inventory 총 재고 차감
+                  await txConn.execute(
+                    `UPDATE h_inventory
+                     SET total_quantity = GREATEST(total_quantity - ?, 0),
+                         available_quantity = GREATEST(available_quantity - ?, 0),
+                         last_updated = NOW()
+                     WHERE id = ? AND tenant_id = ?`,
+                    [issuedQuantity, issuedQuantity, inventoryId, tenantId]
+                  );
+                });
               } catch (fefoErr: any) {
                 result.warnings.push(`${materialName}: FEFO 할당 실패, 직접 출고 기록 생성 (${fefoErr.message})`);
               }
@@ -279,9 +282,9 @@ export async function autoIssueMaterialsForBatch(
     // 배치의 planned_cost 업데이트
     if (result.totalCost > 0) {
       await db.execute(sql`
-        UPDATE h_batches 
+        UPDATE h_batches
         SET planned_cost = ${result.totalCost.toFixed(2)}
-        WHERE id = ${batchId}
+        WHERE id = ${batchId} AND tenant_id = ${tenantId}
       `);
     }
 

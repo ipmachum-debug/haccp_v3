@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import mysql, { Pool } from "mysql2/promise";
+import mysql, { Pool, PoolConnection } from "mysql2/promise";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _rawConnection: Pool | null = null;
@@ -83,4 +83,26 @@ export async function getRawConnection(): Promise<Pool> {
     throw new Error("Raw connection not initialized");
   }
   return _rawConnection;
+}
+
+/**
+ * 트랜잭션 래퍼 - 단일 PoolConnection에서 BEGIN/COMMIT/ROLLBACK 보장
+ * 회계/재고 POST 등 원자성이 필요한 다중 INSERT/UPDATE에 사용
+ */
+export async function withTransaction<T>(
+  fn: (conn: PoolConnection) => Promise<T>
+): Promise<T> {
+  const pool = await getRawConnection();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }

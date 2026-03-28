@@ -101,7 +101,8 @@ export const monthlyLogsRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const tenantId = ctx.tenantId ?? undefined;
-        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId;
+        if (!siteId) throw new Error("siteId를 결정할 수 없습니다");
 
         const existing = await db.execute(sql`
           SELECT id, form_data FROM h_generic_checklist_records
@@ -130,7 +131,7 @@ export const monthlyLogsRouter = router({
                 status = ${input.status},
                 title = ${title},
                 updated_at = NOW()
-            WHERE id = ${recordId}
+            WHERE id = ${recordId} AND tenant_id = ${tenantId}
           `);
         } else {
           const seqR = await db.execute(sql`
@@ -156,6 +157,7 @@ export const monthlyLogsRouter = router({
           const existApproval = await db.execute(sql`
             SELECT id FROM h_approval_requests
             WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'monthly_log'
+              AND tenant_id = ${tenantId}
             LIMIT 1
           `);
           const approvalRows = (existApproval as any)[0] || [];
@@ -172,7 +174,7 @@ export const monthlyLogsRouter = router({
           } else {
             await db.execute(sql`
               UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
-              WHERE id = ${approvalRows[0].id}
+              WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
             `);
           }
         }
@@ -270,15 +272,27 @@ export const monthlyLogsRouter = router({
       }
     }),
 
-  // ── Legacy compat stubs ──
-  createHygiene: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
-  getHygiene: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
-  createCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true, id: 0 })),
-  getCCP: tenantRequiredProcedure.input(z.any()).query(async () => ({ logs: [] })),
-  deleteCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  approveCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  requestCCPApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  rejectCCP: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  approveHygiene: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  requestHygieneApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+  // ── Legacy compat stubs (deprecated - 새 양식 사용 필요) ──
+  // 조회 엔드포인트: 빈 결과 반환 (UI 호환성)
+  getHygiene: tenantRequiredProcedure.input(z.any())
+    .query(async () => ({ logs: [], message: '[deprecated] 월간일지는 새 양식(saveFullForm)을 사용하세요.' })),
+  getCCP: tenantRequiredProcedure.input(z.any())
+    .query(async () => ({ logs: [], message: '[deprecated] 월간일지는 새 양식(saveFullForm)을 사용하세요.' })),
+  // 변경 엔드포인트: 에러 반환 (실제 처리 없음을 명확히)
+  createHygiene: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 월간일지는 새 양식(saveFullForm)을 사용하세요.' }); }),
+  createCCP: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 월간일지는 새 양식(saveFullForm)을 사용하세요.' }); }),
+  deleteCCP: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 이 엔드포인트는 더 이상 지원되지 않습니다.' }); }),
+  approveCCP: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인은 approval 라우터를 사용하세요.' }); }),
+  requestCCPApproval: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인요청은 approval 라우터를 사용하세요.' }); }),
+  rejectCCP: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 거부는 approval 라우터를 사용하세요.' }); }),
+  approveHygiene: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인은 approval 라우터를 사용하세요.' }); }),
+  requestHygieneApproval: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인요청은 approval 라우터를 사용하세요.' }); }),
 });

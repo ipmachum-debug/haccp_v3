@@ -143,10 +143,12 @@ export async function autoCreateApprovalRequest(
 export async function reviewApprovalRequest(
   approvalRequestId: number,
   reviewerId: number,
+  tenantId: number,
   comments?: string
 ): Promise<{ success: boolean; message: string }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (!tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
   try {
     await db.execute(sql`
@@ -155,11 +157,12 @@ export async function reviewApprovalRequest(
           reviewed_by = ${reviewerId},
           reviewed_at = NOW(),
           review_comments = ${comments || "검토 완료"}
-      WHERE id = ${approvalRequestId} AND status = 'pending_review'
+      WHERE id = ${approvalRequestId} AND status = 'pending_review' AND tenant_id = ${tenantId}
     `);
 
     const req = await db.execute(sql`
-      SELECT reference_type, reference_id FROM h_approval_requests WHERE id = ${approvalRequestId}
+      SELECT reference_type, reference_id FROM h_approval_requests
+      WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
     `);
     const reqData = (req as any)[0]?.[0];
     if (reqData?.reference_type === 'document_instance' && reqData?.reference_id) {
@@ -169,7 +172,7 @@ export async function reviewApprovalRequest(
             reviewer_id = ${reviewerId},
             reviewed_at = NOW(),
             review_comments = ${comments || "검토 완료"}
-        WHERE id = ${reqData.reference_id}
+        WHERE id = ${reqData.reference_id} AND tenant_id = ${tenantId}
       `);
     }
 
@@ -188,10 +191,12 @@ export async function reviewApprovalRequest(
 export async function finalApproveRequest(
   approvalRequestId: number,
   approverId: number,
+  tenantId: number,
   comments?: string
 ): Promise<{ success: boolean; message: string; inventoryTriggered?: boolean }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (!tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
   try {
     await db.execute(sql`
@@ -201,10 +206,12 @@ export async function finalApproveRequest(
           approved_at = NOW(),
           notes = ${comments || "승인 완료"}
       WHERE id = ${approvalRequestId} AND status IN ('pending_approval', 'pending_review', 'pending')
+        AND tenant_id = ${tenantId}
     `);
 
     const req = await db.execute(sql`
-      SELECT reference_type, reference_id FROM h_approval_requests WHERE id = ${approvalRequestId}
+      SELECT reference_type, reference_id FROM h_approval_requests
+      WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
     `);
     const reqData = (req as any)[0]?.[0];
 
@@ -217,12 +224,12 @@ export async function finalApproveRequest(
             approver_id = ${approverId},
             approved_at = NOW(),
             approval_comments = ${comments || "승인 완료"}
-        WHERE id = ${documentInstanceId}
+        WHERE id = ${documentInstanceId} AND tenant_id = ${tenantId}
       `);
 
       // 배치 ID 조회 후 재고 이동 트리거
       const docInfo = await db.execute(sql`
-        SELECT batch_id FROM document_instances WHERE id = ${documentInstanceId}
+        SELECT batch_id FROM document_instances WHERE id = ${documentInstanceId} AND tenant_id = ${tenantId}
       `);
       const batchId = (docInfo as any)[0]?.[0]?.batch_id;
 
@@ -235,7 +242,7 @@ export async function finalApproveRequest(
           const actualQuantity = parseFloat(batch?.actualQuantity?.toString() || "0");
 
           if (actualQuantity > 0) {
-            await postProductionComplete(batchId, actualQuantity, approverId);
+            await postProductionComplete(batchId, actualQuantity, approverId, tenantId);
             console.log(`[finalApprove] 배치 #${batchId} 재고이동/회계연동 완료`);
             return {
               success: true,
@@ -270,10 +277,12 @@ export async function finalApproveRequest(
 export async function bulkApproveDocuments(
   approvalRequestIds: number[],
   approverId: number,
+  tenantId: number,
   comments?: string
 ): Promise<{ success: boolean; approved: number; failed: number; errors: string[] }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (!tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
   let approved = 0;
   let failed = 0;
@@ -281,7 +290,7 @@ export async function bulkApproveDocuments(
 
   for (const requestId of approvalRequestIds) {
     try {
-      const result = await finalApproveRequest(requestId, approverId, comments || "일괄 승인");
+      const result = await finalApproveRequest(requestId, approverId, tenantId, comments || "일괄 승인");
       if (result.success) {
         approved++;
       } else {

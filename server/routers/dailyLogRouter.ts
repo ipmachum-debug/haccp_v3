@@ -102,7 +102,8 @@ export const dailyLogRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const tenantId = ctx.tenantId ?? undefined;
-        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId;
+        if (!siteId) throw new Error("siteId를 결정할 수 없습니다");
 
         // 기존 레코드 확인
         const existing = await db.execute(sql`
@@ -141,7 +142,7 @@ export const dailyLogRouter = router({
                 status = ${input.status},
                 title = ${title},
                 updated_at = NOW()
-            WHERE id = ${recordId}
+            WHERE id = ${recordId} AND tenant_id = ${tenantId}
           `);
         } else {
           // 신규 생성
@@ -168,6 +169,7 @@ export const dailyLogRouter = router({
           const existApproval = await db.execute(sql`
             SELECT id FROM h_approval_requests
             WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'daily_log'
+              AND tenant_id = ${tenantId}
             LIMIT 1
           `);
           const approvalRows = (existApproval as any)[0] || [];
@@ -184,7 +186,7 @@ export const dailyLogRouter = router({
           } else {
             await db.execute(sql`
               UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
-              WHERE id = ${approvalRows[0].id}
+              WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
             `);
           }
         }

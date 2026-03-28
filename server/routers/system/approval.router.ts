@@ -358,7 +358,7 @@ export const approvalRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { reviewApprovalRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, input.comments);
+        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
         return result;
       }),
 
@@ -372,7 +372,7 @@ export const approvalRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { finalApproveRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await finalApproveRequest(input.requestId, ctx.user.id, input.comments);
+        const result = await finalApproveRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
 
         // 승인 완료 알림 발송
         if (result.success) {

@@ -1,4 +1,4 @@
-import { router, tenantRequiredProcedure, publicProcedure } from "../_core/trpc";
+import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as batchPdfLogsDb from "../db/batchPdfLogs";
@@ -153,13 +153,24 @@ export const adminRouter = router({
 
   /**
    * 데이터베이스 초기화 (스키마 생성)
-   * 초기 설정을 위해 publicProcedure로 변경 (로그인 불필요)
+   * ⚠️ 운영 환경에서는 실행 불가 - admin 인증 + 환경 제한 적용
    */
-  initializeDatabase: publicProcedure
-    .mutation(async () => {
+  initializeDatabase: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+      if (process.env.NODE_ENV === "production") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "운영 환경에서는 데이터베이스 초기화를 실행할 수 없습니다",
+        });
+      }
 
       try {
-        // pnpm db:push 실행
         const { exec } = await import("child_process");
         const { promisify } = await import("util");
         const execAsync = promisify(exec);
@@ -182,10 +193,22 @@ export const adminRouter = router({
 
   /**
    * 샘플 데이터 생성
-   * 초기 설정을 위해 publicProcedure로 변경 (로그인 불필요)
+   * ⚠️ 운영 환경에서는 실행 불가 - admin 인증 + 환경 제한 적용
    */
-  seedSampleData: publicProcedure
-    .mutation(async () => {
+  seedSampleData: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+      if (process.env.NODE_ENV === "production") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "운영 환경에서는 샘플 데이터를 생성할 수 없습니다",
+        });
+      }
 
       try {
         const { seedSampleData } = await import("../db/seed.js");
