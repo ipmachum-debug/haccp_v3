@@ -24,6 +24,7 @@
 
 import { getDb, getRawConnection } from "../db";
 import { sql } from "drizzle-orm";
+import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
 
 export interface PeriodicLogResult {
   success: boolean;
@@ -60,7 +61,7 @@ async function getApprovalSettingForType(
         AND is_active = 1
       LIMIT 1
     `);
-    const rows = (result as any)[0] || [];
+    const rows = getRows(result);
     if (rows.length === 0) {
       return { authorEmployeeId: null, reviewerEmployeeId: null, approverEmployeeId: null };
     }
@@ -91,7 +92,7 @@ async function resolveEmployeeUserId(
     const result = await db.execute(sql`
       SELECT user_id FROM h_employees WHERE id = ${employeeId} AND tenant_id = ${tenantId} LIMIT 1
     `);
-    const empUserId = (result as any)[0]?.[0]?.user_id;
+    const empUserId = getFirstRow<{ user_id: number }>(result)?.user_id;
     if (empUserId) return Number(empUserId);
     console.warn(`[autoPeriodicLogs] 직원 #${employeeId}의 user_id가 없음, fallback userId=${fallbackUserId}`);
     return fallbackUserId;
@@ -221,7 +222,7 @@ export async function autoGenerateWeeklyLog(
         AND form_date BETWEEN ${weekStart} AND ${weekEnd}
       LIMIT 1
     `);
-    const existingRows = (existingResult as any)[0] || [];
+    const existingRows = getRows(existingResult);
     if (existingRows.length > 0) {
       return {
         success: true, logType: "weekly",
@@ -255,7 +256,7 @@ export async function autoGenerateWeeklyLog(
         AND tenant_id = ${tenantId}
         AND YEAR(created_at) = YEAR(NOW())
     `);
-    const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
+    const nextSeq = Number(getFirstRow<{ next_seq: number }>(seqResult)?.next_seq || 1);
 
     const title = `주간일지 - ${weekStart} ~ ${weekEnd}`;
     const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
@@ -267,7 +268,7 @@ export async function autoGenerateWeeklyLog(
         (${siteId}, ${tenantId}, 'weekly_log', ${nextSeq}, ${workDate}, ${title},
          ${JSON.stringify(formData)}, 'draft', ${createdBy})
     `);
-    const recordId = Number((insertResult as any)[0]?.insertId || 0);
+    const recordId = getInsertId(insertResult);
 
     // 6. 승인요청 등록 (h_approval_requests)
     const approvalTitle = `[주간일지] ${weekStart} ~ ${weekEnd} 주간 위생점검`;
@@ -286,7 +287,7 @@ export async function autoGenerateWeeklyLog(
         (${siteId}, ${tenantId}, 'weekly_log', 'checklist', ${recordId},
          ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${createdBy}, NOW())
     `);
-    const approvalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
+    const approvalRequestId = getInsertId(approvalInsert);
 
     console.log(`[autoPeriodicLogs] 주간일지 생성: #${recordId}, 승인요청: #${approvalRequestId}`);
 
@@ -337,7 +338,7 @@ export async function autoGenerateMonthlyLog(
         AND form_date BETWEEN ${monthStart} AND ${monthEnd}
       LIMIT 1
     `);
-    const existingRows = (existingResult as any)[0] || [];
+    const existingRows = getRows(existingResult);
     if (existingRows.length > 0) {
       return {
         success: true, logType: "monthly",
@@ -373,7 +374,7 @@ export async function autoGenerateMonthlyLog(
         AND tenant_id = ${tenantId}
         AND YEAR(created_at) = YEAR(NOW())
     `);
-    const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
+    const nextSeq = Number(getFirstRow<{ next_seq: number }>(seqResult)?.next_seq || 1);
 
     const title = `월간일지 - ${yearMonth}`;
     const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
@@ -385,7 +386,7 @@ export async function autoGenerateMonthlyLog(
         (${siteId}, ${tenantId}, 'monthly_log', ${nextSeq}, ${workDate}, ${title},
          ${JSON.stringify(formData)}, 'draft', ${createdBy})
     `);
-    const recordId = Number((insertResult as any)[0]?.insertId || 0);
+    const recordId = getInsertId(insertResult);
 
     // 6. 승인요청 등록
     const approvalTitle = `[월간일지] ${yearMonth} 월간 위생/CCP 점검`;
@@ -404,7 +405,7 @@ export async function autoGenerateMonthlyLog(
         (${siteId}, ${tenantId}, 'monthly_log', 'checklist', ${recordId},
          ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${createdBy}, NOW())
     `);
-    const approvalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
+    const approvalRequestId = getInsertId(approvalInsert);
 
     console.log(`[autoPeriodicLogs] 월간일지 생성: #${recordId}, 승인요청: #${approvalRequestId}`);
 
@@ -454,7 +455,7 @@ export async function autoGenerateYearlyLog(
         AND form_date BETWEEN ${yearStart} AND ${yearEnd}
       LIMIT 1
     `);
-    const existingRows = (existingResult as any)[0] || [];
+    const existingRows = getRows(existingResult);
     if (existingRows.length > 0) {
       return {
         success: true, logType: "yearly",
@@ -475,7 +476,7 @@ export async function autoGenerateYearlyLog(
         AND tenant_id = ${tenantId}
         AND YEAR(created_at) = YEAR(NOW())
     `);
-    const nextSeq = Number((seqResult as any)[0]?.[0]?.next_seq || 1);
+    const nextSeq = Number(getFirstRow<{ next_seq: number }>(seqResult)?.next_seq || 1);
 
     const title = `연간일지 - ${year}년`;
     const createdBy = await resolveEmployeeUserId(tenantId, approvalSetting.authorEmployeeId, userId);
@@ -533,7 +534,7 @@ export async function autoGenerateYearlyLog(
         (${siteId}, ${tenantId}, 'yearly_log', ${nextSeq}, ${workDate}, ${title},
          ${JSON.stringify(formData)}, 'draft', ${createdBy})
     `);
-    const recordId = Number((insertResult as any)[0]?.insertId || 0);
+    const recordId = getInsertId(insertResult);
 
     // 4. 승인요청 등록
     const approvalTitle = `[연간일지] ${year}년 연간 검교정 점검`;
@@ -552,7 +553,7 @@ export async function autoGenerateYearlyLog(
         (${siteId}, ${tenantId}, 'yearly_log', 'checklist', ${recordId},
          ${approvalTitle}, ${approvalDesc}, 'pending_review', 'medium', ${createdBy}, NOW())
     `);
-    const approvalRequestId = Number((approvalInsert as any)[0]?.insertId || 0);
+    const approvalRequestId = getInsertId(approvalInsert);
 
     console.log(`[autoPeriodicLogs] 연간일지 생성: #${recordId}, 승인요청: #${approvalRequestId}`);
 

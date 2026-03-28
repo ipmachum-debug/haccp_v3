@@ -13,6 +13,7 @@ import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 
 import { formatLocalDate } from "../utils/timezone";
+import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
 
 export const monthlyLogsRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
@@ -31,10 +32,10 @@ export const monthlyLogsRouter = router({
           ORDER BY form_date DESC
           LIMIT 1
         `);
-        const rows = (result as any)[0] || [];
+        const rows = getRows(result);
         if (rows.length === 0) return null;
         const row = rows[0];
-        let fd: any = {};
+        let fd: Record<string, unknown> = {};
         try {
           fd = typeof row.form_data === 'string' ? JSON.parse(row.form_data) : (row.form_data || {});
         } catch { return null; }
@@ -65,10 +66,10 @@ export const monthlyLogsRouter = router({
             AND tenant_id = ${ctx.tenantId}
           ORDER BY created_at DESC LIMIT 1
         `);
-        const rows = (result as any)[0] || [];
+        const rows = getRows(result);
         if (rows.length === 0) return null;
         const r = rows[0];
-        let fd: any = {};
+        let fd: Record<string, unknown> = {};
         try {
           fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
         } catch {}
@@ -111,14 +112,14 @@ export const monthlyLogsRouter = router({
             AND tenant_id = ${tenantId}
           LIMIT 1
         `);
-        const existingRows = (existing as any)[0] || [];
+        const existingRows = getRows(existing);
 
         let recordId: number;
         const title = `월간일지 - ${input.logDate}`;
 
         if (existingRows.length > 0) {
           recordId = existingRows[0].id;
-          let oldFd: any = {};
+          let oldFd: Record<string, unknown> = {};
           try {
             oldFd = typeof existingRows[0].form_data === 'string'
               ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {});
@@ -139,7 +140,7 @@ export const monthlyLogsRouter = router({
             FROM h_generic_checklist_records
             WHERE form_type = 'monthly_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
           `);
-          const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
+          const nextSeq = Number(getFirstRow<{ ns: number }>(seqR)?.ns || 1);
           const formDataStr = JSON.stringify({ ...input.formData, date: input.logDate });
 
           const ins = await db.execute(sql`
@@ -149,7 +150,7 @@ export const monthlyLogsRouter = router({
               (${siteId}, ${tenantId}, 'monthly_log', ${nextSeq}, ${input.logDate}, ${title},
                ${formDataStr}, ${input.status}, ${ctx.user.id})
           `);
-          recordId = Number((ins as any)[0]?.insertId || 0);
+          recordId = getInsertId(ins);
         }
 
         // submitted이면 승인요청 생성/업데이트
@@ -160,7 +161,7 @@ export const monthlyLogsRouter = router({
               AND tenant_id = ${tenantId}
             LIMIT 1
           `);
-          const approvalRows = (existApproval as any)[0] || [];
+          const approvalRows = getRows<{ id: number }>(existApproval);
           if (approvalRows.length === 0) {
             await db.execute(sql`
               INSERT INTO h_approval_requests
@@ -200,8 +201,8 @@ export const monthlyLogsRouter = router({
           SELECT form_data FROM h_generic_checklist_records
           WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
-        const oldRows = (existing as any)[0] || [];
-        let oldFd: any = {};
+        const oldRows = getRows(existing);
+        let oldFd: Record<string, unknown> = {};
         if (oldRows.length > 0) {
           try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : oldRows[0].form_data; } catch {}
         }
@@ -252,9 +253,9 @@ export const monthlyLogsRouter = router({
           ORDER BY r.form_date DESC, r.created_at DESC
           LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
         `);
-        const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
-        return (rows as any[]).map((r: any) => {
-          let formData: any = {};
+        const rows = getRows(result);
+        return rows.map((r: any) => {
+          let formData: Record<string, unknown> = {};
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           return {
             id: r.id, siteId: r.site_id,
