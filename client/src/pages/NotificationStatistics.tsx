@@ -53,6 +53,37 @@ export default function NotificationStatistics() {
   const safeResolvedCount = stats.resolvedCount ?? 0;
   const safeOverallAvg = stats.overallAvgResolutionHours ?? 0;
 
+  // 작은 비율 항목을 "기타"로 합침 (5% 미만)
+  const totalCount = safeTypeDistribution.reduce((sum: number, d: any) => sum + d.count, 0);
+  const THRESHOLD = 0.05; // 5%
+  const majorTypes: any[] = [];
+  let otherCount = 0;
+  for (const item of safeTypeDistribution) {
+    if (totalCount > 0 && item.count / totalCount < THRESHOLD) {
+      otherCount += item.count;
+    } else {
+      majorTypes.push(item);
+    }
+  }
+  if (otherCount > 0) {
+    majorTypes.push({ name: "기타", count: otherCount });
+  }
+
+  // 알림 타입 한글 매핑
+  const TYPE_LABELS: Record<string, string> = {
+    low_stock_critical: "재고 위험",
+    low_stock: "재고 부족",
+    expiry_urgent: "유통기한 초과",
+    expiry_warning_7d: "유통기한 임박(7일)",
+    expiry_warning_3d: "유통기한 임박(3일)",
+    ai_alert: "AI 알림",
+    batch_incomplete_warning: "배치 미완료",
+    daily_closing_report: "일일 마감",
+    approval_summary: "승인 요약",
+    inventory_expiry: "재고 만료",
+    "기타": "기타",
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -121,26 +152,30 @@ export default function NotificationStatistics() {
       <Card>
         <CardHeader>
           <CardTitle>알림 타입별 발생 빈도</CardTitle>
-          <CardDescription>각 알림 타입별 발생 건수</CardDescription>
+          <CardDescription>각 알림 타입별 발생 건수 (5% 미만은 "기타"로 합산)</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={350}>
             <PieChart>
               <Pie
-                data={safeTypeDistribution}
+                data={majorTypes}
                 cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                outerRadius={100}
+                cy="45%"
+                outerRadius={110}
                 fill="#8884d8"
                 dataKey="count"
+                label={({ name, percent }) => percent > 0.05 ? `${TYPE_LABELS[name] || name} ${(percent * 100).toFixed(0)}%` : ""}
+                labelLine={false}
               >
-                {safeTypeDistribution.map((entry: any, index: number) => (
+                {majorTypes.map((_entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(value: any, name: any) => [value + "건", TYPE_LABELS[name] || name]} />
+              <Legend
+                formatter={(value: string) => TYPE_LABELS[value] || value}
+                wrapperStyle={{ fontSize: "13px", paddingTop: "12px" }}
+              />
             </PieChart>
           </ResponsiveContainer>
         </CardContent>
