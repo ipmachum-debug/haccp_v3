@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { TenantDb } from "../db/TenantDb";
+import { hasPermission, type FeatureArea, type Permission } from "../utils/rbacMatrix";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -358,3 +359,63 @@ export const superAdminProcedure = t.procedure.use(
     });
   }),
 );
+
+// ============================================================================
+// 🔐 기능별 접근 제한 프로시저 팩토리 (RBAC 매트릭스 기반)
+// ============================================================================
+
+/**
+ * createFeatureProcedure - 기능/권한 기반 프로시저 생성
+ *
+ * 사용법:
+ *   const accountingWriteProcedure = createFeatureProcedure("accounting", "write");
+ *   // → admin, super_admin만 접근 가능 (worker, employee 차단)
+ *
+ *   const haccpReadProcedure = createFeatureProcedure("haccp", "read");
+ *   // → worker 이상 전부 접근 가능
+ */
+export function createFeatureProcedure(feature: FeatureArea, permission: Permission) {
+  return t.procedure.use(
+    t.middleware(async (opts) => {
+      const { ctx, next, path, type } = opts;
+
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      }
+
+      const userRole = ctx.user.role || "employee";
+      if (!hasPermission(userRole, feature, permission)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `${feature} ${permission} 권한이 없습니다. (현재 역할: ${userRole})`,
+        });
+      }
+
+      const { tenantId, tenantDb } = resolveTenantContext(ctx);
+
+      if (!tenantId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: ctx.user.role === "super_admin"
+            ? "테넌트를 먼저 선택해주세요."
+            : "테넌트 정보가 필요합니다.",
+        });
+      }
+
+      const isSuperAdminActing = ctx.user.role === "super_admin" && !!ctx.actingTenantId;
+      if (isSuperAdminActing) {
+        logSuperAdminAction(ctx, path, type);
+      }
+
+      return next({
+        ctx: {
+          ...ctx,
+          user: ctx.user,
+          tenantId,
+          db: tenantDb,
+          isSuperAdminActing,
+        },
+      });
+    })
+  );
+}

@@ -345,4 +345,100 @@ export function initScheduler() {
   });
   console.log("[Scheduler] ERP AI 주간 현금흐름/분개 점검 스케줄러 초기화 완료 (매주 월요일 오전 8시)");
 
+  // ===== 자동 백업 (매일 새벽 2시) =====
+  cron.schedule("0 2 * * *", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Backup Scheduler] ${timestamp} - 자동 백업 시작`);
+
+    try {
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+      const path = await import("path");
+      const fs = await import("fs");
+
+      const backupDir = path.resolve("/home/ubuntu/haccp_v3/backups");
+      if (!fs.existsSync(backupDir)) {
+        fs.mkdirSync(backupDir, { recursive: true });
+      }
+
+      const dateStr = todayKST().replace(/-/g, "");
+      const backupFile = path.join(backupDir, `haccp_backup_${dateStr}.sql.gz`);
+
+      // mysqldump + gzip
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        console.error("[Backup Scheduler] DATABASE_URL 미설정");
+        return;
+      }
+
+      const url = new URL(dbUrl);
+      const dumpCmd = `mysqldump -h ${url.hostname} -P ${url.port || 3306} -u ${url.username} -p'${decodeURIComponent(url.password)}' ${url.pathname.slice(1)} --single-transaction --routines --triggers | gzip > ${backupFile}`;
+
+      await execAsync(dumpCmd, { timeout: 300000 }); // 5분 타임아웃
+
+      // 파일 크기 확인
+      const stats = fs.statSync(backupFile);
+      const sizeMB = (stats.size / 1024 / 1024).toFixed(1);
+
+      // DB에 백업 이력 기록
+      const { getDb } = await import("./db");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const db = await getDb();
+      if (db) {
+        await db.execute(sqlTag`
+          INSERT INTO h_backups (tenant_id, file_name, file_size, backup_type, status, created_by, created_at)
+          VALUES (0, ${`haccp_backup_${dateStr}.sql.gz`}, ${stats.size}, 'local', 'completed', 0, NOW())
+        `);
+      }
+
+      console.log(`[Backup Scheduler] ${timestamp} - 백업 완료: ${backupFile} (${sizeMB}MB)`);
+
+      // 30일 이상 된 백업 자동 정리
+      const files = fs.readdirSync(backupDir);
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 30);
+
+      for (const file of files) {
+        if (!file.startsWith("haccp_backup_")) continue;
+        const filePath = path.join(backupDir, file);
+        const fileStat = fs.statSync(filePath);
+        if (fileStat.mtime < cutoffDate) {
+          fs.unlinkSync(filePath);
+          console.log(`[Backup Scheduler] 오래된 백업 삭제: ${file}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[Backup Scheduler] ${timestamp} - 백업 실패:`, error);
+
+      // 실패 시 관리자 알림
+      try {
+        const { getDb } = await import("./db");
+        const { sql: sqlTag } = await import("drizzle-orm");
+        const db = await getDb();
+        if (db) {
+          await db.execute(sqlTag`
+            INSERT INTO h_notifications (tenant_id, user_id, notification_type, title, message, priority, created_at)
+            SELECT u.tenant_id, u.id, 'system_alert',
+              '[백업실패] 자동 백업이 실패했습니다',
+              ${`백업 실패: ${error instanceof Error ? error.message : String(error)}`},
+              'urgent', NOW()
+            FROM users u WHERE u.role = 'admin' AND u.is_active = 1
+            LIMIT 5
+          `);
+        }
+      } catch { /* 알림 실패 무시 */ }
+    }
+  });
+  console.log("[Scheduler] 자동 백업 스케줄러 초기화 완료 (매일 새벽 2시, 30일 보관)");
+
+  // ===== 모니터링 알림 체크 (매 5분) =====
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      const { checkAndAlert } = await import("./utils/operationMonitor");
+      await checkAndAlert();
+    } catch { /* 무시 */ }
+  });
+  console.log("[Scheduler] 운영 모니터링 알림 스케줄러 초기화 완료 (매 5분 체크)");
+
 }

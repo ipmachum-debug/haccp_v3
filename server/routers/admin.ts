@@ -268,4 +268,112 @@ export const adminRouter = router({
 
       return { success: true };
     }),
+
+  /**
+   * 수동 백업 실행 (관리자 전용)
+   */
+  createBackup: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 접근할 수 있습니다" });
+      }
+
+      try {
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        const execAsync = promisify(exec);
+        const path = await import("path");
+        const fs = await import("fs");
+
+        const backupDir = path.resolve("/home/ubuntu/haccp_v3/backups");
+        if (!fs.existsSync(backupDir)) {
+          fs.mkdirSync(backupDir, { recursive: true });
+        }
+
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+        const timeStr = now.toISOString().slice(11, 19).replace(/:/g, "");
+        const backupFile = path.join(backupDir, `haccp_manual_${dateStr}_${timeStr}.sql.gz`);
+
+        const dbUrl = process.env.DATABASE_URL;
+        if (!dbUrl) throw new Error("DATABASE_URL 미설정");
+
+        const url = new URL(dbUrl);
+        const dumpCmd = `mysqldump -h ${url.hostname} -P ${url.port || 3306} -u ${url.username} -p'${decodeURIComponent(url.password)}' ${url.pathname.slice(1)} --single-transaction --routines --triggers | gzip > ${backupFile}`;
+
+        await execAsync(dumpCmd, { timeout: 300000 });
+
+        const stats = fs.statSync(backupFile);
+        const db = await getDb();
+        if (db) {
+          await db.insert(hBackups).values({
+            tenantId: ctx.tenantId!,
+            fileName: path.basename(backupFile),
+            fileSize: stats.size,
+            backupType: "local",
+            status: "completed",
+            createdBy: ctx.user.id,
+          } as any);
+        }
+
+        return {
+          success: true,
+          fileName: path.basename(backupFile),
+          fileSize: stats.size,
+          message: `백업이 완료되었습니다 (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
+        };
+      } catch (error: any) {
+        console.error("[Admin] Manual backup error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `백업 실패: ${error.message}`,
+        });
+      }
+    }),
+
+  /**
+   * 백업 복원 안내 (직접 복원은 위험하므로 가이드만 제공)
+   */
+  getRestoreGuide: tenantRequiredProcedure
+    .input(z.object({ backupId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 접근할 수 있습니다" });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      const backup = await db
+        .select()
+        .from(hBackups)
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, ctx.tenantId!)))
+        .limit(1);
+
+      if (backup.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "백업을 찾을 수 없습니다" });
+      }
+
+      const b = backup[0];
+      return {
+        backup: {
+          id: b.id,
+          fileName: b.fileName,
+          fileSize: b.fileSize,
+          createdAt: b.createdAt,
+          backupType: b.backupType,
+        },
+        restoreCommands: [
+          `# 1. 서버 접속 후 PM2 중지`,
+          `pm2 stop haccp-one`,
+          `# 2. 백업 파일로 복원`,
+          b.backupType === "local"
+            ? `gunzip < /home/ubuntu/haccp_v3/backups/${b.fileName} | mysql -u root -p haccp_db`
+            : `# S3에서 다운로드 후 복원: aws s3 cp s3://bucket/${b.s3Key} backup.sql.gz && gunzip < backup.sql.gz | mysql -u root -p haccp_db`,
+          `# 3. PM2 재시작`,
+          `pm2 start haccp-one`,
+        ],
+        warning: "⚠️ 복원 시 현재 데이터가 덮어씌워집니다. 반드시 현재 상태를 먼저 백업하세요.",
+      };
+    }),
 });

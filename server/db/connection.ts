@@ -90,7 +90,8 @@ export async function getRawConnection(): Promise<Pool> {
  * 회계/재고 POST 등 원자성이 필요한 다중 INSERT/UPDATE에 사용
  */
 export async function withTransaction<T>(
-  fn: (conn: PoolConnection) => Promise<T>
+  fn: (conn: PoolConnection) => Promise<T>,
+  operationName?: string
 ): Promise<T> {
   const pool = await getRawConnection();
   const conn = await pool.getConnection();
@@ -101,6 +102,11 @@ export async function withTransaction<T>(
     return result;
   } catch (err) {
     await conn.rollback();
+    // 트랜잭션 실패 추적
+    try {
+      const { trackTransactionFailure } = await import("../utils/operationMonitor");
+      trackTransactionFailure(operationName || "unknown", err);
+    } catch { /* monitor import 실패 시 무시 */ }
     throw err;
   } finally {
     conn.release();

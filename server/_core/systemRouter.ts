@@ -14,6 +14,23 @@ export const systemRouter = router({
       ok: true,
     })),
 
+  // 상세 헬스체크 (DB 연결 + 에러율 + 메모리) - admin 전용
+  healthDetailed: adminProcedure
+    .query(async () => {
+      const { getDetailedHealth } = await import("../utils/operationMonitor");
+      return await getDetailedHealth();
+    }),
+
+  // 최근 에러 목록 조회 - admin 전용
+  getRecentErrors: adminProcedure
+    .query(async () => {
+      const { getRecentErrors, getErrorRate } = await import("../utils/operationMonitor");
+      return {
+        errors: getRecentErrors(),
+        stats: getErrorRate(),
+      };
+    }),
+
   notifyOwner: adminProcedure
     .input(
       z.object({
