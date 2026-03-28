@@ -9,6 +9,7 @@
  */
 import { getDb } from "../db";
 import { sql, eq } from "drizzle-orm";
+import { getFirstRow, getInsertId, getRows } from "../utils/dbHelpers";
 
 import { todayKST } from "../utils/timezone";
 
@@ -43,12 +44,12 @@ export async function autoCreateApprovalRequest(
     const productInfo = await db.execute(sql`
       SELECT product_name, product_code FROM h_products_v2 WHERE id = ${productId} AND tenant_id = ${tenantId} LIMIT 1
     `);
-    const product = (productInfo as any)[0]?.[0] || { product_name: "미확인", product_code: "" };
+    const product = getFirstRow<{ product_name: string; product_code: string }>(productInfo) || { product_name: "미확인", product_code: "" };
 
     const docTypeResult = await db.execute(sql`
       SELECT id FROM document_types WHERE code = 'production_log' LIMIT 1
     `);
-    const docTypeId = (docTypeResult as any)[0]?.[0]?.id;
+    const docTypeId = getFirstRow<{ id: number }>(docTypeResult)?.id;
 
     if (!docTypeId) {
       throw new Error("생산일지 문서 타입이 등록되지 않았습니다.");
@@ -62,8 +63,9 @@ export async function autoCreateApprovalRequest(
       LIMIT 1
     `);
 
-    if ((existingDoc as any)[0]?.length > 0) {
-      const existingId = (existingDoc as any)[0][0].id;
+    const existingDocRows = getRows<{ id: number }>(existingDoc);
+    if (existingDocRows.length > 0) {
+      const existingId = existingDocRows[0].id;
       return {
         success: true,
         documentInstanceId: Number(existingId),
@@ -98,7 +100,7 @@ export async function autoCreateApprovalRequest(
          ${pdfUrl || null}, ${pdfUrl ? sql`NOW()` : sql`NULL`}, ${tenantId})
     `);
 
-    const documentInstanceId = Number((docInsertResult as any)[0]?.insertId || 0);
+    const documentInstanceId = getInsertId(docInsertResult);
 
     // h_approval_requests 등록 - pending_review (검토자 대기)
     const title = `[생산일지] ${product.product_name} - 배치 ${batch.batchCode || `#${batchId}`}`;
@@ -116,7 +118,7 @@ export async function autoCreateApprovalRequest(
          ${title}, ${description}, 'pending_review', 'medium', ${userId}, ${tenantId})
     `);
 
-    const approvalRequestId = Number((approvalInsertResult as any)[0]?.insertId || 0);
+    const approvalRequestId = getInsertId(approvalInsertResult);
 
     console.log(`[autoApprovalRequest] 배치 #${batchId} → 문서 #${documentInstanceId}(pending_review), 승인요청 #${approvalRequestId} 생성 완료`);
 
@@ -164,7 +166,7 @@ export async function reviewApprovalRequest(
       SELECT reference_type, reference_id FROM h_approval_requests
       WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
     `);
-    const reqData = (req as any)[0]?.[0];
+    const reqData = getFirstRow<{ reference_type: string; reference_id: number }>(req);
     if (reqData?.reference_type === 'document_instance' && reqData?.reference_id) {
       await db.execute(sql`
         UPDATE document_instances
@@ -213,7 +215,7 @@ export async function finalApproveRequest(
       SELECT reference_type, reference_id FROM h_approval_requests
       WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
     `);
-    const reqData = (req as any)[0]?.[0];
+    const reqData = getFirstRow<{ reference_type: string; reference_id: number }>(req);
 
     if (reqData?.reference_type === 'document_instance' && reqData?.reference_id) {
       const documentInstanceId = Number(reqData.reference_id);
@@ -231,7 +233,7 @@ export async function finalApproveRequest(
       const docInfo = await db.execute(sql`
         SELECT batch_id FROM document_instances WHERE id = ${documentInstanceId} AND tenant_id = ${tenantId}
       `);
-      const batchId = (docInfo as any)[0]?.[0]?.batch_id;
+      const batchId = getFirstRow<{ batch_id: number }>(docInfo)?.batch_id;
 
       if (batchId) {
         try {
@@ -332,7 +334,7 @@ export async function createBatchPrintGroup(
          ${documentInstanceIds.length}, ${userId}, ${tenantId})
     `);
 
-    const groupId = Number((groupResult as any)[0]?.insertId || 0);
+    const groupId = getInsertId(groupResult);
 
     for (let i = 0; i < documentInstanceIds.length; i++) {
       await db.execute(sql`

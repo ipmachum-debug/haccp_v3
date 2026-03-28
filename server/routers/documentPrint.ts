@@ -205,24 +205,12 @@ export const documentPrintRouter = router({
         throw new Error("승인된 문서만 출력할 수 있습니다");
       }
 
-      // TODO: PDF 생성 로직 (pdfGenerator 사용)
-      const now = new Date().toISOString();
-      const mockPdfUrl = `/pdfs/document_${input.documentId}_${Date.now()}.pdf`;
-
-      // PDF URL 업데이트 (테넌트 조건 추가)
-      await db.execute(sql`
-        UPDATE document_instances
-        SET 
-          pdf_url = ${mockPdfUrl},
-          pdf_generated_at = ${now},
-          updated_at = ${now}
-        WHERE id = ${input.documentId} AND tenant_id = ${tenantId}
-      `);
-
-      return { 
-        success: true, 
-        pdfUrl: mockPdfUrl,
-        message: "PDF가 생성되었습니다." 
+      // PDF 생성 미구현 - 가짜 URL을 DB에 저장하지 않음
+      // TODO: jsPDF 또는 서버사이드 PDF 생성 구현 후 실제 URL 저장
+      return {
+        success: false,
+        pdfUrl: null,
+        message: "PDF 생성 기능이 아직 구현되지 않았습니다. 관리자에게 문의하세요."
       };
     }),
 
@@ -319,25 +307,14 @@ export const documentPrintRouter = router({
 
       const documents = await db.execute(documentsQuery);
 
-      // TODO: 통합 PDF 생성 로직
-      const now = new Date().toISOString();
-      const mockCombinedPdfUrl = `/pdfs/batch_${input.groupId}_${Date.now()}.pdf`;
+      // PDF 생성 미구현 - 가짜 URL을 DB에 저장하지 않음
+      // TODO: 통합 PDF 생성 구현 후 실제 URL 저장
 
-      // 통합 PDF URL 업데이트 (테넌트 조건)
-      await db.execute(sql`
-        UPDATE document_batch_print_groups
-        SET 
-          combined_pdf_url = ${mockCombinedPdfUrl},
-          pdf_generated_at = ${now},
-          updated_at = ${now}
-        WHERE id = ${input.groupId} AND tenant_id = ${tenantId}
-      `);
-
-      return { 
-        success: true, 
-        pdfUrl: mockCombinedPdfUrl,
-        documentCount: documents.length,
-        message: "통합 PDF가 생성되었습니다." 
+      return {
+        success: false,
+        pdfUrl: null,
+        documentCount: (documents[0] as any[])?.length || 0,
+        message: "통합 PDF 생성 기능이 아직 구현되지 않았습니다. 관리자에게 문의하세요."
       };
     }),
 

@@ -309,6 +309,27 @@
       "when": 1770699345978,
       "tag": "0043_tearful_mercury",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "5",
+      "when": 1770699400000,
+      "tag": "0044_p0_tenant_isolation_checklist",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1770699500000,
+      "tag": "0045_ccp_monitoring_form",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "5",
+      "when": 1770699600000,
+      "tag": "0046_ccp_monitoring_form_v2",
+      "breakpoints": true
     }
   ]
 }
