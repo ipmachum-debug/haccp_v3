@@ -778,7 +778,7 @@ export const batchRouter = router({
         if (input.status === 'in_progress') {
           try {
             const { autoIssueMaterialsForBatch } = await import('../../lib/autoMaterialIssue');
-            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || 1) as any;
+            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || ctx.user.id) as any;
             if (!autoIssueResult?.success) {
               console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult?.errors);
             }
@@ -845,7 +845,7 @@ export const batchRouter = router({
               SELECT id, form_data FROM h_generic_checklist_records
               WHERE form_type = 'daily_log'
                 AND form_date = ${batchDate}
-                AND site_id = ${Number(batch.siteId) || 1}
+                AND site_id = ${Number(batch.siteId) || ctx.tenantId}
                 AND tenant_id = ${ctx.tenantId}
               LIMIT 1
             `);

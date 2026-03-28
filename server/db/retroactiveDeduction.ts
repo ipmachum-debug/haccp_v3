@@ -108,7 +108,8 @@ export async function retroactiveInventoryDeduction(
     for (const batch of batches) {
       const batchId = Number(batch.id);
       const batchNumber = batch.batch_code || `B-${batchId}`;
-      const userId = params.userId || Number(batch.created_by) || 1;
+      const userId = params.userId || Number(batch.created_by);
+      if (!userId) throw new Error(`배치 #${batchId} 처리자 userId를 결정할 수 없습니다`);
 
       try {
         console.log(`[retroactiveDeduction] 배치 #${batchId} (${batchNumber}) 소급 차감 시작...`);

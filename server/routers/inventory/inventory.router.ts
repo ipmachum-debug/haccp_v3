@@ -767,7 +767,7 @@ export const inventoryRouter = router({
         const { syncStockFromConsumption } = await import("../../db/outboundManagement");
         return await syncStockFromConsumption(
           ctx.tenantId!,
-          ctx.user?.id || 1,
+          ctx.user.id,
           input?.dryRun ?? false
         );
       }),

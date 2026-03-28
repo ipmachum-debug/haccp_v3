@@ -103,6 +103,7 @@ export async function createChecklistTemplate(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (!data.tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
   const [result] = await db.insert(checklistTemplates).values({
     name: data.name,
@@ -112,7 +113,7 @@ export async function createChecklistTemplate(data: {
     priority: data.priority || 0,
     autoTriggerRules: data.autoTriggerRules,
     createdBy: data.createdBy,
-    tenantId: data.tenantId || 1,
+    tenantId: data.tenantId,
     isActive: 1
   } as any);
 

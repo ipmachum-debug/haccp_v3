@@ -20,10 +20,11 @@ export async function createNotification(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (!data.userId) throw new Error("[보안] 알림 대상 userId는 필수입니다");
   const [notification] = await db.insert(hNotifications).values({
     ...data,
     tenantId: data.tenantId,
-    userId: data.userId || 1, // 기본값: 1 (시스템 알림)
+    userId: data.userId,
     priority: data.priority as "low" | "medium" | "high" | "urgent" | undefined
   });
   return notification;
@@ -92,6 +93,7 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
 
   for (const { lot, material } of expiringLots) {
     if (!lot || !material || !lot.expiryDate) continue;
+    if (!(lot as any).tenantId) continue; // tenantId 없는 LOT은 알림 생성 불가
 
     const daysUntilExpiry = Math.ceil(
       (new Date(lot.expiryDate).getTime() - new Date().getTime()) /
@@ -99,7 +101,7 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
     );
 
     await createNotification({
-      tenantId: (lot as any).tenantId || 1,
+      tenantId: (lot as any).tenantId,
       notificationType: "inventory_expiry",
       title: `재고 유통기한 임박`,
       message: `${material.materialName} (LOT: ${lot.lotNumber}) 유통기한이 ${daysUntilExpiry}일 남았습니다.`,

@@ -1117,11 +1117,10 @@ export async function addBatchInput(input: {
   const { hBatchInputs } = await import("../../drizzle/schema");
 
   // tenantId 격리: 배치 소유권 검증
-  if (input.tenantId) {
-    const batchCheck = await db.select({ id: hBatches.id }).from(hBatches)
-      .where(and(eq(hBatches.id, input.batchId), eq(hBatches.tenantId, input.tenantId))).limit(1);
-    if (batchCheck.length === 0) throw new Error("해당 배치에 대한 접근 권한이 없습니다");
-  }
+  if (!input.tenantId) throw new Error("[보안] tenantId는 필수입니다");
+  const batchCheck = await db.select({ id: hBatches.id }).from(hBatches)
+    .where(and(eq(hBatches.id, input.batchId), eq(hBatches.tenantId, input.tenantId))).limit(1);
+  if (batchCheck.length === 0) throw new Error("해당 배치에 대한 접근 권한이 없습니다");
 
   const [result] = await db.insert(hBatchInputs).values({
     batchId: input.batchId,
@@ -1131,7 +1130,7 @@ export async function addBatchInput(input: {
     totalPrice: input.totalPrice || "0",
     notes: input.notes || null,
     createdBy: input.createdBy,
-    tenantId: input.tenantId || 1
+    tenantId: input.tenantId
   } as any);
 
   return Number(result.insertId);
