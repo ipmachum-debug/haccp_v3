@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
-import { X, Trash2, ChevronDown, Send, ArrowLeft, EyeOff, Loader2, Sparkles, User } from "lucide-react";
+import { X, Trash2, ChevronDown, Send, ArrowLeft, EyeOff, Loader2, Sparkles, User, Headphones } from "lucide-react";
+import { openChannelTalk } from "./ChannelTalkWidget";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -567,8 +568,16 @@ export default function FloatingAIChatbot() {
             </div>
           )}
 
-          {/* ===== 입력창 ===== */}
+          {/* ===== 상담원 연결 + 입력창 ===== */}
           <div className="shrink-0 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-3 py-2.5">
+            {/* 상담원 연결 버튼 */}
+            <button
+              onClick={() => openChannelTalk()}
+              className="w-full flex items-center justify-center gap-2 mb-2 py-2 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors border border-indigo-100 dark:border-indigo-800/50"
+            >
+              <Headphones className="h-3.5 w-3.5" />
+              AI로 해결이 안 되나요? 상담원에게 연결하기
+            </button>
             <form 
               onSubmit={(e) => {
                 e.preventDefault();

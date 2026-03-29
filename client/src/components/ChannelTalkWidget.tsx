@@ -42,6 +42,13 @@ function bootChannelTalk() {
   firstScript?.parentNode?.insertBefore(script, firstScript);
 }
 
+/** 채널톡 채팅창 열기 (하나 챗봇에서 호출) */
+export function openChannelTalk() {
+  if (window.ChannelIO) {
+    window.ChannelIO("showMessenger");
+  }
+}
+
 export default function ChannelTalkWidget() {
   const { user } = useAuth();
 
@@ -55,13 +62,13 @@ export default function ChannelTalkWidget() {
 
     window.ChannelIO("boot", {
       pluginKey: PLUGIN_KEY,
+      hideChannelButtonOnBoot: true, // 기본 버튼 숨김 (하나에서 열기)
       // 로그인 사용자 정보 연동
       ...(user ? {
         memberId: String(user.id),
         profile: {
           name: (user as any).name || (user as any).email,
           email: (user as any).email,
-          // 커스텀 필드
           role: (user as any).role,
           tenantId: (user as any).tenantId,
           plan: (user as any).plan || "starter",
