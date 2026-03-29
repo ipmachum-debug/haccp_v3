@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { X, Trash2, ChevronDown, Send, ArrowLeft, EyeOff, Loader2, Sparkles, User, Headphones } from "lucide-react";
-import { openChannelTalk } from "./ChannelTalkWidget";
+import { openChannelTalk, closeChannelTalk } from "./ChannelTalkWidget";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
