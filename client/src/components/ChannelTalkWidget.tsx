@@ -12,6 +12,7 @@ declare global {
   interface Window {
     ChannelIO?: any;
     ChannelIOBooted?: boolean;
+    onChannelTalkHidden?: () => void;
   }
 }
 
@@ -71,6 +72,7 @@ export default function ChannelTalkWidget() {
     window.ChannelIO("boot", {
       pluginKey: PLUGIN_KEY,
       hideChannelButtonOnBoot: true,
+      customLauncherSelector: "#ch-custom-launcher-never", // 커스텀 런처 비활성화
       ...(user ? {
         memberId: String(user.id),
         profile: {
@@ -83,6 +85,12 @@ export default function ChannelTalkWidget() {
     });
 
     window.ChannelIOBooted = true;
+
+    // 채널톡 닫힐 때 하나 챗봇 복원
+    window.ChannelIO("onHideMessenger", () => {
+      window.onChannelTalkHidden?.();
+    });
+
     // cleanup 없음 — shutdown 하지 않아서 깜빡임 없음
   }, [user]);
 

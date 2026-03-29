@@ -55,8 +55,54 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     THIS IS THE END OF A COMMENT BLOCK, BLOCK TO BE DELETED -->
-    <!-- 채널톡 런처 버튼만 숨김 (메신저 패널은 유지) -->
-    <style>#ch-plugin-entry { display: none !important; }</style>
+    <!-- 채널톡: 런처 버튼 숨김 + 플로팅 닫기 버튼 -->
+    <style>
+      #ch-plugin-entry { display: none !important; }
+      #ch-close-btn {
+        display: none;
+        position: fixed;
+        right: 320px;
+        bottom: 50%;
+        z-index: 2147483647;
+        width: 32px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        background: #333;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      }
+      #ch-close-btn:hover { background: #e74c3c; }
+    </style>
+    <script>
+      // 채널톡 닫기 버튼: 메신저 열리면 표시, 닫히면 숨김
+      (function() {
+        var btn = document.createElement('button');
+        btn.id = 'ch-close-btn';
+        btn.innerHTML = '✕';
+        btn.title = '채팅 닫기';
+        btn.onclick = function() {
+          if (window.ChannelIO) window.ChannelIO('hideMessenger');
+        };
+        document.addEventListener('DOMContentLoaded', function() {
+          document.body.appendChild(btn);
+        });
+        // 채널톡 이벤트로 표시/숨김 제어
+        var showBtn = function() { btn.style.display = 'flex'; };
+        var hideBtn = function() { btn.style.display = 'none'; };
+        // 주기적으로 채널톡 상태 감시 (SDK 이벤트가 늦게 바인딩되므로)
+        setInterval(function() {
+          if (window.ChannelIO && window.ChannelIOBooted) {
+            window.ChannelIO('onShowMessenger', showBtn);
+            window.ChannelIO('onHideMessenger', hideBtn);
+          }
+        }, 2000);
+      })();
+    </script>
   </head>
 
   <body>

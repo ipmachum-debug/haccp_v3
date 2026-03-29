@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { X, Trash2, ChevronDown, Send, ArrowLeft, EyeOff, Loader2, Sparkles, User, Headphones } from "lucide-react";
 import { openChannelTalk, closeChannelTalk } from "./ChannelTalkWidget";
+
+declare global {
+  interface Window {
+    onChannelTalkHidden?: () => void;
+  }
+}
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -108,7 +114,14 @@ export default function FloatingAIChatbot() {
     return false;
   });
   const [isOpen, setIsOpen] = useState(false);
+  const [hiddenByChannelTalk, setHiddenByChannelTalk] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // 채널톡과 연동 — 채널톡 닫히면 하나 복원
+  useEffect(() => {
+    window.onChannelTalkHidden = () => setHiddenByChannelTalk(false);
+    return () => { window.onChannelTalkHidden = undefined; };
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [showCategories, setShowCategories] = useState(true);
@@ -275,7 +288,7 @@ export default function FloatingAIChatbot() {
       )}
 
       {/* ===== 플로팅 버튼 ===== */}
-      {!isOpen && !isHidden && (
+      {!isOpen && !isHidden && !hiddenByChannelTalk && (
         <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-50 flex flex-col items-end gap-2">
           {/* 말풍선 */}
           {showBubble && (
@@ -572,7 +585,7 @@ export default function FloatingAIChatbot() {
           <div className="shrink-0 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 px-3 py-2.5">
             {/* 상담원 연결 버튼 */}
             <button
-              onClick={() => openChannelTalk()}
+              onClick={() => { setIsOpen(false); setHiddenByChannelTalk(true); openChannelTalk(); }}
               className="w-full flex items-center justify-center gap-2 mb-2 py-2 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors border border-indigo-100 dark:border-indigo-800/50"
             >
               <Headphones className="h-3.5 w-3.5" />
