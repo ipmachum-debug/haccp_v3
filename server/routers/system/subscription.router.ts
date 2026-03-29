@@ -227,6 +227,47 @@ export const subscriptionRouter = router({
         receiptUrl: r.receipt_url,
       }));
     }),
+
+  /**
+   * 청구서 PDF 발행
+   */
+  generateInvoice: adminProcedure
+    .input(z.object({
+      billingMonth: z.string(), // "2026-03"
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      const tenantId = ctx.tenantId!;
+      const { tenants } = await import("../../../drizzle/schema");
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "테넌트를 찾을 수 없습니다" });
+
+      const plan = (tenant.subscriptionPackage || "starter") as PlanType;
+      const config = PLAN_CONFIG[plan] || PLAN_CONFIG.starter;
+
+      const { buildInvoiceData, generateInvoicePDF } = await import("../../lib/invoicePdfGenerator");
+      const invoiceData = buildInvoiceData({
+        tenantName: tenant.name,
+        tenantBizNo: "",
+        tenantAddress: "",
+        tenantRepresentative: "",
+        planName: config.name,
+        monthlyPrice: config.monthlyPrice,
+        billingMonth: input.billingMonth,
+      });
+
+      const pdfBase64 = generateInvoicePDF(invoiceData);
+
+      return {
+        success: true,
+        pdfBase64,
+        fileName: `invoice_${invoiceData.invoiceNumber}.pdf`,
+        invoiceNumber: invoiceData.invoiceNumber,
+        totalAmount: invoiceData.totalAmount,
+      };
+    }),
 });
 
 function getPlanOrder(plan: string): number {

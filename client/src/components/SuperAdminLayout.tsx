@@ -3,9 +3,9 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { 
-  Users, 
-  Building2, 
-  Activity, 
+  Users,
+  Building2,
+  Activity,
   FileText,
   LayoutDashboard,
   Briefcase,
@@ -15,7 +15,8 @@ import {
   Menu,
   LogOut,
   User as UserIcon,
-  MessageCircle
+  MessageCircle,
+  CreditCard
 } from "lucide-react";
 
 interface SuperAdminLayoutProps {
@@ -64,6 +65,11 @@ export default function SuperAdminLayout({ children }: SuperAdminLayoutProps) {
       icon: Building2,
       label: "테넌트 관리",
       path: "/dashboard/tenant-management",
+    },
+    {
+      icon: CreditCard,
+      label: "결제 관리",
+      path: "/dashboard/billing-management",
     },
     {
       icon: Activity,

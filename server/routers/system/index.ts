@@ -13,3 +13,5 @@ export { uploadHistoryRouter } from "./uploadHistory.router";
 export { userRouter } from "./user.router";
 export { supportRouter } from "./support.router";
 export { subscriptionRouter } from "./subscription.router";
+export { delegationRouter } from "./delegation.router";
+export { workflowRouter } from "./workflow.router";
