@@ -74,7 +74,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
-  role: mysqlEnum("role", ["super_admin", "admin", "worker", "monitor", "employee"]).default("worker").notNull(),
+  role: mysqlEnum("role", ["super_admin", "admin", "accountant", "worker", "monitor", "inspector", "employee"]).default("worker").notNull(),
   userType: mysqlEnum("user_type", ["b2b_partner", "general_user", "company_staff", "other", "client_admin", "employee"]).default("employee"),
   userMemo: text("user_memo"),
   companyName: varchar("company_name", { length: 255 }),
