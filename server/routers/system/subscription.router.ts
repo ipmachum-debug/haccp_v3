@@ -135,6 +135,98 @@ export const subscriptionRouter = router({
         newPlan: input.newPlan,
       };
     }),
+
+  /**
+   * 카드 등록 (빌링키 발급)
+   */
+  registerCard: adminProcedure
+    .input(z.object({
+      authKey: z.string(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      const tenantId = ctx.tenantId!;
+      const customerKey = `tenant_${tenantId}`;
+
+      const { issueBillingKey } = await import("../../services/payment/tossPayments");
+      const result = await issueBillingKey({
+        authKey: input.authKey,
+        customerKey,
+      });
+
+      // 빌링키 저장
+      const { tenants } = await import("../../../drizzle/schema");
+      await db.update(tenants).set({
+        billingKey: result.billingKey,
+        customerKey: result.customerKey,
+        cardCompany: result.cardCompany,
+        cardNumber: result.cardNumber,
+      } as any).where(eq(tenants.id, tenantId));
+
+      return {
+        success: true,
+        cardCompany: result.cardCompany,
+        cardNumber: result.cardNumber,
+        message: "카드가 등록되었습니다.",
+      };
+    }),
+
+  /**
+   * 등록된 카드 정보 조회
+   */
+  getCardInfo: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+    const { tenants } = await import("../../../drizzle/schema");
+    const [tenant] = await db.select({
+      cardCompany: tenants.cardCompany,
+      cardNumber: tenants.cardNumber,
+    } as any).from(tenants).where(eq(tenants.id, ctx.tenantId!)).limit(1);
+
+    if (!tenant || !(tenant as any).cardNumber) {
+      return { registered: false, cardCompany: null, cardNumber: null };
+    }
+
+    return {
+      registered: true,
+      cardCompany: (tenant as any).cardCompany,
+      cardNumber: (tenant as any).cardNumber,
+    };
+  }),
+
+  /**
+   * 결제 이력 조회
+   */
+  getPaymentHistory: tenantRequiredProcedure
+    .input(z.object({ limit: z.number().default(12) }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      const [rows] = await db.execute(sql`
+        SELECT id, order_id, amount, tax_amount, status, plan, paid_at, canceled_at, receipt_url
+        FROM subscription_payments
+        WHERE tenant_id = ${ctx.tenantId!}
+        ORDER BY created_at DESC
+        LIMIT ${input?.limit || 12}
+      `);
+
+      return (rows as any[]).map(r => ({
+        id: r.id,
+        orderId: r.order_id,
+        amount: Number(r.amount),
+        taxAmount: Number(r.tax_amount),
+        totalAmount: Number(r.amount) + Number(r.tax_amount),
+        status: r.status,
+        plan: r.plan,
+        paidAt: r.paid_at,
+        canceledAt: r.canceled_at,
+        receiptUrl: r.receipt_url,
+      }));
+    }),
 });
 
 function getPlanOrder(plan: string): number {
