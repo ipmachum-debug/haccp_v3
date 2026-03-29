@@ -1,5 +1,6 @@
 import FloatingAIChatbot from "@/components/FloatingAIChatbot";
 import FloatingAIBriefing from "@/components/FloatingAIBriefing";
+import ChannelTalkWidget from "@/components/ChannelTalkWidget";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -319,6 +320,7 @@ export default function DashboardLayout({
       </SidebarProvider>
       <FloatingAIChatbot />
       <FloatingAIBriefing />
+      <ChannelTalkWidget />
     </>
   );
 }
