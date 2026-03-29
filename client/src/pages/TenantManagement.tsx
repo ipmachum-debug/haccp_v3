@@ -538,7 +538,7 @@ export default function TenantManagement() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Package className="h-4 w-4" />
                       <span>
-                        패키지: {tenant.subscriptionPackage === "basic" ? "Basic (HACCP)" : "Pro (HACCP + 회계)"}
+                        패키지: {tenant.subscriptionPackage === "starter" ? "Starter" : tenant.subscriptionPackage === "standard" ? "Standard" : tenant.subscriptionPackage === "enterprise" ? "Enterprise" : tenant.subscriptionPackage}
                       </span>
                     </div>
                   )}
@@ -975,8 +975,9 @@ export default function TenantManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="basic">Basic (HACCP만)</SelectItem>
-                    <SelectItem value="pro">Pro (HACCP + 회계)</SelectItem>
+                    <SelectItem value="starter">Starter (월 99,000원)</SelectItem>
+                    <SelectItem value="standard">Standard (월 199,000원)</SelectItem>
+                    <SelectItem value="enterprise">Enterprise (월 299,000원)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

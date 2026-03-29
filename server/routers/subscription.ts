@@ -22,7 +22,7 @@ export const subscriptionRouter = router({
     .input(
       z.object({
         tenantId: z.number(), // 슈퍼관리자가 관리 대상 테넌트 지정
-        subscriptionPackage: z.enum(["basic", "pro"]),
+        subscriptionPackage: z.enum(["starter", "standard", "enterprise"]),
         subscriptionDays: z.number().min(1),
         startDate: z.string().optional(),
       })
@@ -218,7 +218,7 @@ export const subscriptionRouter = router({
    * 패키지 기능 목록 조회 (공개 정보이므로 protectedProcedure 유지)
    */
   getPackageFeatures: protectedProcedure
-    .input(z.object({ packageName: z.enum(["basic", "pro"]) }))
+    .input(z.object({ packageName: z.enum(["starter", "standard", "enterprise"]) }))
     .query(async ({ input }) => {
       const db = await getDb();
       const features = await (db.query as any).packageFeatures.findMany({
@@ -301,7 +301,7 @@ export const subscriptionRouter = router({
 
       const feature = await (db.query as any).packageFeatures.findFirst({
         where: and(
-          eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
+          eq(packageFeatures.packageName, tenant.subscriptionPackage || "starter"),
           eq(packageFeatures.featureName, input.featureName)
         ),
       });
@@ -309,14 +309,14 @@ export const subscriptionRouter = router({
       if (!feature || !feature.isEnabled) {
         return {
           hasAccess: false,
-          packageName: tenant.subscriptionPackage || "basic",
+          packageName: tenant.subscriptionPackage || "starter",
           message: `${input.featureName} 기능은 현재 패키지에서 사용할 수 없습니다.`,
         };
       }
 
       return {
         hasAccess: true,
-        packageName: tenant.subscriptionPackage || "basic",
+        packageName: tenant.subscriptionPackage || "starter",
         message: "기능 접근이 허용되었습니다.",
       };
     }),
@@ -355,14 +355,14 @@ export const subscriptionRouter = router({
 
     const features = await (db.query as any).packageFeatures.findMany({
       where: and(
-        eq(packageFeatures.packageName, tenant.subscriptionPackage || "basic"),
+        eq(packageFeatures.packageName, tenant.subscriptionPackage || "starter"),
         eq(packageFeatures.isEnabled, true)
       ),
     });
 
     return {
       features: features.map((f: any) => f.featureName),
-      packageName: tenant.subscriptionPackage || "basic",
+      packageName: tenant.subscriptionPackage || "starter",
       isReadOnly: tenant.isReadOnly || false,
     };
   }),
@@ -458,7 +458,7 @@ export const subscriptionRouter = router({
   addPackageFeature: superAdminProcedure
     .input(
       z.object({
-        packageName: z.enum(["basic", "pro"]),
+        packageName: z.enum(["starter", "standard", "enterprise"]),
         featureName: z.string(),
         featureDisplayName: z.string(),
         isEnabled: z.boolean().default(true),

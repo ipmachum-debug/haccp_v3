@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, tenantRequiredProcedure } from "../_core/trpc";
+import { router, superAdminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { auditLogs } from "../../drizzle/schema_control_plane_ops";
 import { desc, eq, and, like, gte, lte, sql } from "drizzle-orm";
@@ -13,7 +13,7 @@ export const auditLogsRouter = router({
   /**
    * 감사 로그 목록 조회 (페이지네이션, 필터링, 검색)
    */
-  getAuditLogs: tenantRequiredProcedure
+  getAuditLogs: superAdminProcedure
     .input(
       z.object({
         page: z.number().min(1).default(1),
@@ -28,21 +28,14 @@ export const auditLogsRouter = router({
       })
     )
     .query(async ({ input, ctx }) => {
-      // 슈퍼관리자 권한 확인
-      if (ctx.user.role !== 'super_admin') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: '슈퍼관리자 권한이 필요합니다.',
-        });
-      }
+      // superAdminProcedure가 권한을 보장하므로 수동 체크 불필요
 
       const db = await getDb();
       const { page, limit, action, entityType, userId, userEmail, startDate, endDate, search } = input;
       const offset = (page - 1) * limit;
 
-      // 필터 조건 구성
-      const tenantId = ctx.tenantId;
-      const conditions: any[] = [eq(auditLogs.tenantId, tenantId as any)];
+      // 슈퍼관리자는 전체 테넌트 로그 조회 (tenantId 필터 없음)
+      const conditions: any[] = [];
 
       if (action) {
         conditions.push(eq(auditLogs.action, action));
@@ -105,25 +98,15 @@ export const auditLogsRouter = router({
   /**
    * 감사 로그 통계 조회
    */
-  getAuditLogStats: tenantRequiredProcedure.query(async ({ ctx }) => {
-    // 슈퍼관리자 권한 확인
-    if (ctx.user.role !== 'super_admin') {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: '슈퍼관리자 권한이 필요합니다.',
-      });
-    }
-
+  getAuditLogStats: superAdminProcedure.query(async () => {
     const db = await getDb();
 
-    const tenantId = ctx.tenantId;
-
-    // 최근 24시간 로그 수
+    // 최근 24시간 로그 수 (전체 테넌트)
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [{ recentCount }] = await db
       .select({ recentCount: sql<number>`count(*)` })
       .from(auditLogs)
-      .where(and(eq(auditLogs.tenantId, tenantId as any), gte(auditLogs.createdAt, oneDayAgo)));
+      .where(gte(auditLogs.createdAt, oneDayAgo));
 
     // 액션별 통계
     const actionStats = await db
@@ -132,7 +115,6 @@ export const auditLogsRouter = router({
         count: sql<number>`count(*)`,
       })
       .from(auditLogs)
-      .where(eq(auditLogs.tenantId, tenantId as any))
       .groupBy(auditLogs.action)
       .orderBy(desc(sql`count(*)`))
       .limit(10);
@@ -159,7 +141,7 @@ export const auditLogsRouter = router({
   /**
    * 특정 엔티티의 감사 로그 조회
    */
-  getEntityAuditLogs: tenantRequiredProcedure
+  getEntityAuditLogs: superAdminProcedure
     .input(
       z.object({
         entityType: z.string(),
@@ -167,23 +149,13 @@ export const auditLogsRouter = router({
         limit: z.number().min(1).max(100).default(20),
       })
     )
-    .query(async ({ input, ctx }) => {
-      // 슈퍼관리자 권한 확인
-      if (ctx.user.role !== 'super_admin') {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: '슈퍼관리자 권한이 필요합니다.',
-        });
-      }
-
+    .query(async ({ input }) => {
       const db = await getDb();
       const { entityType, entityId, limit } = input;
-
-      const tenantId = ctx.tenantId;
       const logs = await db
         .select()
         .from(auditLogs)
-        .where(and(eq(auditLogs.tenantId, tenantId as any), eq((auditLogs as any).entityType, entityType), eq((auditLogs as any).entityId, entityId)))
+        .where(and(eq((auditLogs as any).entityType, entityType), eq((auditLogs as any).entityId, entityId)))
         .orderBy(desc(auditLogs.createdAt))
         .limit(limit);
 
