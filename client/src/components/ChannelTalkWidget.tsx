@@ -49,12 +49,26 @@ export function openChannelTalk() {
   }
 }
 
+// 채널톡 기본 버튼을 CSS로 완전히 숨김 (깜빡임 방지)
+const HIDE_STYLE_ID = "channel-talk-hide-btn";
+function injectHideStyle() {
+  if (document.getElementById(HIDE_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = HIDE_STYLE_ID;
+  style.textContent = `#ch-plugin-entry { display: none !important; }`;
+  document.head.appendChild(style);
+}
+
 export default function ChannelTalkWidget() {
   const { user } = useAuth();
 
   useEffect(() => {
     // 플러그인키 없으면 로드하지 않음
     if (!PLUGIN_KEY) return;
+
+    // 기본 버튼 CSS로 즉시 숨김 (SDK 로드 전부터 적용)
+    injectHideStyle();
+
     if (window.ChannelIOInitialized) return;
 
     bootChannelTalk();
