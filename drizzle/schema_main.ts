@@ -49,7 +49,7 @@ export const tenants = mysqlTable("tenants", {
   status: mysqlEnum("status", ["active", "suspended", "trial", "expired"]).default("trial").notNull(),
   
   // 구독 관리
-  subscriptionPackage: mysqlEnum("subscription_package", ["basic", "pro"]).default("basic").notNull(),
+  subscriptionPackage: mysqlEnum("subscription_package", ["starter", "standard", "enterprise"]).default("starter").notNull(),
   subscriptionStartDate: date("subscription_start_date"),
   subscriptionEndDate: date("subscription_end_date"),
   subscriptionDays: int("subscription_days").default(0), // 구독 일수
