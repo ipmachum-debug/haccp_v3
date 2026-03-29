@@ -12,3 +12,4 @@ export { tenantRouter } from "./tenant.router";
 export { uploadHistoryRouter } from "./uploadHistory.router";
 export { userRouter } from "./user.router";
 export { supportRouter } from "./support.router";
+export { subscriptionRouter } from "./subscription.router";

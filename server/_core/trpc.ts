@@ -4,6 +4,7 @@ import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { TenantDb } from "../db/TenantDb";
 import { hasPermission, type FeatureArea, type Permission } from "../utils/rbacMatrix";
+import { checkPlanFeature, type PlanLimits } from "../utils/planConfig";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -415,6 +416,64 @@ export function createFeatureProcedure(feature: FeatureArea, permission: Permiss
           db: tenantDb,
           isSuperAdminActing,
         },
+      });
+    })
+  );
+}
+
+// ============================================================================
+// 💰 플랜 기능 게이팅 미들웨어 팩토리
+// ============================================================================
+
+/**
+ * requirePlanFeature - 특정 플랜 기능이 필요한 프로시저
+ *
+ * 사용법:
+ *   const accountingProcedure = requirePlanFeature("accounting");
+ *   // → Starter 플랜은 차단, Standard 이상만 접근
+ */
+export function requirePlanFeature(feature: keyof PlanLimits["features"]) {
+  return t.procedure.use(
+    t.middleware(async (opts) => {
+      const { ctx, next, path, type } = opts;
+
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      }
+
+      const { tenantId, tenantDb } = resolveTenantContext(ctx);
+      if (!tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "테넌트 정보가 필요합니다." });
+      }
+
+      // 테넌트 플랜 조회
+      try {
+        const { getDb } = await import("../db");
+        const { tenants } = await import("../../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (db) {
+          const [tenant] = await db.select({ plan: tenants.subscriptionPackage })
+            .from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+          if (tenant) {
+            const check = checkPlanFeature(tenant.plan, feature);
+            if (!check.allowed) {
+              throw new TRPCError({ code: "FORBIDDEN", message: check.message });
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        // DB 조회 실패 시 통과 (가용성 우선)
+      }
+
+      const isSuperAdminActing = ctx.user.role === "super_admin" && !!ctx.actingTenantId;
+      if (isSuperAdminActing) {
+        logSuperAdminAction(ctx, path, type);
+      }
+
+      return next({
+        ctx: { ...ctx, user: ctx.user, tenantId, db: tenantDb, isSuperAdminActing },
       });
     })
   );

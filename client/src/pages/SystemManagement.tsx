@@ -2,16 +2,17 @@ import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
-import { Users, Settings, Building2, FileCheck } from "lucide-react";
+import { Users, Settings, Building2, FileCheck, CreditCard } from "lucide-react";
 import UserManagement from "./UserManagement";
 import AdminSettings from "./AdminSettings";
 import DepartmentManagement from "./DepartmentManagement";
 import PositionManagement from "./PositionManagement";
 import EmployeeManagement from "./EmployeeManagement";
 import DocumentApprovalSettingsPage from "./DocumentApprovalSettingsPage";
+import SubscriptionManagement from "./SubscriptionManagement";
 
 export default function SystemManagement() {
-  const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription">("users");
 
   return (
     <DashboardLayout>
@@ -23,11 +24,15 @@ export default function SystemManagement() {
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "users" | "settings" | "organization" | "approval")}>
-        <TabsList className="grid w-full max-w-3xl grid-cols-4">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
+        <TabsList className="grid w-full max-w-4xl grid-cols-5">
           <TabsTrigger value="users" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             사용자 관리
+          </TabsTrigger>
+          <TabsTrigger value="subscription" className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            구독 관리
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center gap-2">
             <Settings className="h-4 w-4" />
@@ -35,16 +40,20 @@ export default function SystemManagement() {
           </TabsTrigger>
           <TabsTrigger value="organization" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
-            조직·책임 관리
+            조직·책임
           </TabsTrigger>
           <TabsTrigger value="approval" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
-            문서 결재 설정
+            문서 결재
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
           <UserManagement />
+        </TabsContent>
+
+        <TabsContent value="subscription" className="space-y-4">
+          <SubscriptionManagement />
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-4">
