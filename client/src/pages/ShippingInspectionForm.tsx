@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Trash2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "shipping_inspection",
   title: "출하 검사 작성",
@@ -42,7 +44,7 @@ const initialItems: InspectionItem[] = [
 export default function ShippingInspectionForm() {
   const [productName, setProductName] = useState("");
   const [batchCode, setBatchCode] = useState("");
-  const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().split("T")[0]);
+  const [inspectionDate, setInspectionDate] = useState(todayLocal());
   const [inspectorName, setInspectorName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [productCode, setProductCode] = useState("");

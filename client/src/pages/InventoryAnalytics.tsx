@@ -8,13 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TrendingUp, TrendingDown, Minus, BarChart3, Package } from "lucide-react";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function InventoryAnalytics() {
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 3);
-    return date.toISOString().split("T")[0];
+    return formatLocalDate(date);
   });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(() => todayLocal());
 
   const { data: turnoverData, isLoading: turnoverLoading } = trpc.inventory.getTurnoverAnalysis.useQuery({
     startDate,

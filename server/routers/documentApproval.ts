@@ -7,6 +7,8 @@ import { getDb } from "../db";
 import { eq, and, desc, gte, lte, inArray, sql } from "drizzle-orm";
 import { assertSiteOwned, requireTenantId } from "../helpers/tenantGuards";
 
+import { todayKST } from "../utils/timezone";
+
 export const documentApprovalRouter = router({
   // ============================================================================
   // 승인 대기 문서 목록 조회
@@ -677,7 +679,7 @@ export const documentApprovalRouter = router({
       const summary = await db.execute(query);
       
       // 오늘 날짜 기준 문서 수 (테넌트 격리)
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayKST();
       const todayQuery = sql`
         SELECT COUNT(*) as count
         FROM document_instances

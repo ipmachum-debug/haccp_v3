@@ -5,7 +5,8 @@
  * both PrintHelpers and ChecklistRenderers.
  */
 import React from "react";
-import { FORM_TYPE_LABELS, renderRowsTable } from "./PrintHelpers";
+import { formatLocalDate } from "../../lib/dateUtils";
+import { FORM_TYPE_LABELS, TitleWithApproval, renderRowsTable } from "./PrintHelpers";
 import {
   renderEmployeeHealthCheck,
   renderAirCompressorMaintenance,
@@ -23,7 +24,7 @@ import {
 // ============================================================================
 // 범용 데이터 렌더러 (fallback)
 // ============================================================================
-export function renderGenericData(data: any, formType: string) {
+export function renderGenericData(data: any, formType: string, doc?: any) {
   if (!data) return <p className="text-gray-500">데이터 없음</p>;
   const title = FORM_TYPE_LABELS[formType] || formType;
 
@@ -33,7 +34,7 @@ export function renderGenericData(data: any, formType: string) {
     const keys = Object.keys(genericRows[0]).filter(k => k !== "id" && k !== "signature");
     return (
       <div>
-        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <TitleWithApproval title={title} doc={doc} />
         <table className="w-full border-collapse border border-gray-400 text-sm">
           <thead><tr className="bg-blue-50">
             <th className="border border-gray-400 px-2 py-1">No.</th>
@@ -45,7 +46,7 @@ export function renderGenericData(data: any, formType: string) {
                 <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
                 {keys.map((k, i) => (
                   <td key={i} className="border border-gray-400 px-2 py-1 text-center">
-                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? row[k].toISOString().split("T")[0] : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
+                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? formatLocalDate(row[k]) : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
                   </td>
                 ))}
               </tr>
@@ -63,7 +64,7 @@ export function renderGenericData(data: any, formType: string) {
     const keys = Object.keys(data.data[0]);
     return (
       <div>
-        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <TitleWithApproval title={title} doc={doc} />
         <table className="w-full border-collapse border border-gray-400 text-sm">
           <thead><tr className="bg-blue-50">
             <th className="border border-gray-400 px-2 py-1">No.</th>
@@ -91,7 +92,7 @@ export function renderGenericData(data: any, formType: string) {
   if (entries.length > 0) {
     return (
       <div>
-        <div className="text-center mb-4"><h2 className="text-xl font-bold">{title}</h2></div>
+        <TitleWithApproval title={title} doc={doc} />
         <table className="w-full border-collapse border border-gray-400 text-sm">
           <tbody>
             {entries.map(([key, value], idx) => (
@@ -116,7 +117,7 @@ export function renderGenericData(data: any, formType: string) {
 // ============================================================================
 // 폼 타입별 렌더링 디스패처 (daily_log / batch_production 제외 - 별도 처리)
 // ============================================================================
-export function renderFormContent(data: any, formType: string) {
+export function renderFormContent(data: any, formType: string, doc?: any) {
   if (!data) return <p className="text-gray-500">데이터 없음</p>;
   switch (formType) {
     case "employee_health_check": return renderEmployeeHealthCheck(data);
@@ -125,18 +126,18 @@ export function renderFormContent(data: any, formType: string) {
     case "temperature_humidity_check": return renderTemperatureHumidityCheck(data);
     case "airborne_bacteria_test": return renderAirborneBacteriaTest(data);
     case "training_log": return renderTrainingLog(data);
-    case "workplace_hygiene_check": return renderChecklistItems(data, "작업장 위생 점검표");
-    case "hygiene_facility_check": return renderChecklistItems(data, "위생시설 점검표");
-    case "personal_hygiene_check": return renderPersonalHygieneCheck(data);
-    case "cleaning_disinfection": return renderChecklistItems(data, "세척소독 관리대장");
+    case "workplace_hygiene_check": return renderChecklistItems(data, "작업장 위생 점검표", doc);
+    case "hygiene_facility_check": return renderChecklistItems(data, "위생시설 점검표", doc);
+    case "personal_hygiene_check": return renderPersonalHygieneCheck(data, doc);
+    case "cleaning_disinfection": return renderChecklistItems(data, "세척소독 관리대장", doc);
     case "vehicle_temperature_check": return renderRowsTable(data, "차량 온도 점검표", [{key:"vehicleNo",label:"차량번호"},{key:"temperature",label:"온도(℃)"},{key:"standard",label:"기준"},{key:"result",label:"판정"},{key:"note",label:"비고"}]);
     case "weight_quality_check": return renderRowsTable(data, "중량 품질 검사", [{key:"productName",label:"제품명"},{key:"standard",label:"기준중량"},{key:"measured",label:"실측중량"},{key:"result",label:"판정"},{key:"note",label:"비고"}]);
     case "surface_contamination_test": return renderRowsTable(data, "표면오염도 검사 성적서", [{key:"item",label:"검사항목"},{key:"location",label:"검사장소"},{key:"method",label:"검사방법"},{key:"result",label:"결과"},{key:"criteria",label:"기준"},{key:"judgment",label:"판정"}]);
-    case "water_management_check": return renderChecklistItems(data, "용수관리 점검표");
+    case "water_management_check": return renderChecklistItems(data, "용수관리 점검표", doc);
     case "illumination_check": return renderRowsTable(data, "조도 점검표", [{key:"location",label:"측정장소"},{key:"standard",label:"기준"},{key:"measurement",label:"측정값"},{key:"result",label:"판정"},{key:"remarks",label:"비고"}]);
     case "waste_management": return renderRowsTable(data, "폐기물 관리 기록", [{key:"date",label:"일자"},{key:"type",label:"폐기물종류"},{key:"amount",label:"수량"},{key:"method",label:"처리방법"},{key:"handler",label:"처리자"}]);
     case "pest_control_checklist": return renderRowsTable(data, "방충·방서 점검표", [{key:"location",label:"설치장소"},{key:"deviceType",label:"장치유형"},{key:"captureCount",label:"포획수"},{key:"notes",label:"비고"}]);
-    case "product_test_report": return renderProductTestReport(data);
-    default: return renderGenericData(data, formType);
+    case "product_test_report": return renderProductTestReport(data, doc);
+    default: return renderGenericData(data, formType, doc);
   }
 }

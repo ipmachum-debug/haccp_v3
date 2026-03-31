@@ -7,6 +7,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import * as db from "./db";
 
+import { todayKST } from "./utils/timezone";
+
 describe("배치 CCP 자동 생성 기능 테스트", () => {
   let testProductId: number;
   let testBatchId: number;
@@ -54,7 +56,7 @@ describe("배치 CCP 자동 생성 기능 테스트", () => {
     // CCP 자동 생성 함수 호출
     const { autoCreateCcpInstancesForBatch } = await import("./services/ccp-batch");
     const product = await db.getProductById(testProductId);
-    const workDate = new Date().toISOString().split('T')[0];
+    const workDate = todayKST();
     
     const result = await autoCreateCcpInstancesForBatch({
       siteId: 1,
@@ -115,7 +117,7 @@ describe("배치 CCP 자동 생성 기능 테스트", () => {
     // CCP 자동 생성
     const { autoCreateCcpInstancesForBatch } = await import("./services/ccp-batch");
     const product = await db.getProductById(kimchiProductId);
-    const workDate = new Date().toISOString().split('T')[0];
+    const workDate = todayKST();
     
     const result = await autoCreateCcpInstancesForBatch({
       siteId: 1,
@@ -139,7 +141,7 @@ describe("배치 CCP 자동 생성 기능 테스트", () => {
   it("3. CCP 생성 실패 시에도 에러가 발생하지 않아야 함", async () => {
     // 존재하지 않는 제품으로 CCP 생성 시도
     const { autoCreateCcpInstancesForBatch } = await import("./services/ccp-batch");
-    const workDate = new Date().toISOString().split('T')[0];
+    const workDate = todayKST();
     
     // 에러가 발생하지 않고 빈 결과를 반환해야 함
     const result = await autoCreateCcpInstancesForBatch({

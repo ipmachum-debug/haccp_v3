@@ -4,7 +4,8 @@
  * [P2-1] tenant 격리 전면 적용 + accountingAccountId 연결
  */
 import { getDb } from "./db";
-import { 
+import { getRows } from "./utils/dbHelpers";
+import {
   partners, 
   apLedger, 
   arLedger,
@@ -12,7 +13,7 @@ import {
   type InsertApLedgerEntry,
   type InsertArLedgerEntry
 } from "../drizzle/schema_main";
-import { eq, and, desc, sql, or, like, asc } from "drizzle-orm";
+import { eq, and, desc, sql, or, like, asc, type SQL } from "drizzle-orm";
 
 // ============================================
 // 거래처 관리 (Partners) - tenantId 필터링 추가
@@ -23,15 +24,31 @@ import { eq, and, desc, sql, or, like, asc } from "drizzle-orm";
  */
 export async function createPartner(data: InsertPartner & { tenantId?: number }) {
   try {
-    console.log("[createPartner] Input data:", JSON.stringify(data, null, 2));
     const db = await getDb();
-    if (!db) throw new Error("Database not initialized");
+    if (!db) throw new Error("DB 연결 실패");
     
-    const [result] = await db.insert(partners).values(data);
-    console.log("[createPartner] Insert result:", result);
+    // 빈 문자열을 null로 변환 (MySQL varchar 컬럼 호환성)
+    const cleanData: Record<string, unknown> = { ...data };
+    const nullableFields = [
+      'bizNo', 'supplierCode', 'supplierType', 'certifications', 'rating',
+      'ceoName', 'contactPerson', 'bizType', 'bizItem', 'address',
+      'phone', 'fax', 'email', 'bankName', 'bankAccount'
+    ];
+    for (const field of nullableFields) {
+      if (cleanData[field] === '' || cleanData[field] === undefined) {
+        cleanData[field] = null;
+      }
+    }
+    
+    const [result] = await db.insert(partners).values(cleanData);
     return result.insertId;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("[createPartner] Error:", error);
+    // 사업자번호 중복 에러 처리
+    const err = error as { code?: string; message?: string };
+    if (err?.code === 'ER_DUP_ENTRY' || err?.message?.includes('Duplicate entry') || err?.message?.includes('partners_tenant_biz_no_unique')) {
+      throw new Error("동일한 사업자등록번호가 이미 등록되어 있습니다.");
+    }
     throw error;
   }
 }
@@ -44,9 +61,9 @@ export async function getAllPartners(filters?: {
   isActive?: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   
   if (tenantId) {
     conditions.push(eq(partners.tenantId, tenantId));
@@ -73,9 +90,9 @@ export async function getAllPartners(filters?: {
  */
 export async function getPartnerById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(partners.id, id)];
+  const conditions: SQL[] = [eq(partners.id, id)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   const [partner] = await db.select().from(partners).where(and(...conditions));
   return partner;
@@ -86,9 +103,9 @@ export async function getPartnerById(id: number, tenantId?: number) {
  */
 export async function updatePartner(id: number, data: Partial<InsertPartner>, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(partners.id, id)];
+  const conditions: SQL[] = [eq(partners.id, id)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   await db.update(partners).set(data).where(and(...conditions));
 }
@@ -98,9 +115,9 @@ export async function updatePartner(id: number, data: Partial<InsertPartner>, te
  */
 export async function deletePartner(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(partners.id, id)];
+  const conditions: SQL[] = [eq(partners.id, id)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   await db.update(partners).set({ isActive: 0 }).where(and(...conditions));
 }
@@ -110,9 +127,9 @@ export async function deletePartner(id: number, tenantId?: number) {
  */
 export async function getPartnerByBizNo(bizNo: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(partners.bizNo, bizNo)];
+  const conditions: SQL[] = [eq(partners.bizNo, bizNo)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   const [partner] = await db.select().from(partners).where(and(...conditions));
   return partner;
@@ -129,13 +146,13 @@ export async function getSupplierPartners(params: {
   sortOrder?: string;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const page = params.page || 1;
   const limit = params.limit || 20;
   const offset = (page - 1) * limit;
 
-  const conditions: any[] = [
+  const conditions: SQL[] = [
     eq(partners.tenantId, tenantId),
     eq(partners.isActive, 1)
   ];
@@ -177,7 +194,7 @@ export async function getSupplierPartners(params: {
     supplierCode: p.supplierCode || `SUP-${String(p.id).padStart(3, "0")}`,
     supplierName: p.companyName,
     businessNumber: p.bizNo,
-    contactPerson: (p as any).contactPerson || p.ceoName,
+    contactPerson: p.contactPerson || p.ceoName,
     phone: p.phone,
     email: p.email,
     address: p.address,
@@ -210,7 +227,7 @@ export async function createSupplierPartner(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   // supplier_code 자동 생성
   let supplierCode = data.supplierCode;
@@ -218,26 +235,37 @@ export async function createSupplierPartner(data: {
     const maxResult = await db.execute(
       sql`SELECT MAX(CAST(SUBSTRING(supplier_code, 5) AS UNSIGNED)) as maxNum FROM partners WHERE tenant_id = ${data.tenantId} AND supplier_code REGEXP '^SUP-[0-9]+$'`
     );
-    const maxNum = Number((maxResult as any)[0]?.[0]?.maxNum || (maxResult as any)[0]?.maxNum || 0);
+    const maxRows = getRows<{ maxNum: number | null }>(maxResult);
+    const maxNum = Number(maxRows[0]?.maxNum || 0);
     supplierCode = "SUP-" + String(maxNum + 1).padStart(3, "0");
   }
 
-  const [result] = await db.insert(partners).values({
-    tenantId: data.tenantId,
-    partnerType: "supplier",
-    companyName: data.supplierName,
-    bizNo: data.businessNumber || null,
-    supplierCode,
-    supplierType: data.supplierType || "거래처",
-    ceoName: data.contactPerson || null,
-    phone: data.phone || null,
-    email: data.email || null,
-    address: data.address || null,
-    certifications: data.certifications || null,
-    rating: data.rating || null,
-  });
+  try {
+    const [result] = await db.insert(partners).values({
+      tenantId: data.tenantId,
+      partnerType: "supplier",
+      companyName: data.supplierName,
+      bizNo: data.businessNumber || null,
+      supplierCode,
+      supplierType: data.supplierType || "거래처",
+      ceoName: data.contactPerson || null,
+      contactPerson: data.contactPerson || null,
+      phone: data.phone || null,
+      email: data.email || null,
+      address: data.address || null,
+      certifications: data.certifications || null,
+      rating: data.rating || null,
+    });
 
-  return result.insertId;
+    return result.insertId;
+  } catch (error: unknown) {
+    console.error("[createSupplierPartner] Error:", error);
+    const err = error as { code?: string; message?: string };
+    if (err?.code === 'ER_DUP_ENTRY' || err?.message?.includes('Duplicate entry') || err?.message?.includes('partners_tenant_biz_no_unique')) {
+      throw new Error("동일한 사업자등록번호가 이미 등록되어 있습니다.");
+    }
+    throw error;
+  }
 }
 
 /**
@@ -257,9 +285,9 @@ export async function updateSupplierPartner(id: number, data: {
   isActive?: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const updateData: any = {};
+  const updateData: Partial<InsertPartner> = {};
   if (data.supplierName !== undefined) updateData.companyName = data.supplierName;
   if (data.supplierCode !== undefined) updateData.supplierCode = data.supplierCode;
   if (data.businessNumber !== undefined) updateData.bizNo = data.businessNumber;
@@ -272,7 +300,7 @@ export async function updateSupplierPartner(id: number, data: {
   if (data.rating !== undefined) updateData.rating = data.rating;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-  const conditions: any[] = [eq(partners.id, id)];
+  const conditions: SQL[] = [eq(partners.id, id)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   await db.update(partners).set(updateData).where(and(...conditions));
 }
@@ -282,7 +310,7 @@ export async function updateSupplierPartner(id: number, data: {
  */
 export async function deleteSupplierPartner(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.update(partners).set({ isActive: 0 }).where(
     and(eq(partners.id, id), eq(partners.tenantId, tenantId))
@@ -298,7 +326,7 @@ export async function deleteSupplierPartner(id: number, tenantId: number) {
  */
 export async function createApLedgerEntry(data: InsertApLedgerEntry) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(apLedger).values(data);
   return result.insertId;
@@ -315,9 +343,9 @@ export async function getApLedger(filters?: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   
   if (filters?.tenantId) {
     conditions.push(eq(apLedger.tenantId, filters.tenantId));
@@ -365,9 +393,9 @@ export async function getApLedger(filters?: {
  */
 export async function getApLedgerById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(apLedger.id, id)];
+  const conditions: SQL[] = [eq(apLedger.id, id)];
   if (tenantId) {
     conditions.push(eq(apLedger.tenantId, tenantId));
   }
@@ -399,9 +427,9 @@ export async function getApLedgerById(id: number, tenantId?: number) {
  */
 export async function getApSummaryBySupplier(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   
   if (tenantId) {
     conditions.push(eq(apLedger.tenantId, tenantId));
@@ -440,7 +468,7 @@ export async function getApSummaryBySupplier(startDate?: string, endDate?: strin
  */
 export async function createArLedgerEntry(data: InsertArLedgerEntry) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(arLedger).values(data);
   return result.insertId;
@@ -457,9 +485,9 @@ export async function getArLedger(filters?: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   
   if (filters?.tenantId) {
     conditions.push(eq(arLedger.tenantId, filters.tenantId));
@@ -508,9 +536,9 @@ export async function getArLedger(filters?: {
  */
 export async function getArLedgerById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(arLedger.id, id)];
+  const conditions: SQL[] = [eq(arLedger.id, id)];
   if (tenantId) {
     conditions.push(eq(arLedger.tenantId, tenantId));
   }
@@ -543,9 +571,9 @@ export async function getArLedgerById(id: number, tenantId?: number) {
  */
 export async function getArSummaryByCustomer(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [];
+  const conditions: SQL[] = [];
   
   if (tenantId) {
     conditions.push(eq(arLedger.tenantId, tenantId));
@@ -580,11 +608,11 @@ export async function getArSummaryByCustomer(startDate?: string, endDate?: strin
  */
 export async function getFinancialSummary(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 매입 합계
-  const apConditions: any[] = [];
-  const arConditions: any[] = [];
+  const apConditions: SQL[] = [];
+  const arConditions: SQL[] = [];
   
   if (tenantId) {
     apConditions.push(eq(apLedger.tenantId, tenantId));

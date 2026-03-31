@@ -7,6 +7,8 @@ import { TRPCError } from "@trpc/server";
 import { storagePut } from "../storage";
 import * as XLSX from "xlsx";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * ✅ P0 SECURITY FIX: healthCertificate 라우터
  *
@@ -122,7 +124,7 @@ export const healthCertificateRouter = router({
       if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
 
       const tenantId = ctx.tenantId!;
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayKST();
 
       const myEmployeeIds = await getTenantEmployeeIds(db, tenantId);
       if (myEmployeeIds.length === 0) return [];
@@ -319,14 +321,15 @@ export const healthCertificateRouter = router({
 
   /**
    * 만료 알림 대상 조회 (스케줄러용)
-   * ⚠️ 스케줄러에서 호출 - tenantId 미적용 (전체 조회 의도)
-   * TODO: 스케줄러에도 테넌트별 처리 도입 필요
+   * ✅ tenant 격리 적용 - 내 테넌트 소속 직원의 건강진단서만 조회
    */
   getExpiringForReminder: tenantRequiredProcedure
     .input(z.object({ days: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
+
+      const tenantId = ctx.tenantId!;
 
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + input.days);
@@ -348,6 +351,10 @@ export const healthCertificateRouter = router({
         throw new Error("Invalid days parameter");
       }
 
+      // ✅ 내 테넌트 소속 직원의 건강진단서만 조회
+      const myEmployeeIds = await getTenantEmployeeIds(db, tenantId);
+      if (myEmployeeIds.length === 0) return [];
+
       const result = await db
         .select()
         .from(healthCertificates)
@@ -355,7 +362,8 @@ export const healthCertificateRouter = router({
           and(
             gte(healthCertificates.expiryDate, startOfDay),
             lte(healthCertificates.expiryDate, endOfDay),
-            eq(reminderField, 0)
+            eq(reminderField, 0),
+            inArray(healthCertificates.employeeId, myEmployeeIds)
           )
         );
 

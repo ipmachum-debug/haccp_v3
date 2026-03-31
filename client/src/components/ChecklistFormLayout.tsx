@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { todayLocal } from "../lib/dateUtils";
+
 import {
   ArrowLeft,
   Save,
@@ -208,7 +210,7 @@ export default function ChecklistFormLayout({
   const [isSaving, setIsSaving] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [approvalSettingApplied, setApprovalSettingApplied] = useState(false);
-  const [formDate, setFormDate] = useState(new Date().toISOString().split("T")[0]);
+  const [formDate, setFormDate] = useState(todayLocal());
 
   // ============================================================================
   // API 쿼리

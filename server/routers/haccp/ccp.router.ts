@@ -2,6 +2,8 @@
 import { tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
 
+import { todayKST } from "../../utils/timezone";
+
 export const ccpRouter = router({
     // 배치별 CCP 인스턴스 조회 (공정그룹·설비 정보 포함)
     getByBatchId: tenantRequiredProcedure
@@ -430,7 +432,7 @@ export const ccpRouter = router({
         
         // Buffer를 Base64로 변환하여 반환
         const base64 = Buffer.from(buffer).toString('base64');
-        const filename = `CCP_점검이력_${new Date().toISOString().split('T')[0]}.xlsx`;
+        const filename = `CCP_점검이력_${todayKST()}.xlsx`;
         
         return {
           success: true,

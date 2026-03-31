@@ -123,6 +123,7 @@ const EmployeeApproval = lazy(() => import("./pages/EmployeeApproval"));
 const TenantManagement = lazy(() => import("./pages/TenantManagement"));
 const BannerManagement = lazy(() => import("./pages/BannerManagement"));
 const SystemMonitoring = lazy(() => import("./pages/SystemMonitoring"));
+const BillingManagement = lazy(() => import("./pages/BillingManagement"));
 const AuditLogs = lazy(() => import("./pages/AuditLogs"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -283,6 +284,7 @@ function Router() {
       <Route path="/dashboard/user-approval" component={SuperAdminUserApproval} />
       <Route path="/dashboard/tenant-management" component={TenantManagement} />
       <Route path="/dashboard/system-monitoring" component={SystemMonitoring} />
+      <Route path="/dashboard/billing-management" component={BillingManagement} />
 
 
       

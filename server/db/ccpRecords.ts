@@ -17,7 +17,7 @@ export async function createCcpRecord(data: {
   };
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db.insert(hCcpRecords).values({
       tenantId,
@@ -31,7 +31,7 @@ export async function createCcpRecord(data: {
  */
 export async function getCcpRecordsByInstanceId(instanceId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const records = await db
     .select()

@@ -27,6 +27,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // ─── 상수 ─────────────────────────────────
 const PAYMENT_METHODS: Record<string, string> = {
   cash: "현금", bank: "계좌이체", card: "카드", unpaid: "미지급(외상)",
@@ -1039,7 +1041,7 @@ function RecurringTab() {
   const utils = trpc.useUtils();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTpl, setEditingTpl] = useState<any>(null);
-  const [genDate, setGenDate] = useState(new Date().toISOString().split("T")[0]);
+  const [genDate, setGenDate] = useState(todayLocal());
   const [genId, setGenId] = useState<number | null>(null);
 
   const listQuery = trpc.expense.recurringList.useQuery();
@@ -1266,7 +1268,7 @@ function UnpaidTab() {
   const utils = trpc.useUtils();
   const [payDialogVoucher, setPayDialogVoucher] = useState<any>(null);
   const [payAmount, setPayAmount] = useState(0);
-  const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
+  const [payDate, setPayDate] = useState(todayLocal());
   const [payMethod, setPayMethod] = useState<"cash" | "bank" | "card">("bank");
   const [payMemo, setPayMemo] = useState("");
   const [historyVoucherId, setHistoryVoucherId] = useState<number | null>(null);
@@ -1409,8 +1411,8 @@ function VatSummaryTab() {
   const qStart = new Date(now.getFullYear(), quarter * 3, 1);
   const qEnd = new Date(now.getFullYear(), quarter * 3 + 3, 0);
 
-  const [startDate, setStartDate] = useState(qStart.toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(qEnd.toISOString().split("T")[0]);
+  const [startDate, setStartDate] = useState(formatLocalDate(qStart));
+  const [endDate, setEndDate] = useState(formatLocalDate(qEnd));
 
   const vatQuery = trpc.expense.vatSummary.useQuery({ startDate, endDate });
   const data = vatQuery.data;

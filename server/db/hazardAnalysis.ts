@@ -36,7 +36,7 @@ export async function createHazardAnalysis(data: {
   else riskLevel = "critical";
 
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db.insert(hHazardAnalysis).values({
       tenantId,
@@ -61,7 +61,7 @@ export async function createHazardAnalysis(data: {
 
 export async function getHazardAnalysisByProduct(productId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hHazardAnalysis)
@@ -70,7 +70,7 @@ export async function getHazardAnalysisByProduct(productId: number, tenantId?: n
 
 export async function getHazardAnalysisById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db
     .select()
     .from(hHazardAnalysis)
@@ -96,7 +96,7 @@ export async function updateHazardAnalysis(
     reviewDate?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 심각도나 발생 가능성이 변경되면 위험도 재계산
   if (data.severity !== undefined || data.likelihood !== undefined) {
@@ -131,7 +131,7 @@ export async function updateHazardAnalysis(
 
 export async function deleteHazardAnalysis(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 관련 관리 방법도 함께 삭제
   await db
@@ -143,7 +143,7 @@ export async function deleteHazardAnalysis(id: number, tenantId?: number) {
 
 export async function getHazardAnalysisBySite(siteId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hHazardAnalysis)
@@ -152,7 +152,7 @@ export async function getHazardAnalysisBySite(siteId: number, tenantId?: number)
 
 export async function getHazardAnalysisByStatus(status: "draft" | "submitted" | "approved" | "rejected", tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hHazardAnalysis)
@@ -161,7 +161,7 @@ export async function getHazardAnalysisByStatus(status: "draft" | "submitted" | 
 
 export async function getCcpHazardAnalysis(productId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hHazardAnalysis)
@@ -187,7 +187,7 @@ export async function createHazardControl(data: {
   recordForm?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [result] = await db.insert(hHazardControls).values({
       ...data, tenantId } as any);
   return result.insertId;
@@ -195,7 +195,7 @@ export async function createHazardControl(data: {
 
 export async function getHazardControlsByAnalysisId(hazardAnalysisId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hHazardControls)
@@ -211,7 +211,7 @@ export async function updateHazardControl(
     recordForm?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   await db
     .update(hHazardControls)
     .set(data)
@@ -219,7 +219,7 @@ export async function updateHazardControl(
 
 export async function deleteHazardControl(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   await db
     .delete(hHazardControls)
     .where(and(eq(hHazardControls.tenantId, tenantId as any) , eq(hHazardControls.id, id)) as any);}

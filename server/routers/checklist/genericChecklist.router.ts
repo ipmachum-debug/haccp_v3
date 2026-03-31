@@ -10,6 +10,8 @@ import { hGenericChecklistRecords } from "../../../drizzle/schema_main";
 import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
 import { getEffectiveTenantId } from "./_helpers";
 
+import { toKSTDate, todayKST } from "../../utils/timezone";
+
 export const genericChecklistRouter = router({
   // 같은 formType의 최신 레코드 조회 (이전 작성 내용 자동 불러오기)
   getLatestByDate: tenantRequiredProcedure
@@ -272,8 +274,8 @@ export const genericChecklistRouter = router({
               `) as any;
               const bRow = batchResult?.[0];
               const bDate = bRow?.planned_date
-                ? new Date(bRow.planned_date).toISOString().split('T')[0]
-                : new Date().toISOString().split('T')[0];
+                ? toKSTDate(new Date(bRow.planned_date))
+                : todayKST();
               await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
             } catch (pdErr) {
               console.error(`[approveChecklist] 생산일지 갱신 실패:`, pdErr);
@@ -374,8 +376,8 @@ export const genericChecklistRouter = router({
                 `) as any;
                 const bRow = batchResult?.[0];
                 const bDate = bRow?.planned_date
-                  ? new Date(bRow.planned_date).toISOString().split('T')[0]
-                  : new Date().toISOString().split('T')[0];
+                  ? toKSTDate(new Date(bRow.planned_date))
+                  : todayKST();
                 await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
                 console.log(`[batchApproveChecklists] 생산일지 갱신 완료 (배치 #${refId})`);
               } catch (pdErr) {
@@ -434,8 +436,8 @@ export const genericChecklistRouter = router({
             `) as any;
             const bRow = batchResult?.[0];
             const bDate = bRow?.planned_date
-              ? new Date(bRow.planned_date).toISOString().split('T')[0]
-              : new Date().toISOString().split('T')[0];
+              ? toKSTDate(new Date(bRow.planned_date))
+              : todayKST();
             await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
             console.log(`[approveWithAutoReview] 생산일지 갱신 완료 (배치 #${refId})`);
           } catch (pdErr) {

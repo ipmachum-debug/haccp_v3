@@ -21,6 +21,8 @@ import WriterSelect from "@/components/WriterSelect";
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // ============================================================
 // 일반위생관리 점검항목 정의 (PDF 기반)
 // ============================================================
@@ -120,7 +122,7 @@ export function DailyLogCreateModal() {
   const hasLoadedRef = useRef(false);
 
   // 기본 정보
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [date, setDate] = useState(() => todayLocal());
   const [inspector, setInspector] = useState("");
 
   // 1. 일반위생관리 체크 상태: { itemId: boolean }

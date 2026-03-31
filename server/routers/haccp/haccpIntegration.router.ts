@@ -2,6 +2,8 @@
 import { adminProcedure, tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 
+import { todayKST } from "../../utils/timezone";
+
 export const haccpIntegrationRouter = router({
     // 재고 입고 → 매입 거래 생성
     createPurchaseFromReceipt: adminProcedure
@@ -251,7 +253,7 @@ export const haccpIntegrationRouter = router({
         // Base64로 변환하여 반환
         return {
           pdf: pdfBuffer.toString("base64"),
-          filename: `매입거래명세표_${input.purchaseId}_${new Date().toISOString().split("T")[0]}.pdf`
+          filename: `매입거래명세표_${input.purchaseId}_${todayKST()}.pdf`
         };
       }),
 
@@ -265,7 +267,7 @@ export const haccpIntegrationRouter = router({
         // Base64로 변환하여 반환
         return {
           pdf: pdfBuffer.toString("base64"),
-          filename: `매출거래명세표_${input.saleId}_${new Date().toISOString().split("T")[0]}.pdf`
+          filename: `매출거래명세표_${input.saleId}_${todayKST()}.pdf`
         };
       }),
 

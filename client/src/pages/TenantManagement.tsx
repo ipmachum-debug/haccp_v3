@@ -60,6 +60,8 @@ import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function TenantManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -81,7 +83,7 @@ export default function TenantManagement() {
   const [subscriptionForm, setSubscriptionForm] = useState({
     subscriptionPackage: "basic" as "basic" | "pro",
     subscriptionDays: 30,
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: todayLocal(),
   });
 
   // GOGOGOPICK 연동 폼 상태
@@ -297,7 +299,7 @@ export default function TenantManagement() {
     setSubscriptionForm({
       subscriptionPackage: tenant.subscriptionPackage || "basic",
       subscriptionDays: tenant.subscriptionDays || 30,
-      startDate: tenant.subscriptionStartDate || new Date().toISOString().split('T')[0],
+      startDate: tenant.subscriptionStartDate || todayLocal(),
     });
     setSubscriptionTab("haccp");
     setSubscriptionDialogOpen(true);
@@ -536,7 +538,7 @@ export default function TenantManagement() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Package className="h-4 w-4" />
                       <span>
-                        패키지: {tenant.subscriptionPackage === "basic" ? "Basic (HACCP)" : "Pro (HACCP + 회계)"}
+                        패키지: {tenant.subscriptionPackage === "starter" ? "Starter" : tenant.subscriptionPackage === "standard" ? "Standard" : tenant.subscriptionPackage === "enterprise" ? "Enterprise" : tenant.subscriptionPackage}
                       </span>
                     </div>
                   )}
@@ -973,8 +975,9 @@ export default function TenantManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="basic">Basic (HACCP만)</SelectItem>
-                    <SelectItem value="pro">Pro (HACCP + 회계)</SelectItem>
+                    <SelectItem value="starter">Starter (월 99,000원)</SelectItem>
+                    <SelectItem value="standard">Standard (월 199,000원)</SelectItem>
+                    <SelectItem value="enterprise">Enterprise (월 299,000원)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

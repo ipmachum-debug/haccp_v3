@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 interface IngredientRow {
   materialId?: number;
   intermediateId?: number;
@@ -70,7 +72,7 @@ export default function MfReportModify() {
   useEffect(() => {
     if (reportDetail && latestVersion && latestVersion.length > 0) {
       setReportNo(reportDetail.reportNo || "");
-      setReportDate(new Date(reportDetail.reportDate).toISOString().split('T')[0]);
+      setReportDate(formatLocalDate(new Date(reportDetail.reportDate)));
       setProductName(reportDetail.productName || "");
 
       const ver = latestVersion[0];

@@ -12,7 +12,7 @@ describe("감사 로그 및 역할별 UI 통합 테스트", () => {
     const { getDb } = await import("./db");
     const { users } = await import("../drizzle/schema");
     const db = await getDb();
-    if (!db) throw new Error("Database connection failed");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트 사용자 생성 (고유한 이메일 사용)
     const timestamp = Date.now();
@@ -111,7 +111,7 @@ describe("감사 로그 및 역할별 UI 통합 테스트", () => {
       const { getDb } = await import("./db");
       const { users } = await import("../drizzle/schema");
       const db = await getDb();
-      if (!db) throw new Error("Database connection failed");
+      if (!db) throw new Error("DB 연결 실패");
 
       // 테스트 사용자 생성
       const timestamp = Date.now();
@@ -194,7 +194,7 @@ describe("감사 로그 및 역할별 UI 통합 테스트", () => {
       const { getDb } = await import("./db");
       const { users } = await import("../drizzle/schema");
       const db = await getDb();
-      if (!db) throw new Error("Database connection failed");
+      if (!db) throw new Error("DB 연결 실패");
 
       const timestamp = Date.now();
       const [testUser] = await db

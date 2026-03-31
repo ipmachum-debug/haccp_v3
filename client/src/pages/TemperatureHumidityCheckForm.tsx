@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { todayLocal } from "../lib/dateUtils";
+
 import {
   Dialog,
   DialogContent,
@@ -53,7 +55,7 @@ const initialRows: SpaceRow[] = [
 ];
 
 export default function TemperatureHumidityCheckForm() {
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [spaceRows, setSpaceRows] = useState<SpaceRow[]>(initialRows.map(s => ({ ...s })));
 
   // 설정 모달

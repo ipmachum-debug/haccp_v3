@@ -8,9 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { Loader2 } from "lucide-react";
 
+import { todayLocal } from "../../lib/dateUtils";
+
 export function CCP4PForm() {
   const [formData, setFormData] = useState({
-    recordDate: new Date().toISOString().split('T')[0],
+    recordDate: todayLocal(),
     productName: "",
     measurementTime: "",
     sensitivitySetting: "",
@@ -29,7 +31,7 @@ export function CCP4PForm() {
   const createMutation = trpc.ccpMonitoring.createCcpMonitoringRecord.useMutation({
     onSuccess: () => {
       setFormData({
-        recordDate: new Date().toISOString().split('T')[0],
+        recordDate: todayLocal(),
         productName: "",
         measurementTime: "",
         sensitivitySetting: "",

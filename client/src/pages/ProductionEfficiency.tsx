@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +24,8 @@ import {
 } from "chart.js";
 import { Bar, Line, Pie } from "react-chartjs-2";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // Chart.js 등록
 ChartJS.register(
   CategoryScale,
@@ -37,9 +40,10 @@ ChartJS.register(
 );
 
 export default function ProductionEfficiency() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'cost');
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-    endDate: new Date().toISOString().split("T")[0],
+    startDate: formatLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+    endDate: todayLocal(),
   });
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
 
@@ -204,7 +208,7 @@ export default function ProductionEfficiency() {
       </Card>
 
       {/* 차트 섹션 */}
-      <Tabs defaultValue="cost" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="cost">배치별 원가 분석</TabsTrigger>
           <TabsTrigger value="time">생산 시간 추이</TabsTrigger>

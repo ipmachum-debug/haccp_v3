@@ -30,7 +30,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
 
     // 생성된 작업 조회하여 ID 확인
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     const [createdTask] = await db
       .select()
@@ -64,7 +64,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
     await updateRetryTaskStatus(testRetryTaskId, "retrying");
 
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     const [updatedTask] = await db
       .select()
@@ -79,7 +79,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
     await updateRetryTaskStatus(testRetryTaskId, "success");
 
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     const [updatedTask] = await db
       .select()
@@ -99,7 +99,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
     });
 
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 생성된 작업 조회
     const [newTask] = await db
@@ -133,7 +133,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
 
   it("6. 재시도 작업 정리 (테스트 데이터 삭제)", async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트용 재시도 작업 삭제
     await db

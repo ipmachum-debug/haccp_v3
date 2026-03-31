@@ -6,6 +6,8 @@ import { getDb } from "../db";
 import { hInventoryLots } from "../../drizzle/schema";
 import { eq, desc, and} from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 원재료별 가격 변동 추이 조회 (최근 30건)
  * @param materialId 원재료 ID
@@ -13,7 +15,7 @@ import { eq, desc, and} from "drizzle-orm";
  */
 export async function getMaterialPriceHistory(materialId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const lots = await db
     .select({
@@ -33,7 +35,7 @@ export async function getMaterialPriceHistory(materialId: number, tenantId: numb
   const priceHistory = lots
     .filter((lot) => lot.receiptDate && lot.unitPrice)
     .map((lot) => ({
-      date: lot.receiptDate!.toISOString().split("T")[0],
+      date: formatLocalDate(lot.receiptDate!),
       price: parseFloat(lot.unitPrice!),
       quantity: parseFloat(lot.quantity),
       supplierName: lot.supplierName

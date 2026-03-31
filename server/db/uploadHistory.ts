@@ -20,7 +20,7 @@ export async function createUploadHistory(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hUploadHistory } = await import("../../drizzle/schema.js");
   
@@ -47,7 +47,7 @@ export async function createUploadHistory(data: {
  */
 export async function getAllUploadHistory(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hUploadHistory } = await import("../../drizzle/schema.js");
   const { desc, eq, and } = await import("drizzle-orm");
@@ -70,7 +70,7 @@ export async function getAllUploadHistory(tenantId?: number) {
  */
 export async function getUploadHistoryByType(uploadType: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hUploadHistory } = await import("../../drizzle/schema.js");
   const { desc, eq, and } = await import("drizzle-orm");
@@ -96,7 +96,7 @@ export async function getUploadHistoryByType(uploadType: string, tenantId?: numb
  */
 export async function getUploadHistoryByUser(userId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hUploadHistory } = await import("../../drizzle/schema.js");
   const { desc, eq, and } = await import("drizzle-orm");
@@ -122,7 +122,7 @@ export async function getUploadHistoryByUser(userId: number, tenantId?: number) 
  */
 export async function deleteUploadHistory(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hUploadHistory } = await import("../../drizzle/schema.js");
   const { eq, and } = await import("drizzle-orm");

@@ -6,6 +6,8 @@ import { AlertTriangle, Download } from "lucide-react";
 import { convertToCSV, downloadCSV } from "@/lib/csvExport";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export function MonthlyCcpDeviationWidget() {
   const [days, setDays] = useState<number>(30);
   const { data, isLoading } = trpc.dashboard.getMonthlyCcpDeviationRate.useQuery({ days });
@@ -92,7 +94,7 @@ export function MonthlyCcpDeviationWidget() {
                   { key: "deviations", label: "이탈 건수" },
                 ]
               );
-              downloadCSV(csv, `CCP_이탈_비율_${new Date().toISOString().split("T")[0]}.csv`);
+              downloadCSV(csv, `CCP_이탈_비율_${todayLocal()}.csv`);
               toast.success("CSV 파일이 다운로드되었습니다");
             }}
             className="text-xs"

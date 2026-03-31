@@ -4,6 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { BarChart3, Calendar, Loader2, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
+import { formatLocalDate } from "../lib/dateUtils";
+
 import {
   Bar,
   BarChart,
@@ -41,8 +43,8 @@ export default function CcpStats() {
     }
 
     return {
-      startDate: start.toISOString().split("T")[0],
-      endDate: end.toISOString().split("T")[0],
+      startDate: formatLocalDate(start),
+      endDate: formatLocalDate(end),
     };
   }, [dateRange]);
 

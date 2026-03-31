@@ -1,0 +1,17 @@
+export { OverviewTab } from "./OverviewTab";
+export { AlertsTab } from "./AlertsTab";
+export { StandardsTab } from "./StandardsTab";
+export { CorrectiveActionTab } from "./CorrectiveActionTab";
+export { KnowledgeBaseTab } from "./KnowledgeBaseTab";
+export { AuditTab } from "./AuditTab";
+export { AnomalyTab } from "./AnomalyTab";
+export { PredictionTab } from "./PredictionTab";
+export { SupplierRiskTab } from "./SupplierRiskTab";
+export { TrainingTab } from "./TrainingTab";
+export { ReportsTab } from "./ReportsTab";
+export { ExpenseAnomalyTab } from "./ExpenseAnomalyTab";
+export { CashFlowTab } from "./CashFlowTab";
+export { PaymentRiskTab } from "./PaymentRiskTab";
+export { JournalValidationTab } from "./JournalValidationTab";
+export { InlineChatbot } from "./InlineChatbot";
+export type { Section } from "./types";

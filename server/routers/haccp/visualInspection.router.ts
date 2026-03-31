@@ -130,6 +130,17 @@ export const visualInspectionRouter = router({
         return await getOrCreateMonthlyLog(db, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
       }),
 
+    // 관리자용: 원재료 입고 → 육안검사 자동 동기화 (신규 입고건만 추가)
+    syncReceivings: tenantRequiredProcedure
+      .input(z.object({ logId: z.number(), year: z.number(), month: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { syncReceivingsToInspectionLog } = await import("../../db/visualInspection");
+        return await syncReceivingsToInspectionLog(db, ctx.tenantId ?? undefined, input.logId, input.year, input.month);
+      }),
+
     // 원재료 입고 데이터 자동 가져오기
     fetchMaterialReceivings: tenantRequiredProcedure
       .input(z.object({ year: z.number(), month: z.number() }))

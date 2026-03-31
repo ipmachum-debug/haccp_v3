@@ -19,13 +19,15 @@ import {
 } from "../../../drizzle/schema_main";
 import { eq, and, sql, count } from "drizzle-orm";
 
+import { formatLocalDate } from "../../utils/timezone";
+
 export const checklistDashboardRouter = router({
   getStats: tenantRequiredProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("데이터베이스 연결 실패");
 
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = formatLocalDate(today);
 
     // 각 체크리스트 타입별 통계 조회
     const stats = [

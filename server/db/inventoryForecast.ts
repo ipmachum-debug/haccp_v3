@@ -7,7 +7,7 @@ import { hInventory, hInventoryTransactions, hInventoryLots, hMaterials } from "
  */
 export async function getInventoryForecast(days: number = 30, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const pastDate = new Date();
   pastDate.setDate(pastDate.getDate() - days);
@@ -88,7 +88,7 @@ export async function getInventoryForecast(days: number = 30, tenantId: number) 
  */
 export async function getPurchaseRecommendations(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const forecasts = await getInventoryForecast(30, tenantId);
 

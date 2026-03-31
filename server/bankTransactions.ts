@@ -34,7 +34,7 @@ export async function createBankAccount(data: {
   accountType: "checking" | "savings" | "corporate";
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 중복 체크
   const existing = await db
@@ -66,7 +66,7 @@ export async function createBankAccount(data: {
 
 export async function getAllBankAccounts() {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db
     .select()
     .from(bankAccounts)
@@ -76,7 +76,7 @@ export async function getAllBankAccounts() {
 
 export async function getBankAccountById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [account] = await db
     .select()
     .from(bankAccounts)
@@ -101,7 +101,7 @@ export async function updateBankAccount(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(bankAccounts)
@@ -119,7 +119,7 @@ export async function updateBankAccount(
 
 export async function deleteBankAccount(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // soft delete
   await db
@@ -136,7 +136,7 @@ export async function deleteBankAccount(id: number) {
  */
 export async function setPrimaryBankAccount(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 트랜잭션으로 처리
   // 1. 모든 계좌의 isPrimary를 0으로 설정
@@ -156,7 +156,7 @@ export async function setPrimaryBankAccount(id: number) {
  */
 export async function getPrimaryBankAccount() {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [account] = await db
     .select()
@@ -182,7 +182,7 @@ export async function uploadBankTransactions(data: {
   }>;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   let inserted = 0;
   let skipped = 0;
@@ -232,7 +232,7 @@ export async function getBankTransactions(filters?: {
   unmatchedOnly?: boolean;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db
     .select({
@@ -281,7 +281,7 @@ export async function getBankTransactions(filters?: {
 
 export async function autoMatchBankTransactions(bankAccountId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 매칭되지 않은 거래 조회
   const unmatched = await db
@@ -333,7 +333,7 @@ export async function manualMatchBankTransaction(data: {
   ledgerId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(bankTransactions)
@@ -350,7 +350,7 @@ export async function manualMatchBankTransaction(data: {
 
 export async function getBankTransactionStats(bankAccountId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [stats] = await db
     .select({

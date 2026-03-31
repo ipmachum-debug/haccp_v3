@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { appRouter } from "./routers";
 
+import { formatLocalDate } from "./utils/timezone";
+
 /**
  * 생산 일정 관리 및 재고 현황 대시보드 테스트
  */
@@ -17,8 +19,8 @@ describe("생산 일정 관리 (Production Schedule)", () => {
     endDate.setDate(endDate.getDate() + 7);
 
     const result = await caller.productionSchedule.getBatchSchedule({
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0]
+      startDate: formatLocalDate(startDate),
+      endDate: formatLocalDate(endDate)
     });
 
     expect(result).toBeDefined();
@@ -31,8 +33,8 @@ describe("생산 일정 관리 (Production Schedule)", () => {
     const endDate = new Date();
 
     const result = await caller.productionSchedule.analyzeProductionCapacity({
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0],
+      startDate: formatLocalDate(startDate),
+      endDate: formatLocalDate(endDate),
       groupBy: "day"
     });
 
@@ -46,8 +48,8 @@ describe("생산 일정 관리 (Production Schedule)", () => {
     const endDate = new Date();
 
     const result = await caller.productionSchedule.analyzeProductionCapacityByProduct({
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0]
+      startDate: formatLocalDate(startDate),
+      endDate: formatLocalDate(endDate)
     });
 
     expect(result).toBeDefined();
@@ -84,8 +86,8 @@ describe("재고 현황 대시보드 (Inventory Dashboard)", () => {
     const endDate = new Date();
 
     const result = await caller.inventory.getTrend({
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0]
+      startDate: formatLocalDate(startDate),
+      endDate: formatLocalDate(endDate)
     });
 
     expect(result).toBeDefined();
@@ -98,8 +100,8 @@ describe("재고 현황 대시보드 (Inventory Dashboard)", () => {
     const endDate = new Date();
 
     const result = await caller.inventory.getTurnoverAnalysis({
-      startDate: startDate.toISOString().split("T")[0],
-      endDate: endDate.toISOString().split("T")[0]
+      startDate: formatLocalDate(startDate),
+      endDate: formatLocalDate(endDate)
     });
 
     expect(result).toBeDefined();

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,10 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function TrainingManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'courses');
   const [isCreateCourseOpen, setIsCreateCourseOpen] = useState(false);
   const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
@@ -182,7 +186,7 @@ export default function TrainingManagement() {
       yPos += 5;
     });
     
-    doc.save(`training-report-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`training-report-${todayLocal()}.pdf`);
     alert("보고서가 성공적으로 다운로드되었습니다.");
   };
 
@@ -277,7 +281,7 @@ export default function TrainingManagement() {
       </div>
 
       {/* 탭 */}
-      <Tabs defaultValue="courses" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
           <TabsTrigger value="courses">교육 과정</TabsTrigger>
           <TabsTrigger value="schedules">교육 일정</TabsTrigger>

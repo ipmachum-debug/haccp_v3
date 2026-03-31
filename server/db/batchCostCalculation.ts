@@ -21,7 +21,7 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
  */
 export async function calculateBatchCost(batchId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 배치 정보 조회
   const [batch] = await db
@@ -102,7 +102,7 @@ export async function calculateBatchCosts(batchIds: number[], tenantId: number) 
  */
 export async function calculateAllBatchCosts(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const batches = await db
     .select()

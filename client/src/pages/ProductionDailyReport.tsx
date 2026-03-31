@@ -852,6 +852,11 @@ export function ProductionDailyReportContent() {
                         {r.reportDate}
                         {r.needsGeneration && <Badge variant="outline" className="text-[10px] px-1 py-0 ml-1 text-amber-600 border-amber-300">미생성</Badge>}
                       </div>
+                      {r.productNames && r.productNames.length > 0 && (
+                        <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[280px]" title={r.productNames.join(", ")}>
+                          {r.productNames.join(", ")}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="text-center" onClick={() => !r.needsGeneration && setSelectedReportId(r.id)}>
                       <span className="font-bold">{r.totalBatches}</span>

@@ -35,7 +35,7 @@ export const notificationRouter = router({
     markAllAsRead: tenantRequiredProcedure
       .mutation(async ({ ctx }) => {
         const { markAllNotificationsAsRead } = await import("../../db");
-        await markAllNotificationsAsRead(ctx.user.id);
+        await markAllNotificationsAsRead(ctx.user.id, ctx.tenantId ?? undefined);
         return { success: true };
       }),
     
@@ -43,7 +43,7 @@ export const notificationRouter = router({
     deleteAll: tenantRequiredProcedure
       .mutation(async ({ ctx }) => {
         const { deleteAllNotifications } = await import("../../db");
-        await deleteAllNotifications(ctx.user.id);
+        await deleteAllNotifications(ctx.user.id, ctx.tenantId ?? undefined);
         return { success: true };
       }),
     
@@ -112,7 +112,7 @@ export const notificationRouter = router({
     getNotificationRetentionPolicy: tenantRequiredProcedure
       .query(async () => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
         
         const [setting] = await db
           .select()
@@ -129,7 +129,7 @@ export const notificationRouter = router({
       .input(z.object({ days: z.number().min(1).max(365) }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database connection failed" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
         
         // 기존 설정 확인
         const [existing] = await db

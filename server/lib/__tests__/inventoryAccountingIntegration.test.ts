@@ -8,13 +8,15 @@ import { hInventoryTransactions, hInventoryLots, hInventory } from "../../../dri
 import { accountingTransactions } from "../../../drizzle/schema_inventory_accounting";
 import { eq } from "drizzle-orm";
 
+import { todayKST, toKSTDate, formatLocalDate } from "../../utils/timezone";
+
 describe("재고-회계 통합 시스템 테스트", () => {
   let testInventoryId: number;
   let testPurchaseId: number;
   const testUserId = 1;
 
   beforeAll(async () => {
-    if (!db) throw new Error("Database connection not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트용 재고 아이템 생성
     const [newInventory] = await db.insert(hInventory).values({
@@ -32,7 +34,7 @@ describe("재고-회계 통합 시스템 테스트", () => {
 
     // 테스트용 매입 전표 생성
     const [newPurchase] = await db.insert(accountingPurchases).values({
-      transactionDate: new Date().toISOString().split("T")[0],
+      transactionDate: todayKST(),
       itemName: "테스트 원재료",
       inventoryId: testInventoryId,
       quantity: "100",
@@ -166,13 +168,13 @@ describe("재고-회계 통합 시스템 테스트", () => {
 
   describe("FEFO 로트 할당", () => {
     it("유통기한 빠른 순으로 LOT 할당", async () => {
-      if (!db) throw new Error("Database connection not available");
+      if (!db) throw new Error("DB 연결 실패");
 
       // 테스트용 LOT 3개 생성 (유통기한 다름)
       const today = new Date();
-      const lot1Date = new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]; // 10일 후
-      const lot2Date = new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]; // 5일 후
-      const lot3Date = new Date(today.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]; // 15일 후
+      const lot1Date = toKSTDate(new Date(today.getTime() + 10 * 24 * 60 * 60 * 1000)); // 10일 후
+      const lot2Date = toKSTDate(new Date(today.getTime() + 5 * 24 * 60 * 60 * 1000)); // 5일 후
+      const lot3Date = toKSTDate(new Date(today.getTime() + 15 * 24 * 60 * 60 * 1000)); // 15일 후
 
       await db.insert(hInventoryLots).values([
         {
@@ -182,7 +184,7 @@ describe("재고-회계 통합 시스템 테스트", () => {
           currentQuantity: "50",
           unit: "KG",
           unitCost: "5000",
-          receivedDate: today.toISOString().split("T")[0],
+          receivedDate: formatLocalDate(today),
           expiryDate: lot1Date,
           status: "active",
           createdBy: testUserId,
@@ -196,7 +198,7 @@ describe("재고-회계 통합 시스템 테스트", () => {
           currentQuantity: "30",
           unit: "KG",
           unitCost: "5000",
-          receivedDate: today.toISOString().split("T")[0],
+          receivedDate: formatLocalDate(today),
           expiryDate: lot2Date,
           status: "active",
           createdBy: testUserId,
@@ -210,7 +212,7 @@ describe("재고-회계 통합 시스템 테스트", () => {
           currentQuantity: "20",
           unit: "KG",
           unitCost: "5000",
-          receivedDate: today.toISOString().split("T")[0],
+          receivedDate: formatLocalDate(today),
           expiryDate: lot3Date,
           status: "active",
           createdBy: testUserId,

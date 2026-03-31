@@ -7,6 +7,8 @@ import { Sparkles, Calendar, Clock, TrendingUp, AlertCircle } from "lucide-react
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function AIScheduleOptimizer() {
   const [optimizeEnabled, setOptimizeEnabled] = useState(false);
   const [optimizedSchedule, setOptimizedSchedule] = useState<any>(null);
@@ -14,8 +16,8 @@ export default function AIScheduleOptimizer() {
   // AI 최적화 실행
   const { data, isLoading, refetch } = trpc.scheduleOptimization.optimize.useQuery(
     {
-      startDate: new Date().toISOString().split('T')[0],
-      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      startDate: todayLocal(),
+      endDate: formatLocalDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
     },
     {
       enabled: optimizeEnabled,

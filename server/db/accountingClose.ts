@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
  */
 export async function performDailyClose(tenantId: number, closeDate: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {
@@ -90,7 +90,7 @@ export async function performDailyClose(tenantId: number, closeDate: string) {
  */
 export async function performMonthlyClose(tenantId: number, year: number, month: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {
@@ -179,7 +179,7 @@ export async function performMonthlyClose(tenantId: number, year: number, month:
  */
 export async function getDailyCloseList(tenantId: number, startDate?: string, endDate?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {
@@ -207,7 +207,7 @@ export async function getDailyCloseList(tenantId: number, startDate?: string, en
  */
 export async function getMonthlyCloseList(tenantId: number, year?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {
@@ -231,7 +231,7 @@ export async function getMonthlyCloseList(tenantId: number, year?: number) {
  */
 export async function lockClose(tenantId: number, type: 'daily' | 'monthly', id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {
@@ -254,7 +254,7 @@ export async function lockClose(tenantId: number, type: 'daily' | 'monthly', id:
  */
 export async function unlockClose(tenantId: number, type: 'daily' | 'monthly', id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // tenant_id 필수 검증
   if (!tenantId) {

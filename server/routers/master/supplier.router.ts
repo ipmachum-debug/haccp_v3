@@ -114,7 +114,7 @@ export const supplierRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { createUploadHistory } = await import("../../db/uploadHistory.js");
         
         const results = { successCount: 0, insertCount: 0, updateCount: 0, failureCount: 0, errors: [] as any[] };

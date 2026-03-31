@@ -44,6 +44,8 @@ import {
 import { cn } from "../lib/utils";
 import { useLocation } from "wouter";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -886,7 +888,7 @@ export function CcpMonitoringForms({
 }: Props) {
   const { toast } = useToast();
   const utils = trpc.useUtils();
-  const today = workDate ?? new Date().toISOString().split("T")[0];
+  const today = workDate ?? todayLocal();
 
   // CCP 기록지 목록 조회
   const { data: formRecords, refetch: refetchForms, isLoading: formsLoading } =

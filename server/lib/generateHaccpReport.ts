@@ -42,7 +42,7 @@ export interface HaccpReportData {
 export async function collectHaccpReportData(batchId: number): Promise<HaccpReportData> {
   const db = await getDb();
   if (!db) {
-    throw new Error("Database connection failed");
+    throw new Error("DB 연결 실패");
   }
 
   // 배치 정보 조회

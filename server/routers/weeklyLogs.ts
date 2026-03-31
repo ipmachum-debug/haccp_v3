@@ -12,6 +12,9 @@ import { z } from "zod";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
+
 export const weeklyLogsRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
   getPreviousFormData: tenantRequiredProcedure
@@ -29,16 +32,16 @@ export const weeklyLogsRouter = router({
           ORDER BY form_date DESC
           LIMIT 1
         `);
-        const rows = (result as any)[0] || [];
+        const rows = getRows(result);
         if (rows.length === 0) return null;
         const row = rows[0];
-        let fd: any = {};
+        let fd: Record<string, unknown> = {};
         try {
           fd = typeof row.form_data === 'string' ? JSON.parse(row.form_data) : (row.form_data || {});
         } catch { return null; }
         return {
           sourceDate: row.form_date instanceof Date
-            ? row.form_date.toISOString().split('T')[0]
+            ? formatLocalDate(row.form_date)
             : String(row.form_date),
           formData: fd,
         };
@@ -63,17 +66,17 @@ export const weeklyLogsRouter = router({
             AND tenant_id = ${ctx.tenantId}
           ORDER BY created_at DESC LIMIT 1
         `);
-        const rows = (result as any)[0] || [];
+        const rows = getRows(result);
         if (rows.length === 0) return null;
         const r = rows[0];
-        let fd: any = {};
+        let fd: Record<string, unknown> = {};
         try {
           fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
         } catch {}
         return {
           id: r.id,
           siteId: r.site_id,
-          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
+          logDate: r.form_date instanceof Date ? formatLocalDate(r.form_date) : String(r.form_date),
           title: r.title,
           status: r.status,
           formData: fd,
@@ -99,7 +102,8 @@ export const weeklyLogsRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const tenantId = ctx.tenantId ?? undefined;
-        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId;
+        if (!siteId) throw new Error("siteId를 결정할 수 없습니다");
 
         const existing = await db.execute(sql`
           SELECT id, form_data FROM h_generic_checklist_records
@@ -108,14 +112,14 @@ export const weeklyLogsRouter = router({
             AND tenant_id = ${tenantId}
           LIMIT 1
         `);
-        const existingRows = (existing as any)[0] || [];
+        const existingRows = getRows(existing);
 
         let recordId: number;
         const title = `주간일지 - ${input.logDate}`;
 
         if (existingRows.length > 0) {
           recordId = existingRows[0].id;
-          let oldFd: any = {};
+          let oldFd: Record<string, unknown> = {};
           try {
             oldFd = typeof existingRows[0].form_data === 'string'
               ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {});
@@ -128,7 +132,7 @@ export const weeklyLogsRouter = router({
                 status = ${input.status},
                 title = ${title},
                 updated_at = NOW()
-            WHERE id = ${recordId}
+            WHERE id = ${recordId} AND tenant_id = ${tenantId}
           `);
         } else {
           const seqR = await db.execute(sql`
@@ -136,7 +140,7 @@ export const weeklyLogsRouter = router({
             FROM h_generic_checklist_records
             WHERE form_type = 'weekly_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
           `);
-          const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
+          const nextSeq = Number(getFirstRow<{ ns: number }>(seqR)?.ns || 1);
           const formDataStr = JSON.stringify({ ...input.formData, date: input.logDate });
 
           const ins = await db.execute(sql`
@@ -146,7 +150,7 @@ export const weeklyLogsRouter = router({
               (${siteId}, ${tenantId}, 'weekly_log', ${nextSeq}, ${input.logDate}, ${title},
                ${formDataStr}, ${input.status}, ${ctx.user.id})
           `);
-          recordId = Number((ins as any)[0]?.insertId || 0);
+          recordId = getInsertId(ins);
         }
 
         // submitted이면 승인요청 생성/업데이트
@@ -154,9 +158,10 @@ export const weeklyLogsRouter = router({
           const existApproval = await db.execute(sql`
             SELECT id FROM h_approval_requests
             WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'weekly_log'
+              AND tenant_id = ${tenantId}
             LIMIT 1
           `);
-          const approvalRows = (existApproval as any)[0] || [];
+          const approvalRows = getRows<{ id: number }>(existApproval);
           if (approvalRows.length === 0) {
             await db.execute(sql`
               INSERT INTO h_approval_requests
@@ -170,7 +175,7 @@ export const weeklyLogsRouter = router({
           } else {
             await db.execute(sql`
               UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
-              WHERE id = ${approvalRows[0].id}
+              WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
             `);
           }
         }
@@ -196,8 +201,8 @@ export const weeklyLogsRouter = router({
           SELECT form_data FROM h_generic_checklist_records
           WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
-        const oldRows = (existing as any)[0] || [];
-        let oldFd: any = {};
+        const oldRows = getRows(existing);
+        let oldFd: Record<string, unknown> = {};
         if (oldRows.length > 0) {
           try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : oldRows[0].form_data; } catch {}
         }
@@ -248,13 +253,13 @@ export const weeklyLogsRouter = router({
           ORDER BY r.form_date DESC, r.created_at DESC
           LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
         `);
-        const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
-        return (rows as any[]).map((r: any) => {
-          let formData: any = {};
+        const rows = getRows(result);
+        return rows.map((r: any) => {
+          let formData: Record<string, unknown> = {};
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           return {
             id: r.id, siteId: r.site_id,
-            log_date: r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || ''),
+            log_date: r.log_date instanceof Date ? formatLocalDate(r.log_date) : String(r.log_date || ''),
             title: r.title, status: r.status, creator_name: r.creator_name,
             approval_request_id: r.approval_request_id, approval_status: r.approval_status,
             formData,
@@ -268,23 +273,31 @@ export const weeklyLogsRouter = router({
       }
     }),
 
-  // ── Legacy compat stubs (so old UI doesn't break) ──
-  createHygiene: tenantRequiredProcedure
-    .input(z.any())
-    .mutation(async () => ({ success: true, message: '주간일지는 새 양식을 사용하세요.' })),
+  // ── Legacy compat stubs (deprecated - 새 양식 사용 필요) ──
+  // 조회 엔드포인트: 빈 결과 반환 (UI 호환성)
   getHygiene: tenantRequiredProcedure
     .input(z.any())
-    .query(async () => ({ success: true, logs: [] })),
-  createPest: tenantRequiredProcedure
-    .input(z.any())
-    .mutation(async () => ({ success: true, message: '방충방서 주간일지는 새 양식을 사용하세요.' })),
+    .query(async () => ({ success: false, logs: [], message: '[deprecated] 주간일지는 새 양식(saveFullForm)을 사용하세요.' })),
   getPest: tenantRequiredProcedure
     .input(z.any())
-    .query(async () => ({ success: true, logs: [] })),
-  deletePest: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  approvePest: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  requestPestApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  rejectPest: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  approveHygiene: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
-  requestHygieneApproval: tenantRequiredProcedure.input(z.any()).mutation(async () => ({ success: true })),
+    .query(async () => ({ success: false, logs: [], message: '[deprecated] 주간일지는 새 양식(saveFullForm)을 사용하세요.' })),
+  // 변경 엔드포인트: 에러 반환 (실제 처리 없음을 명확히)
+  createHygiene: tenantRequiredProcedure
+    .input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 주간일지는 새 양식(saveFullForm)을 사용하세요.' }); }),
+  createPest: tenantRequiredProcedure
+    .input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 주간일지는 새 양식(saveFullForm)을 사용하세요.' }); }),
+  deletePest: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 이 엔드포인트는 더 이상 지원되지 않습니다.' }); }),
+  approvePest: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인은 approval 라우터를 사용하세요.' }); }),
+  requestPestApproval: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인요청은 approval 라우터를 사용하세요.' }); }),
+  rejectPest: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 거부는 approval 라우터를 사용하세요.' }); }),
+  approveHygiene: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인은 approval 라우터를 사용하세요.' }); }),
+  requestHygieneApproval: tenantRequiredProcedure.input(z.any())
+    .mutation(async () => { throw new TRPCError({ code: 'BAD_REQUEST', message: '[deprecated] 승인요청은 approval 라우터를 사용하세요.' }); }),
 });

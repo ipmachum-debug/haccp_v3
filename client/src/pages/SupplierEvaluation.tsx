@@ -21,12 +21,14 @@ import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Responsi
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function SupplierEvaluation() {
   const [, params] = useRoute("/dashboard/suppliers/:id/evaluations");
   const supplierId = params?.id ? parseInt(params.id) : 0;
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [evaluationDate, setEvaluationDate] = useState(new Date().toISOString().split("T")[0]);
+  const [evaluationDate, setEvaluationDate] = useState(todayLocal());
   const [qualityScore, setQualityScore] = useState(3);
   const [deliveryScore, setDeliveryScore] = useState(3);
   const [priceScore, setPriceScore] = useState(3);
@@ -60,7 +62,7 @@ export default function SupplierEvaluation() {
   });
 
   const resetForm = () => {
-    setEvaluationDate(new Date().toISOString().split("T")[0]);
+    setEvaluationDate(todayLocal());
     setQualityScore(3);
     setDeliveryScore(3);
     setPriceScore(3);

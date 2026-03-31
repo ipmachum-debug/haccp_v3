@@ -13,11 +13,13 @@
  */
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader } from "@/components/print/PrintHelpers";
+import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader, TitleWithApproval } from "@/components/print/PrintHelpers";
 import { renderDailyLogPages } from "@/components/print/DailyLogRenderers";
 import { renderWeeklyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
 import { renderCcpBatchSummary, renderCcpFormRecord } from "@/components/print/CcpRenderers";
 import { renderFormContent } from "@/components/print/renderFormContent";
+
+import { formatLocalDate } from "../lib/dateUtils";
 
 // ============================================================================
 // 메인 컴포넌트
@@ -33,8 +35,8 @@ export default function PrintPreviewPage() {
   const [loading, setLoading] = useState(true);
   const printTriggered = useRef(false);
 
-  const { data: approvedRequests = [], isLoading: isApprovalLoading } = trpc.approval.list.useQuery({ status: "approved" });
-  const { data: employees = [] } = trpc.organization.employees.list.useQuery();
+  // 속도 개선: 전체 승인 목록 대신 개별 ID만 조회
+  const { data: employees = [], isLoading: isEmployeesLoading } = trpc.organization.employees.list.useQuery();
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const trpcUtils = trpc.useUtils();
 
@@ -63,22 +65,32 @@ export default function PrintPreviewPage() {
         setLoading(false);
         return;
       }
-      // 승인 목록 로딩 중이면 대기
-      if (isApprovalLoading) return;
-      // 승인 목록이 비어있으면 로딩 종료
-      if (approvedRequests.length === 0) {
-        setLoading(false);
-        return;
-      }
+      // 직원 목록 로딩 중이면 대기
+      if (isEmployeesLoading) return;
+
       const docs: any[] = [];
       for (const id of ids) {
-        const request = (approvedRequests as any[]).find((r: any) => r.id === id);
+        // 속도 개선: 개별 승인 요청만 조회 (전체 목록 로딩 불필요)
+        let request: any = null;
+        try {
+          request = await trpcUtils.approval.getById.fetch({ id });
+        } catch (e) { console.error(`승인 요청 #${id} 조회 실패:`, e); }
         if (!request) continue;
         let formData = null;
         let formType = request.requestType || "";
 
+        // ── production_daily: 생산일지 (referenceId = h_daily_reports.id, 실시간 데이터 재생성)
+        if (request.requestType === "production_daily" && request.referenceId) {
+          try {
+            const report = await trpcUtils.dailyReport.getReportById.fetch({ id: Number(request.referenceId) });
+            if (report) {
+              formData = { ...report.summary, reportDate: report.reportDate };
+            }
+            formType = "production_daily";
+          } catch (e) { console.error("생산일지 조회 오류:", e); }
+        }
         // ── batch_plan (일괄 배치 그룹): referenceId = 첫 배치ID → 그룹 내 모든 배치 CCP 기록지 조회
-        if (request.requestType === "batch_plan" && request.referenceId) {
+        else if (request.requestType === "batch_plan" && request.referenceId) {
           try {
             const ccpRecords = await trpcUtils.ccpForm.getByBatchGroup.fetch({ batchId: Number(request.referenceId), includeRows: true });
             formData = { ccpFormRecords: ccpRecords || [], batchId: request.referenceId };
@@ -125,7 +137,7 @@ export default function PrintPreviewPage() {
       setLoading(false);
     };
     loadDocuments();
-  }, [ids.length, approvedRequests.length, isApprovalLoading]);
+  }, [ids.length, isEmployeesLoading]);
 
   useEffect(() => {
     if (!loading && documents.length > 0 && !printTriggered.current) {
@@ -133,6 +145,315 @@ export default function PrintPreviewPage() {
       setTimeout(() => window.print(), 800);
     }
   }, [loading, documents.length]);
+
+  // ── allPages 구성을 useMemo로 이동 (조건부 return 전에 모든 hook 호출 필수) ──
+  const allPages = useMemo(() => {
+    if (loading || documents.length === 0) return [];
+    const pages: { doc: any; pageContent: React.ReactNode; pageTitle: string; pageIndex: number; totalPages: number }[] = [];
+
+    documents.forEach((doc) => {
+      const approval = doc.formData?.approval || {};
+      const settingNames = getApprovalSettingNames(doc.formType || doc.requestType || "");
+      const authorName = approval.writerName || settingNames?.authorName || doc.formData?.inspector || doc.formData?.author || doc.formData?.writer || doc.requester?.name || "";
+      const reviewerName = approval.reviewerName || settingNames?.reviewerName || doc.reviewer?.name || reviewerEmployee?.name || "";
+      const approverName = approval.approverName || settingNames?.approverName || doc.approver?.name || approverEmployee?.name || "";
+      const toDateStr = (v: any): string | undefined => {
+        if (!v) return undefined;
+        if (v instanceof Date) return v.toISOString();
+        if (typeof v === "string") return v;
+        return String(v);
+      };
+      const requestedAt = toDateStr(doc.requestedAt);
+      const reviewedAt = toDateStr(doc.reviewedAt) || (doc.approvedAt && reviewerName ? toDateStr(doc.approvedAt) : undefined);
+      const approvedAt = toDateStr(doc.approvedAt);
+      const safeDocDates = {
+        requestedAt,
+        reviewedAt,
+        approvedAt,
+        createdAt: toDateStr(doc.createdAt),
+        updatedAt: toDateStr(doc.updatedAt),
+      };
+
+      if (doc.formType === "daily_log") {
+        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        const dailyPages = renderDailyLogPages(doc.formData, enrichedDoc);
+        dailyPages.forEach((pageContent, idx) => {
+          pages.push({
+            doc: enrichedDoc,
+            pageContent,
+            pageTitle: DAILY_LOG_PAGE_TITLES[idx] || `일일일지 ${idx + 1}`,
+            pageIndex: idx,
+            totalPages: dailyPages.length,
+          });
+        });
+      } else if (doc.formType === "weekly_log") {
+        const weeklyEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        const weeklyPages = renderWeeklyLogPages(doc.formData, weeklyEnrichedDoc);
+        const weeklyPageTitles = ["일반위생관리 점검표 (주간)", "방충·방서관리 점검표 (주간)"];
+        weeklyPages.forEach((pageContent, idx) => {
+          pages.push({
+            doc: weeklyEnrichedDoc,
+            pageContent,
+            pageTitle: weeklyPageTitles[idx] || `주간일지 ${idx + 1}`,
+            pageIndex: idx,
+            totalPages: weeklyPages.length,
+          });
+        });
+      } else if (doc.formType === "yearly_log") {
+        const yearlyEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        pages.push({
+          doc: yearlyEnrichedDoc,
+          pageContent: renderYearlyLog(doc.formData, yearlyEnrichedDoc),
+          pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      } else if (doc.formType === "production_daily") {
+        // 생산일지 전용 렌더링
+        const fd = doc.formData || {};
+        const reportDate = fd.reportDate || fd.date || '';
+        // 승인 정보: formData.approval에서 우선, 없으면 doc에서
+        const approval = fd.approval || {};
+        const pdRequestedAt = approval.requestedAt || requestedAt;
+        const pdReviewedAt = approval.reviewedAt || reviewedAt;
+        const pdApprovedAt = approval.approvedAt || approvedAt;
+        const enrichedDoc = {
+          ...doc, ...safeDocDates, authorName, reviewerName, approverName,
+          requestedAt: pdRequestedAt, reviewedAt: pdReviewedAt, approvedAt: pdApprovedAt,
+        };
+        const batches = fd.production?.batches || [];
+        const ccp = fd.ccp || {};
+        pages.push({
+          doc: enrichedDoc,
+          pageContent: (
+            <div>
+              <TitleWithApproval title="생 산 일 지" doc={enrichedDoc} infoLeft={<span>작업일: {reportDate}</span>} />
+              {/* 요약 */}
+              <table className="w-full border-collapse border border-gray-500 text-xs mt-3 mb-3">
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">총 배치</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{fd.production?.totalBatches || 0}건</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">완료 배치</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{fd.production?.completedBatches || 0}건</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">계획 생산량</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{(fd.production?.totalPlannedQty || 0).toLocaleString()} kg</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center w-1/6">실제 생산량</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{(fd.production?.totalActualQty || 0).toLocaleString()} kg</td>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-1 text-center">달성률</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center font-bold">{fd.production?.achievementRate || 0}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* 배치별 생산 실적 */}
+              <h3 className="font-bold text-sm mb-1">📋 배치별 생산 실적</h3>
+              <table className="w-full border-collapse border border-gray-500 text-xs mb-3">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-400 px-1 py-1 text-center w-8">No</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">배치코드</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">제품명</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">계획(kg)</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">실제(kg)</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">상태</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">시작</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">종료</th>
+                    <th className="border border-gray-400 px-1 py-1 text-center">CCP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batches.map((b: any, idx: number) => (
+                    <tr key={idx}>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{idx + 1}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{b.batchCode}</td>
+                      <td className="border border-gray-400 px-1 py-0.5">{b.productName}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.plannedQuantity || 0).toLocaleString()}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-right">{(b.actualQuantity || 0).toLocaleString()}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{b.status === 'completed' ? '완료' : b.status === 'in_progress' ? '진행중' : b.status}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.startTime ? String(b.startTime).includes('T') ? String(b.startTime).substring(11, 16) : String(b.startTime).substring(0, 5) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center text-[10px]">{b.endTime ? String(b.endTime).includes('T') ? String(b.endTime).substring(11, 16) : String(b.endTime).substring(0, 5) : '-'}</td>
+                      <td className="border border-gray-400 px-1 py-0.5 text-center">{(b.ccpDetails || []).length > 0 ? (b.ccpDetails || []).every((c: any) => c.failCount === 0) ? '✓' : '!' : '-'}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-gray-50 font-bold">
+                    <td colSpan={3} className="border border-gray-400 px-1 py-1 text-center">합 계</td>
+                    <td className="border border-gray-400 px-1 py-1 text-right">{(fd.production?.totalPlannedQty || 0).toLocaleString()}</td>
+                    <td className="border border-gray-400 px-1 py-1 text-right">{(fd.production?.totalActualQty || 0).toLocaleString()}</td>
+                    <td colSpan={3} className="border border-gray-400 px-1 py-1 text-center">{fd.production?.completedBatches || 0}/{fd.production?.totalBatches || 0} 완료</td>
+                    <td className="border border-gray-400 px-1 py-1 text-center"></td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* CCP 점검 요약 */}
+              <h3 className="font-bold text-sm mb-1">⊙ CCP 점검 요약</h3>
+              <table className="w-full border-collapse border border-gray-500 text-xs mb-3">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-400 px-2 py-1 text-center">총 점검</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">정상</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">이탈</th>
+                    <th className="border border-gray-400 px-2 py-1 text-center">준수율</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 px-2 py-1 text-center">{ccp.totalRecords || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center text-blue-600">{ccp.normalCount || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center text-red-600 font-bold">{ccp.deviationCount || 0}건</td>
+                    <td className="border border-gray-400 px-2 py-1 text-center font-bold">{ccp.complianceRate || '100.0'}%</td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* 특이사항 / 개선 */}
+              <table className="w-full border-collapse border border-gray-500 text-xs">
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 w-28 text-center">특이사항</td>
+                    <td className="border border-gray-400 px-2 py-2">{(fd.issues || []).length > 0 ? (fd.issues || []).map((i: any) => `${i.batchCode}: ${i.note || i.ccpType}`).join(', ') : '없음'}</td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">개선조치 및 결과</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">조치자</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                  <tr>
+                    <td className="border border-gray-400 bg-gray-50 font-bold px-2 py-2 text-center">확인</td>
+                    <td className="border border-gray-400 px-2 py-2"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ),
+          pageTitle: `생산일지 - ${reportDate}`,
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      } else if (doc.formType === "batch_production" || doc.formType === "batch_approval") {
+        const ccpRecords: any[] = doc.formData?.ccpFormRecords || [];
+        if (ccpRecords.length === 0) {
+          pages.push({
+            doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+            pageContent: renderCcpBatchSummary(doc),
+            pageTitle: `배치 CCP 기록지 - ${doc.title || ""}`,
+            pageIndex: 0,
+            totalPages: 1,
+          });
+        } else {
+          const byType: Record<string, any[]> = {};
+          ccpRecords.forEach((fr: any) => {
+            const t = fr.ccpType || fr.ccp_type || "UNKNOWN";
+            if (!byType[t]) byType[t] = [];
+            byType[t].push(fr);
+          });
+          const typeKeys = Object.keys(byType);
+          const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+          typeKeys.forEach((ccpType, typeIdx) => {
+            const records = byType[ccpType];
+            if (ccpType === "CCP-4P" && records.length > 1) {
+              const allRows: any[] = [];
+              for (const fr of records) {
+                const rows = fr.rows || [];
+                allRows.push(...rows);
+              }
+              allRows.sort((a: any, b: any) => {
+                const typeA = (a.equipmentType || a.equipment_type) || "";
+                const typeB = (b.equipmentType || b.equipment_type) || "";
+                if (typeA !== typeB) return typeA === "sensitivity" ? -1 : 1;
+                const tA = String(a.metalPassTime || a.metal_pass_time || a.passTimeStart || a.pass_time_start || "");
+                const tB = String(b.metalPassTime || b.metal_pass_time || b.passTimeStart || b.pass_time_start || "");
+                return tA.localeCompare(tB);
+              });
+              const mergedFr = { ...records[0], rows: allRows };
+              pages.push({
+                doc: enrichedDoc,
+                pageContent: renderCcpFormRecord(mergedFr, enrichedDoc),
+                pageTitle: `CCP 기록지 - CCP-4P (금속검출공정)`,
+                pageIndex: typeIdx,
+                totalPages: typeKeys.length,
+              });
+            } else {
+              const combinedContent = (
+                <div>
+                  {records.map((fr: any, idx: number) => (
+                    <div key={idx} className={idx > 0 ? "mt-4" : ""}>
+                      {idx > 0 && <hr className="border-gray-400 mb-4" />}
+                      {renderCcpFormRecord(fr, enrichedDoc)}
+                    </div>
+                  ))}
+                </div>
+              );
+              const firstFr = records[0];
+              pages.push({
+                doc: enrichedDoc,
+                pageContent: combinedContent,
+                pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
+                pageIndex: typeIdx,
+                totalPages: typeKeys.length,
+              });
+            }
+          });
+        }
+      } else if (doc.formType === "ccp_form") {
+        const fr = doc.formData?.ccpFormRecord;
+        const frData = fr?.record ? { ...fr.record, rows: fr.rows || [] } : fr;
+        const enrichedDocSingle = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        pages.push({
+          doc: enrichedDocSingle,
+          pageContent: renderCcpFormRecord(frData, enrichedDocSingle),
+          pageTitle: `CCP 기록지 - ${fr?.record?.ccpType || ""}`,
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      } else {
+        const genericEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        pages.push({
+          doc: genericEnrichedDoc,
+          pageContent: renderFormContent(doc.formData, doc.formType, genericEnrichedDoc),
+          pageTitle: FORM_TYPE_LABELS[doc.formType] || doc.title || doc.requestType || "체크리스트",
+          pageIndex: 0,
+          totalPages: 1,
+        });
+      }
+    });
+    return pages;
+  }, [loading, documents, allApprovalSettings, employees, reviewerEmployee, approverEmployee]);
+
+  // ── PDF 저장 시 파일명 자동 생성 (document.title → 브라우저 PDF 파일명) ──
+  useEffect(() => {
+    if (allPages.length === 0) return;
+
+    const generatePdfTitle = () => {
+      const firstDoc = documents[0];
+      if (!firstDoc) return "HACCP_문서";
+      const formType = firstDoc.formType || firstDoc.requestType || "";
+      const titleLabel = FORM_TYPE_LABELS[formType] || firstDoc.title || formType;
+      const fd = firstDoc.formData || {};
+      let dateStr = fd.date || fd.workDate || fd.checkDate || fd.inspectionDate || fd.formDate || "";
+      if (!dateStr && firstDoc.requestedAt) {
+        const d = firstDoc.requestedAt instanceof Date ? firstDoc.requestedAt : new Date(firstDoc.requestedAt);
+        if (!isNaN(d.getTime())) dateStr = formatLocalDate(d);
+      }
+      const datePart = dateStr ? `_${dateStr.replace(/\//g, "-")}` : "";
+      let productPart = "";
+      if (["batch_production", "batch_approval", "ccp_form"].includes(formType)) {
+        const ccpRecords = fd.ccpFormRecords || [];
+        const ccpRecord = fd.ccpFormRecord?.record || fd.ccpFormRecord;
+        const productName = ccpRecords[0]?.productName || ccpRecords[0]?.product_name
+          || ccpRecord?.productName || ccpRecord?.product_name
+          || fd.productName || "";
+        if (productName) productPart = `_${productName}`;
+      }
+      const countPart = documents.length > 1 ? `_외${documents.length - 1}건` : "";
+      return `${titleLabel}${datePart}${productPart}${countPart}`;
+    };
+
+    const originalTitle = document.title;
+    document.title = generatePdfTitle();
+    return () => { document.title = originalTitle; };
+  }, [allPages.length, documents]);
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-screen">
@@ -143,7 +464,7 @@ export default function PrintPreviewPage() {
     </div>
   );
 
-  if (documents.length === 0) return (
+  if (documents.length === 0 && !loading) return (
     <div className="flex items-center justify-center min-h-screen">
       <div className="text-center">
         <p className="text-gray-500 text-lg mb-2">
@@ -159,163 +480,6 @@ export default function PrintPreviewPage() {
     </div>
   );
 
-  // 문서 목록을 페이지 단위로 펼침 (daily_log는 5페이지)
-  const allPages: { doc: any; pageContent: React.ReactNode; pageTitle: string; pageIndex: number; totalPages: number }[] = [];
-
-  documents.forEach((doc) => {
-    const approval = doc.formData?.approval || {};
-    // 우선순위: formData.approval > 대시보드 결재 설정 > approvalRole > 요청자/승인자
-    const settingNames = getApprovalSettingNames(doc.formType || doc.requestType || "");
-    const authorName = approval.writerName || settingNames?.authorName || doc.formData?.inspector || doc.formData?.author || doc.formData?.writer || doc.requester?.name || "";
-    const reviewerName = approval.reviewerName || settingNames?.reviewerName || doc.reviewer?.name || reviewerEmployee?.name || "";
-    const approverName = approval.approverName || settingNames?.approverName || doc.approver?.name || approverEmployee?.name || "";
-    // Date 객체를 string으로 안전 변환 (Drizzle ORM이 timestamp를 Date 객체로 반환)
-    const toDateStr = (v: any): string | undefined => {
-      if (!v) return undefined;
-      if (v instanceof Date) return v.toISOString();
-      if (typeof v === "string") return v;
-      return String(v);
-    };
-    const requestedAt = toDateStr(doc.requestedAt);
-    const reviewedAt = toDateStr(doc.reviewedAt) || (doc.approvedAt && reviewerName ? toDateStr(doc.approvedAt) : undefined);
-    const approvedAt = toDateStr(doc.approvedAt);
-    // Date 객체 필드 전체 string 변환 (Drizzle ORM 타임스탬프 → Date 객체 방지)
-    const safeDocDates = {
-      requestedAt,
-      reviewedAt,
-      approvedAt,
-      createdAt: toDateStr(doc.createdAt),
-      updatedAt: toDateStr(doc.updatedAt),
-    };
-
-    if (doc.formType === "daily_log") {
-      const pages = renderDailyLogPages(doc.formData);
-      pages.forEach((pageContent, idx) => {
-        allPages.push({
-          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-          pageContent,
-          pageTitle: DAILY_LOG_PAGE_TITLES[idx] || `일일일지 ${idx + 1}`,
-          pageIndex: idx,
-          totalPages: pages.length,
-        });
-      });
-    } else if (doc.formType === "weekly_log") {
-      const weeklyPages = renderWeeklyLogPages(doc.formData);
-      const weeklyPageTitles = ["일반위생관리 점검표 (주간)", "방충·방서관리 점검표 (주간)"];
-      weeklyPages.forEach((pageContent, idx) => {
-        allPages.push({
-          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-          pageContent,
-          pageTitle: weeklyPageTitles[idx] || `주간일지 ${idx + 1}`,
-          pageIndex: idx,
-          totalPages: weeklyPages.length,
-        });
-      });
-    } else if (doc.formType === "yearly_log") {
-      allPages.push({
-        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-        pageContent: renderYearlyLog(doc.formData),
-        pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
-        pageIndex: 0,
-        totalPages: 1,
-      });
-    } else if (doc.formType === "batch_production" || doc.formType === "batch_approval") {
-      // CCP 기록지(배치): 같은 CCP 타입은 연속으로 한 페이지에, 타입별 페이지 분리
-      const ccpRecords: any[] = doc.formData?.ccpFormRecords || [];
-      if (ccpRecords.length === 0) {
-        allPages.push({
-          doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-          pageContent: renderCcpBatchSummary(doc),
-          pageTitle: `배치 CCP 기록지 - ${doc.title || ""}`,
-          pageIndex: 0,
-          totalPages: 1,
-        });
-      } else {
-        // 같은 CCP 타입끼리 그룹핑하여 연속 렌더링
-        const byType: Record<string, any[]> = {};
-        ccpRecords.forEach((fr: any) => {
-          const t = fr.ccpType || fr.ccp_type || "UNKNOWN";
-          if (!byType[t]) byType[t] = [];
-          byType[t].push(fr);
-        });
-        const typeKeys = Object.keys(byType);
-        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
-        typeKeys.forEach((ccpType, typeIdx) => {
-          const records = byType[ccpType];
-
-          if (ccpType === "CCP-4P" && records.length > 1) {
-            // ★ CCP-4P: 하루 모든 배치를 한 페이지에 합산 (금속검출기 공정 = 일일 단위)
-            // 모든 form_rows를 합쳐서 하나의 가상 레코드로 만듦
-            const allRows: any[] = [];
-            for (const fr of records) {
-              const rows = fr.rows || [];
-              allRows.push(...rows);
-            }
-            // 시간 기준 정렬 (sensitivity: metal_pass_time, passage: pass_time_start)
-            allRows.sort((a: any, b: any) => {
-              const typeA = (a.equipmentType || a.equipment_type) || "";
-              const typeB = (b.equipmentType || b.equipment_type) || "";
-              if (typeA !== typeB) return typeA === "sensitivity" ? -1 : 1;
-              const tA = String(a.metalPassTime || a.metal_pass_time || a.passTimeStart || a.pass_time_start || "");
-              const tB = String(b.metalPassTime || b.metal_pass_time || b.passTimeStart || b.pass_time_start || "");
-              return tA.localeCompare(tB);
-            });
-            // 첫 번째 레코드의 메타정보를 사용하되 rows를 합산
-            const mergedFr = { ...records[0], rows: allRows };
-            allPages.push({
-              doc: enrichedDoc,
-              pageContent: renderCcpFormRecord(mergedFr, enrichedDoc),
-              pageTitle: `CCP 기록지 - CCP-4P (금속검출공정)`,
-              pageIndex: typeIdx,
-              totalPages: typeKeys.length,
-            });
-          } else {
-            // CCP-1B/2B 또는 CCP-4P 단건: 같은 타입의 여러 배치 기록을 하나의 페이지에 연속 렌더링
-            const combinedContent = (
-              <div>
-                {records.map((fr: any, idx: number) => (
-                  <div key={idx} className={idx > 0 ? "mt-4" : ""}>
-                    {idx > 0 && <hr className="border-gray-400 mb-4" />}
-                    {renderCcpFormRecord(fr, enrichedDoc)}
-                  </div>
-                ))}
-              </div>
-            );
-            const firstFr = records[0];
-            allPages.push({
-              doc: enrichedDoc,
-              pageContent: combinedContent,
-              pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
-              pageIndex: typeIdx,
-              totalPages: typeKeys.length,
-            });
-          }
-        });
-      }
-    } else if (doc.formType === "ccp_form") {
-      // CCP 기록지 단건
-      const fr = doc.formData?.ccpFormRecord;
-      // getById returns { record, rows } — merge rows into the record object
-      const frData = fr?.record ? { ...fr.record, rows: fr.rows || [] } : fr;
-      const enrichedDocSingle = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
-      allPages.push({
-        doc: enrichedDocSingle,
-        pageContent: renderCcpFormRecord(frData, enrichedDocSingle),
-        pageTitle: `CCP 기록지 - ${fr?.record?.ccpType || ""}`,
-        pageIndex: 0,
-        totalPages: 1,
-      });
-    } else {
-      allPages.push({
-        doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
-        pageContent: renderFormContent(doc.formData, doc.formType),
-        pageTitle: FORM_TYPE_LABELS[doc.formType] || doc.title || doc.requestType || "체크리스트",
-        pageIndex: 0,
-        totalPages: 1,
-      });
-    }
-  });
-
   return (
     <>
       <style>{`
@@ -325,9 +489,10 @@ export default function PrintPreviewPage() {
         .ccp-print-table { table-layout: fixed; width: 100%; }
         .ccp-print-table th, .ccp-print-table td { overflow: hidden; text-overflow: ellipsis; word-break: keep-all; box-sizing: border-box; }
         .ccp-print-table th { white-space: normal; line-height: 1.2; }
-        /* 주간/월간/연간/일일 일지 테이블 오버플로우 방지 */
-        .print-page .print-content table { table-layout: fixed; width: 100%; }
-        .print-page .print-content td, .print-page .print-content th { word-break: break-all; word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
+        /* 일지/체크리스트 테이블 오버플로우 방지 - auto layout으로 컬럼 폭 자동 배분 */
+        .print-page .print-content table { table-layout: auto; width: 100%; }
+        .print-page .print-content td, .print-page .print-content th { word-wrap: break-word; overflow-wrap: break-word; box-sizing: border-box; }
+        .print-page .print-content td { font-size: 11px; line-height: 1.3; padding: 3px 4px; }
         /* 헤더 영역 결재란 테이블은 고정 폭 유지 */
         .print-page .print-header table { table-layout: auto; width: auto; }
         .print-page .print-header td, .print-page .print-header th { word-break: normal; word-wrap: normal; overflow-wrap: normal; }
@@ -351,55 +516,8 @@ export default function PrintPreviewPage() {
           const isCcpForm = ["batch_production", "batch_approval", "ccp_form"].includes(page.doc.formType || "");
           return (
           <div key={index} className="print-page">
-            {isCcpForm ? (
-              /* CCP 기록지: 간소화된 헤더 (결재란은 CCP 양식 내부에 포함) */
-              <div className="print-header flex items-start justify-between mb-1">
-                <div className="flex-1">
-                  <div className="text-[9px] text-gray-400">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
-                  <div className="text-[10px] text-gray-500 mt-0">
-                    <span>문서번호: #{page.doc.id}</span>
-                    <span className="ml-2">작성일: {page.doc.requestedAt ? (() => { try { return new Date(String(page.doc.requestedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.requestedAt); } })() : "-"}</span>
-                    {page.doc.approvedAt && <span className="ml-2">승인일: {(() => { try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); } })()}</span>}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 ml-2">
-                  <ApprovalHeader
-                    authorName={page.doc.authorName}
-                    reviewerName={page.doc.reviewerName}
-                    approverName={page.doc.approverName}
-                    requestedAt={page.doc.requestedAt}
-                    reviewedAt={page.doc.reviewedAt}
-                    approvedAt={page.doc.approvedAt}
-                    compact={true}
-                  />
-                </div>
-              </div>
-            ) : (
-              /* 일반 문서: 기존 헤더 */
-              <div className="print-header flex items-start justify-between mb-6">
-                <div className="flex-1">
-                  <div className="text-xs text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
-                  <h1 className="text-xl font-bold mb-2">{page.pageTitle}</h1>
-                  <div className="text-sm text-gray-600 space-y-0.5">
-                    <div><span className="font-medium">문서번호: </span>#{page.doc.id}</div>
-                    <div><span className="font-medium">작성일: </span>{page.doc.requestedAt ? (() => { try { return new Date(String(page.doc.requestedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.requestedAt); } })() : "-"}</div>
-                    {page.doc.approvedAt && <div><span className="font-medium">승인일: </span>{(() => { try { return new Date(String(page.doc.approvedAt)).toLocaleDateString("ko-KR"); } catch { return String(page.doc.approvedAt); } })()}</div>}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 ml-4">
-                  <ApprovalHeader
-                    authorName={page.doc.authorName}
-                    reviewerName={page.doc.reviewerName}
-                    approverName={page.doc.approverName}
-                    requestedAt={page.doc.requestedAt}
-                    reviewedAt={page.doc.reviewedAt}
-                    approvedAt={page.doc.approvedAt}
-                  />
-                </div>
-              </div>
-            )}
-            <hr className={`border-gray-300 ${isCcpForm ? 'mb-0.5' : 'mb-2'}`} />
-            <div className={`print-content ${isCcpForm ? "mb-1" : "mb-4"}`}>{page.pageContent}</div>
+            {/* 결재란은 각 페이지 렌더러 내부 TitleRow에 포함됨 */}
+            <div className="print-content mb-2">{page.pageContent}</div>
             <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
           </div>
           );

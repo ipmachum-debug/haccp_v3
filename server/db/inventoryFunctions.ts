@@ -2,13 +2,15 @@ import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, sum, li
 import { hInventoryLots, hInventory, hInventoryTransactions, hMaterials, hBatchInputs, hMaterialPriceHistory, itemMaster } from "../../drizzle/schema";
 import { getDb, getRawConnection } from "./connection";
 
+import { toKSTDate, todayKST } from "../utils/timezone";
+
 // ============================================================================
 // Inventory Lots
 // ============================================================================
 
 export async function getAllInventoryLotsWithDetails(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots, hMaterials } = await import("../../drizzle/schema.js");
   const { desc, eq } = await import("drizzle-orm");
 
@@ -44,7 +46,7 @@ export async function getAllInventoryLots(filters?: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots, hMaterials } = await import("../../drizzle/schema.js");
   const { eq, desc, and, gte, lte, like, or } = await import("drizzle-orm");
 
@@ -116,7 +118,7 @@ export async function createInventoryLot(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots, hInventoryTransactions } = await import("../../drizzle/schema.js");
 
   // 1. 재고 LOT 생성
@@ -158,7 +160,7 @@ export async function createInventoryLot(data: {
  */
 export async function getInventoryLotsByMaterialId(materialId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots } = await import("../../drizzle/schema.js");
   const { eq, and, asc } = await import("drizzle-orm");
 
@@ -192,7 +194,7 @@ export async function addMaterialInputToBatch(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots, hInventoryTransactions, hBatchInputs } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
 
@@ -256,7 +258,7 @@ export async function updateMaterialInput(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatchInputs } = await import("../../drizzle/schema");
 
@@ -272,7 +274,7 @@ export async function updateMaterialInput(
 
 export async function deleteMaterialInput(inputId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatchInputs, hInventoryLots } = await import("../../drizzle/schema");
   const { eq: eqOp } = await import("drizzle-orm");
@@ -313,7 +315,7 @@ export async function deleteMaterialInput(inputId: number, tenantId?: number) {
 
 export async function getBatchMaterialInputs(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
 
@@ -345,7 +347,7 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
  */
 export async function getAllMaterials(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { itemMaster } = await import("../../drizzle/schema.js");
   const { eq, and, desc } = await import("drizzle-orm");
   // ✅ FIX: hMaterials(빈 테이블) 대신 itemMaster에서 raw_material 타입 조회
@@ -366,7 +368,7 @@ export async function getAllMaterials(tenantId?: number) {
  */
 export async function getMaterialById(id: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hMaterials } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
 
@@ -379,7 +381,7 @@ export async function getMaterialById(id: number, tenantId?: number) {
  */
 export async function getMaterialsByRecipeId(recipeId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hRecipeLines, hMaterials } = await import("../../drizzle/schema.js");
   const { eq, isNotNull } = await import("drizzle-orm");
 
@@ -419,7 +421,7 @@ export async function getMaterialsByRecipeId(recipeId: number) {
  */
 export async function getLowStockMaterials(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hMaterials, hInventoryLots } = await import("../../drizzle/schema.js");
   const { eq, and, sum, sql } = await import("drizzle-orm");
 
@@ -464,7 +466,7 @@ export async function getLowStockMaterials(tenantId?: number) {
  */
 export async function notifyLowStock(materialId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hMaterials, hInventoryLots } = await import("../../drizzle/schema.js");
   const { eq, sum } = await import("drizzle-orm");
 
@@ -504,7 +506,7 @@ export async function notifyLowStock(materialId: number, tenantId?: number) {
 // 원재료 단가 업데이트 (이력 자동 저장)
 export async function updateMaterialPrice(id: number, unitPrice: number, changedBy?: number, reason?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hMaterials, hMaterialPriceHistory } = await import("../../drizzle/schema.js");
   const { eq } = await import("drizzle-orm");
@@ -541,7 +543,7 @@ export async function updateMaterialPrice(id: number, unitPrice: number, changed
 
 export async function batchUpdateExpiryWarningDays(expiryWarningDays: number, tenantId?: number): Promise<number> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result = await db
     .update(hMaterials)
@@ -558,7 +560,7 @@ export async function batchUpdateExpiryWarningDays(expiryWarningDays: number, te
 // 재고 LOT 삭제
 export async function deleteInventoryLot(lotId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.delete(hInventoryLots).where(eq(hInventoryLots.id, lotId));
   return { success: true };
@@ -582,7 +584,7 @@ export async function receiveMaterial(params: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // LOT 번호 자동 생성 (제공되지 않은 경우)
   const lotNumber = params.lotNumber || `LOT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -637,7 +639,7 @@ export async function getLotsByMaterialFefo(params: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [
     eq(hInventoryLots.materialId, params.materialId),
@@ -669,7 +671,7 @@ export async function deductLotQuantity(params: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db.transaction(async (tx) => {
     // 1. LOT 정보 조회
@@ -748,7 +750,7 @@ export async function getInventoryTransactions(params: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [];
 
@@ -797,7 +799,7 @@ export async function getInventoryTransactions(params: {
  */
 export async function getInventoryDashboard(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hInventoryLots, hMaterials } = await import("../../drizzle/schema");
   const { sql, eq, and } = await import("drizzle-orm");
@@ -806,7 +808,7 @@ export async function getInventoryDashboard(tenantId?: number) {
   const [stockStats] = await db
     .select({
       totalLots: sql<number>`COUNT(*)`,
-      totalValue: sql<number>`SUM(${hInventoryLots.availableQuantity} * COALESCE(CAST(${hInventoryLots.unitPrice} AS DECIMAL(10,2)), CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)), 0))`,
+      totalValue: sql<number>`SUM(GREATEST(${hInventoryLots.availableQuantity}, 0) * COALESCE(CAST(${hInventoryLots.unitPrice} AS DECIMAL(10,2)), CAST(${hMaterials.unitPrice} AS DECIMAL(10,2)), 0))`,
       availableLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END)`,
       expiringSoonLots: sql<number>`SUM(CASE WHEN ${hInventoryLots.status} = 'available' AND ${hInventoryLots.expiryDate} <= DATE_ADD(NOW(), INTERVAL 7 DAY) THEN 1 ELSE 0 END)`
     })
@@ -824,7 +826,7 @@ export async function getInventoryDashboard(tenantId?: number) {
       materialId: hMaterials.id,
       materialName: hMaterials.materialName,
       materialCode: hMaterials.materialCode,
-      totalQuantity: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN ${hInventoryLots.availableQuantity} ELSE 0 END), 0)`,
+      totalQuantity: sql<number>`ROUND(GREATEST(COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN GREATEST(${hInventoryLots.availableQuantity}, 0) ELSE 0 END), 0), 0), 1)`,
       lotCount: sql<number>`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN 1 ELSE 0 END), 0)`,
       unit: hMaterials.unit,
       masterUnitPrice: hMaterials.unitPrice,
@@ -918,52 +920,51 @@ export async function getInventoryTrend(params: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
-  // 기본값 설정 (최근 30일)
-  const endDate = params.endDate || new Date().toISOString().split('T')[0];
-  const startDate = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endDate = params.endDate || todayKST();
+  const startDate = params.startDate || toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
   const { hInventoryTransactions, hInventoryLots } = await import("../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
   const conditions = [
-    sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
-    sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
+    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
+    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
+    eq(hInventoryTransactions.tenantId, params.tenantId),
   ];
 
   if (params.materialId) {
     conditions.push(eq(hInventoryLots.materialId, params.materialId));
   }
 
-  // hInventoryLots → hMaterials JOIN으로 tenantId 필터링 (별도 서브쿼리)
-  if (params.tenantId) {
-    const { hMaterials } = await import("../../drizzle/schema");
-    conditions.push(sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})`);
-  }
-
   const trend = await db
     .select({
-      date: sql<string>`DATE(${hInventoryTransactions.createdAt})`,
-      receiptQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'receipt' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
-      usageQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'usage' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
+      date: sql<string>`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`,
+      receiptQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'receipt' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
+      usageQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'usage' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
       adjustmentQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'adjustment' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
       transactionCount: sql<number>`COUNT(*)`
     })
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(...conditions))
-    .groupBy(sql`DATE(${hInventoryTransactions.createdAt})`)
-    .orderBy(sql`DATE(${hInventoryTransactions.createdAt})`);
+    .groupBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`)
+    .orderBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`);
 
-  return trend.map((row) => ({
-    date: row.date,
-    receiptQuantity: row.receiptQuantity || 0,
-    usageQuantity: row.usageQuantity || 0,
-    adjustmentQuantity: row.adjustmentQuantity || 0,
-    netChange: (row.receiptQuantity || 0) - (row.usageQuantity || 0) + (row.adjustmentQuantity || 0),
-    transactionCount: row.transactionCount || 0
-  }));
+  return trend.map((row) => {
+    const receipt = Number(row.receiptQuantity) || 0;
+    const usage = Number(row.usageQuantity) || 0;
+    const adjustment = Number(row.adjustmentQuantity) || 0;
+    return {
+      date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date || ""),
+      receiptQuantity: receipt,
+      usageQuantity: usage,
+      adjustmentQuantity: adjustment,
+      netChange: receipt - usage + adjustment,
+      transactionCount: Number(row.transactionCount) || 0
+    };
+  });
 }
 
 /**
@@ -977,32 +978,32 @@ export async function getInventoryTurnoverAnalysis(params: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 기본값 설정 (최근 30일)
-  const endDate = params.endDate || new Date().toISOString().split('T')[0];
-  const startDate = params.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const endDate = params.endDate || todayKST();
+  const startDate = params.startDate || toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
   const { hInventoryTransactions, hMaterials, hInventoryLots } = await import("../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
-  // 1. 기간 내 사용량 조회 (lotId를 통해 materialId 얻기)
+  // 1. 기간 내 사용량 조회 - tenant_id 직접 필터 + transaction_date 기준 + ABS
   const usageData = await db
     .select({
       materialId: hInventoryLots.materialId,
-      totalUsage: sql<number>`SUM(${hInventoryTransactions.quantity})`
+      totalUsage: sql<number>`SUM(ABS(${hInventoryTransactions.quantity}))`
     })
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(
       eq(hInventoryTransactions.transactionType, "usage"),
-      sql`DATE(${hInventoryTransactions.createdAt}) >= ${startDate}`,
-      sql`DATE(${hInventoryTransactions.createdAt}) <= ${endDate}`,
-      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+      eq(hInventoryTransactions.tenantId, params.tenantId),
+      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
+      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
     ))
     .groupBy(hInventoryLots.materialId);
 
-  // 2. 현재 재고 조회
+  // 2. 현재 재고 조회 - tenant_id 직접 필터
   const currentStock = await db
     .select({
       materialId: hInventoryLots.materialId,
@@ -1011,7 +1012,7 @@ export async function getInventoryTurnoverAnalysis(params: {
     .from(hInventoryLots)
     .where(and(
       eq(hInventoryLots.status, "available"),
-      params.tenantId ? sql`${hInventoryLots.materialId} IN (SELECT id FROM h_materials WHERE tenant_id = ${params.tenantId})` : undefined
+      eq(hInventoryLots.tenantId, params.tenantId),
     ))
     .groupBy(hInventoryLots.materialId);
 

@@ -2,18 +2,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { getGreetingMessage } from "@/lib/greetings";
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
-import { 
-  CheckCircle2, 
-  Shield, 
-  TrendingUp, 
-  Package, 
-  FileText, 
+import {
+  CheckCircle2,
+  Shield,
+  TrendingUp,
+  Package,
+  FileText,
   Calculator,
   Phone,
   Globe,
@@ -23,7 +23,8 @@ import {
   Factory,
   ShieldCheck,
   BarChart3,
-  ArrowRight
+  ArrowRight,
+  Play
 } from "lucide-react";
 
 export default function Login() {
@@ -32,33 +33,31 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const utils = trpc.useUtils();
   
-  const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async (data: any) => {
-      try {
-        await utils.auth.me.invalidate();
-        await new Promise(resolve => setTimeout(resolve, 300));
-        const response = await utils.client.auth.me.query();
-        console.log('[Login] User fetched:', response);
-        
-        const userName = response?.name;
-        const greetingMessage = getGreetingMessage(userName);
-        toast.success(greetingMessage, { duration: 4000 });
-        
-        console.log('[Login] User role:', response?.role);
-        if (response?.role === 'super_admin') {
-          setLocation("/dashboard/super-admin");
-        } else if (response?.role === 'employee') {
-          setLocation("/board");
-        } else {
-          setLocation("/dashboard");
-        }
-      } catch (error) {
-        console.error('[Login] Failed to fetch user:', error);
+  const handleLoginSuccess = async () => {
+    try {
+      await utils.auth.me.invalidate();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const response = await utils.client.auth.me.query();
+
+      const userName = response?.name;
+      const greetingMessage = getGreetingMessage(userName);
+      toast.success(greetingMessage, { duration: 4000 });
+
+      if (response?.role === 'super_admin') {
+        setLocation("/dashboard/super-admin");
+      } else if (response?.role === 'employee') {
+        setLocation("/board");
+      } else {
         setLocation("/dashboard");
       }
-    },
+    } catch (error) {
+      setLocation("/dashboard");
+    }
+  };
+
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: handleLoginSuccess,
     onError: (error: any) => {
-      console.error('[Login] Login error:', error);
       if (error.message && error.message.includes("승인 대기")) {
         toast.warning("관리자 승인을 기다려주세요.");
         setTimeout(() => { setLocation("/pending-approval"); }, 1000);
@@ -67,6 +66,26 @@ export default function Login() {
       }
     },
   });
+
+  const demoLoginMutation = trpc.auth.demoLogin.useMutation({
+    onSuccess: async () => {
+      toast.success("데모 계정으로 접속합니다!", { duration: 3000 });
+      await handleLoginSuccess();
+    },
+    onError: () => {
+      toast.error("데모 로그인에 실패했습니다. 잠시 후 다시 시도해주세요.");
+    },
+  });
+
+  // ?demo=true 파라미터로 접근 시 자동 데모 로그인
+  const demoTriggered = useRef(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("demo") === "true" && !demoTriggered.current) {
+      demoTriggered.current = true;
+      demoLoginMutation.mutate();
+    }
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -432,7 +451,37 @@ export default function Login() {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            {/* 구분선 */}
+            <div className="mt-6 flex items-center gap-3">
+              <div className="flex-1 h-px bg-stone-200" />
+              <span className="text-xs text-stone-400 font-medium">또는</span>
+              <div className="flex-1 h-px bg-stone-200" />
+            </div>
+
+            {/* 데모 로그인 */}
+            <button
+              type="button"
+              onClick={() => demoLoginMutation.mutate()}
+              disabled={demoLoginMutation.isPending}
+              className="mt-4 w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-orange-300 bg-orange-50/50 text-orange-600 font-semibold text-sm hover:bg-orange-100/60 hover:border-orange-400 transition-all duration-300"
+            >
+              {demoLoginMutation.isPending ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-orange-300 border-t-orange-600 rounded-full animate-spin" />
+                  데모 계정 접속 중...
+                </div>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  데모 계정으로 체험하기
+                </>
+              )}
+            </button>
+            <p className="mt-2 text-center text-xs text-stone-400">
+              회원가입 없이 모든 기능을 미리 체험할 수 있습니다
+            </p>
+
+            <div className="mt-4 text-center">
               <p className="text-stone-400 text-sm">
                 계정이 없으신가요?{" "}
                 <Link href="/register">

@@ -1,9 +1,8 @@
 /**
- * 일일일지 목록 페이지 (기간별일지 - 일일)
+ * 일일일지 목록 페이지 (일반위생관리 및 공정점검표)
  * - h_generic_checklist_records (form_type='daily_log') 기반
- * - 자동배치 시 자동 생성된 일일일지 표시
- * - 수동배치는 수동 작성
- * - 승인 상태 표시
+ * - 위생점검, 이물관리, 온도기록 상태 표시
+ * - 해당일 생산품목 표시
  */
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
@@ -17,10 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CalendarIcon, FileText, Search, RefreshCw, ChevronLeft, ChevronRight,
-  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye
+  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2, Thermometer, ShieldCheck
 } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
-import { ko } from "date-fns/locale";
+import { format, startOfMonth, endOfMonth } from "date-fns";
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   draft: { label: "작성중", color: "bg-gray-100 text-gray-700 border-gray-300" },
@@ -47,6 +45,7 @@ export default function DailyLogs() {
   const [keyword, setKeyword] = useState("");
 
   // API Query
+  const utils = trpc.useUtils();
   const { data: dailyLogs = [], isLoading, refetch } = trpc.dailyLog.list.useQuery({
     startDate,
     endDate,
@@ -54,6 +53,15 @@ export default function DailyLogs() {
     limit: 100,
     offset: 0
   });
+  const deleteMut = trpc.dailyLog.delete.useMutation({
+    onSuccess: () => { utils.dailyLog.list.invalidate(); },
+    onError: (e: any) => alert(`삭제 실패: ${e.message}`),
+  });
+  const handleDelete = (id: number, title: string, status: string) => {
+    if (status === 'approved') { alert('승인완료된 일지는 삭제할 수 없습니다.'); return; }
+    if (!confirm(`"${title}" 일일일지를 삭제하시겠습니까?\n\n※ 관련 승인요청도 함께 삭제됩니다.`)) return;
+    deleteMut.mutate({ id });
+  };
 
   // Filter by keyword
   const filteredLogs = useMemo(() => {
@@ -91,17 +99,19 @@ export default function DailyLogs() {
             일일일지 (일반위생관리 및 공정점검표)
           </h2>
           <p className="text-sm text-muted-foreground mt-1">
-            자동배치 시 자동 생성되며, 수동배치는 수동으로 작성합니다.
+            일반위생관리, 이물관리, 온습도 점검 기록을 관리합니다.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4 mr-1" />
-          새로고침
-        </Button>
-        <Button size="sm" onClick={() => navigate("/daily-log/daily")}>
-          <FileText className="h-4 w-4 mr-1" />
-          새 일지 작성
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1" />
+            새로고침
+          </Button>
+          <Button size="sm" onClick={() => navigate("/daily-log/daily")}>
+            <FileText className="h-4 w-4 mr-1" />
+            새 일지 작성
+          </Button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -186,7 +196,7 @@ export default function DailyLogs() {
             <div className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="제목, 날짜, 작성자 검색..."
+                placeholder="날짜, 작성자 검색..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 className="pl-8 h-8 text-sm"
@@ -199,9 +209,9 @@ export default function DailyLogs() {
       {/* Daily Logs Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">일일일지 목록</CardTitle>
+          <CardTitle className="text-base">일일일지 목록 (일반위생관리 및 공정점검표)</CardTitle>
           <CardDescription>
-            {startDate} ~ {endDate} 기간의 일일일지입니다.
+            {startDate} ~ {endDate} 기간의 위생관리 점검 기록입니다.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -217,13 +227,12 @@ export default function DailyLogs() {
                   <TableRow>
                     <TableHead className="w-[50px]">#</TableHead>
                     <TableHead className="w-[120px]">일지 날짜</TableHead>
-                    <TableHead>제목</TableHead>
-                    <TableHead className="w-[80px] text-center">배치수</TableHead>
-                    <TableHead className="w-[100px] text-center">계획수량</TableHead>
+                    <TableHead className="w-[100px] text-center">위생점검</TableHead>
+                    <TableHead className="w-[100px] text-center">이물관리</TableHead>
+                    <TableHead className="w-[80px] text-center">온도기록</TableHead>
                     <TableHead className="w-[80px]">작성자</TableHead>
                     <TableHead className="w-[90px] text-center">상태</TableHead>
                     <TableHead className="w-[90px] text-center">승인상태</TableHead>
-                    <TableHead className="w-[90px] text-center">작성일</TableHead>
                     <TableHead className="w-[60px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -237,23 +246,36 @@ export default function DailyLogs() {
                           {log.log_date || "-"}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="max-w-[300px] truncate text-sm" title={log.title}>
-                          {log.title || `일일일지 - ${log.log_date}`}
-                        </div>
-                        {log.batches && log.batches.length > 0 && (
-                          <div className="text-xs text-muted-foreground mt-0.5 truncate max-w-[300px]">
-                            {log.batches.map((b: any) => b.productName || b.batchCode).join(", ")}
+                      <TableCell className="text-center">
+                        {log.hygieneTotal > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <ShieldCheck className={`h-3.5 w-3.5 ${log.hygieneChecked === log.hygieneTotal ? 'text-green-500' : 'text-orange-500'}`} />
+                            <span className={`text-xs font-medium ${log.hygieneChecked === log.hygieneTotal ? 'text-green-600' : 'text-orange-600'}`}>
+                              {log.hygieneChecked}/{log.hygieneTotal}
+                            </span>
                           </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="outline" className="text-xs">
-                          {log.totalBatches || log.batches?.length || 0}
-                        </Badge>
+                        {log.foreignTotal > 0 ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <ShieldCheck className={`h-3.5 w-3.5 ${log.foreignChecked === log.foreignTotal ? 'text-green-500' : 'text-orange-500'}`} />
+                            <span className={`text-xs font-medium ${log.foreignChecked === log.foreignTotal ? 'text-green-600' : 'text-orange-600'}`}>
+                              {log.foreignChecked}/{log.foreignTotal}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
-                      <TableCell className="text-center text-sm">
-                        {log.totalPlannedQty ? `${Number(log.totalPlannedQty).toFixed(1)}kg` : "-"}
+                      <TableCell className="text-center">
+                        {log.hasTemp ? (
+                          <Thermometer className="h-4 w-4 text-green-500 mx-auto" />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm">{log.creator_name || "-"}</TableCell>
                       <TableCell className="text-center">
@@ -266,21 +288,30 @@ export default function DailyLogs() {
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {log.createdAt
-                          ? format(new Date(log.createdAt), "MM/dd HH:mm")
-                          : "-"}
-                      </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={() => navigate(`/daily-log/daily?id=${log.id}&date=${log.log_date}`)}
-                          title="상세 보기"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => navigate(`/daily-log/daily?id=${log.id}&date=${log.log_date}`)}
+                            title="상세 보기"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {log.status !== 'approved' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-400 hover:text-red-600"
+                              onClick={() => handleDelete(log.id, log.title, log.status)}
+                              disabled={deleteMut.isPending}
+                              title="삭제"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -292,7 +323,7 @@ export default function DailyLogs() {
               <ClipboardCheck className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground">해당 기간에 일일일지가 없습니다.</p>
               <p className="text-xs text-muted-foreground mt-1">
-                자동배치 생성 시 일일일지가 자동으로 생성됩니다.
+                [새 일지 작성] 버튼으로 일반위생관리 및 공정점검표를 작성하세요.
               </p>
             </div>
           )}

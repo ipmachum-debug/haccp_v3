@@ -184,11 +184,11 @@ export async function getVisualInspectionLog(db: any, tenantId: number, logId: n
   const cfgRows = (settingResult as any)[0] || [];
   const cfg = (cfgRows as any[])[0] || {};
 
-  // 항목들
+  // 항목들 (최근 날짜 우선 정렬)
   const itemResult = await db.execute(sql`
     SELECT * FROM h_visual_inspection_items
     WHERE log_id = ${logId} AND tenant_id = ${tenantId}
-    ORDER BY sort_order ASC, id ASC
+    ORDER BY receipt_date DESC, id DESC
   `);
   const items = (itemResult as any)[0] || [];
   
@@ -313,7 +313,7 @@ export async function getOrCreateMonthlyLog(
   return { id: result.id, created: true };
 }
 
-/** 원재료 입고 데이터 가져오기 (h_material_receivings → 육안검사 항목으로 변환) */
+/** 원재료 입고 데이터 가져오기 (h_inbound + h_inventory_lots → 육안검사 항목으로 변환) */
 export async function fetchMaterialReceivingsForMonth(
   db: any, tenantId: number, year: number, month: number
 ) {
@@ -322,37 +322,158 @@ export async function fetchMaterialReceivingsForMonth(
   const endYear = month === 12 ? year + 1 : year;
   const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
-  const result = await db.execute(sql`
-    SELECT mr.id, mr.received_date, mr.lot_number, mr.quantity, mr.unit,
-           mr.expiry_date, mr.notes,
+  // 1차: 입고전표(h_inbound_headers + h_inbound_lines) 기반 조회
+  const inboundResult = await db.execute(sql`
+    SELECT ih.id as header_id, ih.inbound_date, ih.notes as header_notes,
+           il.id as line_id, il.lot_number, il.purchase_quantity, il.purchase_unit,
+           il.expiry_date,
            m.material_name, m.category
-    FROM h_material_receivings mr
-    LEFT JOIN h_materials m ON m.id = mr.material_id AND m.tenant_id = ${tenantId}
-    WHERE mr.tenant_id = ${tenantId}
-      AND mr.received_date >= ${startDate}
-      AND mr.received_date < ${endDate}
-    ORDER BY mr.received_date ASC, mr.id ASC
+    FROM h_inbound_headers ih
+    JOIN h_inbound_lines il ON il.header_id = ih.id AND il.tenant_id = ${tenantId}
+    LEFT JOIN h_materials m ON m.id = il.material_id AND m.tenant_id = ${tenantId}
+    WHERE ih.tenant_id = ${tenantId}
+      AND ih.inbound_date >= ${startDate}
+      AND ih.inbound_date < ${endDate}
+    ORDER BY ih.inbound_date ASC, il.id ASC
   `);
-  const rows = (result as any)[0] || [];
-  return (rows as any[]).map((r: any) => ({
-    receiptDate: r.received_date ? String(r.received_date).substring(5) : '', // MM-DD
-    productName: r.material_name || '',
-    importCertOrigin: '국내',
-    testReportAvail: '○',
-    expiryDate: r.expiry_date || '',
-    manufactureDate: '',
-    qualityRetainDate: '',
-    vehicleTemp: '○',
-    vehicleCondition: '○',
-    palletCondition: '○',
-    normalApproved: '○',
-    foreignMatter: '○',
-    labelAllergen: '○',
-    labelManager: '',
-    compliance: '적합',
-    correctiveAction: '',
-    note: r.lot_number ? `LOT: ${r.lot_number}` : '',
-  }));
+  const inboundRows = (inboundResult as any)[0] || [];
+
+  // 2차: 입고전표에 없는 LOT (직접 생성된 LOT) - h_inventory_lots에서 보충
+  const lotResult = await db.execute(sql`
+    SELECT lot.id, lot.lot_number, lot.receipt_date, lot.quantity, lot.unit,
+           lot.expiry_date, lot.supplier_name,
+           m.material_name, m.category
+    FROM h_inventory_lots lot
+    LEFT JOIN h_materials m ON m.id = lot.material_id AND m.tenant_id = ${tenantId}
+    WHERE lot.tenant_id = ${tenantId}
+      AND lot.material_id IS NOT NULL
+      AND lot.receipt_date >= ${startDate}
+      AND lot.receipt_date < ${endDate}
+    ORDER BY lot.receipt_date ASC, lot.id ASC
+  `);
+  const lotRows = (lotResult as any)[0] || [];
+
+  // 입고전표 기반 항목
+  const seenLots = new Set<string>();
+  const items: any[] = [];
+
+  for (const r of inboundRows as any[]) {
+    // 품명이 없는 입고건(연결된 원자재 없음)은 제외
+    if (!r.material_name) continue;
+    const lot = r.lot_number || '';
+    if (lot) seenLots.add(lot);
+    items.push({
+      receiptDate: r.inbound_date ? String(r.inbound_date).substring(5) : '',
+      productName: r.material_name || '',
+      importCertOrigin: '국내',
+      testReportAvail: '○',
+      expiryDate: r.expiry_date ? String(r.expiry_date) : '',
+      manufactureDate: '',
+      qualityRetainDate: '',
+      vehicleTemp: '○',
+      vehicleCondition: '○',
+      palletCondition: '○',
+      normalApproved: '○',
+      foreignMatter: '○',
+      labelAllergen: '○',
+      labelManager: '',
+      compliance: '적합',
+      correctiveAction: '',
+      note: lot ? `LOT: ${lot}` : '',
+    });
+  }
+
+  // LOT 테이블에서 입고전표에 없는 건 보충
+  for (const r of lotRows as any[]) {
+    // 품명이 없는 LOT은 제외
+    if (!r.material_name) continue;
+    const lot = r.lot_number || '';
+    if (lot && seenLots.has(lot)) continue; // 이미 입고전표에서 가져온 건
+    if (lot) seenLots.add(lot);
+    items.push({
+      receiptDate: r.receipt_date ? String(r.receipt_date).substring(5) : '',
+      productName: r.material_name || '',
+      importCertOrigin: '국내',
+      testReportAvail: '○',
+      expiryDate: r.expiry_date ? String(r.expiry_date) : '',
+      manufactureDate: '',
+      qualityRetainDate: '',
+      vehicleTemp: '○',
+      vehicleCondition: '○',
+      palletCondition: '○',
+      normalApproved: '○',
+      foreignMatter: '○',
+      labelAllergen: '○',
+      labelManager: '',
+      compliance: '적합',
+      correctiveAction: '',
+      note: lot ? `LOT: ${lot}` : '',
+    });
+  }
+
+  return items;
+}
+
+/** 관리자용: 원재료 입고 → 육안검사 항목 자동 동기화 (신규 입고건만 추가) */
+export async function syncReceivingsToInspectionLog(
+  db: any, tenantId: number, logId: number, year: number, month: number
+) {
+  // fetchMaterialReceivingsForMonth 재사용하여 입고 데이터 조회
+  const receivings = await fetchMaterialReceivingsForMonth(db, tenantId, year, month);
+  if (!receivings.length) return { synced: 0 };
+
+  // 이미 반영된 항목 확인 (LOT 또는 date+name 매칭)
+  const existingResult = await db.execute(sql`
+    SELECT receipt_date, product_name, note FROM h_visual_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+  `);
+  const existingItems = (existingResult as any)[0] || [];
+  const existingSet = new Set<string>();
+  for (const e of existingItems as any[]) {
+    const lotMatch = (e.note || '').match(/LOT:\s*(\S+)/);
+    if (lotMatch) existingSet.add(`lot:${lotMatch[1]}`);
+    existingSet.add(`${e.receipt_date}|${e.product_name}`);
+  }
+
+  // 신규 입고건만 필터링 후 삽입
+  let synced = 0;
+  const maxSort = await db.execute(sql`
+    SELECT COALESCE(MAX(sort_order), -1) as max_sort FROM h_visual_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+  `);
+  let sortOrder = Number(((maxSort as any)[0] as any[])[0]?.max_sort ?? -1) + 1;
+
+  for (const r of receivings) {
+    // 품명이 없는 항목은 동기화하지 않음
+    if (!r.productName) continue;
+
+    const lotMatch = (r.note || '').match(/LOT:\s*(\S+)/);
+    const lotKey = lotMatch ? `lot:${lotMatch[1]}` : null;
+    const fallbackKey = `${r.receiptDate}|${r.productName}`;
+
+    if ((lotKey && existingSet.has(lotKey)) || existingSet.has(fallbackKey)) continue;
+
+    await db.execute(sql`
+      INSERT INTO h_visual_inspection_items
+        (tenant_id, log_id, receipt_date, product_name, import_cert_origin,
+         test_report_avail, expiry_date, manufacture_date, quality_retain_date,
+         vehicle_temp, vehicle_condition, pallet_condition, normal_approved,
+         foreign_matter, label_allergen, label_manager, compliance,
+         corrective_action, note, sort_order)
+      VALUES
+        (${tenantId}, ${logId}, ${r.receiptDate}, ${r.productName}, ${r.importCertOrigin},
+         ${r.testReportAvail}, ${r.expiryDate}, ${r.manufactureDate}, ${r.qualityRetainDate},
+         ${r.vehicleTemp}, ${r.vehicleCondition}, ${r.palletCondition}, ${r.normalApproved},
+         ${r.foreignMatter}, ${r.labelAllergen}, ${r.labelManager}, ${r.compliance},
+         ${r.correctiveAction}, ${r.note}, ${sortOrder})
+    `);
+    if (lotKey) existingSet.add(lotKey);
+    existingSet.add(fallbackKey);
+    sortOrder++;
+    synced++;
+  }
+
+  return { synced };
 }
 
 /** 이전 입력 데이터 기반 자동완성 (품명→이전 값 매핑) */
@@ -399,7 +520,7 @@ export async function fetchPreviousItemDefaults(
   return map;
 }
 
-/** 완제품 배치 데이터 가져오기 (h_batches → 출고검사 항목으로 변환) */
+/** 완제품 출고 데이터 가져오기 (매출 + 제품출고 → 출고검사 항목으로 변환) */
 export async function fetchCompletedBatchesForMonth(
   db: any, tenantId: number, year: number, month: number
 ) {
@@ -408,31 +529,149 @@ export async function fetchCompletedBatchesForMonth(
   const endYear = month === 12 ? year + 1 : year;
   const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
-  const result = await db.execute(sql`
-    SELECT b.id, b.batch_code, b.planned_date, b.planned_quantity, b.actual_quantity,
-           b.lot_number, b.expiry_date, b.status,
-           p2.product_name as product_name
-    FROM h_batches b
-    LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = ${tenantId}
-    WHERE b.tenant_id = ${tenantId}
-      AND b.planned_date >= ${startDate}
-      AND b.planned_date < ${endDate}
-    ORDER BY b.planned_date ASC, b.id ASC
+  const items: any[] = [];
+  const seenKeys = new Set<string>();
+
+  // 제품별 최신 LOT 번호 맵 조회 (매출 데이터에 LOT 없으므로 보충용)
+  const lotMap = new Map<string, string>();
+  try {
+    const lotResult = await db.execute(sql`
+      SELECT COALESCE(p2.product_name, lot.sku_name) as product_name, lot.lot_number
+      FROM h_inventory_lots lot
+      LEFT JOIN h_products_v2 p2 ON p2.id = lot.product_id AND p2.tenant_id = ${tenantId}
+      WHERE lot.tenant_id = ${tenantId}
+        AND lot.product_id IS NOT NULL
+        AND lot.lot_number IS NOT NULL
+      ORDER BY lot.created_at DESC
+    `);
+    for (const r of ((lotResult as any)[0] || []) as any[]) {
+      const name = r.product_name;
+      if (name && !lotMap.has(name)) lotMap.set(name, r.lot_number);
+    }
+  } catch (e) { /* LOT 매핑 실패 시 빈 값 유지 */ }
+
+  // 1차: 매출(accounting_sales) 데이터
+  try {
+    const salesResult = await db.execute(sql`
+      SELECT s.id, s.transaction_date, s.item_name, s.quantity, s.unit,
+             s.status, s.notes,
+             p.company_name as partner_name
+      FROM accounting_sales s
+      LEFT JOIN partners p ON p.id = s.partner_id AND p.tenant_id = ${tenantId}
+      WHERE s.tenant_id = ${tenantId}
+        AND REPLACE(REPLACE(s.transaction_date, '.', '-'), ' ', '') >= ${startDate}
+        AND REPLACE(REPLACE(s.transaction_date, '.', '-'), ' ', '') < ${endDate}
+        AND s.status != 'cancelled'
+      ORDER BY s.transaction_date ASC, s.id ASC
+    `);
+    const salesRows = (salesResult as any)[0] || [];
+    for (const r of salesRows as any[]) {
+      if (!r.item_name) continue;  // 제품명 없는 항목 제외
+      const dateStr = r.transaction_date ? String(r.transaction_date).replace(/\./g, '-').replace(/\s/g, '') : '';
+      const key = `sale:${r.id}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      const productName = r.item_name;
+      items.push({
+        shipDate: dateStr.length >= 5 ? dateStr.substring(5) : dateStr,
+        productName,
+        lotNumber: lotMap.get(productName) || '',
+        quantity: r.quantity || '',
+        packagingStatus: '○',
+        labelStatus: '○',
+        temperature: '',
+        result: '적합',
+        correctiveAction: '',
+        note: r.partner_name ? `거래처: ${r.partner_name}` : '',
+      });
+    }
+  } catch (e) { console.error('[fetchCompletedBatches] sales query error:', e); }
+
+  // 2차: 제품출고(h_product_outbound) 데이터 (매출에 없는 건 보충)
+  try {
+    const outboundResult = await db.execute(sql`
+      SELECT o.id, o.release_date, o.product_name, o.quantity, o.unit,
+             o.lot_number, o.partner_name, o.release_type, o.status
+      FROM h_product_outbound o
+      WHERE o.tenant_id = ${tenantId}
+        AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ${startDate}
+        AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') < ${endDate}
+        AND o.status != 'cancelled'
+      ORDER BY o.release_date ASC, o.id ASC
+    `);
+    const outRows = (outboundResult as any)[0] || [];
+    for (const r of outRows as any[]) {
+      if (!r.product_name) continue;  // 제품명 없는 항목 제외
+      const dateStr = r.release_date ? String(r.release_date).replace(/\./g, '-').replace(/\s/g, '') : '';
+      const key = `outbound:${r.id}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      items.push({
+        shipDate: dateStr.length >= 5 ? dateStr.substring(5) : dateStr,
+        productName: r.product_name,
+        lotNumber: r.lot_number || '',
+        quantity: r.quantity || '',
+        packagingStatus: '○',
+        labelStatus: '○',
+        temperature: '',
+        result: '적합',
+        correctiveAction: '',
+        note: r.partner_name ? `거래처: ${r.partner_name}` : '',
+      });
+    }
+  } catch (e) { console.error('[fetchCompletedBatches] outbound query error:', e); }
+
+  return items;
+}
+
+/** 완제품출고검사 자동 동기화 (신규 출고건만 추가) */
+export async function syncOutboundsToFinishedProductLog(
+  db: any, tenantId: number, logId: number, year: number, month: number
+) {
+  const outbounds = await fetchCompletedBatchesForMonth(db, tenantId, year, month);
+  if (!outbounds.length) return { synced: 0 };
+
+  // 기존 항목 확인
+  const existingResult = await db.execute(sql`
+    SELECT ship_date, product_name, lot_number, note FROM h_finished_product_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
   `);
-  const rows = (result as any)[0] || [];
-  return (rows as any[]).map((r: any) => ({
-    shipDate: r.planned_date ? String(r.planned_date).substring(5) : '',
-    productName: r.product_name || '알 수 없음',
-    lotNumber: r.lot_number || r.batch_code || '',
-    quantity: r.actual_quantity || r.planned_quantity || '',
-    packagingStatus: '○',
-    labelStatus: '○',
-    temperature: '',
-    result: '적합',
-    batchId: r.id,
-    batchCode: r.batch_code,
-    status: r.status,
-  }));
+  const existingItems = (existingResult as any)[0] || [];
+  const existingSet = new Set<string>();
+  for (const e of existingItems as any[]) {
+    existingSet.add(`${e.ship_date}|${e.product_name}|${e.lot_number || ''}`);
+  }
+
+  let synced = 0;
+  const maxSort = await db.execute(sql`
+    SELECT COALESCE(MAX(sort_order), -1) as max_sort FROM h_finished_product_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+  `);
+  let sortOrder = Number(((maxSort as any)[0] as any[])[0]?.max_sort ?? -1) + 1;
+
+  for (const r of outbounds) {
+    // 제품명이 없는 항목은 동기화하지 않음
+    if (!r.productName || r.productName === '알 수 없음') continue;
+
+    const key = `${r.shipDate}|${r.productName}|${r.lotNumber || ''}`;
+    if (existingSet.has(key)) continue;
+
+    await db.execute(sql`
+      INSERT INTO h_finished_product_inspection_items
+        (tenant_id, log_id, ship_date, product_name, lot_number, quantity,
+         packaging_status, label_status, temperature, result,
+         corrective_action, note, sort_order)
+      VALUES
+        (${tenantId}, ${logId}, ${r.shipDate}, ${r.productName}, ${r.lotNumber || ''},
+         ${String(r.quantity)}, ${r.packagingStatus}, ${r.labelStatus}, ${r.temperature || ''},
+         ${r.result}, ${r.correctiveAction || ''}, ${r.note || ''}, ${sortOrder})
+    `);
+    existingSet.add(key);
+    sortOrder++;
+    synced++;
+  }
+
+  return { synced };
 }
 
 /** 완제품 출고검사 이전 입력 데이터 기반 자동완성 (제품명→이전 값 매핑) */
@@ -582,10 +821,11 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
   const cfgRows = (settingResult as any)[0] || [];
   const cfg = (cfgRows as any[])[0] || {};
 
+  // 최근 날짜 우선 정렬
   const itemResult = await db.execute(sql`
     SELECT * FROM h_finished_product_inspection_items
     WHERE log_id = ${logId} AND tenant_id = ${tenantId}
-    ORDER BY sort_order ASC, id ASC
+    ORDER BY ship_date DESC, id DESC
   `);
   const items = (itemResult as any)[0] || [];
 
@@ -611,7 +851,9 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
       quantity: i.quantity || '',
       packagingStatus: i.packaging_status || '○',
       labelStatus: i.label_status || '○',
+      shipMethod: i.ship_method || '차량배송',
       temperature: i.temperature || '',
+      iceBoxStatus: i.ice_box_status || '○',
       result: i.result || '적합',
       correctiveAction: i.corrective_action || '',
       note: i.note || '',
@@ -623,6 +865,14 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
 export async function saveFinishedProductItems(
   db: any, tenantId: number, logId: number, items: any[]
 ) {
+  // ship_method, ice_box_status 컬럼 자동 추가 (없으면)
+  try {
+    await db.execute(sql`ALTER TABLE h_finished_product_inspection_items ADD COLUMN ship_method VARCHAR(30) DEFAULT '차량배송' AFTER label_status`);
+  } catch { /* already exists */ }
+  try {
+    await db.execute(sql`ALTER TABLE h_finished_product_inspection_items ADD COLUMN ice_box_status VARCHAR(10) DEFAULT '○' AFTER temperature`);
+  } catch { /* already exists */ }
+
   await db.execute(sql`
     DELETE FROM h_finished_product_inspection_items WHERE log_id = ${logId} AND tenant_id = ${tenantId}
   `);
@@ -631,11 +881,11 @@ export async function saveFinishedProductItems(
     await db.execute(sql`
       INSERT INTO h_finished_product_inspection_items
         (tenant_id, log_id, ship_date, product_name, lot_number, quantity,
-         packaging_status, label_status, temperature, result,
+         packaging_status, label_status, ship_method, temperature, ice_box_status, result,
          corrective_action, note, batch_id, sort_order)
       VALUES
         (${tenantId}, ${logId}, ${item.shipDate || ''}, ${item.productName || ''}, ${item.lotNumber || ''}, ${item.quantity || ''},
-         ${item.packagingStatus || '○'}, ${item.labelStatus || '○'}, ${item.temperature || ''}, ${item.result || '적합'},
+         ${item.packagingStatus || '○'}, ${item.labelStatus || '○'}, ${item.shipMethod || '차량배송'}, ${item.temperature || ''}, ${item.iceBoxStatus || '○'}, ${item.result || '적합'},
          ${item.correctiveAction || ''}, ${item.note || ''}, ${item.batchId || null}, ${i})
     `);
   }
@@ -824,39 +1074,17 @@ export async function createMaterialReceivingWithLot(
   // 1. LOT 번호 자동 생성
   const lotNumber = await generateMaterialLotNumber(db, tenantId, params.materialCode, receiptDate);
 
-  // 2. h_inventory_lots에 LOT 생성
-  const lotResult = await db.execute(sql`
-    INSERT INTO h_inventory_lots 
-      (tenant_id, material_id, lot_number, quantity, available_quantity, unit,
-       unit_price, receipt_date, expiry_date, supplier_name, status)
-    VALUES 
-      (${tenantId}, ${params.materialId}, ${lotNumber}, 
-       ${params.quantity}, ${params.quantity}, ${params.unit},
-       ${params.unitPrice || null}, ${receiptDate}, ${params.expiryDate || null},
-       ${params.supplierName || null}, 'available')
-  `);
-  const lotId = Number((lotResult as any)[0]?.insertId || 0);
-
-  // 3. h_inventory_transactions에 입고 기록
-  await db.execute(sql`
-    INSERT INTO h_inventory_transactions
-      (tenant_id, lot_id, transaction_type, quantity, unit, unit_cost,
-       transaction_date, reference_type, source_type, action_type, notes, created_by)
-    VALUES
-      (${tenantId}, ${lotId}, 'receipt', ${params.quantity}, ${params.unit},
-       ${params.unitPrice || null}, ${receiptDate}, 'material_receiving', 'inbound', 'receipt',
-       ${params.notes || `원재료 입고 - ${lotNumber}`}, ${params.userId})
-  `);
-
-  // 4. h_inventory 재고 업데이트 (있으면 증가, 없으면 생성)
+  // 2. h_inventory 재고 업데이트 (있으면 증가, 없으면 생성) — LOT에 inventory_id를 설정하기 위해 먼저 처리
   const invCheck = await db.execute(sql`
     SELECT id, total_quantity, available_quantity FROM h_inventory
     WHERE tenant_id = ${tenantId} AND material_id = ${params.materialId}
     LIMIT 1
   `);
   const invRows = (invCheck as any)[0] || [];
+  let inventoryId: number;
   if ((invRows as any[]).length > 0) {
     const inv = (invRows as any[])[0];
+    inventoryId = Number(inv.id);
     const newTotal = parseFloat(inv.total_quantity) + params.quantity;
     const newAvail = parseFloat(inv.available_quantity) + params.quantity;
     await db.execute(sql`
@@ -864,11 +1092,36 @@ export async function createMaterialReceivingWithLot(
         last_updated = NOW() WHERE id = ${inv.id}
     `);
   } else {
-    await db.execute(sql`
+    const insResult = await db.execute(sql`
       INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit)
       VALUES (${tenantId}, ${params.materialId}, ${params.quantity}, ${params.quantity}, 0, ${params.unit})
     `);
+    inventoryId = Number((insResult as any)[0]?.insertId || 0);
   }
+
+  // 3. h_inventory_lots에 LOT 생성 (inventory_id 연결 — FEFO 할당에 필수)
+  const lotResult = await db.execute(sql`
+    INSERT INTO h_inventory_lots
+      (tenant_id, inventory_id, material_id, lot_number, quantity, available_quantity, unit,
+       unit_price, receipt_date, expiry_date, supplier_name, status)
+    VALUES
+      (${tenantId}, ${inventoryId}, ${params.materialId}, ${lotNumber},
+       ${params.quantity}, ${params.quantity}, ${params.unit},
+       ${params.unitPrice || null}, ${receiptDate}, ${params.expiryDate || null},
+       ${params.supplierName || null}, 'available')
+  `);
+  const lotId = Number((lotResult as any)[0]?.insertId || 0);
+
+  // 4. h_inventory_transactions에 입고 기록
+  await db.execute(sql`
+    INSERT INTO h_inventory_transactions
+      (tenant_id, inventory_id, lot_id, transaction_type, quantity, unit, unit_cost,
+       transaction_date, reference_type, source_type, action_type, notes, created_by)
+    VALUES
+      (${tenantId}, ${inventoryId}, ${lotId}, 'receipt', ${params.quantity}, ${params.unit},
+       ${params.unitPrice || null}, ${receiptDate}, 'material_receiving', 'inbound', 'receipt',
+       ${params.notes || `원재료 입고 - ${lotNumber}`}, ${params.userId})
+  `);
 
   // 5. h_material_receivings에도 lot_number 업데이트 (있으면)
   await db.execute(sql`

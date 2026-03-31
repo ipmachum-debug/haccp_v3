@@ -35,6 +35,8 @@ import {
 import { trpc } from '@/lib/trpc';
 import { useAuth } from '@/_core/hooks/useAuth';
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 파이프라인 단계 정의
 const PIPELINE_STAGES = [
   { id: 'recipe', name: '레시피', icon: FileText, step: 1 },
@@ -132,14 +134,14 @@ const SensorStatusBadge = ({ status }: { status: string }) => {
 // 콘텐츠만 (ProductionManagement 탭에 임베드할 때 사용)
 export const PipelineDashboardContent: React.FC = () => {
   const { user } = useAuth();
-  const siteId = (user as any)?.siteId || 1;
+  const siteId = (user as any)?.siteId || (user as any)?.tenantId || 0;
   const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    todayLocal()
   );
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [sensors] = useState<SensorData[]>(MOCK_SENSORS);
   const [isClosingRunning, setIsClosingRunning] = useState(false);
-  const tenantId = (user as any)?.tenantId || 1;
+  const tenantId = (user as any)?.tenantId || 0;
 
   // tRPC 쿼리 - 파이프라인 현황 조회
   const { data: pipelineData, isLoading, refetch } = trpc.pipeline.getStatus.useQuery(

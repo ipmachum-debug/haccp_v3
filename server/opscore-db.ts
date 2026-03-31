@@ -20,6 +20,12 @@ export function getOpscorePool(): Pool {
       connectionLimit: 5,
       queueLimit: 0,
     });
+    // KST 타임존 설정
+    pool.on('connection', (conn: any) => {
+      conn.query("SET time_zone = '+09:00'", (err: any) => {
+        if (err) console.error('[OPSCORE DB] Failed to set timezone:', err);
+      });
+    });
   }
   return pool;
 }

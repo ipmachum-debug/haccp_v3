@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════
+// ApprovalManagement.tsx - 승인 관리 페이지
+// 3단계 승인 워크플로 (작성 → 검토 → 승인)
+// 검토 대기, 승인 대기, 처리 이력, 품목제조보고 승인 탭
+// ═══════════════════════════════════════════════════════════════
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -40,9 +45,11 @@ import { useLocation } from "wouter";
 import { ApprovalSealRow } from "@/components/SealGenerator";
 import { CcpInspectionCard } from "@/components/CcpInspectionCard";
 
-// ============================================================================
-// 승인 요청 유형 라벨 및 아이콘 (체크리스트 폼 타입 포함)
-// ============================================================================
+import { formatLocalDate } from "../lib/dateUtils";
+
+// ═══════════════════════════════════════════════════════════════
+// 상수 정의 (유형 라벨, 아이콘, 카테고리, 상태)
+// ═══════════════════════════════════════════════════════════════
 
 const REQUEST_TYPE_LABELS: Record<string, string> = {
   batch_production: "배치 CCP 기록지 승인",
@@ -191,7 +198,11 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
 };
 
-// 3단계 승인 진행 표시 컴포넌트 (compact)
+// ═══════════════════════════════════════════════════════════════
+// 유틸리티 컴포넌트
+// ═══════════════════════════════════════════════════════════════
+
+/** 3단계 승인 진행 표시 (작성 > 검토 > 승인, 인라인) */
 function ApprovalStepsInline({ status }: { status: string }) {
   const steps = [
     { key: "작성", done: true },
@@ -211,6 +222,10 @@ function ApprovalStepsInline({ status }: { status: string }) {
     </span>
   );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 메인 컴포넌트
+// ═══════════════════════════════════════════════════════════════
 
 export default function ApprovalManagement() {
   const [, setLocation] = useLocation();
@@ -237,16 +252,16 @@ export default function ApprovalManagement() {
   const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
   const [batchConfirmAction, setBatchConfirmAction] = useState<"review" | "approve">("review");
 
-  // ============================================================================
-  // 현재 사용자 승인 권한 조회
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════
+  // 상태 및 권한 조회
+  // ═══════════════════════════════════════════════════════════════
   const { data: myApprovalRole } = trpc.organization.getMyApprovalRole.useQuery();
   const canReview = myApprovalRole?.approvalRole === "reviewer" || myApprovalRole?.approvalRole === "approver";
   const canApprove = myApprovalRole?.approvalRole === "approver";
   const currentRole = myApprovalRole?.approvalRole || "none";
-  // ============================================================================
-  // 3단계 승인 데이터 조회
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════
+  // 3단계 승인 데이터 조회 (tRPC queries)
+  // ═══════════════════════════════════════════════════════════════
 
   // 검토 대기 목록 (pending_review + 기존 pending)
   const { data: reviewRequests, refetch: refetchReview } = trpc.approval.list.useQuery(
@@ -306,13 +321,13 @@ export default function ApprovalManagement() {
     if (historyDateFrom) {
       list = list.filter((r: any) => {
         const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && new Date(d).toISOString().split("T")[0] >= historyDateFrom;
+        return d && formatLocalDate(new Date(d)) >= historyDateFrom;
       });
     }
     if (historyDateTo) {
       list = list.filter((r: any) => {
         const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && new Date(d).toISOString().split("T")[0] <= historyDateTo;
+        return d && formatLocalDate(new Date(d)) <= historyDateTo;
       });
     }
     return list;
@@ -347,9 +362,9 @@ export default function ApprovalManagement() {
     });
   })();
 
-  // ============================================================================
-  // 3단계 승인 Mutations
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════
+  // 3단계 승인 Mutations (검토, 승인, 반려, 삭제)
+  // ═══════════════════════════════════════════════════════════════
 
   // 검토 완료 (pending_review -> pending_approval)
   const reviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
@@ -527,9 +542,9 @@ export default function ApprovalManagement() {
     },
   });
 
-  // ============================================================================
-  // 핸들러
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════
+  // 이벤트 핸들러 (승인, 반려, 삭제, 일괄 처리)
+  // ═══════════════════════════════════════════════════════════════
 
   const handleReview = () => {
     if (!selectedRequest) return;
@@ -669,9 +684,9 @@ export default function ApprovalManagement() {
   const selectedReviewCount = selectedIds.filter(id => allReviewRequests.some((r: any) => r.id === id)).length;
   const selectedApprovalCount = selectedIds.filter(id => (approvalRequests || []).some((r: any) => r.id === id)).length;
 
-  // ============================================================================
-  // 컴팩트 테이블 행 렌더링
-  // ============================================================================
+  // ═══════════════════════════════════════════════════════════════
+  // 테이블 행 렌더링 (컴팩트 모드)
+  // ═══════════════════════════════════════════════════════════════
 
   const renderRequestRow = (request: any, mode: "review" | "approve" | "readonly" = "readonly") => {
     const Icon = REQUEST_TYPE_ICONS[request.requestType] || FileText;

@@ -47,10 +47,7 @@ export const partnersRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getPartnerById } = await import("../../partners");
-        const result = await getPartnerById(input.id);
-        // tenant isolation: 다른 테넌트 데이터 접근 차단
-        if (result && (result as any).tenantId !== (ctx.tenantId ?? undefined)) return null;
-        return result;
+        return await getPartnerById(input.id, ctx.tenantId ?? undefined);
       }),
 
     // 거래처 수정

@@ -42,6 +42,8 @@ import { evaluateAllRules } from "./rulesEngine";
 import { getRawConnection } from "../db";
 import { buildKnowledgeContext } from "./knowledgeBase";
 
+import { formatLocalDate } from "../utils/timezone";
+
 // ============================================================================
 // 의도 분류
 // ============================================================================
@@ -619,7 +621,7 @@ ${knowledgeContext}
 /** 메시지에서 날짜 범위 파싱 */
 function parseDateRange(message: string): { startDate: string; endDate: string } {
   const today = new Date();
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = formatLocalDate(today);
 
   if (/오늘/.test(message)) {
     return { startDate: todayStr, endDate: todayStr };
@@ -627,36 +629,36 @@ function parseDateRange(message: string): { startDate: string; endDate: string }
   if (/이번\s*주|금주/.test(message)) {
     const monday = new Date(today);
     monday.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
-    return { startDate: monday.toISOString().split("T")[0], endDate: todayStr };
+    return { startDate: formatLocalDate(monday), endDate: todayStr };
   }
   if (/지난\s*주|전주/.test(message)) {
     const lastMonday = new Date(today);
     lastMonday.setDate(today.getDate() - today.getDay() - 6);
     const lastSunday = new Date(lastMonday);
     lastSunday.setDate(lastMonday.getDate() + 6);
-    return { startDate: lastMonday.toISOString().split("T")[0], endDate: lastSunday.toISOString().split("T")[0] };
+    return { startDate: formatLocalDate(lastMonday), endDate: formatLocalDate(lastSunday) };
   }
   if (/이번\s*달|이달|금월/.test(message)) {
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    return { startDate: firstDay.toISOString().split("T")[0], endDate: todayStr };
+    return { startDate: formatLocalDate(firstDay), endDate: todayStr };
   }
   if (/최근\s*(\d+)\s*일/.test(message)) {
     const match = message.match(/최근\s*(\d+)\s*일/);
     const days = parseInt(match![1]);
     const start = new Date(today.getTime() - days * 86400000);
-    return { startDate: start.toISOString().split("T")[0], endDate: todayStr };
+    return { startDate: formatLocalDate(start), endDate: todayStr };
   }
   if (/최근\s*(\d+)\s*개월/.test(message)) {
     const match = message.match(/최근\s*(\d+)\s*개월/);
     const months = parseInt(match![1]);
     const start = new Date(today);
     start.setMonth(start.getMonth() - months);
-    return { startDate: start.toISOString().split("T")[0], endDate: todayStr };
+    return { startDate: formatLocalDate(start), endDate: todayStr };
   }
 
   // 기본: 최근 7일
   const weekAgo = new Date(today.getTime() - 7 * 86400000);
-  return { startDate: weekAgo.toISOString().split("T")[0], endDate: todayStr };
+  return { startDate: formatLocalDate(weekAgo), endDate: todayStr };
 }
 
 /** 컨텍스트를 텍스트로 포맷 (LLM 실패 시 폴백) */

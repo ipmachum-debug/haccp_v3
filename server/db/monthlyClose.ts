@@ -6,6 +6,8 @@ import {
 } from "../../drizzle/schema_main";
 import { eq, and, gte, lte } from "drizzle-orm";
 
+import { toKSTDate, formatLocalDate} from "../utils/timezone";
+
 /**
  * 월 마감 DB 헬퍼 함수
  */
@@ -15,10 +17,10 @@ import { eq, and, gte, lte } from "drizzle-orm";
  */
 export async function getDailyClosesForMonth(year: number, month: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const endDate = new Date(year, month, 0).toISOString().split("T")[0]; // 해당 월의 마지막 날
+  const endDate = toKSTDate(new Date(year, month, 0)); // 해당 월의 마지막 날
 
   return await db
     .select()
@@ -44,7 +46,7 @@ export function getBusinessDaysInMonth(year: number, month: number, tenantId?: n
     const day = d.getDay();
     if (day !== 0 && day !== 6) {
       // 주말 제외
-      businessDays.push(d.toISOString().split("T")[0]);
+      businessDays.push(formatLocalDate(d));
     }
   }
 
@@ -102,7 +104,7 @@ export async function upsertMonthlyClose(params: {
   summary: Record<string, unknown>;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { year, month, missingCloseDates, summary } = params;
 
@@ -152,7 +154,7 @@ export async function closeMonthlyClose(params: {
   userId: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { year, month, userId } = params;
 
@@ -202,7 +204,7 @@ export async function reopenMonthlyClose(params: {
   month: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { year, month } = params;
 
@@ -246,7 +248,7 @@ export async function recordMonthlyCloseAudit(params: {
   reason?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { monthlyCloseId, action, actorId, reason } = params;
 
@@ -264,7 +266,7 @@ export async function recordMonthlyCloseAudit(params: {
  */
 export async function getMonthlyClose(year: number, month: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db
     .select()
@@ -288,7 +290,7 @@ export async function updateMonthlyClosePdfUrl(params: {
   pdfUrl: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { year, month, pdfUrl } = params;
 

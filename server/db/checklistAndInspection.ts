@@ -1,5 +1,7 @@
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { getDb } from "./connection";
+import { toKSTTimestamp } from "../utils/timezone";
+
 import {
   checklistTemplates,
   checklistTemplateItems,
@@ -29,7 +31,7 @@ export async function getChecklistTemplates(filters: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [];
   if (filters.tenantId) {
@@ -59,7 +61,7 @@ export async function getChecklistTemplates(filters: {
  */
 export async function getChecklistTemplateById(templateId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [eq(checklistTemplates.id, templateId)];
   if (tenantId) {
@@ -100,7 +102,8 @@ export async function createChecklistTemplate(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
+  if (!data.tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
   const [result] = await db.insert(checklistTemplates).values({
     name: data.name,
@@ -110,7 +113,7 @@ export async function createChecklistTemplate(data: {
     priority: data.priority || 0,
     autoTriggerRules: data.autoTriggerRules,
     createdBy: data.createdBy,
-    tenantId: data.tenantId || 1,
+    tenantId: data.tenantId,
     isActive: 1
   } as any);
 
@@ -132,7 +135,7 @@ export async function createChecklistTemplateItem(data: {
   description?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(checklistTemplateItems).values({
     ...data,
@@ -165,7 +168,7 @@ export async function createChecklistTemplateWithItems(data: {
   }>;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 템플릿 생성
   const templateId = await createChecklistTemplate({
@@ -217,7 +220,7 @@ export async function updateChecklistTemplate(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 템플릿 업데이트 (tenantId 격리)
   const updateData: any = {};
@@ -268,7 +271,7 @@ export async function updateChecklistTemplate(
  */
 export async function deleteChecklistTemplate(templateId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [eq(checklistTemplates.id, templateId)];
   if (tenantId) conditions.push(eq(checklistTemplates.tenantId, tenantId));
@@ -277,6 +280,28 @@ export async function deleteChecklistTemplate(templateId: number, tenantId?: num
     .update(checklistTemplates)
     .set({ isActive: 0 })
     .where(and(...conditions));
+
+  return { success: true };
+}
+
+/**
+ * 체크리스트 인스턴스 삭제
+ */
+export async function deleteChecklistInstance(instanceId: number, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  // 승인완료된 인스턴스는 삭제 불가
+  const conditions: any[] = [eq(checklistInstances.id, instanceId)];
+  if (tenantId) conditions.push(eq(checklistInstances.tenantId, tenantId));
+  const [existing] = await db.select({ status: checklistInstances.status }).from(checklistInstances).where(and(...conditions));
+  if (!existing) throw new Error("체크리스트를 찾을 수 없습니다");
+  if (existing.status === 'approved') throw new Error("승인완료된 체크리스트는 삭제할 수 없습니다");
+
+  // 인스턴스 항목 삭제
+  await db.delete(checklistInstanceItems).where(eq(checklistInstanceItems.instanceId, instanceId));
+  // 인스턴스 삭제
+  await db.delete(checklistInstances).where(and(...conditions));
 
   return { success: true };
 }
@@ -293,7 +318,7 @@ export async function createChecklistInstanceFromTemplate(data: {
   createdBy?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 템플릿 조회
   const template = await getChecklistTemplateById(data.templateId);
@@ -331,14 +356,17 @@ export async function createChecklistInstanceFromTemplate(data: {
 /**
  * 체크리스트 인스턴스 조회 (항목 포함)
  */
-export async function getChecklistInstanceById(instanceId: number) {
+export async function getChecklistInstanceById(instanceId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
+
+  const conditions: any[] = [eq(checklistInstances.id, instanceId)];
+  if (tenantId) conditions.push(eq(checklistInstances.tenantId, tenantId));
 
   const [instance] = await db
     .select()
     .from(checklistInstances)
-    .where(eq(checklistInstances.id, instanceId))
+    .where(and(...conditions))
     .limit(1);
 
   if (!instance) return null;
@@ -375,14 +403,14 @@ export async function updateChecklistInstanceItem(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = {};
   if (data.value !== undefined) updateData.value = data.value;
   if (data.isCompleted !== undefined) {
     updateData.isCompleted = data.isCompleted ? 1 : 0;
     if (data.isCompleted) {
-      updateData.completedAt = new Date().toISOString().replace('T', ' ').substring(0, 23);
+      updateData.completedAt = toKSTTimestamp(new Date());
       if (data.completedBy) updateData.completedBy = data.completedBy;
     }
   }
@@ -403,9 +431,9 @@ export async function completeChecklistInstance(
   completedBy: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const now = new Date().toISOString().replace('T', ' ').substring(0, 23);
+  const now = toKSTTimestamp(new Date());
 
   await db
     .update(checklistInstances)
@@ -424,7 +452,7 @@ export async function completeChecklistInstance(
  */
 export async function getChecklistInstancesByBatch(batchId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db
     .select()
@@ -452,7 +480,7 @@ export async function createMaterialInspectionRecord(data: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db.insert(materialInspectionRecords).values(data as any).$returningId();
   return record.id;
@@ -470,7 +498,7 @@ export async function addMaterialInspectionItem(data: {
   sortOrder: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(materialInspectionItems).values(data as any);
   return { success: true };
@@ -487,7 +515,7 @@ export async function getMaterialInspectionRecords(filters?: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select().from(materialInspectionRecords);
 
@@ -519,7 +547,7 @@ export async function getMaterialInspectionRecords(filters?: {
  */
 export async function getMaterialInspectionRecordById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db
     .select()
@@ -546,7 +574,7 @@ export async function updateMaterialInspectionStatus(
   inspectionResult?: "pass" | "fail" | "conditional"
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { status };
   if (inspectionResult) {
@@ -576,7 +604,7 @@ export async function createShippingInspectionRecord(data: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db.insert(shippingInspectionRecords).values(data as any).$returningId();
   return record.id;
@@ -594,7 +622,7 @@ export async function addShippingInspectionItem(data: {
   sortOrder: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(shippingInspectionItems).values(data as any);
   return { success: true };
@@ -611,7 +639,7 @@ export async function getShippingInspectionRecords(filters?: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select().from(shippingInspectionRecords);
 
@@ -643,7 +671,7 @@ export async function getShippingInspectionRecords(filters?: {
  */
 export async function getShippingInspectionRecordById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db
     .select()
@@ -670,7 +698,7 @@ export async function updateShippingInspectionStatus(
   inspectionResult?: "pass" | "fail" | "hold"
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { status };
   if (inspectionResult) {
@@ -696,7 +724,7 @@ export async function createHygieneInspectionRecord(data: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db.insert(hygieneInspectionRecords).values(data as any).$returningId();
   return record.id;
@@ -714,7 +742,7 @@ export async function addHygieneInspectionItem(data: {
   sortOrder: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(hygieneInspectionItems).values(data as any);
   return { success: true };
@@ -731,7 +759,7 @@ export async function getHygieneInspectionRecords(filters?: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select().from(hygieneInspectionRecords);
 
@@ -763,7 +791,7 @@ export async function getHygieneInspectionRecords(filters?: {
  */
 export async function getHygieneInspectionRecordById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [record] = await db
     .select()
@@ -790,7 +818,7 @@ export async function updateHygieneInspectionStatus(
   result?: "good" | "fair" | "poor"
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { status };
   if (result) {
@@ -813,7 +841,7 @@ export async function getInspectionStatistics(filters?: {
   endDate?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 원재료 검사 통계
   const materialInspections = await db
@@ -890,7 +918,7 @@ export async function updateMaterialInspectionRecord(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.transaction(async (tx) => {
     // 검사 기록 업데이트
@@ -954,7 +982,7 @@ export async function updateShippingInspectionRecord(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.transaction(async (tx) => {
     // 검사 기록 업데이트
@@ -1011,7 +1039,7 @@ export async function updateHygieneInspectionRecord(
   }
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.transaction(async (tx) => {
     // 검사 기록 업데이트

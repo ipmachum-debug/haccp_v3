@@ -364,7 +364,7 @@ export async function getBatchMaterialDetail(params: {
   costPerKg: number;
 }> {
   const conn = await getRawConnection();
-  if (!conn) throw new Error("DB not available");
+  if (!conn) throw new Error("DB 연결 실패");
 
   const { tenantId, batchId } = params;
   const priceMap = await getMaterialBestPrices(tenantId);

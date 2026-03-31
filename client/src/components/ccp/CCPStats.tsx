@@ -5,10 +5,12 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 
+import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
+
 export function CCPStats() {
   const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: formatLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+    endDate: todayLocal(),
   });
 
   const { data: stats, isLoading } = trpc.ccpMonitoring.getCcpMonitoringStats.useQuery({

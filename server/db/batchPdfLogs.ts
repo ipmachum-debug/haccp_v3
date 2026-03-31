@@ -25,7 +25,7 @@ export type PdfLogRecord = typeof hBatchPdfLogs.$inferSelect;
  */
 export async function logPdfSuccess(batchId: number, fileUrl: string): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(hBatchPdfLogs).values({
     batchId,
@@ -40,7 +40,7 @@ export async function logPdfSuccess(batchId: number, fileUrl: string): Promise<v
  */
 export async function logPdfFailure(batchId: number, errorMessage: string): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(hBatchPdfLogs).values({
     batchId,
@@ -55,7 +55,7 @@ export async function logPdfFailure(batchId: number, errorMessage: string): Prom
  */
 export async function getPdfLogsByBatchId(batchId: number): Promise<PdfLogRecord[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db
     .select()
@@ -69,7 +69,7 @@ export async function getPdfLogsByBatchId(batchId: number): Promise<PdfLogRecord
  */
 export async function getLatestSuccessPdfUrl(batchId: number): Promise<string | null> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result = await db
     .select({ fileUrl: hBatchPdfLogs.fileUrl })
@@ -95,7 +95,7 @@ export type RetryTaskRecord = typeof hBatchCompletionRetries.$inferSelect;
  */
 export async function getFailedTasks(tenantId: number): Promise<RetryTaskRecord[]> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db
     .select()
@@ -109,7 +109,7 @@ export async function getFailedTasks(tenantId: number): Promise<RetryTaskRecord[
  */
 export async function retryFailedTask(taskId: number, tenantId: number): Promise<{ success: boolean; message: string }> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 작업 조회
   const task = await db
@@ -146,7 +146,7 @@ export async function retryFailedTask(taskId: number, tenantId: number): Promise
  */
 export async function deleteFailedTask(taskId: number, tenantId: number): Promise<{ success: boolean; message: string }> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(hBatchCompletionRetries)

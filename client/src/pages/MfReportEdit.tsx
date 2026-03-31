@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // CCP 공정그룹 중 배합비 매핑 대상 (가열 3종만, 금속검출 제외)
 const HEAT_CCP_TYPES = ["CCP-1B", "CCP-2B"];
 
@@ -88,7 +90,7 @@ export default function MfReportEdit() {
       setProductId(reportDetail.productId);
       setProductName(reportDetail.productName || "");
       setReportNo(reportDetail.reportNo);
-      setReportDate(new Date(reportDetail.reportDate).toISOString().split('T')[0]);
+      setReportDate(formatLocalDate(new Date(reportDetail.reportDate)));
 
       const ver = latestVersion[0];
       if (ver.yieldBasis) setYieldBasis(ver.yieldBasis === "BATCH" ? "BATCH" : "UNIT");
@@ -294,7 +296,7 @@ export default function MfReportEdit() {
       const url = window.URL.createObjectURL(pdfBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `배합표_${exportMode === "summary" ? "요약" : "상세"}_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `배합표_${exportMode === "summary" ? "요약" : "상세"}_${todayLocal()}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
       toast.success("배합표가 다운로드되었습니다");
@@ -324,7 +326,7 @@ export default function MfReportEdit() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `배치계산_${batchKg}kg_${new Date().toISOString().split("T")[0]}.csv`;
+      a.download = `배치계산_${batchKg}kg_${todayLocal()}.csv`;
       a.click();
       window.URL.revokeObjectURL(url);
       toast.success("엑셀 파일이 다운로드되었습니다");

@@ -46,14 +46,66 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+// ============================================================================
+// 환경변수 검증 - 서버 시작 전 필수/권장 변수 확인
+// ============================================================================
+function validateEnvVars(): void {
+  const required = ["DATABASE_URL"] as const;
+  const optional = ["REDIS_URL", "OPENAI_API_KEY", "CORS_ORIGINS"] as const;
+
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    console.error(`[FATAL] 필수 환경변수 누락: ${missing.join(", ")}`);
+    console.error("서버를 시작할 수 없습니다. .env 파일을 확인하세요.");
+    process.exit(1);
+  }
+
+  for (const key of optional) {
+    if (!process.env[key]) {
+      console.warn(`[WARN] 선택 환경변수 미설정: ${key} — 일부 기능이 제한될 수 있습니다.`);
+    }
+  }
+}
+
 async function startServer() {
+  validateEnvVars();
+
   const app = express();
   const server = createServer(app);
   
-  // CORS 설정 (쿠키 전송을 위해 credentials: true 필요)
+  // Rate Limiting - 기본 IP당 분당 200회 제한
+  const rateMap = new Map<string, { count: number; resetAt: number }>();
+  app.use((req, res, next) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const entry = rateMap.get(ip);
+    if (!entry || now > entry.resetAt) {
+      rateMap.set(ip, { count: 1, resetAt: now + 60000 });
+    } else {
+      entry.count++;
+      if (entry.count > 200) {
+        res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+        return;
+      }
+    }
+    next();
+  });
+  // 만료된 항목 정리 (5분마다)
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of rateMap) { if (now > entry.resetAt) rateMap.delete(ip); }
+  }, 300000);
+
+  // CORS 설정 - 허용 도메인 제한
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+    : ['https://haccpone.com', 'https://www.haccpone.com', 'http://localhost:5173', 'http://localhost:3000'];
   app.use(cors({
-    origin: true, // 모든 origin 허용 (개발 환경)
-    credentials: true, // 쿠키 전송 허용
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+      else callback(null, true); // 운영 전환 시 false로 변경
+    },
+    credentials: true,
   }));
   
   // Configure body parser with larger size limit for file uploads
@@ -114,7 +166,7 @@ async function startServer() {
   // Session 미들웨어 (Redis 스토어 사용)
   app.use(session({
     store: redisStore,
-    secret: process.env.SESSION_SECRET || 'haccp-v3-session-secret-key-change-in-production',
+    secret: process.env.SESSION_SECRET || (() => { console.warn('[SECURITY] SESSION_SECRET 환경변수를 설정하세요!'); return 'haccp-v3-fallback-' + (process.env.DATABASE_URL || '').slice(-16); })(),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -172,6 +224,10 @@ async function startServer() {
       const { getDb } = await import("../db");
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
+      
+      // 자동 마이그레이션 실행 (누락된 컬럼 추가 등)
+      const { runStartupMigrations } = await import("../db/startupMigrations");
+      await runStartupMigrations();
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
     }

@@ -14,6 +14,8 @@ import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export interface ChecklistFormConfig {
   /** DB에 저장될 formType (예: "air_compressor_maintenance") */
   formType: string;
@@ -105,7 +107,7 @@ export function useChecklistForm(config: ChecklistFormConfig): UseChecklistFormR
   // ── 저장 핸들러 ──
   const handleSave = useCallback(async (formData: any) => {
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocal();
       if (savedRecordId) {
         // 수정
         await updateMutation.mutateAsync({
@@ -145,7 +147,7 @@ export function useChecklistForm(config: ChecklistFormConfig): UseChecklistFormR
       return;
     }
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayLocal();
       // 1) 상태를 submitted로 업데이트
       await updateMutation.mutateAsync({
         id: savedRecordId,

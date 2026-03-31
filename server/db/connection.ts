@@ -1,5 +1,5 @@
 import { drizzle } from "drizzle-orm/mysql2";
-import mysql, { Pool } from "mysql2/promise";
+import mysql, { Pool, PoolConnection } from "mysql2/promise";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _rawConnection: Pool | null = null;
@@ -26,10 +26,13 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
         queueLimit: 0
       });
 
-      // 각 연결마다 character set 강제 설정
+      // 각 연결마다 character set + KST 타임존 강제 설정 (mysql2는 다중 statement 미지원 → 분리 실행)
       connection.on('connection', (conn: any) => {
         conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset:', err);
+        });
+        conn.query("SET time_zone = '+09:00'", (err: any) => {
+          if (err) console.error('[Database] Failed to set timezone:', err);
         });
       });
 
@@ -37,11 +40,11 @@ export async function getDb(): Promise<ReturnType<typeof drizzle>> {
       console.log('[Database] Connection established successfully');
     } catch (error) {
       console.error("[Database] Failed to connect:", error);
-      throw new Error("Database connection failed");
+      throw new Error("DB 연결 실패");
     }
   }
   if (!_db) {
-    throw new Error("Database not initialized");
+    throw new Error("DB 연결 실패");
   }
   return _db;
 }
@@ -60,10 +63,13 @@ export async function getRawConnection(): Promise<Pool> {
         charset: 'utf8mb4'
       });
 
-      // 각 연결마다 character set 강제 설정
+      // 각 연결마다 character set + KST 타임존 강제 설정 (mysql2는 다중 statement 미지원 → 분리 실행)
       _rawConnection.on('connection', (conn: any) => {
         conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci', (err: any) => {
           if (err) console.error('[Database] Failed to set charset on raw connection:', err);
+        });
+        conn.query("SET time_zone = '+09:00'", (err: any) => {
+          if (err) console.error('[Database] Failed to set timezone on raw connection:', err);
         });
       });
 
@@ -77,4 +83,32 @@ export async function getRawConnection(): Promise<Pool> {
     throw new Error("Raw connection not initialized");
   }
   return _rawConnection;
+}
+
+/**
+ * 트랜잭션 래퍼 - 단일 PoolConnection에서 BEGIN/COMMIT/ROLLBACK 보장
+ * 회계/재고 POST 등 원자성이 필요한 다중 INSERT/UPDATE에 사용
+ */
+export async function withTransaction<T>(
+  fn: (conn: PoolConnection) => Promise<T>,
+  operationName?: string
+): Promise<T> {
+  const pool = await getRawConnection();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const result = await fn(conn);
+    await conn.commit();
+    return result;
+  } catch (err) {
+    await conn.rollback();
+    // 트랜잭션 실패 추적
+    try {
+      const { trackTransactionFailure } = await import("../utils/operationMonitor");
+      trackTransactionFailure(operationName || "unknown", err);
+    } catch { /* monitor import 실패 시 무시 */ }
+    throw err;
+  } finally {
+    conn.release();
+  }
 }

@@ -169,6 +169,14 @@ export const checklistRouter = router({
           const { itemId, ...data } = input;
           return await updateChecklistInstanceItem(itemId, data, tenantId);
         }),
+      // 인스턴스 삭제
+      delete: workerProcedure
+        .input(z.object({ id: z.number() }))
+        .mutation(async ({ input, ctx }) => {
+          const tenantId = ctx.tenantId;
+          const { deleteChecklistInstance } = await import("../../db");
+          return await deleteChecklistInstance(input.id, tenantId);
+        }),
       // 인스턴스 상태 변경
       updateStatus: workerProcedure
         .input(

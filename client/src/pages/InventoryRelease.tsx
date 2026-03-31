@@ -13,10 +13,12 @@ import { PackageMinus, Loader2, AlertTriangle, DollarSign } from "lucide-react";
 import { useLocation } from "wouter";
 import { Checkbox } from "@/components/ui/checkbox";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function InventoryRelease() {
   const [selectedLotId, setSelectedLotId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState("");
-  const [releaseDate, setReleaseDate] = useState(new Date().toISOString().split("T")[0]);
+  const [releaseDate, setReleaseDate] = useState(todayLocal());
   const [reason, setReason] = useState("");
   const [destination, setDestination] = useState("");
   const [autoCreateSale, setAutoCreateSale] = useState(true);
@@ -79,7 +81,7 @@ export default function InventoryRelease() {
       setCustomerId(null);
       setReason("");
       setDestination("");
-      setReleaseDate(new Date().toISOString().split("T")[0]);
+      setReleaseDate(todayLocal());
       refetchLots();
     },
     onError: (error: any) => {

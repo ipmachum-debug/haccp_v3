@@ -17,7 +17,7 @@ export async function optimizeProductionSchedule(params: {
 }) {
   const { startDate, endDate, facilityIds, tenantId } = params;
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 현재 재고 수준 조회
   const inventoryLevels = await db
@@ -173,7 +173,7 @@ ${plannedBatches
  */
 export async function calculateProductionPriority(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 재고가 부족한 제품 조회 (안전 재고 대비)
   const lowStockProducts = await db

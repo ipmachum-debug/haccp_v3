@@ -11,7 +11,7 @@ export async function getRecipes(filters: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   let query = db.select().from(recipes);
   
@@ -33,7 +33,7 @@ export async function getRecipes(filters: {
  */
 export async function getRecipeById(recipeId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const conditions: any[] = [eq(recipes.id, recipeId)];
   if (tenantId) {
@@ -58,7 +58,7 @@ export async function getRecipeById(recipeId: number, tenantId?: number) {
  */
 export async function getRecipesByProductId(productId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const conditions: any[] = [
     eq(recipes.productId, productId),
@@ -99,7 +99,7 @@ export async function createRecipe(data: {
   }>;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const { lines, ...recipeData } = data;
   
@@ -148,7 +148,7 @@ export async function updateRecipe(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const conditions: any[] = [eq(recipes.id, recipeId)];
   if (tenantId) {
@@ -181,7 +181,7 @@ export async function updateRecipe(
  */
 export async function deleteRecipe(recipeId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const conditions: any[] = [eq(recipes.id, recipeId)];
   if (tenantId) {
@@ -202,7 +202,7 @@ export async function createRecipeVersion(data: {
   createdBy: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 현재 레시피 스냅샷 저장
   const recipe = await getRecipeById(data.recipeId, tenantId);
@@ -221,7 +221,7 @@ export async function createRecipeVersion(data: {
  */
 export async function getRecipeVersions(recipeId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   return await db.select().from(recipeVersions)
     .where(and(eq(recipeVersions.tenantId, tenantId as any), eq(recipeVersions.recipeId, recipeId)) as any)
@@ -238,7 +238,7 @@ export async function duplicateRecipe(
   tenantId: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 기존 레시피 조회
   const recipe = await getRecipeById(recipeId, tenantId);

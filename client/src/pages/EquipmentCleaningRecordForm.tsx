@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "equipment_cleaning_record",
   title: "설비 세척·소독 기록",
@@ -14,7 +16,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function EquipmentCleaningRecordForm() {
-  const [cleaningDate, setCleaningDate] = useState(new Date().toISOString().split("T")[0]);
+  const [cleaningDate, setCleaningDate] = useState(todayLocal());
   const [equipmentName, setEquipmentName] = useState("");
   const [cleaningMethod, setCleaningMethod] = useState("");
   const [detergentUsed, setDetergentUsed] = useState("");

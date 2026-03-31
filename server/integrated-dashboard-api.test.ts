@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
+import { toKSTDate, todayKST } from "./utils/timezone";
+
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
 function createTestContext(): TrpcContext {
@@ -31,8 +33,8 @@ describe("통합 대시보드 API 최적화 테스트", () => {
   it("생산 효율성 탭 통합 API 호출 성공", async () => {
     const result = await caller.dashboard.getProductionEfficiencyData({
       siteId: testSiteId,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      endDate: new Date().toISOString().split("T")[0]
+      startDate: toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+      endDate: todayKST()
     });
 
     expect(result).toBeDefined();
@@ -47,8 +49,8 @@ describe("통합 대시보드 API 최적화 테스트", () => {
   it("재고 추이 탭 통합 API 호출 성공", async () => {
     const result = await caller.dashboard.getInventoryTrendData({
       siteId: testSiteId,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      endDate: new Date().toISOString().split("T")[0]
+      startDate: toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+      endDate: todayKST()
     });
 
     expect(result).toBeDefined();
@@ -62,8 +64,8 @@ describe("통합 대시보드 API 최적화 테스트", () => {
 
   it("생산 효율성 탭 통합 API - siteId 없이 호출 시 ctx.user.siteId 사용", async () => {
     const result = await caller.dashboard.getProductionEfficiencyData({
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      endDate: new Date().toISOString().split("T")[0]
+      startDate: toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+      endDate: todayKST()
     });
 
     expect(result).toBeDefined();
@@ -73,8 +75,8 @@ describe("통합 대시보드 API 최적화 테스트", () => {
   it("재고 추이 탭 통합 API - materialId 필터 적용", async () => {
     const result = await caller.dashboard.getInventoryTrendData({
       siteId: testSiteId,
-      startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      endDate: new Date().toISOString().split("T")[0],
+      startDate: toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+      endDate: todayKST(),
       materialId: 1, // 테스트 원재료 ID
     });
 

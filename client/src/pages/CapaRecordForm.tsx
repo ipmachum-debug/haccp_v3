@@ -6,6 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "capa_record",
   title: "개선조치(CAPA) 기록",
@@ -15,7 +17,7 @@ const config: ChecklistFormConfig = {
 
 export default function CapaRecordForm() {
   const [capaNumber, setCapaNumber] = useState("");
-  const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
+  const [issueDate, setIssueDate] = useState(todayLocal());
   const [problemDescription, setProblemDescription] = useState("");
   const [correctiveAction, setCorrectiveAction] = useState("");
   const [preventiveAction, setPreventiveAction] = useState("");

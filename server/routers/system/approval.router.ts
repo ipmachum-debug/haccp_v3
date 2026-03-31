@@ -295,7 +295,7 @@ export const approvalRouter = router({
         const { getApprovalRequestById } = await import("../../db");
         const db = (await import("../../db")).getDb();
         const dbConn = await db;
-        if (!dbConn) throw new Error("Database not available");
+        if (!dbConn) throw new Error("DB 연결 실패");
 
         const request = await getApprovalRequestById(input.requestId);
         if (!request) {
@@ -332,7 +332,7 @@ export const approvalRouter = router({
         const tenantId = ctx.tenantId;
         const db = (await import("../../db")).getDb();
         const dbConn = await db;
-        if (!dbConn) throw new Error("Database not available");
+        if (!dbConn) throw new Error("DB 연결 실패");
 
         if (input.requestIds.length === 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "삭제할 항목을 선택해주세요" });
@@ -358,7 +358,7 @@ export const approvalRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { reviewApprovalRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, input.comments);
+        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
         return result;
       }),
 
@@ -372,7 +372,7 @@ export const approvalRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { finalApproveRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await finalApproveRequest(input.requestId, ctx.user.id, input.comments);
+        const result = await finalApproveRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
 
         // 승인 완료 알림 발송
         if (result.success) {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,7 +40,10 @@ import { Package, Plus, Calendar, Clock } from "lucide-react";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function MaterialReceiptManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'lots');
   const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 
@@ -164,7 +168,7 @@ export default function MaterialReceiptManagement() {
                     name="receiptDate"
                     type="date"
                     required
-                    defaultValue={new Date().toISOString().split("T")[0]}
+                    defaultValue={todayLocal()}
                   />
                 </div>
                 <div className="space-y-2">
@@ -209,7 +213,7 @@ export default function MaterialReceiptManagement() {
         </Dialog>
       </div>
 
-      <Tabs defaultValue="lots" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="lots">재고 LOT 목록</TabsTrigger>
           <TabsTrigger value="fefo">FEFO 조회</TabsTrigger>

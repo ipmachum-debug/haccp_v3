@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
@@ -10,9 +11,12 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Lock, Play, RefreshCw } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function AccountingCloseManagement() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'daily');
   const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
+    todayLocal()
   );
   const [selectedMonth, setSelectedMonth] = useState<string>(
     new Date().toISOString().slice(0, 7)
@@ -104,7 +108,7 @@ export default function AccountingCloseManagement() {
             <CardDescription>일일/월간 회계 마감을 관리합니다</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="daily">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="daily">일일 마감</TabsTrigger>
                 <TabsTrigger value="monthly">월간 마감</TabsTrigger>

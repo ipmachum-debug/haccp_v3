@@ -1,4 +1,6 @@
 import FloatingAIChatbot from "@/components/FloatingAIChatbot";
+import FloatingAIBriefing from "@/components/FloatingAIBriefing";
+import ChannelTalkWidget from "@/components/ChannelTalkWidget";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -226,43 +228,43 @@ const menuItems = [
   { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
 
   // WORK 탭 고정 메뉴
-  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "worker", "inspector", "user"] },
-  
-  // 생산 (탭 통합 페이지)
+  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+
+  // 생산 (admin, worker)
   { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
   { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
   { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
-  
-  // 품질 (탭 통합 페이지)
-  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector"] },
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "worker", "inspector"] },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector"] },
-  
-  // 재고
-  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "worker"] },
-  
-  // 알림
-  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker", "inspector", "user"] },
-  
-  // 승인 (탭 통합 페이지)
-  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "inspector", "worker"] },
-  
-  // 문서 출력 (탭 통합 페이지)
-  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "inspector", "worker"] },
-  
-  // 마스터 데이터
-  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"] },
-  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"] },
-  
-  // 모바일
-  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector", "user"] },
-  
-  // HACCP 검증 & 감사
-  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "worker", "inspector"] },
-  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector"] },
-  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector"] },
 
-  // 시스템
+  // 품질 (admin, worker, inspector, monitor)
+  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"] },
+  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"] },
+  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"] },
+
+  // 재고 (admin, accountant, worker-읽기)
+  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"] },
+
+  // 알림
+  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+
+  // 승인 (admin, monitor, inspector)
+  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"] },
+
+  // 문서 출력 (admin, accountant, monitor)
+  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"] },
+
+  // 마스터 데이터 (admin, accountant)
+  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"] },
+  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"] },
+
+  // 모바일 (worker, inspector)
+  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"] },
+
+  // HACCP 검증 & 감사 (admin, inspector, monitor)
+  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
+  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
+  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
+
+  // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
 ];
@@ -317,7 +319,59 @@ export default function DashboardLayout({
         </DashboardLayoutContent>
       </SidebarProvider>
       <FloatingAIChatbot />
+      <FloatingAIBriefing />
+      <ChannelTalkWidget />
     </>
+  );
+}
+
+// ============================================================================
+// 데모 모드 배너 (30분 타이머 + 읽기 전용 안내)
+// ============================================================================
+function DemoBanner({ onLogout }: { onLogout: () => void }) {
+  const [remaining, setRemaining] = useState(30 * 60); // 30분
+
+  useEffect(() => {
+    const startTime = sessionStorage.getItem("demo_start");
+    if (!startTime) {
+      sessionStorage.setItem("demo_start", Date.now().toString());
+    }
+
+    const timer = setInterval(() => {
+      const start = Number(sessionStorage.getItem("demo_start") || Date.now());
+      const elapsed = Math.floor((Date.now() - start) / 1000);
+      const left = Math.max(0, 30 * 60 - elapsed);
+      setRemaining(left);
+      if (left <= 0) {
+        clearInterval(timer);
+        sessionStorage.removeItem("demo_start");
+        onLogout();
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [onLogout]);
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const isUrgent = remaining < 5 * 60;
+
+  return (
+    <div className={`sticky top-0 z-50 flex items-center justify-between px-4 py-2 text-sm font-medium ${
+      isUrgent ? "bg-red-500 text-white" : "bg-amber-400 text-amber-900"
+    }`}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-black/15 font-bold">DEMO</span>
+        <span>읽기 전용 모드 &middot; 데이터 수정 불가</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="font-mono text-xs tabular-nums">
+          {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")} 남음
+        </span>
+        <a href="/register" className="text-xs px-3 py-1 rounded-full bg-black/20 hover:bg-black/30 transition-colors font-semibold">
+          회원가입
+        </a>
+      </div>
+    </div>
   );
 }
 
@@ -333,6 +387,9 @@ function DashboardLayoutContent({
   const { user, logout } = useAuth();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
+
+  // ✨ 데모 계정 감지
+  const isDemo = !!(user as any)?.isDemo;
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -553,14 +610,36 @@ function DashboardLayoutContent({
     return menuItem ? { ...menuItem, favoriteId: fav.id } : null;
    }).filter(Boolean);
 
+  // 데모 계정 허용 경로 (핵심 기능만)
+  const DEMO_ALLOWED_PATHS = [
+    "/dashboard",
+    "/dashboard/today",
+    "/dashboard/production-management",
+    "/dashboard/production-operations",
+    "/dashboard/manufacturing-standards",
+    "/quality/ccp-monitoring",
+    "/dashboard/inspections",
+    "/quality/checklists",
+    "/inventory-management",
+    "/dashboard/notifications",
+    "/dashboard/document-output",
+  ];
+
   // 표시할 메뉴 선택 (슈퍼관리자는 전용 메뉴 표시)
-  const displayedMenuItems = user?.role === "super_admin" && activeTab === "work"
+  let displayedMenuItems = user?.role === "super_admin" && activeTab === "work"
     ? superAdminMenuItems
-    : activeTab === "work" 
+    : activeTab === "work"
     ? workMenuItems
     : activeTab === "finance"
     ? accountingMenuItems
     : menuItems;
+
+  // 데모 계정: 허용된 메뉴만 표시
+  if (isDemo) {
+    displayedMenuItems = displayedMenuItems.filter(
+      (item: any) => DEMO_ALLOWED_PATHS.includes(item.path)
+    );
+  }
   
   // 자동 탭 전환 로직 제거 - 사용자가 수동으로 탭을 선택할 수 있도록 함
   const isMobile = useIsMobile();
@@ -644,11 +723,13 @@ function DashboardLayoutContent({
             {!isCollapsed && (
               <div className="px-3 mb-2">
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 text-[11px] h-8 bg-sidebar-accent/60">
+                  <TabsList className={`grid w-full ${isDemo ? "grid-cols-2" : "grid-cols-3"} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
                       WORK
                     </TabsTrigger>
-                    <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
+                    {!isDemo && (
+                      <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
+                    )}
                     <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -794,8 +875,8 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="px-2 py-2 space-y-1">
-            {/* AI 어시스턴트 - 심플 한 줄 버튼 */}
-            {user && ["super_admin", "admin", "inspector"].includes(user.role) && (
+            {/* AI 어시스턴트 - 심플 한 줄 버튼 (데모 모드에서는 숨김) */}
+            {!isDemo && user && ["super_admin", "admin", "inspector"].includes(user.role) && (
               <button
                 onClick={() => setLocation("/dashboard/ai-assistant")}
                 className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium transition-all ${
@@ -896,6 +977,8 @@ function DashboardLayoutContent({
       </div>
 
       <SidebarInset>
+        {/* 데모 모드 배너 */}
+        {isDemo && <DemoBanner onLogout={logout} />}
         {isMobile && (
           <div className="flex border-b border-border h-[72px] items-center justify-between bg-white dark:bg-card backdrop-blur-xl px-4 sticky top-0 z-40">
             <div className="flex items-center gap-3">

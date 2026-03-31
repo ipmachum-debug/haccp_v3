@@ -12,7 +12,7 @@ describe("Inspection System Integration Tests", () => {
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트 사용자 생성
     const hashedPassword = await bcrypt.hash("password123", 10);

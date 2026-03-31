@@ -10,7 +10,7 @@ import {
 import { createAuditLog } from "./utils/auditLogger";
 export async function authenticateUser(email: string, password: string, ipAddress?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   
@@ -59,7 +59,7 @@ export async function authenticateUser(email: string, password: string, ipAddres
 }
 export async function getUserById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   
@@ -102,7 +102,7 @@ export async function registerUser(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 사용자 유형 검증
   if (userType === 'client_admin' && !companyName) {

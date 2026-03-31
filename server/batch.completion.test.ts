@@ -7,6 +7,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { appRouter } from "./routers";
 import type { Context } from "./_core/context";
 
+import { todayKST } from "./utils/timezone";
+
 // 테스트용 컨텍스트 생성 (admin 권한)
 const createTestContext = (): Context => ({
   user: {
@@ -60,7 +62,7 @@ describe("배치 완료 플로우 통합 테스트", () => {
       lotNumber: `TEST-LOT-${Date.now()}`,
       quantity: "1000",
       unit: "kg",
-      productionDate: new Date().toISOString().split("T")[0],
+      productionDate: todayKST(),
       supplierName: "테스트 공급업체"
     });
     console.log("LOT 생성 결과:", lot);

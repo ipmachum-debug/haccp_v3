@@ -10,7 +10,7 @@ export async function createInspectionAlert(data: {
   scheduledTime: Date;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [alert] = await db.insert(hCcpInspectionAlerts).values({
       tenantId,
@@ -26,7 +26,7 @@ export async function createInspectionAlert(data: {
  */
 export async function getInspectionAlertsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const alerts = await db
     .select()
@@ -39,7 +39,7 @@ export async function getInspectionAlertsByBatch(batchId: number, tenantId?: num
  */
 export async function getPendingAlerts(currentTime: Date, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const alerts = await db
     .select()
@@ -61,7 +61,7 @@ export async function updateAlertStatus(
   status: "notified" | "completed" | "skipped",
   timestamp?: Date, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   const updateData: any = { status };
   
@@ -81,7 +81,7 @@ export async function updateAlertStatus(
  */
 export async function getUserPendingAlerts(userId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // h_ccp_instances와 JOIN하여 batchId를 포함한 알림 조회
   const { hCcpInstances } = await import("../../drizzle/schema_main");

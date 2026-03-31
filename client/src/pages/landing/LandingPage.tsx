@@ -9,6 +9,7 @@ import {
   Play, Quote, ChevronLeft, ChevronRight, Sparkles, Check,
   ArrowUp, ArrowDown, Home
 } from "lucide-react";
+import ScreenshotCarousel from "./ScreenshotCarousel";
 
 // ─── i18n ───
 const translations = {
@@ -111,26 +112,57 @@ const translations = {
       plans: [
         {
           name: "Starter",
-          price: "100,000",
+          price: "99,000",
           unit: "원/월 (부가세 별도)",
-          desc: "소규모 제조업체를 위한 기본 플랜",
-          features: ["사용자 3명", "기본 생산관리", "재고 관리", "HACCP 기록", "이메일 지원"],
+          desc: "소규모 식품 제조업체를 위한 기본 플랜",
+          features: [
+            "사용자 3명",
+            "제품 20개",
+            "월 배치 50건",
+            "생산관리 · 재고관리",
+            "HACCP 기록 · CCP 관리",
+            "체크리스트 · 검사관리",
+            "기본 문서 출력",
+            "이메일 지원",
+          ],
           popular: false,
         },
         {
-          name: "Professional",
-          price: "290,000",
+          name: "Standard",
+          price: "199,000",
           unit: "원/월 (부가세 별도)",
-          desc: "성장하는 제조업체를 위한 전문 플랜",
-          features: ["사용자 10명", "모든 기능 포함", "문서 자동 출력", "승인 워크플로우", "LOT 추적", "우선 지원"],
+          yearlyNote: "연 결제 시 1,990,000원 (2개월 할인)",
+          desc: "성장하는 제조업체를 위한 통합 관리 플랜",
+          features: [
+            "사용자 10명",
+            "제품 100개",
+            "월 배치 300건",
+            "Starter 기능 전체 포함",
+            "회계 모듈 (전표·분개·재무보고서)",
+            "AI 비서 '하나'",
+            "문서 PDF 자동 출력",
+            "엑셀 내보내기",
+            "자동 백업 (30일 보관)",
+            "채팅 지원",
+          ],
           popular: true,
         },
         {
           name: "Enterprise",
-          price: "맞춤",
-          unit: "견적 (부가세 별도)",
-          desc: "대규모 제조업체를 위한 맞춤 플랜",
-          features: ["무제한 사용자", "기업 맞춤 기능", "전담 지원", "API 연동", "온프레미스 옵션", "SLA 보장"],
+          price: "299,000",
+          unit: "원/월 (부가세 별도)",
+          yearlyNote: "연 결제 시 2,990,000원 (2개월 할인)",
+          desc: "다공장 운영 · 대규모 제조업체 맞춤 플랜",
+          features: [
+            "무제한 사용자",
+            "무제한 제품 · 배치",
+            "Standard 기능 전체 포함",
+            "멀티 사이트 (공장 5개)",
+            "커스텀 PDF 양식",
+            "API 연동 (GOGOGOPICK 등)",
+            "데이터 무제한 보관",
+            "전담 매니저 · SLA 보장",
+          ],
           popular: false,
         },
       ],
@@ -529,7 +561,7 @@ export default function LandingPage() {
               <a href="/login" className="text-[15px] font-medium text-stone-500 hover:text-[#1a1a2e] transition-colors px-4 py-2">
                 {t.nav.login}
               </a>
-              <a href="#cta" onClick={(e) => { e.preventDefault(); scrollTo("cta"); }} className="text-sm font-semibold px-6 py-2.5 bg-[#1a1a2e] text-white rounded-full hover:bg-[#2a2a3e] transition-all shadow-lg shadow-stone-900/10">
+              <a href="/register" className="text-sm font-semibold px-6 py-2.5 bg-[#1a1a2e] text-white rounded-full hover:bg-[#2a2a3e] transition-all shadow-lg shadow-stone-900/10">
                 {t.nav.demo}
               </a>
             </div>
@@ -617,9 +649,9 @@ export default function LandingPage() {
                 <a href="/register" className="w-full sm:w-auto px-7 py-3.5 bg-[#1a1a2e] text-white font-semibold rounded-full hover:bg-[#2a2a3e] transition-all shadow-xl shadow-stone-900/10 hover:shadow-2xl flex items-center justify-center gap-2 text-[15px]">
                   {t.hero.cta1} <ArrowRight className="w-4 h-4" />
                 </a>
-                <button onClick={() => scrollTo("dashboard")} className="w-full sm:w-auto px-7 py-3.5 bg-white text-stone-700 font-semibold rounded-full border border-stone-200 hover:border-orange-300 hover:text-orange-600 transition-all flex items-center justify-center gap-2 text-[15px]">
-                  <Play className="w-4 h-4" /> {t.hero.cta2}
-                </button>
+                <a href="/login?demo=true" className="w-full sm:w-auto px-7 py-3.5 bg-gradient-to-r from-orange-400 to-amber-500 text-white font-semibold rounded-full hover:from-orange-500 hover:to-amber-600 transition-all shadow-lg shadow-orange-200/40 flex items-center justify-center gap-2 text-[15px]">
+                  <Play className="w-4 h-4" /> {lang === "ko" ? "데모 체험하기" : "Try Demo"}
+                </a>
               </motion.div>
 
               {/* Trust line */}
@@ -637,48 +669,13 @@ export default function LandingPage() {
               </motion.div>
             </motion.div>
 
-            {/* Right: Dashboard preview card */}
+            {/* Right: Screenshot Carousel */}
             <motion.div initial={{ opacity: 0, y: 30, rotate: 1 }} animate={{ opacity: 1, y: 0, rotate: 0 }} transition={{ delay: 0.3, duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}>
               <div className="relative">
                 {/* Glow behind card */}
                 <div className="absolute -inset-4 bg-gradient-to-br from-orange-200/40 via-amber-100/30 to-rose-100/20 rounded-3xl blur-2xl" />
-                <div className="relative rounded-2xl bg-white border border-stone-200/60 shadow-2xl shadow-stone-900/5 overflow-hidden">
-                  {/* Browser bar */}
-                  <div className="flex items-center gap-2 px-4 py-3 bg-stone-50 border-b border-stone-100">
-                    <div className="flex gap-1.5">
-                      <div className="w-3 h-3 rounded-full bg-red-300" />
-                      <div className="w-3 h-3 rounded-full bg-amber-300" />
-                      <div className="w-3 h-3 rounded-full bg-emerald-300" />
-                    </div>
-                    <div className="ml-3 flex-1 bg-white rounded-md px-3 py-1 text-xs text-stone-400 border border-stone-100">
-                      app.haccpone.com
-                    </div>
-                  </div>
-                  {/* Mock dashboard content */}
-                  <div className="p-5">
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      {[
-                        { label: lang === "ko" ? "금일 생산" : "Today's Production", value: "2,450 kg", icon: Factory, color: "text-orange-500", bg: "bg-orange-50" },
-                        { label: lang === "ko" ? "CCP 완료" : "CCP Complete", value: "24/24", icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-50" },
-                        { label: lang === "ko" ? "재고 품목" : "Inventory Items", value: "1,230", icon: Package, color: "text-blue-500", bg: "bg-blue-50" },
-                        { label: lang === "ko" ? "출하 대기" : "Pending Shipment", value: "8", icon: Truck, color: "text-violet-500", bg: "bg-violet-50" },
-                      ].map((card, i) => (
-                        <div key={i} className="rounded-xl bg-stone-50/80 border border-stone-100 p-3.5">
-                          <div className={`w-8 h-8 ${card.bg} rounded-lg flex items-center justify-center mb-2`}>
-                            <card.icon className={`w-4 h-4 ${card.color}`} />
-                          </div>
-                          <div className="text-xs text-stone-400 mb-0.5">{card.label}</div>
-                          <div className="text-lg font-bold text-[#1a1a2e]">{card.value}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Chart mockup */}
-                    <div className="rounded-xl bg-stone-50/80 border border-stone-100 p-4 h-36 flex items-end gap-1.5">
-                      {[35, 55, 40, 72, 50, 85, 62, 78, 55, 90, 68, 82].map((h, i) => (
-                        <div key={i} className="flex-1 rounded-t-sm transition-all" style={{ height: `${h}%`, background: `linear-gradient(to top, #f97316, #fbbf24)`, opacity: 0.75 + (i * 0.02) }} />
-                      ))}
-                    </div>
-                  </div>
+                <div className="relative">
+                  <ScreenshotCarousel lang={lang} />
                 </div>
               </div>
             </motion.div>
@@ -1026,13 +1023,13 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <button className={`mt-8 w-full py-3.5 rounded-full font-semibold text-sm transition-all duration-300 ${
-                  plan.popular 
-                    ? "bg-gradient-to-r from-orange-400 to-amber-500 text-white hover:from-orange-500 hover:to-amber-600 shadow-lg shadow-orange-500/20" 
+                <a href="/register" className={`mt-8 w-full py-3.5 rounded-full font-semibold text-sm transition-all duration-300 block text-center ${
+                  plan.popular
+                    ? "bg-gradient-to-r from-orange-400 to-amber-500 text-white hover:from-orange-500 hover:to-amber-600 shadow-lg shadow-orange-500/20"
                     : "bg-[#1a1a2e] text-white hover:bg-[#2a2a3e]"
                 }`}>
                   {lang === "ko" ? "시작하기" : "Get Started"}
-                </button>
+                </a>
               </motion.div>
             ))}
           </motion.div>
@@ -1076,6 +1073,9 @@ export default function LandingPage() {
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
                 <a href="/register" className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-orange-400 to-amber-500 text-white font-semibold rounded-full hover:from-orange-500 hover:to-amber-600 transition-all shadow-xl shadow-orange-500/20 flex items-center justify-center gap-2 text-[15px]">
                   {t.cta.btn1} <ArrowRight className="w-4 h-4" />
+                </a>
+                <a href="/login?demo=true" className="w-full sm:w-auto px-8 py-4 bg-white/10 text-white font-semibold rounded-full border border-orange-400/40 hover:bg-white/15 hover:border-orange-400/60 transition-all flex items-center justify-center gap-2 text-[15px]">
+                  <Play className="w-4 h-4" /> {lang === "ko" ? "데모 체험하기" : "Try Demo"}
                 </a>
                 <a href="/support" className="w-full sm:w-auto px-8 py-4 bg-white/5 text-white font-semibold rounded-full border border-white/15 hover:bg-white/10 transition-all flex items-center justify-center text-[15px]">
                   {t.cta.btn2}

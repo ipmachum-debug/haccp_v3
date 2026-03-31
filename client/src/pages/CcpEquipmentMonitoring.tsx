@@ -12,13 +12,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, Thermometer, Gauge, Search as SearchIcon, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function CcpEquipmentMonitoring() {
   const [selectedCcpType, setSelectedCcpType] = useState<string>("CCP-1B");
   const [selectedEquipmentId, setSelectedEquipmentId] = useState<number | null>(null);
   const [showNewRecordDialog, setShowNewRecordDialog] = useState(false);
   const [dateFilter, setDateFilter] = useState({
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0],
+    startDate: formatLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+    endDate: todayLocal(),
   });
 
   // CCP 설비 목록 조회
@@ -54,7 +56,7 @@ export default function CcpEquipmentMonitoring() {
   // 신규 기록 폼 상태
   const [newRecord, setNewRecord] = useState({
     equipmentId: 0,
-    recordDate: new Date().toISOString().split('T')[0],
+    recordDate: todayLocal(),
     ccpType: "CCP-1B" as "CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P",
     productName: "",
     measurementTime: "",

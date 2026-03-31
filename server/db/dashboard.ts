@@ -7,7 +7,7 @@ import { hBatches } from "../../drizzle/schema_main";
  */
 export async function getDashboardStats(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 배치 현황 통계
   const batchStats = await db
@@ -61,7 +61,7 @@ export async function getDashboardStats(tenantId: number) {
  */
 export async function getCCPCompletionRate(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 전체 CCP 인스턴스 수
   const totalCCPQuery = await db.execute(sql`
@@ -94,7 +94,7 @@ export async function getCCPCompletionRate(tenantId: number) {
  */
 export async function getTurnoverAlertCount(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const alertCountQuery = await db.execute(sql`
     SELECT COUNT(*) as count
@@ -111,7 +111,7 @@ export async function getTurnoverAlertCount(tenantId: number) {
  */
 export async function getFailedTaskCount(tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const failedTaskCountQuery = await db.execute(sql`
     SELECT COUNT(*) as count

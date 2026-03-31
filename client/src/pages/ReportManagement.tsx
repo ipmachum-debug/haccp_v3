@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { FileText, Download, Loader2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function ReportManagement() {
   const [reportType, setReportType] = useState<"daily" | "weekly" | "monthly">("daily");
   const [startDate, setStartDate] = useState("");
@@ -44,7 +46,7 @@ export default function ReportManagement() {
   };
 
   // 오늘 날짜 기본값
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
 
   return (
     <div className="space-y-6">

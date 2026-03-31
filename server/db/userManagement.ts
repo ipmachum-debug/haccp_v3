@@ -105,14 +105,14 @@ export async function createUser(user: {
   isActive?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.insert(users).values(user as any);
 }
 
 export async function updateUserLastLogin(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .update(users)
@@ -122,7 +122,7 @@ export async function updateUserLastLogin(userId: number) {
 
 export async function getAllUsers(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   let query = db.select({
     id: users.id,
@@ -146,7 +146,7 @@ export async function getAllUsers(tenantId?: number) {
 
 export async function updateUserRole(userId: number, role: "admin" | "worker" | "monitor" | "employee") {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({ role: role })
     .where(eq(users.id, userId));
@@ -154,7 +154,7 @@ export async function updateUserRole(userId: number, role: "admin" | "worker" | 
 
 export async function approveUser(userId: number, role: "admin" | "worker" | "monitor") {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({
       approvalStatus: "approved",
@@ -166,7 +166,7 @@ export async function approveUser(userId: number, role: "admin" | "worker" | "mo
 
 export async function toggleUserActive(userId: number, isActive: boolean) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({ isActive: isActive ? 1 : 0 })
     .where(eq(users.id, userId));
@@ -174,7 +174,7 @@ export async function toggleUserActive(userId: number, isActive: boolean) {
 
 export async function batchApproveUsers(userIds: number[], role: "admin" | "worker" | "monitor") {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({
       approvalStatus: "approved",
@@ -186,7 +186,7 @@ export async function batchApproveUsers(userIds: number[], role: "admin" | "work
 
 export async function rejectUser(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({
       approvalStatus: "rejected",
@@ -197,7 +197,7 @@ export async function rejectUser(userId: number) {
 
 export async function batchRejectUsers(userIds: number[]) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   await db.update(users)
     .set({
       approvalStatus: "rejected",
@@ -208,7 +208,7 @@ export async function batchRejectUsers(userIds: number[]) {
 
 export async function inviteUser(email: string, name: string, role: "admin" | "worker" | "monitor", invitedBy: number, userMemo?: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 기본 비밀번호 생성 (임시 비밀번호)
   const bcrypt = await import("bcrypt");
@@ -233,7 +233,7 @@ export async function inviteUser(email: string, name: string, role: "admin" | "w
 // 사용자 삭제
 export async function deleteUser(userId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db.delete(users).where(eq(users.id, userId));
   return { success: true };

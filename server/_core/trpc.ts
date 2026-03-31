@@ -3,6 +3,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { TenantDb } from "../db/TenantDb";
+import { hasPermission, type FeatureArea, type Permission } from "../utils/rbacMatrix";
+import { checkPlanFeature, type PlanLimits } from "../utils/planConfig";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -98,6 +100,14 @@ const requireUserWithTenant = t.middleware(async opts => {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
   }
 
+  // ✨ 데모 계정 mutation 차단 (읽기 전용)
+  if (ctx.user.email === DEMO_EMAIL && type === "mutation" && !DEMO_ALLOWED_MUTATIONS.includes(path)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "데모 계정은 읽기 전용입니다. 회원가입 후 모든 기능을 이용하세요.",
+    });
+  }
+
   const { tenantId, tenantDb } = resolveTenantContext(ctx);
   
   // 슈퍼관리자 활동 기록
@@ -132,11 +142,36 @@ export const protectedTenantProcedure = protectedProcedure;
  * 
  * ⚠️ 테넌트 데이터 CRUD 라우터는 반드시 이 프로시저를 사용해야 합니다!
  */
+// ============================================================================
+// 🔒 데모 계정 읽기 전용 보호
+// ============================================================================
+
+const DEMO_EMAIL = "demo@haccpone.com";
+
+// 데모 계정의 mutation 허용 목록 (로그아웃 등 필수 동작만)
+const DEMO_ALLOWED_MUTATIONS = [
+  "auth.logout",
+  "auth.me",
+  "notification.markAsRead",
+  "notification.markAllAsRead",
+  "notification.markMultipleAsRead",
+  "favorites.toggleFavorite",
+  "favorites.updateOrder",
+];
+
 const requireTenant = t.middleware(async opts => {
   const { ctx, next, path, type } = opts;
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+
+  // ✨ 데모 계정 mutation 차단 (읽기 전용)
+  if (ctx.user.email === DEMO_EMAIL && type === "mutation" && !DEMO_ALLOWED_MUTATIONS.includes(path)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "데모 계정은 읽기 전용입니다. 회원가입 후 모든 기능을 이용하세요.",
+    });
   }
 
   const { tenantId, tenantDb } = resolveTenantContext(ctx);
@@ -358,3 +393,121 @@ export const superAdminProcedure = t.procedure.use(
     });
   }),
 );
+
+// ============================================================================
+// 🔐 기능별 접근 제한 프로시저 팩토리 (RBAC 매트릭스 기반)
+// ============================================================================
+
+/**
+ * createFeatureProcedure - 기능/권한 기반 프로시저 생성
+ *
+ * 사용법:
+ *   const accountingWriteProcedure = createFeatureProcedure("accounting", "write");
+ *   // → admin, super_admin만 접근 가능 (worker, employee 차단)
+ *
+ *   const haccpReadProcedure = createFeatureProcedure("haccp", "read");
+ *   // → worker 이상 전부 접근 가능
+ */
+export function createFeatureProcedure(feature: FeatureArea, permission: Permission) {
+  return t.procedure.use(
+    t.middleware(async (opts) => {
+      const { ctx, next, path, type } = opts;
+
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      }
+
+      const userRole = ctx.user.role || "employee";
+      if (!hasPermission(userRole, feature, permission)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: `${feature} ${permission} 권한이 없습니다. (현재 역할: ${userRole})`,
+        });
+      }
+
+      const { tenantId, tenantDb } = resolveTenantContext(ctx);
+
+      if (!tenantId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: ctx.user.role === "super_admin"
+            ? "테넌트를 먼저 선택해주세요."
+            : "테넌트 정보가 필요합니다.",
+        });
+      }
+
+      const isSuperAdminActing = ctx.user.role === "super_admin" && !!ctx.actingTenantId;
+      if (isSuperAdminActing) {
+        logSuperAdminAction(ctx, path, type);
+      }
+
+      return next({
+        ctx: {
+          ...ctx,
+          user: ctx.user,
+          tenantId,
+          db: tenantDb,
+          isSuperAdminActing,
+        },
+      });
+    })
+  );
+}
+
+// ============================================================================
+// 💰 플랜 기능 게이팅 미들웨어 팩토리
+// ============================================================================
+
+/**
+ * requirePlanFeature - 특정 플랜 기능이 필요한 프로시저
+ *
+ * 사용법:
+ *   const accountingProcedure = requirePlanFeature("accounting");
+ *   // → Starter 플랜은 차단, Standard 이상만 접근
+ */
+export function requirePlanFeature(feature: keyof PlanLimits["features"]) {
+  return t.procedure.use(
+    t.middleware(async (opts) => {
+      const { ctx, next, path, type } = opts;
+
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      }
+
+      const { tenantId, tenantDb } = resolveTenantContext(ctx);
+      if (!tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "테넌트 정보가 필요합니다." });
+      }
+
+      // 테넌트 플랜 조회
+      try {
+        const { getDb } = await import("../db");
+        const { tenants } = await import("../../drizzle/schema");
+        const { eq } = await import("drizzle-orm");
+        const db = await getDb();
+        if (db) {
+          const [tenant] = await db.select({ plan: tenants.subscriptionPackage })
+            .from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+          if (tenant) {
+            const check = checkPlanFeature(tenant.plan, feature);
+            if (!check.allowed) {
+              throw new TRPCError({ code: "FORBIDDEN", message: check.message });
+            }
+          }
+        }
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        // DB 조회 실패 시 통과 (가용성 우선)
+      }
+
+      const isSuperAdminActing = ctx.user.role === "super_admin" && !!ctx.actingTenantId;
+      if (isSuperAdminActing) {
+        logSuperAdminAction(ctx, path, type);
+      }
+
+      return next({
+        ctx: { ...ctx, user: ctx.user, tenantId, db: tenantDb, isSuperAdminActing },
+      });
+    })
+  );
+}

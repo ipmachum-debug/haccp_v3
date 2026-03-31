@@ -11,6 +11,8 @@ import { Loader2, Plus, Edit, Trash2, Calendar, Bug } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 export default function PestControlChecklistList() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -155,7 +157,7 @@ export default function PestControlChecklistList() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {item.checkDate instanceof Date ? item.checkDate.toISOString().split('T')[0] : item.checkDate}
+                        {item.checkDate instanceof Date ? formatLocalDate(item.checkDate) : item.checkDate}
                       </div>
                     </TableCell>
                     <TableCell>{item.inspector}</TableCell>

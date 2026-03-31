@@ -624,7 +624,7 @@ export const boardRouter = router({
   migrateBoard: tenantRequiredProcedure
     .mutation(async ({ ctx }: any) => {
       const db = await getDb();
-      if (!db) throw new Error("Database not initialized");
+      if (!db) throw new Error("DB 연결 실패");
 
       const results: string[] = [];
 

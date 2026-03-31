@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play } from "lucide-react";
+import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,8 @@ import { TableBody, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import LotTraceabilityModal from "@/components/LotTraceabilityModal";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
+import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 
 /* ─── Extracted components ─── */
 import { fmt, fmtDate, won, Empty, Loading, StatCard, StyledTable, TH, TD, SectionTitle } from "@/components/inventory/InventoryHelpers";
@@ -23,21 +25,51 @@ import { PredictionTab } from "@/components/inventory/PredictionTab";
    메인 컴포넌트
    ═══════════════════════════════════════════════════ */
 export default function InventoryManagement() {
-  const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "current");
+  const [trendPeriod, setTrendPeriod] = useState<"week" | "month" | "quarter">("month");
   const [lotModalOpen, setLotModalOpen] = useState(false);
-  const [inventoryView, setInventoryView] = useState<"material" | "product">("material");
+  const [inventoryView, setInventoryView] = useTabWithUrl("view", "material");
   const isMat = inventoryView === "material";
 
   const { data: dashboard, isLoading: isLoadingDashboard } = trpc.inventory.getDashboard.useQuery();
 
   const trendDates = useMemo(() => {
     const end = new Date(), start = new Date();
-    trendPeriod === "week" ? start.setDate(end.getDate() - 7) : start.setMonth(end.getMonth() - 1);
+    if (trendPeriod === "week") start.setDate(end.getDate() - 7);
+    else if (trendPeriod === "quarter") start.setDate(end.getDate() - 90);
+    else start.setMonth(end.getMonth() - 1);
     return { startDate: start.toISOString().split("T")[0], endDate: end.toISOString().split("T")[0] };
   }, [trendPeriod]);
 
-  const { data: trend, isLoading: isLoadingTrend } = trpc.inventory.getTrend.useQuery(trendDates);
-  const { data: turnoverAnalysis, isLoading: isLoadingTurnover } = trpc.inventory.getTurnoverAnalysis.useQuery(trendDates);
+  const { data: rawTrend, isLoading: isLoadingTrend } = trpc.inventory.getTrend.useQuery(trendDates);
+  const { data: rawTurnoverAnalysis, isLoading: isLoadingTurnover } = trpc.inventory.getTurnoverAnalysis.useQuery(trendDates);
+
+  // 회전율 데이터 정규화: Number 변환 + 효율 한국어 라벨
+  const turnoverAnalysis = useMemo(() => {
+    if (!rawTurnoverAnalysis) return rawTurnoverAnalysis;
+    const efficiencyMap: Record<string, string> = { high: "양호", medium: "적정", low: "주의" };
+    return (rawTurnoverAnalysis as any[]).map((m: any) => ({
+      ...m,
+      turnoverRate: Number(m.turnoverRate) || 0,
+      averageHoldingPeriod: Number(m.averageHoldingPeriod) || 0,
+      usageQuantity: Number(m.usageQuantity) || 0,
+      averageInventory: Number(m.averageInventory) || 0,
+      efficiency: efficiencyMap[m.efficiency] || m.efficiency,
+    }));
+  }, [rawTurnoverAnalysis]);
+
+  // NaN 방어: 서버 데이터 Number 변환
+  const trend = useMemo(() => {
+    if (!rawTrend) return rawTrend;
+    return (rawTrend as any[]).map((r: any) => ({
+      ...r,
+      receiptQuantity: Number(r.receiptQuantity) || 0,
+      usageQuantity: Number(r.usageQuantity) || 0,
+      adjustmentQuantity: Number(r.adjustmentQuantity) || 0,
+      netChange: Number(r.netChange) || ((Number(r.receiptQuantity) || 0) - (Number(r.usageQuantity) || 0) + (Number(r.adjustmentQuantity) || 0)),
+      transactionCount: Number(r.transactionCount) || 0,
+    }));
+  }, [rawTrend]);
 
   return (
     <DashboardLayout>
@@ -78,7 +110,7 @@ export default function InventoryManagement() {
         </div>
 
         {/* ── 탭 ── */}
-        <Tabs defaultValue="current" className="space-y-3">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
           {/* 탭: 모바일에서 수평 스와이프 가능 */}
           <div className="overflow-x-auto -mx-1 px-1">
             <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-8 h-9">
@@ -121,40 +153,14 @@ export default function InventoryManagement() {
                       <SelectContent>
                         <SelectItem value="week">최근 7일</SelectItem>
                         <SelectItem value="month">최근 30일</SelectItem>
+                        <SelectItem value="quarter">최근 90일</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </CardHeader>
                 <CardContent className="p-3">
                   {isLoadingTrend ? <Loading /> : !trend?.length ? <Empty text="선택 기간에 데이터 없음" /> : (
-                    <StyledTable>
-                      <TableHeader>
-                        <TableRow>
-                          <TH>일자</TH>
-                          <TH>입고</TH>
-                          <TH>소모</TH>
-                          <TH>조정</TH>
-                          <TH>순변동</TH>
-                          <TH className="text-center">건수</TH>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {trend.map((r: any) => (
-                          <TableRow key={r.date} className="hover:bg-muted/30">
-                            <TD className="font-mono">{r.date}</TD>
-                            <TD className="text-emerald-600 dark:text-emerald-400 font-medium">+{fmt(r.receiptQuantity)}</TD>
-                            <TD className="text-red-500 dark:text-red-400 font-medium">-{fmt(r.usageQuantity)}</TD>
-                            <TD>{fmt(r.adjustmentQuantity)}</TD>
-                            <TD>
-                              <Badge variant={Number(r.netChange || 0) >= 0 ? "default" : "secondary"} className="text-xs px-2.5 py-1 font-mono">
-                                {Number(r.netChange || 0) >= 0 ? "+" : ""}{fmt(r.netChange)}
-                              </Badge>
-                            </TD>
-                            <TD className="text-center">{r.transactionCount}</TD>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </StyledTable>
+                    <TrendTablePaginated data={trend} />
                   )}
                 </CardContent>
               </Card>
@@ -168,45 +174,11 @@ export default function InventoryManagement() {
             {isMat ? (
               <Card>
                 <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-                  <SectionTitle icon={RotateCw} title="원재료별 회전율" desc={trendPeriod === "week" ? "최근 7일" : "최근 30일"} />
+                  <SectionTitle icon={RotateCw} title="원재료별 회전율" desc={trendPeriod === "week" ? "최근 7일" : trendPeriod === "quarter" ? "최근 90일" : "최근 30일"} />
                 </CardHeader>
                 <CardContent className="p-3">
                   {isLoadingTurnover ? <Loading /> : !turnoverAnalysis?.length ? <Empty text="데이터 없음" /> : (
-                    <StyledTable>
-                      <TableHeader>
-                        <TableRow>
-                          <TH>원재료</TH>
-                          <TH>소모량</TH>
-                          <TH>재고</TH>
-                          <TH>회전율</TH>
-                          <TH>재고일수</TH>
-                          <TH>효율</TH>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {turnoverAnalysis.map((m: any) => (
-                          <TableRow key={m.materialId} className="hover:bg-muted/30">
-                            <TD>
-                              <span className="font-medium">{m.materialName}</span>
-                              <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
-                            </TD>
-                            <TD>{fmt(m.usageQuantity)}</TD>
-                            <TD>{fmt(m.averageInventory)}</TD>
-                            <TD>
-                              <Badge variant={m.turnoverRate >= 1 ? "default" : "secondary"} className="text-xs px-2.5 py-1">
-                                {m.turnoverRate.toFixed(2)}
-                              </Badge>
-                            </TD>
-                            <TD>{m.averageHoldingPeriod.toFixed(0)}일</TD>
-                            <TD>
-                              <span className={`font-semibold ${m.efficiency === "양호" ? "text-emerald-600" : m.efficiency === "적정" ? "text-blue-600" : "text-amber-600"}`}>
-                                {m.efficiency}
-                              </span>
-                            </TD>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </StyledTable>
+                    <TurnoverTablePaginated data={turnoverAnalysis} />
                   )}
                 </CardContent>
               </Card>
@@ -246,6 +218,140 @@ export default function InventoryManagement() {
         <LotTraceabilityModal open={lotModalOpen} onOpenChange={setLotModalOpen} />
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   추이 테이블 (페이지네이션 + 정렬)
+   ═══════════════════════════════════════════════════ */
+function TrendTablePaginated({ data }: { data: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(data, {
+    defaultSort: { key: "date", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (["receiptQuantity", "usageQuantity", "adjustmentQuantity", "netChange", "transactionCount"].includes(key)) {
+        const aVal = Number(a[key]) || 0;
+        const bVal = Number(b[key]) || 0;
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = String(a[key] || "");
+      const bVal = String(b[key] || "");
+      return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    },
+  });
+
+  return (
+    <>
+      <StyledTable>
+        <TableHeader>
+          <TableRow>
+            <SortableHeader label="일자" sortKey="date" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="입고" sortKey="receiptQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="소모" sortKey="usageQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="조정" sortKey="adjustmentQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="순변동" sortKey="netChange" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="건수" sortKey="transactionCount" currentSort={sort} onSort={handleSort} align="center" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {pageData.map((r: any) => {
+            const nc = Number(r.netChange) || 0;
+            return (
+              <TableRow key={r.date} className="hover:bg-muted/30">
+                <TD className="font-mono">{r.date}</TD>
+                <TD className="text-right text-emerald-600 dark:text-emerald-400 font-medium">+{fmt(r.receiptQuantity)}</TD>
+                <TD className="text-right text-red-500 dark:text-red-400 font-medium">{fmt(r.usageQuantity)}</TD>
+                <TD className="text-right">{fmt(r.adjustmentQuantity)}</TD>
+                <TD className="text-right">
+                  <Badge variant={nc >= 0 ? "default" : "secondary"} className="text-xs px-2.5 py-1 font-mono">
+                    {nc >= 0 ? "+" : ""}{fmt(nc)}
+                  </Badge>
+                </TD>
+                <TD className="text-center">{r.transactionCount}</TD>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </StyledTable>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   회전율 테이블 (페이지네이션 + 정렬)
+   ═══════════════════════════════════════════════════ */
+function TurnoverTablePaginated({ data }: { data: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(data, {
+    defaultSort: { key: "turnoverRate", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (["turnoverRate", "usageQuantity", "averageInventory", "averageHoldingPeriod"].includes(key)) {
+        const aVal = Number(a[key]) || 0;
+        const bVal = Number(b[key]) || 0;
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = String(a[key] || "");
+      const bVal = String(b[key] || "");
+      return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
+    },
+  });
+
+  return (
+    <>
+      <StyledTable>
+        <TableHeader>
+          <TableRow>
+            <SortableHeader label="원재료" sortKey="materialName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="소모량" sortKey="usageQuantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="재고" sortKey="averageInventory" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="회전율" sortKey="turnoverRate" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="재고일수" sortKey="averageHoldingPeriod" currentSort={sort} onSort={handleSort} align="right" />
+            <TH className="text-center">효율</TH>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {pageData.map((m: any) => (
+            <TableRow key={m.materialId} className="hover:bg-muted/30">
+              <TD>
+                <span className="font-medium">{m.materialName}</span>
+                <span className="text-muted-foreground ml-2 text-xs">{m.materialCode}</span>
+              </TD>
+              <TD className="text-right">{fmt(m.usageQuantity)}</TD>
+              <TD className="text-right">{fmt(m.averageInventory)}</TD>
+              <TD className="text-right">
+                <Badge variant={Number(m.turnoverRate) >= 1 ? "default" : "secondary"} className="text-xs px-2.5 py-1">
+                  {Number(m.turnoverRate).toFixed(2)}
+                </Badge>
+              </TD>
+              <TD className="text-right">{Number(m.averageHoldingPeriod).toFixed(0)}일</TD>
+              <TD className="text-center">
+                <span className={`font-semibold ${m.efficiency === "양호" ? "text-emerald-600" : m.efficiency === "적정" ? "text-blue-600" : "text-amber-600"}`}>
+                  {m.efficiency}
+                </span>
+              </TD>
+            </TableRow>
+          ))}
+        </TableBody>
+      </StyledTable>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
   );
 }
 
@@ -406,6 +512,107 @@ function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) 
 }
 
 /* ═══════════════════════════════════════════════════
+   소모 데이터 → 현황(재고) 일괄 동기화 버튼
+   ═══════════════════════════════════════════════════ */
+function StockSyncButton({ onComplete }: { onComplete: () => void }) {
+  const [status, setStatus] = useState<"idle" | "checking" | "running" | "done">("idle");
+  const [resultMsg, setResultMsg] = useState("");
+  const [details, setDetails] = useState<any[]>([]);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const syncMut = trpc.inventory.syncStockFromConsumption.useMutation({
+    onSuccess: (data: any) => {
+      if (data.materialsProcessed === 0 && data.errors?.length) {
+        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
+        setDetails([]);
+      } else {
+        setResultMsg(`${data.materialsProcessed}개 원재료 동기화 완료 (총 ${data.totalDeducted.toFixed(1)} 차감)`);
+        setDetails(data.details || []);
+      }
+      setStatus("done");
+      onComplete();
+    },
+    onError: (e: any) => {
+      setResultMsg(`오류: ${e.message}`);
+      setStatus("done");
+    }
+  });
+
+  const dryRunMut = trpc.inventory.syncStockFromConsumption.useMutation({
+    onSuccess: (data: any) => {
+      if (data.materialsProcessed === 0 && data.errors?.length) {
+        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
+        setStatus("done");
+        return;
+      }
+      const summary = data.details?.map((d: any) =>
+        `  - ${d.materialName}: ${d.warnings?.[0] || `${d.consumedQty.toFixed(1)}${d.unit}`}`
+      ).join("\n") || "";
+      if (confirm(`재고 동기화 대상: ${data.details?.length || 0}개 원재료\n\n${summary}\n\n소모 데이터 기준으로 현황 재고를 차감하시겠습니까?\n(소모총량 - 기차감량 = 미반영분만 차감)\n\n※ LOT의 available_quantity와 h_inventory가 감소합니다.`)) {
+        setStatus("running");
+        syncMut.mutate({ dryRun: false });
+      } else {
+        setStatus("idle");
+      }
+    },
+    onError: (e: any) => {
+      setResultMsg(`확인 오류: ${e.message}`);
+      setStatus("done");
+    }
+  });
+
+  const handleClick = useCallback(() => {
+    setStatus("checking");
+    setResultMsg("");
+    setDetails([]);
+    dryRunMut.mutate({ dryRun: true });
+  }, []);
+
+  if (status === "done" && resultMsg) {
+    return (
+      <div className="mt-2 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-emerald-700 dark:text-emerald-400">{resultMsg}</span>
+          <button onClick={() => { setStatus("idle"); setResultMsg(""); setDetails([]); }} className="text-[10px] text-blue-600 underline">닫기</button>
+          {details.length > 0 && (
+            <button onClick={() => setShowDetails(!showDetails)} className="text-[10px] text-blue-600 underline">
+              {showDetails ? "상세 접기" : "상세 보기"}
+            </button>
+          )}
+        </div>
+        {showDetails && details.length > 0 && (
+          <div className="text-[10px] text-muted-foreground space-y-0.5 pl-2 border-l-2 border-emerald-200 dark:border-emerald-800">
+            {details.map((d: any, i: number) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="font-medium">{d.materialName}</span>
+                <span>소모 {d.consumedQty.toFixed(1)} → LOT차감 {d.deductedQty.toFixed(1)}{d.unit}</span>
+                {d.warnings?.length > 0 && <span className="text-amber-500">{d.warnings[0]}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2">
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={status === "checking" || status === "running"}
+        onClick={handleClick}
+        className="h-7 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+      >
+        <RefreshCw className={`h-3 w-3 mr-1 ${status === "running" ? "animate-spin" : ""}`} />
+        {status === "checking" ? "확인 중..." : status === "running" ? "동기화 중..." : "소모→현황 재고 동기화"}
+      </Button>
+      <span className="text-[10px] text-muted-foreground ml-2">소모 탭 집계 데이터를 현황 재고에 일괄 반영</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
    원재료 수동 소모 (폐기/기타) — BOM 자동소모 안내
    ═══════════════════════════════════════════════════ */
 function ReleaseTab() {
@@ -415,21 +622,48 @@ function ReleaseTab() {
   const [releaseType, setReleaseType] = useState("disposal");
   const [memo, setMemo] = useState("");
   const [showForm, setShowForm] = useState(false);
-  const [historySearch, setHistorySearch] = useState("");
   const [submitProgress, setSubmitProgress] = useState<{ current: number; total: number } | null>(null);
+
+  // 월별 페이지네이션
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => new Date().getMonth() + 1);
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set());
+  const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
 
   interface RI { id: number; lotId: string; materialName: string; availableQty: string; quantity: string; unit: string; unitPrice: string; amount: string; expiryDate: string; lotNumber: string; }
   const emptyRItem = (): RI => ({ id: Date.now() + Math.random(), lotId: "", materialName: "", availableQty: "", quantity: "", unit: "", unitPrice: "0", amount: "0", expiryDate: "", lotNumber: "" });
   const [items, setItems] = useState<RI[]>([emptyRItem()]);
-  const [hStart, setHStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split("T")[0]; });
-  const [hEnd, setHEnd] = useState(today);
 
   const { data: lots, isLoading: lotsLoading } = trpc.inventory.list.useQuery();
-  const { data: history, isLoading: hLoading } = trpc.inventory.getOutboundHistory.useQuery({ limit: 50, startDate: hStart, endDate: hEnd });
+  const { data: summary, isLoading: summaryLoading } = trpc.inventory.getConsumptionSummary.useQuery({ year: viewYear, month: viewMonth });
   const mut = trpc.inventory.releaseStock.useMutation({
-    onSuccess: () => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); utils.inventory.getOutboundHistory.invalidate(); },
+    onSuccess: () => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); utils.inventory.getConsumptionSummary.invalidate(); },
     onError: (e: any) => alert(`소모 처리 실패: ${e.message}`),
   });
+
+  // 월 이동
+  const prevMonth = () => {
+    if (viewMonth === 1) { setViewYear(y => y - 1); setViewMonth(12); }
+    else setViewMonth(m => m - 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+  const nextMonth = () => {
+    if (viewMonth === 12) { setViewYear(y => y + 1); setViewMonth(1); }
+    else setViewMonth(m => m + 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+  const goToday = () => {
+    const now = new Date();
+    setViewYear(now.getFullYear()); setViewMonth(now.getMonth() + 1);
+    setExpandedDates(new Set()); setExpandedMaterials(new Set());
+  };
+
+  const toggleDate = (date: string) => {
+    setExpandedDates(prev => { const s = new Set(prev); s.has(date) ? s.delete(date) : s.add(date); return s; });
+  };
+  const toggleMaterial = (key: string) => {
+    setExpandedMaterials(prev => { const s = new Set(prev); s.has(key) ? s.delete(key) : s.add(key); return s; });
+  };
 
   // 가용 재고가 있는 LOT만 필터, FEFO 순서
   const availableLots = useMemo(() => {
@@ -469,23 +703,11 @@ function ReleaseTab() {
     setItems(p => p.map(i => i.id === itemId ? { ...i, lotId: lotIdStr, materialName: lot?.materialName || "", availableQty: lot?.availableQuantity || "0", unit: lot?.unit || "", unitPrice: lot?.unitPrice || "0", expiryDate: lot?.expiryDate || "", lotNumber: lot?.lotNumber || "", quantity: "", amount: "0" } : i));
   };
   const handleQty = (id: number, q: string) => setItems(p => p.map(i => i.id === id ? { ...i, quantity: q, amount: q && i.unitPrice ? (parseFloat(q) * parseFloat(i.unitPrice)).toFixed(0) : "0" } : i));
-  const handlePrice = (id: number, pr: string) => setItems(p => p.map(i => i.id === id ? { ...i, unitPrice: pr, amount: i.quantity && pr ? (parseFloat(i.quantity) * parseFloat(pr)).toFixed(0) : "0" } : i));
   const addItem = () => setItems(p => [...p, emptyRItem()]);
   const removeItem = (id: number) => { if (items.length > 1) setItems(p => p.filter(i => i.id !== id)); };
   const totalQty = items.reduce((s, i) => s + (parseFloat(i.quantity) || 0), 0);
-  const totalAmt = items.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
   const filledItems = items.filter(i => i.lotId && i.quantity && parseFloat(i.quantity) > 0);
   const hasOverflow = items.some(i => i.lotId && i.quantity && i.availableQty && parseFloat(i.quantity) > parseFloat(i.availableQty) && parseFloat(i.availableQty) > 0);
-
-  const filteredHistory = useMemo(() => {
-    if (!history) return [];
-    let list = history as any[];
-    if (historySearch.trim()) {
-      const q = historySearch.toLowerCase();
-      list = list.filter(r => r.materialName?.toLowerCase().includes(q) || r.lotNumber?.toLowerCase().includes(q) || r.notes?.toLowerCase().includes(q));
-    }
-    return list;
-  }, [history, historySearch]);
 
   const handleSubmit = async () => {
     if (!filledItems.length) { alert("소모할 품목을 선택하고 수량을 입력해주세요."); return; }
@@ -532,7 +754,12 @@ function ReleaseTab() {
               </div>
               <RetroactiveDeductionButton onComplete={() => {
                 utils.inventory.getDashboard.invalidate();
-                utils.inventory.getOutboundHistory.invalidate();
+                utils.inventory.getConsumptionSummary.invalidate();
+                utils.inventory.list.invalidate();
+              }} />
+              <StockSyncButton onComplete={() => {
+                utils.inventory.getDashboard.invalidate();
+                utils.inventory.getConsumptionSummary.invalidate();
                 utils.inventory.list.invalidate();
               }} />
             </div>
@@ -540,6 +767,7 @@ function ReleaseTab() {
         </CardContent>
       </Card>
 
+      {/* 수동 소모 입력 폼 */}
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
           <div className="flex items-center justify-between">
@@ -682,42 +910,152 @@ function ReleaseTab() {
         )}
       </Card>
 
-      {/* 소모 이력 */}
+      {/* 월별 소모 현황 요약 */}
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <SectionTitle icon={Clock} title="소모/투입 이력" desc={filteredHistory.length > 0 ? `${filteredHistory.length}건` : undefined} />
-            <div className="flex items-center gap-2 flex-wrap">
-              <input type="text" value={historySearch} onChange={e => setHistorySearch(e.target.value)} placeholder="품명/LOT/사유 검색" className="h-8 w-40 px-2.5 border rounded-lg text-xs bg-background focus:ring-2 focus:ring-orange-500/20 transition" />
-              <input type="date" value={hStart} onChange={e => setHStart(e.target.value)} className="h-8 px-2 border rounded-lg text-xs bg-background" />
-              <span className="text-xs text-muted-foreground">~</span>
-              <input type="date" value={hEnd} onChange={e => setHEnd(e.target.value)} className="h-8 px-2 border rounded-lg text-xs bg-background" />
+            <SectionTitle icon={Layers} title="월별 소모 현황" desc={summary ? `${summary.totalRecords}건` : undefined} />
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+              <button onClick={goToday} className="text-sm font-semibold min-w-[120px] text-center hover:text-orange-600 transition-colors">
+                {viewYear}년 {viewMonth}월
+              </button>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-3">
-          {hLoading ? <Loading /> : !filteredHistory.length ? <Empty text="소모 이력 없음" /> : (
-            <div className="overflow-x-auto">
-              <StyledTable>
-                <TableHeader><TableRow>
-                  <TH className="w-10 text-center">No</TH>
-                  <TH>일시</TH><TH>품명</TH><TH>LOT</TH>
-                  <TH className="text-right">수량</TH><TH>출처</TH><TH>사유</TH>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {filteredHistory.map((r: any, i: number) => (
-                    <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                      <TD className="text-center text-muted-foreground">{i+1}</TD>
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.transactionDate || r.createdAt)}</TD>
-                      <TD className="font-medium">{r.materialName || "-"}</TD>
-                      <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
-                      <TD className="text-right font-mono font-medium whitespace-nowrap">{Math.abs(r.quantity)} {r.unit}</TD>
-                      <TD className="text-xs">{r.sourceType === "BATCH" ? <Badge variant="outline" className="text-[10px]">배치#{r.sourceId}</Badge> : r.sourceType || "수동"}</TD>
-                      <TD className="text-muted-foreground truncate max-w-[250px]">{r.notes || "-"}</TD>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </StyledTable>
+          {summaryLoading ? <Loading /> : !summary || summary.totalRecords === 0 ? <Empty text={`${viewYear}년 ${viewMonth}월 소모 이력 없음`} /> : (
+            <div className="space-y-4">
+              {/* 월간 요약 카드 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatCard icon={PackageMinus} label="총 소모 건수" value={summary.totalRecords.toLocaleString()} color="orange" sub="건" />
+                <StatCard icon={Layers} label="원재료 종류" value={summary.materialTotals.length.toLocaleString()} color="blue" sub="종" />
+                <StatCard icon={Package} label="총 소모량" value={fmt(summary.grandTotalQuantity)} color="red" />
+                <StatCard icon={Calendar} label="소모 일수" value={summary.dailyGroups.length.toLocaleString()} color="slate" sub="일" />
+              </div>
+
+              {/* 원재료별 월간 소계 */}
+              {summary.materialTotals.length > 0 && (
+                <div className="border rounded-lg overflow-hidden">
+                  <div className="bg-muted/30 px-3 py-2 border-b">
+                    <h4 className="text-xs font-semibold text-muted-foreground">원재료별 월간 소계</h4>
+                  </div>
+                  <div className="divide-y">
+                    {summary.materialTotals.map((mt: any) => (
+                      <div key={mt.materialId} className="flex items-center justify-between px-3 py-2 hover:bg-muted/20 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium">{mt.materialName}</span>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">{mt.count}건</Badge>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-400">{fmt(mt.totalQuantity)}</span>
+                          <span className="text-[10px] text-muted-foreground ml-1">{mt.unit}</span>
+                          {mt.totalAmount > 0 && (
+                            <span className="text-[10px] text-muted-foreground ml-2">{won(mt.totalAmount)}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 일별 그룹 (접이식) */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-muted/30 px-3 py-2 border-b">
+                  <h4 className="text-xs font-semibold text-muted-foreground">일별 소모 상세</h4>
+                </div>
+                <div className="divide-y">
+                  {summary.dailyGroups.map((day: any) => {
+                    const isDateExpanded = expandedDates.has(day.date);
+                    return (
+                      <div key={day.date}>
+                        {/* 날짜 헤더 */}
+                        <button onClick={() => toggleDate(day.date)}
+                          className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-muted/20 transition-colors text-left">
+                          <div className="flex items-center gap-2">
+                            {isDateExpanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                            <span className="text-xs font-semibold">{fmtDate(day.date)}</span>
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{day.recordCount}건</Badge>
+                            <span className="text-[10px] text-muted-foreground">{day.materialGroups.length}종 원재료</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-400">
+                            {fmt(day.totalQuantity)}
+                            {day.totalAmount > 0 && <span className="text-muted-foreground font-normal ml-2">{won(day.totalAmount)}</span>}
+                          </span>
+                        </button>
+
+                        {/* 원재료 그룹 (날짜 확장 시) */}
+                        {isDateExpanded && (
+                          <div className="bg-muted/10 border-t">
+                            {day.materialGroups.map((mg: any) => {
+                              const matKey = `${day.date}-${mg.materialId}`;
+                              const isMatExpanded = expandedMaterials.has(matKey);
+                              return (
+                                <div key={matKey}>
+                                  {/* 원재료 소계 행 */}
+                                  <button onClick={() => toggleMaterial(matKey)}
+                                    className="w-full flex items-center justify-between px-6 py-2 hover:bg-muted/20 transition-colors text-left border-b border-dashed">
+                                    <div className="flex items-center gap-2">
+                                      {isMatExpanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+                                      <span className="text-xs font-medium">{mg.materialName}</span>
+                                      <Badge variant="outline" className="text-[10px] px-1 py-0">{mg.items.length}건</Badge>
+                                    </div>
+                                    <span className="text-xs font-mono font-semibold">
+                                      {fmt(mg.subtotalQty)} <span className="text-muted-foreground font-normal">{mg.unit}</span>
+                                    </span>
+                                  </button>
+
+                                  {/* 개별 소모 상세 (원재료 확장 시) */}
+                                  {isMatExpanded && (
+                                    <div className="bg-background/50">
+                                      {mg.items.map((item: any, idx: number) => (
+                                        <div key={idx} className="flex items-center justify-between px-10 py-1.5 text-[11px] border-b border-dotted last:border-0">
+                                          <div className="flex items-center gap-3">
+                                            <span className="text-muted-foreground w-4 text-right">{idx+1}</span>
+                                            {item.sourceType === "BATCH" ? (
+                                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">배치#{item.sourceId}</Badge>
+                                            ) : (
+                                              <span className="text-muted-foreground">{item.sourceType || "수동"}</span>
+                                            )}
+                                            {item.lotNumber && <span className="font-mono text-muted-foreground">{item.lotNumber}</span>}
+                                            {item.notes && <span className="text-muted-foreground truncate max-w-[200px]">{item.notes}</span>}
+                                          </div>
+                                          <span className="font-mono whitespace-nowrap">
+                                            {fmt(item.quantity)} <span className="text-muted-foreground">{item.unit}</span>
+                                            {item.amount > 0 && <span className="text-muted-foreground ml-2">{won(item.amount)}</span>}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* 월간 총합계 */}
+                <div className="bg-orange-50/50 dark:bg-orange-950/20 border-t-2 border-orange-300 dark:border-orange-800 px-3 py-2.5 flex items-center justify-between">
+                  <span className="text-xs font-bold">월간 합계</span>
+                  <div className="text-right">
+                    <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{summary.totalRecords}건</span>
+                    <span className="text-xs text-muted-foreground mx-2">|</span>
+                    <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{fmt(summary.grandTotalQuantity)}</span>
+                    {summary.grandTotalAmount > 0 && (
+                      <>
+                        <span className="text-xs text-muted-foreground mx-2">|</span>
+                        <span className="text-sm font-mono font-bold">{won(summary.grandTotalAmount)}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -739,7 +1077,7 @@ function ReceiptTab() {
 
   const { data: _raw } = trpc.material.list.useQuery({ limit: 9999 });
   const mats: any[] = (_raw as any)?.items ?? (Array.isArray(_raw) ? _raw : []);
-  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 50 });
+  const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 9999 });
 
   const createMut = trpc.lotManagement.createReceivingWithLot.useMutation({
     onSuccess: (r: any) => {
@@ -882,57 +1220,95 @@ function ReceiptTab() {
 
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-          <SectionTitle icon={Clock} title="입고 내역" />
+          <SectionTitle icon={Clock} title="입고 내역" desc={receipts ? `총 ${receipts.length}건` : undefined} />
         </CardHeader>
         <CardContent className="p-3">
           {isLoading ? <Loading /> : !receipts?.length ? <Empty text="입고 내역 없음" /> : (
-            <>
-              {/* 데스크톱: 테이블 (스와이프 가능) */}
-              <div className="hidden sm:block">
-                <StyledTable>
-                  <TableHeader><TableRow>
-                    <TH>입고일</TH><TH>LOT</TH><TH>원재료</TH>
-                    <TH className="text-right">수량</TH><TH className="text-right">단가</TH><TH>공급업체</TH><TH>소비기한</TH>
-                  </TableRow></TableHeader>
-                  <TableBody>
-                    {receipts.map((r: any) => (
-                      <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
-                        <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
-                        <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
-                        <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
-                        <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
-                        <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
-                        <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
-                        <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </StyledTable>
-              </div>
-
-              {/* 모바일: 카드 리스트 */}
-              <div className="sm:hidden space-y-2">
-                {receipts.map((r: any) => (
-                  <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium text-sm truncate">{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></p>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5 border-t text-xs">
-                      <div className="flex justify-between"><span className="text-muted-foreground">수량</span><span className="font-mono font-semibold">{r.quantity} {r.unit}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">단가</span><span className="font-mono">{r.unitPrice ? won(r.unitPrice) : "-"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">LOT</span><span className="font-mono truncate ml-1">{r.lotNumber || "-"}</span></div>
-                      <div className="flex justify-between"><span className="text-muted-foreground">소비기한</span><span>{fmtDate(r.expiryDate)}</span></div>
-                      {r.supplierName && <div className="col-span-2 flex justify-between"><span className="text-muted-foreground">공급업체</span><span>{r.supplierName}</span></div>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
+            <ReceiptListPaginated receipts={receipts} />
           )}
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   입고 내역 페이지네이션 + 정렬 컴포넌트
+   ═══════════════════════════════════════════════════ */
+function ReceiptListPaginated({ receipts }: { receipts: any[] }) {
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(receipts, {
+    defaultSort: { key: "receiptDate", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      let aVal = a[key], bVal = b[key];
+      if (key === "receiptDate") {
+        aVal = a.receiptDate || a.createdAt || "";
+        bVal = b.receiptDate || b.createdAt || "";
+      }
+      if (["quantity", "unitPrice"].includes(key)) {
+        aVal = parseFloat(aVal || "0"); bVal = parseFloat(bVal || "0");
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      aVal = String(aVal || ""); bVal = String(bVal || "");
+      return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
+    },
+  });
+
+  return (
+    <>
+      <div className="hidden sm:block">
+        <StyledTable>
+          <TableHeader><TableRow>
+            <SortableHeader label="입고일" sortKey="receiptDate" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="LOT" sortKey="lotNumber" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="원재료" sortKey="materialName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="수량" sortKey="quantity" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="단가" sortKey="unitPrice" currentSort={sort} onSort={handleSort} align="right" />
+            <SortableHeader label="공급업체" sortKey="supplierName" currentSort={sort} onSort={handleSort} />
+            <SortableHeader label="소비기한" sortKey="expiryDate" currentSort={sort} onSort={handleSort} />
+          </TableRow></TableHeader>
+          <TableBody>
+            {pageData.map((r: any) => (
+              <TableRow key={r.id} className="hover:bg-muted/30 transition-colors">
+                <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</TD>
+                <TD className="font-mono text-xs font-medium">{r.lotNumber || "-"}</TD>
+                <TD>{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></TD>
+                <TD className="text-right font-mono">{r.quantity} {r.unit}</TD>
+                <TD className="text-right text-xs">{r.unitPrice ? won(r.unitPrice) : "-"}</TD>
+                <TD className="text-muted-foreground">{r.supplierName || "-"}</TD>
+                <TD className="text-muted-foreground">{fmtDate(r.expiryDate)}</TD>
+              </TableRow>
+            ))}
+          </TableBody>
+        </StyledTable>
+      </div>
+      <div className="sm:hidden space-y-2">
+        {pageData.map((r: any) => (
+          <div key={r.id} className="border rounded-lg p-3 space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-sm truncate">{r.materialName} <span className="text-muted-foreground text-xs">{r.materialCode}</span></p>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.receiptDate || r.createdAt)}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1.5 border-t text-xs">
+              <div className="flex justify-between"><span className="text-muted-foreground">수량</span><span className="font-mono font-semibold">{r.quantity} {r.unit}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">단가</span><span className="font-mono">{r.unitPrice ? won(r.unitPrice) : "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">LOT</span><span className="font-mono truncate ml-1">{r.lotNumber || "-"}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">소비기한</span><span>{fmtDate(r.expiryDate)}</span></div>
+              {r.supplierName && <div className="col-span-2 flex justify-between"><span className="text-muted-foreground">공급업체</span><span>{r.supplierName}</span></div>}
+            </div>
+          </div>
+        ))}
+      </div>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
+    </>
   );
 }
 

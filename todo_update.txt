@@ -1,2 +1,0 @@
-- [x] bankAccounts API (은행 계좌 관리)
-- [x] bankTransactions API (은행 거래 업로드 및 매칭)

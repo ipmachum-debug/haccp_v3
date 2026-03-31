@@ -28,7 +28,7 @@
  */
 
 // DB 연결
-export { getDb, getRawConnection } from './db/connection';
+export { getDb, getRawConnection, withTransaction } from './db/connection';
 
 // 사용자 관리
 export * from './db/userManagement';

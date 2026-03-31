@@ -19,6 +19,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { todayLocal } from "../lib/dateUtils";
+
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
   { category: "작업전", subcategory: "개인위생", itemOrder: 1, itemText: "위생복장과 이물 복장이 구분하여 보관되고 있는가?", checkResult: null as string | null },
@@ -86,7 +88,7 @@ export default function DailyLogForm() {
   const paramDate = params.get("date");
   const paramId = params.get("id");
 
-  const [logDate, setLogDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [logDate, setLogDate] = useState(paramDate || todayLocal());
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");
@@ -165,11 +167,31 @@ export default function DailyLogForm() {
       })));
     }
     if (fd.foreignMaterialNotes) setForeignMaterialNotes({ ...EMPTY_NOTES, ...fd.foreignMaterialNotes });
+    // 온도/습도: 배열 또는 객체 형태 모두 지원
     if (Array.isArray(fd.temperatureHumidity)) {
       setTemperatureHumidity(fd.temperatureHumidity.map((item: any, i: number) => ({
         ...DEFAULT_TEMP_HUMIDITY[i],
         ...item,
       })));
+    } else if (fd.temperatureHumidity && typeof fd.temperatureHumidity === 'object') {
+      // 객체 형태 (autoDailyReport) → 배열로 변환
+      const th = fd.temperatureHumidity;
+      const mapping = [
+        { key: 'room1Morning', room: '원재료실1', period: '오전' },
+        { key: 'room1Afternoon', room: '원재료실1', period: '오후' },
+        { key: 'room2Morning', room: '원재료실2', period: '오전' },
+        { key: 'room2Afternoon', room: '원재료실2', period: '오후' },
+      ];
+      setTemperatureHumidity(mapping.map((m, i) => {
+        const src = th[m.key] || {};
+        return {
+          ...DEFAULT_TEMP_HUMIDITY[i],
+          checkTime: src.time || '',
+          temperature: src.temp || '',
+          humidity: src.humidity || '',
+          evaluation: src.pass === true ? 'pass' : src.pass === false ? 'fail' : null,
+        };
+      }));
     }
     if (fd.temperatureHumidityIssues) setTemperatureHumidityIssues({ ...EMPTY_ISSUES, ...fd.temperatureHumidityIssues });
     if (Array.isArray(fd.freezerTemperature)) {
@@ -177,6 +199,12 @@ export default function DailyLogForm() {
         ...DEFAULT_FREEZER[i],
         ...item,
       })));
+    } else if (fd.freezerTemperature && typeof fd.freezerTemperature === 'object' && !Array.isArray(fd.freezerTemperature)) {
+      const ft = fd.freezerTemperature;
+      setFreezerTemperature([
+        { ...DEFAULT_FREEZER[0], checkTime: ft.morning?.time || '', rapidFreezerTemp: ft.morning?.rapidFreezer || '', freezerTemp: ft.morning?.freezer || '', evaluation: ft.morning?.pass === true ? 'pass' : ft.morning?.pass === false ? 'fail' : null },
+        { ...DEFAULT_FREEZER[1], checkTime: ft.afternoon?.time || '', rapidFreezerTemp: ft.afternoon?.rapidFreezer || '', freezerTemp: ft.afternoon?.freezer || '', evaluation: ft.afternoon?.pass === true ? 'pass' : ft.afternoon?.pass === false ? 'fail' : null },
+      ]);
     }
     if (fd.freezerIssues) setFreezerIssues({ ...EMPTY_ISSUES, ...fd.freezerIssues });
     if (Array.isArray(fd.refrigeratorTemperature)) {
@@ -184,6 +212,12 @@ export default function DailyLogForm() {
         ...DEFAULT_REFRIGERATOR[i],
         ...item,
       })));
+    } else if (fd.refrigeratorTemperature && typeof fd.refrigeratorTemperature === 'object' && !Array.isArray(fd.refrigeratorTemperature)) {
+      const rt = fd.refrigeratorTemperature;
+      setRefrigeratorTemperature([
+        { ...DEFAULT_REFRIGERATOR[0], checkTime: rt.morning?.time || '', temperature: rt.morning?.temp || '', evaluation: rt.morning?.pass === true ? 'pass' : rt.morning?.pass === false ? 'fail' : null },
+        { ...DEFAULT_REFRIGERATOR[1], checkTime: rt.afternoon?.time || '', temperature: rt.afternoon?.temp || '', evaluation: rt.afternoon?.pass === true ? 'pass' : rt.afternoon?.pass === false ? 'fail' : null },
+      ]);
     }
     if (fd.refrigeratorIssues) setRefrigeratorIssues({ ...EMPTY_REF_ISSUES, ...fd.refrigeratorIssues });
     if (Array.isArray(fd.batches)) setBatchData(fd.batches);

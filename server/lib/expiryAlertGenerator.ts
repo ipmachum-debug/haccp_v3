@@ -2,6 +2,8 @@ import { getDb } from "../db";
 import { hStockAlerts, hInventoryLots } from "../../drizzle/schema/part2";
 import { eq, and, lte, isNull } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 소비기한 기반 알람 자동 생성
  * 
@@ -23,7 +25,7 @@ export async function generateExpiryAlerts(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const expiryDateObj = new Date(expiryDate);
   const today = new Date();
@@ -44,7 +46,7 @@ export async function generateExpiryAlerts(
       message: `소비기한이 30일 이내로 임박했습니다. (만료일: ${expiryDate})`,
       threshold: null,
       currentValue: null,
-      scheduledDate: thirtyDaysBeforeExpiry.toISOString().split("T")[0],
+      scheduledDate: formatLocalDate(thirtyDaysBeforeExpiry),
       resolvedAt: null,
       resolvedBy: null,
       createdBy: userId
@@ -65,11 +67,11 @@ export async function generateExpiryAlerts(
  */
 export async function generateExpiredAlerts(tenantId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStr = formatLocalDate(today);
 
   // 오늘 만료된 LOT 조회 (테넌트 격리)
   const expiredLots = await db

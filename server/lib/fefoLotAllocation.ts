@@ -12,19 +12,21 @@ import { and, eq, gte, sql } from "drizzle-orm";
  * @param requestedQuantity 요청 수량
  * @param unit 단위
  * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
+ * @param materialId 원재료 ID (inventoryId로 LOT를 못 찾을 때 폴백용)
  * @returns 할당된 LOT 목록 [{ lotId, quantity, unitCost }]
  */
 export async function allocateLotsFEFO(
   inventoryId: number,
   requestedQuantity: number,
   unit: string,
-  tenantId: number
+  tenantId: number,
+  materialId?: number
 ): Promise<Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }>> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
-  const availableLots = await db
+  let availableLots = await db
     .select({
       id: hInventoryLots.id,
       availableQuantity: hInventoryLots.availableQuantity,
@@ -43,6 +45,39 @@ export async function allocateLotsFEFO(
       sql`COALESCE(${hInventoryLots.expiryDate}, '9999-12-31') ASC`, // 유통기한 없으면 맨 뒤로
       hInventoryLots.id // 동일 유통기한이면 LOT ID 순
     );
+
+  // 폴백: inventory_id로 LOT를 못 찾으면 material_id로 재검색 (기존 LOT에 inventory_id 미설정 대응)
+  if (availableLots.length === 0 && materialId) {
+    availableLots = await db
+      .select({
+        id: hInventoryLots.id,
+        availableQuantity: hInventoryLots.availableQuantity,
+        unitPrice: hInventoryLots.unitPrice,
+        expiryDate: hInventoryLots.expiryDate
+      })
+      .from(hInventoryLots)
+      .where(
+        and(
+          eq(hInventoryLots.materialId, materialId),
+          eq(hInventoryLots.tenantId, tenantId),
+          gte(hInventoryLots.availableQuantity, 0.001 as any)
+        )
+      )
+      .orderBy(
+        sql`COALESCE(${hInventoryLots.expiryDate}, '9999-12-31') ASC`,
+        hInventoryLots.id
+      );
+
+    // 찾은 LOT들의 inventory_id를 자동 수정 (향후 정상 동작하도록)
+    if (availableLots.length > 0) {
+      await db.execute(sql`
+        UPDATE h_inventory_lots
+        SET inventory_id = ${inventoryId}
+        WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
+          AND (inventory_id IS NULL OR inventory_id = 0)
+      `);
+    }
+  }
 
   if (availableLots.length === 0) {
     throw new Error(`재고 ID ${inventoryId}에 사용 가능한 LOT가 없습니다.`);
@@ -98,7 +133,7 @@ export async function saveLotAllocations(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { docLineLots } = await import("../../drizzle/schema_inventory_accounting");
 

@@ -16,6 +16,8 @@ import { CcpMonitoringForms } from "@/components/CcpMonitoringForms";
 import ApprovalTimeline from "@/components/ApprovalTimeline";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
+import { todayLocal } from "../lib/dateUtils";
+
 /** 배치 기본정보 요약 (BOM 배치량 + 배치수 + 처리모드 + 생성일) */
 function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
   productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: any;
@@ -191,7 +193,7 @@ export default function BatchDetail() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `HACCP_Report_${batch?.batchCode || batchId}_${new Date().toISOString().split('T')[0]}.pdf`;
+      a.download = `HACCP_Report_${batch?.batchCode || batchId}_${todayLocal()}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("HACCP 보고서가 다운로드되었습니다");
@@ -388,7 +390,7 @@ export default function BatchDetail() {
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
           <Package className="h-16 w-16 text-muted-foreground" />
           <p className="text-muted-foreground">배치를 찾을 수 없습니다</p>
-          <Button onClick={() => setLocation("/batches")}>
+          <Button onClick={() => setLocation("/dashboard/batch-management")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             목록으로 돌아가기
           </Button>
@@ -403,7 +405,7 @@ export default function BatchDetail() {
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => setLocation("/batches")}>
+            <Button variant="outline" size="icon" onClick={() => setLocation("/dashboard/batch-management")}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>
@@ -1180,7 +1182,7 @@ CCP 기록지 수동 확인 후 승인 요청`,
                 productId={(batch as any).productId ? Number((batch as any).productId) : undefined}
                 productName={batch.productName ?? undefined}
                 plannedQtyKg={batch.plannedQuantity ? parseFloat(batch.plannedQuantity) : undefined}
-                workDate={batch.plannedDate ?? new Date().toISOString().split("T")[0]}
+                workDate={batch.plannedDate ?? todayLocal()}
                 onFormSaved={() => {
                   refetchCcps();
                 }}

@@ -17,11 +17,13 @@
 
 import { sql } from "drizzle-orm";
 
+import { todayKST, toKSTTimestamp} from "../utils/timezone";
+
 // ============================================================================
 // 1. 파이프라인 상태 대시보드 - 오늘 배치별 진행 상태 한눈에 확인
 // ============================================================================
 export async function getPipelineStatus(db: any, siteId: number, workDate?: string, tenantId?: number) {
-  const targetDate = workDate || new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const targetDate = workDate || todayKST();
   
   try {
     // 오늘의 배치 목록 + 각 단계 진행 상태
@@ -452,7 +454,7 @@ export async function createPipelineNotification(
   severity: 'info' | 'warning' | 'error' = 'info',
   targetUserId?: number
 ) {
-  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const now = toKSTTimestamp(new Date());
   
   try {
     await db.execute(sql`
@@ -495,8 +497,8 @@ export async function notifyPipelineEvent(db: any, siteId: number, batchId: numb
 // 4. 일일 마감 자동화 - 매일 특정 시간에 미완료 건 정리
 // ============================================================================
 export async function runDailyClosing(db: any, siteId: number, workDate?: string, tenantId?: number) {
-  const targetDate = workDate || new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const targetDate = workDate || todayKST();
+  const now = toKSTTimestamp(new Date());
   const results: string[] = [];
   
   try {

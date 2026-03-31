@@ -8,7 +8,7 @@ import { hProductionLog, hInventoryDeductionLog } from "../../drizzle/schema_rec
  */
 export async function getProductionLogsByVersionId(tenantId: number, versionId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // hProductionLog에는 tenant_id가 없으므로 hMfReportVersions -> hMfReports를 통해 tenant 격리
   const logs = await db.execute(sql`
@@ -29,7 +29,7 @@ export async function getProductionLogsByVersionId(tenantId: number, versionId: 
  */
 export async function getInventoryDeductionLogsByProductionId(tenantId: number, productionLogId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // hInventoryDeductionLog -> hProductionLog -> hMfReportVersions -> hMfReports를 통해 tenant 격리
   const logs = await db.execute(sql`
@@ -51,7 +51,7 @@ export async function getInventoryDeductionLogsByProductionId(tenantId: number, 
  */
 export async function getAllInventoryDeductionLogsByVersionId(tenantId: number, versionId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 생산 이력 조회 (tenant 격리 적용)
   const productionLogs = await getProductionLogsByVersionId(tenantId, versionId) as any[];

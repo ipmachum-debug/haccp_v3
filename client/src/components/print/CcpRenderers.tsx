@@ -5,6 +5,9 @@
  * - renderCcpFormRecord (CCP-1B, CCP-2B, CCP-4P form rendering)
  */
 import React from "react";
+import { TitleWithApproval } from "./PrintHelpers";
+
+import { formatLocalDate } from "../../lib/dateUtils";
 
 // ============================================================================
 // batch_production: 배치 CCP 기록지 요약 (기록지 없을 때)
@@ -14,10 +17,7 @@ export function renderCcpBatchSummary(doc: any) {
   const descLines = desc.split("\n").filter(Boolean);
   return (
     <div>
-      <div className="text-center mb-4">
-        <h2 className="text-xl font-bold">배치 CCP 기록지 승인</h2>
-        <p className="text-gray-600 text-sm mt-1">{doc.title}</p>
-      </div>
+      <TitleWithApproval title="배치 CCP 기록지 승인" subtitle={doc.title} doc={doc} />
       <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
         <tbody>
           {descLines.map((line: string, i: number) => {
@@ -48,7 +48,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   // Date 객체 -> string 안전 변환 헬퍼
   const s = (v: any): string => {
     if (!v) return "";
-    if (v instanceof Date) return v.toISOString().split("T")[0];
+    if (v instanceof Date) return formatLocalDate(v);
     return String(v);
   };
 
@@ -126,39 +126,12 @@ export function renderCcpFormRecord(fr: any, doc: any) {
 
     return (
       <div className="text-xs">
-        {/* 제목 */}
-        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
-          <tbody>
-            <tr>
-              <td className="border-2 border-gray-700 text-center py-2 font-bold text-base" style={{ width: "70%" }}>
-                {ccpTypeLabels[ccpType]}<br />
-                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
-                <div className="text-xs">{doc?.authorName || "-"}</div>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
-                <div className="text-xs">{doc?.approverName || "-"}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        {/* 작성일자/요일 */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
-          <tbody>
-            <tr>
-              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50`} style={{ width: "12%" }}>작성일자</td>
-              <td className={`${bCls} px-3 py-1 text-center`} style={{ width: "50%" }}>
-                {formatWorkDate(workDate)}
-              </td>
-              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center`} style={{ width: "8%" }}>요일</td>
-              <td className={`${bCls} px-2 py-1 text-center`}>{getDayOfWeek(workDate)}</td>
-            </tr>
-          </tbody>
-        </table>
+        <TitleWithApproval
+          title={ccpTypeLabels[ccpType]}
+          subtitle={ccpSubLabels[ccpType]}
+          doc={doc}
+          infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
+        />
 
         {/* 한계기준 */}
         <table className="w-full border-collapse border border-gray-600 mb-0">
@@ -356,35 +329,12 @@ export function renderCcpFormRecord(fr: any, doc: any) {
 
     return (
       <div className="text-xs">
-        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
-          <tbody>
-            <tr>
-              <td className="border-2 border-gray-700 text-center py-2 font-bold text-base" style={{ width: "70%" }}>
-                {ccpTypeLabels[ccpType]}<br />
-                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
-                <div className="text-xs">{doc?.authorName || "-"}</div>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
-                <div className="text-xs">{doc?.approverName || "-"}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <table className="w-full border-collapse border border-gray-600 mb-0">
-          <tbody>
-            <tr>
-              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50`} style={{ width: "12%" }}>작성일자</td>
-              <td className={`${bCls} px-3 py-1 text-center`} style={{ width: "50%" }}>{formatWorkDate(workDate)}</td>
-              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center`} style={{ width: "8%" }}>요일</td>
-              <td className={`${bCls} px-2 py-1 text-center`}>{getDayOfWeek(workDate)}</td>
-            </tr>
-          </tbody>
-        </table>
+        <TitleWithApproval
+          title={ccpTypeLabels[ccpType]}
+          subtitle={ccpSubLabels[ccpType]}
+          doc={doc}
+          infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
+        />
 
         <table className="w-full border-collapse border border-gray-600 mb-0">
           <thead>
@@ -525,42 +475,12 @@ export function renderCcpFormRecord(fr: any, doc: any) {
 
     return (
       <div className="text-xs" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        {/* 제목 */}
-        <table className="w-full border-collapse border-2 border-gray-700 mb-0">
-          <tbody>
-            <tr>
-              <td className="border-2 border-gray-700 text-center py-1 font-bold text-base" style={{ width: "70%" }}>
-                {ccpTypeLabels[ccpType]}<br />
-                <span className="text-sm">{ccpSubLabels[ccpType]}</span>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">작성자</div>
-                <div className="text-xs">{doc?.authorName || "-"}</div>
-              </td>
-              <td className={`${bCls} text-center font-medium bg-gray-50`} style={{ width: "15%" }}>
-                <div className="text-[9px] text-gray-500 mb-0.5">승인자</div>
-                <div className="text-xs">{doc?.approverName || "-"}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        {/* 점검일자 */}
-        <table className="w-full border-collapse border border-gray-600 mb-0">
-          <tbody>
-            <tr>
-              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50`} style={{ width: "10%" }}>점검일자</td>
-              <td className={`${bCls} px-3 py-0.5 text-center`} style={{ width: "35%" }}>
-                {formatWorkDate(workDate)}
-              </td>
-              <td className={`${bCls} px-1 py-0.5 text-center`} style={{ width: "5%" }}>
-                {getDayOfWeek(workDate)}
-              </td>
-              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} style={{ width: "5%" }}>요일</td>
-              <td className={`${bCls} px-2 py-0.5`} style={{ width: "45%" }}></td>
-            </tr>
-          </tbody>
-        </table>
+        <TitleWithApproval
+          title={ccpTypeLabels[ccpType]}
+          subtitle={ccpSubLabels[ccpType]}
+          doc={doc}
+          infoLeft={<><span className="font-medium">점검일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
+        />
 
         {/* 한계기준 */}
         <table className="w-full border-collapse border border-gray-600 mb-0">

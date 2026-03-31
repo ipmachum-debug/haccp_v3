@@ -1,6 +1,8 @@
 import PDFDocument from "pdfkit";
 import { getDb } from "./db";
 
+import { toKSTDate } from "./utils/timezone";
+
 interface MonthlyCloseData {
   year: number;
   month: number;
@@ -133,7 +135,7 @@ export async function createMonthlyClosePDF(year: number, month: number): Promis
 
   // 고액 거래 조회 (상위 10건)
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const endDate = new Date(year, month, 0).toISOString().split("T")[0]; // 해당 월의 마지막 날
+  const endDate = toKSTDate(new Date(year, month, 0)); // 해당 월의 마지막 날
 
   const topPurchases = await dbAny
     .selectFrom("accounting_purchases")

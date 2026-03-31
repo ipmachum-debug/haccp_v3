@@ -16,6 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "training_log",
   title: "교육훈련일지",
@@ -35,7 +37,7 @@ const initialAttendees: Attendee[] = [{ name: "", position: "", department: "", 
 export default function TrainingLogForm() {
   const [title, setTitle] = useState("");
   const [educator, setEducator] = useState("");
-  const [education_date, setEducationDate] = useState(new Date().toISOString().split("T")[0]);
+  const [education_date, setEducationDate] = useState(todayLocal());
   const [start_time, setStartTime] = useState("09:00");
   const [end_time, setEndTime] = useState("12:00");
   const [location, setLocation] = useState("");

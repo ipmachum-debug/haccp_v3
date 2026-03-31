@@ -2,24 +2,33 @@
 import { publicProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { lt, or } from "drizzle-orm";
+import { lt, or, eq, sql } from "drizzle-orm";
+import { users, tenants } from "../../../drizzle/schema_main";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "../../_core/cookies";
 import crypto from "crypto";
 import { getDb, getUserByEmail } from "../../db";
 import { loginUser as localLoginUser, hashPassword } from "../../localAuth";
 import { sendPasswordResetEmail } from "../../_core/email";
+import { users, tenants } from "../../../drizzle/schema_main";
+
+// 데모 계정 이메일 (상수)
+const DEMO_EMAIL = "demo@haccpone.com";
 
 export const authRouter = router({
     me: publicProcedure.query(async (opts) => {
       const user = opts.ctx.user;
-      
+
       // 로그인한 사용자의 경우 기본 즐겨찾기 자동 생성
       if (user) {
         const { createDefaultFavorites } = await import("../../db/favorites");
         try { await createDefaultFavorites(user.id, (user as any).tenantId); } catch (e) { console.error("[auth.me] Failed to create default favorites:", e); }
       }
-      
+
+      // 데모 계정 식별 플래그 추가
+      if (user && user.email === DEMO_EMAIL) {
+        return { ...user, isDemo: true };
+      }
       return user;
     }),
     
@@ -28,7 +37,8 @@ export const authRouter = router({
       .input(
         z.object({
           email: z.string().email(),
-          password: z.string().min(6),
+          // 비밀번호 정책: 최소 8자 이상
+          password: z.string().min(8, "비밀번호는 최소 8자 이상이어야 합니다"),
           name: z.string().min(1),
           userType: z.enum(["b2b_partner", "general_user", "company_staff", "other", "client_admin", "employee"]).default("employee"),
           userMemo: z.string().optional(),
@@ -104,7 +114,7 @@ export const authRouter = router({
 
         // 데이터베이스에 토큰 저장
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         await (db as any).execute(
           "INSERT INTO h_password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)",
@@ -138,7 +148,7 @@ export const authRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not initialized" });
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
         // 토큰 조회
         const [tokenRecord] = await (db as any).execute(
@@ -175,6 +185,75 @@ export const authRouter = router({
           message: "비밀번호가 성공적으로 변경되었습니다."
         };
       }),
+
+    // 데모 계정 로그인
+    demoLogin: publicProcedure.mutation(async ({ ctx }) => {
+      const DEMO_PASSWORD = "demo1234!";
+      const DEMO_NAME = "데모 사용자";
+      const DEMO_TENANT_SLUG = "haccpone-demo";
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      // 1) 데모 전용 테넌트 확인/생성 (실제 고객 데이터와 완전 격리)
+      let [demoTenant] = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.slug, DEMO_TENANT_SLUG))
+        .limit(1);
+
+      if (!demoTenant) {
+        const insertResult = await db
+          .insert(tenants)
+          .values({
+            name: "HACCPONE 데모",
+            slug: DEMO_TENANT_SLUG,
+            status: "trial",
+            subscriptionPackage: "standard",
+          });
+        const newId = (insertResult as any)[0]?.insertId ?? (insertResult as any).insertId;
+        demoTenant = { id: Number(newId) };
+      }
+
+      // 2) 데모 계정 확인/생성
+      let demoUser = await getUserByEmail(DEMO_EMAIL);
+      if (!demoUser) {
+        const { registerUser } = await import("../../localAuth");
+        try {
+          await registerUser(DEMO_EMAIL, DEMO_PASSWORD, DEMO_NAME, "client_admin", "데모 체험 계정", "HACCPONE 데모", "000-00-00000");
+        } catch (e: any) {
+          if (!e.message?.includes("이미")) throw e;
+        }
+        demoUser = await getUserByEmail(DEMO_EMAIL);
+        if (!demoUser) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데모 계정 생성 실패" });
+      }
+
+      // 3) 데모 계정을 데모 전용 테넌트에 할당 (승인+활성)
+      await db
+        .update(users)
+        .set({
+          approvalStatus: "approved",
+          isActive: 1,
+          role: "admin",
+          tenantId: demoTenant.id,
+        })
+        .where(eq(users.email, DEMO_EMAIL));
+
+      const ipAddress = (ctx.req.headers['x-forwarded-for'] as string)?.split(',')[0] || ctx.req.ip || ctx.req.socket.remoteAddress;
+      const result = await localLoginUser(DEMO_EMAIL, DEMO_PASSWORD, ipAddress);
+
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, result.token, {
+        ...cookieOptions,
+        maxAge: 30 * 60 * 1000, // 데모 계정은 30분
+      });
+
+      return {
+        success: true,
+        user: result.user,
+        isDemo: true,
+      };
+    }),
 
     // 로그아웃
     logout: publicProcedure.mutation(async ({ ctx }) => { const cookieOptions = getSessionCookieOptions(ctx.req);

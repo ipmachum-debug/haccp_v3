@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { appRouter } from "./routers";
 import type { Context } from "./_core/context";
 
+import { todayKST, formatLocalDate} from "./utils/timezone";
+
 /**
  * 시정 조치 관리 시스템 API 테스트
  */
@@ -109,7 +111,7 @@ describe("시정 조치 관리 시스템", () => {
 
     it("시정 조치를 등록할 수 있어야 함", async () => {
       const caller = appRouter.createCaller(createTestContext());
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 7);
 
@@ -117,7 +119,7 @@ describe("시정 조치 관리 시스템", () => {
         id: requestId,
         correctiveAction: "온도 센서 교체 및 재검증",
         actionStartDate: today,
-        actionDueDate: dueDate.toISOString().split("T")[0],
+        actionDueDate: formatLocalDate(dueDate),
         preventiveAction: "월 1회 센서 정기 점검 실시"
       });
 
@@ -130,7 +132,7 @@ describe("시정 조치 관리 시스템", () => {
 
     it("조치 완료를 처리할 수 있어야 함", async () => {
       const caller = appRouter.createCaller(createTestContext());
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
 
       const result = await caller.correctiveAction.completeAction({
         id: requestId,
@@ -145,7 +147,7 @@ describe("시정 조치 관리 시스템", () => {
 
     it("효과를 검증할 수 있어야 함", async () => {
       const caller = appRouter.createCaller(createTestContext());
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayKST();
 
       const result = await caller.correctiveAction.verifyEffectiveness({
         id: requestId,

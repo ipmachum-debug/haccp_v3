@@ -2,6 +2,8 @@ import { describe, test, expect } from "vitest";
 import { getDb, createMaterial } from "./db";
 import { createPartner } from "./partners";
 
+import { todayKST, formatLocalDate} from "./utils/timezone";
+
 /**
  * HACCP 핵심 기능 테스트
  * 1. 원재료 입고 → LOT 생성 확인
@@ -148,7 +150,7 @@ describe("HACCP 핵심 기능 테스트", () => {
       quantity: "10",
       availableQuantity: "10",
       unit: "KG",
-      expiryDate: expiryDate.toISOString().split("T")[0],
+      expiryDate: formatLocalDate(expiryDate),
       status: "available",
       createdBy: 1,
     });
@@ -172,7 +174,7 @@ describe("HACCP 핵심 기능 테스트", () => {
 
     // CCP 모니터링 기록 생성
     const { hCcpMonitoring } = await import("../drizzle/schema");
-    const monitoringDate = new Date().toISOString().split("T")[0];
+    const monitoringDate = todayKST();
 
     const [result] = await db.insert(hCcpMonitoring).values({
       ccpPoint: "냉장고 온도",
@@ -247,7 +249,7 @@ describe("HACCP 핵심 기능 테스트", () => {
       productId: Number(productResult.insertId),
       plannedQuantity: "10",
       actualQuantity: "10",
-      productionDate: new Date().toISOString().split("T")[0],
+      productionDate: todayKST(),
       status: "completed",
       createdBy: 1,
     });
@@ -320,7 +322,7 @@ describe("HACCP 핵심 기능 테스트", () => {
     const taxAmount = amount * 0.1;
 
     await db.insert(accountingSales).values({
-      transactionDate: new Date().toISOString().split("T")[0],
+      transactionDate: todayKST(),
       partnerId: customer.id,
       itemName: `출고테스트제품_${timestamp}`,
       quantity: quantity.toString(),

@@ -3,6 +3,8 @@ import { onPurchaseCreated } from "./materialLedger";
 import { accountingPurchases, accountingSales } from "../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 매입 거래 직접 생성 (품목 단위)
  * itemMasterId 기준으로 통합 관리: 원재료면 h_materials 자동 연동
@@ -26,7 +28,7 @@ export async function createPurchase(params: {
   createdBy: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // === itemMasterId → materialId 자동 매핑 ===
   let resolvedMaterialId = params.materialId;
@@ -196,7 +198,7 @@ export async function createSale(params: {
   createdBy: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [sale] = await db.insert(accountingSales).values({
     tenantId: tenantId,
@@ -233,9 +235,9 @@ export async function createPurchaseFromReceipt(params: {
   createdBy: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const transactionDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const transactionDate = todayKST(); // YYYY-MM-DD
   const totalAmount = parseFloat(params.quantity) * parseFloat(params.unitPrice);
   const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
 
@@ -275,9 +277,9 @@ export async function createSaleFromUsage(params: {
   createdBy: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
-  const transactionDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const transactionDate = todayKST(); // YYYY-MM-DD
   const totalAmount = parseFloat(params.quantity) * parseFloat(params.unitPrice);
   const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
 
@@ -307,7 +309,7 @@ export async function createSaleFromUsage(params: {
  */
 export async function getAccountingByInventoryTransaction(inventoryTransactionId: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const purchases = await db
     .select()
@@ -333,7 +335,7 @@ export async function getAllPurchases(filters?: {
   status?: string;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { partners } = await import("../../drizzle/schema");
   const { and, gte, lte, eq, like } = await import("drizzle-orm");
 
@@ -395,7 +397,7 @@ export async function getAllSales(filters?: {
   status?: string;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { partners } = await import("../../drizzle/schema");
   const { and, gte, lte, eq, like } = await import("drizzle-orm");
 
@@ -448,7 +450,7 @@ export async function getAllSales(filters?: {
  */
 export async function getPurchaseById(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { partners } = await import("../../drizzle/schema");
 
@@ -474,7 +476,7 @@ export async function getPurchaseById(id: number, tenantId: number) {
  */
 export async function getSaleById(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { partners } = await import("../../drizzle/schema");
 
@@ -643,7 +645,7 @@ export async function updatePurchase(
     accountCategoryId?: number;
   }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { ...data, updatedAt: new Date() };
   if (updateData.quantity !== undefined) updateData.quantity = updateData.quantity.toString();
@@ -664,7 +666,7 @@ export async function updatePurchase(
  */
 export async function deletePurchase(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(accountingPurchases)
@@ -693,7 +695,7 @@ export async function updateSale(
     accountCategoryId?: number;
   }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const updateData: any = { ...data, updatedAt: new Date() };
   if (updateData.quantity !== undefined) updateData.quantity = updateData.quantity.toString();
@@ -714,7 +716,7 @@ export async function updateSale(
  */
 export async function deleteSale(id: number, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   await db
     .delete(accountingSales)

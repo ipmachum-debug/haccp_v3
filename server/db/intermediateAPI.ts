@@ -7,7 +7,7 @@ import { eq, and, desc } from "drizzle-orm";
  */
 export async function getIntermediates(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   return db
     .select()
     .from(hMaterials)
@@ -20,7 +20,7 @@ export async function getIntermediates(tenantId?: number) {
  */
 export async function getIntermediateDetail(intermediateId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 혼합재제 기본 정보
   const intermediate = await db
@@ -73,7 +73,7 @@ export async function createIntermediate(data: {
   description?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const [result] = await db.insert(hMaterials).values({
       tenantId,
@@ -96,7 +96,7 @@ export async function addIntermediateComponent(data: {
   note?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 혼합재제 존재 여부 확인
   const intermediate = await db
@@ -140,7 +140,7 @@ export async function updateIntermediateComponent(
     note?: string;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(hMixedMaterialComponents)
@@ -155,7 +155,7 @@ export async function updateIntermediateComponent(
  */
 export async function deleteIntermediateComponent(componentId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .delete(hMixedMaterialComponents)
@@ -180,7 +180,7 @@ export async function updateIntermediate(
     isActive?: number;
   }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(hMaterials)
@@ -199,7 +199,7 @@ export async function updateIntermediate(
  */
 export async function deleteIntermediate(intermediateId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 구성 먼저 삭제
   await db

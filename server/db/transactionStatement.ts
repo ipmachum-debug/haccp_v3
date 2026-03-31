@@ -11,7 +11,7 @@ import { eq, and} from "drizzle-orm";
  */
 export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?: number): Promise<Buffer> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 매입 거래 정보 조회
   const purchase = await getPurchaseById(purchaseId);
@@ -83,7 +83,7 @@ export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?
  */
 export async function generateSaleStatementPDF(saleId: number, tenantId?: number): Promise<Buffer> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 매출 거래 정보 조회
   const sale = await getSaleById(saleId);

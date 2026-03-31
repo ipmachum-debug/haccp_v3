@@ -32,6 +32,8 @@ import { AlertCircle, Plus, FileText, Users, Calendar, Upload, Download, Eye, X,
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 export default function EmployeeHealthChecklist() {
   const [listModalOpen, setListModalOpen] = useState(false);
   const [formModalOpen, setFormModalOpen] = useState(false);
@@ -413,7 +415,7 @@ export default function EmployeeHealthChecklist() {
                         type="date"
                         defaultValue={
                           editingCert
-                            ? new Date(editingCert.issueDate).toISOString().split("T")[0]
+                            ? formatLocalDate(new Date(editingCert.issueDate))
                             : ""
                         }
                         required
@@ -428,7 +430,7 @@ export default function EmployeeHealthChecklist() {
                         type="date"
                         defaultValue={
                           editingCert
-                            ? new Date(editingCert.expiryDate).toISOString().split("T")[0]
+                            ? formatLocalDate(new Date(editingCert.expiryDate))
                             : ""
                         }
                         required

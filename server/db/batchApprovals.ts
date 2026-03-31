@@ -11,7 +11,7 @@ export async function createBatchApproval(data: {
   notes?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db.insert(hBatchApprovals).values({
       tenantId,
@@ -33,7 +33,7 @@ export async function approveBatch(data: {
   notes?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 기존 pending 승인 요청 업데이트
   await db
@@ -78,7 +78,7 @@ export async function rejectBatch(data: {
   notes?: string;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 기존 pending 승인 요청 업데이트
   await db
@@ -118,7 +118,7 @@ export async function rejectBatch(data: {
  */
 export async function getBatchApprovals(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const approvals = await db
     .select()
@@ -133,7 +133,7 @@ export async function getBatchApprovals(batchId: number, tenantId?: number) {
  */
 export async function getBatchApprovalStatus(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [approval] = await db
     .select()

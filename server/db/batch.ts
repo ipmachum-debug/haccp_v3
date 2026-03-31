@@ -33,7 +33,7 @@ export async function createBatch(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 1. 배치 생성
   const [batch] = await db.insert(hBatches).values({
@@ -127,7 +127,7 @@ export async function listBatches(filters: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   let query = db.select().from(hBatches);
 
   const conditions = [eq(hBatches.tenantId, filters.tenantId)];
@@ -156,7 +156,7 @@ export async function listBatches(filters: {
  */
 export async function getBatchById(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hBatches.id, batchId)];
   if (tenantId) {
     conditions.push(eq(hBatches.tenantId, tenantId));
@@ -183,7 +183,7 @@ export async function updateBatchStatus(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const updateData: any = { status };
 
   if (additionalData?.startTime) {
@@ -221,7 +221,7 @@ export async function addBatchInput(data: {
   notes?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [input] = await db.insert(hBatchInputs).values({
     batchId: data.batchId,
     materialId: data.materialId,
@@ -241,7 +241,7 @@ export async function addBatchInput(data: {
  */
 export async function getBatchInputs(batchId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db
     .select()
     .from(hBatchInputs)
@@ -257,7 +257,7 @@ export async function getCcpTemplates(filters?: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   let query = db.select().from(hCcpTemplates);
 
   const conditions = [];
@@ -283,7 +283,7 @@ export async function getCcpTemplates(filters?: {
  */
 export async function getCcpTemplateRows(templateId: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   return await db
     .select()
     .from(hCcpTemplateRows)
@@ -308,7 +308,7 @@ export async function createCcpInstance(data: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const [instance] = await db.insert(hCcpInstances).values({
     tenantId: data.tenantId,
     siteId: data.siteId,
@@ -334,7 +334,7 @@ export async function listCcpInstances(filters: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   let query = db.select().from(hCcpInstances);
 
   const conditions = [eq(hCcpInstances.tenantId, filters.tenantId)];
@@ -376,7 +376,7 @@ export async function addCcpRow(data: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const insertData: any = {
     instanceId: data.instanceId,
     sortOrder: data.sortOrder,
@@ -400,7 +400,7 @@ export async function addCcpRow(data: {
  */
 export async function getCcpRows(instanceId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = tenantId
     ? and(eq(hCcpRows.instanceId, instanceId), eq(hCcpRows.tenantId, tenantId))
     : eq(hCcpRows.instanceId, instanceId);
@@ -421,7 +421,7 @@ export async function approveCcpInstance(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = tenantId
     ? and(eq(hCcpInstances.id, instanceId), eq(hCcpInstances.tenantId, tenantId))
     : eq(hCcpInstances.id, instanceId);
@@ -446,7 +446,7 @@ export async function rejectCcpInstance(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = tenantId
     ? and(eq(hCcpInstances.id, instanceId), eq(hCcpInstances.tenantId, tenantId))
     : eq(hCcpInstances.id, instanceId);

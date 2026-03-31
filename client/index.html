@@ -55,6 +55,68 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     THIS IS THE END OF A COMMENT BLOCK, BLOCK TO BE DELETED -->
+    <!-- 채널톡: 런처 버튼 숨김 + 닫기 버튼 -->
+    <style>
+      #ch-plugin-entry { display: none !important; }
+      #ch-close-btn {
+        display: none;
+        position: fixed;
+        z-index: 2147483647;
+        width: 34px;
+        height: 34px;
+        align-items: center;
+        justify-content: center;
+        background: #1a1a2e;
+        color: white;
+        border: 2px solid white;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 15px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+        font-weight: bold;
+        transition: background 0.15s;
+      }
+      #ch-close-btn:hover { background: #e74c3c; border-color: #e74c3c; }
+    </style>
+    <script>
+      (function() {
+        var btn = document.createElement('button');
+        btn.id = 'ch-close-btn';
+        btn.innerHTML = '✕';
+        btn.title = '채팅 닫기';
+        btn.onclick = function() {
+          if (window.ChannelIO) window.ChannelIO('hideMessenger');
+        };
+        document.addEventListener('DOMContentLoaded', function() { document.body.appendChild(btn); });
+
+        function positionBtn() {
+          // 채널톡 iframe 찾아서 그 위치 기준으로 닫기 버튼 배치
+          var iframe = document.querySelector('iframe[title*="channel"]') ||
+                       document.querySelector('iframe[src*="channel.io"]') ||
+                       document.querySelector('#ch-plugin iframe');
+          if (iframe) {
+            var rect = iframe.getBoundingClientRect();
+            btn.style.top = (rect.top - 18) + 'px';
+            btn.style.left = (rect.left - 18) + 'px';
+          } else {
+            // 폴백: 우측 상단
+            btn.style.top = '60px';
+            btn.style.right = '20px';
+            btn.style.left = 'auto';
+          }
+        }
+
+        var showBtn = function() { btn.style.display = 'flex'; setTimeout(positionBtn, 300); };
+        var hideBtn = function() { btn.style.display = 'none'; };
+
+        setInterval(function() {
+          if (window.ChannelIO && window.ChannelIOBooted) {
+            window.ChannelIO('onShowMessenger', showBtn);
+            window.ChannelIO('onHideMessenger', hideBtn);
+          }
+        }, 2000);
+      })();
+    </script>
   </head>
 
   <body>

@@ -35,19 +35,23 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 
-type UserRole = "admin" | "worker" | "monitor" | "employee";
+type UserRole = "admin" | "accountant" | "worker" | "monitor" | "inspector" | "employee";
 
 const roleLabels: Record<UserRole, string> = {
   admin: "관리자",
+  accountant: "회계",
   worker: "작업자",
-  monitor: "모니터",
+  monitor: "품질검토자",
+  inspector: "품질검사원",
   employee: "직원",
 };
 
 const roleColors: Record<UserRole, string> = {
   admin: "bg-red-100 text-red-800",
+  accountant: "bg-purple-100 text-purple-800",
   worker: "bg-blue-100 text-blue-800",
   monitor: "bg-green-100 text-green-800",
+  inspector: "bg-teal-100 text-teal-800",
   employee: "bg-yellow-100 text-yellow-800",
 };
 
@@ -266,8 +270,10 @@ export default function UserManagement() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="admin">관리자</SelectItem>
+                    <SelectItem value="accountant">회계</SelectItem>
                     <SelectItem value="worker">작업자</SelectItem>
-                    <SelectItem value="monitor">모니터</SelectItem>
+                    <SelectItem value="monitor">품질검토자</SelectItem>
+                    <SelectItem value="inspector">품질검사원</SelectItem>
                     <SelectItem value="employee">직원</SelectItem>
                   </SelectContent>
                 </Select>

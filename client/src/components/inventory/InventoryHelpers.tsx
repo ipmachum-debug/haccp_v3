@@ -2,7 +2,7 @@ import React from "react";
 import { Table, TableCell, TableHead } from "@/components/ui/table";
 
 /* ───────────────────── helpers ───────────────────── */
-export const fmt = (v: any, d = 2) => Number(v || 0).toFixed(d);
+export const fmt = (v: any, d = 1) => Math.max(Number(v || 0), 0).toFixed(d);
 export const fmtDate = (v: any) => v ? new Date(v).toLocaleDateString("ko-KR") : "-";
 export const won = (v: any) => `₩${Number(v || 0).toLocaleString()}`;
 export const Empty = ({ text = "데이터가 없습니다." }: { text?: string }) => (

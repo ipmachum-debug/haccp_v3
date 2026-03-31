@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "refrigeration_check",
   title: "냉동·냉장 설비 점검",
@@ -13,7 +15,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function RefrigerationCheckForm() {
-  const [checkDate, setCheckDate] = useState(new Date().toISOString().split("T")[0]);
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [equipmentName, setEquipmentName] = useState("");
   const [equipmentType, setEquipmentType] = useState("freezer");
   const [temperature, setTemperature] = useState(0);

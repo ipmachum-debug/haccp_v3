@@ -2,6 +2,8 @@ import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../_core/trpc";
 import * as verificationDb from "../db/verification";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * HACCP 계획 검증 라우터 (HACCP 원칙 6)
  */
@@ -107,7 +109,7 @@ export const haccpPlanVerificationRouter = router({
     .mutation(async ({ input, ctx }) => {
       await verificationDb.updateHaccpPlanVerification(input.id, {
         approvedBy: ctx.user.id,
-        approvedDate: new Date().toISOString().split("T")[0],
+        approvedDate: todayKST(),
       });
       return { success: true };
     }),

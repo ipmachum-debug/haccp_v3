@@ -33,6 +33,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Eye, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
+import { todayLocal } from "../lib/dateUtils";
+
 export default function HygieneInspection() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
@@ -77,7 +79,7 @@ export default function HygieneInspection() {
 
   // 검사 기록 생성 폼
   const [formData, setFormData] = useState({
-    inspectionDate: new Date().toISOString().split("T")[0],
+    inspectionDate: todayLocal(),
     inspectionArea: "",
     inspectorName: "",
     notes: "",

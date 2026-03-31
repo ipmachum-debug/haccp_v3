@@ -17,6 +17,8 @@
 
 import { getRawConnection, getDb } from "../db";
 
+import { todayKST } from "../utils/timezone";
+
 export interface HydrationOptions {
   tenantId: number;
   siteId: number;
@@ -351,7 +353,7 @@ export async function hydrateBatches(
 // === Helper functions ===
 
 function formatDate(d: any): string {
-  if (!d) return new Date().toISOString().split('T')[0];
+  if (!d) return todayKST();
   if (typeof d === 'string') {
     // "YYYY-MM-DD" or ISO string
     return d.split('T')[0];

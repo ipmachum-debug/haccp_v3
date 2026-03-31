@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 export async function generateBatchCompletionReport(batchId: number, tenantId?: number): Promise<string> {
   const db = await getDb();
   if (!db) {
-    throw new Error("Database connection failed");
+    throw new Error("DB 연결 실패");
   }
 
   // 1. 배치 정보 조회

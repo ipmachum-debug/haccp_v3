@@ -4,6 +4,8 @@ import { createUser, getUserByEmail } from "./db";
 import { hashPassword } from "./_core/jwtAuth";
 import type { TrpcContext } from "./_core/context";
 
+import { toKSTDate, todayKST } from "./utils/timezone";
+
 describe("Inventory Management", () => {
   let userId: number;
   let caller: ReturnType<typeof appRouter.createCaller>;
@@ -50,8 +52,8 @@ describe("Inventory Management", () => {
       lotNumber,
       quantity: "100.000",
       unit: "kg",
-      expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // 30일 후
-      receiptDate: new Date().toISOString().split("T")[0]
+      expiryDate: toKSTDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)), // 30일 후
+      receiptDate: todayKST()
     });
 
     expect(result.success).toBe(true);

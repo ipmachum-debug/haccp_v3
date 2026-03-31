@@ -49,7 +49,7 @@ export const tenants = mysqlTable("tenants", {
   status: mysqlEnum("status", ["active", "suspended", "trial", "expired"]).default("trial").notNull(),
   
   // 구독 관리
-  subscriptionPackage: mysqlEnum("subscription_package", ["basic", "pro"]).default("basic").notNull(),
+  subscriptionPackage: mysqlEnum("subscription_package", ["starter", "standard", "enterprise"]).default("starter").notNull(),
   subscriptionStartDate: date("subscription_start_date"),
   subscriptionEndDate: date("subscription_end_date"),
   subscriptionDays: int("subscription_days").default(0), // 구독 일수
@@ -74,7 +74,7 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
-  role: mysqlEnum("role", ["super_admin", "admin", "worker", "monitor", "employee"]).default("worker").notNull(),
+  role: mysqlEnum("role", ["super_admin", "admin", "accountant", "worker", "monitor", "inspector", "employee"]).default("worker").notNull(),
   userType: mysqlEnum("user_type", ["b2b_partner", "general_user", "company_staff", "other", "client_admin", "employee"]).default("employee"),
   userMemo: text("user_memo"),
   companyName: varchar("company_name", { length: 255 }),

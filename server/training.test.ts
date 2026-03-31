@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { appRouter } from "./routers";
 import type { Context } from "./_core/context";
 
+import { formatLocalDate } from "./utils/timezone";
+
 /**
  * 교육 훈련 관리 시스템 API 테스트
  */
@@ -100,7 +102,7 @@ describe("교육 훈련 관리 시스템", () => {
       const result = await caller.training.createSchedule({
         courseId,
         siteId: 1,
-        scheduledDate: scheduledDate.toISOString().split("T")[0],
+        scheduledDate: formatLocalDate(scheduledDate),
         startTime: "09:00",
         endTime: "13:00",
         location: "본사 교육장",

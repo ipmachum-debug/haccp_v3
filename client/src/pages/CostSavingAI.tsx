@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { TrendingUp, TrendingDown, Minus, Sparkles, ShoppingCart, Users, DollarS
 import { Streamdown } from "streamdown";
 
 export default function CostSavingAI() {
+  const [activeTab, setActiveTab] = useTabWithUrl('tab', 'overview');
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
@@ -130,7 +132,7 @@ export default function CostSavingAI() {
 
       {/* 분석 결과 */}
       {selectedMaterialId && (
-        <Tabs defaultValue="overview" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">종합 제안</TabsTrigger>
             <TabsTrigger value="price-trend">가격 추이</TabsTrigger>

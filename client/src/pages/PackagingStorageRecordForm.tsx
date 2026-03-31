@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "packaging_storage_record",
   title: "포장재 보관 관리",
@@ -13,7 +15,7 @@ const config: ChecklistFormConfig = {
 };
 
 export default function PackagingStorageRecordForm() {
-  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [receivedDate, setReceivedDate] = useState(todayLocal());
   const [materialName, setMaterialName] = useState("");
   const [materialType, setMaterialType] = useState("");
   const [storageLocation, setStorageLocation] = useState("");

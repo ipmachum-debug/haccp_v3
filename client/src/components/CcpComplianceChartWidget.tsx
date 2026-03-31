@@ -5,6 +5,8 @@ import { trpc } from "@/lib/trpc";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { TrendingUp } from "lucide-react";
 
+import { formatLocalDate } from "../lib/dateUtils";
+
 export function CcpComplianceChartWidget() {
   const [period, setPeriod] = useState<"weekly" | "monthly">("monthly");
   
@@ -15,14 +17,14 @@ export function CcpComplianceChartWidget() {
   
   const { data: complianceData, isLoading: loadingCompliance } = trpc.ccp.getComplianceStats.useQuery({
     period,
-    startDate: startDate.toISOString().split("T")[0],
-    endDate: endDate.toISOString().split("T")[0],
+    startDate: formatLocalDate(startDate),
+    endDate: formatLocalDate(endDate),
   });
   
   const { data: deviationData, isLoading: loadingDeviation } = trpc.ccp.getDeviationTrend.useQuery({
     period,
-    startDate: startDate.toISOString().split("T")[0],
-    endDate: endDate.toISOString().split("T")[0],
+    startDate: formatLocalDate(startDate),
+    endDate: formatLocalDate(endDate),
   });
   
   if (loadingCompliance || loadingDeviation) {

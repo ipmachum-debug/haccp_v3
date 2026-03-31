@@ -22,7 +22,7 @@ export const materialRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         const { itemMaster } = await import("../../../drizzle/schema.js");
         
         const page = input?.page || 1;
@@ -104,7 +104,7 @@ export const materialRouter = router({
     exportAll: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         const items = await db
           .select()
@@ -123,7 +123,7 @@ export const materialRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         const materials = await db
           .select()
@@ -167,7 +167,7 @@ export const materialRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         // 중복 코드 체크
         const existing = await db
@@ -244,7 +244,7 @@ export const materialRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         const { id, ...data } = input;
         
@@ -285,7 +285,7 @@ export const materialRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         // list는 itemMaster 기반이므로 input.id는 itemMaster.id
         // 먼저 itemMaster에서 legacyMaterialId를 조회
@@ -340,7 +340,7 @@ export const materialRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         let insertCount = 0;
         let updateCount = 0;
@@ -355,8 +355,6 @@ export const materialRouter = router({
         // drizzle db.execute returns [rows, fields] for MySQL
         const maxRows = Array.isArray((maxCodeResult as any)[0]) ? (maxCodeResult as any)[0] : maxCodeResult;
         let codeCounter = Number((maxRows as any)[0]?.max_num || 0);
-        console.log("[bulkCreate] MAX code query result:", JSON.stringify(maxCodeResult), "=> codeCounter:", codeCounter);
-        
         for (let i = 0; i < input.materials.length; i++) {
           const mat = input.materials[i];
           try {
@@ -461,7 +459,7 @@ export const materialRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const db = await getDb();
-        if (!db) throw new Error("Database connection failed");
+        if (!db) throw new Error("DB 연결 실패");
         
         // 원재료 입고 이력에서 가격 정보 추출
         const history = await db.execute(sql`

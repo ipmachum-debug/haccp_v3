@@ -9,6 +9,8 @@ import { getDb } from "../db";
 import { materialInspectionRecords, hygieneInspectionRecords, shippingInspectionRecords, hNotifications, tenants } from "../../drizzle/schema";
 import { eq, and, lt, gte, sql } from "drizzle-orm";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 검사 기한 임박 알림 (매일 오전 9시 실행)
  * - 검사 예정일이 3일 이내인 미완료 검사 항목 알림
@@ -20,9 +22,9 @@ export async function notifyUpcomingInspections() {
     return;
   }
   const now = new Date();
-  const nowStr = now.toISOString().split('T')[0];
+  const nowStr = formatLocalDate(now);
   const threeDaysLater = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-  const threeDaysLaterStr = threeDaysLater.toISOString().split('T')[0];
+  const threeDaysLaterStr = formatLocalDate(threeDaysLater);
   
   console.log(`[검사 기한 임박 알림] 스케줄러 실행: ${now.toISOString()}`);
   
@@ -141,7 +143,7 @@ export async function notifyOverdueInspections() {
     return;
   }
   const now = new Date();
-  const nowStr = now.toISOString().split('T')[0];
+  const nowStr = formatLocalDate(now);
   
   console.log(`[미완료 검사 알림] 스케줄러 실행: ${now.toISOString()}`);
   

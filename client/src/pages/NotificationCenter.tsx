@@ -43,14 +43,14 @@ export default function NotificationCenter() {
   const markMultipleAsReadMutation = trpc.notification.markMultipleAsRead.useMutation();
   const deleteMultipleMutation = trpc.notification.deleteMultiple.useMutation();
 
-  const handleMarkAsRead = async (id: number) => { try { await markAsReadMutation.mutateAsync({ notificationId: id }); toast.success("읽음 처리"); refetch(); } catch { toast.error("실패"); } };
+  const handleMarkAsRead = async (id: number) => { try { await markAsReadMutation.mutateAsync({ notificationId: id }); toast.success("읽음 처리"); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleDelete = async (id: number) => { try { await deleteMutation.mutateAsync({ notificationId: id }); toast.success("삭제됨"); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
-  const handleMarkAllAsRead = async () => { try { await markAllAsReadMutation.mutateAsync(); toast.success("모두 읽음"); refetch(); } catch { toast.error("실패"); } };
+  const handleMarkAllAsRead = async () => { try { await markAllAsReadMutation.mutateAsync(); toast.success("모두 읽음"); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleMarkMultipleAsRead = async () => { if (selectedIds.length === 0) return; try { await markMultipleAsReadMutation.mutateAsync({ notificationIds: selectedIds }); toast.success(`${selectedIds.length}개 읽음`); setSelectedIds([]); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleDeleteMultiple = async () => { if (selectedIds.length === 0) return; try { await deleteMultipleMutation.mutateAsync({ notificationIds: selectedIds }); toast.success(`${selectedIds.length}개 삭제`); setSelectedIds([]); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleToggleSelect = (id: number) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const handleToggleSelectAll = () => { if (!filteredNotifications) return; setSelectedIds(selectedIds.length === filteredNotifications.length ? [] : filteredNotifications.map((n: any) => n.id)); };
-  const handleDeleteAll = async () => { if (!confirm("모든 알림을 삭제하시겠습니까?")) return; try { await deleteAllMutation.mutateAsync(); toast.success("모두 삭제"); refetch(); } catch { toast.error("실패"); } };
+  const handleDeleteAll = async () => { if (!confirm("모든 알림을 삭제하시겠습니까?")) return; try { await deleteAllMutation.mutateAsync(); toast.success("모두 삭제"); refetch(); refetchCounts(); } catch { toast.error("실패"); } };
   const handleMarkAsResolved = async (id: number) => { try { await resolvedMutation.mutateAsync({ notificationId: id }); toast.success("조치 완료"); refetch(); } catch { toast.error("실패"); } };
 
   const handleSavePreset = () => {

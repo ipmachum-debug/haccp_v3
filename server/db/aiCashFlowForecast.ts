@@ -12,6 +12,8 @@
 
 import { getRawConnection } from "../db";
 
+import { toKSTDate, todayKST, formatLocalDate} from "../utils/timezone";
+
 // ============================================================================
 // 타입 정의
 // ============================================================================
@@ -84,7 +86,7 @@ async function getApSchedule(tenantId: number, days: number): Promise<Map<string
   );
 
   for (const row of rows as any[]) {
-    const d = new Date(row.due_date).toISOString().split("T")[0];
+    const d = toKSTDate(new Date(row.due_date));
     schedule.set(d, Number(row.total));
   }
 
@@ -98,7 +100,7 @@ async function getApSchedule(tenantId: number, days: number): Promise<Map<string
   );
   const overdueTotal = Number((overdueRows as any[])[0]?.total || 0);
   if (overdueTotal > 0) {
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayKST();
     schedule.set(today, (schedule.get(today) || 0) + overdueTotal);
   }
 
@@ -137,7 +139,7 @@ async function getArSchedule(tenantId: number, days: number): Promise<Map<string
   );
 
   for (const row of rows as any[]) {
-    const d = new Date(row.due_date).toISOString().split("T")[0];
+    const d = toKSTDate(new Date(row.due_date));
     // 회수율 보정
     schedule.set(d, Math.round(Number(row.total) * collectionRate));
   }
@@ -184,13 +186,13 @@ export async function forecastCashFlow(
   let balance = currentBalance;
   let totalAp = 0, totalAr = 0, totalOp = 0;
   let lowestBalance = currentBalance;
-  let lowestDate = new Date().toISOString().split("T")[0];
+  let lowestDate = todayKST();
   let dangerDays = 0, warningDays = 0;
 
   for (let i = 0; i < days; i++) {
     const date = new Date();
     date.setDate(date.getDate() + i);
-    const dateStr = date.toISOString().split("T")[0];
+    const dateStr = formatLocalDate(date);
 
     const apOut = apSchedule.get(dateStr) || 0;
     const arIn = arSchedule.get(dateStr) || 0;

@@ -15,7 +15,7 @@ describe("생산 효율성 대시보드 (Production Efficiency Dashboard)", () =
 
   beforeAll(async () => {
     const db = await getDb();
-    if (!db) throw new Error("Database not available");
+    if (!db) throw new Error("DB 연결 실패");
 
     // 테스트 제품 생성
     const timestamp = Date.now();

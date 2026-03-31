@@ -15,7 +15,7 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
  */
 export async function calculateRecipeCost(recipeId: number, _tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 레시피 라인 조회 (원재료 정보 포함)
   const lines = await db
@@ -67,7 +67,7 @@ export async function calculateRecipeCost(recipeId: number, _tenantId?: number) 
  */
 export async function calculateProductCostStats(productId?: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 레시피 목록 조회
   let queryBuilder = db.select().from(recipes);

@@ -15,6 +15,8 @@ import { WelcomeBanner } from "@/components/WelcomeBanner";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { useState, useEffect, useMemo } from "react";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 // ─── Section Header Component ───
 function SectionHeader({ icon: Icon, title, description, actionLabel, actionHref }: {
   icon: any; title: string; description?: string; actionLabel?: string; actionHref?: string;
@@ -192,10 +194,10 @@ export default function Dashboard() {
   // ─── Derived Data ───
   const batches = batchesData?.items || [];
   const inProgressBatches = batches.filter((b: any) => b.status === "in_progress" || b.status === "running");
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = todayLocal();
   const completedToday = batches.filter((b: any) => {
     if (b.status !== "completed") return false;
-    const updated = b.updatedAt ? new Date(b.updatedAt).toISOString().split("T")[0] : "";
+    const updated = b.updatedAt ? formatLocalDate(new Date(b.updatedAt)) : "";
     return updated === todayStr;
   });
 

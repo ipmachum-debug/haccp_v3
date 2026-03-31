@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 import {
   Dialog,
   DialogContent,
@@ -21,9 +23,9 @@ export default function PurchaseProposalHistory() {
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
-    return date.toISOString().split("T")[0];
+    return formatLocalDate(date);
   });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(() => todayLocal());
   const [selectedStatus, setSelectedStatus] = useState<
     "draft" | "submitted" | "approved" | "received" | "cancelled" | "all"
   >("all");

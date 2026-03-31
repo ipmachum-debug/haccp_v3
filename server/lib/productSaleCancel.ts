@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../db/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../drizzle/schema/accountingAccounts";
 
+import { todayKST } from "../utils/timezone";
+
 /**
  * 제품 출고/판매 CANCEL 로직 (역거래 패턴)
  *
@@ -31,7 +33,7 @@ export async function cancelProductSale(
   tenantId: number
 ): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database connection not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. 판매 문서 조회 및 상태 검증 (tenant_id 필터 적용)
   const sale = await db
@@ -54,7 +56,7 @@ export async function cancelProductSale(
 
   // 2. 회계 역분개 생성 (expense_journal_entries/lines)
   const conn = await getRawConnection();
-  const cancelDate = new Date().toISOString().split("T")[0];
+  const cancelDate = todayKST();
 
   // 원본 분개 조회
   const [originalJeRows] = await conn.execute(

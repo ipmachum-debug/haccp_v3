@@ -23,7 +23,7 @@ const COMPANY_KEYS = {
  */
 export async function getCompanyInfo(tenantId: number): Promise<CompanyInfo> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const result: CompanyInfo = {};
 
@@ -51,7 +51,7 @@ export async function getCompanyInfo(tenantId: number): Promise<CompanyInfo> {
  */
 export async function updateCompanyInfo(data: CompanyInfo, tenantId: number): Promise<void> {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   for (const key of Object.keys(data)) {
     const settingKey = COMPANY_KEYS[key as keyof typeof COMPANY_KEYS];

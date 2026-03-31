@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { todayLocal } from "../lib/dateUtils";
+
 import {
   Plus,
   Trash2,
@@ -47,7 +49,7 @@ export default function SelfQualityInspectionForm() {
   const [foodCode, setFoodCode] = useState("");
   const [foodName, setFoodName] = useState("");
   const [inspectionDate, setInspectionDate] = useState(
-    new Date().toISOString().split("T")[0]
+    todayLocal()
   );
   const [expiryDate, setExpiryDate] = useState("");
   const [inspector, setInspector] = useState("이선영");

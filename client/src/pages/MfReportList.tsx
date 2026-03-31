@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
 
+import { todayLocal } from "../lib/dateUtils";
+
 // CCP 매핑 섹션 컴포넌트
 function CcpMappingSection({ productId, productName }: { productId: number; productName: string }) {
   const CCP_TYPES = [
@@ -362,7 +364,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
   const [deductDialogOpen, setDeductDialogOpen] = useState(false);
   const [deductReportId, setDeductReportId] = useState<number | null>(null);
   const [batchKg, setBatchKg] = useState(10);
-  const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [productionDate, setProductionDate] = useState(todayLocal());
   const [producedQuantity, setProducedQuantity] = useState(100);
   const [notes, setNotes] = useState("");
 
@@ -400,7 +402,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `품목제조보고_일괄_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `품목제조보고_일괄_${todayLocal()}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     },
@@ -539,7 +541,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
       const url = window.URL.createObjectURL(pdfBlob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `배합표_${exportMode === "summary" ? "요약" : "상세"}_${new Date().toISOString().split("T")[0]}.pdf`;
+      a.download = `배합표_${exportMode === "summary" ? "요약" : "상세"}_${todayLocal()}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
 

@@ -20,7 +20,7 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
  */
 export async function getMaterialsWithInventory(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const results = await db
     .select({
@@ -97,7 +97,7 @@ export async function getMaterialsWithInventory(tenantId?: number) {
  */
 export async function getMaterialInventory(materialId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const [result] = await db
     .select()

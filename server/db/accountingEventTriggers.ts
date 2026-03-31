@@ -37,7 +37,7 @@ export async function onLargeExpenseCreated(params: {
     const [avgRows] = await conn.execute(
       `SELECT AVG(total_amount) as avg_amount, STDDEV(total_amount) as std_amount
        FROM expense_vouchers
-       WHERE tenant_id = ? AND status != 'cancelled'
+       WHERE tenant_id = ? AND status NOT IN ('canceled', 'cancelled')
          AND expense_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)`,
       [tenantId]
     );
@@ -90,15 +90,20 @@ export async function checkUpcomingPayments(tenantId: number): Promise<number> {
   try {
     const conn = await getRawConnection();
 
+    // ap_ledger uses: supplier_partner_id, occurred_at, ap_entry_type, memo
+    // partners uses: company_name (not name)
+    // Note: ap_ledger has no due_date column; use occurred_at + 30 day payment terms as proxy
     const [rows] = await conn.execute(
-      `SELECT apl.id, apl.amount, apl.due_date, apl.description,
-              p.name as partnerName,
-              DATEDIFF(apl.due_date, CURDATE()) as daysUntilDue
+      `SELECT apl.id, apl.amount, 
+              DATE_ADD(apl.occurred_at, INTERVAL 30 DAY) as due_date,
+              apl.memo as description,
+              p.company_name as partnerName,
+              DATEDIFF(DATE_ADD(apl.occurred_at, INTERVAL 30 DAY), CURDATE()) as daysUntilDue
        FROM ap_ledger apl
-       LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = ?
-       WHERE apl.tenant_id = ? AND apl.status NOT IN ('paid', 'cancelled')
-         AND apl.due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
-       ORDER BY apl.due_date ASC`,
+       LEFT JOIN partners p ON p.id = apl.supplier_partner_id AND p.tenant_id = ?
+       WHERE apl.tenant_id = ? AND apl.ap_entry_type = 'bill'
+         AND DATE_ADD(apl.occurred_at, INTERVAL 30 DAY) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 3 DAY)
+       ORDER BY apl.occurred_at ASC`,
       [tenantId, tenantId]
     );
 

@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Trash2 } from "lucide-react";
 
+import { todayLocal } from "../lib/dateUtils";
+
 const config: ChecklistFormConfig = {
   formType: "daily_disposal_record",
   title: "일일 폐기 기록",
@@ -32,7 +34,7 @@ const initialRows: DisposalRow[] = [
 ];
 
 export default function DailyDisposalRecordForm() {
-  const [recordDate, setRecordDate] = useState(new Date().toISOString().split("T")[0]);
+  const [recordDate, setRecordDate] = useState(todayLocal());
   const [department, setDepartment] = useState("");
   const [rows, setRows] = useState<DisposalRow[]>(initialRows);
   const [remarks, setRemarks] = useState("");

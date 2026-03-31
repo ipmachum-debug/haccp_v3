@@ -9,10 +9,12 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
+import { todayLocal } from "../../lib/dateUtils";
+
 export function CCP1BForm() {
 
   const [formData, setFormData] = useState({
-    recordDate: new Date().toISOString().split('T')[0],
+    recordDate: todayLocal(),
     productName: "",
     measurementTime: "",
     heatingTimeMin: "",
@@ -30,7 +32,7 @@ export function CCP1BForm() {
       toast.success("CCP-1B 모니터링 기록이 저장되었습니다.");
       // Reset form
       setFormData({
-        recordDate: new Date().toISOString().split('T')[0],
+        recordDate: todayLocal(),
         productName: "",
         measurementTime: "",
         heatingTimeMin: "",

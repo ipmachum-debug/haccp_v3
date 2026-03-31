@@ -66,7 +66,7 @@ export async function adjustInventory(params: {
   createdBy: number;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   if (!params.reason || params.reason.trim() === "") {
     throw new Error("조정 사유를 입력해주세요.");
@@ -149,7 +149,7 @@ export async function getAdjustmentHistory(params?: {
   endDate?: Date;
 }, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [eq(hInventoryTransactions.transactionType, "adjustment")];
   // tenantId 필터: hInventoryTransactions에 tenant_id 없음 → hMaterials.tenantId 사용

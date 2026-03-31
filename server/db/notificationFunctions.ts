@@ -1,4 +1,4 @@
-import { eq, and, lte, gte, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, lte, gte, desc, sql, inArray } from "drizzle-orm";
 import { getDb } from "./connection";
 import { hNotifications, hInventoryLots, hMaterials, hInspectionRecords, users } from "../../drizzle/schema";
 
@@ -19,11 +19,12 @@ export async function createNotification(data: {
   metadata?: string;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
+  if (!data.userId) throw new Error("[보안] 알림 대상 userId는 필수입니다");
   const [notification] = await db.insert(hNotifications).values({
     ...data,
     tenantId: data.tenantId,
-    userId: data.userId || 1, // 기본값: 1 (시스템 알림)
+    userId: data.userId,
     priority: data.priority as "low" | "medium" | "high" | "urgent" | undefined
   });
   return notification;
@@ -31,26 +32,31 @@ export async function createNotification(data: {
 
 export async function getNotifications(userId?: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [];
-  if (userId) conditions.push(eq(hNotifications.userId, userId));
+  // userId=0은 브로드캐스트 알림 — 현재 유저 알림 + 전체 알림 모두 조회
+  if (userId) {
+    conditions.push(or(eq(hNotifications.userId, userId), eq(hNotifications.userId, 0)));
+  }
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   if (conditions.length > 0) {
     return await db
       .select()
       .from(hNotifications)
       .where(and(...conditions))
-      .orderBy(desc(hNotifications.createdAt));
+      .orderBy(desc(hNotifications.createdAt))
+      .limit(200);
   }
   return await db
     .select()
     .from(hNotifications)
-    .orderBy(desc(hNotifications.createdAt));
+    .orderBy(desc(hNotifications.createdAt))
+    .limit(200);
 }
 
 export async function markNotificationAsRead(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   await db
@@ -61,7 +67,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId?: 
 
 export async function deleteNotification(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
   await db
@@ -71,7 +77,7 @@ export async function deleteNotification(notificationId: number, tenantId?: numb
 
 export async function checkAndCreateExpiryNotifications(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const sevenDaysFromNow = new Date();
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
 
@@ -92,6 +98,7 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
 
   for (const { lot, material } of expiringLots) {
     if (!lot || !material || !lot.expiryDate) continue;
+    if (!(lot as any).tenantId) continue; // tenantId 없는 LOT은 알림 생성 불가
 
     const daysUntilExpiry = Math.ceil(
       (new Date(lot.expiryDate).getTime() - new Date().getTime()) /
@@ -99,7 +106,7 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
     );
 
     await createNotification({
-      tenantId: (lot as any).tenantId || 1,
+      tenantId: (lot as any).tenantId,
       notificationType: "inventory_expiry",
       title: `재고 유통기한 임박`,
       message: `${material.materialName} (LOT: ${lot.lotNumber}) 유통기한이 ${daysUntilExpiry}일 남았습니다.`,
@@ -112,33 +119,42 @@ export async function checkAndCreateExpiryNotifications(tenantId?: number) {
   return expiringLots.length;
 }
 
-// 모든 알림 읽음 처리
-export async function markAllNotificationsAsRead(userId: number) {
+// 모든 알림 읽음 처리 (사용자 알림 + 브로드캐스트 알림 모두)
+export async function markAllNotificationsAsRead(userId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hNotifications } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, or, and: andOp } = await import("drizzle-orm");
+
+  // 사용자 알림 + 브로드캐스트(userId=0) 알림 모두 읽음 처리
+  const userCondition = or(eq(hNotifications.userId, userId), eq(hNotifications.userId, 0));
+  const conditions: any[] = [userCondition];
+  if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
 
   await db
     .update(hNotifications)
-    .set({ isRead: 1 })
-    .where(eq(hNotifications.userId, userId));
+    .set({ isRead: 1, readAt: new Date() })
+    .where(andOp(...conditions));
 
   return { success: true };
 }
 
-// 모든 알림 삭제
-export async function deleteAllNotifications(userId: number) {
+// 모든 알림 삭제 (사용자 알림 + 브로드캐스트 알림 모두)
+export async function deleteAllNotifications(userId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hNotifications } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, or, and: andOp } = await import("drizzle-orm");
+
+  const userCondition = or(eq(hNotifications.userId, userId), eq(hNotifications.userId, 0));
+  const conditions: any[] = [userCondition];
+  if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
 
   await db
     .delete(hNotifications)
-    .where(eq(hNotifications.userId, userId));
+    .where(andOp(...conditions));
 
   return { success: true };
 }
@@ -147,7 +163,7 @@ export async function deleteAllNotifications(userId: number) {
 // 검사 결과 부적합 발생 시 알림 생성
 export async function checkAndCreateInspectionFailureAlerts() {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hInspectionRecords, hNotifications, users } = await import("../../drizzle/schema.js");
   const { eq, and, gte } = await import("drizzle-orm");
@@ -218,7 +234,7 @@ export async function checkAndCreateInspectionFailureAlerts() {
  */
 export async function markNotificationAsResolved(notificationId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.id, notificationId)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));
@@ -234,93 +250,107 @@ export async function markNotificationAsResolved(notificationId: number, tenantI
  */
 export async function getNotificationStatistics(startDate?: string, endDate?: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { sql } = await import("drizzle-orm");
 
+  // ★ 실제 DB 컬럼명 사용 (snake_case) — Drizzle sql`` 내 raw SQL 부분
   let dateFilter = sql``;
   if (startDate && endDate) {
-    dateFilter = sql` AND createdAt >= ${startDate} AND createdAt <= ${endDate}`;
+    dateFilter = sql` AND created_at >= ${startDate} AND created_at <= ${endDate}`;
   } else if (startDate) {
-    dateFilter = sql` AND createdAt >= ${startDate}`;
+    dateFilter = sql` AND created_at >= ${startDate}`;
   } else if (endDate) {
-    dateFilter = sql` AND createdAt <= ${endDate}`;
+    dateFilter = sql` AND created_at <= ${endDate}`;
   }
 
   const tenantFilter = tenantId ? sql` AND tenant_id = ${tenantId}` : sql``;
 
-  // ★ 성능 개선: 6개 쿼리 → 3개로 통합
-  // 1) 총 알림 + 미해결 + 평균해결시간 통합 조회
-  const summaryRaw: any = await db.execute(sql`
-    SELECT
-      COUNT(*) as totalCount,
-      SUM(CASE WHEN isResolved = 0 THEN 1 ELSE 0 END) as unresolvedCount,
-      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL
-          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
-    FROM ${hNotifications}
-    WHERE 1=1${dateFilter}${tenantFilter}
-  `);
-  const summary = Array.isArray(summaryRaw) && summaryRaw[0] ? (Array.isArray(summaryRaw[0]) ? summaryRaw[0][0] : summaryRaw[0]) : {};
-  const totalNotifications = Number(summary?.totalCount || 0);
-  const unresolvedCount = Number(summary?.unresolvedCount || 0);
-  const resolvedCount = totalNotifications - unresolvedCount;
-  const overallAvgResolutionHours = Number(summary?.avgHours || 0);
+  try {
+    // 1) 총 알림 + 미해결 + 평균해결시간
+    const summaryRaw: any = await db.execute(sql`
+      SELECT
+        COUNT(*) as totalCount,
+        SUM(CASE WHEN is_resolved = 0 THEN 1 ELSE 0 END) as unresolvedCount,
+        AVG(CASE WHEN is_resolved = 1 AND resolved_at IS NOT NULL
+            THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) ELSE NULL END) as avgHours
+      FROM h_notifications
+      WHERE 1=1${dateFilter}${tenantFilter}
+    `);
+    const summary = Array.isArray(summaryRaw) && summaryRaw[0] ? (Array.isArray(summaryRaw[0]) ? summaryRaw[0][0] : summaryRaw[0]) : {};
+    const totalNotifications = Number(summary?.totalCount || 0);
+    const unresolvedCount = Number(summary?.unresolvedCount || 0);
+    const resolvedCount = totalNotifications - unresolvedCount;
+    const overallAvgResolutionHours = Number(summary?.avgHours || 0);
 
-  // 2) 타입별 빈도 + 해결시간 통합 조회
-  const typeStatsRaw = await db.execute(sql`
-    SELECT
-      notificationType as type,
-      COUNT(*) as count,
-      AVG(CASE WHEN isResolved = 1 AND resolvedAt IS NOT NULL
-          THEN TIMESTAMPDIFF(HOUR, createdAt, resolvedAt) ELSE NULL END) as avgHours
-    FROM ${hNotifications}
-    WHERE 1=1${dateFilter}${tenantFilter}
-    GROUP BY notificationType
-  `);
-  const typeRows = Array.isArray(typeStatsRaw) && Array.isArray(typeStatsRaw[0]) ? typeStatsRaw[0] : typeStatsRaw;
-  const typeDistribution = (typeRows as any[]).map((row: any) => ({
-    name: row.type || "기타",
-    count: Number(row.count)
-  }));
-  const avgResolutionTime = (typeRows as any[])
-    .filter((row: any) => row.avgHours != null)
-    .map((row: any) => ({
-      type: row.type || "기타",
-      avgHours: Number(row.avgHours || 0)
+    // 2) 타입별 빈도 + 해결시간
+    const typeStatsRaw = await db.execute(sql`
+      SELECT
+        notification_type as type,
+        COUNT(*) as count,
+        AVG(CASE WHEN is_resolved = 1 AND resolved_at IS NOT NULL
+            THEN TIMESTAMPDIFF(HOUR, created_at, resolved_at) ELSE NULL END) as avgHours
+      FROM h_notifications
+      WHERE 1=1${dateFilter}${tenantFilter}
+      GROUP BY notification_type
+    `);
+    const typeRows = Array.isArray(typeStatsRaw) && Array.isArray(typeStatsRaw[0]) ? typeStatsRaw[0] : typeStatsRaw;
+    const typeDistribution = (typeRows as any[]).map((row: any) => ({
+      name: row.type || "기타",
+      count: Number(row.count)
+    }));
+    const avgResolutionTime = (typeRows as any[])
+      .filter((row: any) => row.avgHours != null)
+      .map((row: any) => ({
+        type: row.type || "기타",
+        avgHours: Number(row.avgHours || 0)
+      }));
+
+    // 3) 미해결 알림 추이
+    let trendDateFilter = dateFilter;
+    if (!startDate && !endDate) {
+      trendDateFilter = sql` AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    }
+    const unresolvedTrendRaw = await db.execute(sql`
+      SELECT DATE(created_at) as date, COUNT(*) as count
+      FROM h_notifications
+      WHERE is_resolved = 0${trendDateFilter}${tenantFilter}
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `);
+    const trendRows = Array.isArray(unresolvedTrendRaw) && Array.isArray(unresolvedTrendRaw[0]) ? unresolvedTrendRaw[0] : unresolvedTrendRaw;
+    const unresolvedTrend = (trendRows as any[]).map((row: any) => ({
+      date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date || ""),
+      count: Number(row.count)
     }));
 
-  // 3) 미해결 알림 추이
-  let trendDateFilter = dateFilter;
-  if (!startDate && !endDate) {
-    trendDateFilter = sql` AND createdAt >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    return {
+      totalNotifications,
+      unresolvedCount,
+      resolvedCount,
+      typeDistribution,
+      avgResolutionTime,
+      unresolvedTrend,
+      overallAvgResolutionHours,
+    };
+  } catch (err) {
+    console.error("[getNotificationStatistics] 쿼리 실패:", err);
+    // 에러 시에도 빈 데이터 반환 (프론트 크래시 방지)
+    return {
+      totalNotifications: 0,
+      unresolvedCount: 0,
+      resolvedCount: 0,
+      typeDistribution: [],
+      avgResolutionTime: [],
+      unresolvedTrend: [],
+      overallAvgResolutionHours: 0,
+    };
   }
-  const unresolvedTrendRaw = await db.execute(sql`
-    SELECT DATE(createdAt) as date, COUNT(*) as count
-    FROM ${hNotifications}
-    WHERE isResolved = 0${trendDateFilter}${tenantFilter}
-    GROUP BY DATE(createdAt)
-    ORDER BY date ASC
-  `);
-  const trendRows = Array.isArray(unresolvedTrendRaw) && Array.isArray(unresolvedTrendRaw[0]) ? unresolvedTrendRaw[0] : unresolvedTrendRaw;
-  const unresolvedTrend = (trendRows as any[]).map((row: any) => ({
-    date: row.date,
-    count: Number(row.count)
-  }));
-
-  return {
-    totalNotifications,
-    unresolvedCount,
-    resolvedCount,
-    typeDistribution,
-    avgResolutionTime,
-    overallAvgResolutionHours,
-    unresolvedTrend
-  };
 }
 
 export async function getNotificationCountsByType(userId?: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.isRead, 0)];
   if (userId) conditions.push(eq(hNotifications.userId, userId));
@@ -387,7 +417,7 @@ export async function deleteMultipleNotifications(notificationIds: number[], ten
 // 읽은 알림 자동 삭제 (30일 경과)
 export async function deleteOldReadNotifications(days: number = 30, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -407,7 +437,7 @@ export async function deleteOldReadNotifications(days: number = 30, tenantId?: n
 // 특정 타입 알림 자동 아카이브
 export async function archiveNotificationsByType(notificationType: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not initialized");
+  if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [eq(hNotifications.notificationType, notificationType)];
   if (tenantId) conditions.push(eq(hNotifications.tenantId, tenantId));

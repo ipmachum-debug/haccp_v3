@@ -41,6 +41,8 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import DashboardLayout from "@/components/DashboardLayout";
 
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 export default function CorrectiveAction() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -159,7 +161,7 @@ export default function CorrectiveAction() {
       yPos += 5;
     });
     
-    doc.save(`corrective-action-report-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`corrective-action-report-${todayLocal()}.pdf`);
     alert("보고서가 성공적으로 다운로드되었습니다.");
   };
 
@@ -611,8 +613,8 @@ export default function CorrectiveAction() {
                       correctiveActionMutation.mutate({
                         id: selectedAction.id,
                         correctiveAction: formData.get("correctiveActionTaken") as string,
-                        actionStartDate: new Date().toISOString().split("T")[0],
-                        actionDueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+                        actionStartDate: todayLocal(),
+                        actionDueDate: formatLocalDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
                       });
                     }}
                   >
@@ -667,7 +669,7 @@ export default function CorrectiveAction() {
                         verificationMethod: "실제 검증",
                         verificationResult: formData.get("verificationResult") as string,
                         isEffective: formData.get("isEffective") === "1" ? 1 : 0,
-                        verifiedDate: new Date().toISOString().split("T")[0],
+                        verifiedDate: todayLocal(),
                       });
                     }}
                   >

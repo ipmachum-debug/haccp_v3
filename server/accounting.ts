@@ -11,6 +11,8 @@
  */
 import { eq, and, gte, lte, desc, sql, sum } from "drizzle-orm";
 import { getDb } from "./db";
+import { toKSTDate } from "./utils/timezone";
+
 import { 
   accountingCategories, 
   accountingTransactions, 
@@ -26,7 +28,7 @@ import {
 
 export async function getAllCategories() {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   return await db
     .select()
@@ -37,7 +39,7 @@ export async function getAllCategories() {
 
 export async function getCategoryById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db
     .select()
@@ -54,7 +56,7 @@ export async function getCategoryById(id: number) {
 
 export async function createTransaction(data: InsertAccountingTransaction) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db.insert(accountingTransactions).values(data);
   return result[0].insertId;
@@ -69,7 +71,7 @@ export async function getTransactions(filters: {
   offset?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   let query = db
     .select({
@@ -128,7 +130,7 @@ export async function getTransactions(filters: {
 
 export async function getTransactionById(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db
     .select()
@@ -141,7 +143,7 @@ export async function getTransactionById(id: number) {
 
 export async function updateTransaction(id: number, data: Partial<InsertAccountingTransaction>) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .update(accountingTransactions)
@@ -151,7 +153,7 @@ export async function updateTransaction(id: number, data: Partial<InsertAccounti
 
 export async function deleteTransaction(id: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   await db
     .delete(accountingTransactions)
@@ -164,7 +166,7 @@ export async function deleteTransaction(id: number) {
 
 export async function getDailySummary(date: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db
     .select()
@@ -177,10 +179,10 @@ export async function getDailySummary(date: string) {
 
 export async function getMonthlySummary(year: number, month: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const endDate = new Date(year, month, 0).toISOString().split("T")[0]; // 해당 월의 마지막 날
+  const endDate = toKSTDate(new Date(year, month, 0)); // 해당 월의 마지막 날
   
   const result = await db
     .select({
@@ -223,7 +225,7 @@ export async function getMonthlySummary(year: number, month: number, tenantId?: 
 
 export async function getCategoryBreakdown(startDate: string, endDate: string, type: "income" | "expense") {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db
     .select({
@@ -252,7 +254,7 @@ export async function getCategoryBreakdown(startDate: string, endDate: string, t
 
 export async function getFinancialOverview(startDate: string, endDate: string) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   const result = await db
     .select({
@@ -300,7 +302,7 @@ export async function getFinancialOverview(startDate: string, endDate: string) {
 
 export async function initializeDefaultCategories() {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
   
   // 이미 계정 과목이 있는지 확인
   const existing = await db.select().from(accountingCategories).limit(1);

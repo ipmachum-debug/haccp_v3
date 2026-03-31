@@ -3,8 +3,28 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TableHeader, TableRow, TableBody } from "@/components/ui/table";
 import { StatCard, StyledTable, TH, TD, SectionTitle, Loading, Empty, fmt, won } from "./InventoryHelpers";
+import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 
 export function MaterialStockView({ dashboard, isLoading }: { dashboard: any; isLoading: boolean }) {
+  const stocks = dashboard?.materialStocks || [];
+  const {
+    sort, handleSort, pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(stocks, {
+    defaultSort: { key: "materialName", direction: "asc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (["totalQuantity", "lotCount", "unitPrice", "totalValue"].includes(key)) {
+        const aVal = parseFloat(a[key] || "0");
+        const bVal = parseFloat(b[key] || "0");
+        return dir === "asc" ? aVal - bVal : bVal - aVal;
+      }
+      const aVal = String(a[key] || "");
+      const bVal = String(b[key] || "");
+      return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
+    },
+  });
+
   return (
     <div className="space-y-4">
       {/* 스탯 카드 */}
@@ -19,20 +39,24 @@ export function MaterialStockView({ dashboard, isLoading }: { dashboard: any; is
       {/* 원재료별 전체 재고 */}
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-          <SectionTitle icon={Package} title="원재료별 재고 현황" />
+          <SectionTitle icon={Package} title="원재료별 재고 현황" desc={stocks.length > 0 ? `총 ${stocks.length}종` : undefined} />
         </CardHeader>
         <CardContent className="p-3">
-          {isLoading ? <Loading /> : !dashboard?.materialStocks?.length ? <Empty /> : (
+          {isLoading ? <Loading /> : !stocks.length ? <Empty /> : (
             <>
-              {/* 데스크톱: 테이블 뷰 (스와이프 가능) */}
+              {/* 데스크톱: 테이블 뷰 */}
               <div className="hidden sm:block">
                 <StyledTable>
                   <TableHeader><TableRow>
-                    <TH>원재료</TH><TH>총 수량</TH><TH className="text-center">LOT</TH>
-                    <TH className="text-right">단가</TH><TH className="text-right">총 가치</TH><TH className="text-center">상태</TH>
+                    <SortableHeader label="원재료" sortKey="materialName" currentSort={sort} onSort={handleSort} />
+                    <SortableHeader label="총 수량" sortKey="totalQuantity" currentSort={sort} onSort={handleSort} />
+                    <SortableHeader label="LOT" sortKey="lotCount" currentSort={sort} onSort={handleSort} align="center" />
+                    <SortableHeader label="단가" sortKey="unitPrice" currentSort={sort} onSort={handleSort} align="right" />
+                    <SortableHeader label="총 가치" sortKey="totalValue" currentSort={sort} onSort={handleSort} align="right" />
+                    <TH className="text-center">상태</TH>
                   </TableRow></TableHeader>
                   <TableBody>
-                    {dashboard.materialStocks.map((m: any) => (
+                    {pageData.map((m: any) => (
                       <TableRow key={m.materialId} className="hover:bg-muted/30">
                         <TD>
                           <span className="font-medium">{m.materialName}</span>
@@ -55,7 +79,7 @@ export function MaterialStockView({ dashboard, isLoading }: { dashboard: any; is
 
               {/* 모바일: 카드 리스트 뷰 */}
               <div className="sm:hidden space-y-2">
-                {dashboard.materialStocks.map((m: any) => (
+                {pageData.map((m: any) => (
                   <div key={m.materialId} className="border rounded-lg p-3 space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -83,6 +107,13 @@ export function MaterialStockView({ dashboard, isLoading }: { dashboard: any; is
                   </div>
                 ))}
               </div>
+
+              <PaginationBar
+                totalItems={totalItems} totalPages={totalPages}
+                currentPage={pagination.page} pageSize={pagination.pageSize}
+                startIdx={startIdx} endIdx={endIdx}
+                onPageChange={setPage} onPageSizeChange={setPageSize}
+              />
             </>
           )}
         </CardContent>

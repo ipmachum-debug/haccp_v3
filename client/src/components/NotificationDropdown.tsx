@@ -57,7 +57,7 @@ export default function NotificationDropdown() {
   };
 
   const handleCcpAlertClick = (batchId: number) => {
-    setLocation(`/batch/${batchId}`);
+    setLocation(`/dashboard/batch/${batchId}`);
   };
 
   const getNotificationIcon = (type: string, priority?: string | null) => {

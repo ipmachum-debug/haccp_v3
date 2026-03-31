@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { BoxIcon, Hash, BarChart3, Truck, Factory, Package, PackageMinus, Clock, ShieldCheck, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import { StatCard, StyledTable, TH, TD, SectionTitle, Loading, Empty, fmt, fmtDate, won } from "./InventoryHelpers";
 import { PartnerSearchInput } from "./PartnerSearchInput";
+import { usePaginatedSort, PaginationBar } from "@/components/PaginatedTable";
+
+import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
 /* ═══════════════════════════════════════════════════
    제품 재고현황 뷰 (배치 + SKU 기반)
@@ -16,6 +19,7 @@ export function ProductStockView() {
   const { data: batches, isLoading: isLoadingBatches } = trpc.batch.list.useQuery({ limit: 500 });
   const { data: skuList } = trpc.productSku.listAll.useQuery();
   const { data: itemList, isLoading: isLoadingItems } = trpc.itemMaster.list.useQuery({ itemType: "own_product", limit: 500 });
+  const { data: outboundByProduct } = trpc.inventory.getProductOutboundByProduct.useQuery();
   const isLoading = isLoadingBatches || isLoadingItems;
 
   const productInventory = useMemo(() => {
@@ -41,36 +45,94 @@ export function ProductStockView() {
       batchMap.set(key, existing);
     });
 
+    // 출고 데이터를 제품명 기준으로 맵 생성
+    const outboundMap = new Map<string, { totalOutbound: number; outboundCount: number; lastReleaseDate: string | null }>();
+    if (outboundByProduct && Array.isArray(outboundByProduct)) {
+      (outboundByProduct as any[]).forEach((o: any) => {
+        outboundMap.set(o.productName, {
+          totalOutbound: o.totalOutbound || 0,
+          outboundCount: o.outboundCount || 0,
+          lastReleaseDate: o.lastReleaseDate || null,
+        });
+      });
+    }
+
     // 품목마스터 기준으로 결합 (배치 없어도 0으로 표시)
     // itemMaster.legacyProductId === hBatches.productId 로 매칭
-    return items.map((item: any) => {
+    const result = items.map((item: any) => {
       const matchedSkus = skus.filter((s: any) => s.itemId === item.id);
       const legacyId = Number(item.legacyProductId);
       const batchData = legacyId ? (batchMap.get(legacyId) || { totalProduced: 0, lotCount: 0, latestBatch: "" })
                                  : { totalProduced: 0, lotCount: 0, latestBatch: "" };
+      const outData = outboundMap.get(item.itemName || "") || { totalOutbound: 0, outboundCount: 0, lastReleaseDate: null };
+      const currentStock = batchData.totalProduced - outData.totalOutbound;
       return {
         productName: item.itemName || "알 수 없음",
         productCode: item.itemCode || "",
         totalProduced: batchData.totalProduced,
+        totalOutbound: outData.totalOutbound,
+        currentStock,
+        outboundCount: outData.outboundCount,
         lotCount: batchData.lotCount,
         latestBatch: batchData.latestBatch,
+        lastReleaseDate: outData.lastReleaseDate,
         skuCount: matchedSkus.length,
         isOem: !!item.oemSupplierId,
       };
     });
-  }, [batches, skuList, itemList]);
+    // 최근 생산일 기준 내림차순 정렬
+    result.sort((a, b) => {
+      const toTs = (v: any): number => {
+        if (!v) return 0;
+        if (v instanceof Date) return v.getTime();
+        if (typeof v === 'string') return new Date(v).getTime() || 0;
+        return 0;
+      };
+      return toTs(b.latestBatch) - toTs(a.latestBatch);
+    });
+    return result;
+  }, [batches, skuList, itemList, outboundByProduct]);
 
   const totalProduced = productInventory.reduce((s: any, p: any) => s + p.totalProduced, 0);
+  const totalOutbound = productInventory.reduce((s: any, p: any) => s + p.totalOutbound, 0);
+  const totalStock = productInventory.reduce((s: any, p: any) => s + p.currentStock, 0);
   const totalBatches = productInventory.reduce((s: any, p: any) => s + p.lotCount, 0);
   const oemCount = productInventory.filter((p: any) => p.isOem).length;
 
+  const {
+    pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(productInventory, {
+    defaultSort: { key: "latestBatch", direction: "desc" },
+    defaultPageSize: 30,
+    sortFn: (a: any, b: any, key: string, dir) => {
+      if (key === "latestBatch") {
+        const toTs = (v: any): number => {
+          if (!v) return 0;
+          if (v instanceof Date) return v.getTime();
+          if (typeof v === 'string') return new Date(v).getTime() || 0;
+          return 0;
+        };
+        const aT = toTs(a.latestBatch), bT = toTs(b.latestBatch);
+        return dir === "asc" ? aT - bT : bT - aT;
+      }
+      if (["totalProduced", "totalOutbound", "currentStock", "outboundCount", "lotCount", "skuCount"].includes(key)) {
+        const aV = Number(a[key]) || 0, bV = Number(b[key]) || 0;
+        return dir === "asc" ? aV - bV : bV - aV;
+      }
+      const aS = String(a[key] || ""), bS = String(b[key] || "");
+      return dir === "asc" ? aS.localeCompare(bS, "ko") : bS.localeCompare(aS, "ko");
+    },
+  });
+
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard icon={BoxIcon} label="제품 종류" value={productInventory.length} color="blue" />
-        <StatCard icon={Hash} label="총 생산 배치" value={totalBatches} color="emerald" />
-        <StatCard icon={BarChart3} label="총 생산량" value={`${totalProduced.toFixed(1)} kg`} color="slate" />
-        <StatCard icon={Truck} label="OEM 제품" value={oemCount} sub="외부 위탁 생산" color="purple" />
+        <StatCard icon={Factory} label="총 생산량" value={`${totalProduced.toFixed(1)} kg`} color="emerald" />
+        <StatCard icon={Truck} label="총 출고량" value={`${totalOutbound.toFixed(1)} kg`} color="orange" />
+        <StatCard icon={Package} label="현재 재고" value={`${totalStock.toFixed(1)} kg`} color="slate" sub="생산 - 출고" />
+        <StatCard icon={Hash} label="생산 배치" value={totalBatches} color="purple" />
       </div>
 
       <Card>
@@ -79,31 +141,45 @@ export function ProductStockView() {
         </CardHeader>
         <CardContent className="p-3">
           {isLoading ? <Loading /> : !productInventory.length ? <Empty text="등록된 제품(품목마스터)이 없습니다" /> : (
-            <StyledTable>
-              <TableHeader><TableRow>
-                <TH>제품명</TH><TH>코드</TH><TH className="text-right">생산량</TH>
-                <TH className="text-center">배치</TH><TH className="text-center">SKU</TH>
-                <TH className="text-center">유형</TH><TH>최근생산</TH>
-              </TableRow></TableHeader>
-              <TableBody>
-                {productInventory.map((p: any, i: any) => (
-                  <TableRow key={i} className="hover:bg-muted/30">
-                    <TD className="font-medium">{p.productName}</TD>
-                    <TD className="text-muted-foreground font-mono text-xs">{p.productCode}</TD>
-                    <TD className="text-right font-mono">{p.totalProduced.toFixed(1)}</TD>
-                    <TD className="text-center">{p.lotCount}</TD>
-                    <TD className="text-center">
-                      {p.skuCount > 0 ? <Badge className="text-xs px-2.5 py-1">{p.skuCount}</Badge> : <span className="text-muted-foreground">-</span>}
-                    </TD>
-                    <TD className="text-center">
-                      {p.isOem ? <Badge variant="outline" className="text-xs px-2.5 py-1 border-purple-400 text-purple-600">OEM</Badge>
-                               : <Badge variant="secondary" className="text-xs px-2.5 py-1">자사</Badge>}
-                    </TD>
-                    <TD className="text-muted-foreground">{fmtDate(p.latestBatch)}</TD>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </StyledTable>
+            <>
+              <StyledTable>
+                <TableHeader><TableRow>
+                  <TH>제품명</TH><TH>코드</TH>
+                  <TH className="text-right">생산량</TH>
+                  <TH className="text-right">출고량</TH>
+                  <TH className="text-right">재고</TH>
+                  <TH className="text-center">배치</TH>
+                  <TH className="text-center">유형</TH><TH>최근생산</TH>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {pageData.map((p: any, i: any) => (
+                    <TableRow key={i} className="hover:bg-muted/30">
+                      <TD className="font-medium">{p.productName}</TD>
+                      <TD className="text-muted-foreground font-mono text-xs">{p.productCode}</TD>
+                      <TD className="text-right font-mono text-emerald-600 dark:text-emerald-400">{p.totalProduced.toFixed(1)}</TD>
+                      <TD className="text-right font-mono text-orange-600 dark:text-orange-400">{p.totalOutbound > 0 ? p.totalOutbound.toFixed(1) : "-"}</TD>
+                      <TD className="text-right font-mono font-semibold">
+                        <span className={p.currentStock <= 0 ? "text-red-500" : p.currentStock < p.totalProduced * 0.1 ? "text-amber-600" : ""}>
+                          {p.currentStock.toFixed(1)}
+                        </span>
+                      </TD>
+                      <TD className="text-center">{p.lotCount}</TD>
+                      <TD className="text-center">
+                        {p.isOem ? <Badge variant="outline" className="text-xs px-2.5 py-1 border-purple-400 text-purple-600">OEM</Badge>
+                                 : <Badge variant="secondary" className="text-xs px-2.5 py-1">자사</Badge>}
+                      </TD>
+                      <TD className="text-muted-foreground">{fmtDate(p.latestBatch)}</TD>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </StyledTable>
+              <PaginationBar
+                totalItems={totalItems} totalPages={totalPages}
+                currentPage={pagination.page} pageSize={pagination.pageSize}
+                startIdx={startIdx} endIdx={endIdx}
+                onPageChange={setPage} onPageSizeChange={setPageSize}
+              />
+            </>
           )}
         </CardContent>
       </Card>
@@ -115,38 +191,66 @@ export function ProductStockView() {
    제품 입고 안내 (생산 배치 연동)
    ═══════════════════════════════════════════════════ */
 export function ProductReceiptInfo() {
-  const { data: batches } = trpc.batch.list.useQuery({ limit: 20 });
-  const recentCompleted = useMemo(() => {
+  const { data: batches, isLoading } = trpc.batch.list.useQuery({ limit: 500 });
+  const completedBatches = useMemo(() => {
     const list: any[] = Array.isArray(batches) ? batches : (batches as any)?.items || [];
-    return list.filter((b: any) => b.status === "completed").slice(0, 10);
+    return list.filter((b: any) => b.status === "completed").sort((a: any, b: any) => {
+      const toTs = (v: any): number => {
+        if (!v) return 0;
+        if (v instanceof Date) return v.getTime();
+        if (typeof v === 'object' && typeof v.getTime === 'function') return v.getTime();
+        if (typeof v === 'string') return new Date(v).getTime() || 0;
+        if (typeof v === 'number') return v;
+        return 0;
+      };
+      const dateA = toTs(a.endTime) || toTs(a.startTime);
+      const dateB = toTs(b.endTime) || toTs(b.startTime);
+      return dateB - dateA; // newest first
+    });
   }, [batches]);
+
+  const {
+    pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(completedBatches, {
+    defaultSort: { key: "endTime", direction: "desc" },
+    defaultPageSize: 30,
+  });
 
   return (
     <Card>
       <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-        <SectionTitle icon={Factory} title="제품 입고 (생산 배치 연동)" desc="생산 완료 배치 자동 반영" />
+        <SectionTitle icon={Factory} title="제품 입고 (생산 배치 연동)" desc={`생산 완료 배치 ${completedBatches.length}건`} />
       </CardHeader>
       <CardContent className="p-3">
-        {!recentCompleted.length ? <Empty text="최근 완료 배치 없음" /> : (
-          <StyledTable>
-            <TableHeader><TableRow>
-              <TH>배치번호</TH><TH>제품</TH><TH className="text-right">생산량</TH>
-              <TH>완료일</TH><TH className="text-center">상태</TH>
-            </TableRow></TableHeader>
-            <TableBody>
-              {recentCompleted.map((b: any) => (
-                <TableRow key={b.id} className="hover:bg-muted/30">
-                  <TD className="font-mono text-xs">{b.batchCode || b.batchNumber}</TD>
-                  <TD className="font-medium">{b.productName || "-"}</TD>
-                  <TD className="text-right font-mono">{fmt(b.actualQuantity || b.plannedQuantity)}</TD>
-                  <TD className="text-muted-foreground">{fmtDate(b.endTime)}</TD>
-                  <TD className="text-center">
-                    <Badge variant="default" className="text-xs px-2.5 py-1 bg-emerald-600">입고완료</Badge>
-                  </TD>
-                </TableRow>
-              ))}
-            </TableBody>
-          </StyledTable>
+        {isLoading ? <Loading /> : !completedBatches.length ? <Empty text="완료 배치 없음" /> : (
+          <>
+            <StyledTable>
+              <TableHeader><TableRow>
+                <TH>배치번호</TH><TH>제품</TH><TH className="text-right">생산량</TH>
+                <TH>완료일</TH><TH className="text-center">상태</TH>
+              </TableRow></TableHeader>
+              <TableBody>
+                {pageData.map((b: any) => (
+                  <TableRow key={b.id} className="hover:bg-muted/30">
+                    <TD className="font-mono text-xs">{b.batchCode || b.batchNumber}</TD>
+                    <TD className="font-medium">{b.productName || "-"}</TD>
+                    <TD className="text-right font-mono">{fmt(b.actualQuantity || b.plannedQuantity)}</TD>
+                    <TD className="text-muted-foreground">{fmtDate(b.endTime)}</TD>
+                    <TD className="text-center">
+                      <Badge variant="default" className="text-xs px-2.5 py-1 bg-emerald-600 text-white">입고완료</Badge>
+                    </TD>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </StyledTable>
+            <PaginationBar
+              totalItems={totalItems} totalPages={totalPages}
+              currentPage={pagination.page} pageSize={pagination.pageSize}
+              startIdx={startIdx} endIdx={endIdx}
+              onPageChange={setPage} onPageSizeChange={setPageSize}
+            />
+          </>
         )}
       </CardContent>
     </Card>
@@ -158,7 +262,7 @@ export function ProductReceiptInfo() {
    ═══════════════════════════════════════════════════ */
 export function ProductReleaseTab() {
   const utils = trpc.useUtils();
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocal();
   const [releaseDate, setReleaseDate] = useState(today);
   const [releaseType, setReleaseType] = useState("sale");
   const [selectedPartnerId, setSelectedPartnerId] = useState<number | null>(null);
@@ -172,11 +276,11 @@ export function ProductReleaseTab() {
   interface PI { id: number; lotId: string; batchId: string; productName: string; availableQty: string; quantity: string; unit: string; unitPrice: string; amount: string; lotNumber: string; expiryDate: string; source: string; }
   const emptyItem = (): PI => ({ id: Date.now() + Math.random(), lotId: "", batchId: "", productName: "", availableQty: "", quantity: "", unit: "EA", unitPrice: "0", amount: "0", lotNumber: "", expiryDate: "", source: "" });
   const [items, setItems] = useState<PI[]>([emptyItem()]);
-  const [hStart, setHStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split("T")[0]; });
+  const [hStart, setHStart] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 90); return formatLocalDate(d); });
   const [hEnd, setHEnd] = useState(today);
 
   const { data: availableStock, isLoading: stockLoading } = trpc.inventory.getProductAvailableForRelease.useQuery();
-  const { data: history, isLoading: hLoading } = trpc.inventory.getProductOutboundHistory.useQuery({ limit: 50, startDate: hStart, endDate: hEnd });
+  const { data: history, isLoading: hLoading } = trpc.inventory.getProductOutboundHistory.useQuery({ limit: 500, startDate: hStart, endDate: hEnd });
   const { data: outboundStats } = trpc.inventory.getProductOutboundStats.useQuery();
   const createMut = trpc.inventory.createProductOutbound.useMutation({
     onSuccess: () => {
@@ -249,6 +353,12 @@ export function ProductReleaseTab() {
       const q = historySearch.toLowerCase();
       list = list.filter(r => r.productName?.toLowerCase().includes(q) || r.partnerName?.toLowerCase().includes(q) || r.lotNumber?.toLowerCase().includes(q));
     }
+    // 최근일순 정렬
+    list.sort((a, b) => {
+      const da = String(a.releaseDate || "").replace(/\./g, "-");
+      const db = String(b.releaseDate || "").replace(/\./g, "-");
+      return db.localeCompare(da);
+    });
     return list;
   }, [history, historyType, historySearch]);
 
@@ -310,7 +420,7 @@ export function ProductReleaseTab() {
       {/* 통계 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={Truck} label="총 출고 건" value={outboundStats?.totalOutbounds || 0} color="blue" />
-        <StatCard icon={BarChart3} label="월 출고량" value={`${(outboundStats?.monthQuantity || 0).toFixed(1)}`} color="emerald" sub="최근 30일" />
+        <StatCard icon={BarChart3} label="월 출고량" value={`${(outboundStats?.monthQuantity || 0).toFixed(1)} kg`} color="emerald" sub="최근 30일" />
         <StatCard icon={Package} label="월 출고액" value={won(outboundStats?.monthAmount || 0)} color="slate" sub="최근 30일" />
         <StatCard icon={BoxIcon} label="거래처" value={outboundStats?.partnerCount || 0} color="purple" sub="출고 거래처 수" />
       </div>
@@ -517,48 +627,76 @@ export function ProductReleaseTab() {
         </CardHeader>
         <CardContent className="p-3">
           {hLoading ? <Loading /> : !filteredHistory.length ? <Empty text="출고 이력 없음" /> : (
-            <div className="overflow-x-auto">
-              <StyledTable>
-                <TableHeader><TableRow>
-                  <TH className="w-10 text-center">No</TH>
-                  <TH>출고일</TH><TH>제품명</TH><TH>LOT</TH>
-                  <TH className="text-right">수량</TH><TH className="text-right">금액</TH>
-                  <TH>거래처</TH><TH>유형</TH><TH className="text-center">상태</TH><TH className="w-16 text-center">작업</TH>
-                </TableRow></TableHeader>
-                <TableBody>
-                  {filteredHistory.map((r: any, i: number) => (
-                    <TableRow key={r.id} className={`hover:bg-muted/30 transition-colors ${r.status === "cancelled" ? "opacity-40" : ""}`}>
-                      <TD className="text-center text-muted-foreground">{i+1}</TD>
-                      <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.releaseDate)}</TD>
-                      <TD className={`font-medium ${r.status === "cancelled" ? "line-through" : ""}`}>{r.productName}</TD>
-                      <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
-                      <TD className="text-right font-mono whitespace-nowrap">{r.quantity} {r.unit}</TD>
-                      <TD className="text-right text-xs whitespace-nowrap">{won(r.totalAmount)}</TD>
-                      <TD className="text-muted-foreground truncate max-w-[120px]">{r.partnerName || "-"}</TD>
-                      <TD>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${releaseTypeColor(r.releaseType)}`}>
-                          {releaseTypeLabel(r.releaseType)}
-                        </span>
-                      </TD>
-                      <TD className="text-center">
-                        <Badge variant={r.status === "cancelled" ? "destructive" : "secondary"} className="text-xs px-2 py-0.5">
-                          {r.status === "cancelled" ? "취소" : "확정"}
-                        </Badge>
-                      </TD>
-                      <TD className="text-center">
-                        {r.status !== "cancelled" && (
-                          <button onClick={() => { if(confirm(`"${r.productName}" 출고를 취소하시겠습니까?\n\n출고일: ${fmtDate(r.releaseDate)}\n수량: ${r.quantity} ${r.unit}\n금액: ${won(r.totalAmount)}\n거래처: ${r.partnerName || "-"}`)) cancelMut.mutate({ outboundId: r.id }); }}
-                            className="text-red-400 hover:text-red-600 text-xs underline transition-colors" disabled={cancelMut.isPending}>취소</button>
-                        )}
-                      </TD>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </StyledTable>
-            </div>
+            <OutboundHistoryTable data={filteredHistory} cancelMut={cancelMut} releaseTypeLabel={releaseTypeLabel} releaseTypeColor={releaseTypeColor} />
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   출고 이력 테이블 (페이지네이션 + 정렬)
+   ═══════════════════════════════════════════════════ */
+function OutboundHistoryTable({ data, cancelMut, releaseTypeLabel, releaseTypeColor }: {
+  data: any[];
+  cancelMut: any;
+  releaseTypeLabel: (t: string) => string;
+  releaseTypeColor: (t: string) => string;
+}) {
+  const {
+    pagination, setPage, setPageSize,
+    pageData, totalItems, totalPages, startIdx, endIdx
+  } = usePaginatedSort(data, {
+    defaultSort: { key: "releaseDate", direction: "desc" },
+    defaultPageSize: 30,
+  });
+
+  return (
+    <div className="overflow-x-auto">
+      <StyledTable>
+        <TableHeader><TableRow>
+          <TH className="w-10 text-center">No</TH>
+          <TH>출고일</TH><TH>제품명</TH><TH>LOT</TH>
+          <TH className="text-right">수량</TH><TH className="text-right">금액</TH>
+          <TH>거래처</TH><TH>유형</TH><TH className="text-center">상태</TH><TH className="w-16 text-center">작업</TH>
+        </TableRow></TableHeader>
+        <TableBody>
+          {pageData.map((r: any, i: number) => (
+            <TableRow key={r.id} className={`hover:bg-muted/30 transition-colors ${r.status === "cancelled" ? "opacity-40" : ""}`}>
+              <TD className="text-center text-muted-foreground">{startIdx + i}</TD>
+              <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.releaseDate)}</TD>
+              <TD className={`font-medium ${r.status === "cancelled" ? "line-through" : ""}`}>{r.productName}</TD>
+              <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
+              <TD className="text-right font-mono whitespace-nowrap">{parseFloat(r.quantity).toFixed(1)} {r.unit}</TD>
+              <TD className="text-right text-xs whitespace-nowrap">{won(r.totalAmount)}</TD>
+              <TD className="text-muted-foreground truncate max-w-[120px]">{r.partnerName || "-"}</TD>
+              <TD>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${releaseTypeColor(r.releaseType)}`}>
+                  {releaseTypeLabel(r.releaseType)}
+                </span>
+              </TD>
+              <TD className="text-center">
+                <Badge variant={r.status === "cancelled" ? "destructive" : "secondary"} className="text-xs px-2 py-0.5">
+                  {r.status === "cancelled" ? "취소" : "확정"}
+                </Badge>
+              </TD>
+              <TD className="text-center">
+                {r.status !== "cancelled" && (
+                  <button onClick={() => { if(confirm(`"${r.productName}" 출고를 취소하시겠습니까?\n\n출고일: ${fmtDate(r.releaseDate)}\n수량: ${parseFloat(r.quantity).toFixed(1)} ${r.unit}\n금액: ${won(r.totalAmount)}\n거래처: ${r.partnerName || "-"}`)) cancelMut.mutate({ outboundId: r.id }); }}
+                    className="text-red-400 hover:text-red-600 text-xs underline transition-colors" disabled={cancelMut.isPending}>취소</button>
+                )}
+              </TD>
+            </TableRow>
+          ))}
+        </TableBody>
+      </StyledTable>
+      <PaginationBar
+        totalItems={totalItems} totalPages={totalPages}
+        currentPage={pagination.page} pageSize={pagination.pageSize}
+        startIdx={startIdx} endIdx={endIdx}
+        onPageChange={setPage} onPageSizeChange={setPageSize}
+      />
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { z } from "zod";
 import { lt, or } from "drizzle-orm";
 import { getDb, getRawConnection } from "../../db";
 
+import { todayKST } from "../../utils/timezone";
+
 export const lotManagementRouter = router({
     // 원재료 입고 + LOT 자동 생성 + 매입전표 자동 생성
     createReceivingWithLot: tenantRequiredProcedure
@@ -46,7 +48,7 @@ export const lotManagementRouter = router({
         if (input.unitPrice && input.unitPrice > 0) {
           try {
             const totalAmount = input.quantity * input.unitPrice;
-            const receiptDate = input.receiptDate || new Date().toISOString().split("T")[0];
+            const receiptDate = input.receiptDate || todayKST();
             await pool.execute(
               `INSERT INTO accounting_purchases (
                 tenant_id, transaction_date, partner_id, item_name, quantity, unit, unit_price,

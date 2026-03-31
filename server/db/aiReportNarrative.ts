@@ -12,6 +12,8 @@ import { ENV } from "../_core/env";
 import { getRawConnection } from "../db";
 import { getDailyOverview, getChecklistStatus, getAuditReadiness } from "./aiContextLayer";
 
+import { toKSTDate, todayKST } from "../utils/timezone";
+
 // ============================================================================
 // 타입 정의
 // ============================================================================
@@ -67,8 +69,8 @@ export async function generateFinancialNarrative(
 
   // 전기 비교 (같은 기간)
   const durationMs = new Date(period.endDate).getTime() - new Date(period.startDate).getTime();
-  const prevStart = new Date(new Date(period.startDate).getTime() - durationMs - 86400000).toISOString().split("T")[0];
-  const prevEnd = new Date(new Date(period.startDate).getTime() - 86400000).toISOString().split("T")[0];
+  const prevStart = toKSTDate(new Date(new Date(period.startDate).getTime() - durationMs - 86400000));
+  const prevEnd = toKSTDate(new Date(new Date(period.startDate).getTime() - 86400000));
 
   const [prevRows] = await conn.execute(
     `SELECT
@@ -144,8 +146,8 @@ export async function generateHaccpNarrative(
   period: "weekly" | "monthly" = "weekly"
 ): Promise<ReportNarrative> {
   const days = period === "weekly" ? 7 : 30;
-  const startDate = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
-  const endDate = new Date().toISOString().split("T")[0];
+  const startDate = toKSTDate(new Date(Date.now() - days * 86400000));
+  const endDate = todayKST();
 
   // 데이터 수집
   const [overview, checklist, auditReadiness] = await Promise.all([
@@ -250,7 +252,7 @@ export async function generateExecutiveSummary(tenantId: number): Promise<Report
     return {
       type: "executive_summary",
       title: "경영진 요약 보고서",
-      period: new Date().toISOString().split("T")[0],
+      period: todayKST(),
       narrative: "AI 서비스가 설정되지 않았습니다.",
       highlights: [], concerns: [], recommendations: [],
       generatedAt: new Date().toISOString(),
@@ -290,7 +292,7 @@ export async function generateExecutiveSummary(tenantId: number): Promise<Report
   return {
     type: "executive_summary",
     title: "경영진 일일 요약 보고서",
-    period: new Date().toISOString().split("T")[0],
+    period: todayKST(),
     narrative: parsed.narrative || "",
     highlights: parsed.highlights || [],
     concerns: parsed.concerns || [],

@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 import { trpc } from "@/lib/trpc";
 import WriterSelect from "@/components/WriterSelect";
 
+import { todayLocal } from "../lib/dateUtils";
+
 interface YearlyLogModalProps {
   open: boolean;
   onClose: () => void;
@@ -18,7 +20,7 @@ interface YearlyLogModalProps {
 export function YearlyLogModal({ open, onClose, tenantId }: YearlyLogModalProps) {
   const { toast } = useToast();
   const [formData, setFormData] = useState({
-    inspectionDate: new Date().toISOString().split('T')[0],
+    inspectionDate: todayLocal(),
     inspector: "",
     calibrationFreezerPanelThermometer: "",
     calibrationRefrigerator: "",

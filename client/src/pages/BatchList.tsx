@@ -36,11 +36,23 @@ import { toast } from "sonner";
 type ViewMode = "table" | "calendar";
 
 // 날짜를 YYYY-MM-DD 형식으로 변환
+/** 날짜를 로컬(KST) 기준 YYYY-MM-DD 문자열로 변환 (toISOString은 UTC이므로 사용 금지) */
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function toDateStr(d: any): string {
   if (!d) return "날짜없음";
+  // planned_date가 "2026-03-09" 같은 날짜 문자열이면 그대로 사용
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  // "2026-03-09T..." 형태면 날짜 부분만 추출
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}T/.test(d)) return d.split("T")[0];
   const dt = new Date(d);
   if (isNaN(dt.getTime())) return "날짜없음";
-  return dt.toISOString().split("T")[0];
+  return toLocalDateStr(dt);
 }
 
 function getMonthDays(year: number, month: number): Date[] {
@@ -186,7 +198,7 @@ export default function BatchList() {
   }, [batches]);
 
   const calDays = useMemo(() => getMonthDays(calMonth.year, calMonth.month), [calMonth]);
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = toLocalDateStr(new Date());
   const monthLabel = `${calMonth.year}년 ${calMonth.month + 1}월`;
 
   return (
@@ -298,7 +310,7 @@ export default function BatchList() {
                   {/* 날짜 그리드 */}
                   <div className="grid grid-cols-7 border-t border-l">
                     {calDays.map((day, i) => {
-                      const ds = day.toISOString().split("T")[0];
+                      const ds = toLocalDateStr(day);
                       const isCurrentMonth = day.getMonth() === calMonth.month;
                       const isToday = ds === todayStr;
                       const dayBatches = batchesByDate[ds] || [];

@@ -49,22 +49,29 @@ export const bankTransactions = mysqlTable("bank_transactions", {
   bankAccountId: bigint("bank_account_id", { mode: "number" }).notNull().references(() => bankAccounts.id),
   
   // 거래 정보
-  txDate: timestamp("tx_date").notNull(), // 거래일시
-  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(), // 거래금액 (양수: 입금, 음수: 출금)
+  transactionDate: timestamp("tx_date").notNull(), // 거래일시 (DB 컬럼: tx_date)
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(), // 거래금액
   balance: decimal("balance", { precision: 15, scale: 2 }), // 거래 후 잔액
   description: varchar("description", { length: 400 }), // 거래 적요/메모
+  memo: varchar("notes", { length: 255 }), // 추가 메모 (DB 컬럼: notes)
   
   // 거래 유형
   transactionType: mysqlEnum("transaction_type", ["deposit", "withdrawal"]).notNull(), // 입금/출금
   
+  // 상대방 정보
+  counterpartyText: varchar("counterparty_text", { length: 255 }), // 거래 상대방 이름
+
   // 회계 연동 (계정 과목 매칭)
-  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // 매칭된 계정 과목 (accounting_accounts.id 참조)
-  matchStatus: mysqlEnum("match_status", ["unmatched", "partial", "matched"]).default("unmatched").notNull(), // 매칭 상태
+  accountingAccountId: bigint("accounting_account_id", { mode: "number" }), // 매칭된 계정 과목
+  matchingStatus: mysqlEnum("match_status", ["unmatched", "partial", "matched"]).default("unmatched").notNull(), // 매칭 상태
   matchedBy: bigint("matched_by", { mode: "number" }), // 매칭 작업자 ID
   matchedAt: timestamp("matched_at"), // 매칭 일시
+  matchedPartnerId: bigint("matched_partner_id", { mode: "number" }), // 매칭된 거래처 ID
+  matchedLedgerType: varchar("matched_ledger_type", { length: 50 }), // 'ap', 'ar', 'manual'
+  matchedLedgerId: bigint("matched_ledger_id", { mode: "number" }), // apLedger.id, arLedger.id, etc.
   
   // 고액 거래 플래그
-  isHighAmount: mysqlEnum("is_high_amount", ["Y", "N"]).default("N").notNull(), // 고액 거래 여부 (5,000,000원 이상)
+  isLargeAmount: mysqlEnum("is_high_amount", ["Y", "N"]).default("N").notNull(), // 고액 거래 여부 (5,000,000원 이상)
   
   // 승인 워크플로우
   approvalStatus: mysqlEnum("approval_status", ["pending", "approved", "rejected"]).default("pending").notNull(), // 승인 상태
@@ -72,25 +79,22 @@ export const bankTransactions = mysqlTable("bank_transactions", {
   approvedAt: timestamp("approved_at"), // 승인 일시
   rejectionReason: text("rejection_reason"), // 반려 사유
   
-  // 메모
-  notes: text("notes"), // 추가 메모
-  
   // 생성 정보
   createdBy: bigint("created_by", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   
   // 수정 정보
-  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   // 인덱스 최적화
   tenantIdIdx: index("idx_bt_tenant_id").on(table.tenantId),
   bankAccountIdIdx: index("idx_bt_bank_account_id").on(table.bankAccountId),
-  txDateIdx: index("idx_bt_tx_date").on(table.txDate),
-  matchStatusIdx: index("idx_bt_match_status").on(table.matchStatus),
+  txDateIdx: index("idx_bt_tx_date").on(table.transactionDate),
+  matchStatusIdx: index("idx_bt_match_status").on(table.matchingStatus),
   approvalStatusIdx: index("idx_bt_approval_status").on(table.approvalStatus),
-  isHighAmountIdx: index("idx_bt_is_high_amount").on(table.isHighAmount),
+  isHighAmountIdx: index("idx_bt_is_high_amount").on(table.isLargeAmount),
   // 복합 인덱스 (필터링 + 정렬 최적화)
-  bankAccountTxDateIdx: index("idx_bt_account_txdate").on(table.bankAccountId, table.txDate),
+  bankAccountTxDateIdx: index("idx_bt_account_txdate").on(table.bankAccountId, table.transactionDate),
 }));
 
 /**

@@ -1,6 +1,8 @@
 import { getRawConnection } from "../db";
 import { SYSTEM_ACCOUNTS, type SystemAccountCode } from "../../drizzle/schema/accountingAccounts";
 
+import { formatLocalDate } from "../utils/timezone";
+
 /**
  * 시스템 계정 조회 (system_code 기반)
  * - system_code가 설정된 계정을 우선 조회
@@ -321,7 +323,7 @@ export async function postBankTransactionJournal(params: {
 
   const entryDate = typeof params.transactionDate === "string"
     ? params.transactionDate
-    : params.transactionDate.toISOString().split("T")[0];
+    : formatLocalDate(params.transactionDate);
 
   // 분개 엔트리 생성
   const [jeResult] = await conn.execute(

@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Line, Bar } from "react-chartjs-2";
+import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -36,9 +38,9 @@ export default function InventoryTrend() {
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
-    return date.toISOString().split("T")[0];
+    return formatLocalDate(date);
   });
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(() => todayLocal());
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | undefined>(undefined);
 
   // 통합 API 호출

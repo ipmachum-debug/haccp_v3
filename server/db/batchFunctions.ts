@@ -2,6 +2,8 @@ import { eq, and, desc, sql, like } from "drizzle-orm";
 import { getDb, getRawConnection } from "./connection";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../drizzle/schema";
 
+import { todayKST, formatLocalDate, toKSTTimestamp} from "../utils/timezone";
+
 export async function createBatch(batch: {
   siteId: number;
   productId: number;
@@ -17,14 +19,14 @@ export async function createBatch(batch: {
   tenantId: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
   const { hBatches, hBatchInputs } = await import("../../drizzle/schema");
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../drizzle/schema_recipe_new");
 
   // Format dates as MySQL-compatible strings
   const pd = batch.plannedDate;
   const plannedDateStr = pd instanceof Date
-    ? pd.toISOString().split("T")[0]
+    ? formatLocalDate(pd)
     : String(pd).includes("T") ? String(pd).split("T")[0]
     : String(pd).slice(0, 10);
 
@@ -93,7 +95,6 @@ export async function createBatch(batch: {
           .orderBy(desc(hMfReportVersions.versionNo))
           .limit(1);
         if (latestVersion.length > 0) {
-          console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
         }
       }
 
@@ -140,7 +141,6 @@ export async function createBatch(batch: {
 
           if (batchInputs.length > 0) {
             await db.insert(hBatchInputs).values(batchInputs as any);
-            console.log("[createBatch] 원재료 투입 자동생성:", batchInputs.length, "건");
           }
         }
       }
@@ -154,7 +154,7 @@ export async function createBatch(batch: {
 
 export async function getBatchById(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, hProductsV2 } = await import("../../drizzle/schema");
 
@@ -303,7 +303,7 @@ export async function updateBatch(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches } = await import("../../drizzle/schema");
 
@@ -333,7 +333,7 @@ export async function updateBatchSchedule(
   tenantId?: number
 ) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches } = await import("../../drizzle/schema");
 
@@ -353,7 +353,7 @@ export async function updateBatchSchedule(
 
 export async function updateBatchStatus(batchId: number, status: string, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches } = await import("../../drizzle/schema");
 
@@ -368,58 +368,31 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
 
 export async function deleteBatch(batchId: number, tenantId?: number) {
   const pool = await getRawConnection();
+  if (!tenantId) throw new Error("[보안] deleteBatch: tenantId는 필수입니다.");
 
-  // 관련 데이터 cascade 삭제 (CCP 행 → CCP 인스턴스 → 배치)
-  // P0: tenant_id 필터 추가 - 테넌트 격리
-  if (tenantId) {
-    await pool.execute(`DELETE r FROM h_ccp_rows r
-      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
-      WHERE i.batch_id = ? AND i.tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE r FROM h_ccp_rows r
-      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
-      WHERE i.batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ?`, [batchId]);
-  }
+  // 관련 데이터 cascade 삭제 (CCP 행 → CCP 인스턴스 → 배치) - tenant_id 필터 필수
+  await pool.execute(`DELETE r FROM h_ccp_rows r
+    INNER JOIN h_ccp_instances i ON r.instance_id = i.id
+    WHERE i.batch_id = ? AND i.tenant_id = ?`, [batchId, tenantId]);
+  await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
 
-  // 배치 자체 삭제 (테넌트 격리 적용) - h_batches AND batches (dual table sync)
-  if (tenantId) {
-    await pool.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE FROM h_batches WHERE id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM batches WHERE id = ?`, [batchId]);
-  }
+  // 배치 자체 삭제 - h_batches AND batches (dual table sync)
+  await pool.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  await pool.execute(`DELETE FROM batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+
   // CCP 모니터링 기록지 삭제
   try {
-    if (tenantId) {
-      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ? AND rec.tenant_id = ?`, [batchId, tenantId]);
-      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    } else {
-      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ?`, [batchId]);
-      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?`, [batchId]);
-    }
+    await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ? AND rec.tenant_id = ?`, [batchId, tenantId]);
+    await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
   } catch (_e) { /* ignore if table not exists */ }
-  // 문서 인스턴스 삭제 (document_instances)
+  // 문서 인스턴스 삭제
   try {
-    if (tenantId) {
-      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    } else {
-      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ?`, [batchId]);
-    }
+    await pool.execute(`DELETE FROM document_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
   } catch (_e) { /* ignore if table not exists */ }
-
-  // 승인 요청 삭제 (batch 직접 + batch_group)
-  if (tenantId) {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ?`, [batchId]);
-  }
+  // 승인 요청 삭제
+  await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
 }
 
 export async function generateBatchCode(productId: number, tenantId?: number) {
@@ -447,9 +420,11 @@ export async function generateBatchCode(productId: number, tenantId?: number) {
     }
   } catch { /* use default code */ }
 
-  // 2. 오늘 날짜 문자열 생성 (YYYYMMDD)
+  // 2. 오늘 날짜 문자열 생성 (YYYYMMDD) - KST 기준
   const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+  const kstOffset = 9 * 60; // UTC+9
+  const kstDate = new Date(today.getTime() + kstOffset * 60 * 1000);
+  const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
 
   // 3. 해당 날짜의 기존 배치 수 조회 (tenantId 격리)
   const countParams: any[] = tenantId
@@ -467,7 +442,7 @@ export async function generateBatchCode(productId: number, tenantId?: number) {
 
 export async function generateBatchReport(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatches, hProductsV2, hCcpInstances, hCcpRecords, hBatchInputs, hMaterials } = await import("../../drizzle/schema");
 
@@ -528,7 +503,7 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
 
 export async function getActiveBatches(tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { sql } = await import("drizzle-orm");
 
@@ -568,7 +543,7 @@ export async function getActiveBatches(tenantId?: number) {
 
 export async function checkBatchCompletionReadiness(batchId: number, tenantId?: number) {
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 배치 정보 조회 (tenantId 격리)
   const conditions: any[] = [eq(hBatches.id, batchId)];
@@ -662,7 +637,7 @@ export async function completeBatch(params: {
 }) {
   const { batchId, actualQuantity, defectQuantity, revenue, completionNotes, idempotencyKey, tenantId } = params;
   const db = await getDb();
-  if (!db) throw new Error("Database connection failed");
+  if (!db) throw new Error("DB 연결 실패");
 
   // 1. idempotency 키 검증 (중복 완료 방지, tenantId 격리)
   const batchConditions: any[] = [eq(hBatches.id, batchId)];
@@ -725,18 +700,85 @@ export async function completeBatch(params: {
 
     // 원재료 소비 처리 (tenantId 격리 + FEFO LOT 차감)
     // ⚠️ autoMaterialIssue(배치 시작 시)에서 이미 차감된 건은 건너뜀
+    //    단, actual_quantity와 TX 기록이 다를 경우 h_inventory/LOT 보정 수행
     const pool = await getRawConnection();
+
+    // 2중 차감 방지: 이미 이 배치에 대한 출고 기록이 있는지 사전 확인
+    let existingTxBatchIds = new Set<number>();
+    if (pool) {
+      try {
+        const [txRows]: any = await pool.execute(
+          `SELECT DISTINCT source_line_id FROM h_inventory_transactions
+           WHERE (source_type = 'BATCH' OR source_type = 'batch_completion')
+             AND source_id = ? AND transaction_type = 'usage' AND tenant_id = ?`,
+          [batchId, tenantId || existingBatch.tenantId]
+        );
+        for (const row of (txRows as any[])) {
+          if (row.source_line_id) existingTxBatchIds.add(Number(row.source_line_id));
+        }
+      } catch (_e) { /* 조회 실패 시 무시 - 기존 로직으로 폴백 */ }
+    }
+
     for (const { input, materialName } of batchInputs) {
-      // 이미 autoMaterialIssue에서 차감 완료된 원재료는 원가만 집계하고 건너뜀
+      // 이미 autoMaterialIssue에서 차감 완료된 원재료 (DB 플래그 기반)
       if (Number(input.inventoryDeducted) === 1) {
         if (!isWater(materialName)) {
           totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+        }
+        // actual vs TX 차이 보정: autoMaterialIssue가 planned 기반으로 TX를 기록했을 수 있음
+        // completeBatch 시점의 actual_quantity와 TX 기록량이 다르면 h_inventory/LOT를 보정
+        if (pool) {
+          try {
+            const actualQty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
+            const effectiveTenantId = tenantId || existingBatch.tenantId;
+            // 이 배치+원재료에 대한 TX 출고량 합산 (양수 = 차감된 양)
+            const [txRows]: any = await pool.execute(
+              `SELECT COALESCE(SUM(ABS(quantity)), 0) as tx_total
+               FROM h_inventory_transactions
+               WHERE source_type IN ('BATCH','batch_completion') 
+                 AND (source_id = ? OR reference_id = ?)
+                 AND lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ? AND tenant_id = ?)
+                 AND transaction_type = 'usage'
+                 AND tenant_id = ?`,
+              [batchId, batchId, input.materialId, effectiveTenantId, effectiveTenantId]
+            );
+            const txTotal = parseFloat((txRows as any[])?.[0]?.tx_total || "0");
+            const diff = txTotal - actualQty; // 양수면 TX가 더 많이 차감 → 재고 복원 필요
+            if (Math.abs(diff) > 0.01) {
+              // h_inventory 보정: diff만큼 재고 복원(양수) 또는 추가차감(음수)
+              await pool.execute(
+                `UPDATE h_inventory 
+                 SET total_quantity = GREATEST(total_quantity + ?, 0),
+                     available_quantity = GREATEST(available_quantity + ?, 0),
+                     last_updated = NOW()
+                 WHERE material_id = ? AND tenant_id = ?`,
+                [diff, diff, input.materialId, effectiveTenantId]
+              );
+            }
+          } catch (adjustErr: any) {
+            console.error(`[completeBatch] TX-actual 보정 실패: ${adjustErr.message}`);
+          }
         }
         continue;
       }
 
       const qty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
       if (qty <= 0) continue;
+
+      // 2중 차감 방지: h_inventory_transactions에 이미 이 input에 대한 출고 기록이 있으면 건너뜀
+      if (existingTxBatchIds.has(Number(input.id))) {
+        // inventory_deducted 플래그가 0이었던 것을 1로 보정
+        try {
+          await db
+            .update(hBatchInputs)
+            .set({ inventoryDeducted: 1 })
+            .where(eq(hBatchInputs.id, input.id));
+        } catch (_e) { /* 무시 */ }
+        if (!isWater(materialName)) {
+          totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+        }
+        continue;
+      }
 
       // 재고 차감 (tenantId 격리)
       await db
@@ -779,14 +821,14 @@ export async function completeBatch(params: {
       // 재고 거래 기록 생성 (transactionType: "usage"로 소모이력에 표시)
       try {
         if (pool) {
-          const txnDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const txnDate = todayKST();
           await pool.execute(
             `INSERT INTO h_inventory_transactions 
              (lot_id, transaction_type, quantity, unit, unit_cost, amount,
               transaction_date, source_type, source_id, action_type, purpose, tenant_id)
              VALUES (?, 'usage', ?, ?, ?, ?, ?, 'batch_completion', ?, 'AUTO_ISSUE', 'production', ?)`,
             [
-              lotId || 0, -qty, input.unit || 'kg', unitCost, -(qty * unitCost),
+              lotId || 0, qty, input.unit || 'kg', unitCost, qty * unitCost,
               txnDate, batchId, tenantId || existingBatch.tenantId
             ]
           );
@@ -796,7 +838,7 @@ export async function completeBatch(params: {
       // 수불부 반영
       try {
         if (pool) {
-          const txnDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+          const txnDate = todayKST();
           await pool.execute(
             `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, notes, source)
              VALUES (?, ?, ?, ?, ?, 'batch_complete')
@@ -938,12 +980,9 @@ export async function completeBatch(params: {
           transactionDate: todayStr,
         } as any);
 
-        console.log(`[completeBatch] SKU LOT 생성: ${lotNumber} (${skuName}, ${skuQty} ${salesUnit})`);
       }
-      console.log(`[completeBatch] 배치 #${batchId}: ${skuRows.length}개 SKU LOT 생성 완료`);
     } else {
       // SKU 실적 없으면 기존 방식으로 fallback (배치 단위 LOT 1개)
-      console.log(`[completeBatch] 배치 #${batchId}: SKU 실적 없음, fallback LOT 생성`);
       const { createProductLotFromBatch } = await import("./productOutboundManagement");
       const tenantId = existingBatch.tenantId;
     if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
@@ -987,8 +1026,6 @@ export async function completeBatch(params: {
     const { generateBatchCompletionReport } = await import("../reports/batchCompletionReport");
     pdfUrl = await generateBatchCompletionReport(batchId);
     pdfGenerated = true;
-    console.log(`[Batch Completion] PDF report generated: ${pdfUrl}`);
-
     // PDF URL을 DB에 저장
     await db
       .update(hBatches)
@@ -1009,19 +1046,16 @@ export async function completeBatch(params: {
       new Date(),
       1
     );
-    console.log(`[Batch Completion] ${autoGeneratedDocs.length}건 문서 자동 생성`);
-
     // 6-2. 일일일지 자동 생성
     try {
       const rawConn2 = await getRawConnection();
       if (rawConn2) {
-        const today = new Date().toISOString().split('T')[0];
-        const now2 = new Date().toISOString().replace('T', ' ').split('.')[0];
+        const today = todayKST();
+        const now2 = toKSTTimestamp(new Date());
         await rawConn2.execute(
           "INSERT IGNORE INTO h_daily_reports (site_id, report_date, report_type, summary, status, created_at, updated_at) VALUES (?, ?, 'production', ?, 'completed', ?, ?)",
           [existingBatch.siteId, today, JSON.stringify({ batchId, actualQuantity, autoGenerated: true }), now2, now2]
         );
-        console.log(`[Batch Completion] 일일일지 자동 생성 완료`);
       }
     } catch (dailyErr) {
       console.error(`[Batch Completion] 일일일지 자동 생성 실패:`, dailyErr);
@@ -1043,7 +1077,6 @@ export async function completeBatch(params: {
             createdAt: new Date(),
           } as any);
         }
-        console.log(`[Batch Completion] ${autoGeneratedDocs.length}건 승인 요청 자동 생성`);
       } catch (approvalErr) {
         console.error(`[Batch Completion] 승인 요청 자동 생성 실패:`, approvalErr);
       }
@@ -1079,16 +1112,15 @@ export async function addBatchInput(input: {
   tenantId?: number;
 }) {
   const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  if (!db) throw new Error("DB 연결 실패");
 
   const { hBatchInputs } = await import("../../drizzle/schema");
 
   // tenantId 격리: 배치 소유권 검증
-  if (input.tenantId) {
-    const batchCheck = await db.select({ id: hBatches.id }).from(hBatches)
-      .where(and(eq(hBatches.id, input.batchId), eq(hBatches.tenantId, input.tenantId))).limit(1);
-    if (batchCheck.length === 0) throw new Error("해당 배치에 대한 접근 권한이 없습니다");
-  }
+  if (!input.tenantId) throw new Error("[보안] tenantId는 필수입니다");
+  const batchCheck = await db.select({ id: hBatches.id }).from(hBatches)
+    .where(and(eq(hBatches.id, input.batchId), eq(hBatches.tenantId, input.tenantId))).limit(1);
+  if (batchCheck.length === 0) throw new Error("해당 배치에 대한 접근 권한이 없습니다");
 
   const [result] = await db.insert(hBatchInputs).values({
     batchId: input.batchId,
@@ -1098,7 +1130,7 @@ export async function addBatchInput(input: {
     totalPrice: input.totalPrice || "0",
     notes: input.notes || null,
     createdBy: input.createdBy,
-    tenantId: input.tenantId || 1
+    tenantId: input.tenantId
   } as any);
 
   return Number(result.insertId);
@@ -1143,9 +1175,9 @@ export async function autoGenerateDocumentsForBatch(
     }
 
     const workDateStr = workDate instanceof Date
-      ? workDate.toISOString().split('T')[0]
+      ? formatLocalDate(workDate)
       : workDate;
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const now = toKSTTimestamp(new Date());
 
     // 1. auto_generate_on_batch = 1인 문서 유형 조회
     const [docTypes] = await rawConn.execute(
@@ -1153,7 +1185,6 @@ export async function autoGenerateDocumentsForBatch(
     );
 
     if (!docTypes || (docTypes as any[]).length === 0) {
-      console.log('[autoGenerateDocumentsForBatch] 자동 생성 대상 문서 유형 없음');
       return [];
     }
 
@@ -1168,7 +1199,6 @@ export async function autoGenerateDocumentsForBatch(
       );
 
       if ((existing as any[]).length > 0) {
-        console.log(`[autoGenerateDocumentsForBatch] 이미 존재: batch=${batchId}, docType=${docType.code}`);
         continue;
       }
 
@@ -1188,10 +1218,8 @@ export async function autoGenerateDocumentsForBatch(
         category: docType.category,
       });
 
-      console.log(`[autoGenerateDocumentsForBatch] 문서 생성: batch=${batchId}, docType=${docType.code}, id=${insertId}`);
     }
 
-    console.log(`[autoGenerateDocumentsForBatch] 총 ${generatedDocs.length}건 문서 자동 생성 완료`);
     return generatedDocs;
   } catch (error) {
     console.error('[autoGenerateDocumentsForBatch] 오류:', error);
