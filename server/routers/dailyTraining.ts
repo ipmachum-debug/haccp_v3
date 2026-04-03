@@ -534,6 +534,131 @@ export const dailyTrainingRouter = router({
       return { success: true };
     }),
 
+  // ── 직원용: 놓친 교육 리스트 (소급 확인 가능) ──
+  getMissedTrainings: tenantRequiredProcedure
+    .input(z.object({ limit: z.number().default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      const userId = ctx.user.id;
+      const tenantId = ctx.tenantId;
+      const limit = input?.limit || 30;
+      const today = todayStr();
+
+      // 과거 배정 중 내가 완료하지 않은 교육 목록
+      const [rows] = await pool.execute<any[]>(
+        `SELECT a.assignment_date, a.day_no, t.title, t.question, t.content, t.action, t.category
+         FROM h_training_assignments a
+         LEFT JOIN h_training_topics t ON a.day_no = t.day_no AND (t.tenant_id = 0 OR t.tenant_id = ?)
+         LEFT JOIN h_training_logs l ON l.user_id = ? AND l.day_no = a.day_no AND l.assignment_date = a.assignment_date AND l.tenant_id = ?
+         WHERE a.tenant_id = ? AND a.assignment_date < ? AND l.id IS NULL
+         ORDER BY a.assignment_date DESC
+         LIMIT ?`,
+        [tenantId, userId, tenantId, tenantId, today, limit]
+      );
+
+      return rows.map((r: any) => ({
+        assignmentDate: r.assignment_date,
+        dayNo: r.day_no,
+        title: r.title,
+        question: r.question,
+        content: r.content,
+        action: r.action,
+        category: r.category,
+      }));
+    }),
+
+  // ── 직원용: 놓친 교육 소급 완료 ──
+  completeMissed: tenantRequiredProcedure
+    .input(z.object({ dayNo: z.number(), assignmentDate: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const userId = ctx.user.id;
+      const tenantId = ctx.tenantId;
+
+      // 해당 배정이 실제 존재하는지 확인
+      const [assign] = await pool.execute<any[]>(
+        "SELECT id FROM h_training_assignments WHERE day_no = ? AND assignment_date = ? AND tenant_id = ?",
+        [input.dayNo, input.assignmentDate, tenantId]
+      );
+      if (assign.length === 0) {
+        throw new Error("해당 교육 배정을 찾을 수 없습니다.");
+      }
+
+      // 완료 기록 (소급)
+      await pool.execute(
+        `INSERT IGNORE INTO h_training_logs (user_id, day_no, assignment_date, status, tenant_id)
+         VALUES (?, ?, ?, 'DONE', ?)`,
+        [userId, input.dayNo, input.assignmentDate, tenantId]
+      );
+
+      // 레벨 점수도 +1
+      await pool.execute(
+        `INSERT INTO h_training_levels (user_id, tenant_id, score, streak, max_streak, level)
+         VALUES (?, ?, 1, 0, 0, 1)
+         ON DUPLICATE KEY UPDATE
+           score = score + 1,
+           level = CASE
+             WHEN score + 1 >= 100 THEN 5
+             WHEN score + 1 >= 60 THEN 4
+             WHEN score + 1 >= 30 THEN 3
+             WHEN score + 1 >= 10 THEN 2
+             ELSE 1
+           END`,
+        [userId, tenantId]
+      );
+
+      return { success: true };
+    }),
+
+  // ── 관리자용: 미완료 이력 조회 (누가 언제 빠졌는지) ──
+  getIncompleteHistory: tenantRequiredProcedure
+    .input(z.object({
+      days: z.number().default(30),
+      userId: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      const tenantId = ctx.tenantId;
+      const days = input?.days || 30;
+
+      let userFilter = "";
+      const params: any[] = [tenantId, tenantId, tenantId, days];
+
+      if (input?.userId) {
+        userFilter = "AND u.id = ?";
+        params.push(input.userId);
+      }
+
+      const [rows] = await pool.execute<any[]>(
+        `SELECT u.id as user_id, u.name, u.role,
+                a.assignment_date, a.day_no,
+                t.title, t.category
+         FROM users u
+         CROSS JOIN h_training_assignments a
+         LEFT JOIN h_training_topics t ON a.day_no = t.day_no AND (t.tenant_id = 0 OR t.tenant_id = ?)
+         LEFT JOIN h_training_logs l ON l.user_id = u.id AND l.day_no = a.day_no AND l.assignment_date = a.assignment_date AND l.tenant_id = ?
+         WHERE u.tenant_id = ? AND u.status = 'approved'
+           AND a.tenant_id = u.tenant_id
+           AND a.assignment_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+           AND a.assignment_date < CURDATE()
+           AND l.id IS NULL
+           ${userFilter}
+         ORDER BY a.assignment_date DESC, u.name ASC
+         LIMIT 200`,
+        params
+      );
+
+      return rows.map((r: any) => ({
+        userId: r.user_id,
+        userName: r.name,
+        role: r.role,
+        assignmentDate: r.assignment_date,
+        dayNo: r.day_no,
+        title: r.title,
+        category: r.category,
+      }));
+    }),
+
   // ── 3년 경과 데이터 자동 폐기 (법적 보관기간 준수) ──
   // HACCP 교육 기록: 3년 보관 의무 (식품위생법 시행규칙)
   // 3년 경과 후 순차적 자동 삭제

@@ -239,6 +239,17 @@ export default function NoticeBoard() {
   });
   const { data: myLevel, refetch: refetchLevel } = trpc.dailyTraining.getMyLevel.useQuery();
 
+  // 놓친 교육 (소급 확인용)
+  const { data: missedTrainings, refetch: refetchMissed } = trpc.dailyTraining.getMissedTrainings.useQuery({ limit: 5 });
+  const completeMissedMutation = trpc.dailyTraining.completeMissed.useMutation({
+    onSuccess: () => {
+      toast.success("놓친 교육 확인 완료!");
+      refetchMissed();
+      refetchLevel();
+    },
+    onError: (e: any) => toast.error("처리 실패: " + e.message),
+  });
+
   const ackMutation = trpc.board.ackLog.useMutation({
     onSuccess: (result: any) => {
       if (result.alreadyAcked) {
@@ -585,6 +596,43 @@ export default function NoticeBoard() {
                   <p className="text-[13px] text-emerald-600 font-bold">오늘 교육을 완료했습니다! 수고하셨어요 👏</p>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ═══ 놓친 교육 소급 확인 ═══ */}
+        {missedTrainings && missedTrainings.length > 0 && (
+          <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center justify-between">
+              <span className="text-[13px] font-bold text-amber-800 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4" />
+                놓친 교육 ({missedTrainings.length}건) — 지금이라도 확인하세요!
+              </span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {missedTrainings.map((m: any) => (
+                <div key={`${m.dayNo}-${m.assignmentDate}`} className="flex items-center justify-between px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[11px] text-gray-400">
+                        {new Date(m.assignmentDate).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                      </span>
+                      <span className="text-[10px] font-bold bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded">Day {m.dayNo}</span>
+                      <span className="text-[10px] font-bold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{m.category}</span>
+                    </div>
+                    <p className="text-[13px] font-medium text-gray-800 truncate">{m.title}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{m.content}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => completeMissedMutation.mutate({ dayNo: m.dayNo, assignmentDate: m.assignmentDate })}
+                    disabled={completeMissedMutation.isPending}
+                    className="h-8 px-3 text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-lg shrink-0 ml-3"
+                  >
+                    확인
+                  </Button>
+                </div>
+              ))}
             </div>
           </div>
         )}

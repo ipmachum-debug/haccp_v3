@@ -84,6 +84,10 @@ export default function AccountingNoticeBoard() {
     onSuccess: () => { toast.success("교육 완료!"); refetchTraining(); },
   });
 
+  // 미완료 이력 (관리자)
+  const [historyDays, setHistoryDays] = useState(30);
+  const { data: incompleteHistory } = trpc.dailyTraining.getIncompleteHistory.useQuery({ days: historyDays });
+
   // 월간 리포트 관련
   const { data: monthlyReports, refetch: refetchReports } = trpc.dailyTraining.listMonthlyReports.useQuery();
   const createReportMutation = trpc.dailyTraining.createMonthlyReport.useMutation({
@@ -471,6 +475,37 @@ export default function AccountingNoticeBoard() {
                 </div>
               </div>
             </div>
+
+            {/* 미완료 이력 (관리자) */}
+            {incompleteHistory && incompleteHistory.length > 0 && (
+              <div className="bg-white rounded-xl border border-red-200 shadow-sm">
+                <div className="px-4 py-3 border-b border-red-100 flex items-center justify-between bg-red-50">
+                  <span className="font-bold text-sm text-red-800 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" /> 미완료 이력 ({incompleteHistory.length}건)
+                  </span>
+                  <div className="flex gap-1">{[7, 14, 30].map(d => (
+                    <Button key={d} variant={historyDays === d ? "default" : "outline"} size="sm" onClick={() => setHistoryDays(d)} className="h-6 text-[10px] px-2">{d}일</Button>
+                  ))}</div>
+                </div>
+                <div className="divide-y max-h-[300px] overflow-y-auto">
+                  {(incompleteHistory as any[]).map((h: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between px-4 py-2 text-sm hover:bg-red-50/50">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium text-gray-800 w-16 truncate">{h.userName}</span>
+                        <span className="text-[10px] text-gray-400">{h.role}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-500">
+                          {new Date(h.assignmentDate).toLocaleDateString("ko-KR", { month: "short", day: "numeric" })}
+                        </span>
+                        <Badge className="bg-violet-100 text-violet-700 text-[10px]">Day {h.dayNo}</Badge>
+                        <span className="text-xs text-gray-600 w-24 truncate">{h.title}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 120일 교육 과정 */}
             <div className="bg-white rounded-xl border shadow-sm">
