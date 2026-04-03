@@ -579,6 +579,7 @@ function DashboardLayoutContent({
     { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"] },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"] },
     { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"] },
+    { icon: Bell, label: "사내 공지보드", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
