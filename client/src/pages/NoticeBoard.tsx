@@ -233,9 +233,11 @@ export default function NoticeBoard() {
     onSuccess: () => {
       toast.success("교육 완료! 오늘도 수고하셨습니다 👍");
       refetchTraining();
+      refetchLevel();
     },
     onError: (e: any) => toast.error("완료 처리 실패: " + e.message),
   });
+  const { data: myLevel, refetch: refetchLevel } = trpc.dailyTraining.getMyLevel.useQuery();
 
   const ackMutation = trpc.board.ackLog.useMutation({
     onSuccess: (result: any) => {
@@ -364,9 +366,23 @@ export default function NoticeBoard() {
                   <p className="text-[15px] font-bold text-gray-800 leading-snug truncate">
                     {user?.name ? `${user.name}님, ` : ""}{getBoardGreeting()}
                   </p>
-                  <p className="text-[12px] text-gray-400 mt-0.5">
-                    오늘의 공지와 작업지시를 확인해주세요
-                  </p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-[12px] text-gray-400">
+                      오늘의 공지와 작업지시를 확인해주세요
+                    </p>
+                    {myLevel && myLevel.score > 0 && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        myLevel.level >= 5 ? "bg-amber-100 text-amber-700" :
+                        myLevel.level >= 4 ? "bg-violet-100 text-violet-700" :
+                        myLevel.level >= 3 ? "bg-blue-100 text-blue-700" :
+                        myLevel.level >= 2 ? "bg-emerald-100 text-emerald-700" :
+                        "bg-gray-100 text-gray-600"
+                      }`}>
+                        {myLevel.level >= 5 ? "🏆" : myLevel.level >= 4 ? "💎" : myLevel.level >= 3 ? "⭐" : myLevel.level >= 2 ? "🌱" : "🔰"}
+                        Lv.{myLevel.level} · {myLevel.streak}일 연속
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="text-right shrink-0 bg-white/70 rounded-xl px-3 py-1.5 border border-gray-200/60">
                   <p className="text-[11px] font-bold text-gray-500">{getTodayString()}</p>

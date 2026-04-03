@@ -130,19 +130,72 @@ export const dailyTrainingRouter = router({
     };
   }),
 
-  // ── 교육 완료 체크 ──
+  // ── 교육 완료 체크 + 레벨/점수 업데이트 ──
   complete: tenantRequiredProcedure
     .input(z.object({ dayNo: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
       const today = todayStr();
-      await pool.execute(
+      const userId = ctx.user.id;
+      const tenantId = ctx.tenantId;
+
+      // 1) 완료 기록
+      const [result] = await pool.execute<any>(
         `INSERT IGNORE INTO h_training_logs (user_id, day_no, assignment_date, status, tenant_id)
          VALUES (?, ?, ?, 'DONE', ?)`,
-        [ctx.user.id, input.dayNo, today, ctx.tenantId]
+        [userId, input.dayNo, today, tenantId]
       );
-      return { success: true };
+
+      // 이미 완료된 경우 스킵
+      if (result.affectedRows === 0) return { success: true, alreadyDone: true };
+
+      // 2) 연속일수(streak) 계산: 어제 완료 여부
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+
+      const [yesterdayLog] = await pool.execute<any[]>(
+        "SELECT id FROM h_training_logs WHERE user_id = ? AND assignment_date = ? AND tenant_id = ? AND status = 'DONE'",
+        [userId, yesterdayStr, tenantId]
+      );
+
+      // 3) 레벨 테이블 UPSERT
+      const hadYesterday = yesterdayLog.length > 0;
+      await pool.execute(
+        `INSERT INTO h_training_levels (user_id, tenant_id, score, streak, max_streak, level)
+         VALUES (?, ?, 1, 1, 1, 1)
+         ON DUPLICATE KEY UPDATE
+           score = score + 1,
+           streak = IF(? = 1, streak + 1, 1),
+           max_streak = GREATEST(max_streak, IF(? = 1, streak + 1, 1)),
+           level = CASE
+             WHEN score + 1 >= 100 THEN 5
+             WHEN score + 1 >= 60 THEN 4
+             WHEN score + 1 >= 30 THEN 3
+             WHEN score + 1 >= 10 THEN 2
+             ELSE 1
+           END`,
+        [userId, tenantId, hadYesterday ? 1 : 0, hadYesterday ? 1 : 0]
+      );
+
+      return { success: true, alreadyDone: false };
     }),
+
+  // ── 내 레벨 정보 ──
+  getMyLevel: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    const [rows] = await pool.execute<any[]>(
+      "SELECT score, streak, max_streak, level FROM h_training_levels WHERE user_id = ? AND tenant_id = ?",
+      [ctx.user.id, ctx.tenantId]
+    );
+    if (rows.length === 0) return { score: 0, streak: 0, maxStreak: 0, level: 1 };
+    return {
+      score: rows[0].score,
+      streak: rows[0].streak,
+      maxStreak: rows[0].max_streak,
+      level: rows[0].level,
+    };
+  }),
 
   // ── 관리자: 오늘 완료 현황 ──
   getStatus: tenantRequiredProcedure.query(async ({ ctx }) => {
