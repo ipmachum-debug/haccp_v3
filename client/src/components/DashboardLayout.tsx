@@ -264,6 +264,9 @@ const menuItems = [
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
 
+  // 교육 관리 (admin)
+  { icon: BookOpen, label: "교육 관리", path: "/dashboard/training-admin", roles: ["super_admin", "admin"] },
+
   // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },

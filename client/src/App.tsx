@@ -474,6 +474,7 @@ function Router() {
       <Route path="/internal-audit-plan" component={InternalAuditPlan} />
       <Route path="/dashboard/haccp/corrective-action" component={CorrectiveAction} />
       <Route path="/dashboard/haccp/training" component={TrainingManagement} />
+      <Route path="/dashboard/training-admin" component={lazy(() => import("@/pages/TrainingAdmin"))} />
       <Route path="/dashboard/approval" component={ApprovalManagement} />
       <Route path="/dashboard/audit-logs" component={AuditLogs} />
 
