@@ -46,6 +46,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { BookOpen, Sparkles } from "lucide-react";
 
 // 타입별 아이콘/색상 설정
 const typeConfig: Record<string, { icon: any; label: string; emoji: string; bgColor: string; textColor: string; borderColor: string; gradientFrom: string; gradientTo: string }> = {
@@ -224,6 +225,18 @@ export default function NoticeBoard() {
     refetchInterval: 30000,
   });
 
+  // ── 오늘의 5분 HACCP 교육 ──
+  const { data: trainingData, refetch: refetchTraining } = trpc.dailyTraining.getTodayTraining.useQuery(undefined, {
+    refetchInterval: 60000,
+  });
+  const completeMutation = trpc.dailyTraining.complete.useMutation({
+    onSuccess: () => {
+      toast.success("교육 완료! 오늘도 수고하셨습니다 👍");
+      refetchTraining();
+    },
+    onError: (e: any) => toast.error("완료 처리 실패: " + e.message),
+  });
+
   const ackMutation = trpc.board.ackLog.useMutation({
     onSuccess: (result: any) => {
       if (result.alreadyAcked) {
@@ -362,13 +375,14 @@ export default function NoticeBoard() {
             </div>
           </div>
 
-          {/* 통계 카드 3개 */}
+          {/* 통계 카드 4개 */}
           <div className="px-4 pb-4">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {[
                 { emoji: "📢", label: "공지", count: stats.notice, bg: "bg-blue-50", border: "border-blue-100", text: "text-blue-700", labelColor: "text-blue-400" },
                 { emoji: "📋", label: "작업", count: stats.work, bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-700", labelColor: "text-amber-500" },
                 { emoji: "📌", label: "전달", count: stats.handover, bg: "bg-emerald-50", border: "border-emerald-100", text: "text-emerald-700", labelColor: "text-emerald-500" },
+                { emoji: "📖", label: "교육", count: trainingData?.assigned ? (trainingData.completed ? 0 : 1) : 0, bg: "bg-violet-50", border: "border-violet-100", text: "text-violet-700", labelColor: "text-violet-400" },
               ].map((card) => (
                 <div key={card.label} className={`${card.bg} rounded-2xl border ${card.border} overflow-hidden`}>
                   <div className="flex flex-col items-center justify-center px-2 py-3 text-center">
@@ -481,6 +495,84 @@ export default function NoticeBoard() {
       {/* 게시글 리스트 */}
       {/* ═══════════════════════════════════════ */}
       <div className="px-4 py-4 space-y-3">
+        {/* ═══ 오늘의 5분 HACCP (고정 교육 카드) ═══ */}
+        {trainingData?.assigned && trainingData.topic && (
+          <div className={`bg-white rounded-2xl border overflow-hidden shadow-sm transition-all duration-200 ${
+            trainingData.completed
+              ? "border-gray-200 opacity-75"
+              : "border-l-[5px] border-l-violet-500 border-violet-200 shadow-lg shadow-violet-100/50"
+          }`}>
+            <div className="p-4 sm:p-5">
+              {/* 헤더 */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold bg-violet-50 text-violet-700">
+                    <span className="text-sm">📖</span>
+                    교육
+                  </span>
+                  <span className="text-[11px] font-bold text-violet-500 bg-violet-50 px-2 py-1 rounded-lg">
+                    Day {trainingData.dayNo}/{trainingData.totalDays > 0 ? Math.min(trainingData.totalDays, 120) : trainingData.dayNo}
+                  </span>
+                  {trainingData.topic.category && (
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                      {trainingData.topic.category}
+                    </span>
+                  )}
+                </div>
+                {trainingData.completed && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    완료
+                  </span>
+                )}
+              </div>
+
+              {/* 제목 */}
+              <h3 className="text-[16px] font-bold text-gray-900 mb-3 leading-snug flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-500 shrink-0" />
+                오늘의 5분 HACCP — {trainingData.topic.title}
+              </h3>
+
+              {/* 질문 */}
+              <div className="bg-violet-50/60 rounded-xl px-4 py-3 mb-3 border border-violet-100/60">
+                <p className="text-[13px] font-bold text-violet-800 mb-1">❓ 질문</p>
+                <p className="text-[14px] text-gray-700 leading-relaxed">{trainingData.topic.question}</p>
+              </div>
+
+              {/* 핵심 내용 */}
+              <div className="bg-blue-50/50 rounded-xl px-4 py-3 mb-3 border border-blue-100/60">
+                <p className="text-[13px] font-bold text-blue-800 mb-1">📘 핵심</p>
+                <p className="text-[14px] text-gray-700 leading-relaxed">{trainingData.topic.content}</p>
+              </div>
+
+              {/* 오늘 행동 */}
+              <div className="bg-amber-50/50 rounded-xl px-4 py-3 mb-4 border border-amber-100/60">
+                <p className="text-[13px] font-bold text-amber-800 mb-1">👉 오늘 행동</p>
+                <p className="text-[14px] text-gray-700 leading-relaxed font-medium">{trainingData.topic.action}</p>
+              </div>
+
+              {/* 완료 버튼 */}
+              {!trainingData.completed ? (
+                <Button
+                  onClick={() => completeMutation.mutate({ dayNo: trainingData.dayNo! })}
+                  disabled={completeMutation.isPending}
+                  className="w-full h-12 rounded-xl text-[15px] font-bold bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:from-violet-600 hover:to-purple-700 shadow-lg shadow-violet-500/25 active:scale-[0.98] transition-all"
+                >
+                  {completeMutation.isPending ? (
+                    <><Loader2 className="h-5 w-5 mr-2 animate-spin" />완료 처리 중...</>
+                  ) : (
+                    <><CheckCircle2 className="h-5 w-5 mr-2" />✔ 완료하기</>
+                  )}
+                </Button>
+              ) : (
+                <div className="text-center py-2">
+                  <p className="text-[13px] text-emerald-600 font-bold">오늘 교육을 완료했습니다! 수고하셨어요 👏</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-28">
             <div className="w-16 h-16 rounded-2xl bg-white shadow-lg flex items-center justify-center mb-4">

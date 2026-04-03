@@ -63,6 +63,7 @@ import { tenantsRouter } from "./tenants";
 import { tenantsPublicRouter } from "./tenantsPublic";
 import { traceabilityRouter } from "./traceability";
 import { trainingRouter } from "./training";
+import { dailyTrainingRouter } from "./dailyTraining";
 import { weeklyLogsRouter } from "./weeklyLogs";
 import { yearlyLogsRouter } from "./yearlyLogs";
 import {
@@ -149,6 +150,7 @@ export const appRouter = router({
   supplierAudit: supplierAuditRouter,
   correctiveAction: correctiveActionRouter,
   training: trainingRouter,
+  dailyTraining: dailyTrainingRouter,
   reports: reportsRouter,
   traceability: traceabilityRouter,
   admin: adminRouter,
