@@ -67,6 +67,7 @@ export type UserIntent =
   | "payment_risk_query"
   | "journal_query"
   | "financial_summary"
+  | "training_query"
   | "general";
 
 /** 키워드 기반 의도 분류 (폴백용) */
@@ -92,6 +93,9 @@ export function classifyIntentKeyword(message: string): UserIntent {
   if (/연체|미수|미지급|ap.*ar|외상|결제.*기한|수금/.test(msg)) return "payment_risk_query";
   if (/분개|journal|회계.*오류|대차|차변|대변|전기/.test(msg)) return "journal_query";
   if (/매출|수익|손익|재무|이익|margin|profit|매출.*현황/.test(msg)) return "financial_summary";
+
+  // Training intent
+  if (/교육|훈련|이수|5분.*haccp|오늘.*교육|교육.*완료|교육.*현황|training/.test(msg)) return "training_query";
 
   return "general";
 }
@@ -141,6 +145,7 @@ export async function classifyIntentAI(message: string): Promise<{
 - payment_risk_query: 연체/미수/미지급/외상 관련
 - journal_query: 분개/회계오류/대차 관련
 - financial_summary: 매출/수익/손익/재무 관련
+- training_query: 교육/훈련/이수율/오늘의 5분 HACCP 관련
 - general: 일반 HACCP/ERP 질문
 
 반드시 아래 JSON 형식으로만 응답하세요:
@@ -161,7 +166,7 @@ export async function classifyIntentAI(message: string): Promise<{
       "deviation_history", "equipment_status", "audit_prep", "corrective_draft",
       "temperature_check", "production_analysis", "prediction", "anomaly_detection",
       "expense_query", "cashflow_query", "payment_risk_query", "journal_query", "financial_summary",
-      "general",
+      "training_query", "general",
     ];
 
     const intent = validIntents.includes(parsed.intent) ? parsed.intent : classifyIntentKeyword(message);
@@ -479,6 +484,58 @@ async function gatherContext(
         const financialPreds = preds.predictions.filter((p) => p.type === "financial_trend");
         context = { financialPredictions: financialPreds, aiNarrative: preds.aiNarrative };
         dataSources.push("journal_lines", "financial_reports");
+        break;
+      }
+
+      case "training_query": {
+        // 교육 현황 조회
+        const conn = await getRawConnection();
+        const today = new Date().toISOString().slice(0, 10);
+
+        // 오늘 배정
+        const [assignment] = await conn.execute<any[]>(
+          "SELECT day_no FROM h_training_assignments WHERE assignment_date = ? AND tenant_id = ?",
+          [today, tenantId]
+        );
+        const dayNo = assignment[0]?.day_no;
+
+        // 오늘 교육 내용
+        let todayTopic = null;
+        if (dayNo) {
+          const [topics] = await conn.execute<any[]>(
+            "SELECT title, question, content, action, category FROM h_training_topics WHERE day_no = ? AND (tenant_id = 0 OR tenant_id = ?) ORDER BY tenant_id DESC LIMIT 1",
+            [dayNo, tenantId]
+          );
+          todayTopic = topics[0] || null;
+        }
+
+        // 전체 직원수 & 완료수
+        const [userCount] = await conn.execute<any[]>(
+          "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'", [tenantId]
+        );
+        const [doneCount] = await conn.execute<any[]>(
+          "SELECT COUNT(*) as cnt FROM h_training_logs WHERE day_no = ? AND assignment_date = ? AND tenant_id = ? AND status = 'DONE'",
+          [dayNo || 0, today, tenantId]
+        );
+
+        // 30일 이수율
+        const [totalAssign] = await conn.execute<any[]>(
+          "SELECT COUNT(*) as cnt FROM h_training_assignments WHERE tenant_id = ? AND assignment_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)", [tenantId]
+        );
+        const [totalLogs] = await conn.execute<any[]>(
+          "SELECT COUNT(*) as cnt FROM h_training_logs WHERE tenant_id = ? AND assignment_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = 'DONE'", [tenantId]
+        );
+        const expected = totalAssign[0].cnt * userCount[0].cnt;
+        const rate = expected > 0 ? Math.round((totalLogs[0].cnt / expected) * 100) : 0;
+
+        context = {
+          today,
+          dayNo,
+          todayTopic,
+          todayStatus: { total: userCount[0].cnt, done: doneCount[0].cnt, incomplete: userCount[0].cnt - doneCount[0].cnt },
+          completionRate30d: rate,
+        };
+        dataSources.push("training_topics", "training_logs", "training_assignments");
         break;
       }
 
