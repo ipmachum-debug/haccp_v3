@@ -268,6 +268,7 @@ const menuItems = [
 
   // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
+  { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin", "admin"] },
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
 ];
 

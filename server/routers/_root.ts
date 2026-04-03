@@ -64,6 +64,7 @@ import { tenantsPublicRouter } from "./tenantsPublic";
 import { traceabilityRouter } from "./traceability";
 import { trainingRouter } from "./training";
 import { dailyTrainingRouter } from "./dailyTraining";
+import { serverMonitorRouter } from "./serverMonitor.router";
 import { weeklyLogsRouter } from "./weeklyLogs";
 import { yearlyLogsRouter } from "./yearlyLogs";
 import {
@@ -151,6 +152,7 @@ export const appRouter = router({
   correctiveAction: correctiveActionRouter,
   training: trainingRouter,
   dailyTraining: dailyTrainingRouter,
+  serverMonitor: serverMonitorRouter,
   reports: reportsRouter,
   traceability: traceabilityRouter,
   admin: adminRouter,
