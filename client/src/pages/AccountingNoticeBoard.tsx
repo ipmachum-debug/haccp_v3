@@ -22,6 +22,8 @@ import {
   Calendar, AlertTriangle, TrendingUp, Award, ChevronDown
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { renderTrainingMonthlyReport } from "@/components/print/TrainingMonthlyReport";
+import { Printer } from "lucide-react";
 
 const typeConfig: Record<string, { label: string; emoji: string; color: string; bg: string }> = {
   notice: { label: "공지", emoji: "📢", color: "text-blue-700", bg: "bg-blue-50 border-l-blue-500" },
@@ -47,6 +49,9 @@ export default function AccountingNoticeBoard() {
   const [newContent, setNewContent] = useState("");
   const [statsPeriod, setStatsPeriod] = useState(30);
   const [showAllTopics, setShowAllTopics] = useState(false);
+  const now = new Date();
+  const [reportYear, setReportYear] = useState(now.getFullYear());
+  const [reportMonth, setReportMonth] = useState(now.getMonth() + 1);
 
   const { data: items = [], refetch, isLoading } = trpc.board.getBoardItems.useQuery(
     { type: selectedType as any },
@@ -79,6 +84,30 @@ export default function AccountingNoticeBoard() {
   const completeMutation = trpc.dailyTraining.complete.useMutation({
     onSuccess: () => { toast.success("교육 완료!"); refetchTraining(); },
   });
+
+  const { data: monthlyReport } = trpc.dailyTraining.getMonthlyReport.useQuery(
+    { year: reportYear, month: reportMonth },
+    { enabled: true }
+  );
+
+  const handlePrintMonthly = () => {
+    if (!monthlyReport) return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+    const { createRoot } = require("react-dom/client");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    root.render(renderTrainingMonthlyReport(monthlyReport));
+    setTimeout(() => {
+      printWindow.document.write(`
+        <html><head><title>교육훈련 월간 기록부 ${reportYear}년 ${reportMonth}월</title>
+        <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+        <style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+        </head><body>${container.innerHTML}</body></html>`);
+      printWindow.document.close();
+      setTimeout(() => printWindow.print(), 500);
+    }, 100);
+  };
 
   const completedUsers = trainingStatus?.users?.filter((u: any) => u.completed) || [];
   const incompleteUsers = trainingStatus?.users?.filter((u: any) => !u.completed) || [];
@@ -242,6 +271,22 @@ export default function AccountingNoticeBoard() {
 
           {/* ═══ TAB 2: 교육 관리 (5분 HACCP) ═══ */}
           <TabsContent value="training" className="space-y-5">
+            {/* 월간 리포트 출력 바 */}
+            <div className="flex items-center justify-between bg-white rounded-xl border p-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-gray-700">월간 교육훈련일지</span>
+                <select value={reportYear} onChange={e => setReportYear(Number(e.target.value))} className="text-xs border rounded px-2 py-1">
+                  {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}년</option>)}
+                </select>
+                <select value={reportMonth} onChange={e => setReportMonth(Number(e.target.value))} className="text-xs border rounded px-2 py-1">
+                  {Array.from({length: 12}, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}월</option>)}
+                </select>
+              </div>
+              <Button size="sm" variant="outline" onClick={handlePrintMonthly} disabled={!monthlyReport?.assignments?.length} className="gap-1.5 text-xs">
+                <Printer className="h-3.5 w-3.5" /> 출력
+              </Button>
+            </div>
+
             {/* 교육 요약 카드 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="bg-white rounded-xl border p-4 shadow-sm">

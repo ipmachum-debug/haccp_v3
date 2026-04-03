@@ -357,6 +357,87 @@ export const dailyTrainingRouter = router({
     };
   }),
 
+  // ── 월간 교육훈련일지 데이터 (출력/승인용) ──
+  getMonthlyReport: tenantRequiredProcedure
+    .input(z.object({
+      year: z.number(),
+      month: z.number().min(1).max(12),
+    }))
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      const tenantId = ctx.tenantId;
+      const { year, month } = input;
+      const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+      const endDate = `${year}-${String(month).padStart(2, "0")}-31`;
+
+      // 해당 월 배정 목록
+      const [assignments] = await pool.execute<any[]>(
+        `SELECT a.assignment_date, a.day_no, t.title, t.question, t.content, t.action, t.category
+         FROM h_training_assignments a
+         LEFT JOIN h_training_topics t ON a.day_no = t.day_no AND (t.tenant_id = 0 OR t.tenant_id = ?)
+         WHERE a.tenant_id = ? AND a.assignment_date >= ? AND a.assignment_date <= ?
+         ORDER BY a.assignment_date ASC`,
+        [tenantId, tenantId, startDate, endDate]
+      );
+
+      // 전체 직원 목록
+      const [users] = await pool.execute<any[]>(
+        "SELECT id, name, role FROM users WHERE tenant_id = ? AND status = 'approved' ORDER BY name",
+        [tenantId]
+      );
+
+      // 해당 월 완료 기록
+      const [logs] = await pool.execute<any[]>(
+        `SELECT user_id, day_no, assignment_date, completed_at
+         FROM h_training_logs
+         WHERE tenant_id = ? AND assignment_date >= ? AND assignment_date <= ? AND status = 'DONE'`,
+        [tenantId, startDate, endDate]
+      );
+
+      // 유저별 완료 맵: {userId: Set<dayNo>}
+      const userDoneMap = new Map<number, Set<number>>();
+      for (const l of logs) {
+        if (!userDoneMap.has(l.user_id)) userDoneMap.set(l.user_id, new Set());
+        userDoneMap.get(l.user_id)!.add(l.day_no);
+      }
+
+      // 직원별 이수 현황
+      const userStats = users.map((u: any) => {
+        const doneSet = userDoneMap.get(u.id) || new Set();
+        return {
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          doneCount: doneSet.size,
+          totalDays: assignments.length,
+          rate: assignments.length > 0 ? Math.round((doneSet.size / assignments.length) * 100) : 0,
+          details: assignments.map((a: any) => ({
+            date: a.assignment_date,
+            dayNo: a.day_no,
+            done: doneSet.has(a.day_no),
+          })),
+        };
+      });
+
+      return {
+        year,
+        month,
+        totalDays: assignments.length,
+        totalUsers: users.length,
+        assignments: assignments.map((a: any) => ({
+          date: a.assignment_date,
+          dayNo: a.day_no,
+          title: a.title,
+          category: a.category,
+          content: a.content,
+          action: a.action,
+        })),
+        userStats,
+        overallRate: assignments.length > 0 && users.length > 0
+          ? Math.round((logs.length / (assignments.length * users.length)) * 100) : 0,
+      };
+    }),
+
   // ── 3년 경과 데이터 자동 폐기 (법적 보관기간 준수) ──
   // HACCP 교육 기록: 3년 보관 의무 (식품위생법 시행규칙)
   // 3년 경과 후 순차적 자동 삭제
