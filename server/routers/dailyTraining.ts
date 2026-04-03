@@ -12,18 +12,9 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getPool } from "../db/pool";
 
-// ── 배치 존재 여부로 "근무일" 판단 ──
-async function hasBatchOnDate(tenantId: number, dateStr: string): Promise<boolean> {
-  const pool = getPool();
-  const [rows] = await pool.execute<any[]>(
-    `SELECT COUNT(*) as cnt FROM h_batches 
-     WHERE tenant_id = ? AND DATE(created_at) = ?`,
-    [tenantId, dateStr]
-  );
-  return rows[0]?.cnt > 0;
-}
-
-// ── 오늘의 교육 Day 계산 (배치 없는 날 건너뛰기) ──
+// ── 오늘의 교육 Day 계산 (선배정, 주말만 제외) ──
+// 핵심: 평일이면 무조건 배정 (배치 유무 상관없이)
+// 주말(토/일)만 제외. 배치가 없는 평일에도 교육은 진행.
 async function getOrCreateAssignment(tenantId: number, today: string): Promise<number | null> {
   const pool = getPool();
 
@@ -34,23 +25,17 @@ async function getOrCreateAssignment(tenantId: number, today: string): Promise<n
   );
   if (existing.length > 0) return existing[0].day_no;
 
-  // 2) 오늘 배치가 있는지 (또는 오늘이 과거이면서 배치가 있었는지)
-  //    현재 날짜이면 아직 배치가 없을 수 있으므로, 평일이면 배정
+  // 2) 주말(토/일)이면 배정 안 함
   const dayOfWeek = new Date(today + "T00:00:00").getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  
-  // 주말이면서 배치도 없으면 → 이월 (배정 안 함)
-  if (isWeekend) {
-    const hasBatch = await hasBatchOnDate(tenantId, today);
-    if (!hasBatch) return null;
-  }
+  if (isWeekend) return null;
 
-  // 3) 마지막 배정된 day_no 찾기
+  // 3) 평일이면 무조건 배정 (선배정)
   const [lastAssign] = await pool.execute<any[]>(
     "SELECT day_no FROM h_training_assignments WHERE tenant_id = ? ORDER BY assignment_date DESC LIMIT 1",
     [tenantId]
   );
-  
+
   let nextDayNo: number;
   if (lastAssign.length > 0) {
     nextDayNo = (lastAssign[0].day_no % 120) + 1; // 120일 순환

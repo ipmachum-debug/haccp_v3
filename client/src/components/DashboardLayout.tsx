@@ -263,8 +263,8 @@ const menuItems = [
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
 
-  // 교육 관리 (admin)
-  { icon: BookOpen, label: "교육 관리", path: "/dashboard/training-admin", roles: ["super_admin", "admin"] },
+  // 사내공지관리 (공지+교육 통합)
+  { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
 
   // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
@@ -572,12 +572,12 @@ function DashboardLayoutContent({
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
     { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"] },
     { icon: Building2, label: "거래처 조회", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"] },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"] },
+    // 커뮤니케이션 로그 → 사내공지관리로 통합 (HACCP탭 메뉴에서 접근)
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"] },
     { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"] },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"] },
     { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"] },
-    { icon: Bell, label: "사내 공지보드", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
+    // 사내공지보드 → HACCP탭 사내공지관리 메뉴로 이동
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)

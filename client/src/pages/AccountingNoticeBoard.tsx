@@ -18,13 +18,24 @@ import {
 import { toast } from "sonner";
 import {
   Megaphone, ClipboardList, Pin, CheckCircle2, User, Loader2,
-  Plus, X, Pencil, Trash2, Bell
+  Plus, X, Pencil, Trash2, Bell, BookOpen, Sparkles, Users,
+  Calendar, AlertTriangle, TrendingUp, Award, ChevronDown
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const typeConfig: Record<string, { label: string; emoji: string; color: string; bg: string }> = {
   notice: { label: "공지", emoji: "📢", color: "text-blue-700", bg: "bg-blue-50 border-l-blue-500" },
   work: { label: "작업지시", emoji: "📋", color: "text-amber-700", bg: "bg-amber-50 border-l-amber-500" },
   handover: { label: "전달사항", emoji: "📌", color: "text-emerald-700", bg: "bg-emerald-50 border-l-emerald-500" },
+};
+
+const categoryLabels: Record<string, { label: string; color: string }> = {
+  BASIC: { label: "기본", color: "bg-blue-100 text-blue-700" },
+  HYGIENE: { label: "위생", color: "bg-emerald-100 text-emerald-700" },
+  PROCESS: { label: "공정", color: "bg-amber-100 text-amber-700" },
+  CCP: { label: "CCP", color: "bg-red-100 text-red-700" },
+  TRACE: { label: "추적", color: "bg-purple-100 text-purple-700" },
+  RESPONSE: { label: "대응", color: "bg-orange-100 text-orange-700" },
 };
 
 export default function AccountingNoticeBoard() {
@@ -34,6 +45,8 @@ export default function AccountingNoticeBoard() {
   const [newType, setNewType] = useState("notice");
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
+  const [statsPeriod, setStatsPeriod] = useState(30);
+  const [showAllTopics, setShowAllTopics] = useState(false);
 
   const { data: items = [], refetch, isLoading } = trpc.board.getBoardItems.useQuery(
     { type: selectedType as any },
@@ -58,26 +71,48 @@ export default function AccountingNoticeBoard() {
     onSuccess: () => { toast.success("삭제 완료!"); refetch(); refetchStats(); },
   });
 
+  // ── 교육 관련 쿼리 ──
+  const { data: trainingData, refetch: refetchTraining } = trpc.dailyTraining.getTodayTraining.useQuery(undefined, { refetchInterval: 60000 });
+  const { data: trainingStatus } = trpc.dailyTraining.getStatus.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: trainingStats } = trpc.dailyTraining.getStats.useQuery({ days: statsPeriod }, { refetchInterval: 60000 });
+  const { data: topics } = trpc.dailyTraining.listTopics.useQuery();
+  const completeMutation = trpc.dailyTraining.complete.useMutation({
+    onSuccess: () => { toast.success("교육 완료!"); refetchTraining(); },
+  });
+
+  const completedUsers = trainingStatus?.users?.filter((u: any) => u.completed) || [];
+  const incompleteUsers = trainingStatus?.users?.filter((u: any) => !u.completed) || [];
+
   const s = stats || { total: 0, notice: 0, work: 0, handover: 0 };
 
   return (
     <DashboardLayout>
       <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-5">
         {/* 헤더 */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Bell className="h-5 w-5 text-blue-600" />
-              사내 공지보드
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">전 직원 공지사항 및 작업지시</p>
-          </div>
-          {isAdmin && (
-            <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "outline" : "default"} size="sm">
-              {showForm ? <><X className="h-4 w-4 mr-1" />닫기</> : <><Plus className="h-4 w-4 mr-1" />새 공지</>}
-            </Button>
-          )}
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <Bell className="h-5 w-5 text-blue-600" />
+            사내 공지보드
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">공지사항, 작업지시, 교육관리를 한 곳에서</p>
         </div>
+
+        {/* 2탭: 공지/작업지시 + 교육 관리 */}
+        <Tabs defaultValue="notice">
+          <TabsList className="mb-4">
+            <TabsTrigger value="notice" className="gap-1.5"><Megaphone className="h-4 w-4" /> 공지 / 작업지시</TabsTrigger>
+            <TabsTrigger value="training" className="gap-1.5"><BookOpen className="h-4 w-4" /> 교육 관리 (5분 HACCP)</TabsTrigger>
+          </TabsList>
+
+          {/* ═══ TAB 1: 공지/작업지시 ═══ */}
+          <TabsContent value="notice" className="space-y-5">
+            <div className="flex justify-end">
+              {isAdmin && (
+                <Button onClick={() => setShowForm(!showForm)} variant={showForm ? "outline" : "default"} size="sm">
+                  {showForm ? <><X className="h-4 w-4 mr-1" />닫기</> : <><Plus className="h-4 w-4 mr-1" />새 공지</>}
+                </Button>
+              )}
+            </div>
 
         {/* 통계 */}
         <div className="grid grid-cols-4 gap-3">
@@ -203,6 +238,160 @@ export default function AccountingNoticeBoard() {
             })
           )}
         </div>
+          </TabsContent>
+
+          {/* ═══ TAB 2: 교육 관리 (5분 HACCP) ═══ */}
+          <TabsContent value="training" className="space-y-5">
+            {/* 교육 요약 카드 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="bg-white rounded-xl border p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1"><Calendar className="h-3.5 w-3.5" /> 오늘 교육</div>
+                <p className="text-xl font-bold text-violet-700">{trainingStatus?.assigned ? `Day ${trainingStatus.dayNo}` : "휴무"}</p>
+              </div>
+              <div className="bg-white rounded-xl border p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1"><CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> 완료</div>
+                <p className="text-xl font-bold text-emerald-600">{trainingStatus?.completedCount || 0}<span className="text-sm text-gray-400">/{trainingStatus?.totalCount || 0}명</span></p>
+              </div>
+              <div className="bg-white rounded-xl border p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1"><AlertTriangle className="h-3.5 w-3.5 text-red-500" /> 미완료</div>
+                <p className="text-xl font-bold text-red-600">{incompleteUsers.length}<span className="text-sm text-gray-400">명</span></p>
+              </div>
+              <div className="bg-white rounded-xl border p-4 shadow-sm">
+                <div className="flex items-center gap-2 text-xs text-gray-500 mb-1"><TrendingUp className="h-3.5 w-3.5 text-blue-500" /> {statsPeriod}일 이수율</div>
+                <p className={`text-xl font-bold ${(trainingStats?.completionRate || 0) >= 90 ? "text-emerald-600" : (trainingStats?.completionRate || 0) >= 70 ? "text-amber-600" : "text-red-600"}`}>{trainingStats?.completionRate || 0}%</p>
+              </div>
+            </div>
+
+            {/* 오늘의 교육 카드 */}
+            {trainingData?.assigned && trainingData.topic && (
+              <div className={`bg-white rounded-xl border p-5 shadow-sm ${trainingData.completed ? "border-emerald-200" : "border-violet-200 border-l-4 border-l-violet-500"}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Badge className="bg-violet-100 text-violet-700 text-xs">Day {trainingData.dayNo}</Badge>
+                  <Badge className={(categoryLabels[trainingData.topic.category]?.color || "bg-gray-100 text-gray-700") + " text-xs"}>
+                    {categoryLabels[trainingData.topic.category]?.label || trainingData.topic.category}
+                  </Badge>
+                  {trainingData.completed && <Badge className="bg-emerald-100 text-emerald-700 text-xs">완료</Badge>}
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-violet-500" />
+                  오늘의 5분 HACCP — {trainingData.topic.title}
+                </h3>
+                <div className="space-y-3">
+                  <div className="bg-violet-50 rounded-lg px-4 py-3 border border-violet-100">
+                    <p className="text-xs font-bold text-violet-700 mb-1">❓ 질문</p>
+                    <p className="text-sm text-gray-700">{trainingData.topic.question}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg px-4 py-3 border border-blue-100">
+                    <p className="text-xs font-bold text-blue-700 mb-1">📘 핵심</p>
+                    <p className="text-sm text-gray-700">{trainingData.topic.content}</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-lg px-4 py-3 border border-amber-100">
+                    <p className="text-xs font-bold text-amber-700 mb-1">👉 오늘 행동</p>
+                    <p className="text-sm text-gray-700 font-medium">{trainingData.topic.action}</p>
+                  </div>
+                </div>
+                {!trainingData.completed && (
+                  <Button
+                    onClick={() => completeMutation.mutate({ dayNo: trainingData.dayNo! })}
+                    disabled={completeMutation.isPending}
+                    className="w-full mt-4 h-10 bg-violet-600 hover:bg-violet-700"
+                  >
+                    {completeMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+                    완료하기
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="grid md:grid-cols-2 gap-5">
+              {/* 오늘 완료 현황 */}
+              <div className="bg-white rounded-xl border shadow-sm">
+                <div className="px-4 py-3 border-b font-bold text-sm text-gray-900 flex items-center gap-2">
+                  <Users className="h-4 w-4" /> 오늘 완료 현황
+                </div>
+                <div className="p-4 space-y-1.5 max-h-[300px] overflow-y-auto">
+                  {!trainingStatus?.assigned ? (
+                    <p className="text-center text-gray-400 py-6 text-sm">오늘은 교육 배정 없음 (휴무)</p>
+                  ) : (trainingStatus?.users || []).length === 0 ? (
+                    <p className="text-center text-gray-400 py-6 text-sm">등록된 직원 없음</p>
+                  ) : (
+                    <>
+                      {incompleteUsers.map((u: any) => (
+                        <div key={u.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-sm">
+                          <span className="font-medium">{u.name} <span className="text-xs text-gray-400">{u.role}</span></span>
+                          <Badge variant="outline" className="text-red-600 border-red-200 text-[10px]">미완료</Badge>
+                        </div>
+                      ))}
+                      {completedUsers.map((u: any) => (
+                        <div key={u.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-100 text-sm">
+                          <span className="font-medium">{u.name} <span className="text-xs text-gray-400">{u.role}</span></span>
+                          <span className="text-[11px] text-emerald-600">{u.completedAt ? new Date(u.completedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) : "완료"}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* 이수율 통계 */}
+              <div className="bg-white rounded-xl border shadow-sm">
+                <div className="px-4 py-3 border-b flex items-center justify-between">
+                  <span className="font-bold text-sm text-gray-900 flex items-center gap-2"><Award className="h-4 w-4 text-amber-500" /> 이수율 통계</span>
+                  <div className="flex gap-1">{[30, 60, 90].map(d => (
+                    <Button key={d} variant={statsPeriod === d ? "default" : "outline"} size="sm" onClick={() => setStatsPeriod(d)} className="h-6 text-[10px] px-2">{d}일</Button>
+                  ))}</div>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-gray-600">전체 이수율</span>
+                      <span className="font-bold">{trainingStats?.completionRate || 0}%</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2.5">
+                      <div className={`h-2.5 rounded-full ${(trainingStats?.completionRate || 0) >= 90 ? "bg-emerald-500" : (trainingStats?.completionRate || 0) >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${Math.min(trainingStats?.completionRate || 0, 100)}%` }} />
+                    </div>
+                  </div>
+                  <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                    {(trainingStats?.userStats || []).map((u: any) => {
+                      const r = trainingStats?.assignedDays ? Math.round((u.done_count / trainingStats.assignedDays) * 100) : 0;
+                      return (
+                        <div key={u.id} className="flex items-center gap-2 text-xs">
+                          <span className="w-16 truncate font-medium text-gray-700">{u.name}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5"><div className={`h-1.5 rounded-full ${r >= 90 ? "bg-emerald-400" : r >= 70 ? "bg-amber-400" : "bg-red-400"}`} style={{ width: `${r}%` }} /></div>
+                          <span className="font-bold text-gray-600 w-8 text-right">{r}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 120일 교육 과정 */}
+            <div className="bg-white rounded-xl border shadow-sm">
+              <div className="px-4 py-3 border-b flex items-center justify-between">
+                <span className="font-bold text-sm text-gray-900 flex items-center gap-2"><BookOpen className="h-4 w-4 text-violet-600" /> 120일 교육 과정</span>
+                <Button variant="outline" size="sm" onClick={() => setShowAllTopics(!showAllTopics)} className="h-7 text-xs">
+                  {showAllTopics ? "접기" : "전체 보기"} <ChevronDown className={`h-3 w-3 ml-1 ${showAllTopics ? "rotate-180" : ""}`} />
+                </Button>
+              </div>
+              <div className="p-4 space-y-1">
+                {(topics || []).slice(0, showAllTopics ? 120 : 10).map((t: any) => {
+                  const cat = categoryLabels[t.category] || { label: t.category, color: "bg-gray-100 text-gray-700" };
+                  const isToday = trainingStatus?.dayNo === t.day_no;
+                  return (
+                    <div key={t.id} className={`flex items-center gap-3 px-3 py-1.5 rounded text-sm ${isToday ? "bg-violet-50 border border-violet-200" : "hover:bg-gray-50"}`}>
+                      <span className="text-gray-400 w-6 text-right text-xs font-mono">{t.day_no}</span>
+                      <Badge className={`${cat.color} text-[10px] px-1.5 h-5`}>{cat.label}</Badge>
+                      <span className={`font-medium ${isToday ? "text-violet-700" : "text-gray-700"}`}>{t.title}</span>
+                      <span className="text-gray-400 text-xs truncate flex-1 hidden md:block">{t.question}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   );
