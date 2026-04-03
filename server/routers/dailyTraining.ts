@@ -438,6 +438,102 @@ export const dailyTrainingRouter = router({
       };
     }),
 
+  // ── 월간 리포트 생성 + 승인 요청 ──
+  createMonthlyReport: tenantRequiredProcedure
+    .input(z.object({ year: z.number(), month: z.number().min(1).max(12) }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const tenantId = ctx.tenantId;
+      const { year, month } = input;
+      const title = `${year}년 ${month}월 교육훈련 월간 기록부`;
+
+      // 중복 체크 (같은 년/월 이미 생성됐는지)
+      const [existing] = await pool.execute<any[]>(
+        `SELECT id FROM h_training_monthly_reports WHERE tenant_id = ? AND year = ? AND month = ?`,
+        [tenantId, year, month]
+      );
+      if (existing.length > 0) {
+        return { success: false, message: "이미 해당 월의 리포트가 존재합니다.", reportId: existing[0].id };
+      }
+
+      // 집계 데이터 생성
+      const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
+      const endDate = `${year}-${String(month).padStart(2, "0")}-31`;
+
+      const [assignCount] = await pool.execute<any[]>(
+        "SELECT COUNT(*) as cnt FROM h_training_assignments WHERE tenant_id = ? AND assignment_date >= ? AND assignment_date <= ?",
+        [tenantId, startDate, endDate]
+      );
+      const [userCount] = await pool.execute<any[]>(
+        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'", [tenantId]
+      );
+      const [logCount] = await pool.execute<any[]>(
+        `SELECT COUNT(*) as cnt FROM h_training_logs
+         WHERE tenant_id = ? AND assignment_date >= ? AND assignment_date <= ? AND status = 'DONE'`,
+        [tenantId, startDate, endDate]
+      );
+
+      const totalExpected = assignCount[0].cnt * userCount[0].cnt;
+      const overallRate = totalExpected > 0 ? Math.round((logCount[0].cnt / totalExpected) * 100) : 0;
+
+      // 리포트 레코드 생성
+      const [result] = await pool.execute<any>(
+        `INSERT INTO h_training_monthly_reports
+         (tenant_id, year, month, title, total_days, total_users, total_done, overall_rate, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+        [tenantId, year, month, title, assignCount[0].cnt, userCount[0].cnt, logCount[0].cnt, overallRate, ctx.user.id]
+      );
+      const reportId = result.insertId;
+
+      // 승인 요청 생성
+      const { createApprovalRequest } = await import("../db");
+      const approvalId = await createApprovalRequest({
+        tenantId,
+        siteId: (ctx.user.siteId || tenantId) as number,
+        requestType: "document_approval",
+        referenceType: "training_monthly_report",
+        referenceId: reportId,
+        title,
+        description: `교육일수 ${assignCount[0].cnt}일, 대상인원 ${userCount[0].cnt}명, 전체 이수율 ${overallRate}%`,
+        priority: "medium",
+        requestedBy: ctx.user.id,
+      });
+
+      // 상태 업데이트
+      await pool.execute(
+        "UPDATE h_training_monthly_reports SET status = 'pending', approval_id = ? WHERE id = ?",
+        [approvalId, reportId]
+      );
+
+      return { success: true, reportId, approvalId, message: "월간 리포트 생성 + 승인 요청 완료" };
+    }),
+
+  // ── 월간 리포트 목록 조회 (교육훈련일지 리스트) ──
+  listMonthlyReports: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    const [rows] = await pool.execute<any[]>(
+      `SELECT r.*, u.name as created_by_name
+       FROM h_training_monthly_reports r
+       LEFT JOIN users u ON r.created_by = u.id
+       WHERE r.tenant_id = ?
+       ORDER BY r.year DESC, r.month DESC`,
+      [ctx.tenantId]
+    );
+    return rows;
+  }),
+
+  // ── 리포트 상태 업데이트 (승인 콜백용) ──
+  updateReportStatus: tenantRequiredProcedure
+    .input(z.object({ reportId: z.number(), status: z.enum(["approved", "rejected"]) }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        "UPDATE h_training_monthly_reports SET status = ? WHERE id = ? AND tenant_id = ?",
+        [input.status, input.reportId, ctx.tenantId]
+      );
+      return { success: true };
+    }),
+
   // ── 3년 경과 데이터 자동 폐기 (법적 보관기간 준수) ──
   // HACCP 교육 기록: 3년 보관 의무 (식품위생법 시행규칙)
   // 3년 경과 후 순차적 자동 삭제

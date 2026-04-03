@@ -211,3 +211,33 @@ async function main() {
 }
 
 main().catch((e) => { console.error("❌ 에러:", e); process.exit(1); });
+
+// ── 추가 마이그레이션: 월간 리포트 테이블 ──
+async function migrateMonthlyReports() {
+  const conn = await mysql.createConnection(DB_CONFIG);
+  console.log("\n📦 월간 교육훈련 리포트 테이블 마이그레이션");
+
+  await conn.execute(`
+    CREATE TABLE IF NOT EXISTS h_training_monthly_reports (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      year INT NOT NULL,
+      month INT NOT NULL,
+      title VARCHAR(200) NOT NULL,
+      total_days INT NOT NULL DEFAULT 0,
+      total_users INT NOT NULL DEFAULT 0,
+      total_done INT NOT NULL DEFAULT 0,
+      overall_rate INT NOT NULL DEFAULT 0,
+      status ENUM('draft','pending','reviewed','approved','rejected') NOT NULL DEFAULT 'draft',
+      approval_id INT NULL,
+      created_by INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_tenant_year_month (tenant_id, year, month)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  console.log("✅ h_training_monthly_reports 테이블 생성 완료");
+  await conn.end();
+}
+
+migrateMonthlyReports().catch(console.error);

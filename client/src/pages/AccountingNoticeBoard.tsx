@@ -19,10 +19,9 @@ import { toast } from "sonner";
 import {
   Megaphone, ClipboardList, Pin, CheckCircle2, User, Loader2,
   Plus, X, Pencil, Trash2, Bell, BookOpen, Sparkles, Users,
-  Calendar, AlertTriangle, TrendingUp, Award, ChevronDown
+  Calendar, AlertTriangle, TrendingUp, Award, ChevronDown, FileText
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { renderTrainingMonthlyReport } from "@/components/print/TrainingMonthlyReport";
 import { Printer } from "lucide-react";
 
 const typeConfig: Record<string, { label: string; emoji: string; color: string; bg: string }> = {
@@ -85,28 +84,38 @@ export default function AccountingNoticeBoard() {
     onSuccess: () => { toast.success("교육 완료!"); refetchTraining(); },
   });
 
+  // 월간 리포트 관련
+  const { data: monthlyReports, refetch: refetchReports } = trpc.dailyTraining.listMonthlyReports.useQuery();
+  const createReportMutation = trpc.dailyTraining.createMonthlyReport.useMutation({
+    onSuccess: (result: any) => {
+      if (result.success) {
+        toast.success(result.message);
+        refetchReports();
+      } else {
+        toast.info(result.message);
+      }
+    },
+    onError: (e: any) => toast.error("리포트 생성 실패: " + e.message),
+  });
+
   const { data: monthlyReport } = trpc.dailyTraining.getMonthlyReport.useQuery(
     { year: reportYear, month: reportMonth },
     { enabled: true }
   );
 
-  const handlePrintMonthly = () => {
+  const handlePrintReport = (year: number, month: number) => {
+    // 승인된 리포트만 출력
     if (!monthlyReport) return;
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
-    const { createRoot } = require("react-dom/client");
-    const container = document.createElement("div");
-    const root = createRoot(container);
-    root.render(renderTrainingMonthlyReport(monthlyReport));
-    setTimeout(() => {
-      printWindow.document.write(`
-        <html><head><title>교육훈련 월간 기록부 ${reportYear}년 ${reportMonth}월</title>
-        <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-        <style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
-        </head><body>${container.innerHTML}</body></html>`);
-      printWindow.document.close();
-      setTimeout(() => printWindow.print(), 500);
-    }, 100);
+    printWindow.document.write(`
+      <html><head><title>교육훈련 월간 기록부 ${year}년 ${month}월</title>
+      <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+      <style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+      </head><body><div id="root"></div>
+      <script>window.onload=function(){setTimeout(function(){window.print()},500)}</script>
+      </body></html>`);
+    printWindow.document.close();
   };
 
   const completedUsers = trainingStatus?.users?.filter((u: any) => u.completed) || [];
@@ -271,7 +280,7 @@ export default function AccountingNoticeBoard() {
 
           {/* ═══ TAB 2: 교육 관리 (5분 HACCP) ═══ */}
           <TabsContent value="training" className="space-y-5">
-            {/* 월간 리포트 출력 바 */}
+            {/* 월간 교육훈련일지 생성 바 */}
             <div className="flex items-center justify-between bg-white rounded-xl border p-3 shadow-sm">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-gray-700">월간 교육훈련일지</span>
@@ -282,10 +291,61 @@ export default function AccountingNoticeBoard() {
                   {Array.from({length: 12}, (_, i) => i + 1).map(m => <option key={m} value={m}>{m}월</option>)}
                 </select>
               </div>
-              <Button size="sm" variant="outline" onClick={handlePrintMonthly} disabled={!monthlyReport?.assignments?.length} className="gap-1.5 text-xs">
-                <Printer className="h-3.5 w-3.5" /> 출력
+              <Button
+                size="sm"
+                onClick={() => createReportMutation.mutate({ year: reportYear, month: reportMonth })}
+                disabled={createReportMutation.isPending}
+                className="gap-1.5 text-xs"
+              >
+                {createReportMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                집계 생성 + 승인요청
               </Button>
             </div>
+
+            {/* 교육훈련일지 이력 리스트 */}
+            {monthlyReports && monthlyReports.length > 0 && (
+              <div className="bg-white rounded-xl border shadow-sm">
+                <div className="px-4 py-3 border-b font-bold text-sm text-gray-900 flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-gray-600" /> 교육훈련일지 이력
+                </div>
+                <div className="divide-y">
+                  {(monthlyReports as any[]).map((r: any) => {
+                    const statusConfig: Record<string, { label: string; color: string }> = {
+                      draft: { label: "초안", color: "bg-gray-100 text-gray-600" },
+                      pending: { label: "승인대기", color: "bg-amber-100 text-amber-700" },
+                      reviewed: { label: "검토완료", color: "bg-blue-100 text-blue-700" },
+                      approved: { label: "승인완료", color: "bg-emerald-100 text-emerald-700" },
+                      rejected: { label: "반려", color: "bg-red-100 text-red-700" },
+                    };
+                    const sc = statusConfig[r.status] || statusConfig.draft;
+                    return (
+                      <div key={r.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-bold text-gray-800">{r.year}년 {r.month}월</span>
+                          <Badge className={`${sc.color} text-[10px] px-2`}>{sc.label}</Badge>
+                          <span className="text-xs text-gray-500">
+                            교육 {r.total_days}일 · {r.total_users}명 · 이수율 {r.overall_rate}%
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-gray-400">
+                            {r.created_by_name} · {new Date(r.created_at).toLocaleDateString("ko-KR")}
+                          </span>
+                          {r.status === "approved" && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => {
+                              setReportYear(r.year); setReportMonth(r.month);
+                              handlePrintReport(r.year, r.month);
+                            }}>
+                              <Printer className="h-3 w-3" /> 출력
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* 교육 요약 카드 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
