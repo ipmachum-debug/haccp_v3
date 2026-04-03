@@ -283,16 +283,53 @@ export const dailyTrainingRouter = router({
       };
     }),
 
-  // ── 전체 교육 목록 (관리자) ──
+  // ── 전체 교육 목록 + 배정일/이수율 포함 (관리자) ──
   listTopics: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
-    const [rows] = await pool.execute<any[]>(
-      `SELECT * FROM h_training_topics 
+    const tenantId = ctx.tenantId;
+
+    // 교육 주제
+    const [topics] = await pool.execute<any[]>(
+      `SELECT * FROM h_training_topics
        WHERE tenant_id = 0 OR tenant_id = ?
        ORDER BY day_no ASC`,
-      [ctx.tenantId]
+      [tenantId]
     );
-    return rows;
+
+    // 배정 이력 (day_no → assignment_date 매핑)
+    const [assignments] = await pool.execute<any[]>(
+      "SELECT day_no, assignment_date FROM h_training_assignments WHERE tenant_id = ? ORDER BY assignment_date DESC",
+      [tenantId]
+    );
+    const assignMap = new Map<number, string>();
+    for (const a of assignments) {
+      if (!assignMap.has(a.day_no)) assignMap.set(a.day_no, a.assignment_date);
+    }
+
+    // 전체 직원 수
+    const [userCountRows] = await pool.execute<any[]>(
+      "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'",
+      [tenantId]
+    );
+    const totalUsers = userCountRows[0]?.cnt || 1;
+
+    // Day별 완료 수
+    const [logCounts] = await pool.execute<any[]>(
+      `SELECT day_no, COUNT(DISTINCT user_id) as done_count
+       FROM h_training_logs WHERE tenant_id = ? AND status = 'DONE'
+       GROUP BY day_no`,
+      [tenantId]
+    );
+    const doneMap = new Map<number, number>();
+    for (const l of logCounts) doneMap.set(l.day_no, l.done_count);
+
+    return topics.map((t: any) => ({
+      ...t,
+      assignedDate: assignMap.get(t.day_no) || null,
+      doneCount: doneMap.get(t.day_no) || 0,
+      totalUsers,
+      completionRate: Math.round(((doneMap.get(t.day_no) || 0) / totalUsers) * 100),
+    }));
   }),
 
   // ── 미완료 인원 수 (대시보드 위젯용) ──
@@ -317,6 +354,72 @@ export const dailyTrainingRouter = router({
       count: users[0].cnt - logs[0].cnt,
       total: users[0].cnt,
       assigned: true,
+    };
+  }),
+
+  // ── 3년 경과 데이터 자동 폐기 (법적 보관기간 준수) ──
+  // HACCP 교육 기록: 3년 보관 의무 (식품위생법 시행규칙)
+  // 3년 경과 후 순차적 자동 삭제
+  purgeExpiredData: tenantRequiredProcedure.mutation(async ({ ctx }) => {
+    const pool = getPool();
+    const tenantId = ctx.tenantId;
+    const cutoffDate = new Date();
+    cutoffDate.setFullYear(cutoffDate.getFullYear() - 3);
+    const cutoff = cutoffDate.toISOString().slice(0, 10);
+
+    // 3년 지난 교육 로그 삭제
+    const [logResult] = await pool.execute<any>(
+      "DELETE FROM h_training_logs WHERE tenant_id = ? AND assignment_date < ?",
+      [tenantId, cutoff]
+    );
+
+    // 3년 지난 배정 기록 삭제
+    const [assignResult] = await pool.execute<any>(
+      "DELETE FROM h_training_assignments WHERE tenant_id = ? AND assignment_date < ?",
+      [tenantId, cutoff]
+    );
+
+    return {
+      purgedLogs: logResult.affectedRows || 0,
+      purgedAssignments: assignResult.affectedRows || 0,
+      cutoffDate: cutoff,
+      message: `${cutoff} 이전 데이터 ${logResult.affectedRows + assignResult.affectedRows}건 폐기 완료`,
+    };
+  }),
+
+  // ── 데이터 보관 현황 (감사용) ──
+  getRetentionInfo: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    const tenantId = ctx.tenantId;
+
+    const [oldest] = await pool.execute<any[]>(
+      "SELECT MIN(assignment_date) as oldest_date FROM h_training_assignments WHERE tenant_id = ?",
+      [tenantId]
+    );
+    const [total] = await pool.execute<any[]>(
+      "SELECT COUNT(*) as logs FROM h_training_logs WHERE tenant_id = ?",
+      [tenantId]
+    );
+    const [totalAssign] = await pool.execute<any[]>(
+      "SELECT COUNT(*) as cnt FROM h_training_assignments WHERE tenant_id = ?",
+      [tenantId]
+    );
+
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - 3);
+
+    const [expirable] = await pool.execute<any[]>(
+      "SELECT COUNT(*) as cnt FROM h_training_logs WHERE tenant_id = ? AND assignment_date < ?",
+      [tenantId, cutoff.toISOString().slice(0, 10)]
+    );
+
+    return {
+      oldestDate: oldest[0]?.oldest_date || null,
+      totalLogs: total[0]?.logs || 0,
+      totalAssignments: totalAssign[0]?.cnt || 0,
+      retentionYears: 3,
+      expirableCount: expirable[0]?.cnt || 0,
+      nextPurgeDate: cutoff.toISOString().slice(0, 10),
     };
   }),
 });

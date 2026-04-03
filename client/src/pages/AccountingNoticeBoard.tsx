@@ -376,15 +376,30 @@ export default function AccountingNoticeBoard() {
                 </Button>
               </div>
               <div className="p-4 space-y-1">
+                {/* 헤더 행 */}
+                <div className="flex items-center gap-3 px-3 py-1 text-[10px] font-bold text-gray-400 border-b border-gray-100 mb-1">
+                  <span className="w-6 text-right">Day</span>
+                  <span className="w-12">분류</span>
+                  <span className="flex-1">제목</span>
+                  <span className="w-20 text-center hidden md:block">교육일</span>
+                  <span className="w-16 text-right hidden md:block">이수율</span>
+                </div>
                 {(topics || []).slice(0, showAllTopics ? 120 : 10).map((t: any) => {
                   const cat = categoryLabels[t.category] || { label: t.category, color: "bg-gray-100 text-gray-700" };
                   const isToday = trainingStatus?.dayNo === t.day_no;
+                  const rate = t.completionRate ?? 0;
+                  const dateStr = t.assignedDate ? new Date(t.assignedDate).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }) : "-";
                   return (
                     <div key={t.id} className={`flex items-center gap-3 px-3 py-1.5 rounded text-sm ${isToday ? "bg-violet-50 border border-violet-200" : "hover:bg-gray-50"}`}>
-                      <span className="text-gray-400 w-6 text-right text-xs font-mono">{t.day_no}</span>
-                      <Badge className={`${cat.color} text-[10px] px-1.5 h-5`}>{cat.label}</Badge>
-                      <span className={`font-medium ${isToday ? "text-violet-700" : "text-gray-700"}`}>{t.title}</span>
-                      <span className="text-gray-400 text-xs truncate flex-1 hidden md:block">{t.question}</span>
+                      <span className="text-gray-400 w-6 text-right text-xs font-mono">{isToday ? "▶" : ""}{t.day_no}</span>
+                      <Badge className={`${cat.color} text-[10px] px-1.5 h-5 w-12 justify-center`}>{cat.label}</Badge>
+                      <span className={`font-medium flex-1 truncate ${isToday ? "text-violet-700" : "text-gray-700"}`}>{t.title}</span>
+                      <span className="text-gray-400 text-xs w-20 text-center hidden md:block">{dateStr}</span>
+                      <span className={`text-xs font-bold w-16 text-right hidden md:block ${
+                        rate >= 90 ? "text-emerald-600" : rate >= 50 ? "text-amber-600" : rate > 0 ? "text-red-500" : "text-gray-300"
+                      }`}>
+                        {t.assignedDate ? `${rate}%` : "-"}
+                      </span>
                     </div>
                   );
                 })}

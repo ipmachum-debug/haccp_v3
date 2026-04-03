@@ -242,10 +242,20 @@ export default function TrainingAdmin() {
             </Button>
           </div>
           <div className="p-5">
-            <div className="grid gap-2">
+            {/* 헤더 */}
+            <div className="flex items-center gap-3 px-3 py-1 text-[10px] font-bold text-gray-400 border-b mb-1">
+              <span className="w-8 text-right">Day</span>
+              <span className="w-12">분류</span>
+              <span className="flex-1">제목</span>
+              <span className="w-20 text-center hidden sm:block">교육일</span>
+              <span className="w-16 text-right hidden sm:block">이수율</span>
+            </div>
+            <div className="grid gap-1">
               {(topics || []).slice(0, showAllTopics ? 120 : 20).map((t: any) => {
                 const cat = categoryLabels[t.category] || { label: t.category, color: "bg-gray-100 text-gray-700" };
                 const isToday = status?.dayNo === t.day_no;
+                const rate = t.completionRate ?? 0;
+                const dateStr = t.assignedDate ? new Date(t.assignedDate).toLocaleDateString("ko-KR", { month: "short", day: "numeric" }) : "-";
                 return (
                   <div
                     key={t.id}
@@ -256,9 +266,12 @@ export default function TrainingAdmin() {
                     <span className="text-gray-400 w-8 text-right font-mono text-xs">
                       {isToday ? "▶" : ""}{t.day_no}
                     </span>
-                    <Badge className={`${cat.color} text-[10px] px-2 py-0 h-5 font-bold`}>{cat.label}</Badge>
-                    <span className={`font-medium ${isToday ? "text-violet-700" : "text-gray-700"}`}>{t.title}</span>
-                    <span className="text-gray-400 text-xs truncate flex-1 hidden sm:block">{t.question}</span>
+                    <Badge className={`${cat.color} text-[10px] px-2 py-0 h-5 font-bold w-12 justify-center`}>{cat.label}</Badge>
+                    <span className={`font-medium flex-1 truncate ${isToday ? "text-violet-700" : "text-gray-700"}`}>{t.title}</span>
+                    <span className="text-gray-400 text-xs w-20 text-center hidden sm:block">{dateStr}</span>
+                    <span className={`text-xs font-bold w-16 text-right hidden sm:block ${
+                      rate >= 90 ? "text-emerald-600" : rate >= 50 ? "text-amber-600" : rate > 0 ? "text-red-500" : "text-gray-300"
+                    }`}>{t.assignedDate ? `${rate}%` : "-"}</span>
                   </div>
                 );
               })}
