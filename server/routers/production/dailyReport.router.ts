@@ -4,8 +4,6 @@ import { z } from "zod";
 import { or, sql } from "drizzle-orm";
 import { getDb, getRawConnection } from "../../db";
 
-import { formatLocalDate } from "../../utils/timezone";
-
 export const dailyReportRouter = router({
     // 일별 생산 실적 조회
     getProduction: tenantRequiredProcedure
@@ -63,168 +61,12 @@ export const dailyReportRouter = router({
           try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
           return {
             id: row.id,
-            reportDate: row.report_date instanceof Date ? formatLocalDate(row.report_date) : String(row.report_date),
+            reportDate: row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date),
             summary,
             generatedAt: row.generated_at,
           };
         } catch (err) {
           console.error('[dailyReport.getGeneratedReport]', err);
-          return null;
-        }
-      }),
-
-    // ID 기반 생산일보 조회 (인쇄 미리보기용 - 실시간 데이터 재생성)
-    getReportById: tenantRequiredProcedure
-      .input(z.object({ id: z.number() }))
-      .query(async ({ input, ctx }) => {
-        const { getDb } = await import("../../db");
-        const { sql } = await import("drizzle-orm");
-        const db = await getDb();
-        if (!db) return null;
-        const tenantId = ctx.tenantId ?? undefined;
-        try {
-          // 1) 기본 리포트 정보 + 승인 상태 조회
-          const result = await db.execute(sql`
-            SELECT dr.id, dr.report_date, dr.summary, dr.generated_at,
-              ar.status as approval_status,
-              ar.requested_at, ar.reviewed_at, ar.approved_at,
-              ar.requested_by, ar.reviewed_by, ar.approved_by
-            FROM h_daily_reports dr
-            LEFT JOIN h_approval_requests ar
-              ON ar.reference_type = 'daily_report'
-              AND ar.reference_id = dr.id
-              AND ar.request_type = 'production_daily'
-              AND ar.tenant_id = ${tenantId}
-            WHERE dr.tenant_id = ${tenantId}
-              AND dr.id = ${input.id}
-              AND dr.report_type = 'production_daily'
-            LIMIT 1
-          `);
-          const rows = (result as any)[0] || [];
-          if (!(rows as any[]).length) return null;
-          const row = (rows as any[])[0];
-          const reportDate = row.report_date instanceof Date ? formatLocalDate(row.report_date) : String(row.report_date);
-
-          // 2) 배치 실시간 데이터 재조회 (시작/종료 시간, CCP 포함)
-          const batchResult = await db.execute(sql`
-            SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
-              b.start_time, b.end_time,
-              COALESCE(p.product_name, p1.product_name) as product_name,
-              COALESCE(sku.total_kg_sum, 0) as sku_actual_kg,
-              COALESCE(pp.actual_quantity, 0) as perf_actual_quantity,
-              ps.start_time as prod_start_time,
-              ccp_time.ccp_first_time,
-              ccp_time.ccp_last_time
-            FROM h_batches b
-            LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
-            LEFT JOIN h_products p1 ON p1.id = b.product_id
-            LEFT JOIN (
-              SELECT batch_id, SUM(total_kg) as total_kg_sum
-              FROM production_sku_output WHERE tenant_id = ${tenantId} GROUP BY batch_id
-            ) sku ON sku.batch_id = b.id
-            LEFT JOIN h_production_performance pp ON pp.batch_id = b.id AND pp.tenant_id = ${tenantId}
-            LEFT JOIN h_production_start ps ON ps.batch_id = b.id AND ps.tenant_id = ${tenantId}
-            LEFT JOIN (
-              SELECT fr2.batch_id,
-                MIN(r2.measurement_time) as ccp_first_time,
-                MAX(r2.measurement_time) as ccp_last_time
-              FROM h_ccp_form_records fr2
-              JOIN h_ccp_form_rows r2 ON r2.form_record_id = fr2.id AND r2.tenant_id = ${tenantId}
-              WHERE fr2.tenant_id = ${tenantId} AND r2.measurement_time IS NOT NULL
-              GROUP BY fr2.batch_id
-            ) ccp_time ON ccp_time.batch_id = b.id
-            WHERE b.tenant_id = ${tenantId} AND DATE(b.planned_date) = ${reportDate}
-            ORDER BY b.batch_order ASC, b.created_at ASC
-          `);
-          const batches = (batchResult as any)[0] || [];
-
-          // 3) CCP 상세 정보 (배치별)
-          const ccpDetailResult = await db.execute(sql`
-            SELECT fr.batch_id, fr.ccp_type, fr.status as ccp_status,
-              COUNT(r.id) as row_count,
-              SUM(CASE WHEN r.is_deviation = 0 THEN 1 ELSE 0 END) as pass_count,
-              SUM(CASE WHEN r.is_deviation = 1 THEN 1 ELSE 0 END) as fail_count
-            FROM h_ccp_form_records fr
-            INNER JOIN h_batches b ON fr.batch_id = b.id
-            LEFT JOIN h_ccp_form_rows r ON r.form_record_id = fr.id AND r.tenant_id = ${tenantId}
-            WHERE fr.tenant_id = ${tenantId} AND DATE(b.planned_date) = ${reportDate}
-            GROUP BY fr.batch_id, fr.ccp_type, fr.status
-          `);
-          const ccpDetails = (ccpDetailResult as any)[0] || [];
-          const ccpByBatch = new Map<number, any[]>();
-          for (const c of (ccpDetails as any[])) {
-            const bId = Number(c.batch_id);
-            if (!ccpByBatch.has(bId)) ccpByBatch.set(bId, []);
-            ccpByBatch.get(bId)!.push({
-              ccpType: c.ccp_type, status: c.ccp_status,
-              rowCount: Number(c.row_count || 0), passCount: Number(c.pass_count || 0), failCount: Number(c.fail_count || 0),
-            });
-          }
-
-          // 4) CCP 전체 통계
-          const ccpResult = await db.execute(sql`
-            SELECT COUNT(fr.id) as total_ccp,
-              SUM(CASE WHEN EXISTS (
-                SELECT 1 FROM h_ccp_form_rows r WHERE r.form_record_id = fr.id AND r.is_deviation = 1
-              ) THEN 1 ELSE 0 END) as deviation_count
-            FROM h_ccp_form_records fr
-            INNER JOIN h_batches b ON fr.batch_id = b.id
-            WHERE fr.tenant_id = ${tenantId} AND DATE(b.planned_date) = ${reportDate}
-          `);
-          const ccpStatsRaw = (ccpResult as any)[0]?.[0] || { total_ccp: 0, deviation_count: 0 };
-          const totalCcp = Number(ccpStatsRaw.total_ccp) || 0;
-          const deviationCount = Number(ccpStatsRaw.deviation_count) || 0;
-
-          // 5) 배치 목록 구성
-          const batchList = (batches as any[]).map((b: any) => {
-            const actualQty = parseFloat(b.sku_actual_kg || '0') || parseFloat(b.actual_quantity || '0') || parseFloat(b.perf_actual_quantity || '0') || 0;
-            let startTime: string | null = null;
-            if (b.ccp_first_time) startTime = String(b.ccp_first_time);
-            else if (b.prod_start_time) startTime = String(b.prod_start_time);
-            else if (b.start_time) startTime = String(b.start_time);
-            let endTime: string | null = null;
-            if (b.ccp_last_time) endTime = String(b.ccp_last_time);
-            else if (b.end_time) endTime = String(b.end_time);
-            return {
-              batchId: b.id, batchCode: b.batch_code, productName: b.product_name || '미확인',
-              plannedQuantity: parseFloat(b.planned_quantity || '0'),
-              actualQuantity: actualQty,
-              status: b.status === 'completed' || b.status === 'approved' ? 'completed' : b.status,
-              startTime, endTime,
-              ccpDetails: ccpByBatch.get(Number(b.id)) || [],
-            };
-          });
-          const totalPlanned = batchList.reduce((s: number, b: any) => s + b.plannedQuantity, 0);
-          const totalActual = batchList.reduce((s: number, b: any) => s + b.actualQuantity, 0);
-
-          // 6) 실시간 summary 구성
-          const summary = {
-            date: reportDate, reportDate,
-            production: {
-              batches: batchList, totalBatches: batchList.length,
-              completedBatches: batchList.filter((b: any) => b.status === 'completed').length,
-              totalPlannedQty: totalPlanned, totalActualQty: totalActual,
-              achievementRate: totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0,
-            },
-            ccp: {
-              totalRecords: totalCcp,
-              normalCount: totalCcp - deviationCount,
-              deviationCount,
-              complianceRate: totalCcp > 0 ? ((totalCcp - deviationCount) / totalCcp * 100).toFixed(1) : '100.0',
-            },
-            issues: [],
-            // 승인 정보 포함
-            approval: {
-              status: row.approval_status || null,
-              requestedAt: row.requested_at ? String(row.requested_at) : null,
-              reviewedAt: row.reviewed_at ? String(row.reviewed_at) : null,
-              approvedAt: row.approved_at ? String(row.approved_at) : null,
-            },
-          };
-
-          return { id: row.id, reportDate, summary, generatedAt: row.generated_at };
-        } catch (err) {
-          console.error('[dailyReport.getReportById]', err);
           return null;
         }
       }),
@@ -520,7 +362,7 @@ export const dailyReportRouter = router({
           const productsByDate: Record<string, string[]> = {};
           for (const pn of (productNamesRows as any[])) {
             const dateStr = pn.batch_date instanceof Date
-              ? formatLocalDate(pn.batch_date)
+              ? pn.batch_date.toISOString().split('T')[0]
               : String(pn.batch_date || '');
             if (!dateStr) continue;
             if (!productsByDate[dateStr]) productsByDate[dateStr] = [];
@@ -533,7 +375,7 @@ export const dailyReportRouter = router({
           // 기존 일보 날짜 Set
           const existingDates = new Set(
             (rows as any[]).map((r: any) => {
-              const d = r.report_date instanceof Date ? formatLocalDate(r.report_date) : String(r.report_date);
+              const d = r.report_date instanceof Date ? r.report_date.toISOString().split('T')[0] : String(r.report_date);
               return d;
             })
           );
@@ -541,7 +383,7 @@ export const dailyReportRouter = router({
           const mapped = (rows as any[]).map((row: any) => {
             let summary: any = {};
             try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
-            const reportDate = row.report_date instanceof Date ? formatLocalDate(row.report_date) : String(row.report_date);
+            const reportDate = row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date);
             return {
               id: row.id,
               reportDate,
@@ -570,7 +412,7 @@ export const dailyReportRouter = router({
           // 일보 미생성 날짜를 placeholder로 추가
           for (const bd of (batchDates as any[])) {
             const dateStr = bd.batch_date instanceof Date
-              ? formatLocalDate(bd.batch_date)
+              ? bd.batch_date.toISOString().split('T')[0]
               : String(bd.batch_date);
             if (!existingDates.has(dateStr)) {
               mapped.push({
@@ -627,7 +469,7 @@ export const dailyReportRouter = router({
         const rpt = (rptRows as any[])[0];
         let summary: any = {};
         try { summary = typeof rpt.summary === 'string' ? JSON.parse(rpt.summary) : rpt.summary; } catch {}
-        const dateStr = rpt.report_date instanceof Date ? formatLocalDate(rpt.report_date) : String(rpt.report_date);
+        const dateStr = rpt.report_date instanceof Date ? rpt.report_date.toISOString().split('T')[0] : String(rpt.report_date);
         const batchCount = summary?.production?.totalBatches || 0;
 
         // 승인 설정 조회 (production_daily 우선, batch_production fallback)

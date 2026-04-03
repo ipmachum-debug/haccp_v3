@@ -13,7 +13,6 @@
  */
 
 import { getRawConnection } from "./connection";
-import { todayKST } from "../utils/timezone";
 
 export interface BriefingItem {
   type: 'inventory_risk' | 'cost_change' | 'quality_issue' | 'production_anomaly' | 'order_needed';
@@ -49,7 +48,7 @@ const GREETINGS_CLEAR = [
 
 /** KST 오늘 날짜 문자열 반환 */
 function getKSTToday(): string {
-  return todayKST();
+  return new Date(Date.now() + 9 * 3600_000).toISOString().split('T')[0];
 }
 
 export async function generateAIBriefing(tenantId: number, userName: string): Promise<AIBriefingResult> {

@@ -7,8 +7,6 @@ import { getDb } from "../db";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../drizzle/schema";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
-import { formatLocalDate } from "../utils/timezone";
-
 /**
  * h_inventory 테이블 재고량 차감
  * 출고 시 총 재고량과 가용 재고량 감소
@@ -67,7 +65,7 @@ export async function createOutboundRecord(params: {
   createdBy: number;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  if (!db) throw new Error("Database not available");
 
   // 원재료 정보 조회
   const [material] = await db
@@ -157,14 +155,14 @@ export async function getOutboundHistory(params?: {
   endDate?: Date;
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  if (!db) throw new Error("Database not available");
 
   // 날짜 파라미터 전처리
   const startDateStr = params?.startDate
-    ? (params.startDate instanceof Date ? formatLocalDate(params.startDate) : params.startDate)
+    ? (params.startDate instanceof Date ? params.startDate.toISOString().split('T')[0] : params.startDate)
     : null;
   const endDateStr = params?.endDate
-    ? (params.endDate instanceof Date ? formatLocalDate(params.endDate) : params.endDate)
+    ? (params.endDate instanceof Date ? params.endDate.toISOString().split('T')[0] : params.endDate)
     : null;
 
   // 조건 빌드
@@ -288,7 +286,7 @@ export async function getConsumptionSummary(params: {
   month: number;  // 1-12
 }, tenantId: number) {
   const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  if (!db) throw new Error("Database not available");
 
   const startDate = `${params.year}-${String(params.month).padStart(2, '0')}-01`;
   const endMonth = params.month === 12 ? 1 : params.month + 1;
@@ -390,7 +388,7 @@ export async function getConsumptionSummary(params: {
 
   for (const row of (rows as any[])) {
     const dateStr = row.txDate ? (row.txDate instanceof Date
-      ? formatLocalDate(row.txDate)
+      ? row.txDate.toISOString().split('T')[0]
       : String(row.txDate).split('T')[0]) : 'unknown';
     const qty = parseFloat(row.quantity || "0");
     const amt = parseFloat(row.amount || "0");
@@ -506,7 +504,7 @@ export async function getConsumptionSummary(params: {
  */
 export async function syncStockFromConsumption(tenantId: number, userId: number, dryRun: boolean = false) {
   const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  if (!db) throw new Error("Database not available");
 
   const result = {
     success: true,

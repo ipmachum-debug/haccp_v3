@@ -12,9 +12,6 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../db";
 import { sql } from "drizzle-orm";
-import { getRows, getFirstRow, getInsertId } from "../utils/dbHelpers";
-
-import { formatLocalDate } from "../utils/timezone";
 
 export const dailyLogRouter = router({
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
@@ -33,16 +30,16 @@ export const dailyLogRouter = router({
           ORDER BY form_date DESC
           LIMIT 1
         `);
-        const rows = getRows(result);
+        const rows = (result as any)[0] || [];
         if (rows.length === 0) return null;
-        const row = rows[0] as Record<string, any>;
-        let fd: Record<string, unknown> = {};
+        const row = rows[0];
+        let fd: any = {};
         try {
           fd = typeof row.form_data === 'string' ? JSON.parse(row.form_data) : (row.form_data || {});
         } catch { return null; }
         return {
           sourceDate: row.form_date instanceof Date
-            ? formatLocalDate(row.form_date)
+            ? row.form_date.toISOString().split('T')[0]
             : String(row.form_date),
           formData: fd,
         };
@@ -77,7 +74,7 @@ export const dailyLogRouter = router({
         return {
           id: r.id,
           siteId: r.site_id,
-          logDate: r.form_date instanceof Date ? formatLocalDate(r.form_date) : String(r.form_date),
+          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
           title: r.title,
           status: r.status,
           formData: fd,
@@ -103,8 +100,7 @@ export const dailyLogRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const tenantId = ctx.tenantId ?? undefined;
-        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId;
-        if (!siteId) throw new Error("siteId를 결정할 수 없습니다");
+        const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
         // 기존 레코드 확인
         const existing = await db.execute(sql`
@@ -114,7 +110,7 @@ export const dailyLogRouter = router({
             AND tenant_id = ${tenantId}
           LIMIT 1
         `);
-        const existingRows = getRows(existing);
+        const existingRows = (existing as any)[0] || [];
 
         let recordId: number;
         const title = `일일일지 - ${input.logDate}`;
@@ -122,7 +118,7 @@ export const dailyLogRouter = router({
         if (existingRows.length > 0) {
           // 기존 레코드 업데이트 (배치 데이터 보존, 위생 데이터 덮어씀)
           recordId = existingRows[0].id;
-          let oldFd: Record<string, unknown> = {};
+          let oldFd: any = {};
           try {
             oldFd = typeof existingRows[0].form_data === 'string'
               ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {});
@@ -143,7 +139,7 @@ export const dailyLogRouter = router({
                 status = ${input.status},
                 title = ${title},
                 updated_at = NOW()
-            WHERE id = ${recordId} AND tenant_id = ${tenantId}
+            WHERE id = ${recordId}
           `);
         } else {
           // 신규 생성
@@ -152,7 +148,7 @@ export const dailyLogRouter = router({
             FROM h_generic_checklist_records
             WHERE form_type = 'daily_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
           `);
-          const nextSeq = Number(getFirstRow<{ ns: number }>(seqR)?.ns || 1);
+          const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
           const formDataStr = JSON.stringify({ ...input.formData, date: input.logDate });
 
           const ins = await db.execute(sql`
@@ -162,7 +158,7 @@ export const dailyLogRouter = router({
               (${siteId}, ${tenantId}, 'daily_log', ${nextSeq}, ${input.logDate}, ${title},
                ${formDataStr}, ${input.status}, ${ctx.user.id})
           `);
-          recordId = getInsertId(ins);
+          recordId = Number((ins as any)[0]?.insertId || 0);
         }
 
         // submitted이면 승인요청 생성/업데이트
@@ -170,10 +166,9 @@ export const dailyLogRouter = router({
           const existApproval = await db.execute(sql`
             SELECT id FROM h_approval_requests
             WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'daily_log'
-              AND tenant_id = ${tenantId}
             LIMIT 1
           `);
-          const approvalRows = getRows<{ id: number }>(existApproval);
+          const approvalRows = (existApproval as any)[0] || [];
           if (approvalRows.length === 0) {
             await db.execute(sql`
               INSERT INTO h_approval_requests
@@ -187,7 +182,7 @@ export const dailyLogRouter = router({
           } else {
             await db.execute(sql`
               UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
-              WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
+              WHERE id = ${approvalRows[0].id}
             `);
           }
         }
@@ -214,8 +209,8 @@ export const dailyLogRouter = router({
           SELECT form_data FROM h_generic_checklist_records
           WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
         `);
-        const oldRows = getRows(existing);
-        let oldFd: Record<string, unknown> = {};
+        const oldRows = (existing as any)[0] || [];
+        let oldFd: any = {};
         if (oldRows.length > 0) {
           try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : oldRows[0].form_data; } catch {}
         }
@@ -263,7 +258,7 @@ export const dailyLogRouter = router({
             WHERE das.document_type = 'daily_log' AND das.tenant_id = ${ctx.tenantId} AND das.is_active = 1
             LIMIT 1
           `);
-          const settingRows = getRows<{ author_name: string }>(settingResult);
+          const settingRows = (settingResult as any)[0] || [];
           if (settingRows.length > 0) {
             authorEmployeeName = settingRows[0].author_name || null;
           }
@@ -289,7 +284,7 @@ export const dailyLogRouter = router({
           ORDER BY r.form_date DESC, r.created_at DESC
           LIMIT ${input?.limit ?? 50} OFFSET ${input?.offset ?? 0}
         `);
-        const rows = getRows(result);
+        const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : ((result as any).rows || result);
 
         return (rows as any[]).map((r: any) => {
           let formData: any = {};
@@ -308,7 +303,7 @@ export const dailyLogRouter = router({
 
           // 작성자: 문서결재설정 작성자 우선, 없으면 같은 테넌트의 users.name
           const displayAuthor = authorEmployeeName || r.creator_name || "-";
-          const logDate = r.log_date instanceof Date ? formatLocalDate(r.log_date) : String(r.log_date || '');
+          const logDate = r.log_date instanceof Date ? r.log_date.toISOString().split('T')[0] : String(r.log_date || '');
           return {
             id: r.id, siteId: r.site_id,
             log_date: logDate,
@@ -340,7 +335,7 @@ export const dailyLogRouter = router({
           SELECT status FROM h_generic_checklist_records
           WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId} AND form_type = 'daily_log'
         `);
-        const checkRows = getRows<{ status: string }>(checkResult);
+        const checkRows = (checkResult as any)[0] || [];
         if (checkRows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: '일일일지를 찾을 수 없습니다' });
         if (checkRows[0].status === 'approved') throw new TRPCError({ code: 'FORBIDDEN', message: '승인완료된 일지는 삭제할 수 없습니다' });
         // 관련 승인요청 삭제

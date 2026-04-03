@@ -5,7 +5,6 @@
  * both PrintHelpers and ChecklistRenderers.
  */
 import React from "react";
-import { formatLocalDate } from "../../lib/dateUtils";
 import { FORM_TYPE_LABELS, TitleWithApproval, renderRowsTable } from "./PrintHelpers";
 import {
   renderEmployeeHealthCheck,
@@ -46,7 +45,7 @@ export function renderGenericData(data: any, formType: string, doc?: any) {
                 <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
                 {keys.map((k, i) => (
                   <td key={i} className="border border-gray-400 px-2 py-1 text-center">
-                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? formatLocalDate(row[k]) : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
+                    {typeof row[k] === "boolean" ? (row[k] ? "✓" : "-") : row[k] instanceof Date ? row[k].toISOString().split("T")[0] : typeof row[k] === "object" ? JSON.stringify(row[k]) : (row[k] ?? "-")}
                   </td>
                 ))}
               </tr>
