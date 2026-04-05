@@ -65,6 +65,7 @@ import { traceabilityRouter } from "./traceability";
 import { trainingRouter } from "./training";
 import { dailyTrainingRouter } from "./dailyTraining";
 import { serverMonitorRouter } from "./serverMonitor.router";
+import { scanChecklistRouter } from "./scanChecklist.router";
 import { weeklyLogsRouter } from "./weeklyLogs";
 import { yearlyLogsRouter } from "./yearlyLogs";
 import {
@@ -153,6 +154,7 @@ export const appRouter = router({
   training: trainingRouter,
   dailyTraining: dailyTrainingRouter,
   serverMonitor: serverMonitorRouter,
+  scanChecklist: scanChecklistRouter,
   reports: reportsRouter,
   traceability: traceabilityRouter,
   admin: adminRouter,
