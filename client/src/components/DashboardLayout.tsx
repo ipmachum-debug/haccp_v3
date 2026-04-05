@@ -257,8 +257,6 @@ const menuItems = [
 
   // 모바일 (worker, inspector)
   { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"] },
-  { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
-
   // HACCP 검증 & 감사 (admin, inspector, monitor)
   { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
@@ -562,6 +560,7 @@ function DashboardLayoutContent({
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
     { icon: Upload, label: "엑셀 데이터 임포트", path: "/dashboard/excel-import", roles: ["super_admin", "admin"] },
+    { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
