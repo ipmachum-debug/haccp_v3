@@ -119,6 +119,63 @@ export const scanChecklistRouter = router({
       };
     }),
 
+  // ── 테넌트별 스캔 양식 관리 ──
+  saveTemplate: tenantRequiredProcedure
+    .input(z.object({
+      checklistType: z.string(),
+      templateName: z.string(),
+      fields: z.array(z.object({
+        fieldName: z.string(),
+        fieldLabel: z.string(),
+        type: z.enum(["text", "check", "number", "date", "select"]),
+        options: z.string().optional(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { getRawConnection } = await import("../db");
+      const conn = await getRawConnection();
+      await conn.execute(
+        `INSERT INTO h_scan_templates (tenant_id, checklist_type, template_name, fields, created_by)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE template_name = VALUES(template_name), fields = VALUES(fields)`,
+        [ctx.tenantId, input.checklistType, input.templateName, JSON.stringify(input.fields), ctx.user.id]
+      );
+      return { success: true };
+    }),
+
+  listTemplates: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getRawConnection } = await import("../db");
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute<any[]>(
+      "SELECT * FROM h_scan_templates WHERE tenant_id = ? ORDER BY checklist_type",
+      [ctx.tenantId]
+    );
+    return rows.map((r: any) => ({ ...r, fields: typeof r.fields === "string" ? JSON.parse(r.fields) : r.fields }));
+  }),
+
+  getTemplate: tenantRequiredProcedure
+    .input(z.object({ checklistType: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const { getRawConnection } = await import("../db");
+      const conn = await getRawConnection();
+      const [rows] = await conn.execute<any[]>(
+        "SELECT * FROM h_scan_templates WHERE tenant_id = ? AND checklist_type = ?",
+        [ctx.tenantId, input.checklistType]
+      );
+      if (rows.length === 0) return null;
+      const r = rows[0];
+      return { ...r, fields: typeof r.fields === "string" ? JSON.parse(r.fields) : r.fields };
+    }),
+
+  deleteTemplate: tenantRequiredProcedure
+    .input(z.object({ checklistType: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { getRawConnection } = await import("../db");
+      const conn = await getRawConnection();
+      await conn.execute("DELETE FROM h_scan_templates WHERE tenant_id = ? AND checklist_type = ?", [ctx.tenantId, input.checklistType]);
+      return { success: true };
+    }),
+
   // ── 저장소 현황 (관리자) ──
   getStorageInfo: tenantRequiredProcedure.query(async () => {
     return getScanStorageInfo();
