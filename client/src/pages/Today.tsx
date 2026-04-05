@@ -15,7 +15,8 @@ import {
   Package, 
   ClipboardCheck,
   FileCheck,
-  AlertTriangle
+  AlertTriangle,
+  BookOpen
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -32,6 +33,9 @@ export default function Today() {
     const batchDate = new Date(batch.createdAt);
     return batchDate.toDateString() === today.toDateString();
   });
+
+  // 오늘 교육 미완료 수
+  const { data: trainingIncomplete } = trpc.dailyTraining.getIncompleteCount.useQuery();
 
   // 오늘 미완료 CCP 조회
   const { data: pendingCcps, isLoading: ccpsLoading } = trpc.ccp.getAllRecords.useQuery({
@@ -58,7 +62,7 @@ export default function Today() {
         </div>
 
         {/* 주요 지표 */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">오늘 배치</CardTitle>
@@ -107,6 +111,21 @@ export default function Today() {
               <div className="text-2xl font-bold text-destructive">{stats.failedItems}</div>
               <p className="text-xs text-muted-foreground">
                 시정 조치 필요
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className={trainingIncomplete?.count ? "border-violet-200 bg-violet-50/30" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">교육 미완료</CardTitle>
+              <BookOpen className="h-4 w-4 text-violet-500" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${trainingIncomplete?.count ? "text-violet-600" : ""}`}>
+                {trainingIncomplete?.assigned ? trainingIncomplete.count : "-"}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {trainingIncomplete?.assigned ? `전체 ${trainingIncomplete.total}명 중` : "오늘 배정 없음"}
               </p>
             </CardContent>
           </Card>
