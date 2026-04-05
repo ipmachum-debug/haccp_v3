@@ -7,15 +7,53 @@
  */
 import OpenAI from "openai";
 import fs from "fs";
+import { execSync } from "child_process";
+import path from "path";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 /**
- * 이미지 파일 → Base64 변환
+ * PDF → PNG 이미지 변환 (pdftoppm 사용)
+ * 첫 페이지만 변환 (체크리스트는 보통 1페이지)
  */
-function fileToBase64(filePath: string): string {
+function pdfToImage(pdfPath: string): string {
+  const outputBase = pdfPath.replace(/\.pdf$/i, "_page");
+  execSync(`pdftoppm -png -r 200 -f 1 -l 1 "${pdfPath}" "${outputBase}"`, { timeout: 30000 });
+
+  // pdftoppm은 파일명에 -1 등 페이지 번호를 붙임
+  const possibleNames = [
+    `${outputBase}-1.png`,
+    `${outputBase}-01.png`,
+    `${outputBase}-001.png`,
+  ];
+  for (const name of possibleNames) {
+    if (fs.existsSync(name)) return name;
+  }
+
+  // glob 방식 폴백
+  const dir = path.dirname(outputBase);
+  const base = path.basename(outputBase);
+  const files = fs.readdirSync(dir).filter(f => f.startsWith(base) && f.endsWith(".png"));
+  if (files.length > 0) return path.join(dir, files[0]);
+
+  throw new Error("PDF → 이미지 변환 실패");
+}
+
+/**
+ * 이미지 파일 → Base64 변환 (PDF면 먼저 이미지로 변환)
+ */
+function fileToBase64(filePath: string): { base64: string; mimeType: string; tempFile?: string } {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+
+  if (ext === "pdf") {
+    const imagePath = pdfToImage(filePath);
+    const buffer = fs.readFileSync(imagePath);
+    return { base64: buffer.toString("base64"), mimeType: "image/png", tempFile: imagePath };
+  }
+
   const buffer = fs.readFileSync(filePath);
-  return buffer.toString("base64");
+  const mimeType = getMimeType(filePath);
+  return { base64: buffer.toString("base64"), mimeType };
 }
 
 /**
@@ -56,8 +94,7 @@ export async function ocrAndStructure(
       return { success: false, rawText: "", structuredData: {}, confidence: 0, error: "OPENAI_API_KEY 환경변수가 설정되지 않았습니다." };
     }
 
-    const base64 = fileToBase64(filePath);
-    const mimeType = getMimeType(filePath);
+    const { base64, mimeType, tempFile } = fileToBase64(filePath);
 
     // 양식 필드 설명 생성
     let fieldsDesc = "";
@@ -144,6 +181,11 @@ ${fieldsDesc}
       } catch {
         confidence = 0.2;
       }
+    }
+
+    // PDF 변환 임시 파일 정리
+    if (tempFile && fs.existsSync(tempFile)) {
+      try { fs.unlinkSync(tempFile); } catch {}
     }
 
     return {
