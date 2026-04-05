@@ -78,33 +78,27 @@ export const scanChecklistRouter = router({
       };
     }),
 
-  // ── 3. 확인 후 저장 (기존 체크리스트 시스템에 입력) ──
+  // ── 3. 확인 후 저장 (문서 타입별 자동 매핑) ──
+  // 교육훈련일지 → h_training_logs
+  // CCP 기록지 → h_ccp_form_records
+  // 검사기록 → h_inspections
+  // 범용 체크리스트 → h_generic_checklist_records
   confirm: tenantRequiredProcedure
     .input(z.object({
       key: z.string(),
       checklistType: z.string(),
-      formData: z.any(), // OCR 결과를 사용자가 수정한 최종 데이터
+      formData: z.any(),
       deleteAfterSave: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { getRawConnection } = await import("../db");
-      const conn = await getRawConnection();
+      const { mapAndSave } = await import("../lib/scanDocMapper");
 
-      // generic_checklist 테이블에 저장
-      const data = input.formData;
-      const [result] = await conn.execute<any>(
-        `INSERT INTO generic_checklists (
-          tenant_id, form_type, form_date, title, form_data, 
-          status, created_by, created_at, source
-        ) VALUES (?, ?, ?, ?, ?, 'completed', ?, NOW(), 'scan_ocr')`,
-        [
-          ctx.tenantId,
-          input.checklistType,
-          data.formDate || new Date().toISOString().slice(0, 10),
-          data.title || `스캔 입력 - ${input.checklistType}`,
-          JSON.stringify(data),
-          ctx.user.id,
-        ]
+      const result = await mapAndSave(
+        ctx.tenantId,
+        ctx.user.id,
+        (ctx.user.siteId || ctx.tenantId) as number,
+        input.checklistType,
+        input.formData
       );
 
       // 저장 후 스캔 파일 삭제
@@ -113,9 +107,12 @@ export const scanChecklistRouter = router({
       }
 
       return {
-        success: true,
-        checklistId: result.insertId,
-        message: "스캔 데이터가 체크리스트로 저장되었습니다.",
+        success: result.success,
+        checklistId: result.insertedId,
+        targetTable: result.targetTable,
+        mappedFields: result.mappedFields,
+        unmappedFields: result.unmappedFields,
+        message: result.message,
       };
     }),
 

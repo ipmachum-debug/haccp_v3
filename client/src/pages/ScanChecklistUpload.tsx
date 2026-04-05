@@ -21,6 +21,14 @@ import {
 } from "lucide-react";
 
 const checklistTypes = [
+  { value: "training_log", label: "📖 교육훈련일지" },
+  { value: "ccp_record", label: "🔴 CCP 기록지 (범용)" },
+  { value: "ccp_2b", label: "🔴 CCP-2B 가열(굽기) 기록" },
+  { value: "ccp_1b", label: "🔴 CCP-1B 가열(증숙) 기록" },
+  { value: "ccp_4p", label: "🔴 CCP-4P 금속검출 기록" },
+  { value: "material_inspection", label: "🔍 원재료 입고검사" },
+  { value: "hygiene_inspection", label: "🔍 위생검사" },
+  { value: "shipping_inspection", label: "🔍 출하검사" },
   { value: "personal_hygiene", label: "개인위생점검" },
   { value: "temperature_humidity", label: "온습도점검" },
   { value: "equipment_cleaning", label: "설비세정기록" },
@@ -97,6 +105,8 @@ export default function ScanChecklistUpload() {
   };
 
   // 확인 후 저장
+  const [mappingResult, setMappingResult] = useState<any>(null);
+
   const handleConfirm = async () => {
     if (!editData) return;
 
@@ -108,6 +118,7 @@ export default function ScanChecklistUpload() {
         deleteAfterSave: true,
       });
 
+      setMappingResult(result);
       toast.success(result.message);
       setStep("done");
     } catch (e: any) {
@@ -337,11 +348,36 @@ export default function ScanChecklistUpload() {
 
         {/* ═══ STEP 4: 완료 ═══ */}
         {step === "done" && (
-          <div className="bg-white rounded-xl border p-12 shadow-sm text-center">
-            <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto mb-4" />
-            <p className="text-lg font-bold text-gray-800">저장 완료!</p>
-            <p className="text-sm text-gray-500 mt-1">스캔 체크리스트가 시스템에 입력되었습니다.</p>
-            <div className="flex gap-3 justify-center mt-6">
+          <div className="bg-white rounded-xl border p-8 shadow-sm">
+            <div className="text-center mb-6">
+              <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto mb-4" />
+              <p className="text-lg font-bold text-gray-800">저장 완료!</p>
+              <p className="text-sm text-gray-500 mt-1">{mappingResult?.message || "스캔 데이터가 시스템에 입력되었습니다."}</p>
+            </div>
+
+            {/* 매핑 결과 상세 */}
+            {mappingResult && (
+              <div className="bg-gray-50 rounded-lg p-4 mb-6 text-left space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-gray-500">저장 위치:</span>
+                  <Badge variant="outline">{mappingResult.targetTable}</Badge>
+                </div>
+                {mappingResult.mappedFields?.length > 0 && (
+                  <div className="text-sm">
+                    <span className="text-gray-500">매핑 완료:</span>
+                    <span className="ml-2 text-emerald-600 font-medium">{mappingResult.mappedFields.join(", ")}</span>
+                  </div>
+                )}
+                {mappingResult.unmappedFields?.length > 0 && (
+                  <div className="text-sm">
+                    <span className="text-gray-500">미매핑:</span>
+                    <span className="ml-2 text-amber-600 font-medium">{mappingResult.unmappedFields.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-center">
               <Button variant="outline" onClick={handleReset}>다른 문서 업로드</Button>
               <Button onClick={() => window.location.href = "/quality/checklists"}>체크리스트 목록 보기</Button>
             </div>
