@@ -76,9 +76,15 @@ export default function ScanChecklistUpload() {
     setStep("processing");
 
     try {
-      // 1. Base64 변환 + 업로드
+      // 1. Base64 변환 + 업로드 (청크 방식 - 대용량 파일 지원)
       const buffer = await selectedFile.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
+      }
+      const base64 = btoa(binary);
 
       const uploadResult = await uploadMutation.mutateAsync({
         fileName: selectedFile.name,
