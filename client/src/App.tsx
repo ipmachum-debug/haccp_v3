@@ -478,6 +478,7 @@ function Router() {
       <Route path="/dashboard/training-admin" component={lazy(() => import("@/pages/TrainingAdmin"))} />
       <Route path="/dashboard/server-monitor" component={lazy(() => import("@/pages/ServerMonitorDashboard"))} />
       <Route path="/dashboard/scan-checklist" component={lazy(() => import("@/pages/ScanChecklistUpload"))} />
+      <Route path="/dashboard/audit-report" component={lazy(() => import("@/pages/AuditReportDashboard"))} />
       <Route path="/dashboard/approval" component={ApprovalManagement} />
       <Route path="/dashboard/audit-logs" component={AuditLogs} />
 

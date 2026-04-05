@@ -108,18 +108,76 @@ export default function AccountingNoticeBoard() {
   );
 
   const handlePrintReport = (year: number, month: number) => {
-    // 승인된 리포트만 출력
-    if (!monthlyReport) return;
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html><head><title>교육훈련 월간 기록부 ${year}년 ${month}월</title>
-      <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-      <style>@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
-      </head><body><div id="root"></div>
-      <script>window.onload=function(){setTimeout(function(){window.print()},500)}</script>
-      </body></html>`);
-    printWindow.document.close();
+    if (!monthlyReport || !monthlyReport.assignments?.length) {
+      toast.error("해당 월의 교육 데이터가 없습니다.");
+      return;
+    }
+    const pw = window.open("", "_blank");
+    if (!pw) return;
+
+    // 일별 교육 행 생성
+    const assignRows = monthlyReport.assignments.map((a: any) => {
+      const d = new Date(a.date);
+      const dateStr = `${d.getMonth()+1}/${d.getDate()}(${["일","월","화","수","목","금","토"][d.getDay()]})`;
+      return `<tr><td class="b">${dateStr}</td><td class="b tc">${a.dayNo}</td><td class="b tc">${a.category||""}</td><td class="b">${a.title||""}</td><td class="b">${a.content||""}</td><td class="b">${a.action||""}</td></tr>`;
+    }).join("");
+
+    // 직원별 출석 행
+    const userRows = monthlyReport.userStats.map((u: any) => {
+      const days = u.details.map((d: any) => `<td class="b tc" style="font-size:10px;${d.done?"background:#dcfce7":""}">${d.done?"O":""}</td>`).join("");
+      const rateColor = u.rate >= 90 ? "#16a34a" : u.rate >= 70 ? "#d97706" : "#dc2626";
+      return `<tr><td class="b">${u.name}</td><td class="b tc" style="font-size:10px">${u.role}</td>${days}<td class="b tc fw">${u.doneCount}/${u.totalDays}</td><td class="b tc fw" style="color:${rateColor}">${u.rate}%</td></tr>`;
+    }).join("");
+
+    // 출석 헤더 (날짜)
+    const dayHeaders = monthlyReport.assignments.map((a: any) => {
+      const d = new Date(a.date).getDate();
+      return `<th class="b tc" style="font-size:8px;writing-mode:vertical-rl;width:18px;padding:2px">${d}일</th>`;
+    }).join("");
+
+    pw.document.write(`<html><head><title>교육훈련 월간 기록부 ${year}년 ${month}월</title>
+    <style>
+      body{font-family:'Malgun Gothic',sans-serif;font-size:11px;padding:20px;max-width:297mm}
+      h1{text-align:center;font-size:18px;border-bottom:2px solid #000;padding-bottom:8px}
+      .sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;margin-bottom:12px}
+      .b{border:1px solid #999;padding:3px 5px}
+      .tc{text-align:center}
+      .fw{font-weight:bold}
+      .bg{background:#f3f4f6}
+      .sig td{height:40px}
+      @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;margin:0;padding:10px}}
+    </style></head><body>
+    <h1>교육훈련 월간 기록부</h1>
+    <p class="sub">${year}년 ${month}월 | 전체 이수율: ${monthlyReport.overallRate}%</p>
+
+    <table><tr>
+      <td class="b bg fw" width="20%">대상기간</td><td class="b">${year}년 ${month}월</td>
+      <td class="b bg fw" width="20%">교육일수</td><td class="b">${monthlyReport.totalDays}일</td>
+    </tr><tr>
+      <td class="b bg fw">대상인원</td><td class="b">${monthlyReport.totalUsers}명</td>
+      <td class="b bg fw">전체 이수율</td><td class="b fw">${monthlyReport.overallRate}%</td>
+    </tr><tr>
+      <td class="b bg fw">교육유형</td><td class="b" colspan="3">오늘의 5분 HACCP (일일 마이크로 교육 120일 과정)</td>
+    </tr></table>
+
+    <h3>1. 일별 교육 내용</h3>
+    <table><tr class="bg"><th class="b" width="60">날짜</th><th class="b" width="30">Day</th><th class="b" width="40">분류</th><th class="b">교육명</th><th class="b">핵심 내용</th><th class="b" width="120">오늘 행동</th></tr>${assignRows}</table>
+
+    <h3>2. 직원별 이수 현황</h3>
+    <table><tr class="bg"><th class="b" width="60">성명</th><th class="b" width="50">직급</th>${dayHeaders}<th class="b" width="40">이수</th><th class="b" width="40">이수율</th></tr>${userRows}</table>
+
+    <h3>3. 확인/승인</h3>
+    <table><tr class="bg"><th class="b" width="25%">구분</th><th class="b" width="25%">작성자</th><th class="b" width="25%">검토자</th><th class="b" width="25%">승인자</th></tr>
+    <tr class="sig"><td class="b bg fw">서명</td><td class="b"></td><td class="b"></td><td class="b"></td></tr>
+    <tr><td class="b bg fw">일자</td><td class="b"></td><td class="b"></td><td class="b"></td></tr></table>
+
+    <p style="text-align:center;font-size:9px;color:#999;margin-top:16px">
+      본 기록은 식품위생법 시행규칙에 따라 3년간 보관합니다. | HACCP-ONE 자동생성
+    </p>
+    <script>window.onload=function(){setTimeout(function(){window.print()},800)}</script>
+    </body></html>`);
+    pw.document.close();
   };
 
   const completedUsers = trainingStatus?.users?.filter((u: any) => u.completed) || [];
