@@ -9,7 +9,10 @@ CCP 공정 시간 (사용자 지정):
   교반공정(CCP-1B, pg=1): 새벽 05:01 +-10분 시작
   증숙(설기류)공정(CCP-1B, pg=2): 08:00 +-20분 시작
   증숙(약식류)공정(CCP-1B, pg=3): 08:00 +-20분 시작
-  금속검출(CCP-4P, pg=5): 09:10 + random 0~20분 시작
+  금속검출(CCP-4P, pg=5): 하루 1건 (직렬 1대), 08:20 +-10분 시작
+    - 테넌트 ID 2는 금속검출기 1대 직렬 운영
+    - 하루 총 생산량에 비례하여 제품별 시간 배분
+    - 각 제품: sensitivity(품목시작/2시간점검/품목종료) + passage row
 
 h_ccp_form_rows 실제 스키마:
   CCP-1B: batch_seq, equipment_name, measurement_time, input_qty_kg,
@@ -98,26 +101,25 @@ MATERIAL_MAP = {
 # 오븐-굽기공정(pg=4, CCP-2B): 마카다미아왕찹쌀떡, 마카다미아복분자왕찹쌀떡 등 (별도 처리)
 # 금속검출공정(pg=5, CCP-4P): 모든 제품
 
-def get_ccp_types(product_name):
-    """제품별 CCP 공정 결정 (실제 DB 패턴 기반)"""
-    # 설기류/개떡류 → 증숙(설기류)(pg=2) + 금속검출(pg=5)
+def get_heat_ccp_types(product_name):
+    """제품별 열처리 CCP 공정만 결정 (CCP-4P 금속검출은 별도 하루 1건 처리)"""
+    # 설기류/개떡류 → 증숙(설기류)(pg=2)
     if any(k in product_name for k in ['설기', '개떡']):
-        return [('CCP-1B', 2, '증숙(설기류)공정'), ('CCP-4P', 5, '금속검출공정')]
-    # 약식류 → 증숙(약식류)(pg=3) + 금속검출(pg=5)
+        return [('CCP-1B', 2, '증숙(설기류)공정')]
+    # 약식류 → 증숙(약식류)(pg=3)
     if '약식' in product_name:
-        return [('CCP-1B', 3, '증숙(약식류)공정'), ('CCP-4P', 5, '금속검출공정')]
-    # 마카다미아왕찹쌀떡/복분자왕찹쌀떡 → 교반(pg=1) + 오븐(pg=4, CCP-2B) + 금속검출(pg=5)
+        return [('CCP-1B', 3, '증숙(약식류)공정')]
+    # 마카다미아왕찹쌀떡/복분자왕찹쌀떡 → 교반(pg=1) + 오븐(pg=4, CCP-2B)
     if '마카다미아' in product_name and '왕찹쌀떡' in product_name:
         return [
             ('CCP-1B', 1, '교반-가열공정'),
             ('CCP-2B', 4, '오븐-굽기공정'),
-            ('CCP-4P', 5, '금속검출공정'),
         ]
-    # 인절미/찹쌀떡/왕찹쌀떡/콩고물/오메기/롤크림 → 교반(pg=1) + 금속검출(pg=5)
+    # 인절미/찹쌀떡/왕찹쌀떡/콩고물/오메기/롤크림 → 교반(pg=1)
     if any(k in product_name for k in ['인절미', '찹쌀떡', '왕찹쌀', '콩고물', '오메기', '롤크림']):
-        return [('CCP-1B', 1, '교반-가열공정'), ('CCP-4P', 5, '금속검출공정')]
-    # default: 교반 + 금속검출
-    return [('CCP-1B', 1, '교반-가열공정'), ('CCP-4P', 5, '금속검출공정')]
+        return [('CCP-1B', 1, '교반-가열공정')]
+    # default: 교반
+    return [('CCP-1B', 1, '교반-가열공정')]
 
 
 def random_time_str(base_hour, base_min, delta_min):
@@ -141,8 +143,8 @@ def ccp_start_time_str(ccp_type, process_group_id):
             return random_time_str(8, 0, 20)
     elif ccp_type == 'CCP-2B':  # 오븐-굽기: 08:00 +-20min
         return random_time_str(8, 0, 20)
-    elif ccp_type == 'CCP-4P':  # 금속검출: 09:10 + 0~20min random
-        return random_time_str(9, 10 + random.randint(0, 20), 0)
+    elif ccp_type == 'CCP-4P':  # 금속검출: 08:20 +-10min (직렬 1대, 하루 1건)
+        return random_time_str(8, 20, 10)
     return random_time_str(8, 0, 20)
 
 
@@ -248,15 +250,16 @@ for date_str in sorted(daily.keys()):
     recs = daily[date_str]
     sql(f"-- === {date_str} ===")
 
+    # ── Phase 2-A: 열처리 CCP (CCP-1B, CCP-2B) - 배치별 생성 ──
     for seq, rec in enumerate(recs, 1):
         product_name = rec['product']
         product_id = PRODUCT_MAP[product_name]
         ccp_name = CCP_PRODUCT_NAME.get(product_name, product_name)
         bid = batch_map[(date_str, product_name)]
         qty = rec['quantityKg']
-        ccp_types = get_ccp_types(product_name)
+        heat_ccp_types = get_heat_ccp_types(product_name)
 
-        for ccp_type, pg_id, pg_name in ccp_types:
+        for ccp_type, pg_id, pg_name in heat_ccp_types:
             cl = get_cl_values(ccp_type, pg_id)
             submit_ts = f"{date_str} {random.randint(10,12):02d}:{random.randint(0,59):02d}:00"
             approve_ts = f"{date_str} {random.randint(13,16):02d}:{random.randint(0,59):02d}:00"
@@ -292,126 +295,200 @@ for date_str in sorted(daily.keys()):
                 f"{cl_sens}, {cl_fe}, {cl_sus}, "
                 f"{CREATED_BY}, {CREATED_BY}, 'approved', '{submit_ts}', '{approve_ts}', '{created_at_fr}');")
 
-            # ── h_ccp_form_rows ──
-            if ccp_type in ('CCP-1B', 'CCP-2B'):
-                # Heat process: one row per batch_seq
-                for bi in range(1, batch_count + 1):
-                    # Equipment name pattern from DB
-                    if pg_id == 1:
-                        equip_name = f'교반기{bi}호기'
-                        meas_time = random_time_str(5, 1 + (bi - 1) * 17, 10)
-                    elif pg_id == 2:
-                        equip_name = f'시루{bi}호기'
-                        meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
-                    elif pg_id == 3:
-                        equip_name = f'증숙기{bi}호기'
-                        meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
-                    elif pg_id == 4:  # 오븐
-                        equip_name = f'오븐{bi}호기'
-                        meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
-                    else:
-                        equip_name = f'설비{bi}'
-                        meas_time = random_time_str(8, 0, 20)
+            # ── h_ccp_form_rows (열처리) ──
+            # Heat process: one row per batch_seq
+            for bi in range(1, batch_count + 1):
+                # Equipment name pattern from DB
+                if pg_id == 1:
+                    equip_name = f'교반기{bi}호기'
+                    meas_time = random_time_str(5, 1 + (bi - 1) * 17, 10)
+                elif pg_id == 2:
+                    equip_name = f'시루{bi}호기'
+                    meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
+                elif pg_id == 3:
+                    equip_name = f'증숙기{bi}호기'
+                    meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
+                elif pg_id == 4:  # 오븐
+                    equip_name = f'오븐{bi}호기'
+                    meas_time = random_time_str(8, 0 + (bi - 1) * 15, 10)
+                else:
+                    equip_name = f'설비{bi}'
+                    meas_time = random_time_str(8, 0, 20)
 
-                    input_kg = round(qty / batch_count, 2)
-                    # Actual data pattern: heat_temp_c=99.0, heat_time_min=10, 
-                    # pressure_mpa=0.180, temp_edge_c=99.0, temp_center_c=99.0
-                    if pg_id in (2, 3):  # 증숙
-                        heat_temp_c = round(random.uniform(97.0, 100.0), 1)
-                        heat_time_min = random.choice([15, 18, 20, 22, 25])
-                        pressure_mpa = round(random.uniform(0.180, 0.220), 3)
-                    elif pg_id == 4:  # 오븐
-                        heat_temp_c = round(random.uniform(180.0, 200.0), 1)
-                        heat_time_min = random.choice([20, 25, 30])
-                        pressure_mpa = 'NULL'
-                    else:  # 교반
-                        heat_temp_c = round(random.uniform(96.0, 99.5), 1)
-                        heat_time_min = 10
-                        pressure_mpa = round(random.uniform(0.160, 0.200), 3)
+                input_kg = round(qty / batch_count, 2)
+                if pg_id in (2, 3):  # 증숙
+                    heat_temp_c = round(random.uniform(97.0, 100.0), 1)
+                    heat_time_min = random.choice([15, 18, 20, 22, 25])
+                    pressure_mpa = round(random.uniform(0.180, 0.220), 3)
+                elif pg_id == 4:  # 오븐
+                    heat_temp_c = round(random.uniform(180.0, 200.0), 1)
+                    heat_time_min = random.choice([20, 25, 30])
+                    pressure_mpa = 'NULL'
+                else:  # 교반
+                    heat_temp_c = round(random.uniform(96.0, 99.5), 1)
+                    heat_time_min = 10
+                    pressure_mpa = round(random.uniform(0.160, 0.200), 3)
 
-                    temp_edge = round(random.uniform(96.0, 99.5), 1)
-                    temp_center = round(random.uniform(96.0, 99.5), 1)
+                temp_edge = round(random.uniform(96.0, 99.5), 1)
+                temp_center = round(random.uniform(96.0, 99.5), 1)
 
-                    pressure_sql = f"{pressure_mpa}" if pressure_mpa != 'NULL' else 'NULL'
-
-                    sql(f"INSERT INTO h_ccp_form_rows (id, tenant_id, form_record_id, batch_seq, "
-                        f"equipment_name, product_name, measurement_time, input_qty_kg, "
-                        f"heat_time_min, heat_temp_c, pressure_mpa, temp_edge_c, temp_center_c, "
-                        f"result, created_at, updated_at) "
-                        f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bi}, "
-                        f"'{equip_name}', '{ccp_name}', '{meas_time}', {input_kg}, "
-                        f"{heat_time_min}, {heat_temp_c}, {pressure_sql}, {temp_edge}, {temp_center}, "
-                        f"'적합', '{date_str} {meas_time}', '{date_str} {meas_time}');")
-                    frw_id += 1
-
-            elif ccp_type == 'CCP-4P':
-                # 금속검출: sensitivity checks every 2h + passage row at end
-                metal_start_time = ccp_start_time_str('CCP-4P', 5)
-                start_h, start_m = int(metal_start_time[:2]), int(metal_start_time[3:5])
-
-                # Calculate end time based on production duration (roughly 7h after start)
-                end_h = min(start_h + 7, 17)
-                # Number of sensitivity checks: start + every 2h + end
-                sensitivity_times = []
-                t = start_h * 60 + start_m
-                end_t = end_h * 60 + random.randint(0, 30)
-                while t <= end_t:
-                    sh = t // 60
-                    sm = t % 60
-                    sensitivity_times.append(f"{sh:02d}:{sm:02d}:00")
-                    t += 120  # 2h interval
-
-                # Add final time if not already at end
-                final_time = f"{end_h:02d}:{random.randint(20,55):02d}:00"
-                if len(sensitivity_times) > 0 and sensitivity_times[-1] != final_time:
-                    sensitivity_times.append(final_time)
-
-                # batch_seq 1: 품목시작
-                notes_list = ['품목시작'] + ['2시간점검'] * (len(sensitivity_times) - 2) + ['품목종료']
-                if len(notes_list) < len(sensitivity_times):
-                    notes_list = ['품목시작'] + ['2시간점검'] * (len(sensitivity_times) - 1)
-                if len(notes_list) > len(sensitivity_times):
-                    notes_list = notes_list[:len(sensitivity_times)]
-                if len(notes_list) > 0:
-                    notes_list[-1] = '품목종료'
-
-                bseq = 1
-                for i, sens_time in enumerate(sensitivity_times):
-                    note = notes_list[i] if i < len(notes_list) else '2시간점검'
-                    note_sql = f"'{note}'" if note else 'NULL'
-
-                    sql(f"INSERT INTO h_ccp_form_rows (id, tenant_id, form_record_id, batch_seq, "
-                        f"equipment_type, product_name, "
-                        f"metal_pass_time, metal_fe_mid, metal_sus_mid, "
-                        f"metal_product_only, metal_fe_product, metal_sus_product, "
-                        f"result, note, created_at, updated_at) "
-                        f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bseq}, "
-                        f"'sensitivity', '{ccp_name}', "
-                        f"'{sens_time}', 'O', 'O', 'X', 'O', 'O', "
-                        f"'적합', {note_sql}, "
-                        f"'{date_str} {sens_time}', '{date_str} {sens_time}');")
-                    frw_id += 1
-                    bseq += 1
-
-                # Final passage row
-                pass_start = f"{start_h:02d}:{start_m + random.randint(0,5):02d}:00"
-                pass_end = f"{end_h:02d}:{random.randint(20,55):02d}:00"
-                pass_qty = int(qty)
+                pressure_sql = f"{pressure_mpa}" if pressure_mpa != 'NULL' else 'NULL'
 
                 sql(f"INSERT INTO h_ccp_form_rows (id, tenant_id, form_record_id, batch_seq, "
-                    f"equipment_type, product_name, "
-                    f"pass_time_start, pass_time_end, pass_qty, detected_qty, "
+                    f"equipment_name, product_name, measurement_time, input_qty_kg, "
+                    f"heat_time_min, heat_temp_c, pressure_mpa, temp_edge_c, temp_center_c, "
                     f"result, created_at, updated_at) "
-                    f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bseq}, "
-                    f"'passage', '{ccp_name}', "
-                    f"'{pass_start}', '{pass_end}', {pass_qty}, 0, "
-                    f"'적합', "
-                    f"'{date_str} {pass_end}', '{date_str} {pass_end}');")
+                    f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bi}, "
+                    f"'{equip_name}', '{ccp_name}', '{meas_time}', {input_kg}, "
+                    f"{heat_time_min}, {heat_temp_c}, {pressure_sql}, {temp_edge}, {temp_center}, "
+                    f"'적합', '{date_str} {meas_time}', '{date_str} {meas_time}');")
                 frw_id += 1
 
             fr_id += 1
             ccp_id += 1
             ccp_count += 1
+
+    # ── Phase 2-B: 금속검출 CCP-4P - 하루 1건 (직렬, 생산량 비례 시간배분) ──
+    # 테넌트 ID 2는 금속검출기 1대 직렬 운영
+    # 하루 전체 생산량을 기준으로, 제품별로 생산량 비례 시간 배분
+    total_daily_qty = sum(r['quantityKg'] for r in recs)
+    if total_daily_qty > 0:
+        pg_id_metal = 5
+        pg_name_metal = '금속검출공정'
+        cl_metal = get_cl_values('CCP-4P', pg_id_metal)
+        cl_sens = cl_metal.get('cl_metal_sensitivity', 130)
+        cl_fe = cl_metal.get('cl_fe_mm', 2.0)
+        cl_sus = cl_metal.get('cl_sus_mm', 3.0)
+
+        # 작업 시작시간: 08:20 +-10분
+        metal_start_time = ccp_start_time_str('CCP-4P', pg_id_metal)
+        metal_start_h = int(metal_start_time[:2])
+        metal_start_m = int(metal_start_time[3:5])
+        metal_start_total_min = metal_start_h * 60 + metal_start_m
+
+        # 하루 총 작업시간 = 총 생산량에 비례 (기본 500kg당 약 1시간, 최소 2시간, 최대 9시간)
+        work_hours = max(2.0, min(9.0, total_daily_qty / 500.0 * 1.0 + 1.5))
+        work_minutes = int(work_hours * 60)
+        metal_end_total_min = metal_start_total_min + work_minutes
+        metal_end_total_min = min(metal_end_total_min, 17 * 60 + 30)  # 최대 17:30
+
+        # h_ccp_instances - 하루 1건 (첫 번째 배치에 연결)
+        first_rec = recs[0]
+        first_product_name = first_rec['product']
+        first_product_id = PRODUCT_MAP[first_product_name]
+        first_ccp_name = CCP_PRODUCT_NAME.get(first_product_name, first_product_name)
+        first_bid = batch_map[(date_str, first_product_name)]
+
+        submit_ts = f"{date_str} {random.randint(16,17):02d}:{random.randint(0,59):02d}:00"
+        approve_ts = f"{date_str} {random.randint(17,18):02d}:{random.randint(0,59):02d}:00"
+
+        sql(f"INSERT INTO h_ccp_instances (id, site_id, work_date, ccp_type, process_group_id, "
+            f"product_name, product_id, batch_id, status, submitted_at, submitted_by, "
+            f"approved_at, approved_by, created_by, tenant_id) "
+            f"VALUES ({ccp_id}, {SITE}, '{date_str}', 'CCP-4P', {pg_id_metal}, "
+            f"'금속검출 통합', {first_product_id}, {first_bid}, 'approved', "
+            f"'{submit_ts}', {CREATED_BY}, '{approve_ts}', {CREATED_BY}, {CREATED_BY}, {TENANT});")
+
+        # h_ccp_form_records - 하루 1건
+        created_at_fr = f"{date_str} {metal_start_h:02d}:{metal_start_m:02d}:00"
+
+        sql(f"INSERT INTO h_ccp_form_records (id, tenant_id, site_id, batch_id, ccp_type, "
+            f"work_date, product_id, product_name, process_group_id, process_group_name, "
+            f"planned_qty_kg, batch_count, equip_group_mode, equip_interval_min, "
+            f"cl_heat_time_min_lo, cl_heat_temp_lo, cl_pressure_mpa_lo, "
+            f"cl_metal_sensitivity, cl_fe_mm, cl_sus_mm, "
+            f"writer_id, approver_id, status, submitted_at, approved_at, created_at) "
+            f"VALUES ({fr_id}, {TENANT}, {SITE}, {first_bid}, 'CCP-4P', "
+            f"'{date_str}', {first_product_id}, '금속검출 통합', {pg_id_metal}, '{pg_name_metal}', "
+            f"{total_daily_qty:.2f}, {len(recs)}, 'sequential', 10, "
+            f"NULL, NULL, NULL, "
+            f"{cl_sens}, {cl_fe}, {cl_sus}, "
+            f"{CREATED_BY}, {CREATED_BY}, 'approved', '{submit_ts}', '{approve_ts}', '{created_at_fr}');")
+
+        # h_ccp_form_rows - 제품별로 직렬 시간 배분
+        # 각 제품: [sensitivity-품목시작] + [sensitivity-2시간점검...] + [sensitivity-품목종료] + [passage]
+        bseq = 1
+        current_min = metal_start_total_min  # 현재 시간 포인터 (분)
+        total_work_min = metal_end_total_min - metal_start_total_min  # 총 작업 분
+
+        for prod_idx, rec in enumerate(recs):
+            product_name = rec['product']
+            ccp_name = CCP_PRODUCT_NAME.get(product_name, product_name)
+            qty = rec['quantityKg']
+
+            # 이 제품에 할당된 시간 = 생산량 비례
+            product_time_min = max(15, int(total_work_min * qty / total_daily_qty))
+            product_start_min = current_min
+            product_end_min = min(current_min + product_time_min, metal_end_total_min)
+
+            # sensitivity 체크: 품목시작 + 2시간마다 점검 + 품목종료
+            sens_times = []
+            t = product_start_min
+            while t < product_end_min:
+                sh = t // 60
+                sm = t % 60
+                sens_times.append(f"{sh:02d}:{sm:02d}:00")
+                t += 120  # 2시간 간격
+            # 마지막 시간 (품목종료)
+            end_sh = product_end_min // 60
+            end_sm = product_end_min % 60
+            end_time_str = f"{end_sh:02d}:{end_sm:02d}:00"
+            if len(sens_times) == 0 or sens_times[-1] != end_time_str:
+                sens_times.append(end_time_str)
+
+            # note 할당: 품목시작 / 2시간점검 / 품목종료
+            notes = []
+            for i in range(len(sens_times)):
+                if i == 0:
+                    notes.append('품목시작')
+                elif i == len(sens_times) - 1:
+                    notes.append('품목종료')
+                else:
+                    notes.append('2시간점검')
+
+            for i, sens_time in enumerate(sens_times):
+                note_sql = f"'{notes[i]}'" if notes[i] else 'NULL'
+                sql(f"INSERT INTO h_ccp_form_rows (id, tenant_id, form_record_id, batch_seq, "
+                    f"equipment_type, product_name, "
+                    f"metal_pass_time, metal_fe_mid, metal_sus_mid, "
+                    f"metal_product_only, metal_fe_product, metal_sus_product, "
+                    f"result, note, created_at, updated_at) "
+                    f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bseq}, "
+                    f"'sensitivity', '{ccp_name}', "
+                    f"'{sens_time}', 'O', 'O', 'X', 'O', 'O', "
+                    f"'적합', {note_sql}, "
+                    f"'{date_str} {sens_time}', '{date_str} {sens_time}');")
+                frw_id += 1
+                bseq += 1
+
+            # passage row for this product
+            ps_h = product_start_min // 60
+            ps_m = product_start_min % 60
+            pe_h = product_end_min // 60
+            pe_m = product_end_min % 60
+            pass_start = f"{ps_h:02d}:{ps_m:02d}:00"
+            pass_end = f"{pe_h:02d}:{pe_m:02d}:00"
+            pass_qty = int(qty)
+
+            sql(f"INSERT INTO h_ccp_form_rows (id, tenant_id, form_record_id, batch_seq, "
+                f"equipment_type, product_name, "
+                f"pass_time_start, pass_time_end, pass_qty, detected_qty, "
+                f"result, created_at, updated_at) "
+                f"VALUES ({frw_id}, {TENANT}, {fr_id}, {bseq}, "
+                f"'passage', '{ccp_name}', "
+                f"'{pass_start}', '{pass_end}', {pass_qty}, 0, "
+                f"'적합', "
+                f"'{date_str} {pass_end}', '{date_str} {pass_end}');")
+            frw_id += 1
+            bseq += 1
+
+            # 다음 제품 시작시간 = 이 제품 종료 + 약간의 간격 (2~5분)
+            current_min = product_end_min + random.randint(2, 5)
+
+        fr_id += 1
+        ccp_id += 1
+        ccp_count += 1
+
     sql("")
 
 sql(f"-- Total CCP instances: {ccp_count}")
