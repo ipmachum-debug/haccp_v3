@@ -2,10 +2,12 @@
 """
 Fix backup data errors in haccp_tenant_db (tenant_id=2)
 =======================================================
-Three categories of fixes:
+Three categories of fixes (V1 - APPLIED & VERIFIED):
 
 1. SUNDAY DATE FIX (요일표기 오류)
    - 21 Sunday dates shifted -1 day → Saturday
+   - Root cause: backup data generation system recorded Saturday work 
+     as Sunday (US timezone offset)
    - Affects: h_ccp_instances.work_date, h_ccp_form_records.work_date,
      h_batches.planned_date/start_time/end_time/batch_code,
      h_inventory_lots.production_date/lot_number,
@@ -17,10 +19,21 @@ Three categories of fixes:
    - Fix: inherit product_name from matching h_ccp_instances record
 
 3. CCP-1B MEASUREMENT TIME FIX (배치시간 오류)
-   - Row 37165: measurement_time=20:34:00 → needs correction
+   - Row 37165: measurement_time=20:34:00 → 08:34:00
    - The 20:34 is a US timezone artifact
 
+V2 ATTEMPT (REVERTED):
+   - Attempted universal -1 day shift for ALL dates (not just Sundays)
+   - Hypothesis: all dates had +1 day offset, not just Sundays
+   - RESULT: INCORRECT - only Sunday dates had the offset
+   - Evidence: setting work_date=DATE(submitted_at) for non-Sunday records
+     created new Sundays (e.g., Mon→Sun), contradicting factory Mon-Sat schedule
+   - The non-Sunday flagged dates (1/1, 1/8, 1/21, etc.) are UI display issues
+     from US-timezone weekday calculation, not data errors
+   - V2 changes were fully reverted; V1 state restored and confirmed correct
+
 Generated: 2026-04-06
+Updated: 2026-04-06 (V2 attempt documented)
 """
 
 import datetime
