@@ -191,6 +191,17 @@ sql(f"DELETE FROM h_ccp_instances WHERE tenant_id={TENANT} AND ccp_type='CCP-4P'
     f"AND work_date BETWEEN '2026-03-20' AND '2026-04-03' AND product_name='금속검출 통합';")
 sql("")
 
+# Delete old approval requests (referencing deleted form_records)
+sql(f"-- 1d. 승인요청 삭제 (기존 잘못된 CCP-4P 승인요청)")
+sql(f"DELETE FROM h_approval_requests WHERE tenant_id={TENANT} "
+    f"AND reference_type='ccp_form_record' AND reference_id IN ({fr_ids_str});")
+sql(f"-- 1d-2. 승인요청 삭제 (이전 수정으로 생성된 CCP-4P 승인요청)")
+sql(f"DELETE FROM h_approval_requests WHERE tenant_id={TENANT} "
+    f"AND title LIKE '%CCP-4P%' AND title LIKE '%금속검출 통합%' "
+    f"AND reference_type='ccp_form_record' "
+    f"AND reference_id NOT IN (SELECT id FROM h_ccp_form_records WHERE tenant_id={TENANT} AND ccp_type='CCP-4P');")
+sql("")
+
 # ── Step 2: Insert correct CCP-4P data (1 per day) ──
 sql("-- ============================================")
 sql("-- Step 2: 올바른 CCP-4P 데이터 생성 (하루 1건)")
@@ -253,6 +264,14 @@ for date_str in sorted(DAILY_BATCHES.keys()):
         f"{CREATED_BY}, {CREATED_BY}, 'approved', '{submit_ts}', '{approve_ts}', '{created_at_fr}');")
     sql(f"SET @new_fr_id = LAST_INSERT_ID();")
     total_new_records += 1
+    
+    # h_approval_requests - 승인요청 생성 (1 per day)
+    sql(f"INSERT INTO h_approval_requests (site_id, request_type, reference_type, reference_id, "
+        f"title, status, requested_by, requested_at, approved_by, approved_at, tenant_id) "
+        f"VALUES ({SITE}, 'ccp_form', 'ccp_form_record', @new_fr_id, "
+        f"'[CCP-CCP-4P] {date_str} 금속검출 통합', 'approved', "
+        f"{CREATED_BY}, '{submit_ts}', {CREATED_BY}, '{approve_ts}', {TENANT});")
+    sql(f"UPDATE h_ccp_form_records SET approval_request_id = LAST_INSERT_ID() WHERE id = @new_fr_id;")
     
     # h_ccp_form_rows - 제품별 직렬 시간 배분
     bseq = 1
