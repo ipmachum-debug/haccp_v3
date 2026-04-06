@@ -330,22 +330,22 @@ async function generateBatchCode(
 ): Promise<string> {
   const conn = await getRawConnection();
 
-  // 제품 코드 조회 (h_products_v2 우선)
+  // 제품 코드 조회 (h_products 우선, h_products_v2 폴백)
   let productCode = "00000";
   try {
-    const [v2Rows] = await conn.execute<any[]>(
-      "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+    const [v1Rows] = await conn.execute<any[]>(
+      "SELECT product_code FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
       [productId, tenantId],
     );
-    if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-      productCode = (v2Rows as any[])[0].product_code;
+    if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
+      productCode = (v1Rows as any[])[0].product_code;
     } else {
-      const [v1Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products WHERE id=? LIMIT 1",
-        [productId],
+      const [v2Rows] = await conn.execute<any[]>(
+        "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+        [productId, tenantId],
       );
-      if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
-        productCode = (v1Rows as any[])[0].product_code;
+      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
+        productCode = (v2Rows as any[])[0].product_code;
       }
     }
   } catch { /* use default */ }

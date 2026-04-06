@@ -21,7 +21,15 @@ export async function getProductById(productId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   const { eq, and } = await import("drizzle-orm");
-  // Try h_products_v2 first (actual production data)
+  // Try h_products (v1) first — batch data references v1 product_id
+  try {
+    const { hProducts } = await import("../../drizzle/schema.js");
+    const v1conditions: SQL[] = [eq(hProducts.id, productId)];
+    if (tenantId) v1conditions.push(eq(hProducts.tenantId, tenantId));
+    const v1result = await db.select().from(hProducts).where(and(...v1conditions)).limit(1);
+    if (v1result.length > 0) return v1result[0] as any;
+  } catch (_e) { /* fallback */ }
+  // Fallback to h_products_v2
   try {
     const { hProductsV2 } = await import("../../drizzle/schema_main.js");
     const conditions: SQL[] = [eq((hProductsV2 as any).id, productId)];
@@ -29,12 +37,7 @@ export async function getProductById(productId: number, tenantId?: number) {
     const v2result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
     if (v2result.length > 0) return v2result[0] as any;
   } catch (_e) { /* fallback */ }
-  // Fallback to h_products
-  const { hProducts } = await import("../../drizzle/schema.js");
-  const conditions: SQL[] = [eq(hProducts.id, productId)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
-  const result = await db.select().from(hProducts).where(and(...conditions)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return undefined;
 }
 
 // ==================== CCP 템플릿 관리 ====================
@@ -227,10 +230,13 @@ export async function generateCcpForBatch(batchId: number) {
   const createdCcps = [];
 
   for (const recipeCcp of recipeCcps) {
-    // CCP 인스턴스 생성
+    // CCP 인스턴스 생성 — workDate는 배치의 planned_date 사용
+    const batchPlannedDate = batch.plannedDate
+      ? new Date(batch.plannedDate)
+      : new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
     const instanceResult = await db.insert(hCcpInstances).values({
       siteId: batch.siteId,
-      workDate: new Date(),
+      workDate: batchPlannedDate,
       batchId,
       productId: batch.productId,
       ccpType: recipeCcp.ccpType,
