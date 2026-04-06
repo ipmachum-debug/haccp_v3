@@ -91,7 +91,10 @@ export function renderCcpFormRecord(fr: any, doc: any) {
     if (!d) return "";
     try {
       const days = ["일", "월", "화", "수", "목", "금", "토"];
-      return days[new Date(d).getDay()];
+      // 타임존 영향 방지: "YYYY-MM-DD" → UTC noon으로 파싱
+      const [y, m, day] = d.split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, day, 12, 0, 0));
+      return days[dt.getUTCDay()];
     } catch { return ""; }
   };
 

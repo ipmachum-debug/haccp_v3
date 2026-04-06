@@ -117,8 +117,8 @@ export default function AccountingNoticeBoard() {
 
     // 일별 교육 행 생성
     const assignRows = monthlyReport.assignments.map((a: any) => {
-      const d = new Date(a.date);
-      const dateStr = `${d.getMonth()+1}/${d.getDate()}(${["일","월","화","수","목","금","토"][d.getDay()]})`;
+      const d = new Date(a.date + "T12:00:00Z");
+      const dateStr = `${d.getUTCMonth()+1}/${d.getUTCDate()}(${["일","월","화","수","목","금","토"][d.getUTCDay()]})`;
       return `<tr><td class="b">${dateStr}</td><td class="b tc">${a.dayNo}</td><td class="b tc">${a.category||""}</td><td class="b">${a.title||""}</td><td class="b">${a.content||""}</td><td class="b">${a.action||""}</td></tr>`;
     }).join("");
 
