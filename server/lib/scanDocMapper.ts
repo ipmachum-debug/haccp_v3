@@ -12,7 +12,7 @@
  * - personal_hygiene, temperature_humidity, equipment_cleaning 등 → generic_checklists
  */
 
-import { getRawConnection } from "../db";
+import { getRawConnection, withTransaction } from "../db";
 
 export interface ScanMappingResult {
   success: boolean;
@@ -40,24 +40,37 @@ export async function mapAndSave(
   docType: string,
   ocrData: Record<string, any>
 ): Promise<ScanMappingResult> {
-  switch (docType) {
-    case "training_log":
-      return await mapTrainingLog(tenantId, userId, ocrData);
-    case "ccp_record":
-    case "ccp_2b":
-    case "ccp_1b":
-    case "ccp_4p":
-      return await mapCcpRecord(tenantId, userId, siteId, docType, ocrData);
-    case "inspection":
-    case "material_inspection":
-    case "hygiene_inspection":
-    case "shipping_inspection":
-      return await mapInspection(tenantId, userId, docType, ocrData);
-    case "purchase_invoice":
-      return await mapPurchaseInvoice(tenantId, userId, ocrData);
-    default:
-      // 범용 체크리스트로 저장
-      return await mapGenericChecklist(tenantId, userId, siteId, docType, ocrData);
+  try {
+    return await withTransaction(async () => {
+      switch (docType) {
+        case "training_log":
+          return await mapTrainingLog(tenantId, userId, ocrData);
+        case "ccp_record":
+        case "ccp_2b":
+        case "ccp_1b":
+        case "ccp_4p":
+          return await mapCcpRecord(tenantId, userId, siteId, docType, ocrData);
+        case "inspection":
+        case "material_inspection":
+        case "hygiene_inspection":
+        case "shipping_inspection":
+          return await mapInspection(tenantId, userId, docType, ocrData);
+        case "purchase_invoice":
+          return await mapPurchaseInvoice(tenantId, userId, ocrData);
+        default:
+          return await mapGenericChecklist(tenantId, userId, siteId, docType, ocrData);
+      }
+    }, "scanDocMapper.mapAndSave");
+  } catch (err: any) {
+    return {
+      success: false,
+      targetTable: "",
+      insertedId: null,
+      mappedFields: [],
+      unmappedFields: [],
+      warnings: [],
+      message: `저장 실패 (트랜잭션 롤백): ${err.message || "알 수 없는 오류"}`,
+    };
   }
 }
 

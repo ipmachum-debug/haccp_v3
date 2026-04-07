@@ -246,16 +246,31 @@ export default function ScanChecklistUpload() {
         {/* ═══ STEP 3: 미리보기 + 수정 ═══ */}
         {step === "preview" && editData && (
           <div className="space-y-4">
-            {/* 신뢰도 표시 */}
-            <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+            {/* 전체 신뢰도 + 필드별 요약 */}
+            <div className={`px-4 py-3 rounded-lg border ${
               ocrResult?.confidence >= 0.8 ? "bg-emerald-50 border-emerald-200" :
               ocrResult?.confidence >= 0.5 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"
             }`}>
-              <AlertCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">
-                AI 인식 신뢰도: {Math.round((ocrResult?.confidence || 0) * 100)}%
-                {ocrResult?.confidence < 0.7 && " — 내용을 꼼꼼히 확인해주세요"}
-              </span>
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">
+                  AI 인식 신뢰도: {Math.round((ocrResult?.confidence || 0) * 100)}%
+                  {ocrResult?.pages > 1 && ` (${ocrResult.pages}페이지)`}
+                  {ocrResult?.confidence < 0.7 && " — 내용을 꼼꼼히 확인해주세요"}
+                </span>
+              </div>
+              {/* 저신뢰도 필드 경고 */}
+              {ocrResult?.lowConfidenceFields?.length > 0 && (
+                <div className="mt-2 text-xs text-amber-700">
+                  <strong>확인 필요:</strong>{" "}
+                  {ocrResult.lowConfidenceFields.slice(0, 5).map((f: string) => {
+                    const fieldInfo = ocrResult.fields?.[f];
+                    const conf = fieldInfo ? Math.round(fieldInfo.confidence * 100) : 0;
+                    return <span key={f} className="inline-block bg-amber-200 rounded px-1.5 py-0.5 mr-1 mb-1">{f.replace(/items\[\d+\]\./, "")} ({conf}%)</span>;
+                  })}
+                  {ocrResult.lowConfidenceFields.length > 5 && <span> 외 {ocrResult.lowConfidenceFields.length - 5}건</span>}
+                </div>
+              )}
             </div>
 
             {/* 기본 정보 수정 */}
@@ -286,8 +301,19 @@ export default function ScanChecklistUpload() {
               <div className="bg-white rounded-xl border p-5 shadow-sm">
                 <h2 className="font-bold text-sm flex items-center gap-2 mb-3"><FileText className="h-4 w-4" /> 점검 항목 ({editData.items.length}개)</h2>
                 <div className="space-y-2">
-                  {editData.items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-lg bg-gray-50 border">
+                  {editData.items.map((item: any, idx: number) => {
+                    // 필드별 신뢰도 조회
+                    const itemFields = ocrResult?.fields || {};
+                    const fieldKeys = Object.keys(itemFields).filter((k: string) => k.startsWith(`items[${idx}].`));
+                    const minConf = fieldKeys.length > 0
+                      ? Math.min(...fieldKeys.map((k: string) => itemFields[k]?.confidence ?? 1))
+                      : 1;
+                    const needsReview = minConf < 0.6;
+                    const suggestion = fieldKeys.find((k: string) => itemFields[k]?.suggestion)
+                      ? itemFields[fieldKeys.find((k: string) => itemFields[k]?.suggestion)!]?.suggestion : null;
+
+                    return (
+                    <div key={idx} className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${needsReview ? "bg-amber-50 border-amber-300" : "bg-gray-50 border-gray-200"}`}>
                       <span className="text-xs text-gray-400 w-6 pt-1 text-right shrink-0">{idx + 1}</span>
                       <div className="flex-1 min-w-0">
                         <Input
@@ -324,8 +350,21 @@ export default function ScanChecklistUpload() {
                         }}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
+                      {/* 신뢰도 배지 */}
+                      {minConf < 1 && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                          minConf >= 0.8 ? "bg-emerald-100 text-emerald-700" :
+                          minConf >= 0.6 ? "bg-amber-100 text-amber-700" :
+                          "bg-red-100 text-red-700"
+                        }`}>
+                          {Math.round(minConf * 100)}%
+                        </span>
+                      )}
+                      {suggestion && (
+                        <span className="text-[10px] text-blue-600 shrink-0" title={suggestion}>💡</span>
+                      )}
                     </div>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}
