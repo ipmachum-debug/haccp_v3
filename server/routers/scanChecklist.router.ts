@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { saveScanFile, deleteScanFile, cleanupExpiredScans, getScanStorageInfo, readScanFile } from "../lib/scanStorage";
-import { ocrAndStructure } from "../lib/scanOcr";
+import { ocrAndStructure, enhancedOcrAndStructure } from "../lib/scanOcr";
 import { TRPCError } from "@trpc/server";
 import path from "path";
 import fs from "fs";
@@ -62,7 +62,11 @@ export const scanChecklistRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "스캔 파일을 찾을 수 없습니다. 다시 업로드해주세요." });
       }
 
-      const result = await ocrAndStructure(filePath, input.checklistType);
+      // 강화된 OCR 사용 (이미지 전처리 + CCP 전문 프롬프트 + 이중 검증)
+      const result = await enhancedOcrAndStructure(filePath, input.checklistType, {
+        enableTwoPass: true,
+        enablePreprocessing: true,
+      });
 
       if (!result.success) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error || "OCR 처리 실패" });
@@ -73,15 +77,51 @@ export const scanChecklistRouter = router({
         key: input.key,
         checklistType: input.checklistType,
         structuredData: result.structuredData,
-        confidence: result.confidence,
+        confidence: result.overallConfidence,
         rawText: result.rawText,
+        // 강화 필드 (v2)
+        pages: result.pages,
+        fields: result.fields,
+        lowConfidenceFields: result.lowConfidenceFields,
       };
+    }),
+
+  // ── 2.5 과거 데이터 기반 검증 (저장 전 호출) ──
+  validate: tenantRequiredProcedure
+    .input(z.object({
+      checklistType: z.string(),
+      formData: z.any(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { validateCcpData } = await import("../lib/scanDocMapper");
+
+      if (["ccp_record", "ccp_1b", "ccp_2b", "ccp_4p"].includes(input.checklistType)) {
+        return await validateCcpData(ctx.tenantId, input.checklistType, input.formData);
+      }
+
+      // 매입전표 검증
+      if (input.checklistType === "purchase_invoice") {
+        const { getRawConnection } = await import("../db");
+        const conn = await getRawConnection();
+        // validatePurchaseData는 scanDocMapper 내부 함수이므로 mapAndSave에서 처리됨
+        // 여기서는 기본 형식 검증만 수행
+        const items = input.formData?.items || [];
+        const warnings: { field: string; message: string; severity: string }[] = [];
+        for (const item of items) {
+          if (!item.itemName && !item.name) warnings.push({ field: "품목명", message: "품목명이 비어있습니다", severity: "high" });
+          if ((Number(item.quantity) || 0) <= 0) warnings.push({ field: `${item.itemName || "품목"} 수량`, message: "수량이 0 이하입니다", severity: "high" });
+        }
+        return { isValid: warnings.filter((w: any) => w.severity === "high").length === 0, warnings };
+      }
+
+      return { isValid: true, warnings: [] };
     }),
 
   // ── 3. 확인 후 저장 (문서 타입별 자동 매핑) ──
   // 교육훈련일지 → h_training_logs
   // CCP 기록지 → h_ccp_form_records
   // 검사기록 → h_inspections
+  // 매입전표 → accounting_purchases
   // 범용 체크리스트 → h_generic_checklist_records
   confirm: tenantRequiredProcedure
     .input(z.object({
@@ -112,6 +152,7 @@ export const scanChecklistRouter = router({
         targetTable: result.targetTable,
         mappedFields: result.mappedFields,
         unmappedFields: result.unmappedFields,
+        warnings: result.warnings || [],
         message: result.message,
       };
     }),

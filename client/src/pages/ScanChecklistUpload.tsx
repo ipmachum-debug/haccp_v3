@@ -21,11 +21,12 @@ import {
 } from "lucide-react";
 
 const checklistTypes = [
-  { value: "training_log", label: "📖 교육훈련일지" },
-  { value: "ccp_record", label: "🔴 CCP 기록지 (범용)" },
-  { value: "ccp_2b", label: "🔴 CCP-2B 가열(굽기) 기록" },
+  { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
   { value: "ccp_1b", label: "🔴 CCP-1B 가열(증숙) 기록" },
+  { value: "ccp_2b", label: "🔴 CCP-2B 가열(굽기) 기록" },
   { value: "ccp_4p", label: "🔴 CCP-4P 금속검출 기록" },
+  { value: "ccp_record", label: "🔴 CCP 기록지 (범용)" },
+  { value: "training_log", label: "📖 교육훈련일지" },
   { value: "material_inspection", label: "🔍 원재료 입고검사" },
   { value: "hygiene_inspection", label: "🔍 위생검사" },
   { value: "shipping_inspection", label: "🔍 출하검사" },
@@ -37,7 +38,6 @@ const checklistTypes = [
   { value: "packaging_storage", label: "포장보관기록" },
   { value: "foreign_material", label: "이물질기록" },
   { value: "surface_contamination", label: "표면오염검사" },
-  { value: "training_log", label: "교육훈련기록" },
   { value: "general", label: "일반 체크리스트" },
 ];
 
