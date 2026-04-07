@@ -485,10 +485,11 @@ function Router() {
       {/* AI HACCP Assistant */}
       <Route path="/dashboard/ai-assistant" component={lazy(() => import("@/pages/AIDashboard"))} />
 
-      {/* 엑셀 기초데이터 임포트 */}
-      <Route path="/dashboard/excel-import" component={lazy(() => import("@/pages/ExcelImport"))} />
-      {/* 단순 데이터 임포트 (온보딩용) */}
-      <Route path="/dashboard/simplified-import" component={lazy(() => import("@/pages/SimplifiedImport"))} />
+      {/* 통합 데이터 임포트 (기존 엑셀 + 단순 + AI 검증) */}
+      <Route path="/dashboard/data-import" component={lazy(() => import("@/pages/DataImport"))} />
+      {/* 하위 호환: 기존 경로 리다이렉트 */}
+      <Route path="/dashboard/excel-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>
+      <Route path="/dashboard/simplified-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>
 
       {/* 11개 미구현 HACCP 체크리스트 */}
       <Route path="/water-quality-test" component={WaterQualityTestList} />

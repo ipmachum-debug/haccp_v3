@@ -263,8 +263,7 @@ const menuItems = [
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
 
-  // 사내공지관리 (공지+교육 통합)
-  { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
+  // 사내공지관리 → WORK 탭으로 이동
 
   // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
@@ -559,9 +558,9 @@ function DashboardLayoutContent({
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
-    { icon: Upload, label: "엑셀 데이터 임포트", path: "/dashboard/excel-import", roles: ["super_admin", "admin"] },
-    { icon: Upload, label: "단순 데이터 임포트", path: "/dashboard/simplified-import", roles: ["super_admin", "admin"] },
+    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
+    { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
@@ -575,7 +574,7 @@ function DashboardLayoutContent({
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
     { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"] },
     { icon: Building2, label: "거래처 조회", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"] },
-    // 커뮤니케이션 로그 → 사내공지관리로 통합 (HACCP탭 메뉴에서 접근)
+    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"] },
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"] },
     { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"] },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"] },
@@ -1009,7 +1008,7 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="flex-1 px-3 py-4 md:px-5 md:py-5">{children}</main>
       </SidebarInset>
     </>
   );
