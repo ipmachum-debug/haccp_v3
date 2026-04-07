@@ -560,6 +560,7 @@ function DashboardLayoutContent({
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
     { icon: Upload, label: "엑셀 데이터 임포트", path: "/dashboard/excel-import", roles: ["super_admin", "admin"] },
+    { icon: Upload, label: "단순 데이터 임포트", path: "/dashboard/simplified-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
   ];
   

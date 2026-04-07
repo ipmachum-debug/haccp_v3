@@ -487,6 +487,8 @@ function Router() {
 
       {/* 엑셀 기초데이터 임포트 */}
       <Route path="/dashboard/excel-import" component={lazy(() => import("@/pages/ExcelImport"))} />
+      {/* 단순 데이터 임포트 (온보딩용) */}
+      <Route path="/dashboard/simplified-import" component={lazy(() => import("@/pages/SimplifiedImport"))} />
 
       {/* 11개 미구현 HACCP 체크리스트 */}
       <Route path="/water-quality-test" component={WaterQualityTestList} />
