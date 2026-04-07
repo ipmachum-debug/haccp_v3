@@ -145,7 +145,7 @@ export default function ScanChecklistUpload() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="max-w-4xl space-y-5">
         {/* 헤더 */}
         <div>
           <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">

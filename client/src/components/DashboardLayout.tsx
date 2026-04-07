@@ -267,7 +267,7 @@ const menuItems = [
 
   // 시스템 (admin만)
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
-  { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin", "admin"] },
+  // 서버 모니터링 → 슈퍼관리자 전용 (superAdminMenuItems에서 접근)
   { icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true },
 ];
 
@@ -588,10 +588,11 @@ function DashboardLayoutContent({
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
     { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin"], highlight: true },
+    { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
   ];
   
   // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
-  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems];
+  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems];
 
   // activeMenuItem: 모든 메뉴에서 정확한 경로 매칭을 먼저 시도하고, 없으면 가장 긴 접두사 매칭
   const activeMenuItem = (() => {
