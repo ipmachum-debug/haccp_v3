@@ -557,7 +557,7 @@ function DashboardLayoutContent({
   const workMenuItems = [
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin", "admin", "inspector"], highlight: true },
+    // AI 어시스턴트: 하단 고정 버튼으로 탭 무관 접근 가능 → 사이드바에서 제거
     { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
     { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
@@ -587,7 +587,6 @@ function DashboardLayoutContent({
     // 일반 WORK 탭 메뉴 (슈퍼관리자도 접근 가능)
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
-    { icon: Sparkles, label: "AI 어시스턴트", path: "/dashboard/ai-assistant", roles: ["super_admin"], highlight: true },
     { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
   ];
   
