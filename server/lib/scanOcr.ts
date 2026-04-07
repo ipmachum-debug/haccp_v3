@@ -153,6 +153,30 @@ CCP(중요관리점) 모니터링 기록을 읽습니다. 온도, 시간, 압력
   "inspector": "점검자"
 }`,
   },
+  equipment_cleaning: {
+    label: "설비세정기록",
+    systemPrompt: `설비세정/소독 기록지 OCR 전문가입니다.
+설비/구역별 세정 완료여부, 사용 세정제/소독제, 담당자를 추출하세요.
+체크(V, O, ✓)는 "완료", X는 "미완료"로 변환하세요.
+불확실한 값은 [?] 접두사를 붙이세요.`,
+    jsonSchema: `{
+  "formDate": "YYYY-MM-DD",
+  "items": [{ "itemText": "설비/구역명", "checkResult": "완료/미완료/해당없음", "detergent": "세정제/소독제명", "note": "비고" }],
+  "inspector": "점검자", "remarks": "전체비고"
+}`,
+  },
+  general: {
+    label: "일반 체크리스트",
+    systemPrompt: `HACCP 식품안전 체크리스트 OCR 전문가입니다.
+스캔된 수기 체크리스트 이미지를 분석하여 정확한 JSON 데이터로 변환하세요.
+체크(V, O, ✓)는 "적합", X는 "부적합"으로 변환하세요.
+불확실한 값은 [?] 접두사를 붙이세요.`,
+    jsonSchema: `{
+  "formDate": "YYYY-MM-DD", "formType": "문서종류", "title": "제목",
+  "items": [{ "itemText": "항목", "checkResult": "적합/부적합/해당없음", "value": "측정값", "note": "비고" }],
+  "inspector": "작성자", "remarks": "전체비고", "signature": "서명"
+}`,
+  },
 };
 
 const DEFAULT_PROMPT: PromptConfig = {
