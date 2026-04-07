@@ -8,7 +8,7 @@ export async function getDailyProduction(date: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   
-  const { hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
+  const { hBatches, hProductsV2, hProducts } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
   
   const startDate = new Date(date);
@@ -27,7 +27,7 @@ export async function getDailyProduction(date: string, tenantId?: number) {
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: hProductsV2.productName,
+      productName: sql`COALESCE(${hProducts.productName}, ${hProductsV2.productName})`.as('product_name'),
       plannedQuantity: hBatches.plannedQuantity,
       actualQuantity: hBatches.actualQuantity,
       status: hBatches.status,
@@ -36,6 +36,7 @@ export async function getDailyProduction(date: string, tenantId?: number) {
       createdAt: hBatches.createdAt
     })
     .from(hBatches)
+    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
     .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
     .orderBy(hBatches.createdAt);
@@ -93,8 +94,8 @@ export async function getDailyIssues(date: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   
-  const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
-  const { eq, and, gte, lte } = await import("drizzle-orm");
+  const { hCcpInstances, hCcpRows, hBatches, hProductsV2, hProducts } = await import("../../drizzle/schema_main");
+  const { eq, and, gte, lte, sql } = await import("drizzle-orm");
   
   const startDate = new Date(date);
   startDate.setHours(0, 0, 0, 0);
@@ -113,7 +114,7 @@ export async function getDailyIssues(date: string, tenantId?: number) {
       rowId: hCcpRows.id,
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
-      productName: hProductsV2.productName,
+      productName: sql`COALESCE(${hProducts.productName}, ${hProductsV2.productName})`.as('product_name'),
       ccpType: hCcpInstances.ccpType,
       result: hCcpRows.result,
       measuredAt: hCcpRows.measuredAt,
@@ -122,6 +123,7 @@ export async function getDailyIssues(date: string, tenantId?: number) {
     .from(hCcpRows)
     .leftJoin(hCcpInstances, eq(hCcpRows.instanceId, hCcpInstances.id))
     .leftJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
+    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
     .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
     .orderBy(hCcpRows.measuredAt);

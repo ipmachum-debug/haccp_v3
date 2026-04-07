@@ -153,50 +153,55 @@ export async function createBatch(batch: {
 }
 
 export async function getBatchById(batchId: number, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const conn = await getRawConnection();
 
-  const { hBatches, hProductsV2 } = await import("../../drizzle/schema");
+  const [rows] = await conn.execute<any[]>(
+    `SELECT b.*,
+            COALESCE(p1.product_name, p2.product_name) as product_name,
+            COALESCE(p1.product_code, p2.product_code) as product_code
+     FROM h_batches b
+     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     WHERE b.id = ?
+     LIMIT 1`,
+    [batchId]
+  );
 
-  const result = await db
-    .select({
-      id: hBatches.id,
-      tenantId: hBatches.tenantId,
-      siteId: hBatches.siteId,
-      batchCode: hBatches.batchCode,
-      productId: hBatches.productId,
-      recipeId: hBatches.recipeId,
-      plannedQuantity: hBatches.plannedQuantity,
-      actualQuantity: hBatches.actualQuantity,
-      plannedDate: hBatches.plannedDate,
-      startTime: hBatches.startTime,
-      endTime: hBatches.endTime,
-      status: hBatches.status,
-      mode: hBatches.mode,
-      manualStartTime: hBatches.manualStartTime,
-      manualEndTime: hBatches.manualEndTime,
-      lotNumber: hBatches.lotNumber,
-      expiryDate: hBatches.expiryDate,
-      revenue: hBatches.revenue,
-      plannedCost: hBatches.plannedCost,
-      actualCost: hBatches.actualCost,
-      costFinalizedAt: hBatches.costFinalizedAt,
-      notes: hBatches.notes,
-      completionIdempotencyKey: hBatches.completionIdempotencyKey,
-      completedAt: hBatches.completedAt,
-      completionReportUrl: hBatches.completionReportUrl,
-      createdBy: hBatches.createdBy,
-      createdAt: hBatches.createdAt,
-      updatedAt: hBatches.updatedAt,
-      productName: hProductsV2.productName,
-      productCode: hProductsV2.productCode,
-    })
-    .from(hBatches)
-    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
-    .where(eq(hBatches.id, batchId))
-    .limit(1);
+  if ((rows as any[]).length === 0) return undefined;
+  const row = (rows as any[])[0];
 
-  return result.length > 0 ? result[0] : undefined;
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    siteId: row.site_id,
+    batchCode: row.batch_code,
+    productId: row.product_id,
+    recipeId: row.recipe_id || null,
+    plannedQuantity: row.planned_quantity,
+    actualQuantity: row.actual_quantity || null,
+    plannedDate: row.planned_date,
+    startTime: row.start_time || null,
+    endTime: row.end_time || null,
+    status: row.status,
+    mode: row.mode || null,
+    manualStartTime: row.manual_start_time || null,
+    manualEndTime: row.manual_end_time || null,
+    lotNumber: row.lot_number || null,
+    expiryDate: row.expiry_date || null,
+    revenue: row.revenue || null,
+    plannedCost: row.planned_cost || null,
+    actualCost: row.actual_cost || null,
+    costFinalizedAt: row.cost_finalized_at || null,
+    notes: row.notes || null,
+    completionIdempotencyKey: row.completion_idempotency_key || null,
+    completedAt: row.completed_at || null,
+    completionReportUrl: row.completion_report_url || null,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at || null,
+    productName: row.product_name || null,
+    productCode: row.product_code || null,
+  };
 }
 
 export async function getAllBatches(filters?: {
@@ -249,9 +254,10 @@ export async function getAllBatches(filters?: {
   const total = Number((countRows as any[])[0]?.cnt || 0);
 
   const [dataRows] = await conn.execute<any[]>(
-    `SELECT b.*, p.product_name, p.product_code
+    `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
      FROM h_batches b
-     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
      ${whereClause}
      ORDER BY b.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -429,20 +435,36 @@ export async function generateBatchCode(productId: number, tenantId?: number) {
   let productCode = "00000";
   try {
     if (tenantId) {
-      const [v2Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+      const [v1Rows] = await conn.execute<any[]>(
+        "SELECT product_code FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
         [productId, tenantId],
       );
-      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-        productCode = (v2Rows as any[])[0].product_code;
+      if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
+        productCode = (v1Rows as any[])[0].product_code;
+      } else {
+        const [v2Rows] = await conn.execute<any[]>(
+          "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+          [productId, tenantId],
+        );
+        if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
+          productCode = (v2Rows as any[])[0].product_code;
+        }
       }
     } else {
-      const [v2Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products_v2 WHERE id=? LIMIT 1",
+      const [v1Rows] = await conn.execute<any[]>(
+        "SELECT product_code FROM h_products WHERE id=? LIMIT 1",
         [productId],
       );
-      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-        productCode = (v2Rows as any[])[0].product_code;
+      if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
+        productCode = (v1Rows as any[])[0].product_code;
+      } else {
+        const [v2Rows] = await conn.execute<any[]>(
+          "SELECT product_code FROM h_products_v2 WHERE id=? LIMIT 1",
+          [productId],
+        );
+        if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
+          productCode = (v2Rows as any[])[0].product_code;
+        }
       }
     }
   } catch { /* use default code */ }
@@ -485,13 +507,22 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
     throw new Error("배치를 찾을 수 없습니다.");
   }
 
-  // 제품 정보 조회
-  const product = await db
+  // 제품 정보 조회 (h_products 우선, h_products_v2 폴백)
+  const { hProducts } = await import("../../drizzle/schema");
+  let product = await db
     .select()
-    .from(hProductsV2)
-    .where(eq(hProductsV2.id, batch.productId))
+    .from(hProducts)
+    .where(eq(hProducts.id, batch.productId))
     .limit(1)
     .then((rows) => rows[0]);
+  if (!product) {
+    product = await db
+      .select()
+      .from(hProductsV2)
+      .where(eq(hProductsV2.id, batch.productId))
+      .limit(1)
+      .then((rows) => rows[0]);
+  }
 
   // CCP 인스턴스 조회
   const ccpInstances = await db
@@ -543,12 +574,13 @@ export async function getActiveBatches(tenantId?: number) {
       b.planned_quantity as quantity,
       b.planned_date as startTime,
       DATE_ADD(b.planned_date, INTERVAL 8 HOUR) as expectedEndTime,
-      p.product_name as productName,
+      COALESCE(p1.product_name, p2.product_name) as productName,
       'in_progress' as status,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id) as ccpCheckCount,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id AND status = 'completed') as ccpCheckCompletedCount
     FROM h_batches b
-    LEFT JOIN h_products_v2 p ON b.product_id = p.id
+    LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = b.tenant_id
+    LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND p2.tenant_id = b.tenant_id
     WHERE b.planned_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) ${tenantFilter}
     ORDER BY b.planned_date DESC
     LIMIT 20
@@ -940,13 +972,14 @@ export async function completeBatch(params: {
     const [skuOutputRows] = await pool.execute(
       `SELECT pso.sku_id, pso.quantity, pso.total_kg, pso.defective_qty,
               ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit,
-              COALESCE(im.item_name, p.product_name) as product_name
+              COALESCE(im.item_name, p1.product_name, p2.product_name) as product_name
        FROM production_sku_output pso
        JOIN product_skus ps ON pso.sku_id = ps.id
        LEFT JOIN item_master im ON ps.item_id = im.id AND im.tenant_id = ?
-       LEFT JOIN h_products_v2 p ON p.id = ? AND p.tenant_id = ?
+       LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
+       LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?
        WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
-      [tenantId, existingBatch.productId, tenantId, batchId, tenantId]
+      [tenantId, existingBatch.productId, tenantId, existingBatch.productId, tenantId, batchId, tenantId]
     );
 
     const skuRows = skuOutputRows as any[];

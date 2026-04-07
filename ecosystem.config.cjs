@@ -7,6 +7,7 @@ module.exports = {
     max_memory_restart: '512M',
     env: {
       NODE_ENV: 'production',
+      PORT: '3001',
       DATABASE_URL: 'mysql://root:G0ld3n!T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4',
       OPSCORE_DATABASE_URL: 'mysql://root:G0ld3n!T1004%23Sec@127.0.0.1:3306/opscore_db?charset=utf8mb4'
     },

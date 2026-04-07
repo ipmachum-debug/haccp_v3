@@ -261,36 +261,105 @@ export async function updateCcpFormRecord(
 /**
  * 배치 ID로 CCP 기록지 목록 조회
  * P0: tenantId 필수 - 테넌트 격리
+ * ★ CCP-4P(금속검출)는 하루에 1개의 기록지가 첫 번째 배치에만 연결되므로,
+ *    같은 날짜의 다른 배치에서도 해당 CCP-4P 기록지를 표시해야 함.
  */
 export async function getCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+
+  // 기존 쿼리: 해당 배치에 직접 연결된 CCP 기록지 (CCP-1B, CCP-2B)
   const conditions = tenantId
     ? and(eq(hCcpFormRecords.batchId, batchId), eq(hCcpFormRecords.tenantId, tenantId))
     : eq(hCcpFormRecords.batchId, batchId);
-  return db
+  const directRecords = await db
     .select()
     .from(hCcpFormRecords)
     .where(conditions)
     .orderBy(hCcpFormRecords.ccpType);
+
+  // CCP-4P가 이미 포함되어 있으면 그대로 반환
+  if (directRecords.some(r => r.ccpType === "CCP-4P")) {
+    return directRecords;
+  }
+
+  // CCP-4P가 없으면: 같은 날짜의 CCP-4P 일일 통합 기록 조회
+  if (tenantId) {
+    try {
+      const conn = await getRawConnection();
+      const [batchRows] = await conn.execute<any[]>(
+        `SELECT planned_date FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        [batchId, tenantId],
+      );
+      if ((batchRows as any[]).length > 0) {
+        const plannedDate = (batchRows as any[])[0].planned_date;
+        if (plannedDate) {
+          const [ccp4pRows] = await conn.execute<any[]>(
+            `SELECT * FROM h_ccp_form_records 
+             WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+             ORDER BY id ASC LIMIT 1`,
+            [tenantId, plannedDate],
+          );
+          if ((ccp4pRows as any[]).length > 0) {
+            // ORM 형식과 일치하도록 snake_case → camelCase 변환
+            const raw = (ccp4pRows as any[])[0];
+            const ccp4pRecord = {
+              id: raw.id,
+              tenantId: raw.tenant_id,
+              siteId: raw.site_id,
+              batchId: raw.batch_id,
+              ccpType: raw.ccp_type,
+              workDate: raw.work_date,
+              productId: raw.product_id,
+              productName: raw.product_name,
+              processGroupId: raw.process_group_id,
+              processGroupName: raw.process_group_name,
+              bomBatchKg: raw.bom_batch_kg,
+              plannedQtyKg: raw.planned_qty_kg,
+              batchCount: raw.batch_count,
+              equipGroupMode: raw.equip_group_mode,
+              equipIntervalMin: raw.equip_interval_min,
+              clHeatTimeMinLo: raw.cl_heat_time_min_lo,
+              clHeatTimeMinHi: raw.cl_heat_time_min_hi,
+              clHeatTempLo: raw.cl_heat_temp_lo,
+              clPressureMpaLo: raw.cl_pressure_mpa_lo,
+              clProductTempLo: raw.cl_product_temp_lo,
+              clMetalSensitivity: raw.cl_metal_sensitivity,
+              clFeMm: raw.cl_fe_mm,
+              clSusMm: raw.cl_sus_mm,
+              writerId: raw.writer_id,
+              approverId: raw.approver_id,
+              status: raw.status,
+              approvalRequestId: raw.approval_request_id,
+              submittedAt: raw.submitted_at,
+              approvedAt: raw.approved_at,
+              rejectedReason: raw.rejected_reason,
+              createdAt: raw.created_at,
+              updatedAt: raw.updated_at,
+            };
+            return [...directRecords, ccp4pRecord];
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[getCcpFormRecordsByBatch] CCP-4P 일일 통합 조회 실패:", err);
+    }
+  }
+
+  return directRecords;
 }
 
 /**
  * 배치 ID로 CCP 기록지 목록 + 행 데이터 포함 조회 (인쇄용)
  * P0: tenantId 필수 - 테넌트 격리
+ * ★ CCP-4P 일일 통합 기록도 포함 (getCcpFormRecordsByBatch와 동일한 로직)
  */
 export async function getCcpFormRecordsWithRowsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const conditions = tenantId
-    ? and(eq(hCcpFormRecords.batchId, batchId), eq(hCcpFormRecords.tenantId, tenantId))
-    : eq(hCcpFormRecords.batchId, batchId);
-  const records = await db
-    .select()
-    .from(hCcpFormRecords)
-    .where(conditions)
-    .orderBy(hCcpFormRecords.ccpType);
+  // getCcpFormRecordsByBatch를 재사용하여 CCP-4P 일일 통합 기록도 포함
+  const records = await getCcpFormRecordsByBatch(batchId, tenantId);
 
   const result = [];
   for (const rec of records) {
@@ -699,16 +768,18 @@ export async function syncCcpRowsToFormRows(params: {
   //    MySQL 서버 타임존도 Asia/Seoul(KST)이므로 추가 변환 불필요
   const [batchInfo] = await rawConn.execute<any[]>(
     `SELECT b.planned_quantity, b.product_id,
-            p.product_name as p_name,
+            COALESCE(p1.product_name, p2.product_name) as p_name,
             DATE_FORMAT(b.start_time, '%H:%i') as start_time_hhmm,
             b.day_batch_group, b.batch_order, b.planned_date
      FROM h_batches b
-     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
      WHERE b.id = ? AND b.tenant_id = ?
      LIMIT 1`,
     [batchId, tenantId],
   );
   const batchProductName = (batchInfo as any[])[0]?.p_name || "";
+  // ★ h_products (v1) 우선, h_products_v2 (v2) 폴백 - 배치 product_id가 v1 테이블 참조
   const batchPlannedKg = parseFloat((batchInfo as any[])[0]?.planned_quantity) || 0;
   const productId = (batchInfo as any[])[0]?.product_id || null;
   const dayBatchGroup = (batchInfo as any[])[0]?.day_batch_group || null;
@@ -1014,11 +1085,14 @@ export async function syncCcpRowsToFormRows(params: {
             fallbackMap[pgId] = (fallbackMap[pgId] || 0) + qtyKg;
           }
           localBomInputQtyMap = fallbackMap;
-          // ★ 인스턴스 product_id의 실제 제품명 조회 (인스턴스 product_name이 부정확할 수 있음)
+          // ★ 인스턴스 product_id의 실제 제품명 조회 (h_products 우선, h_products_v2 폴백)
           try {
             const [prodNameRows] = await rawConn.execute<any[]>(
-              `SELECT product_name FROM h_products_v2 WHERE id = ? AND tenant_id = ? LIMIT 1`,
-              [instanceProductId, tenantId],
+              `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
+               FROM (SELECT 1) dummy
+               LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
+               LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?`,
+              [instanceProductId, tenantId, instanceProductId, tenantId],
             );
             if ((prodNameRows as any[]).length > 0 && (prodNameRows as any[])[0].product_name) {
               instanceProductName = (prodNameRows as any[])[0].product_name;
@@ -1295,12 +1369,13 @@ export async function syncCcpRowsToFormRows(params: {
       if (batchWorkDate) {
         const [skuRows] = await rawConn.execute<any[]>(
           `SELECT b.id as batch_id, b.product_id, b.planned_quantity,
-                  COALESCE(p.product_name, fr2.product_name) as product_name,
+                  COALESCE(p1.product_name, p2.product_name, fr2.product_name) as product_name,
                   pso.sku_id, ps.sku_name, ps.sku_code,
                   COALESCE(pso.quantity, 0) as sku_quantity,
                   COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
            FROM h_batches b
-           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
            LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
@@ -1682,6 +1757,11 @@ export async function syncCcpRowsToFormRows(params: {
         const pgSensEnd = pgSensChecks.find(c => c.type === "end");
         const pgSensStartMin2 = pgSensStart ? timeToMin(pgSensStart.time) : pg.groupStart;
         const pgSensEndMin2 = pgSensEnd ? timeToMin(pgSensEnd.time) : pg.groupEnd;
+        // 2시간 간격 체크 시간 목록 (분 단위, 정렬) — 전체 제품의 interval 포함
+        const allIntervalMins = allSensitivityChecks
+          .filter(c => c.type === "interval")
+          .map(c => timeToMin(c.time))
+          .sort((a, b) => a - b);
 
         for (const slot of pg.slots) {
           const passStart = skipLunchFn(slot.workStart, lunchStartMin, lunchEndMin);
@@ -1695,12 +1775,26 @@ export async function syncCcpRowsToFormRows(params: {
           if (isFirstSlotInPg && rawPassStart <= pgSensStartMin2) {
             rawPassStart = pgSensStartMin2 + 1;
           }
+          // ★ 통과시작이 2시간 체크 시간 ±4분 이내면 체크 이후로 조정
+          for (const intMin of allIntervalMins) {
+            if (rawPassStart >= intMin - 4 && rawPassStart <= intMin + 4) {
+              rawPassStart = intMin + 5;
+              break;
+            }
+          }
 
           // 통과 종료: 품목종료 감도 체크 이전
           let rawPassEnd = Math.max(rawPassStart + 3, passEnd - microOff2);
           const isLastSlotInPg = pg.slots[pg.slots.length - 1] === slot;
           if (isLastSlotInPg && rawPassEnd >= pgSensEndMin2) {
             rawPassEnd = Math.max(rawPassStart + 2, pgSensEndMin2 - 1 - Math.floor(seededRandom2(metalSeed + 300 + seqNum) * 3));
+          }
+          // ★ 통과종료가 2시간 체크 시간 ±4분 이내면 체크 전으로 조정
+          for (const intMin of allIntervalMins) {
+            if (rawPassEnd >= intMin - 4 && rawPassEnd <= intMin + 4) {
+              rawPassEnd = Math.max(rawPassStart + 2, intMin - 5);
+              break;
+            }
           }
 
           // 실제 통과량

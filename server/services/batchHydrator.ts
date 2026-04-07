@@ -368,8 +368,11 @@ async function getProductName(productId: number, tenantId: number): Promise<stri
   const conn = await getRawConnection();
   if (!conn) return "미확인";
   const [rows] = await conn.execute<any[]>(
-    "SELECT product_name FROM h_products_v2 WHERE id = ? AND tenant_id = ? LIMIT 1",
-    [productId, tenantId]
+    `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
+     FROM (SELECT 1) dummy
+     LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
+     LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?`,
+    [productId, tenantId, productId, tenantId]
   );
   return (rows as any[])[0]?.product_name || "미확인";
 }
