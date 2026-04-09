@@ -47,15 +47,19 @@ export const batchRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
         const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
+        const { resolveToHProductId } = await import("../../services/batchOrchestrator");
 
         const tenantId = ctx.tenantId!;
         const workDate = formatLocalDate(input.plannedStartDate);
+
+        // STEP 0. 제품 ID 변환 (h_products_v2.id → h_products.id)
+        const resolvedProductId = await resolveToHProductId(input.productId, tenantId);
 
         // STEP 1. 배치 헤더 생성
         const batchId = await createBatch({
           tenantId,
           siteId: input.siteId,
-          productId: input.productId,
+          productId: resolvedProductId,
           batchCode: input.batchNumber,
           plannedQuantity: input.plannedQuantity.toString(),
           plannedDate: input.plannedStartDate,
@@ -65,7 +69,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(input.productId, tenantId);
+        const product = await getProductById(resolvedProductId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -77,7 +81,7 @@ export const batchRouter = router({
             siteId: input.siteId,
             workDate,
             batchId,
-            productId: input.productId,
+            productId: resolvedProductId,
             productName,
             createdBy: ctx.user.id,
             tenantId,
@@ -96,7 +100,7 @@ export const batchRouter = router({
         // 제품명 보완: h_products 우선, h_products_v2 폴백 조회 (STEP 3-B, 4 공통 사용)
         let finalProductName = productName;
         try {
-          if (!finalProductName && input.productId) {
+          if (!finalProductName && resolvedProductId) {
             const { getRawConnection: _rcProd } = await import("../../db");
             const _poolProd = await _rcProd();
             const [_pRows] = await _poolProd.execute(
@@ -104,7 +108,7 @@ export const batchRouter = router({
                FROM (SELECT 1) dummy
                LEFT JOIN h_products p1 ON p1.id = ?
                LEFT JOIN h_products_v2 p2 ON p2.id = ?`,
-              [input.productId, input.productId]
+              [resolvedProductId, resolvedProductId]
             );
             finalProductName = (_pRows as any[])[0]?.product_name || "";
           }
@@ -127,7 +131,7 @@ export const batchRouter = router({
                  JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
                  WHERE r.product_id = ? AND r.tenant_id = ?
                  ORDER BY v.id DESC LIMIT 1`,
-                [input.productId, tenantId]
+                [resolvedProductId, tenantId]
               );
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
@@ -136,7 +140,7 @@ export const batchRouter = router({
               if (!bomBatchKg) {
                 const [rRows] = await _pool3.execute(
                   `SELECT target_quantity FROM h_recipes WHERE product_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1`,
-                  [input.productId, tenantId]
+                  [resolvedProductId, tenantId]
                 );
                 const fallback = (rRows as any[])[0]?.target_quantity;
                 if (fallback) bomBatchKg = parseFloat(fallback);
@@ -175,7 +179,7 @@ export const batchRouter = router({
                  VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?, ?,?)`,
                 [
                   tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
-                  input.productId, finalProductName || productName || null, grp.id, grp.name,
+                  resolvedProductId, finalProductName || productName || null, grp.id, grp.name,
                   input.plannedQuantity, ctx.user.id,
                   clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
                   equipGroupMode, equipIntervalMin,

@@ -1,17 +1,18 @@
 /**
  * 스캔 문서 자동 매핑 엔진
- * 
+ *
  * OCR 결과를 각 문서 타입의 실제 DB 테이블에 직접 입력
- * 
+ *
  * 지원 문서 타입:
  * - training_log → h_training_logs (교육훈련일지)
  * - ccp_record → h_ccp_form_records (CCP 기록지)
  * - inspection → h_inspections (검사기록)
+ * - purchase_invoice → accounting_purchases (매입전표)
  * - generic_checklist → h_generic_checklist_records (범용 체크리스트)
  * - personal_hygiene, temperature_humidity, equipment_cleaning 등 → generic_checklists
  */
 
-import { getRawConnection } from "../db";
+import { getRawConnection, withTransaction } from "../db";
 
 export interface ScanMappingResult {
   success: boolean;
@@ -19,7 +20,14 @@ export interface ScanMappingResult {
   insertedId: number | null;
   mappedFields: string[];
   unmappedFields: string[];
+  warnings: string[];
   message: string;
+}
+
+/** 과거 데이터 기반 이상치 검증 결과 */
+export interface ValidationResult {
+  isValid: boolean;
+  warnings: { field: string; message: string; severity: "low" | "medium" | "high" }[];
 }
 
 /**
@@ -32,22 +40,37 @@ export async function mapAndSave(
   docType: string,
   ocrData: Record<string, any>
 ): Promise<ScanMappingResult> {
-  switch (docType) {
-    case "training_log":
-      return await mapTrainingLog(tenantId, userId, ocrData);
-    case "ccp_record":
-    case "ccp_2b":
-    case "ccp_1b":
-    case "ccp_4p":
-      return await mapCcpRecord(tenantId, userId, siteId, docType, ocrData);
-    case "inspection":
-    case "material_inspection":
-    case "hygiene_inspection":
-    case "shipping_inspection":
-      return await mapInspection(tenantId, userId, docType, ocrData);
-    default:
-      // 범용 체크리스트로 저장
-      return await mapGenericChecklist(tenantId, userId, siteId, docType, ocrData);
+  try {
+    return await withTransaction(async () => {
+      switch (docType) {
+        case "training_log":
+          return await mapTrainingLog(tenantId, userId, ocrData);
+        case "ccp_record":
+        case "ccp_2b":
+        case "ccp_1b":
+        case "ccp_4p":
+          return await mapCcpRecord(tenantId, userId, siteId, docType, ocrData);
+        case "inspection":
+        case "material_inspection":
+        case "hygiene_inspection":
+        case "shipping_inspection":
+          return await mapInspection(tenantId, userId, docType, ocrData);
+        case "purchase_invoice":
+          return await mapPurchaseInvoice(tenantId, userId, ocrData);
+        default:
+          return await mapGenericChecklist(tenantId, userId, siteId, docType, ocrData);
+      }
+    }, "scanDocMapper.mapAndSave");
+  } catch (err: any) {
+    return {
+      success: false,
+      targetTable: "",
+      insertedId: null,
+      mappedFields: [],
+      unmappedFields: [],
+      warnings: [],
+      message: `저장 실패 (트랜잭션 롤백): ${err.message || "알 수 없는 오류"}`,
+    };
   }
 }
 
@@ -119,6 +142,7 @@ async function mapTrainingLog(
     insertedId: result.insertId,
     mappedFields: mapped,
     unmappedFields: unmapped,
+    warnings: [],
     message: `교육훈련일지 저장 완료 (${mapped.length}개 필드 매핑)`,
   };
 }
@@ -189,6 +213,7 @@ async function mapCcpRecord(
     insertedId: result.insertId,
     mappedFields: mapped,
     unmappedFields: unmapped,
+    warnings: [],
     message: `CCP 기록지(${ccpType}) 저장 완료`,
   };
 }
@@ -229,6 +254,7 @@ async function mapInspection(
       insertedId: result.insertId,
       mappedFields: mapped,
       unmappedFields: [],
+      warnings: [],
       message: `검사기록(${inspType}) 저장 완료`,
     };
   } catch {
@@ -269,8 +295,190 @@ async function mapGenericChecklist(
     insertedId: result.insertId,
     mappedFields: mapped,
     unmappedFields: [],
+    warnings: [],
     message: `체크리스트(${docType}) 저장 완료`,
   };
+}
+
+/**
+ * 매입전표(매입등록) 매핑
+ * OCR → accounting_purchases + h_inventory_lots
+ */
+async function mapPurchaseInvoice(
+  tenantId: number,
+  userId: number,
+  data: Record<string, any>
+): Promise<ScanMappingResult> {
+  const conn = await getRawConnection();
+  const mapped: string[] = [];
+  const unmapped: string[] = [];
+  const warnings: string[] = [];
+
+  const transactionDate = data.formDate || data.invoiceDate || new Date().toISOString().slice(0, 10);
+  const supplierName = data.supplierName || data.supplier || "";
+
+  // 거래처 자동 매칭
+  let partnerId: number | null = null;
+  if (supplierName) {
+    const [partners] = await conn.execute<any[]>(
+      `SELECT id FROM partners WHERE tenant_id = ? AND company_name LIKE ? LIMIT 1`,
+      [tenantId, `%${supplierName}%`]
+    );
+    if (partners.length > 0) {
+      partnerId = partners[0].id;
+      mapped.push(`거래처 매칭: ${supplierName} (ID: ${partnerId})`);
+    } else {
+      unmapped.push(`거래처 미매칭: ${supplierName}`);
+    }
+  }
+
+  // 과거 데이터 기반 검증
+  const validation = await validatePurchaseData(conn, tenantId, data);
+  for (const w of validation.warnings) {
+    warnings.push(`[${w.severity}] ${w.field}: ${w.message}`);
+  }
+
+  // 품목별 매입 레코드 생성
+  const items = data.items || [];
+  let firstInsertId: number | null = null;
+
+  for (const item of items) {
+    const itemName = item.itemName || item.name || "";
+    const qty = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    const amount = Number(item.amount) || qty * unitPrice;
+
+    if (!itemName || qty <= 0) continue;
+
+    const [result] = await conn.execute<any>(
+      `INSERT INTO accounting_purchases
+       (tenant_id, transaction_date, partner_id, item_name, quantity, unit, unit_price, total_amount,
+        status, evidence_type, source_type, notes, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'scan', 'scan_ocr', '스캔 매입전표', ?, NOW())`,
+      [tenantId, transactionDate, partnerId, itemName, qty,
+       item.unit || "kg", unitPrice, amount, userId]
+    );
+
+    if (!firstInsertId) firstInsertId = result.insertId;
+    mapped.push(`${itemName}: ${qty}${item.unit || "kg"} × ${unitPrice}원`);
+  }
+
+  // 합계 정보 저장 (감사용)
+  if (data.subtotal || data.taxAmount || data.totalAmount) {
+    mapped.push(`합계: ${data.totalAmount || 0}원 (공급가 ${data.subtotal || 0} + 세액 ${data.taxAmount || 0})`);
+  }
+
+  return {
+    success: true,
+    targetTable: "accounting_purchases",
+    insertedId: firstInsertId,
+    mappedFields: mapped,
+    unmappedFields: unmapped,
+    warnings,
+    message: `매입전표 저장 완료 (${items.length}건, ${mapped.length}개 필드 매핑)`,
+  };
+}
+
+/**
+ * 과거 데이터 기반 매입 검증
+ */
+async function validatePurchaseData(
+  conn: any,
+  tenantId: number,
+  data: Record<string, any>
+): Promise<ValidationResult> {
+  const warnings: ValidationResult["warnings"] = [];
+  const items = data.items || [];
+
+  for (const item of items) {
+    const itemName = item.itemName || item.name || "";
+    const qty = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+
+    if (!itemName) continue;
+
+    // 과거 30일 평균 단가 조회
+    const [priceRows] = await conn.execute<any[]>(
+      `SELECT AVG(unit_price) as avgPrice, COUNT(*) as cnt
+       FROM accounting_purchases
+       WHERE tenant_id = ? AND item_name LIKE ? AND unit_price > 0
+         AND transaction_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)`,
+      [tenantId, `%${itemName}%`]
+    );
+
+    if (priceRows.length > 0 && priceRows[0].cnt >= 3 && unitPrice > 0) {
+      const avgPrice = Number(priceRows[0].avgPrice);
+      if (avgPrice > 0) {
+        const ratio = unitPrice / avgPrice;
+        if (ratio > 2) {
+          warnings.push({ field: `${itemName} 단가`, message: `${unitPrice}원이 최근 평균(${Math.round(avgPrice)}원)의 ${Math.round(ratio * 100)}% — 단가 급등`, severity: "high" });
+        } else if (ratio < 0.5) {
+          warnings.push({ field: `${itemName} 단가`, message: `${unitPrice}원이 최근 평균(${Math.round(avgPrice)}원)의 ${Math.round(ratio * 100)}% — 단가 급락`, severity: "medium" });
+        }
+      }
+    }
+
+    // 수량 이상치
+    const [qtyRows] = await conn.execute<any[]>(
+      `SELECT AVG(quantity) as avgQty, STDDEV(quantity) as stdQty
+       FROM accounting_purchases
+       WHERE tenant_id = ? AND item_name LIKE ? AND quantity > 0
+         AND transaction_date >= DATE_SUB(NOW(), INTERVAL 90 DAY)`,
+      [tenantId, `%${itemName}%`]
+    );
+    if (qtyRows.length > 0 && Number(qtyRows[0].avgQty) > 0) {
+      const avg = Number(qtyRows[0].avgQty);
+      const std = Number(qtyRows[0].stdQty) || avg * 0.5;
+      if (qty > avg + 3 * std) {
+        warnings.push({ field: `${itemName} 수량`, message: `${qty}이(가) 평균(${Math.round(avg)}) + 3σ 초과`, severity: "high" });
+      }
+    }
+  }
+
+  return { isValid: warnings.filter(w => w.severity === "high").length === 0, warnings };
+}
+
+/**
+ * CCP 기록 과거 데이터 검증
+ */
+export async function validateCcpData(
+  tenantId: number,
+  ccpType: string,
+  data: Record<string, any>
+): Promise<ValidationResult> {
+  const conn = await getRawConnection();
+  const warnings: ValidationResult["warnings"] = [];
+
+  const items = data.items || [];
+  for (const item of items) {
+    const temp = item.value ? parseFloat(item.value) : null;
+    if (temp === null || isNaN(temp)) continue;
+
+    // 최근 30일 같은 CCP 타입의 온도 통계
+    const [rows] = await conn.execute<any[]>(
+      `SELECT AVG(JSON_EXTRACT(form_data, '$.avgTemp')) as avgTemp,
+              STDDEV(JSON_EXTRACT(form_data, '$.avgTemp')) as stdTemp,
+              COUNT(*) as cnt
+       FROM h_generic_checklist_records
+       WHERE tenant_id = ? AND form_type LIKE ?
+         AND form_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`,
+      [tenantId, `%${ccpType}%`]
+    );
+
+    if (rows.length > 0 && rows[0].cnt >= 5) {
+      const avg = Number(rows[0].avgTemp);
+      const std = Number(rows[0].stdTemp) || 3;
+      if (avg > 0 && Math.abs(temp - avg) > 3 * std) {
+        warnings.push({
+          field: `${item.itemText || "온도"}`,
+          message: `${temp}°C가 최근 평균(${avg.toFixed(1)}°C ± ${std.toFixed(1)})에서 3σ 이탈`,
+          severity: "high",
+        });
+      }
+    }
+  }
+
+  return { isValid: warnings.filter(w => w.severity === "high").length === 0, warnings };
 }
 
 /**
@@ -278,6 +486,8 @@ async function mapGenericChecklist(
  */
 export function detectDocType(ocrText: string): string {
   const t = ocrText.toLowerCase();
+  // 매입전표/세금계산서
+  if (/매입.*전표|세금.*계산서|거래명세서|invoice|공급가액|합계금액/.test(t)) return "purchase_invoice";
   if (/교육.*훈련|훈련.*기록|교육.*일지/.test(t)) return "training_log";
   if (/ccp|중요관리|관리기준|한계기준|금속검출/.test(t)) return "ccp_record";
   if (/가열.*기록|굽기.*기록|증숙/.test(t)) return "ccp_2b";

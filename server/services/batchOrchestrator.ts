@@ -59,6 +59,59 @@ export interface SingleBatchResult {
 }
 
 /**
+ * h_products_v2.id → h_products.id 변환
+ * 
+ * UI(product.list)는 h_products_v2.id를 반환하지만,
+ * 배치 시스템(BOM, CCP, 배합비 등)은 h_products.id를 사용합니다.
+ * 이름 기반으로 h_products_v2.id를 h_products.id로 변환합니다.
+ * 매핑 실패 시 원래 ID를 그대로 반환합니다.
+ */
+export async function resolveToHProductId(
+  productId: number,
+  tenantId: number,
+): Promise<number> {
+  try {
+    const conn = await getRawConnection();
+    // 먼저 h_products에 해당 ID가 있는지 확인
+    const [v1Direct] = await conn.execute<any[]>(
+      "SELECT id, product_name FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
+      [productId, tenantId],
+    );
+    // h_products_v2에서도 같은 ID로 조회
+    const [v2Direct] = await conn.execute<any[]>(
+      "SELECT id, product_name FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+      [productId, tenantId],
+    );
+    const v1Name = (v1Direct as any[])[0]?.product_name;
+    const v2Name = (v2Direct as any[])[0]?.product_name;
+
+    // 양쪽 모두 존재하고 이름이 같으면 → ID가 일치하므로 변환 불필요
+    if (v1Name && v2Name && v1Name === v2Name) {
+      return productId;
+    }
+
+    // 양쪽 모두 존재하지만 이름이 다르면 → v2 이름으로 h_products에서 찾기
+    if (v2Name && v1Name !== v2Name) {
+      const [v1ByName] = await conn.execute<any[]>(
+        "SELECT id FROM h_products WHERE product_name=? AND tenant_id=? LIMIT 1",
+        [v2Name, tenantId],
+      );
+      if ((v1ByName as any[]).length > 0) {
+        const resolvedId = Number((v1ByName as any[])[0].id);
+        console.log(`[resolveToHProductId] v2.id=${productId}(${v2Name}) → h_products.id=${resolvedId}`);
+        return resolvedId;
+      }
+    }
+
+    // h_products에만 있거나 매핑 실패 → 원래 ID 반환
+    return productId;
+  } catch (err) {
+    console.error("[resolveToHProductId] 매핑 실패:", err);
+    return productId;
+  }
+}
+
+/**
  * 단일 배치 생성 파이프라인
  * batch.create 라우터의 핵심 로직을 서비스로 추출
  */
@@ -68,8 +121,17 @@ export async function createSingleBatch(
   const { createBatch, getProductById, createAuditLog } = await import("../db");
   const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
 
+  // === 0. 제품 ID 변환 (h_products_v2.id → h_products.id) ===
+  const resolvedProductId = await resolveToHProductId(input.productId, input.tenantId);
+  if (resolvedProductId !== input.productId) {
+    console.log(`[batchOrchestrator] productId 변환: ${input.productId} → ${resolvedProductId}`);
+    input = { ...input, productId: resolvedProductId };
+  }
+
   // === 1. 배치 생성 ===
-  const plannedDate = new Date(`${input.workDate}T00:00:00`);
+  // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
+  // T00:00:00 KST → T15:00:00Z(전날) 문제 방지
+  const plannedDate = new Date(`${input.workDate}T12:00:00`);
   const batchCodeFinal = input.batchCode || await generateBatchCode(
     input.tenantId, input.productId, input.workDate
   );
@@ -330,12 +392,15 @@ async function generateBatchCode(
 ): Promise<string> {
   const conn = await getRawConnection();
 
-  // 제품 코드 조회 (h_products 우선, h_products_v2 폴백)
+  // 제품 ID를 먼저 h_products.id로 변환 (v2 ID가 넘어올 수 있음)
+  const resolvedId = await resolveToHProductId(productId, tenantId);
+
+  // 제품 코드 조회 (resolved h_products.id 사용)
   let productCode = "00000";
   try {
     const [v1Rows] = await conn.execute<any[]>(
       "SELECT product_code FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
-      [productId, tenantId],
+      [resolvedId, tenantId],
     );
     if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
       productCode = (v1Rows as any[])[0].product_code;

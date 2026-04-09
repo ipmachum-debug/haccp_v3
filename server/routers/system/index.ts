@@ -15,3 +15,4 @@ export { supportRouter } from "./support.router";
 export { subscriptionRouter } from "./subscription.router";
 export { delegationRouter } from "./delegation.router";
 export { workflowRouter } from "./workflow.router";
+export { simplifiedImportRouter } from "./simplifiedImport.router";

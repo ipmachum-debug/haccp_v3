@@ -97,7 +97,7 @@ export default function ExcelImport() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 space-y-6 max-w-5xl mx-auto">
+      <div className="space-y-5 max-w-5xl">
         <div>
           <h1 className="text-2xl font-bold">엑셀 기초데이터 임포트</h1>
           <p className="text-muted-foreground mt-1">
