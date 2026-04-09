@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { healthCertificates, employees } from "../../drizzle/schema";
+import { healthCertificates } from "../../drizzle/schema";
+import { hEmployees } from "../../drizzle/auth";
 import { eq, desc, asc, and, lte, gte, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { storagePut } from "../storage";
@@ -26,9 +27,9 @@ import { todayKST } from "../utils/timezone";
 // ─────────────────────────────────────────────
 async function getTenantEmployeeIds(db: any, tenantId: number): Promise<number[]> {
   const myEmployees = await db
-    .select({ id: employees.id })
-    .from(employees)
-    .where(eq(employees.tenantId, tenantId));
+    .select({ id: hEmployees.id })
+    .from(hEmployees)
+    .where(eq(hEmployees.tenantId, tenantId));
   return myEmployees.map((e: any) => e.id);
 }
 
@@ -52,9 +53,9 @@ async function assertCertificateOwnership(
 
   // 직원이 내 테넌트 소속인지 확인
   const [emp] = await db
-    .select({ id: employees.id, tenantId: employees.tenantId })
-    .from(employees)
-    .where(and(eq(employees.id, cert.employeeId), eq(employees.tenantId, tenantId)));
+    .select({ id: hEmployees.id, tenantId: hEmployees.tenantId })
+    .from(hEmployees)
+    .where(and(eq(hEmployees.id, cert.employeeId), eq(hEmployees.tenantId, tenantId)));
 
   if (!emp) {
     throw new TRPCError({
@@ -184,12 +185,14 @@ export const healthCertificateRouter = router({
       const tenantId = ctx.tenantId!;
 
       // ✅ employeeId가 내 테넌트 소속인지 확인
+      console.log(`[HealthCert] create: employeeId=${input.employeeId}, tenantId=${tenantId}, userId=${ctx.user?.id}`);
       const [emp] = await db
-        .select({ id: employees.id })
-        .from(employees)
-        .where(and(eq(employees.id, input.employeeId), eq(employees.tenantId, tenantId)));
+        .select({ id: hEmployees.id })
+        .from(hEmployees)
+        .where(and(eq(hEmployees.id, input.employeeId), eq(hEmployees.tenantId, tenantId)));
 
       if (!emp) {
+        console.error(`[HealthCert] FORBIDDEN: employeeId=${input.employeeId} not found in h_employees for tenantId=${tenantId}`);
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "해당 직원에 접근 권한이 없습니다.",
@@ -501,12 +504,12 @@ export const healthCertificateRouter = router({
           // ✅ 직원 조회 시 tenantId 필터 추가 (타 테넌트 직원 오염 방지)
           let employee = await db
             .select()
-            .from(employees)
+            .from(hEmployees)
             .where(
               and(
-                eq(employees.name, row["직원명"]),
-                eq(employees.department, row["부서"]),
-                eq(employees.tenantId, tenantId)
+                eq(hEmployees.employeeName, row["직원명"]),
+                eq(hEmployees.department, row["부서"]),
+                eq(hEmployees.tenantId, tenantId)
               )
             )
             .limit(1)
@@ -514,16 +517,16 @@ export const healthCertificateRouter = router({
 
           if (!employee) {
             // ✅ 직원 생성 시 tenantId 저장
-            const [result] = await db.insert(employees).values({
-              name: row["직원명"],
+            const empCode = `EMP-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const [result] = await db.insert(hEmployees).values({
+              employeeName: row["직원명"],
+              employeeCode: empCode,
               department: row["부서"],
               position: row["직책"] || null,
               phone: row["연락처"] || null,
               email: row["이메일"] || null,
-              hireDate: issueDate,
-              status: "active",
+              siteId: 1,
               tenantId,            // ✅ 테넌트 격리
-              createdBy: ctx.user.id,
             });
             employee = { id: result.insertId } as any;
           }

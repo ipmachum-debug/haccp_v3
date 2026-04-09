@@ -58,3 +58,4 @@ core
 tmp/
 screenshot_ccp.png
 __pycache__/
+downloads/

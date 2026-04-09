@@ -147,6 +147,30 @@ export const aiProductionParserRouter = router({
           )
         ));
 
+      // Step 2.5: item_master.id → h_products.id 매핑 (배치 생성 시 h_products.id 필요)
+      const itemToHProductMap = new Map<number, number>();
+      try {
+        const pool = await getRawConnection();
+        const [mapRows] = await pool.execute(
+          `SELECT im.id as item_id, hp.id as h_product_id
+           FROM item_master im
+           JOIN h_products hp ON hp.product_name = im.item_name AND hp.tenant_id = im.tenant_id
+           WHERE im.tenant_id = ? AND im.item_type IN ('own_product', 'external_product')`,
+          [tenantId]
+        );
+        for (const row of mapRows as any[]) {
+          itemToHProductMap.set(Number(row.item_id), Number(row.h_product_id));
+        }
+        console.log(`[AI Parser] item→h_products 매핑 로드: ${itemToHProductMap.size}개`);
+      } catch (err) {
+        console.error("[AI Parser] item→h_products 매핑 로드 실패:", err);
+      }
+
+      // 헬퍼: item_master.id → h_products.id 변환 (매핑 없으면 원래 ID 반환)
+      const resolveProductId = (itemId: number): number => {
+        return itemToHProductMap.get(itemId) ?? itemId;
+      };
+
       const skus = await db.select({
         id: productSkus.id,
         itemId: productSkus.itemId,
@@ -231,7 +255,7 @@ export const aiProductionParserRouter = router({
             matchSource: "learned" as const,
             learnedUseCount: learned.useCount,
             matched: {
-              productId: learned.productId,
+              productId: resolveProductId(learned.productId),
               productName: learned.productName,
               itemCode: product?.itemCode || "",
               matchScore: 100,
@@ -289,7 +313,7 @@ export const aiProductionParserRouter = router({
             matchSource: "learned" as const,
             learnedUseCount: 0,
             matched: {
-              productId: bestLearned.productId,
+              productId: resolveProductId(bestLearned.productId),
               productName: bestLearned.productName,
               itemCode: product?.itemCode || "",
               matchScore: bestLearned.score,
@@ -306,7 +330,7 @@ export const aiProductionParserRouter = router({
               })),
             },
             candidates: matches.slice(0, 5).map(m => ({
-              productId: Number(m.product.id),
+              productId: resolveProductId(Number(m.product.id)),
               productName: m.product.itemName,
               itemCode: m.product.itemCode,
               matchScore: m.score,
@@ -328,7 +352,7 @@ export const aiProductionParserRouter = router({
           matchSource: "fuzzy" as const,
           learnedUseCount: 0,
           matched: bestMatch ? {
-            productId: Number(bestMatch.product.id),
+            productId: resolveProductId(Number(bestMatch.product.id)),
             productName: bestMatch.product.itemName,
             itemCode: bestMatch.product.itemCode,
             matchScore: bestMatch.score,
@@ -345,7 +369,7 @@ export const aiProductionParserRouter = router({
             })),
           } : null,
           candidates: matches.slice(0, 5).map(m => ({
-            productId: Number(m.product.id),
+            productId: resolveProductId(Number(m.product.id)),
             productName: m.product.itemName,
             itemCode: m.product.itemCode,
             matchScore: m.score,
@@ -562,6 +586,7 @@ export const aiProductionParserRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
+      const tenantId = ctx.tenantId ?? undefined;
       const results = await db.select({
         id: itemMaster.id,
         itemCode: itemMaster.itemCode,
@@ -570,7 +595,7 @@ export const aiProductionParserRouter = router({
       })
         .from(itemMaster)
         .where(and(
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined),
+          eq(itemMaster.tenantId, tenantId),
           eq(itemMaster.isActive, 1),
           or(
             eq(itemMaster.itemType, "own_product"),
@@ -583,8 +608,29 @@ export const aiProductionParserRouter = router({
         ))
         .limit(10);
 
+      // item_master.id → h_products.id 매핑
+      const itemToHProductMap = new Map<number, number>();
+      try {
+        const pool = await getRawConnection();
+        const itemIds = results.map(r => Number(r.id));
+        if (itemIds.length > 0) {
+          const [mapRows] = await pool.execute(
+            `SELECT im.id as item_id, hp.id as h_product_id
+             FROM item_master im
+             JOIN h_products hp ON hp.product_name = im.item_name AND hp.tenant_id = im.tenant_id
+             WHERE im.tenant_id = ? AND im.id IN (${itemIds.join(",")})`,
+            [tenantId]
+          );
+          for (const row of mapRows as any[]) {
+            itemToHProductMap.set(Number(row.item_id), Number(row.h_product_id));
+          }
+        }
+      } catch (err) {
+        console.error("[AI Parser searchProducts] h_products 매핑 실패:", err);
+      }
+
       return results.map(r => ({
-        productId: Number(r.id),
+        productId: itemToHProductMap.get(Number(r.id)) ?? Number(r.id),
         productName: r.itemName,
         itemCode: r.itemCode,
       }));

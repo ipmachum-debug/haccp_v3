@@ -147,10 +147,11 @@ export async function getProductAvailableForRelease(tenantId: number) {
       l.quantity as produced_quantity,
       l.available_quantity,
       l.unit, l.unit_price, l.expiry_date, l.production_date, l.status,
-      COALESCE(p.product_name, im.item_name, CONCAT('제품#', l.product_id)) as product_name,
+      COALESCE(p1.product_name, p.product_name, im.item_name, CONCAT('제품#', l.product_id)) as product_name,
       b.batch_code, b.end_time as completed_at,
       ps.sku_code, ps.sales_unit
      FROM h_inventory_lots l
+     LEFT JOIN h_products p1 ON l.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = l.product_id AND im.item_type = 'own_product'
      LEFT JOIN h_batches b ON l.batch_id = b.id
@@ -191,7 +192,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
       COALESCE(shipped.total_shipped, 0) as total_shipped,
       CAST(COALESCE(b.actual_quantity, b.planned_quantity) - COALESCE(shipped.total_shipped, 0) AS DECIMAL(10,2)) as available_quantity,
       b.expiry_date, b.end_time as completed_at, b.unit,
-      COALESCE(p.product_name, CONCAT('제품#', b.product_id)) as product_name
+      COALESCE(p1.product_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name
      FROM h_batches b
      LEFT JOIN (
        SELECT batch_id, SUM(quantity) as total_shipped
@@ -199,6 +200,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
        WHERE tenant_id = ? AND status != 'cancelled'
        GROUP BY batch_id
      ) shipped ON b.id = shipped.batch_id
+     LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
      HAVING available_quantity > 0
@@ -628,7 +630,7 @@ export async function getProductTurnoverAnalysis(params: {
   const [rows] = await conn.execute(
     `SELECT 
       b.product_id,
-      COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
+      COALESCE(im.item_name, p1.product_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
       COALESCE(im.item_code, '') as product_code,
       
       COALESCE(SUM(CASE 
@@ -645,6 +647,7 @@ export async function getProductTurnoverAnalysis(params: {
       END), 0) - COALESCE(outbound.all_outbound, 0) as current_stock
       
      FROM h_batches b
+     LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
@@ -656,7 +659,7 @@ export async function getProductTurnoverAnalysis(params: {
        GROUP BY source_id
      ) outbound ON b.id = outbound.batch_id
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
-     GROUP BY b.product_id, im.item_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
+     GROUP BY b.product_id, im.item_name, p1.product_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
      ORDER BY outbound_quantity DESC`,
     [params.startDate, params.endDate, params.startDate, params.endDate, tenantId, tenantId, tenantId]
   );

@@ -34,11 +34,12 @@ export const metalDetectionRouter = router({
       // Fetch batches for the day with SKU data
       const [batchRows] = await conn.execute<any[]>(
         `SELECT b.id as batch_id, b.product_id, b.planned_quantity,
-                p.product_name,
+                COALESCE(p1.product_name, p2.product_name) as product_name,
                 pso.sku_id, ps.sku_name, COALESCE(pso.quantity, 0) as sku_quantity,
                 COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
          FROM h_batches b
-         LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+         LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+         LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
          LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
          LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
          WHERE b.tenant_id = ? AND b.planned_date = ?
@@ -356,14 +357,15 @@ export const metalDetectionRouter = router({
         `SELECT r.id, r.batch_id, r.work_date, r.mode, r.status,
                 r.planned_total_qty, r.random_offset_min,
                 r.planned_start_at, r.planned_end_at,
-                b.batch_code, p.product_name,
+                b.batch_code, COALESCE(p1.product_name, p2.product_name) as product_name,
                 (SELECT COUNT(*) FROM h_ccp_metal_sku_slots s WHERE s.batch_process_run_id = r.id) as slot_count,
                 (SELECT COUNT(*) FROM h_ccp_metal_sensitivity_checks c WHERE c.batch_process_run_id = r.id) as check_count,
                 (SELECT COUNT(*) FROM h_ccp_metal_sensitivity_checks c WHERE c.batch_process_run_id = r.id AND c.result = 'FAIL') as fail_count,
                 (SELECT COUNT(*) FROM h_ccp_deviation_actions d WHERE d.batch_process_run_id = r.id AND d.status = 'OPEN') as open_deviations
          FROM h_ccp_batch_process_runs r
          LEFT JOIN h_batches b ON r.batch_id = b.id AND r.tenant_id = b.tenant_id
-         LEFT JOIN h_products_v2 p ON b.product_id = p.id AND b.tenant_id = p.tenant_id
+         LEFT JOIN h_products p1 ON b.product_id = p1.id AND b.tenant_id = p1.tenant_id
+         LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND b.tenant_id = p2.tenant_id
          WHERE r.tenant_id = ? AND r.work_date BETWEEN ? AND ?
          ORDER BY r.work_date DESC, r.id DESC`,
         [tenantId, input.startDate, input.endDate],

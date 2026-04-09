@@ -448,12 +448,26 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   // CCP-4P: 금속검출공정 (PDF 양식 기준 - 감도 모니터링 + 통과량 기록 2개 테이블)
   // ══════════════════════════════════════════════════════════
   if (ccpType === "CCP-4P") {
-    // formRows를 equipment_type으로 분류: 'sensitivity' = 감도 모니터링, 'passage' = 통과량 기록
+    // formRows를 분류: 'sensitivity' = 감도 모니터링, 'passage' = 통과량 기록
+    // ★ equipment_type이 NULL인 경우도 데이터 패턴으로 자동 분류
+    //    - sensitivity: metal_pass_time이 있고 pass_time_start가 없는 행
+    //    - passage: pass_time_start 또는 pass_time_end가 있는 행
+    const classifyRow = (r: any): "sensitivity" | "passage" | "unknown" => {
+      const eqType = r.equipmentType || r.equipment_type;
+      if (eqType === "sensitivity") return "sensitivity";
+      if (eqType === "passage") return "passage";
+      // equipment_type이 NULL인 경우 데이터 패턴으로 분류
+      const hasPassageData = r.passTimeStart || r.pass_time_start || r.passTimeEnd || r.pass_time_end;
+      const hasSensitivityData = r.metalPassTime || r.metal_pass_time || r.metalFeMid || r.metal_fe_mid;
+      if (hasPassageData) return "passage";
+      if (hasSensitivityData) return "sensitivity";
+      return "unknown";
+    };
     const sensitivityRows = hasFormRows
-      ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "sensitivity")
+      ? formRows.filter((r: any) => classifyRow(r) === "sensitivity")
       : [];
     const passageRows = hasFormRows
-      ? formRows.filter((r: any) => (r.equipmentType || r.equipment_type) === "passage")
+      ? formRows.filter((r: any) => classifyRow(r) === "passage")
       : [];
 
     // 인쇄 시 A4 한 장에 맞추기 위해: 데이터 행 + 최소 1~2개 빈 행 (최대 6행)
