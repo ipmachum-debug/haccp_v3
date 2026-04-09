@@ -47,15 +47,19 @@ export const batchRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
         const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
+        const { resolveToHProductId } = await import("../../services/batchOrchestrator");
 
         const tenantId = ctx.tenantId!;
         const workDate = formatLocalDate(input.plannedStartDate);
+
+        // STEP 0. 제품 ID 변환 (h_products_v2.id → h_products.id)
+        const resolvedProductId = await resolveToHProductId(input.productId, tenantId);
 
         // STEP 1. 배치 헤더 생성
         const batchId = await createBatch({
           tenantId,
           siteId: input.siteId,
-          productId: input.productId,
+          productId: resolvedProductId,
           batchCode: input.batchNumber,
           plannedQuantity: input.plannedQuantity.toString(),
           plannedDate: input.plannedStartDate,
@@ -65,7 +69,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(input.productId, tenantId);
+        const product = await getProductById(resolvedProductId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -77,7 +81,7 @@ export const batchRouter = router({
             siteId: input.siteId,
             workDate,
             batchId,
-            productId: input.productId,
+            productId: resolvedProductId,
             productName,
             createdBy: ctx.user.id,
             tenantId,
@@ -96,7 +100,7 @@ export const batchRouter = router({
         // 제품명 보완: h_products 우선, h_products_v2 폴백 조회 (STEP 3-B, 4 공통 사용)
         let finalProductName = productName;
         try {
-          if (!finalProductName && input.productId) {
+          if (!finalProductName && resolvedProductId) {
             const { getRawConnection: _rcProd } = await import("../../db");
             const _poolProd = await _rcProd();
             const [_pRows] = await _poolProd.execute(
@@ -104,7 +108,7 @@ export const batchRouter = router({
                FROM (SELECT 1) dummy
                LEFT JOIN h_products p1 ON p1.id = ?
                LEFT JOIN h_products_v2 p2 ON p2.id = ?`,
-              [input.productId, input.productId]
+              [resolvedProductId, resolvedProductId]
             );
             finalProductName = (_pRows as any[])[0]?.product_name || "";
           }
@@ -127,7 +131,7 @@ export const batchRouter = router({
                  JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
                  WHERE r.product_id = ? AND r.tenant_id = ?
                  ORDER BY v.id DESC LIMIT 1`,
-                [input.productId, tenantId]
+                [resolvedProductId, tenantId]
               );
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
@@ -136,7 +140,7 @@ export const batchRouter = router({
               if (!bomBatchKg) {
                 const [rRows] = await _pool3.execute(
                   `SELECT target_quantity FROM h_recipes WHERE product_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1`,
-                  [input.productId, tenantId]
+                  [resolvedProductId, tenantId]
                 );
                 const fallback = (rRows as any[])[0]?.target_quantity;
                 if (fallback) bomBatchKg = parseFloat(fallback);
@@ -152,10 +156,14 @@ export const batchRouter = router({
               if (batchCount < 1) batchCount = 1;
             }
             for (const grp of ccpGroups) {
-              const [existFR] = await _pool3.execute(
-                'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1',
-                [batchId, grp.ccp_type, tenantId]
-              );
+              // CCP-4P는 날짜별 1건 통합 → batch_id가 아닌 work_date로 중복 체크
+              const existQuery = grp.ccp_type === 'CCP-4P'
+                ? 'SELECT id FROM h_ccp_form_records WHERE ccp_type=? AND work_date=? AND tenant_id=? LIMIT 1'
+                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1';
+              const existParams = grp.ccp_type === 'CCP-4P'
+                ? [grp.ccp_type, workDate, tenantId]
+                : [batchId, grp.ccp_type, tenantId];
+              const [existFR] = await _pool3.execute(existQuery, existParams);
               if ((existFR as any[]).length > 0) continue;
               const clHeatTimeMinLo = grp.time_min ?? null;
               const clHeatTimeMinHi = grp.time_max ?? null;
@@ -164,6 +172,9 @@ export const batchRouter = router({
               // 공정그룹에서 배치 운영 설정 가져오기 (Single Source of Truth)
               const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
               const equipIntervalMin = grp.equip_interval_min ?? 10;
+              // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
+              const frProductId = grp.ccp_type === 'CCP-4P' ? null : resolvedProductId;
+              const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
               await _pool3.execute(
                 `INSERT INTO h_ccp_form_records
                    (tenant_id, site_id, batch_id, ccp_type, work_date,
@@ -175,7 +186,7 @@ export const batchRouter = router({
                  VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?, ?,?)`,
                 [
                   tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
-                  input.productId, finalProductName || productName || null, grp.id, grp.name,
+                  frProductId, frProductName, grp.id, grp.name,
                   input.plannedQuantity, ctx.user.id,
                   clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
                   equipGroupMode, equipIntervalMin,
@@ -223,6 +234,47 @@ export const batchRouter = router({
             approvalRequestId = Number((insResult as any).insertId ?? 0);
           } catch (appErr) {
             console.error("[파이프라인] 승인 요청 생성 실패 (배치 생성 유지):", appErr);
+          }
+        }
+
+        // STEP 4-B. CCP-4P 금속검출 통합 승인요청 자동 생성
+        if (ccpCreated && ccpGroups.some((g: any) => g.ccp_type === "CCP-4P")) {
+          try {
+            const { getRawConnection: _rc4p } = await import("../../db");
+            const _pool4p = await _rc4p();
+            const [ccp4pRecs] = await _pool4p.execute<any[]>(
+              `SELECT id, status, approval_request_id
+               FROM h_ccp_form_records
+               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+               ORDER BY id ASC LIMIT 1`,
+              [tenantId, workDate],
+            );
+            if ((ccp4pRecs as any[]).length > 0) {
+              const ccp4pRec = (ccp4pRecs as any[])[0];
+              if (!ccp4pRec.approval_request_id) {
+                await _pool4p.execute(
+                  `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+                  [ctx.user.id, ccp4pRec.id, tenantId],
+                );
+                const title4p = `[CCP-CCP-4P] ${workDate} 금속검출 통합`;
+                const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${workDate}\n제품: ${finalProductName || ""}\n배치코드: ${input.batchNumber}`;
+                const [ar4p] = await _pool4p.execute(
+                  `INSERT INTO h_approval_requests
+                    (site_id, tenant_id, request_type, reference_type, reference_id,
+                     title, description, status, priority, requested_by, created_at)
+                   VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
+                  [input.siteId || ctx.user.siteId || ctx.tenantId, tenantId, ccp4pRec.id, title4p, desc4p, ctx.user.id],
+                );
+                const approvalId4p = (ar4p as any).insertId;
+                await _pool4p.execute(
+                  `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+                  [approvalId4p, ccp4pRec.id, tenantId],
+                );
+                console.log(`[파이프라인] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
+              }
+            }
+          } catch (ccp4pErr) {
+            console.error("[파이프라인] CCP-4P 승인요청 생성 실패:", ccp4pErr);
           }
         }
 
@@ -540,6 +592,52 @@ export const batchRouter = router({
             }
           } catch (indivApprovalErr) {
             console.error("[bulkCreateForDay] 개별 batch_production 승인요청 생성 실패:", indivApprovalErr);
+          }
+        }
+
+        // === 3.8 CCP-4P 금속검출 일일 통합 기록지 자동 승인요청 ===
+        // CCP-4P는 날짜별 1건의 통합 기록지 → 모든 배치 생성 완료 후 승인요청 생성
+        if (successResults.length > 0) {
+          try {
+            const conn4p = await getRawConnection();
+            // 당일 CCP-4P form record 조회
+            const [ccp4pRecs] = await conn4p.execute<any[]>(
+              `SELECT id, batch_id, status, approval_request_id
+               FROM h_ccp_form_records
+               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+               ORDER BY id ASC LIMIT 1`,
+              [ctx.tenantId, input.workDate],
+            );
+            if ((ccp4pRecs as any[]).length > 0) {
+              const ccp4pRec = (ccp4pRecs as any[])[0];
+              // 승인요청이 아직 없는 경우에만 생성
+              if (!ccp4pRec.approval_request_id) {
+                // 상태를 submitted으로 변경
+                await conn4p.execute(
+                  `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+                  [ctx.user.id, ccp4pRec.id, ctx.tenantId],
+                );
+                // 승인요청 생성
+                const productNames = successResults.map((r: any) => r.productName).filter(Boolean).join(", ");
+                const title4p = `[CCP-CCP-4P] ${input.workDate} 금속검출 통합`;
+                const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n제품: ${productNames}\n배치 수: ${successResults.length}건\n그룹: ${dayBatchGroup}`;
+                const [approvalResult4p] = await conn4p.execute(
+                  `INSERT INTO h_approval_requests
+                    (site_id, tenant_id, request_type, reference_type, reference_id,
+                     title, description, status, priority, requested_by, created_at)
+                   VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
+                  [input.siteId, ctx.tenantId, ccp4pRec.id, title4p, desc4p, ctx.user.id],
+                );
+                const approvalId4p = (approvalResult4p as any).insertId;
+                await conn4p.execute(
+                  `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+                  [approvalId4p, ccp4pRec.id, ctx.tenantId],
+                );
+                console.log(`[bulkCreateForDay] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}, formRecordId=${ccp4pRec.id}`);
+              }
+            }
+          } catch (ccp4pErr) {
+            console.error("[bulkCreateForDay] CCP-4P 승인요청 생성 실패:", ccp4pErr);
           }
         }
 
@@ -916,11 +1014,19 @@ export const batchRouter = router({
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
 
         // 이미 CCP 인스턴스가 있는지 확인
+        // ★ CCP-4P는 같은 날짜의 다른 배치에 이미 연결되어 있을 수 있으므로,
+        //    직접 연결(batch_id) + 같은 날짜 CCP-4P 둘 다 확인
         const { getRawConnection } = await import("../../db");
         const conn = await getRawConnection();
         const [existing] = await conn.execute(
-          "SELECT COUNT(*) as cnt FROM h_ccp_instances WHERE batch_id=? AND tenant_id=?",
-          [input.batchId, ctx.tenantId!]
+          `SELECT COUNT(*) as cnt FROM h_ccp_instances 
+           WHERE tenant_id=? AND (
+             batch_id=?
+             OR (ccp_type='CCP-4P' AND work_date = (
+               SELECT planned_date FROM h_batches WHERE id=? AND tenant_id=? LIMIT 1
+             ))
+           )`,
+          [ctx.tenantId!, input.batchId, input.batchId, ctx.tenantId!]
         );
         const existingCount = Number((existing as any)[0]?.cnt || 0);
         if (existingCount > 0) {

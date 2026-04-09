@@ -399,7 +399,7 @@ export default function EmployeeHealthChecklist() {
                       <SelectContent>
                         {employees?.map((emp: any) => (
                           <SelectItem key={emp.id} value={emp.id.toString()}>
-                            {emp.name} ({emp.positionName})
+                            {emp.name}{emp.positionName ? ` (${emp.positionName})` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

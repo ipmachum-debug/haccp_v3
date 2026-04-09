@@ -345,10 +345,25 @@ export async function getCcpInstancesByBatchId(batchId: number, tenantId?: numbe
   const pool = await getRawConnection();
 
   // 1. 인스턴스 + 공정그룹 정보 조회 (tenant_id 격리)
+  // ★ CCP-4P(금속검출)는 하루에 1개의 인스턴스가 첫 번째 배치에만 연결되므로,
+  //    같은 날짜의 다른 배치에서도 해당 CCP-4P 인스턴스를 표시해야 함.
+  //    → 배치의 planned_date와 같은 work_date의 CCP-4P 인스턴스도 포함
   const whereClause = tenantId
-    ? `WHERE i.batch_id = ? AND i.tenant_id = ?`
-    : `WHERE i.batch_id = ?`;
-  const params = tenantId ? [batchId, tenantId] : [batchId];
+    ? `WHERE i.tenant_id = ? AND (
+         i.batch_id = ?
+         OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
+           SELECT b.planned_date FROM h_batches b WHERE b.id = ? AND b.tenant_id = ? LIMIT 1
+         ))
+       )`
+    : `WHERE (
+         i.batch_id = ?
+         OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
+           SELECT b.planned_date FROM h_batches b WHERE b.id = ? LIMIT 1
+         ))
+       )`;
+  const params = tenantId
+    ? [tenantId, batchId, batchId, tenantId]
+    : [batchId, batchId];
 
   const [instances] = await pool.execute<Record<string, unknown>[]>(
     `SELECT
