@@ -175,6 +175,7 @@ export async function createSingleBatch(
       id: g.id, name: g.name, ccp_type: g.ccp_type,
     }));
     ccpGroupNames = ccpGroups.map(g => g.name);
+    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, instanceIds=${result.instanceIds}, groups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
 
     // 3.1. CCP form records 자동 생성 (인쇄용 양식)
     if (ccpCreated && result.groups.length > 0) {
@@ -233,7 +234,7 @@ export async function createSingleBatch(
             clProductTempLo: group.temperature_min ?? undefined,
           });
         }
-        console.log(`[batchOrchestrator] CCP form records 생성 완료: ${result.groups.length}건 (bomBatchKg=${bomBatchKg ?? "N/A"})`);
+        console.log(`[batchOrchestrator] CCP form records 생성 완료: ${result.groups.length}건 (bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`);
       } catch (formErr) {
         console.error("[batchOrchestrator] CCP form records 생성 실패:", formErr);
       }
@@ -310,6 +311,47 @@ export async function createSingleBatch(
       }
     } catch (approvalErr) {
       console.error("[batchOrchestrator] 승인요청 생성 실패:", approvalErr);
+    }
+
+    // === 6.1. CCP-4P 금속검출 통합 승인요청 (단일 배치 모드) ===
+    // CCP-4P는 날짜별 1건 통합 기록지 → 승인요청이 없으면 자동 생성
+    if (ccpGroups.some(g => g.ccp_type === "CCP-4P")) {
+      try {
+        const conn4p = await getRawConnection();
+        const [ccp4pRecs] = await conn4p.execute<any[]>(
+          `SELECT id, batch_id, status, approval_request_id
+           FROM h_ccp_form_records
+           WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+           ORDER BY id ASC LIMIT 1`,
+          [input.tenantId, input.workDate],
+        );
+        if ((ccp4pRecs as any[]).length > 0) {
+          const ccp4pRec = (ccp4pRecs as any[])[0];
+          if (!ccp4pRec.approval_request_id) {
+            await conn4p.execute(
+              `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+              [input.userId, ccp4pRec.id, input.tenantId],
+            );
+            const title4p = `[CCP-CCP-4P] ${input.workDate} 금속검출 통합`;
+            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n제품: ${productName}\n배치코드: ${batchCodeFinal}`;
+            const [approvalResult4p] = await conn4p.execute(
+              `INSERT INTO h_approval_requests
+                (site_id, tenant_id, request_type, reference_type, reference_id,
+                 title, description, status, priority, requested_by, created_at)
+               VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
+              [input.siteId, input.tenantId, ccp4pRec.id, title4p, desc4p, input.userId],
+            );
+            const approvalId4p = (approvalResult4p as any).insertId;
+            await conn4p.execute(
+              `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+              [approvalId4p, ccp4pRec.id, input.tenantId],
+            );
+            console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
+          }
+        }
+      } catch (ccp4pErr) {
+        console.error("[batchOrchestrator] CCP-4P 승인요청 생성 실패:", ccp4pErr);
+      }
     }
   }
 

@@ -156,10 +156,14 @@ export const batchRouter = router({
               if (batchCount < 1) batchCount = 1;
             }
             for (const grp of ccpGroups) {
-              const [existFR] = await _pool3.execute(
-                'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1',
-                [batchId, grp.ccp_type, tenantId]
-              );
+              // CCP-4P는 날짜별 1건 통합 → batch_id가 아닌 work_date로 중복 체크
+              const existQuery = grp.ccp_type === 'CCP-4P'
+                ? 'SELECT id FROM h_ccp_form_records WHERE ccp_type=? AND work_date=? AND tenant_id=? LIMIT 1'
+                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1';
+              const existParams = grp.ccp_type === 'CCP-4P'
+                ? [grp.ccp_type, workDate, tenantId]
+                : [batchId, grp.ccp_type, tenantId];
+              const [existFR] = await _pool3.execute(existQuery, existParams);
               if ((existFR as any[]).length > 0) continue;
               const clHeatTimeMinLo = grp.time_min ?? null;
               const clHeatTimeMinHi = grp.time_max ?? null;
@@ -168,6 +172,9 @@ export const batchRouter = router({
               // 공정그룹에서 배치 운영 설정 가져오기 (Single Source of Truth)
               const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
               const equipIntervalMin = grp.equip_interval_min ?? 10;
+              // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
+              const frProductId = grp.ccp_type === 'CCP-4P' ? null : resolvedProductId;
+              const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
               await _pool3.execute(
                 `INSERT INTO h_ccp_form_records
                    (tenant_id, site_id, batch_id, ccp_type, work_date,
@@ -179,7 +186,7 @@ export const batchRouter = router({
                  VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?, ?,?)`,
                 [
                   tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
-                  resolvedProductId, finalProductName || productName || null, grp.id, grp.name,
+                  frProductId, frProductName, grp.id, grp.name,
                   input.plannedQuantity, ctx.user.id,
                   clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
                   equipGroupMode, equipIntervalMin,
@@ -227,6 +234,47 @@ export const batchRouter = router({
             approvalRequestId = Number((insResult as any).insertId ?? 0);
           } catch (appErr) {
             console.error("[파이프라인] 승인 요청 생성 실패 (배치 생성 유지):", appErr);
+          }
+        }
+
+        // STEP 4-B. CCP-4P 금속검출 통합 승인요청 자동 생성
+        if (ccpCreated && ccpGroups.some((g: any) => g.ccp_type === "CCP-4P")) {
+          try {
+            const { getRawConnection: _rc4p } = await import("../../db");
+            const _pool4p = await _rc4p();
+            const [ccp4pRecs] = await _pool4p.execute<any[]>(
+              `SELECT id, status, approval_request_id
+               FROM h_ccp_form_records
+               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+               ORDER BY id ASC LIMIT 1`,
+              [tenantId, workDate],
+            );
+            if ((ccp4pRecs as any[]).length > 0) {
+              const ccp4pRec = (ccp4pRecs as any[])[0];
+              if (!ccp4pRec.approval_request_id) {
+                await _pool4p.execute(
+                  `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+                  [ctx.user.id, ccp4pRec.id, tenantId],
+                );
+                const title4p = `[CCP-CCP-4P] ${workDate} 금속검출 통합`;
+                const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${workDate}\n제품: ${finalProductName || ""}\n배치코드: ${input.batchNumber}`;
+                const [ar4p] = await _pool4p.execute(
+                  `INSERT INTO h_approval_requests
+                    (site_id, tenant_id, request_type, reference_type, reference_id,
+                     title, description, status, priority, requested_by, created_at)
+                   VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
+                  [input.siteId || ctx.user.siteId || ctx.tenantId, tenantId, ccp4pRec.id, title4p, desc4p, ctx.user.id],
+                );
+                const approvalId4p = (ar4p as any).insertId;
+                await _pool4p.execute(
+                  `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+                  [approvalId4p, ccp4pRec.id, tenantId],
+                );
+                console.log(`[파이프라인] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
+              }
+            }
+          } catch (ccp4pErr) {
+            console.error("[파이프라인] CCP-4P 승인요청 생성 실패:", ccp4pErr);
           }
         }
 
@@ -544,6 +592,52 @@ export const batchRouter = router({
             }
           } catch (indivApprovalErr) {
             console.error("[bulkCreateForDay] 개별 batch_production 승인요청 생성 실패:", indivApprovalErr);
+          }
+        }
+
+        // === 3.8 CCP-4P 금속검출 일일 통합 기록지 자동 승인요청 ===
+        // CCP-4P는 날짜별 1건의 통합 기록지 → 모든 배치 생성 완료 후 승인요청 생성
+        if (successResults.length > 0) {
+          try {
+            const conn4p = await getRawConnection();
+            // 당일 CCP-4P form record 조회
+            const [ccp4pRecs] = await conn4p.execute<any[]>(
+              `SELECT id, batch_id, status, approval_request_id
+               FROM h_ccp_form_records
+               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+               ORDER BY id ASC LIMIT 1`,
+              [ctx.tenantId, input.workDate],
+            );
+            if ((ccp4pRecs as any[]).length > 0) {
+              const ccp4pRec = (ccp4pRecs as any[])[0];
+              // 승인요청이 아직 없는 경우에만 생성
+              if (!ccp4pRec.approval_request_id) {
+                // 상태를 submitted으로 변경
+                await conn4p.execute(
+                  `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+                  [ctx.user.id, ccp4pRec.id, ctx.tenantId],
+                );
+                // 승인요청 생성
+                const productNames = successResults.map((r: any) => r.productName).filter(Boolean).join(", ");
+                const title4p = `[CCP-CCP-4P] ${input.workDate} 금속검출 통합`;
+                const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n제품: ${productNames}\n배치 수: ${successResults.length}건\n그룹: ${dayBatchGroup}`;
+                const [approvalResult4p] = await conn4p.execute(
+                  `INSERT INTO h_approval_requests
+                    (site_id, tenant_id, request_type, reference_type, reference_id,
+                     title, description, status, priority, requested_by, created_at)
+                   VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
+                  [input.siteId, ctx.tenantId, ccp4pRec.id, title4p, desc4p, ctx.user.id],
+                );
+                const approvalId4p = (approvalResult4p as any).insertId;
+                await conn4p.execute(
+                  `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+                  [approvalId4p, ccp4pRec.id, ctx.tenantId],
+                );
+                console.log(`[bulkCreateForDay] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}, formRecordId=${ccp4pRec.id}`);
+              }
+            }
+          } catch (ccp4pErr) {
+            console.error("[bulkCreateForDay] CCP-4P 승인요청 생성 실패:", ccp4pErr);
           }
         }
 
