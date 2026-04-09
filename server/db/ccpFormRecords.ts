@@ -11,6 +11,7 @@
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
 import { getDb, getRawConnection } from "../db";
+import { todayKST, toKSTTimestamp } from "../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
@@ -504,10 +505,10 @@ async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
       `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') as wd FROM h_ccp_form_records WHERE id = ? LIMIT 1`,
       [formRecordId]
     );
-    const workDate = (dateRows as any[])[0]?.wd || new Date().toISOString().slice(0, 10);
+    const workDate = (dateRows as any[])[0]?.wd || todayKST();
     const fullMeasuredAt = data.measurementTime
       ? `${workDate} ${data.measurementTime}`
-      : new Date().toISOString().slice(0, 19).replace("T", " ");
+      : toKSTTimestamp(new Date());
 
     // h_ccp_rows에서 같은 instance + sort_order(=batchSeq)로 찾아 upsert
     const [existingRows] = await rawConn.execute<any[]>(

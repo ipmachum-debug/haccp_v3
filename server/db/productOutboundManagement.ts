@@ -12,6 +12,7 @@
  */
 
 import { getDb, getRawConnection } from "../db";
+import { todayKST } from "../utils/timezone";
 import { hInventoryLots, hInventoryTransactions } from "../../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -111,7 +112,7 @@ export async function createProductLotFromBatch(params: {
     quantity: params.quantity.toString(),
     availableQuantity: params.quantity.toString(),
     unit: params.unit || "kg",
-    productionDate: new Date().toISOString().slice(0, 10),
+    productionDate: todayKST(),
     expiryDate: params.expiryDate || null,
     status: "available",
   } as any);
@@ -128,7 +129,7 @@ export async function createProductLotFromBatch(params: {
     notes: `생산 완료 입고 (배치: ${params.batchCode}, 제품: ${params.productName}${params.skuName ? `, SKU: ${params.skuName}` : ''})`,
     createdBy: params.userId,
     performedBy: params.userId,
-    transactionDate: new Date().toISOString().slice(0, 10),
+    transactionDate: todayKST(),
   } as any);
 
   return { lotId, lotNumber, isNew: true };
@@ -517,7 +518,7 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
         notes: `출고 취소 복원 (outboundId: ${outboundId})`,
         createdBy: userId,
         performedBy: userId,
-        transactionDate: new Date().toISOString().slice(0, 10),
+        transactionDate: todayKST(),
       } as any);
     }
   }

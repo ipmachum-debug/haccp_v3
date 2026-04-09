@@ -6,6 +6,7 @@
  * 승인 워크플로우: 작성 → 검토 → 승인
  */
 import { sql } from "drizzle-orm";
+import { todayKST } from "../utils/timezone";
 
 // ========== 타입 정의 ==========
 export interface VisualInspectionItem {
@@ -1033,7 +1034,7 @@ export async function generateMaterialLotNumber(
 ) {
   const dateStr = receiptDate
     ? receiptDate.replace(/-/g, '').substring(0, 8)
-    : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    : todayKST().replace(/-/g, '');
   const prefix = `MAT-${materialCode}-${dateStr}`;
 
   const result = await db.execute(sql`
@@ -1069,7 +1070,7 @@ export async function createMaterialReceivingWithLot(
     userId: number;
   }
 ) {
-  const receiptDate = params.receiptDate || new Date().toISOString().slice(0, 10);
+  const receiptDate = params.receiptDate || todayKST();
   
   // 1. LOT 번호 자동 생성
   const lotNumber = await generateMaterialLotNumber(db, tenantId, params.materialCode, receiptDate);
