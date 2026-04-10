@@ -448,7 +448,6 @@ export async function generateBatchCode(productId: number, tenantId?: number) {
     const [rows] = await conn.execute<any[]>(productQuery, productParams);
     if ((rows as any[]).length > 0 && (rows as any[])[0].product_code) {
       productCode = (rows as any[])[0].product_code;
-      }
     }
   } catch { /* use default code */ }
 
