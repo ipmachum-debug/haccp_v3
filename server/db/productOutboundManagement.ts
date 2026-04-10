@@ -152,7 +152,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
       b.batch_code, b.end_time as completed_at,
       ps.sku_code, ps.sales_unit
      FROM h_inventory_lots l
-     LEFT JOIN h_products p1 ON l.product_id = p1.id AND p1.tenant_id = ?
+     LEFT JOIN h_products_v2 p1 ON l.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = l.product_id AND im.item_type = 'own_product'
      LEFT JOIN h_batches b ON l.batch_id = b.id
@@ -201,7 +201,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
        WHERE tenant_id = ? AND status != 'cancelled'
        GROUP BY batch_id
      ) shipped ON b.id = shipped.batch_id
-     LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ?
+     LEFT JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
      HAVING available_quantity > 0
@@ -648,7 +648,7 @@ export async function getProductTurnoverAnalysis(params: {
       END), 0) - COALESCE(outbound.all_outbound, 0) as current_stock
       
      FROM h_batches b
-     LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ?
+     LEFT JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (

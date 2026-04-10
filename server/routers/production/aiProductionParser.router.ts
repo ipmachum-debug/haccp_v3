@@ -147,29 +147,9 @@ export const aiProductionParserRouter = router({
           )
         ));
 
-      // Step 2.5: item_master.id → h_products.id 매핑 (배치 생성 시 h_products.id 필요)
-      const itemToHProductMap = new Map<number, number>();
-      try {
-        const pool = await getRawConnection();
-        const [mapRows] = await pool.execute(
-          `SELECT im.id as item_id, hp.id as h_product_id
-           FROM item_master im
-           JOIN h_products hp ON hp.product_name = im.item_name AND hp.tenant_id = im.tenant_id
-           WHERE im.tenant_id = ? AND im.item_type IN ('own_product', 'external_product')`,
-          [tenantId]
-        );
-        for (const row of mapRows as any[]) {
-          itemToHProductMap.set(Number(row.item_id), Number(row.h_product_id));
-        }
-        console.log(`[AI Parser] item→h_products 매핑 로드: ${itemToHProductMap.size}개`);
-      } catch (err) {
-        console.error("[AI Parser] item→h_products 매핑 로드 실패:", err);
-      }
-
-      // 헬퍼: item_master.id → h_products.id 변환 (매핑 없으면 원래 ID 반환)
-      const resolveProductId = (itemId: number): number => {
-        return itemToHProductMap.get(itemId) ?? itemId;
-      };
+      // v1 퇴출 완료: item_master.id = h_products_v2.id이므로 매핑 불필요
+      // resolveProductId는 입력값을 그대로 반환
+      const resolveProductId = (itemId: number): number => itemId;
 
       const skus = await db.select({
         id: productSkus.id,
@@ -608,29 +588,9 @@ export const aiProductionParserRouter = router({
         ))
         .limit(10);
 
-      // item_master.id → h_products.id 매핑
-      const itemToHProductMap = new Map<number, number>();
-      try {
-        const pool = await getRawConnection();
-        const itemIds = results.map(r => Number(r.id));
-        if (itemIds.length > 0) {
-          const [mapRows] = await pool.execute(
-            `SELECT im.id as item_id, hp.id as h_product_id
-             FROM item_master im
-             JOIN h_products hp ON hp.product_name = im.item_name AND hp.tenant_id = im.tenant_id
-             WHERE im.tenant_id = ? AND im.id IN (${itemIds.join(",")})`,
-            [tenantId]
-          );
-          for (const row of mapRows as any[]) {
-            itemToHProductMap.set(Number(row.item_id), Number(row.h_product_id));
-          }
-        }
-      } catch (err) {
-        console.error("[AI Parser searchProducts] h_products 매핑 실패:", err);
-      }
-
+      // v1 퇴출 완료: item_master.id = h_products_v2.id → 매핑 불필요
       return results.map(r => ({
-        productId: itemToHProductMap.get(Number(r.id)) ?? Number(r.id),
+        productId: Number(r.id),
         productName: r.itemName,
         itemCode: r.itemCode,
       }));

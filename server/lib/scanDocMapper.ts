@@ -172,8 +172,8 @@ async function mapCcpRecord(
   if (!batchId && productName) {
     const [batches] = await conn.execute<any[]>(
       `SELECT b.id FROM h_batches b
-       LEFT JOIN h_products p ON b.product_id = p.id
-       WHERE b.tenant_id = ? AND DATE(b.created_at) = ? AND p.name LIKE ?
+       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+       WHERE b.tenant_id = ? AND DATE(b.created_at) = ? AND p.product_name LIKE ?
        ORDER BY b.id DESC LIMIT 1`,
       [tenantId, workDate, `%${productName}%`]
     );

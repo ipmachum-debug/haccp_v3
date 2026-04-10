@@ -97,18 +97,17 @@ export const batchRouter = router({
         // STEP 3-B + STEP 4: 제품명 확보 → CCP 기록지 자동생성 → 승인요청 등록
         // ※ getRawConnection()은 Pool 싱글턴 → .end() 절대 호출 금지, Pool을 그대로 사용
         let approvalRequestId: number | null = null;
-        // 제품명 보완: h_products 우선, h_products_v2 폴백 조회 (STEP 3-B, 4 공통 사용)
+        // 제품명 보완: h_products_v2 조회 (STEP 3-B, 4 공통 사용)
         let finalProductName = productName;
         try {
           if (!finalProductName && resolvedProductId) {
             const { getRawConnection: _rcProd } = await import("../../db");
             const _poolProd = await _rcProd();
             const [_pRows] = await _poolProd.execute(
-              `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
-               FROM (SELECT 1) dummy
-               LEFT JOIN h_products p1 ON p1.id = ?
-               LEFT JOIN h_products_v2 p2 ON p2.id = ?`,
-              [resolvedProductId, resolvedProductId]
+              `SELECT p.product_name
+               FROM h_products_v2 p
+               WHERE p.id = ? AND p.tenant_id = ?`,
+              [resolvedProductId, tenantId]
             );
             finalProductName = (_pRows as any[])[0]?.product_name || "";
           }
@@ -1807,10 +1806,9 @@ export const batchRouter = router({
 
         // 오늘 계획 배치 상세
         const [todayRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.planned_date = ?
            ORDER BY b.batch_code`,
           [tenantId, targetDate]
@@ -1818,10 +1816,9 @@ export const batchRouter = router({
 
         // 진행중 배치 상세
         const [ipRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.status = 'in_progress'
            ORDER BY b.planned_date DESC LIMIT 100`,
           [tenantId]
@@ -1829,10 +1826,9 @@ export const batchRouter = router({
 
         // 오늘 완료 배치 상세
         const [compRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.status = 'completed'
              AND DATE(COALESCE(b.end_time, b.updated_at)) = ?
            ORDER BY b.batch_code`,

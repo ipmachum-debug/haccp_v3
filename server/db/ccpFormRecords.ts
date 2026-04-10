@@ -769,18 +769,16 @@ export async function syncCcpRowsToFormRows(params: {
   //    MySQL 서버 타임존도 Asia/Seoul(KST)이므로 추가 변환 불필요
   const [batchInfo] = await rawConn.execute<any[]>(
     `SELECT b.planned_quantity, b.product_id,
-            COALESCE(p1.product_name, p2.product_name) as p_name,
+            p.product_name as p_name,
             DATE_FORMAT(b.start_time, '%H:%i') as start_time_hhmm,
             b.day_batch_group, b.batch_order, b.planned_date
      FROM h_batches b
-     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.id = ? AND b.tenant_id = ?
      LIMIT 1`,
     [batchId, tenantId],
   );
   const batchProductName = (batchInfo as any[])[0]?.p_name || "";
-  // ★ h_products (v1) 우선, h_products_v2 (v2) 폴백 - 배치 product_id가 v1 테이블 참조
   const batchPlannedKg = parseFloat((batchInfo as any[])[0]?.planned_quantity) || 0;
   const productId = (batchInfo as any[])[0]?.product_id || null;
   const dayBatchGroup = (batchInfo as any[])[0]?.day_batch_group || null;
@@ -1088,14 +1086,14 @@ export async function syncCcpRowsToFormRows(params: {
             fallbackMap[pgId] = (fallbackMap[pgId] || 0) + qtyKg;
           }
           localBomInputQtyMap = fallbackMap;
-          // ★ 인스턴스 product_id의 실제 제품명 조회 (h_products 우선, h_products_v2 폴백)
+          // 인스턴스 product_id의 실제 제품명 조회 (h_products_v2)
           try {
             const [prodNameRows] = await rawConn.execute<any[]>(
-              `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
-               FROM (SELECT 1) dummy
-               LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
-               LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?`,
-              [instanceProductId, tenantId, instanceProductId, tenantId],
+              `SELECT p.product_name
+               FROM h_products_v2 p
+               WHERE p.id = ? AND p.tenant_id = ?
+               LIMIT 1`,
+              [instanceProductId, tenantId],
             );
             if ((prodNameRows as any[]).length > 0 && (prodNameRows as any[])[0].product_name) {
               instanceProductName = (prodNameRows as any[])[0].product_name;
@@ -1377,7 +1375,7 @@ export async function syncCcpRowsToFormRows(params: {
                   COALESCE(pso.quantity, 0) as sku_quantity,
                   COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
            LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
