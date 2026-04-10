@@ -348,22 +348,31 @@ export async function getCcpInstancesByBatchId(batchId: number, tenantId?: numbe
   // ★ CCP-4P(금속검출)는 하루에 1개의 인스턴스가 첫 번째 배치에만 연결되므로,
   //    같은 날짜의 다른 배치에서도 해당 CCP-4P 인스턴스를 표시해야 함.
   //    → 배치의 planned_date와 같은 work_date의 CCP-4P 인스턴스도 포함
+  // CCP-4P는 하루에 1건만 표시 (MIN(id)로 첫 번째 인스턴스만 선택)
   const whereClause = tenantId
     ? `WHERE i.tenant_id = ? AND (
-         i.batch_id = ?
+         (i.batch_id = ? AND i.ccp_type != 'CCP-4P')
          OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
            SELECT b.planned_date FROM h_batches b WHERE b.id = ? AND b.tenant_id = ? LIMIT 1
+         ) AND i.id = (
+           SELECT MIN(i2.id) FROM h_ccp_instances i2
+           WHERE i2.ccp_type = 'CCP-4P' AND i2.tenant_id = ?
+             AND i2.work_date = (SELECT b2.planned_date FROM h_batches b2 WHERE b2.id = ? AND b2.tenant_id = ? LIMIT 1)
          ))
        )`
     : `WHERE (
-         i.batch_id = ?
+         (i.batch_id = ? AND i.ccp_type != 'CCP-4P')
          OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
            SELECT b.planned_date FROM h_batches b WHERE b.id = ? LIMIT 1
+         ) AND i.id = (
+           SELECT MIN(i2.id) FROM h_ccp_instances i2
+           WHERE i2.ccp_type = 'CCP-4P'
+             AND i2.work_date = (SELECT b2.planned_date FROM h_batches b2 WHERE b2.id = ? LIMIT 1)
          ))
        )`;
   const params = tenantId
-    ? [tenantId, batchId, batchId, tenantId]
-    : [batchId, batchId];
+    ? [tenantId, batchId, batchId, tenantId, tenantId, batchId, tenantId]
+    : [batchId, batchId, batchId];
 
   const [instances] = await pool.execute<Record<string, unknown>[]>(
     `SELECT

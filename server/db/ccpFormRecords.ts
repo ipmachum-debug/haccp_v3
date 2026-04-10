@@ -1167,10 +1167,10 @@ export async function syncCcpRowsToFormRows(params: {
     if (totalBatchCount < 1) totalBatchCount = 1;
 
     // ★ h_ccp_rows 기반 배치수 결정:
-    //    ccpRows.length = 배치수 × 설비수 이므로, equipCount로 나눠야 실제 배치 수
-    //    예: 2배치 × 3설비(교반기) = 6행 → 6 / 3 = 2배치
+    //    라운드로빈: 1배치 = 1설비 1운전 → ccpRows.length = 배치수
+    //    예: 3배치, 설비 2대 → 3행 (라운드로빈 순환)
     if (ccpType !== "CCP-4P" && ccpRows.length > 0) {
-      const ccpBasedBatchCount = equipCount > 1 ? Math.ceil(ccpRows.length / equipCount) : ccpRows.length;
+      const ccpBasedBatchCount = ccpRows.length;
       // 기존 form_rows가 잘못된 batch_count 기반이면 삭제 후 재생성
       if (existingSeqs.size > 0 && existingSeqs.size !== ccpBasedBatchCount) {
         await rawConn.execute(
@@ -1935,11 +1935,10 @@ export async function syncCcpRowsToFormRows(params: {
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
-            // sequential (기본) - 글로벌 인덱스는 설비 선택에만 사용
-            // ★ 시간 오프셋은 현재 배치의 로컬 인덱스(seqIdx) 기반으로 계산
-            //    globalSeqIdx 기반 시간계산 시 이전 배치의 서브배치 수가 누적되어
-            //    비현실적인 시간(예: 21:35)이 생성되는 문제 수정
-            const equipIndex = globalSeqIdx % equipCount;
+            // sequential (기본) — 배치 내 로컬 인덱스로 설비 선택
+            // globalSeqIdx는 이전 배치 설비가 누적되어 3→1 역전 문제 발생
+            // seqIdx(배치 내 0,1,2...)를 사용하여 1호기→2호기→3호기 순서 보장
+            const equipIndex = seqIdx % equipCount;
             const localRoundIndex = Math.floor(seqIdx / equipCount);
             const offsetMin = localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
