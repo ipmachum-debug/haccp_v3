@@ -1370,13 +1370,12 @@ export async function syncCcpRowsToFormRows(params: {
       if (batchWorkDate) {
         const [skuRows] = await rawConn.execute<any[]>(
           `SELECT b.id as batch_id, b.product_id, b.planned_quantity,
-                  COALESCE(p1.product_name, p2.product_name, fr2.product_name) as product_name,
+                  COALESCE(p.product_name, fr2.product_name) as product_name,
                   pso.sku_id, ps.sku_name, ps.sku_code,
                   COALESCE(pso.quantity, 0) as sku_quantity,
                   COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
            FROM h_batches b
-           LEFT JOIN h_products_v2 p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
            LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id

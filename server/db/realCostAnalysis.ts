@@ -96,13 +96,12 @@ export async function getBatchMaterialCosts(params: {
 
   // 배치 + 투입 데이터 조회
   let sql = `
-    SELECT b.id as batch_id, b.batch_code, b.product_id, COALESCE(p1.product_name, p.product_name) as product_name,
+    SELECT b.id as batch_id, b.batch_code, b.product_id, p.product_name,
            DATE_FORMAT(b.planned_date, '%Y-%m-%d') as planned_date,
            b.planned_quantity,
            bi.material_id,
            COALESCE(bi.actual_quantity, bi.planned_quantity) as qty
     FROM h_batches b
-    JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = b.tenant_id
     LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
     LEFT JOIN h_batch_inputs bi ON bi.batch_id = b.id
     WHERE b.tenant_id = ?
@@ -371,10 +370,9 @@ export async function getBatchMaterialDetail(params: {
   const priceMap = await getMaterialBestPrices(tenantId);
 
   const [batchRows] = await conn.execute<any[]>(`
-    SELECT b.id, b.batch_code, COALESCE(p1.product_name, p.product_name) as product_name, b.planned_quantity,
+    SELECT b.id, b.batch_code, p.product_name, b.planned_quantity,
            DATE_FORMAT(b.planned_date, '%Y-%m-%d') as planned_date
     FROM h_batches b
-    JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = b.tenant_id
     LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
     WHERE b.id = ? AND b.tenant_id = ?
   `, [batchId, tenantId]);

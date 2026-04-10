@@ -261,10 +261,9 @@ export async function getAllBatches(filters?: {
   const total = Number((countRows as any[])[0]?.cnt || 0);
 
   const [dataRows] = await conn.execute<any[]>(
-    `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+    `SELECT b.*, p.product_name, p.product_code
      FROM h_batches b
-     LEFT JOIN h_products_v2 p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      ${whereClause}
      ORDER BY b.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -548,13 +547,12 @@ export async function getActiveBatches(tenantId?: number) {
       b.planned_quantity as quantity,
       b.planned_date as startTime,
       DATE_ADD(b.planned_date, INTERVAL 8 HOUR) as expectedEndTime,
-      COALESCE(p1.product_name, p2.product_name) as productName,
+      p.product_name as productName,
       'in_progress' as status,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id) as ccpCheckCount,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id AND status = 'completed') as ccpCheckCompletedCount
     FROM h_batches b
-    LEFT JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = b.tenant_id
-    LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND p2.tenant_id = b.tenant_id
+    LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
     WHERE b.planned_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) ${tenantFilter}
     ORDER BY b.planned_date DESC
     LIMIT 20
@@ -947,14 +945,13 @@ export async function completeBatch(params: {
     const [skuOutputRows] = await pool.execute(
       `SELECT pso.sku_id, pso.quantity, pso.total_kg, pso.defective_qty,
               ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit,
-              COALESCE(im.item_name, p1.product_name, p2.product_name) as product_name
+              COALESCE(im.item_name, p.product_name) as product_name
        FROM production_sku_output pso
        JOIN product_skus ps ON pso.sku_id = ps.id
        LEFT JOIN item_master im ON ps.item_id = im.id AND im.tenant_id = ?
-       LEFT JOIN h_products_v2 p1 ON p1.id = ? AND p1.tenant_id = ?
-       LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?
+       LEFT JOIN h_products_v2 p ON p.id = ? AND p.tenant_id = ?
        WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
-      [tenantId, existingBatch.productId, tenantId, existingBatch.productId, tenantId, batchId, tenantId]
+      [tenantId, existingBatch.productId, tenantId, batchId, tenantId]
     );
 
     const skuRows = skuOutputRows as any[];
