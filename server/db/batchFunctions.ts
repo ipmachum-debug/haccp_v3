@@ -700,14 +700,15 @@ export async function completeBatch(params: {
   revenue?: number;
   completionNotes?: string;
   idempotencyKey: string;
-  tenantId?: number;
+  tenantId: number; // P0 보안: 필수 (테넌트 격리)
 }) {
   const { batchId, actualQuantity, defectQuantity, revenue, completionNotes, idempotencyKey, tenantId } = params;
+  if (!tenantId) throw new Error("[P0 보안] completeBatch: tenantId는 필수입니다.");
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   // 1. idempotency 키 검증 (중복 완료 방지, tenantId 격리)
-  const batchConditions: any[] = [eq(hBatches.id, batchId)];
+  const batchConditions: any[] = [eq(hBatches.id, batchId), eq(hBatches.tenantId, tenantId)];
   if (tenantId) batchConditions.push(eq(hBatches.tenantId, tenantId));
 
   const existingBatches = await db

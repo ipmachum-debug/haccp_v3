@@ -316,15 +316,16 @@ export async function deleteMaterialInput(inputId: number, tenantId?: number) {
 export async function getBatchMaterialInputs(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  const { hBatchInputs, hMaterials } = await import("../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { hBatchInputs } = await import("../../drizzle/schema.js");
+  const { itemMaster } = await import("../../drizzle/schema/schema_dual_unit.js");
+  const { eq, sql } = await import("drizzle-orm");
 
   return await db.select({
     id: hBatchInputs.id,
     batchId: hBatchInputs.batchId,
     materialId: hBatchInputs.materialId,
-    materialName: hMaterials.materialName,
-    materialCode: hMaterials.materialCode,
+    materialName: sql`COALESCE(${itemMaster.itemName}, CONCAT('원재료 #', ${hBatchInputs.materialId}))`.as("materialName"),
+    materialCode: itemMaster.itemCode,
     lotId: hBatchInputs.lotId,
     plannedQuantity: hBatchInputs.plannedQuantity,
     actualQuantity: hBatchInputs.actualQuantity,
@@ -334,7 +335,7 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
     createdAt: hBatchInputs.createdAt
   })
   .from(hBatchInputs)
-  .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
+  .leftJoin(itemMaster, eq(hBatchInputs.materialId, itemMaster.id))
   .where(eq(hBatchInputs.batchId, batchId));
 }
 
