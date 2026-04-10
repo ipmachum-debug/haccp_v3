@@ -81,13 +81,6 @@ export async function createSingleBatch(
   const { createBatch, getProductById, createAuditLog } = await import("../db");
   const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
 
-  // === 0. 제품 ID 변환 (h_products_v2.id → h_products.id) ===
-  const resolvedProductId = await resolveToHProductId(input.productId, input.tenantId);
-  if (resolvedProductId !== input.productId) {
-    console.log(`[batchOrchestrator] productId 변환: ${input.productId} → ${resolvedProductId}`);
-    input = { ...input, productId: resolvedProductId };
-  }
-
   // === 1. 배치 생성 ===
   // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
   // T00:00:00 KST → T15:00:00Z(전날) 문제 방지
@@ -390,10 +383,7 @@ async function generateBatchCode(
 ): Promise<string> {
   const conn = await getRawConnection();
 
-  // 제품 ID를 먼저 h_products.id로 변환 (v2 ID가 넘어올 수 있음)
-  const resolvedId = await resolveToHProductId(productId, tenantId);
-
-  // 제품 코드 조회 (h_products_v2 단일 소스)
+  // 제품 코드 조회 (h_products_v2)
   let productCode = "00000";
   try {
     const [rows] = await conn.execute<any[]>(

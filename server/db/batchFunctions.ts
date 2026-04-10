@@ -490,22 +490,13 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
     throw new Error("배치를 찾을 수 없습니다.");
   }
 
-  // 제품 정보 조회 (h_products 우선, h_products_v2 폴백)
-  const { hProducts } = await import("../../drizzle/schema");
-  let product = await db
+  // 제품 정보 조회 (h_products_v2 단일 소스)
+  const product = await db
     .select()
-    .from(hProducts)
-    .where(eq(hProducts.id, batch.productId))
+    .from(hProductsV2)
+    .where(eq(hProductsV2.id, batch.productId))
     .limit(1)
     .then((rows) => rows[0]);
-  if (!product) {
-    product = await db
-      .select()
-      .from(hProductsV2)
-      .where(eq(hProductsV2.id, batch.productId))
-      .limit(1)
-      .then((rows) => rows[0]);
-  }
 
   // CCP 인스턴스 조회
   const ccpInstances = await db

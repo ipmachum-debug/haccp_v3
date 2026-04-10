@@ -47,19 +47,15 @@ export const batchRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
         const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
-        const { resolveToHProductId } = await import("../../services/batchOrchestrator");
 
         const tenantId = ctx.tenantId!;
         const workDate = formatLocalDate(input.plannedStartDate);
 
-        // STEP 0. 제품 ID 변환 (h_products_v2.id → h_products.id)
-        const resolvedProductId = await resolveToHProductId(input.productId, tenantId);
-
-        // STEP 1. 배치 헤더 생성
+        // STEP 1. 배치 헤더 생성 (h_products_v2.id를 직접 사용)
         const batchId = await createBatch({
           tenantId,
           siteId: input.siteId,
-          productId: resolvedProductId,
+          productId: input.productId,
           batchCode: input.batchNumber,
           plannedQuantity: input.plannedQuantity.toString(),
           plannedDate: input.plannedStartDate,
@@ -69,7 +65,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(resolvedProductId, tenantId);
+        const product = await getProductById(input.productId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -81,7 +77,7 @@ export const batchRouter = router({
             siteId: input.siteId,
             workDate,
             batchId,
-            productId: resolvedProductId,
+            productId: input.productId,
             productName,
             createdBy: ctx.user.id,
             tenantId,
@@ -100,14 +96,14 @@ export const batchRouter = router({
         // 제품명 보완: h_products_v2 조회 (STEP 3-B, 4 공통 사용)
         let finalProductName = productName;
         try {
-          if (!finalProductName && resolvedProductId) {
+          if (!finalProductName && input.productId) {
             const { getRawConnection: _rcProd } = await import("../../db");
             const _poolProd = await _rcProd();
             const [_pRows] = await _poolProd.execute(
               `SELECT p.product_name
                FROM h_products_v2 p
                WHERE p.id = ? AND p.tenant_id = ?`,
-              [resolvedProductId, tenantId]
+              [input.productId, tenantId]
             );
             finalProductName = (_pRows as any[])[0]?.product_name || "";
           }
@@ -130,7 +126,7 @@ export const batchRouter = router({
                  JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
                  WHERE r.product_id = ? AND r.tenant_id = ?
                  ORDER BY v.id DESC LIMIT 1`,
-                [resolvedProductId, tenantId]
+                [input.productId, tenantId]
               );
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
@@ -164,7 +160,7 @@ export const batchRouter = router({
               const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
               const equipIntervalMin = grp.equip_interval_min ?? 10;
               // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
-              const frProductId = grp.ccp_type === 'CCP-4P' ? null : resolvedProductId;
+              const frProductId = grp.ccp_type === 'CCP-4P' ? null : input.productId;
               const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
               await _pool3.execute(
                 `INSERT INTO h_ccp_form_records

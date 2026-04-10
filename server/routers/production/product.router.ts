@@ -189,15 +189,7 @@ export const productRouter = router({
           console.error('item_master 동기화 실패:', syncErr);
         }
 
-        // h_products (레거시) 동기화
-        if (rest.productName) {
-          try {
-            const { hProducts } = await import("../../../drizzle/schema.js");
-            await db.update(hProducts).set({ productName: rest.productName } as any).where(
-              and(eq(hProducts.id, id), eq(hProducts.tenantId, ctx.tenantId ?? undefined as any) )
-            );
-          } catch (_e) { /* 레거시 테이블 없을 수 있음 */ }
-        }
+        // h_products (v1) 동기화 제거 — h_products_v2로 통합 완료
 
         // CCP 비정규화 제품명 동기화 (해당 제품의 배치에 연결된 CCP 레코드)
         if (rest.productName) {
