@@ -1,6 +1,6 @@
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, type SQL } from "drizzle-orm";
 import { getDb, getRawConnection } from "./connection";
-import { hCcpDeviations, hCcpInstances, hCcpRows, hProducts, hProductsV2, hMaterials, hBatchInputs } from "../../drizzle/schema";
+import { hCcpDeviations, hCcpInstances, hCcpRows, hProductsV2, hMaterials, hBatchInputs } from "../../drizzle/schema";
 
 import { toKSTDate } from "../utils/timezone";
 
@@ -9,33 +9,25 @@ export async function getAllProducts(tenantId?: number) {
   const db = await getDb();
   if (!db) return [];
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const { eq, and, desc } = await import("drizzle-orm");
-  // ✅ P0 FIX: 소프트삭제 + 테넌트 격리
-  const conditions: SQL[] = [eq(hProducts.isActive, 1)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
-  return await db.select().from(hProducts).where(and(...conditions)).orderBy(desc(hProducts.id));
+  // h_products_v2 ��일 소스 + 소프트삭제 + 테넌트 격리
+  const conditions: SQL[] = [eq(hProductsV2.isActive, 1)];
+  if (tenantId) conditions.push(eq(hProductsV2.tenantId, tenantId));
+  return await db.select().from(hProductsV2).where(and(...conditions)).orderBy(desc(hProductsV2.id));
 }
 
 export async function getProductById(productId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   const { eq, and } = await import("drizzle-orm");
-  // Try h_products (v1) first — batch data references v1 product_id
-  try {
-    const { hProducts } = await import("../../drizzle/schema.js");
-    const v1conditions: SQL[] = [eq(hProducts.id, productId)];
-    if (tenantId) v1conditions.push(eq(hProducts.tenantId, tenantId));
-    const v1result = await db.select().from(hProducts).where(and(...v1conditions)).limit(1);
-    if (v1result.length > 0) return v1result[0] as any;
-  } catch (_e) { /* fallback */ }
-  // Fallback to h_products_v2
+  // v1 퇴출 완료: h_products_v2 단일 소스 사용
   try {
     const { hProductsV2 } = await import("../../drizzle/schema_main.js");
     const conditions: SQL[] = [eq((hProductsV2 as any).id, productId)];
     if (tenantId) conditions.push(eq((hProductsV2 as any).tenantId, tenantId));
-    const v2result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
-    if (v2result.length > 0) return v2result[0] as any;
+    const result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
+    if (result.length > 0) return result[0] as any;
   } catch (_e) { /* fallback */ }
   return undefined;
 }
@@ -271,7 +263,7 @@ export async function createProduct(data: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const values: Record<string, unknown> = {
     productCode: data.productCode,
     productName: data.productName,
@@ -283,7 +275,7 @@ export async function createProduct(data: {
     isActive: data.isActive !== undefined ? data.isActive : 1
   };
   if (data.tenantId) values.tenantId = data.tenantId;
-  const result = await db.insert(hProducts).values(values);
+  const result = await db.insert(hProductsV2).values(values);
   return { id: Number(result[0].insertId) };
 }
 
@@ -348,22 +340,31 @@ export async function getCcpInstancesByBatchId(batchId: number, tenantId?: numbe
   // ★ CCP-4P(금속검출)는 하루에 1개의 인스턴스가 첫 번째 배치에만 연결되므로,
   //    같은 날짜의 다른 배치에서도 해당 CCP-4P 인스턴스를 표시해야 함.
   //    → 배치의 planned_date와 같은 work_date의 CCP-4P 인스턴스도 포함
+  // CCP-4P는 하루에 1건만 표시 (MIN(id)로 첫 번째 인스턴스만 선택)
   const whereClause = tenantId
     ? `WHERE i.tenant_id = ? AND (
-         i.batch_id = ?
+         (i.batch_id = ? AND i.ccp_type != 'CCP-4P')
          OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
            SELECT b.planned_date FROM h_batches b WHERE b.id = ? AND b.tenant_id = ? LIMIT 1
+         ) AND i.id = (
+           SELECT MIN(i2.id) FROM h_ccp_instances i2
+           WHERE i2.ccp_type = 'CCP-4P' AND i2.tenant_id = ?
+             AND i2.work_date = (SELECT b2.planned_date FROM h_batches b2 WHERE b2.id = ? AND b2.tenant_id = ? LIMIT 1)
          ))
        )`
     : `WHERE (
-         i.batch_id = ?
+         (i.batch_id = ? AND i.ccp_type != 'CCP-4P')
          OR (i.ccp_type = 'CCP-4P' AND i.work_date = (
            SELECT b.planned_date FROM h_batches b WHERE b.id = ? LIMIT 1
+         ) AND i.id = (
+           SELECT MIN(i2.id) FROM h_ccp_instances i2
+           WHERE i2.ccp_type = 'CCP-4P'
+             AND i2.work_date = (SELECT b2.planned_date FROM h_batches b2 WHERE b2.id = ? LIMIT 1)
          ))
        )`;
   const params = tenantId
-    ? [tenantId, batchId, batchId, tenantId]
-    : [batchId, batchId];
+    ? [tenantId, batchId, batchId, tenantId, tenantId, batchId, tenantId]
+    : [batchId, batchId, batchId];
 
   const [instances] = await pool.execute<Record<string, unknown>[]>(
     `SELECT
@@ -662,12 +663,12 @@ export async function updateProduct(
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
 
   await db
-    .update(hProducts)
+    .update(hProductsV2)
     .set(data)
-    .where(eq(hProducts.id, id));
+    .where(eq(hProductsV2.id, id));
 
   return { success: true };
 }
@@ -677,13 +678,13 @@ export async function deleteProduct(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const { and } = await import("drizzle-orm");
 
-  const conditions: SQL[] = [eq(hProducts.id, id)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
+  const conditions: SQL[] = [eq(hProductsV2.id, id)];
+  if (tenantId) conditions.push(eq(hProductsV2.tenantId, tenantId));
   await db
-    .update(hProducts)
+    .update(hProductsV2)
     .set({ isActive: 0 })
     .where(and(...conditions));
 

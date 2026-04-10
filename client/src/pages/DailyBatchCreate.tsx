@@ -6,16 +6,19 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
 import AIProductionParser from "@/components/AIProductionParser";
 import {
   Loader2, Plus, Trash2, Package, FlaskConical,
-  Calendar, CheckCircle2, GripVertical, Shuffle, ArrowDown, ArrowUp, Sparkles
+  Calendar, CheckCircle2, GripVertical, Shuffle, ArrowDown, ArrowUp, Sparkles, ChevronsUpDown, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
 
 import { todayLocal } from "../lib/dateUtils";
 
@@ -441,26 +444,45 @@ export default function DailyBatchCreate() {
                           {/* Product */}
                           <div className="md:col-span-2 space-y-1">
                             <Label className="text-xs">제품 *</Label>
-                            <Select
-                              value={item.productId}
-                              onValueChange={(v) => updateItem(item.id, "productId", v)}
-                            >
-                              <SelectTrigger className="h-9">
-                                <SelectValue placeholder="제품 선택" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {products.map((p: any) => (
-                                  <SelectItem
-                                    key={p.id}
-                                    value={String(p.id)}
-                                    disabled={selectedProductIds.includes(String(p.id)) && item.productId !== String(p.id)}
-                                  >
-                                    {p.productName}
-                                    {selectedProductIds.includes(String(p.id)) && item.productId !== String(p.id) ? " (이미 선택됨)" : ""}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" role="combobox" className="h-9 w-full justify-between font-normal">
+                                  {item.productId
+                                    ? products.find((p: any) => String(p.id) === item.productId)?.productName || "제품 선택"
+                                    : "제품 검색/선택"}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[300px] p-0" align="start">
+                                <Command>
+                                  <CommandInput placeholder="제품명 검색..." />
+                                  <CommandList>
+                                    <CommandEmpty>검색 결과 없음</CommandEmpty>
+                                    <CommandGroup>
+                                      {products.map((p: any) => {
+                                        const isSelected = item.productId === String(p.id);
+                                        const isUsed = selectedProductIds.includes(String(p.id)) && !isSelected;
+                                        return (
+                                          <CommandItem
+                                            key={p.id}
+                                            value={p.productName}
+                                            disabled={isUsed}
+                                            onSelect={() => {
+                                              updateItem(item.id, "productId", String(p.id));
+                                            }}
+                                            className={cn(isUsed && "opacity-40")}
+                                          >
+                                            <Check className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                                            {p.productName}
+                                            {isUsed && " (이미 선택됨)"}
+                                          </CommandItem>
+                                        );
+                                      })}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
                           </div>
 
                           {/* Quantity */}

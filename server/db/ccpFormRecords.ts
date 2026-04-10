@@ -11,6 +11,7 @@
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
 import { getDb, getRawConnection } from "../db";
+import { todayKST, toKSTTimestamp } from "../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
@@ -71,10 +72,12 @@ export async function getOrCreateCcpFormRecord(params: {
   if (params.ccpType === "CCP-4P" && params.workDate) {
     const conn = await getRawConnection();
     // 당일 CCP-4P 기록이 이미 존재하는지 확인 (배치 무관)
+    // FOR UPDATE: 동시 배치 생성 시 레이스컨디션 방지
     const [dailyExisting] = await conn.execute<any[]>(
-      `SELECT * FROM h_ccp_form_records 
+      `SELECT * FROM h_ccp_form_records
        WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-       ORDER BY id ASC LIMIT 1`,
+       ORDER BY id ASC LIMIT 1
+       FOR UPDATE`,
       [params.tenantId, params.workDate],
     );
     if ((dailyExisting as any[]).length > 0) {
@@ -492,9 +495,7 @@ async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
     const tempC = data.heatTempC != null ? parseFloat(String(data.heatTempC)) : null;
     const durationMin = data.heatTimeMin ?? null;
     const pressureBar = data.pressureMpa != null ? parseFloat(String(data.pressureMpa)) : null;
-    const measuredAt = data.measurementTime
-      ? new Date(`2026-01-01 ${data.measurementTime}`)
-      : new Date();
+    // measuredAt은 아래 fullMeasuredAt에서 work_date 기반으로 정확히 계산
     const result = data.result === "적합" ? "PASS" : data.result === "부적합" ? "FAIL" : "PASS";
     const equipmentId = data.equipmentId ?? null;
     const equipmentName = data.equipmentName ?? null;
@@ -504,10 +505,10 @@ async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
       `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') as wd FROM h_ccp_form_records WHERE id = ? LIMIT 1`,
       [formRecordId]
     );
-    const workDate = (dateRows as any[])[0]?.wd || new Date().toISOString().slice(0, 10);
+    const workDate = (dateRows as any[])[0]?.wd || todayKST();
     const fullMeasuredAt = data.measurementTime
       ? `${workDate} ${data.measurementTime}`
-      : new Date().toISOString().slice(0, 19).replace("T", " ");
+      : toKSTTimestamp(new Date());
 
     // h_ccp_rows에서 같은 instance + sort_order(=batchSeq)로 찾아 upsert
     const [existingRows] = await rawConn.execute<any[]>(
@@ -768,18 +769,16 @@ export async function syncCcpRowsToFormRows(params: {
   //    MySQL 서버 타임존도 Asia/Seoul(KST)이므로 추가 변환 불필요
   const [batchInfo] = await rawConn.execute<any[]>(
     `SELECT b.planned_quantity, b.product_id,
-            COALESCE(p1.product_name, p2.product_name) as p_name,
+            p.product_name as p_name,
             DATE_FORMAT(b.start_time, '%H:%i') as start_time_hhmm,
             b.day_batch_group, b.batch_order, b.planned_date
      FROM h_batches b
-     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.id = ? AND b.tenant_id = ?
      LIMIT 1`,
     [batchId, tenantId],
   );
   const batchProductName = (batchInfo as any[])[0]?.p_name || "";
-  // ★ h_products (v1) 우선, h_products_v2 (v2) 폴백 - 배치 product_id가 v1 테이블 참조
   const batchPlannedKg = parseFloat((batchInfo as any[])[0]?.planned_quantity) || 0;
   const productId = (batchInfo as any[])[0]?.product_id || null;
   const dayBatchGroup = (batchInfo as any[])[0]?.day_batch_group || null;
@@ -814,6 +813,7 @@ export async function syncCcpRowsToFormRows(params: {
          JOIN h_mf_reports r ON r.id = v.mf_report_id
            AND r.product_id = ? AND r.tenant_id = ?
          WHERE i.process_group_id IS NOT NULL
+           AND i.material_id IS NOT NULL
          ORDER BY i.line_no`,
         [productId, tenantId],
       );
@@ -1056,6 +1056,7 @@ export async function syncCcpRowsToFormRows(params: {
            JOIN h_mf_reports r ON r.id = v.mf_report_id
              AND r.product_id = ? AND r.tenant_id = ?
            WHERE i.process_group_id IS NOT NULL
+             AND i.material_id IS NOT NULL
            ORDER BY i.line_no`,
           [instanceProductId, tenantId],
         );
@@ -1085,14 +1086,14 @@ export async function syncCcpRowsToFormRows(params: {
             fallbackMap[pgId] = (fallbackMap[pgId] || 0) + qtyKg;
           }
           localBomInputQtyMap = fallbackMap;
-          // ★ 인스턴스 product_id의 실제 제품명 조회 (h_products 우선, h_products_v2 폴백)
+          // 인스턴스 product_id의 실제 제품명 조회 (h_products_v2)
           try {
             const [prodNameRows] = await rawConn.execute<any[]>(
-              `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
-               FROM (SELECT 1) dummy
-               LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
-               LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?`,
-              [instanceProductId, tenantId, instanceProductId, tenantId],
+              `SELECT p.product_name
+               FROM h_products_v2 p
+               WHERE p.id = ? AND p.tenant_id = ?
+               LIMIT 1`,
+              [instanceProductId, tenantId],
             );
             if ((prodNameRows as any[]).length > 0 && (prodNameRows as any[])[0].product_name) {
               instanceProductName = (prodNameRows as any[])[0].product_name;
@@ -1166,12 +1167,12 @@ export async function syncCcpRowsToFormRows(params: {
     if (totalBatchCount < 1) totalBatchCount = 1;
 
     // ★ h_ccp_rows 기반 배치수 결정:
-    //    CCP 점검에서 생성된 행 수가 form_record의 batch_count보다 신뢰성 높음
-    //    (form_record는 BOM 없으면 1로 기본값, 하지만 CCP 점검은 실제 배치수 반영)
-    if (ccpType !== "CCP-4P" && ccpRows.length > 0 && ccpRows.length > totalBatchCount) {
+    //    라운드로빈: 1배치 = 1설비 1운전 → ccpRows.length = 배치수
+    //    예: 3배치, 설비 2대 → 3행 (라운드로빈 순환)
+    if (ccpType !== "CCP-4P" && ccpRows.length > 0) {
       const ccpBasedBatchCount = ccpRows.length;
-      // 기존 form_rows가 잘못된 batch_count 기반으로 생성되었으면 삭제 후 재생성
-      if (existingSeqs.size > 0 && existingSeqs.size < ccpBasedBatchCount) {
+      // 기존 form_rows가 잘못된 batch_count 기반이면 삭제 후 재생성
+      if (existingSeqs.size > 0 && existingSeqs.size !== ccpBasedBatchCount) {
         await rawConn.execute(
           `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
           [formRecordId, tenantId],
@@ -1369,13 +1370,12 @@ export async function syncCcpRowsToFormRows(params: {
       if (batchWorkDate) {
         const [skuRows] = await rawConn.execute<any[]>(
           `SELECT b.id as batch_id, b.product_id, b.planned_quantity,
-                  COALESCE(p1.product_name, p2.product_name, fr2.product_name) as product_name,
+                  COALESCE(p.product_name, fr2.product_name) as product_name,
                   pso.sku_id, ps.sku_name, ps.sku_code,
                   COALESCE(pso.quantity, 0) as sku_quantity,
                   COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
            LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
@@ -1934,11 +1934,10 @@ export async function syncCcpRowsToFormRows(params: {
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
-            // sequential (기본) - 글로벌 인덱스는 설비 선택에만 사용
-            // ★ 시간 오프셋은 현재 배치의 로컬 인덱스(seqIdx) 기반으로 계산
-            //    globalSeqIdx 기반 시간계산 시 이전 배치의 서브배치 수가 누적되어
-            //    비현실적인 시간(예: 21:35)이 생성되는 문제 수정
-            const equipIndex = globalSeqIdx % equipCount;
+            // sequential (기본) — 배치 내 로컬 인덱스로 설비 선택
+            // globalSeqIdx는 이전 배치 설비가 누적되어 3→1 역전 문제 발생
+            // seqIdx(배치 내 0,1,2...)를 사용하여 1호기→2호기→3호기 순서 보장
+            const equipIndex = seqIdx % equipCount;
             const localRoundIndex = Math.floor(seqIdx / equipCount);
             const offsetMin = localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);

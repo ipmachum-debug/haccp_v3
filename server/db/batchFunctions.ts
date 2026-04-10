@@ -1,5 +1,6 @@
 import { eq, and, desc, sql, like } from "drizzle-orm";
 import { getDb, getRawConnection } from "./connection";
+import { todayKST, toKSTTimestamp } from "../utils/timezone";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../drizzle/schema";
 
 export async function createBatch(batch: {
@@ -164,11 +165,10 @@ export async function getBatchById(batchId: number, tenantId?: number) {
 
   const [rows] = await conn.execute<any[]>(
     `SELECT b.*,
-            COALESCE(p1.product_name, p2.product_name) as product_name,
-            COALESCE(p1.product_code, p2.product_code) as product_code
+            p.product_name,
+            p.product_code
      FROM h_batches b
-     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.id = ?
      LIMIT 1`,
     [batchId]
@@ -261,10 +261,9 @@ export async function getAllBatches(filters?: {
   const total = Number((countRows as any[])[0]?.cnt || 0);
 
   const [dataRows] = await conn.execute<any[]>(
-    `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+    `SELECT b.*, p.product_name, p.product_code
      FROM h_batches b
-     LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-     LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      ${whereClause}
      ORDER BY b.created_at DESC
      LIMIT ? OFFSET ?`,
@@ -438,41 +437,16 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
 export async function generateBatchCode(productId: number, tenantId?: number) {
   const conn = await getRawConnection();
 
-  // 1. 제품 정보 조회 (tenantId 격리)
+  // 1. 제품 정보 조회 (h_products_v2 단일 소스)
   let productCode = "00000";
   try {
-    if (tenantId) {
-      const [v1Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
-        [productId, tenantId],
-      );
-      if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
-        productCode = (v1Rows as any[])[0].product_code;
-      } else {
-        const [v2Rows] = await conn.execute<any[]>(
-          "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
-          [productId, tenantId],
-        );
-        if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-          productCode = (v2Rows as any[])[0].product_code;
-        }
-      }
-    } else {
-      const [v1Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products WHERE id=? LIMIT 1",
-        [productId],
-      );
-      if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
-        productCode = (v1Rows as any[])[0].product_code;
-      } else {
-        const [v2Rows] = await conn.execute<any[]>(
-          "SELECT product_code FROM h_products_v2 WHERE id=? LIMIT 1",
-          [productId],
-        );
-        if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-          productCode = (v2Rows as any[])[0].product_code;
-        }
-      }
+    const productQuery = tenantId
+      ? "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1"
+      : "SELECT product_code FROM h_products_v2 WHERE id=? LIMIT 1";
+    const productParams = tenantId ? [productId, tenantId] : [productId];
+    const [rows] = await conn.execute<any[]>(productQuery, productParams);
+    if ((rows as any[]).length > 0 && (rows as any[])[0].product_code) {
+      productCode = (rows as any[])[0].product_code;
     }
   } catch { /* use default code */ }
 
@@ -514,22 +488,13 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
     throw new Error("배치를 찾을 수 없습니다.");
   }
 
-  // 제품 정보 조회 (h_products 우선, h_products_v2 폴백)
-  const { hProducts } = await import("../../drizzle/schema");
-  let product = await db
+  // 제품 정보 조회 (h_products_v2 단일 소스)
+  const product = await db
     .select()
-    .from(hProducts)
-    .where(eq(hProducts.id, batch.productId))
+    .from(hProductsV2)
+    .where(eq(hProductsV2.id, batch.productId))
     .limit(1)
     .then((rows) => rows[0]);
-  if (!product) {
-    product = await db
-      .select()
-      .from(hProductsV2)
-      .where(eq(hProductsV2.id, batch.productId))
-      .limit(1)
-      .then((rows) => rows[0]);
-  }
 
   // CCP 인스턴스 조회
   const ccpInstances = await db
@@ -581,13 +546,12 @@ export async function getActiveBatches(tenantId?: number) {
       b.planned_quantity as quantity,
       b.planned_date as startTime,
       DATE_ADD(b.planned_date, INTERVAL 8 HOUR) as expectedEndTime,
-      COALESCE(p1.product_name, p2.product_name) as productName,
+      p.product_name as productName,
       'in_progress' as status,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id) as ccpCheckCount,
       (SELECT COUNT(*) FROM h_ccp_instances WHERE batch_id = b.id AND status = 'completed') as ccpCheckCompletedCount
     FROM h_batches b
-    LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = b.tenant_id
-    LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND p2.tenant_id = b.tenant_id
+    LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = b.tenant_id
     WHERE b.planned_date >= DATE_SUB(NOW(), INTERVAL 7 DAY) ${tenantFilter}
     ORDER BY b.planned_date DESC
     LIMIT 20
@@ -699,14 +663,15 @@ export async function completeBatch(params: {
   revenue?: number;
   completionNotes?: string;
   idempotencyKey: string;
-  tenantId?: number;
+  tenantId: number; // P0 보안: 필수 (테넌트 격리)
 }) {
   const { batchId, actualQuantity, defectQuantity, revenue, completionNotes, idempotencyKey, tenantId } = params;
+  if (!tenantId) throw new Error("[P0 보안] completeBatch: tenantId는 필수입니다.");
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
   // 1. idempotency 키 검증 (중복 완료 방지, tenantId 격리)
-  const batchConditions: any[] = [eq(hBatches.id, batchId)];
+  const batchConditions: any[] = [eq(hBatches.id, batchId), eq(hBatches.tenantId, tenantId)];
   if (tenantId) batchConditions.push(eq(hBatches.tenantId, tenantId));
 
   const existingBatches = await db
@@ -979,20 +944,19 @@ export async function completeBatch(params: {
     const [skuOutputRows] = await pool.execute(
       `SELECT pso.sku_id, pso.quantity, pso.total_kg, pso.defective_qty,
               ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit,
-              COALESCE(im.item_name, p1.product_name, p2.product_name) as product_name
+              COALESCE(im.item_name, p.product_name) as product_name
        FROM production_sku_output pso
        JOIN product_skus ps ON pso.sku_id = ps.id
        LEFT JOIN item_master im ON ps.item_id = im.id AND im.tenant_id = ?
-       LEFT JOIN h_products p1 ON p1.id = ? AND p1.tenant_id = ?
-       LEFT JOIN h_products_v2 p2 ON p2.id = ? AND p2.tenant_id = ?
+       LEFT JOIN h_products_v2 p ON p.id = ? AND p.tenant_id = ?
        WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
-      [tenantId, existingBatch.productId, tenantId, existingBatch.productId, tenantId, batchId, tenantId]
+      [tenantId, existingBatch.productId, tenantId, batchId, tenantId]
     );
 
     const skuRows = skuOutputRows as any[];
     if (skuRows.length > 0) {
       const batchCode = existingBatch.batchCode || `B${batchId}`;
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = todayKST();
 
       for (const sku of skuRows) {
         const skuQty = parseInt(sku.quantity) || 0;
@@ -1126,8 +1090,8 @@ export async function completeBatch(params: {
     try {
       const rawConn2 = await getRawConnection();
       if (rawConn2) {
-        const today = new Date().toISOString().split('T')[0];
-        const now2 = new Date().toISOString().replace('T', ' ').split('.')[0];
+        const today = todayKST();
+        const now2 = toKSTTimestamp(new Date());
         await rawConn2.execute(
           "INSERT IGNORE INTO h_daily_reports (site_id, report_date, report_type, summary, status, created_at, updated_at) VALUES (?, ?, 'production', ?, 'completed', ?, ?)",
           [existingBatch.siteId, today, JSON.stringify({ batchId, actualQuantity, autoGenerated: true }), now2, now2]
@@ -1256,7 +1220,7 @@ export async function autoGenerateDocumentsForBatch(
     const workDateStr = workDate instanceof Date
       ? `${workDate.getFullYear()}-${String(workDate.getMonth() + 1).padStart(2, "0")}-${String(workDate.getDate()).padStart(2, "0")}`
       : workDate;
-    const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+    const now = toKSTTimestamp(new Date());
 
     // 1. auto_generate_on_batch = 1인 문서 유형 조회
     const [docTypes] = await rawConn.execute(

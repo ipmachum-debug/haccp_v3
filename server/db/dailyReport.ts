@@ -8,26 +8,22 @@ export async function getDailyProduction(date: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   
-  const { hBatches, hProductsV2, hProducts } = await import("../../drizzle/schema_main");
+  const { hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
-  
-  const startDate = new Date(date);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(date);
-  endDate.setHours(23, 59, 59, 999);
-  
+
+  // planned_date 기준 조회 (배치 예정일 = 실제 작업일)
+  // createdAt은 DB INSERT 시점이라 임포트 데이터 등에서 오류 발생
   const conditions: any[] = [
-    gte(hBatches.createdAt, startDate),
-    lte(hBatches.createdAt, endDate)
+    eq(sql`DATE(${hBatches.plannedDate})`, date)
   ];
   if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
-  
+
   const batches = await db
     .select({
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
       productId: hBatches.productId,
-      productName: sql`COALESCE(${hProducts.productName}, ${hProductsV2.productName})`.as('product_name'),
+      productName: hProductsV2.productName,
       plannedQuantity: hBatches.plannedQuantity,
       actualQuantity: hBatches.actualQuantity,
       status: hBatches.status,
@@ -36,7 +32,6 @@ export async function getDailyProduction(date: string, tenantId?: number) {
       createdAt: hBatches.createdAt
     })
     .from(hBatches)
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
     .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
     .orderBy(hBatches.createdAt);
@@ -94,27 +89,27 @@ export async function getDailyIssues(date: string, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   
-  const { hCcpInstances, hCcpRows, hBatches, hProductsV2, hProducts } = await import("../../drizzle/schema_main");
+  const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
-  
+
   const startDate = new Date(date);
   startDate.setHours(0, 0, 0, 0);
   const endDate = new Date(date);
   endDate.setHours(23, 59, 59, 999);
-  
+
   const conditions: any[] = [
     eq(hCcpRows.result, "FAIL"),
     gte(hCcpRows.measuredAt, startDate),
     lte(hCcpRows.measuredAt, endDate)
   ];
   if (tenantId) conditions.push(eq(hCcpRows.tenantId, tenantId));
-  
+
   const issues = await db
     .select({
       rowId: hCcpRows.id,
       batchId: hBatches.id,
       batchCode: hBatches.batchCode,
-      productName: sql`COALESCE(${hProducts.productName}, ${hProductsV2.productName})`.as('product_name'),
+      productName: hProductsV2.productName,
       ccpType: hCcpInstances.ccpType,
       result: hCcpRows.result,
       measuredAt: hCcpRows.measuredAt,
@@ -123,7 +118,6 @@ export async function getDailyIssues(date: string, tenantId?: number) {
     .from(hCcpRows)
     .leftJoin(hCcpInstances, eq(hCcpRows.instanceId, hCcpInstances.id))
     .leftJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
-    .leftJoin(hProducts, eq(hBatches.productId, hProducts.id))
     .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
     .where(and(...conditions))
     .orderBy(hCcpRows.measuredAt);
@@ -141,14 +135,9 @@ export async function getDailySummary(date: string, tenantId?: number) {
   const { hBatches, hCcpRows } = await import("../../drizzle/schema_main");
   const { and, gte, lte, eq, count, sum, sql } = await import("drizzle-orm");
   
-  const startDate = new Date(date);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(date);
-  endDate.setHours(23, 59, 59, 999);
-  
+  // planned_date 기준 (createdAt은 INSERT 시점이라 과거 임포트 시 오류)
   const batchConditions: any[] = [
-    gte(hBatches.createdAt, startDate),
-    lte(hBatches.createdAt, endDate)
+    eq(sql`DATE(${hBatches.plannedDate})`, date)
   ];
   if (tenantId) batchConditions.push(eq(hBatches.tenantId, tenantId));
   

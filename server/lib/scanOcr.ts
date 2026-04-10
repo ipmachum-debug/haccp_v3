@@ -10,7 +10,6 @@
  * 6. 매입전표 인식 지원
  */
 import OpenAI from "openai";
-import { ENV } from "../_core/env";
 import fs from "fs";
 import { execSync } from "child_process";
 import path from "path";
@@ -23,12 +22,7 @@ async function getSharp() {
   return _sharp;
 }
 
-function getOpenAIApiKey(): string {
-  return process.env.OPENAI_API_KEY || ENV.forgeApiKey || "";
-}
-function getOpenAIClient(): OpenAI {
-  return new OpenAI({ apiKey: getOpenAIApiKey() });
-}
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ════════════════════════════════════════════
 // 타입 정의
@@ -257,8 +251,7 @@ async function callVisionOcr(
   config: PromptConfig,
   extraContext?: string
 ): Promise<{ rawText: string; parsed: Record<string, any> | null }> {
-  const apiKey = getOpenAIApiKey();
-  if (!apiKey) {
+  if (!process.env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.");
   }
 
@@ -273,7 +266,7 @@ ${config.jsonSchema}
 - 날짜가 없으면 null
 ${extraContext || ""}`;
 
-  const response = await getOpenAIClient().chat.completions.create({
+  const response = await openai.chat.completions.create({
     model: "gpt-4o",
     max_tokens: 4096,
     messages: [
@@ -384,7 +377,7 @@ async function secondPassVerification(
   const fieldList = lowFields.map(f => `- ${f}: 현재값 "${getNestedValue(originalData, f)}"`).join("\n");
 
   try {
-    const response = await getOpenAIClient().chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o",
       max_tokens: 2048,
       messages: [

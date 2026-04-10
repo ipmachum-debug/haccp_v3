@@ -60,10 +60,9 @@ export async function autoIssueMaterialsForBatch(
     // 1. 배치 정보 조회
     const [batchRows]: any = await db.execute(sql`
       SELECT b.id, b.tenant_id, b.product_id, b.planned_quantity, b.status,
-             COALESCE(p1.product_name, p2.product_name) as product_name
+             p.product_name
       FROM h_batches b
-      LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-      LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
       WHERE b.id = ${batchId}
       LIMIT 1
     `);

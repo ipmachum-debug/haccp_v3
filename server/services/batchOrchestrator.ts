@@ -59,56 +59,16 @@ export interface SingleBatchResult {
 }
 
 /**
- * h_products_v2.id → h_products.id 변환
- * 
- * UI(product.list)는 h_products_v2.id를 반환하지만,
- * 배치 시스템(BOM, CCP, 배합비 등)은 h_products.id를 사용합니다.
- * 이름 기반으로 h_products_v2.id를 h_products.id로 변환합니다.
- * 매핑 실패 시 원래 ID를 그대로 반환합니다.
+ * @deprecated v1 퇴출 완료 — h_products_v2.id를 직접 사용
+ * DB 마이그레이션(migrate-products-v1-to-v2.ts) 실행 후에는
+ * 모든 product_id가 h_products_v2.id이므로 변환이 불필요합니다.
+ * 하위 호환을 위해 함수는 유지하되 입력값을 그대로 반환합니다.
  */
 export async function resolveToHProductId(
   productId: number,
-  tenantId: number,
+  _tenantId: number,
 ): Promise<number> {
-  try {
-    const conn = await getRawConnection();
-    // 먼저 h_products에 해당 ID가 있는지 확인
-    const [v1Direct] = await conn.execute<any[]>(
-      "SELECT id, product_name FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
-      [productId, tenantId],
-    );
-    // h_products_v2에서도 같은 ID로 조회
-    const [v2Direct] = await conn.execute<any[]>(
-      "SELECT id, product_name FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
-      [productId, tenantId],
-    );
-    const v1Name = (v1Direct as any[])[0]?.product_name;
-    const v2Name = (v2Direct as any[])[0]?.product_name;
-
-    // 양쪽 모두 존재하고 이름이 같으면 → ID가 일치하므로 변환 불필요
-    if (v1Name && v2Name && v1Name === v2Name) {
-      return productId;
-    }
-
-    // 양쪽 모두 존재하지만 이름이 다르면 → v2 이름으로 h_products에서 찾기
-    if (v2Name && v1Name !== v2Name) {
-      const [v1ByName] = await conn.execute<any[]>(
-        "SELECT id FROM h_products WHERE product_name=? AND tenant_id=? LIMIT 1",
-        [v2Name, tenantId],
-      );
-      if ((v1ByName as any[]).length > 0) {
-        const resolvedId = Number((v1ByName as any[])[0].id);
-        console.log(`[resolveToHProductId] v2.id=${productId}(${v2Name}) → h_products.id=${resolvedId}`);
-        return resolvedId;
-      }
-    }
-
-    // h_products에만 있거나 매핑 실패 → 원래 ID 반환
-    return productId;
-  } catch (err) {
-    console.error("[resolveToHProductId] 매핑 실패:", err);
-    return productId;
-  }
+  return productId; // v1 퇴출 후: 변환 불필요, ID 그대로 반환
 }
 
 /**
@@ -120,13 +80,6 @@ export async function createSingleBatch(
 ): Promise<SingleBatchResult> {
   const { createBatch, getProductById, createAuditLog } = await import("../db");
   const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
-
-  // === 0. 제품 ID 변환 (h_products_v2.id → h_products.id) ===
-  const resolvedProductId = await resolveToHProductId(input.productId, input.tenantId);
-  if (resolvedProductId !== input.productId) {
-    console.log(`[batchOrchestrator] productId 변환: ${input.productId} → ${resolvedProductId}`);
-    input = { ...input, productId: resolvedProductId };
-  }
 
   // === 1. 배치 생성 ===
   // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
@@ -159,6 +112,30 @@ export async function createSingleBatch(
   let ccpGroups: Array<{ id: number; name: string; ccp_type: string }> = [];
   let ccpGroupNames: string[] = [];
 
+  // BOM batch_target_kg 선행 조회 → CCP 인스턴스 생성 + form records 모두에서 사용
+  let bomBatchKg: number | undefined = undefined;
+  try {
+    const bomPool = await getRawConnection();
+    const [bomRows] = await bomPool.execute<any[]>(
+      `SELECT rv.batch_target_kg
+       FROM h_mf_report_versions rv
+       JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
+       WHERE mr.product_id = ? AND mr.tenant_id = ?
+         AND rv.approval_status = 'APPROVED'
+       ORDER BY rv.id DESC LIMIT 1`,
+      [input.productId, input.tenantId]
+    );
+    const btkVal = (bomRows as any[])[0]?.batch_target_kg;
+    if (btkVal) {
+      bomBatchKg = parseFloat(btkVal);
+    }
+    if (bomBatchKg) {
+      console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
+    }
+  } catch (bomErr) {
+    console.error("[batchOrchestrator] BOM batch_target_kg 조회 실패:", bomErr);
+  }
+
   try {
     const result = await autoCreateCcpInstancesForBatch({
       siteId: input.siteId,
@@ -168,6 +145,8 @@ export async function createSingleBatch(
       productName,
       createdBy: input.userId,
       tenantId: input.tenantId,
+      plannedQuantity: input.plannedQuantityKg,
+      bomBatchKg: bomBatchKg ?? undefined, // 선행 조회된 값 전달
     });
     ccpCreated = result.instanceIds.length > 0;
     ccpCount = result.instanceIds.length;
@@ -179,38 +158,6 @@ export async function createSingleBatch(
 
     // 3.1. CCP form records 자동 생성 (인쇄용 양식)
     if (ccpCreated && result.groups.length > 0) {
-      // BOM batch_target_kg 조회 → 배치수 자동계산 (plannedQtyKg / bomBatchKg)
-      let bomBatchKg: number | undefined = undefined;
-      try {
-        const pool = await getRawConnection();
-        const [bomRows] = await pool.execute<any[]>(
-          `SELECT rv.batch_target_kg
-           FROM h_mf_report_versions rv
-           JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-           WHERE mr.product_id = ? AND mr.tenant_id = ?
-             AND rv.approval_status = 'APPROVED'
-           ORDER BY rv.id DESC LIMIT 1`,
-          [input.productId, input.tenantId]
-        );
-        const btkVal = (bomRows as any[])[0]?.batch_target_kg;
-        if (btkVal) {
-          bomBatchKg = parseFloat(btkVal);
-        } else {
-          // fallback: h_recipe_headers
-          const [rRows] = await pool.execute<any[]>(
-            `SELECT target_quantity FROM h_recipe_headers WHERE product_id = ? AND unit != '%' ORDER BY id DESC LIMIT 1`,
-            [input.productId]
-          );
-          const fallback = (rRows as any[])[0]?.target_quantity;
-          if (fallback) bomBatchKg = parseFloat(fallback);
-        }
-        if (bomBatchKg) {
-          console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
-        }
-      } catch (bomErr) {
-        console.error("[batchOrchestrator] BOM batch_target_kg 조회 실패:", bomErr);
-      }
-
       try {
         const { getOrCreateCcpFormRecord } = await import("../db/ccpFormRecords");
         for (const group of result.groups) {
@@ -434,26 +381,15 @@ async function generateBatchCode(
 ): Promise<string> {
   const conn = await getRawConnection();
 
-  // 제품 ID를 먼저 h_products.id로 변환 (v2 ID가 넘어올 수 있음)
-  const resolvedId = await resolveToHProductId(productId, tenantId);
-
-  // 제품 코드 조회 (resolved h_products.id 사용)
+  // 제품 코드 조회 (h_products_v2)
   let productCode = "00000";
   try {
-    const [v1Rows] = await conn.execute<any[]>(
-      "SELECT product_code FROM h_products WHERE id=? AND tenant_id=? LIMIT 1",
-      [resolvedId, tenantId],
+    const [rows] = await conn.execute<any[]>(
+      "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+      [productId, tenantId],
     );
-    if ((v1Rows as any[]).length > 0 && (v1Rows as any[])[0].product_code) {
-      productCode = (v1Rows as any[])[0].product_code;
-    } else {
-      const [v2Rows] = await conn.execute<any[]>(
-        "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
-        [productId, tenantId],
-      );
-      if ((v2Rows as any[]).length > 0 && (v2Rows as any[])[0].product_code) {
-        productCode = (v2Rows as any[])[0].product_code;
-      }
+    if ((rows as any[]).length > 0 && (rows as any[])[0].product_code) {
+      productCode = (rows as any[])[0].product_code;
     }
   } catch { /* use default */ }
 

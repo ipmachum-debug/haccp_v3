@@ -1,5 +1,6 @@
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { getDb } from "./connection";
+import { toKSTTimestamp } from "../utils/timezone";
 import {
   checklistTemplates,
   checklistTemplateItems,
@@ -407,7 +408,7 @@ export async function updateChecklistInstanceItem(
   if (data.isCompleted !== undefined) {
     updateData.isCompleted = data.isCompleted ? 1 : 0;
     if (data.isCompleted) {
-      updateData.completedAt = new Date().toISOString().replace('T', ' ').substring(0, 23);
+      updateData.completedAt = toKSTTimestamp(new Date());
       if (data.completedBy) updateData.completedBy = data.completedBy;
     }
   }
@@ -430,7 +431,7 @@ export async function completeChecklistInstance(
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
 
-  const now = new Date().toISOString().replace('T', ' ').substring(0, 23);
+  const now = toKSTTimestamp(new Date());
 
   await db
     .update(checklistInstances)

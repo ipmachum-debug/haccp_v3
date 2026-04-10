@@ -39,6 +39,12 @@ export interface ProcessGroupInfo {
   pressure_max: number | null;
   mapping_source: "BOM" | "MANUAL" | "ALWAYS";
   ingredient_count?: number;
+  /** 설비 운영 모드: sequential(순차), concurrent(동시), grouped(묶음순차) */
+  equip_group_mode?: string;
+  /** 설비 간 투입 간격(분) */
+  equip_interval_min?: number;
+  /** 묶음 크기 (1=순차 1대씩, 3=3대 동시 묶음) */
+  equip_batch_size?: number;
 }
 
 export interface EquipmentAssignment {
@@ -122,6 +128,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
+       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
        COUNT(i.id) AS ingredient_count
      FROM h_mf_reports r
      JOIN h_mf_report_versions v
@@ -149,6 +156,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
+       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
        NULL AS ingredient_count
      FROM ccp_process_group_products gp
      JOIN ccp_process_groups g
@@ -169,6 +177,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
+       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
        NULL AS ingredient_count
      FROM ccp_process_groups g
      WHERE g.tenant_id = ?
@@ -190,6 +199,9 @@ export async function getProcessGroupsForProduct(args: {
     pressure_max:    r.pressure_max    != null ? Number(r.pressure_max)    : null,
     mapping_source:  source,
     ingredient_count: r.ingredient_count != null ? Number(r.ingredient_count) : undefined,
+    equip_group_mode: r.equip_group_mode ?? "sequential",
+    equip_interval_min: r.equip_interval_min != null ? Number(r.equip_interval_min) : undefined,
+    equip_batch_size: r.equip_batch_size != null ? Number(r.equip_batch_size) : 1,
   });
 
   const bomInfos    = (bomRows    as any[]).map(r => toInfo(r, "BOM"));
@@ -280,11 +292,19 @@ async function createCcpRowsForGroup(
     return;
   }
 
-  // ── 배치수 × 설비 = N행 (batchCount 기반)
+  // ── 배치수 × 묶음크기 = 행 수 (설비는 라운드로빈 순환)
+  // equip_batch_size: 1배치에 동시 가동하는 설비 수
+  //   묶음크기=1 (순차): 배치1→설비1, 배치2→설비2, 배치3→설비1...
+  //   묶음크기=3 (묶음순차): 배치1→설비1,2,3 동시, 배치2→설비4,5,6 동시
+  // 총 행 수 = batchCount × equipBatchSize
+  const equipBatchSize = group.equip_batch_size ?? 1;
   let sortIdx = 0;
   for (let bn = 1; bn <= batchCount; bn++) {
-    for (let idx = 0; idx < equipments.length; idx++) {
-      const eq = equipments[idx];
+    // 이 배치에 할당할 설비들 (묶음크기만큼)
+    const startEqIdx = ((bn - 1) * equipBatchSize) % equipments.length;
+    for (let g = 0; g < equipBatchSize; g++) {
+      const eqIdx = (startEqIdx + g) % equipments.length;
+      const eq = equipments[eqIdx];
       sortIdx++;
 
       // 온도: 설비기준 우선 → 공정 한계기준 폴백
@@ -334,8 +354,8 @@ async function createCcpRowsForGroup(
           tenantId,
         ],
       );
-    }
-  }
+    } // end for g (묶음 내 설비)
+  } // end for bn (배치)
 }
 
 /**
