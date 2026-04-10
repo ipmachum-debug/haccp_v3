@@ -11,14 +11,10 @@ export async function getDailyProduction(date: string, tenantId?: number) {
   const { hBatches, hProductsV2, hProducts } = await import("../../drizzle/schema_main");
   const { eq, and, gte, lte, sql } = await import("drizzle-orm");
   
-  const startDate = new Date(date);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(date);
-  endDate.setHours(23, 59, 59, 999);
-  
+  // planned_date 기준 조회 (배치 예정일 = 실제 작업일)
+  // createdAt은 DB INSERT 시점이라 임포트 데이터 등에서 오류 발생
   const conditions: any[] = [
-    gte(hBatches.createdAt, startDate),
-    lte(hBatches.createdAt, endDate)
+    eq(sql`DATE(${hBatches.plannedDate})`, date)
   ];
   if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
   
@@ -141,14 +137,9 @@ export async function getDailySummary(date: string, tenantId?: number) {
   const { hBatches, hCcpRows } = await import("../../drizzle/schema_main");
   const { and, gte, lte, eq, count, sum, sql } = await import("drizzle-orm");
   
-  const startDate = new Date(date);
-  startDate.setHours(0, 0, 0, 0);
-  const endDate = new Date(date);
-  endDate.setHours(23, 59, 59, 999);
-  
+  // planned_date 기준 (createdAt은 INSERT 시점이라 과거 임포트 시 오류)
   const batchConditions: any[] = [
-    gte(hBatches.createdAt, startDate),
-    lte(hBatches.createdAt, endDate)
+    eq(sql`DATE(${hBatches.plannedDate})`, date)
   ];
   if (tenantId) batchConditions.push(eq(hBatches.tenantId, tenantId));
   
