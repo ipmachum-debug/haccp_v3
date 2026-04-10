@@ -29,7 +29,8 @@ export function saveScanFile(
 ): { filePath: string; fileName: string; key: string } {
   ensureScanDir();
 
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const { todayKST } = require("../utils/timezone");
+  const date = todayKST().replace(/-/g, "");
   const tenantDir = path.join(SCAN_DIR, String(tenantId), date);
   if (!fs.existsSync(tenantDir)) {
     fs.mkdirSync(tenantDir, { recursive: true });

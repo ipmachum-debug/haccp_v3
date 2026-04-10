@@ -13,6 +13,7 @@
  */
 
 import { getRawConnection, withTransaction } from "../db";
+import { todayKST } from "../utils/timezone";
 
 export interface ScanMappingResult {
   success: boolean;
@@ -87,7 +88,7 @@ async function mapTrainingLog(
   const mapped: string[] = [];
   const unmapped: string[] = [];
 
-  const formDate = data.formDate || new Date().toISOString().slice(0, 10);
+  const formDate = data.formDate || todayKST();
   const title = data.title || "스캔 교육훈련일지";
   const inspector = data.inspector || "";
 
@@ -162,7 +163,7 @@ async function mapCcpRecord(
   const mapped: string[] = [];
   const unmapped: string[] = [];
 
-  const workDate = data.formDate || data.workDate || new Date().toISOString().slice(0, 10);
+  const workDate = data.formDate || data.workDate || todayKST();
   const ccpType = data.ccpType || docType.replace("ccp_", "CCP-").toUpperCase();
   const productName = data.productName || "";
 
@@ -231,7 +232,7 @@ async function mapInspection(
   const conn = await getRawConnection();
   const mapped: string[] = [];
 
-  const formDate = data.formDate || new Date().toISOString().slice(0, 10);
+  const formDate = data.formDate || todayKST();
   const inspType = docType.replace("_inspection", "") || "general";
   const title = data.title || `${inspType} 검사기록 (스캔)`;
 
@@ -275,7 +276,7 @@ async function mapGenericChecklist(
 ): Promise<ScanMappingResult> {
   const conn = await getRawConnection();
 
-  const formDate = data.formDate || new Date().toISOString().slice(0, 10);
+  const formDate = data.formDate || todayKST();
   const title = data.title || `${docType} 스캔 입력`;
 
   const [result] = await conn.execute<any>(
@@ -314,7 +315,7 @@ async function mapPurchaseInvoice(
   const unmapped: string[] = [];
   const warnings: string[] = [];
 
-  const transactionDate = data.formDate || data.invoiceDate || new Date().toISOString().slice(0, 10);
+  const transactionDate = data.formDate || data.invoiceDate || todayKST();
   const supplierName = data.supplierName || data.supplier || "";
 
   // 거래처 자동 매칭

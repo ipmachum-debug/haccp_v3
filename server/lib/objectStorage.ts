@@ -89,7 +89,8 @@ export async function deleteObject(key: string): Promise<void> {
  * 업로드 키 생성 (tenant/날짜/UUID 기반)
  */
 export function generateUploadKey(tenantId: number, filename: string): string {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const { todayKST } = require("../utils/timezone");
+  const date = todayKST().replace(/-/g, "");
   const uuid = crypto.randomUUID();
   const ext = filename.split(".").pop() || "pdf";
   return `scans/${tenantId}/${date}/${uuid}.${ext}`;

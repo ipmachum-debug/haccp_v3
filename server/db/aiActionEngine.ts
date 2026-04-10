@@ -42,7 +42,7 @@ import { evaluateAllRules } from "./rulesEngine";
 import { getRawConnection } from "../db";
 import { buildKnowledgeContext } from "./knowledgeBase";
 
-import { formatLocalDate } from "../utils/timezone";
+import { formatLocalDate, todayKST } from "../utils/timezone";
 
 // ============================================================================
 // 의도 분류
@@ -490,7 +490,7 @@ async function gatherContext(
       case "training_query": {
         // 교육 현황 조회
         const conn = await getRawConnection();
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayKST();
 
         // 오늘 배정
         const [assignment] = await conn.execute<any[]>(

@@ -11,6 +11,7 @@
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
 import { getDb, getRawConnection } from "../db";
+import { todayKST, toKSTTimestamp } from "../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
@@ -504,10 +505,10 @@ async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
       `SELECT DATE_FORMAT(work_date, '%Y-%m-%d') as wd FROM h_ccp_form_records WHERE id = ? LIMIT 1`,
       [formRecordId]
     );
-    const workDate = (dateRows as any[])[0]?.wd || new Date().toISOString().slice(0, 10);
+    const workDate = (dateRows as any[])[0]?.wd || todayKST();
     const fullMeasuredAt = data.measurementTime
       ? `${workDate} ${data.measurementTime}`
-      : new Date().toISOString().slice(0, 19).replace("T", " ");
+      : toKSTTimestamp(new Date());
 
     // h_ccp_rows에서 같은 instance + sort_order(=batchSeq)로 찾아 upsert
     const [existingRows] = await rawConn.execute<any[]>(
@@ -1166,12 +1167,12 @@ export async function syncCcpRowsToFormRows(params: {
     if (totalBatchCount < 1) totalBatchCount = 1;
 
     // ★ h_ccp_rows 기반 배치수 결정:
-    //    CCP 점검에서 생성된 행 수가 form_record의 batch_count보다 신뢰성 높음
-    //    (form_record는 BOM 없으면 1로 기본값, 하지만 CCP 점검은 실제 배치수 반영)
-    if (ccpType !== "CCP-4P" && ccpRows.length > 0 && ccpRows.length > totalBatchCount) {
-      const ccpBasedBatchCount = ccpRows.length;
-      // 기존 form_rows가 잘못된 batch_count 기반으로 생성되었으면 삭제 후 재생성
-      if (existingSeqs.size > 0 && existingSeqs.size < ccpBasedBatchCount) {
+    //    ccpRows.length = 배치수 × 설비수 이므로, equipCount로 나눠야 실제 배치 수
+    //    예: 2배치 × 3설비(교반기) = 6행 → 6 / 3 = 2배치
+    if (ccpType !== "CCP-4P" && ccpRows.length > 0) {
+      const ccpBasedBatchCount = equipCount > 1 ? Math.ceil(ccpRows.length / equipCount) : ccpRows.length;
+      // 기존 form_rows가 잘못된 batch_count 기반이면 삭제 후 재생성
+      if (existingSeqs.size > 0 && existingSeqs.size !== ccpBasedBatchCount) {
         await rawConn.execute(
           `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
           [formRecordId, tenantId],
