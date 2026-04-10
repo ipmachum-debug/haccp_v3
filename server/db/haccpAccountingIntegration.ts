@@ -131,16 +131,15 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       l.sku_id,
       l.sku_name,
       l.unit as lot_unit,
-      COALESCE(p1.product_name, p.product_name) as product_name,
+      p.product_name,
       ps.sales_unit
     FROM h_inventory_transactions t
     JOIN h_inventory_lots l ON t.lot_id = l.id AND l.tenant_id = ?
-    LEFT JOIN h_products_v2 p1 ON l.product_id = p1.id AND p1.tenant_id = ?
     LEFT JOIN h_products_v2 p ON l.product_id = p.id AND p.tenant_id = ?
     LEFT JOIN product_skus ps ON l.sku_id = ps.id
     WHERE t.id = ? AND t.tenant_id = ? AND t.transaction_type = 'usage' AND l.product_id IS NOT NULL
     LIMIT 1`,
-    [tenantId, tenantId, tenantId, transactionId, tenantId]
+    [tenantId, tenantId, transactionId, tenantId]
   );
 
   const rows = transactionResult as any[];

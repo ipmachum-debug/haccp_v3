@@ -38,8 +38,8 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         b.start_time,
         b.completed_at,
         b.created_at,
-        COALESCE(p1.product_name, p2.product_name) as product_name,
-        COALESCE(p1.product_code, p2.product_code) as product_code,
+        p.product_name,
+        p.product_code,
         -- 원료 출고 상태: h_batch_inputs (inventory_deducted=1) 또는 h_inventory_transactions
         (SELECT COUNT(*) FROM h_batch_inputs 
          WHERE batch_id = b.id AND tenant_id = b.tenant_id) as batch_input_count,

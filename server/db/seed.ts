@@ -12,7 +12,7 @@ export async function seedSampleData() {
   }
 
   const {
-    hProducts,
+    hProductsV2V2,
     hMaterials,
     hBatches,
     users
@@ -64,10 +64,10 @@ export async function seedSampleData() {
 
   const insertedProducts = [];
   for (const product of products) {
-    const existing = await db.select().from(hProducts).where(eq(hProducts.productCode, product.productCode));
+    const existing = await db.select().from(hProductsV2).where(eq(hProductsV2.productCode, product.productCode));
     if (existing.length === 0) {
-      const result = await db.insert(hProducts).values(product);
-      const [inserted] = await db.select().from(hProducts).where(eq(hProducts.productCode, product.productCode));
+      const result = await db.insert(hProductsV2).values(product);
+      const [inserted] = await db.select().from(hProductsV2).where(eq(hProductsV2.productCode, product.productCode));
       insertedProducts.push(inserted);
     } else {
       insertedProducts.push(existing[0]);

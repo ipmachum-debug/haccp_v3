@@ -1,6 +1,6 @@
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, type SQL } from "drizzle-orm";
 import { getDb, getRawConnection } from "./connection";
-import { hCcpDeviations, hCcpInstances, hCcpRows, hProducts, hProductsV2, hMaterials, hBatchInputs } from "../../drizzle/schema";
+import { hCcpDeviations, hCcpInstances, hCcpRows, hProductsV2, hMaterials, hBatchInputs } from "../../drizzle/schema";
 
 import { toKSTDate } from "../utils/timezone";
 
@@ -9,12 +9,12 @@ export async function getAllProducts(tenantId?: number) {
   const db = await getDb();
   if (!db) return [];
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const { eq, and, desc } = await import("drizzle-orm");
-  // ✅ P0 FIX: 소프트삭제 + 테넌트 격리
-  const conditions: SQL[] = [eq(hProducts.isActive, 1)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
-  return await db.select().from(hProducts).where(and(...conditions)).orderBy(desc(hProducts.id));
+  // h_products_v2 ��일 소스 + 소프트삭제 + 테넌트 격리
+  const conditions: SQL[] = [eq(hProductsV2.isActive, 1)];
+  if (tenantId) conditions.push(eq(hProductsV2.tenantId, tenantId));
+  return await db.select().from(hProductsV2).where(and(...conditions)).orderBy(desc(hProductsV2.id));
 }
 
 export async function getProductById(productId: number, tenantId?: number) {
@@ -263,7 +263,7 @@ export async function createProduct(data: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const values: Record<string, unknown> = {
     productCode: data.productCode,
     productName: data.productName,
@@ -275,7 +275,7 @@ export async function createProduct(data: {
     isActive: data.isActive !== undefined ? data.isActive : 1
   };
   if (data.tenantId) values.tenantId = data.tenantId;
-  const result = await db.insert(hProducts).values(values);
+  const result = await db.insert(hProductsV2).values(values);
   return { id: Number(result[0].insertId) };
 }
 
@@ -663,12 +663,12 @@ export async function updateProduct(
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
 
   await db
-    .update(hProducts)
+    .update(hProductsV2)
     .set(data)
-    .where(eq(hProducts.id, id));
+    .where(eq(hProductsV2.id, id));
 
   return { success: true };
 }
@@ -678,13 +678,13 @@ export async function deleteProduct(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const { and } = await import("drizzle-orm");
 
-  const conditions: SQL[] = [eq(hProducts.id, id)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
+  const conditions: SQL[] = [eq(hProductsV2.id, id)];
+  if (tenantId) conditions.push(eq(hProductsV2.tenantId, tenantId));
   await db
-    .update(hProducts)
+    .update(hProductsV2)
     .set({ isActive: 0 })
     .where(and(...conditions));
 
