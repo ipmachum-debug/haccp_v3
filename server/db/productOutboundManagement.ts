@@ -629,24 +629,23 @@ export async function getProductTurnoverAnalysis(params: {
   const [rows] = await conn.execute(
     `SELECT 
       b.product_id,
-      COALESCE(im.item_name, p1.product_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
+      COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) as product_name,
       COALESCE(im.item_code, '') as product_code,
-      
-      COALESCE(SUM(CASE 
+
+      COALESCE(SUM(CASE
         WHEN b.status IN ('completed','shipped') AND b.end_time >= ? AND b.end_time <= ?
         THEN COALESCE(b.actual_quantity, b.planned_quantity)
         ELSE 0
       END), 0) as production_quantity,
-      
+
       COALESCE(outbound.total_outbound, 0) as outbound_quantity,
-      
-      COALESCE(SUM(CASE WHEN b.status IN ('completed','shipped') 
+
+      COALESCE(SUM(CASE WHEN b.status IN ('completed','shipped')
         THEN COALESCE(b.actual_quantity, b.planned_quantity)
         ELSE 0
       END), 0) - COALESCE(outbound.all_outbound, 0) as current_stock
-      
+
      FROM h_batches b
-     LEFT JOIN h_products_v2 p1 ON b.product_id = p1.id AND p1.tenant_id = ?
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
@@ -658,9 +657,9 @@ export async function getProductTurnoverAnalysis(params: {
        GROUP BY source_id
      ) outbound ON b.id = outbound.batch_id
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
-     GROUP BY b.product_id, im.item_name, p1.product_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
+     GROUP BY b.product_id, im.item_name, p.product_name, im.item_code, outbound.total_outbound, outbound.all_outbound
      ORDER BY outbound_quantity DESC`,
-    [params.startDate, params.endDate, params.startDate, params.endDate, tenantId, tenantId, tenantId]
+    [params.startDate, params.endDate, tenantId, params.startDate, params.endDate, tenantId, tenantId]
   );
 
   return (rows as any[]).map(r => {
