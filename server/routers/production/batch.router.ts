@@ -47,19 +47,15 @@ export const batchRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
         const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
-        const { resolveToHProductId } = await import("../../services/batchOrchestrator");
 
         const tenantId = ctx.tenantId!;
         const workDate = formatLocalDate(input.plannedStartDate);
 
-        // STEP 0. 제품 ID 변환 (h_products_v2.id → h_products.id)
-        const resolvedProductId = await resolveToHProductId(input.productId, tenantId);
-
-        // STEP 1. 배치 헤더 생성
+        // STEP 1. 배치 헤더 생성 (h_products_v2.id를 직접 사용)
         const batchId = await createBatch({
           tenantId,
           siteId: input.siteId,
-          productId: resolvedProductId,
+          productId: input.productId,
           batchCode: input.batchNumber,
           plannedQuantity: input.plannedQuantity.toString(),
           plannedDate: input.plannedStartDate,
@@ -69,7 +65,7 @@ export const batchRouter = router({
         });
 
         // STEP 2. 제품 정보 조회
-        const product = await getProductById(resolvedProductId, tenantId);
+        const product = await getProductById(input.productId, tenantId);
         const productName = product?.productName || "";
 
         // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
@@ -81,7 +77,7 @@ export const batchRouter = router({
             siteId: input.siteId,
             workDate,
             batchId,
-            productId: resolvedProductId,
+            productId: input.productId,
             productName,
             createdBy: ctx.user.id,
             tenantId,
@@ -97,18 +93,17 @@ export const batchRouter = router({
         // STEP 3-B + STEP 4: 제품명 확보 → CCP 기록지 자동생성 → 승인요청 등록
         // ※ getRawConnection()은 Pool 싱글턴 → .end() 절대 호출 금지, Pool을 그대로 사용
         let approvalRequestId: number | null = null;
-        // 제품명 보완: h_products 우선, h_products_v2 폴백 조회 (STEP 3-B, 4 공통 사용)
+        // 제품명 보완: h_products_v2 조회 (STEP 3-B, 4 공통 사용)
         let finalProductName = productName;
         try {
-          if (!finalProductName && resolvedProductId) {
+          if (!finalProductName && input.productId) {
             const { getRawConnection: _rcProd } = await import("../../db");
             const _poolProd = await _rcProd();
             const [_pRows] = await _poolProd.execute(
-              `SELECT COALESCE(p1.product_name, p2.product_name) as product_name
-               FROM (SELECT 1) dummy
-               LEFT JOIN h_products p1 ON p1.id = ?
-               LEFT JOIN h_products_v2 p2 ON p2.id = ?`,
-              [resolvedProductId, resolvedProductId]
+              `SELECT p.product_name
+               FROM h_products_v2 p
+               WHERE p.id = ? AND p.tenant_id = ?`,
+              [input.productId, tenantId]
             );
             finalProductName = (_pRows as any[])[0]?.product_name || "";
           }
@@ -131,7 +126,7 @@ export const batchRouter = router({
                  JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
                  WHERE r.product_id = ? AND r.tenant_id = ?
                  ORDER BY v.id DESC LIMIT 1`,
-                [resolvedProductId, tenantId]
+                [input.productId, tenantId]
               );
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
@@ -165,7 +160,7 @@ export const batchRouter = router({
               const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
               const equipIntervalMin = grp.equip_interval_min ?? 10;
               // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
-              const frProductId = grp.ccp_type === 'CCP-4P' ? null : resolvedProductId;
+              const frProductId = grp.ccp_type === 'CCP-4P' ? null : input.productId;
               const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
               await _pool3.execute(
                 `INSERT INTO h_ccp_form_records
@@ -1807,10 +1802,9 @@ export const batchRouter = router({
 
         // 오늘 계획 배치 상세
         const [todayRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.planned_date = ?
            ORDER BY b.batch_code`,
           [tenantId, targetDate]
@@ -1818,10 +1812,9 @@ export const batchRouter = router({
 
         // 진행중 배치 상세
         const [ipRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.status = 'in_progress'
            ORDER BY b.planned_date DESC LIMIT 100`,
           [tenantId]
@@ -1829,10 +1822,9 @@ export const batchRouter = router({
 
         // 오늘 완료 배치 상세
         const [compRows] = await conn.execute<any[]>(
-          `SELECT b.*, COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+          `SELECT b.*, p.product_name, p.product_code
            FROM h_batches b
-           LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-           LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            WHERE b.tenant_id = ? AND b.status = 'completed'
              AND DATE(COALESCE(b.end_time, b.updated_at)) = ?
            ORDER BY b.batch_code`,

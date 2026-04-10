@@ -42,10 +42,10 @@ export async function autoCreateApprovalRequest(
     const workDate = todayKST();
 
     const productInfo = await db.execute(sql`
-      SELECT COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
-      FROM (SELECT 1) dummy
-      LEFT JOIN h_products p1 ON p1.id = ${productId} AND p1.tenant_id = ${tenantId}
-      LEFT JOIN h_products_v2 p2 ON p2.id = ${productId} AND p2.tenant_id = ${tenantId}
+      SELECT p.product_name, p.product_code
+      FROM h_products_v2 p
+      WHERE p.id = ${productId} AND p.tenant_id = ${tenantId}
+      LIMIT 1
     `);
     const product = getFirstRow<{ product_name: string; product_code: string }>(productInfo) || { product_name: "미확인", product_code: "" };
 

@@ -483,10 +483,9 @@ async function generateProductionDailyReport(db: any, tenantId: number, dateStr:
       SELECT 
         b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
         b.start_time, b.end_time, b.planned_date,
-        COALESCE(p1.product_name, p2.product_name) as product_name, COALESCE(p1.product_code, p2.product_code) as product_code
+        p.product_name, p.product_code
       FROM h_batches b
-      LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = ${tenantId}
-      LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = ${tenantId}
+      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
       WHERE b.tenant_id = ${tenantId}
         AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
       ORDER BY b.created_at ASC
@@ -515,12 +514,11 @@ async function generateProductionDailyReport(db: any, tenantId: number, dateStr:
       SELECT 
         cr.id as row_id, cr.result, cr.note, cr.measured_at,
         ci.ccp_type, b.batch_code,
-        COALESCE(p1.product_name, p2.product_name) as product_name
+        p.product_name
       FROM h_ccp_rows cr
       INNER JOIN h_ccp_instances ci ON cr.instance_id = ci.id
       INNER JOIN h_batches b ON ci.batch_id = b.id
-      LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ${tenantId}
-      LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND p2.tenant_id = ${tenantId}
+      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
       WHERE cr.tenant_id = ${tenantId}
         AND cr.result = 'FAIL'
         AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})

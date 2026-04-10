@@ -86,8 +86,8 @@ export const dailyReportRouter = router({
         const batchResult = await db.execute(sql`
           SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
             b.start_time, b.end_time, b.planned_date,
-            COALESCE(p1.product_name, p.product_name) as product_name,
-            COALESCE(p1.product_code, p.product_code) as product_code,
+            p.product_name,
+            p.product_code,
             COALESCE(sku.total_kg_sum, 0) as sku_actual_kg,
             COALESCE(pp.actual_quantity, 0) as perf_actual_quantity,
             ps.start_time as prod_start_time,
@@ -97,7 +97,6 @@ export const dailyReportRouter = router({
             ccp_time.ccp_last_time
           FROM h_batches b
           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
-          LEFT JOIN h_products p1 ON p1.id = b.product_id
           LEFT JOIN (
             SELECT batch_id, SUM(total_kg) as total_kg_sum
             FROM production_sku_output
@@ -166,12 +165,11 @@ export const dailyReportRouter = router({
 
         const issueResult = await db.execute(sql`
           SELECT r.id as row_id, r.is_deviation, r.deviation_note as note, r.measurement_time,
-            fr.ccp_type, b.batch_code, COALESCE(p1.product_name, p2.product_name) as product_name, fr.work_date
+            fr.ccp_type, b.batch_code, p.product_name, fr.work_date
           FROM h_ccp_form_rows r
           INNER JOIN h_ccp_form_records fr ON r.form_record_id = fr.id
           INNER JOIN h_batches b ON fr.batch_id = b.id
-          LEFT JOIN h_products p1 ON b.product_id = p1.id AND p1.tenant_id = ${tenantId}
-          LEFT JOIN h_products_v2 p2 ON b.product_id = p2.id AND p2.tenant_id = ${tenantId}
+          LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
           WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
             AND DATE(b.planned_date) = ${dateStr}
           ORDER BY r.measurement_time ASC
@@ -351,10 +349,9 @@ export const dailyReportRouter = router({
 
           // 날짜별 생산 품목명 조회
           const productNamesResult = await db.execute(sql`
-            SELECT DATE(b.planned_date) as batch_date, COALESCE(p1.product_name, p2.product_name) as product_name
+            SELECT DATE(b.planned_date) as batch_date, p.product_name
             FROM h_batches b
-            LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = b.tenant_id
-            LEFT JOIN h_products_v2 p2 ON p2.id = b.product_id AND p2.tenant_id = b.tenant_id
+            LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
             WHERE b.tenant_id = ${ctx.tenantId}
               AND b.planned_date >= ${startDate}
               AND b.planned_date < ${endDate}

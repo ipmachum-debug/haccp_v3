@@ -25,7 +25,7 @@ export async function autoRegenerateProductionDaily(
     const batchResult = await db.execute(sql`
       SELECT b.id, b.batch_code, b.status, b.planned_quantity, b.actual_quantity,
         b.start_time, b.end_time, b.planned_date,
-        COALESCE(p1.product_name, p.product_name) as product_name, COALESCE(p1.product_code, p.product_code) as product_code,
+        p.product_name, p.product_code,
         COALESCE(sku.total_kg_sum, 0) as sku_actual_kg,
         COALESCE(pp.actual_quantity, 0) as perf_actual_quantity,
         ps.start_time as prod_start_time,
@@ -36,7 +36,6 @@ export async function autoRegenerateProductionDaily(
         ccp_time.ccp_first_time,
         ccp_time.ccp_last_time
       FROM h_batches b
-      LEFT JOIN h_products p1 ON p1.id = b.product_id AND p1.tenant_id = ${tenantId}
       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
       LEFT JOIN (
         SELECT batch_id, SUM(total_kg) as total_kg_sum
@@ -107,12 +106,11 @@ export async function autoRegenerateProductionDaily(
     // ── 4. 이슈 (CCP 부적합) ──
     const issueResult = await db.execute(sql`
       SELECT r.id as row_id, r.is_deviation, r.deviation_note as note, r.measurement_time,
-        fr.ccp_type, b.batch_code, COALESCE(p1x.product_name, px.product_name) as product_name, fr.work_date
+        fr.ccp_type, b.batch_code, p.product_name, fr.work_date
       FROM h_ccp_form_rows r
       INNER JOIN h_ccp_form_records fr ON r.form_record_id = fr.id
       INNER JOIN h_batches b ON fr.batch_id = b.id
-      LEFT JOIN h_products p1x ON b.product_id = p1x.id AND p1x.tenant_id = ${tenantId}
-      LEFT JOIN h_products_v2 px ON b.product_id = px.id AND px.tenant_id = ${tenantId}
+      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ${tenantId}
       WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
         AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
       ORDER BY r.measurement_time ASC

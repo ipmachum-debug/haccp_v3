@@ -21,21 +21,13 @@ export async function getProductById(productId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) return undefined;
   const { eq, and } = await import("drizzle-orm");
-  // Try h_products (v1) first — batch data references v1 product_id
-  try {
-    const { hProducts } = await import("../../drizzle/schema.js");
-    const v1conditions: SQL[] = [eq(hProducts.id, productId)];
-    if (tenantId) v1conditions.push(eq(hProducts.tenantId, tenantId));
-    const v1result = await db.select().from(hProducts).where(and(...v1conditions)).limit(1);
-    if (v1result.length > 0) return v1result[0] as any;
-  } catch (_e) { /* fallback */ }
-  // Fallback to h_products_v2
+  // v1 퇴출 완료: h_products_v2 단일 소스 사용
   try {
     const { hProductsV2 } = await import("../../drizzle/schema_main.js");
     const conditions: SQL[] = [eq((hProductsV2 as any).id, productId)];
     if (tenantId) conditions.push(eq((hProductsV2 as any).tenantId, tenantId));
-    const v2result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
-    if (v2result.length > 0) return v2result[0] as any;
+    const result = await db.select().from(hProductsV2 as any).where(and(...conditions)).limit(1);
+    if (result.length > 0) return result[0] as any;
   } catch (_e) { /* fallback */ }
   return undefined;
 }
