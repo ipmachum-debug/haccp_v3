@@ -72,10 +72,12 @@ export async function getOrCreateCcpFormRecord(params: {
   if (params.ccpType === "CCP-4P" && params.workDate) {
     const conn = await getRawConnection();
     // 당일 CCP-4P 기록이 이미 존재하는지 확인 (배치 무관)
+    // FOR UPDATE: 동시 배치 생성 시 레이스컨디션 방지
     const [dailyExisting] = await conn.execute<any[]>(
-      `SELECT * FROM h_ccp_form_records 
+      `SELECT * FROM h_ccp_form_records
        WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-       ORDER BY id ASC LIMIT 1`,
+       ORDER BY id ASC LIMIT 1
+       FOR UPDATE`,
       [params.tenantId, params.workDate],
     );
     if ((dailyExisting as any[]).length > 0) {
@@ -493,9 +495,7 @@ async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
     const tempC = data.heatTempC != null ? parseFloat(String(data.heatTempC)) : null;
     const durationMin = data.heatTimeMin ?? null;
     const pressureBar = data.pressureMpa != null ? parseFloat(String(data.pressureMpa)) : null;
-    const measuredAt = data.measurementTime
-      ? new Date(`2026-01-01 ${data.measurementTime}`)
-      : new Date();
+    // measuredAt은 아래 fullMeasuredAt에서 work_date 기반으로 정확히 계산
     const result = data.result === "적합" ? "PASS" : data.result === "부적합" ? "FAIL" : "PASS";
     const equipmentId = data.equipmentId ?? null;
     const equipmentName = data.equipmentName ?? null;
@@ -815,6 +815,7 @@ export async function syncCcpRowsToFormRows(params: {
          JOIN h_mf_reports r ON r.id = v.mf_report_id
            AND r.product_id = ? AND r.tenant_id = ?
          WHERE i.process_group_id IS NOT NULL
+           AND i.material_id IS NOT NULL
          ORDER BY i.line_no`,
         [productId, tenantId],
       );
@@ -1057,6 +1058,7 @@ export async function syncCcpRowsToFormRows(params: {
            JOIN h_mf_reports r ON r.id = v.mf_report_id
              AND r.product_id = ? AND r.tenant_id = ?
            WHERE i.process_group_id IS NOT NULL
+             AND i.material_id IS NOT NULL
            ORDER BY i.line_no`,
           [instanceProductId, tenantId],
         );

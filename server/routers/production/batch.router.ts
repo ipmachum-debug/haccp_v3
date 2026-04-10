@@ -136,15 +136,7 @@ export const batchRouter = router({
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
               }
-              // 폴백: h_recipes.target_quantity
-              if (!bomBatchKg) {
-                const [rRows] = await _pool3.execute(
-                  `SELECT target_quantity FROM h_recipes WHERE product_id = ? AND tenant_id = ? ORDER BY id DESC LIMIT 1`,
-                  [resolvedProductId, tenantId]
-                );
-                const fallback = (rRows as any[])[0]?.target_quantity;
-                if (fallback) bomBatchKg = parseFloat(fallback);
-              }
+              // h_recipes 폴백 제거 — BOM(h_mf_report_versions) APPROVED만 사용
             } catch (bomErr) {
               console.error('[파이프라인] BOM batch_target_kg 조회 실패:', bomErr);
             }
