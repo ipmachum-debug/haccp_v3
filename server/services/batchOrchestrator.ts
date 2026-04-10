@@ -112,6 +112,30 @@ export async function createSingleBatch(
   let ccpGroups: Array<{ id: number; name: string; ccp_type: string }> = [];
   let ccpGroupNames: string[] = [];
 
+  // BOM batch_target_kg 선행 조회 → CCP 인스턴스 생성 + form records 모두에서 사용
+  let bomBatchKg: number | undefined = undefined;
+  try {
+    const bomPool = await getRawConnection();
+    const [bomRows] = await bomPool.execute<any[]>(
+      `SELECT rv.batch_target_kg
+       FROM h_mf_report_versions rv
+       JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
+       WHERE mr.product_id = ? AND mr.tenant_id = ?
+         AND rv.approval_status = 'APPROVED'
+       ORDER BY rv.id DESC LIMIT 1`,
+      [input.productId, input.tenantId]
+    );
+    const btkVal = (bomRows as any[])[0]?.batch_target_kg;
+    if (btkVal) {
+      bomBatchKg = parseFloat(btkVal);
+    }
+    if (bomBatchKg) {
+      console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
+    }
+  } catch (bomErr) {
+    console.error("[batchOrchestrator] BOM batch_target_kg 조회 실패:", bomErr);
+  }
+
   try {
     const result = await autoCreateCcpInstancesForBatch({
       siteId: input.siteId,
@@ -122,7 +146,7 @@ export async function createSingleBatch(
       createdBy: input.userId,
       tenantId: input.tenantId,
       plannedQuantity: input.plannedQuantityKg,
-      bomBatchKg: bomBatchKg ?? undefined, // 미리 계산된 값 전달 (중복 조회 방지)
+      bomBatchKg: bomBatchKg ?? undefined, // 선행 조회된 값 전달
     });
     ccpCreated = result.instanceIds.length > 0;
     ccpCount = result.instanceIds.length;
@@ -134,32 +158,6 @@ export async function createSingleBatch(
 
     // 3.1. CCP form records 자동 생성 (인쇄용 양식)
     if (ccpCreated && result.groups.length > 0) {
-      // BOM batch_target_kg 조회 → 배치수 자동계산 (plannedQtyKg / bomBatchKg)
-      let bomBatchKg: number | undefined = undefined;
-      try {
-        const pool = await getRawConnection();
-        const [bomRows] = await pool.execute<any[]>(
-          `SELECT rv.batch_target_kg
-           FROM h_mf_report_versions rv
-           JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-           WHERE mr.product_id = ? AND mr.tenant_id = ?
-             AND rv.approval_status = 'APPROVED'
-           ORDER BY rv.id DESC LIMIT 1`,
-          [input.productId, input.tenantId]
-        );
-        const btkVal = (bomRows as any[])[0]?.batch_target_kg;
-        if (btkVal) {
-          bomBatchKg = parseFloat(btkVal);
-        }
-        // h_recipe_headers 폴백 제거 — BOM(h_mf_report_versions) APPROVED 버전만 사용
-        // 레거시 h_recipe_headers는 데이터 불일치 원인이므로 참조하지 않음
-        if (bomBatchKg) {
-          console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
-        }
-      } catch (bomErr) {
-        console.error("[batchOrchestrator] BOM batch_target_kg 조회 실패:", bomErr);
-      }
-
       try {
         const { getOrCreateCcpFormRecord } = await import("../db/ccpFormRecords");
         for (const group of result.groups) {
