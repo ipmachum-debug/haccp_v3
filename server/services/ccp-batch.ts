@@ -280,61 +280,62 @@ async function createCcpRowsForGroup(
     return;
   }
 
-  // ── 배치수 × 설비 = N행 (batchCount 기반)
-  let sortIdx = 0;
+  // ── 1배치 = 1설비 1운전, 설비는 라운드로빈 순환 할당 ──
+  // 배치수=3, 설비 2대 → 3행:
+  //   batch_no=1, equipment=설비1
+  //   batch_no=2, equipment=설비2
+  //   batch_no=3, equipment=설비1 (다시 처음으로)
+  const equipCount = equipments.length;
   for (let bn = 1; bn <= batchCount; bn++) {
-    for (let idx = 0; idx < equipments.length; idx++) {
-      const eq = equipments[idx];
-      sortIdx++;
+    const eq = equipments[(bn - 1) % equipCount]; // 라운드로빈 설비 할당
 
-      // 온도: 설비기준 우선 → 공정 한계기준 폴백
-      const tempC =
-        eq.default_temperature != null
-          ? eq.default_temperature.toString()
-          : group.temperature_min != null
-            ? group.temperature_min.toString()
-            : null;
+    // 온도: 설비기준 우선 → 공정 한계기준 폴백
+    const tempC =
+      eq.default_temperature != null
+        ? eq.default_temperature.toString()
+        : group.temperature_min != null
+          ? group.temperature_min.toString()
+          : null;
 
-      // 압력: 설비기준(MPa→bar) 우선 → 공정기준(MPa→bar) 폴백
-      // equipments.default_pressure는 MPa 단위이므로 ×10 으로 bar 변환
-      const pressureBar =
-        eq.default_pressure != null
-          ? (eq.default_pressure * 10).toFixed(2)
-          : group.pressure_min != null
-            ? (group.pressure_min * 10).toFixed(2)
-            : null;
+    // 압력: 설비기준(MPa→bar) 우선 → 공정기준(MPa→bar) 폴백
+    // equipments.default_pressure는 MPa 단위이므로 ×10 으로 bar 변환
+    const pressureBar =
+      eq.default_pressure != null
+        ? (eq.default_pressure * 10).toFixed(2)
+        : group.pressure_min != null
+          ? (group.pressure_min * 10).toFixed(2)
+          : null;
 
-      // 시간 계산
-      const heatingMin     = group.time_min    ?? eq.default_time ?? 10;
-      const cycleTotalMin  = eq.batch_operation_time ?? null;
-      const eqDefaultHeat  = eq.default_time ?? heatingMin;
-      const durationMin    =
-        cycleTotalMin != null
-          ? cycleTotalMin + (heatingMin - eqDefaultHeat)
-          : heatingMin;
+    // 시간 계산
+    const heatingMin     = group.time_min    ?? eq.default_time ?? 10;
+    const cycleTotalMin  = eq.batch_operation_time ?? null;
+    const eqDefaultHeat  = eq.default_time ?? heatingMin;
+    const durationMin    =
+      cycleTotalMin != null
+        ? cycleTotalMin + (heatingMin - eqDefaultHeat)
+        : heatingMin;
 
-      await conn.execute(
-        `INSERT INTO h_ccp_rows
-           (instance_id, batch_no, equipment_id, equipment_name, sort_order,
-            row_type, temp_c, duration_min, heating_min, cycle_total_min,
-            pressure_bar, result, auto_generated, tenant_id)
-         VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?,
-                 ?, 'PASS', 1, ?)`,
-        [
-          instanceId,
-          bn,
-          eq.equipment_id,
-          eq.equipment_name,
-          sortIdx,
-          tempC,
-          durationMin,
-          heatingMin,
-          cycleTotalMin,
-          pressureBar,
-          tenantId,
-        ],
-      );
-    }
+    await conn.execute(
+      `INSERT INTO h_ccp_rows
+         (instance_id, batch_no, equipment_id, equipment_name, sort_order,
+          row_type, temp_c, duration_min, heating_min, cycle_total_min,
+          pressure_bar, result, auto_generated, tenant_id)
+       VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?,
+               ?, 'PASS', 1, ?)`,
+      [
+        instanceId,
+        bn,
+        eq.equipment_id,
+        eq.equipment_name,
+        bn, // sort_order = batch_no
+        tempC,
+        durationMin,
+        heatingMin,
+        cycleTotalMin,
+        pressureBar,
+        tenantId,
+      ],
+    );
   }
 }
 
@@ -490,10 +491,11 @@ export async function autoCreateCcpInstancesForBatch(args: {
       const groupBatchCount = group.ccp_type === 'CCP-4P' ? 1 : batchCount;
       await createCcpRowsForGroup(instanceId, group, equipments, conn, tenantId, groupBatchCount);
 
+      const rowCount = group.ccp_type === 'CCP-4P' ? 2 : (equipments.length === 0 ? groupBatchCount * 3 : groupBatchCount);
       console.log(
         `[ccp-batch] ✓ "${group.name}"(${group.ccp_type}) ` +
         `instanceId=${instanceId} equipments=${equipments.length}대 ` +
-        `batchCount=${groupBatchCount} rows=${groupBatchCount * (group.ccp_type === 'CCP-4P' ? 2 : equipments.length || 3)} ` +
+        `batchCount=${groupBatchCount} rows=${rowCount} ` +
         `[${group.mapping_source}] batchId=${batchId}`,
       );
 

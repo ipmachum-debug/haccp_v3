@@ -247,8 +247,8 @@ Step 6: 생산일지(production_daily) 자동 갱신
 ### 배치수가 영향을 미치는 곳
 | 항목 | 영향 |
 |------|------|
-| `h_ccp_rows` | CCP-1B/2B: 배치수 × 설비 수 = 행 수 |
-| `h_ccp_form_rows` | 인쇄용 기록지 행 수 |
+| `h_ccp_rows` | CCP-1B/2B: 배치수 = 행 수 (1배치 = 1설비 1운전) |
+| `h_ccp_form_rows` | 인쇄용 기록지 행 수 (= 배치수) |
 | `h_ccp_form_records.batch_count` | 기록지 헤더에 저장 |
 | CCP-4P | **배치수 무시** — 항상 Fe 1행 + SUS 1행 |
 
@@ -359,15 +359,19 @@ ON DUPLICATE KEY UPDATE
 
 **h_ccp_instances**: 배치별 1개 (공정그룹당)
 
-**h_ccp_rows**: 배치수 × 설비 수
+**h_ccp_rows**: 배치수 = 행 수 (1배치 = 1설비 1운전, 설비는 라운드로빈 순환)
 ```
-예: 배치수=3, 설비 2대 → 6행
+예: 배치수=3, 설비 2대 → 3행 (설비 순환 할당)
+  batch_no=1, equipment=교반기1  ← 설비1
+  batch_no=2, equipment=교반기2  ← 설비2
+  batch_no=3, equipment=교반기1  ← 다시 설비1 (round-robin)
+
+예: 배치수=5, 설비 2대 → 5행
   batch_no=1, equipment=교반기1
-  batch_no=1, equipment=교반기2
-  batch_no=2, equipment=교반기1
   batch_no=2, equipment=교반기2
   batch_no=3, equipment=교반기1
-  batch_no=3, equipment=교반기2
+  batch_no=4, equipment=교반기2
+  batch_no=5, equipment=교반기1
 ```
 
 **시간 계산 공식**:
@@ -423,10 +427,15 @@ h_ccp_rows → h_ccp_form_rows 매핑:
 **교차배치 설비 순환(Cross-batch Equipment Rotation)**:
 ```
 같은 day_batch_group 내에서 같은 공정의 이전 배치들이 사용한 서브배치 수를
-합산하여 현재 배치의 설비 시작 인덱스를 결정.
+합산하여 현재 배치의 설비 시작 인덱스(offset)를 결정.
 
-예: 배치A(3서브배치) → 설비 1,2,3 사용
-    배치B(2서브배치) → 설비 1,2부터 이어서 시작 (globalSeqIdx = 3)
+예: 설비 3대(A,B,C), 제품X(3배치) → 제품Y(2배치)
+  제품X: batch1→설비A, batch2→설비B, batch3→설비C  (equipStartIndex=0)
+  제품Y: batch1→설비A, batch2→설비B                 (equipStartIndex=3 → 3%3=0부터)
+
+예: 설비 2대(A,B), 제품X(3배치) → 제품Y(2배치)
+  제품X: batch1→설비A, batch2→설비B, batch3→설비A  (equipStartIndex=0)
+  제품Y: batch1→설비B, batch2→설비A                 (equipStartIndex=3 → 3%2=1부터)
 ```
 
 #### CCP-4P 동기화 (제품별 순차 시간 배분)
