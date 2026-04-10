@@ -168,6 +168,8 @@ export async function createSingleBatch(
       productName,
       createdBy: input.userId,
       tenantId: input.tenantId,
+      plannedQuantity: input.plannedQuantityKg,
+      bomBatchKg: bomBatchKg ?? undefined, // 미리 계산된 값 전달 (중복 조회 방지)
     });
     ccpCreated = result.instanceIds.length > 0;
     ccpCount = result.instanceIds.length;
@@ -195,15 +197,9 @@ export async function createSingleBatch(
         const btkVal = (bomRows as any[])[0]?.batch_target_kg;
         if (btkVal) {
           bomBatchKg = parseFloat(btkVal);
-        } else {
-          // fallback: h_recipe_headers
-          const [rRows] = await pool.execute<any[]>(
-            `SELECT target_quantity FROM h_recipe_headers WHERE product_id = ? AND unit != '%' ORDER BY id DESC LIMIT 1`,
-            [input.productId]
-          );
-          const fallback = (rRows as any[])[0]?.target_quantity;
-          if (fallback) bomBatchKg = parseFloat(fallback);
         }
+        // h_recipe_headers 폴백 제거 — BOM(h_mf_report_versions) APPROVED 버전만 사용
+        // 레거시 h_recipe_headers는 데이터 불일치 원인이므로 참조하지 않음
         if (bomBatchKg) {
           console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
         }
