@@ -16,7 +16,7 @@
 import { getDb } from "../db";
 import { eq, and, desc, asc, sql, gte, lte, isNull, inArray, type SQL } from "drizzle-orm";
 import {
-  hBatches, hProducts, hProductsV2, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
+  hBatches, hProductsV2, hMaterials, hCcpInstances, hCcpRows, hCcpRecords,
   hCcpTemplates, hBatchInputs, hInventoryLots, hInventory, hInventoryTransactions,
   hSuppliers, hApprovalRequests, hApprovalHistory, hNotifications, hNotificationSettings,
   hCcpDeviations, hSupplierEvaluations, users,

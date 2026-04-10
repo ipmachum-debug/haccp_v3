@@ -13,7 +13,6 @@ import {
   hProductsV2,
   hNotifications,
   hCcpDeviations,
-  hProducts,
   hSystemSettings,
   hInspectionRecords,
   materialInspectionRecords,
@@ -382,13 +381,13 @@ export async function bulkDeleteCcpInstances(instanceIds: number[], tenantId?: n
 export async function updateProductCcpMapping(productId: number, ccpTypes: string[], tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  const { hProducts } = await import("../../drizzle/schema.js");
+  const { hProductsV2 } = await import("../../drizzle/schema_main.js");
   const { eq, and } = await import("drizzle-orm");
 
-  const conditions: any[] = [eq(hProducts.id, productId)];
-  if (tenantId) conditions.push(eq(hProducts.tenantId, tenantId));
+  const conditions: any[] = [eq(hProductsV2.id, productId)];
+  if (tenantId) conditions.push(eq(hProductsV2.tenantId, tenantId));
 
-  await db.update(hProducts)
+  await db.update(hProductsV2)
     .set({ defaultCcpTypes: ccpTypes as any })
     .where(and(...conditions));
 }
