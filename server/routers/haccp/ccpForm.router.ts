@@ -52,17 +52,25 @@ export const ccpFormRouter = router({
           [dayBatchGroup, tenantId]
         );
         const batchIds = (batchRows as any[]).map((r: any) => r.id);
-        // 3) 모든 배치의 CCP 기록지 조회
+        // 3) 모든 배치의 CCP 기록지 조회 (CCP-4P 중복 제거)
         const allRecords: any[] = [];
+        const seenRecordIds = new Set<number>();
         for (const bid of batchIds) {
+          let records: any[] = [];
           if (input.includeRows) {
             const { getCcpFormRecordsWithRowsByBatch } = await import("../../db/ccpFormRecords");
-            const records = await getCcpFormRecordsWithRowsByBatch(bid, tenantId);
-            allRecords.push(...(records || []));
+            records = (await getCcpFormRecordsWithRowsByBatch(bid, tenantId)) || [];
           } else {
             const { getCcpFormRecordsByBatch } = await import("../../db/ccpFormRecords");
-            const records = await getCcpFormRecordsByBatch(bid, tenantId);
-            allRecords.push(...(records || []));
+            records = (await getCcpFormRecordsByBatch(bid, tenantId)) || [];
+          }
+          // CCP-4P는 일일 통합이므로 동일 record.id가 여러 배치에서 중복 반환됨 → 중복 제거
+          for (const rec of records) {
+            const recId = rec.id;
+            if (!seenRecordIds.has(recId)) {
+              seenRecordIds.add(recId);
+              allRecords.push(rec);
+            }
           }
         }
         return allRecords;
