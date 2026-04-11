@@ -241,6 +241,39 @@ async function startServer() {
     }
   });
 
+  // DB 조회 (관리용, localhost only)
+  app.post("/api/internal/query", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { sql: sqlQuery, params } = req.body || {};
+      if (!sqlQuery) return res.status(400).json({ error: "sql required" });
+      // SELECT만 허용
+      if (!/^\s*SELECT/i.test(sqlQuery)) return res.status(400).json({ error: "SELECT only" });
+      const { getRawConnection } = await import("../db/connection");
+      const pool = await getRawConnection();
+      const [rows] = await pool.execute(sqlQuery, params || []);
+      res.json({ success: true, count: (rows as any[]).length, rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB 수정 (관리용, localhost only)
+  app.post("/api/internal/execute", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { sql: sqlQuery, params } = req.body || {};
+      if (!sqlQuery) return res.status(400).json({ error: "sql required" });
+      const { getRawConnection } = await import("../db/connection");
+      const pool = await getRawConnection();
+      const [result] = await pool.execute(sqlQuery, params || []);
+      const affected = (result as any).affectedRows || 0;
+      res.json({ success: true, affectedRows: affected });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 특정 날짜 생산배치 강제 삭제 (완료 상태 포함)
   app.post("/api/internal/force-delete-batches", async (req, res) => {
     try {
