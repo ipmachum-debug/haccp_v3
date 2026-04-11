@@ -93,11 +93,10 @@ interface SensorData {
   lastUpdate?: string;
 }
 
-// 더미 센서 데이터 (향후 실제 연동)
-const MOCK_SENSORS: SensorData[] = [
+// 센서 데이터: IoT API에서 조회, 없으면 기본 표시
+const DEFAULT_SENSORS: SensorData[] = [
   { id: 'temp-01', name: '가열 공정 온도', type: 'temperature', value: '--', unit: '°C', status: 'offline' },
-  { id: 'temp-02', name: '냉각 공정 온도', type: 'temperature', value: '--', unit: '°C', status: 'offline' },
-  { id: 'press-01', name: '살균 압력', type: 'pressure', value: '--', unit: 'bar', status: 'offline' },
+  { id: 'press-01', name: '공정 압력', type: 'pressure', value: '--', unit: 'bar', status: 'offline' },
   { id: 'metal-01', name: '금속탐지기', type: 'metal_detector', value: '대기', unit: '', status: 'offline' },
 ];
 
@@ -139,7 +138,36 @@ export const PipelineDashboardContent: React.FC = () => {
     todayLocal()
   );
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [sensors] = useState<SensorData[]>(MOCK_SENSORS);
+  // IoT 디바이스 목록 조회 (등록된 센서가 있으면 동적 표시)
+  const { data: iotDevices } = trpc.iot?.listDevices?.useQuery?.(undefined, {
+    refetchInterval: autoRefresh ? 10000 : false, // 10초 갱신
+  }) ?? { data: undefined };
+  const { data: iotDashboard } = trpc.iot?.getDashboard?.useQuery?.(undefined, {
+    refetchInterval: autoRefresh ? 10000 : false,
+  }) ?? { data: undefined };
+
+  // IoT 디바이스 → SensorData 변환 (설비별 개별 표시)
+  const sensors: SensorData[] = useMemo(() => {
+    if (!iotDevices || (iotDevices as any[]).length === 0) return DEFAULT_SENSORS;
+    return (iotDevices as any[]).map((dev: any) => {
+      const isOnline = dev.status === 'active' && dev.last_heartbeat;
+      const lastHb = dev.last_heartbeat ? new Date(dev.last_heartbeat) : null;
+      const secSinceHb = lastHb ? (Date.now() - lastHb.getTime()) / 1000 : Infinity;
+      const isStale = secSinceHb > (dev.heartbeat_interval_sec || 60) * 3;
+
+      return {
+        id: `dev-${dev.id}`,
+        name: dev.equipment_name ? `${dev.device_name} (${dev.equipment_name})` : dev.device_name,
+        type: dev.device_type as SensorData['type'],
+        value: isOnline && !isStale ? (dev.latest_value ?? '--') : '--',
+        unit: dev.unit || '',
+        status: dev.status === 'error' || isStale ? 'error'
+              : dev.status === 'active' ? 'online'
+              : 'offline',
+        lastUpdate: lastHb ? lastHb.toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : undefined,
+      } as SensorData;
+    });
+  }, [iotDevices]);
   const [isClosingRunning, setIsClosingRunning] = useState(false);
   const tenantId = (user as any)?.tenantId || 0;
 
@@ -315,18 +343,27 @@ export const PipelineDashboardContent: React.FC = () => {
         </div>
       </div>
 
-      {/* ── IoT 센서 현황 (향후 연동) ── */}
+      {/* ── IoT 센서 현황 ── */}
       <div className="rounded-xl bg-white/70 backdrop-blur border border-emerald-100 shadow-sm overflow-hidden">
         <div className="px-5 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 flex items-center justify-between">
           <div className="flex items-center gap-2 text-white">
             <Radio className="w-4 h-4" />
             <span className="text-sm font-semibold">IoT 센서 모니터링</span>
           </div>
-          <span className="text-xs text-emerald-100 bg-white/20 px-2 py-0.5 rounded-full">
-            센서 연동 준비중
-          </span>
+          <div className="flex items-center gap-2">
+            {iotDashboard && (iotDashboard as any).anomalies24h > 0 && (
+              <span className="text-xs text-rose-100 bg-rose-500/40 px-2 py-0.5 rounded-full">
+                이상치 {(iotDashboard as any).anomalies24h}건
+              </span>
+            )}
+            <span className="text-xs text-emerald-100 bg-white/20 px-2 py-0.5 rounded-full">
+              {iotDevices && (iotDevices as any[]).length > 0
+                ? `${(iotDevices as any[]).filter((d: any) => d.status === 'active').length}/${(iotDevices as any[]).length} 연결`
+                : 'API 연동 가능'}
+            </span>
+          </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-emerald-100">
+        <div className={`grid grid-cols-2 ${sensors.length <= 4 ? 'md:grid-cols-4' : sensors.length <= 6 ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4 lg:grid-cols-6'} gap-px bg-emerald-100`}>
           {sensors.map((sensor) => (
             <div key={sensor.id} className="bg-white p-4 flex flex-col gap-2">
               <div className="flex items-center justify-between">
@@ -341,7 +378,7 @@ export const PipelineDashboardContent: React.FC = () => {
                 {sensor.unit && <span className="text-sm text-stone-400 mb-0.5">{sensor.unit}</span>}
               </div>
               <p className="text-xs text-stone-400">
-                {sensor.status === 'offline' ? '센서 연결 대기중' : sensor.lastUpdate || '-'}
+                {sensor.status === 'offline' ? '센서 미연결 (API 준비됨)' : sensor.lastUpdate || '-'}
               </p>
             </div>
           ))}
@@ -349,7 +386,7 @@ export const PipelineDashboardContent: React.FC = () => {
         <div className="px-5 py-2.5 bg-emerald-50/50 border-t border-emerald-100">
           <p className="text-xs text-emerald-600/70 flex items-center gap-1.5">
             <AlertCircle className="w-3.5 h-3.5" />
-            온도센서, 압력센서, 금속탐지기 데이터가 연동되면 실시간 CCP 모니터링이 자동화됩니다
+            IoT API가 구축되었습니다. 센서 장비를 연결하면 실시간 CCP 모니터링 + 배치 자동 전환이 활성화됩니다
           </p>
         </div>
       </div>

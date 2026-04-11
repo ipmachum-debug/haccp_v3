@@ -65,7 +65,7 @@ const SHIP_METHODS = ["차량배송", "택배(아이스박스)"];
 const emptyItem = (): FinishedProductItem => ({
   shipDate: '', productName: '', lotNumber: '', quantity: '',
   packagingStatus: '\u25CB', labelStatus: '\u25CB',
-  shipMethod: '차량배송', temperature: '', iceBoxStatus: '\u25CB',
+  shipMethod: '택배(아이스박스)', temperature: '', iceBoxStatus: '\u25CB',
   result: '\uC801\uD569', correctiveAction: '', note: '',
 });
 
@@ -109,7 +109,7 @@ function generatePrintHTML(items: FinishedProductItem[], year: number, month: nu
       <td class="td-right">${item.quantity}</td>
       <td class="${markClass(item.packagingStatus)}">${item.packagingStatus}</td>
       <td class="${markClass(item.labelStatus)}">${item.labelStatus}</td>
-      <td>${item.shipMethod || '차량배송'}</td>
+      <td>${item.shipMethod || '택배(아이스박스)'}</td>
       <td>${item.shipMethod === '택배(아이스박스)' ? (item.iceBoxStatus || '○') : (item.temperature || '')}</td>
       <td class="${resultClass(item.result)}">${item.result}</td>
       <td class="td-left">${item.correctiveAction || ''}</td>
@@ -299,7 +299,7 @@ function FinishedProductDocument({
               <td className={`${bCls} px-1 py-0.5 text-[9px] text-right`}>{item.quantity}</td>
               <td className={`${tdCls} ${markColor(item.packagingStatus)}`}>{item.packagingStatus}</td>
               <td className={`${tdCls} ${markColor(item.labelStatus)}`}>{item.labelStatus}</td>
-              <td className={`${tdCls} text-[8px]`}>{item.shipMethod || '차량'}</td>
+              <td className={`${tdCls} text-[8px]`}>{item.shipMethod || '택배'}</td>
               <td className={tdCls}>{item.shipMethod === '택배(아이스박스)' ? (item.iceBoxStatus || '○') : (item.temperature || '')}</td>
               <td className={`${tdCls} ${resultColor(item.result)}`}>{item.result}</td>
               <td className={`${bCls} px-1 py-0.5 text-[9px] text-left`}>{item.correctiveAction || ''}</td>
@@ -498,9 +498,9 @@ export function FinishedProductInspectionLogContent() {
         quantity: String(b.quantity || ''),
         packagingStatus: b.packagingStatus || '\u25CB',
         labelStatus: b.labelStatus || '\u25CB',
-        shipMethod: '차량배송',
+        shipMethod: b.shipMethod || '택배(아이스박스)',
         temperature: b.temperature || '',
-        iceBoxStatus: '\u25CB',
+        iceBoxStatus: b.iceBoxStatus || '\u25CB',
         result: b.result || '\uC801\uD569',
         correctiveAction: '',
         note: b.note || '',
@@ -677,7 +677,7 @@ export function FinishedProductInspectionLogContent() {
                     <td className="border border-gray-200 p-0.5"><MarkSelect value={item.packagingStatus} onChange={v => updateItem(idx, 'packagingStatus', v)} /></td>
                     <td className="border border-gray-200 p-0.5"><MarkSelect value={item.labelStatus} onChange={v => updateItem(idx, 'labelStatus', v)} /></td>
                     <td className="border border-gray-200 p-0.5">
-                      <Select value={item.shipMethod || '차량배송'} onValueChange={v => updateItem(idx, 'shipMethod', v)}>
+                      <Select value={item.shipMethod || '택배(아이스박스)'} onValueChange={v => updateItem(idx, 'shipMethod', v)}>
                         <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {SHIP_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
@@ -685,7 +685,7 @@ export function FinishedProductInspectionLogContent() {
                       </Select>
                     </td>
                     <td className="border border-gray-200 p-0.5">
-                      {(item.shipMethod || '차량배송') === '택배(아이스박스)' ? (
+                      {(item.shipMethod || '택배(아이스박스)') === '택배(아이스박스)' ? (
                         <MarkSelect value={item.iceBoxStatus || '○'} onChange={v => updateItem(idx, 'iceBoxStatus', v)} />
                       ) : (
                         <Input className="h-7 text-xs" value={item.temperature} placeholder="0℃" onChange={e => updateItem(idx, 'temperature', e.target.value)} />

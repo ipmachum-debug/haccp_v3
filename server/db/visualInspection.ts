@@ -852,7 +852,7 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
       quantity: i.quantity || '',
       packagingStatus: i.packaging_status || '○',
       labelStatus: i.label_status || '○',
-      shipMethod: i.ship_method || '차량배송',
+      shipMethod: i.ship_method || '택배(아이스박스)',
       temperature: i.temperature || '',
       iceBoxStatus: i.ice_box_status || '○',
       result: i.result || '적합',
@@ -868,7 +868,7 @@ export async function saveFinishedProductItems(
 ) {
   // ship_method, ice_box_status 컬럼 자동 추가 (없으면)
   try {
-    await db.execute(sql`ALTER TABLE h_finished_product_inspection_items ADD COLUMN ship_method VARCHAR(30) DEFAULT '차량배송' AFTER label_status`);
+    await db.execute(sql`ALTER TABLE h_finished_product_inspection_items ADD COLUMN ship_method VARCHAR(30) DEFAULT '택배(아이스박스)' AFTER label_status`);
   } catch { /* already exists */ }
   try {
     await db.execute(sql`ALTER TABLE h_finished_product_inspection_items ADD COLUMN ice_box_status VARCHAR(10) DEFAULT '○' AFTER temperature`);
@@ -886,7 +886,7 @@ export async function saveFinishedProductItems(
          corrective_action, note, batch_id, sort_order)
       VALUES
         (${tenantId}, ${logId}, ${item.shipDate || ''}, ${item.productName || ''}, ${item.lotNumber || ''}, ${item.quantity || ''},
-         ${item.packagingStatus || '○'}, ${item.labelStatus || '○'}, ${item.shipMethod || '차량배송'}, ${item.temperature || ''}, ${item.iceBoxStatus || '○'}, ${item.result || '적합'},
+         ${item.packagingStatus || '○'}, ${item.labelStatus || '○'}, ${item.shipMethod || '택배(아이스박스)'}, ${item.temperature || ''}, ${item.iceBoxStatus || '○'}, ${item.result || '적합'},
          ${item.correctiveAction || ''}, ${item.note || ''}, ${item.batchId || null}, ${i})
     `);
   }

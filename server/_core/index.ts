@@ -194,6 +194,53 @@ async function startServer() {
   app.use("/api/expense", expenseUploadRouter);
   // 업로드 파일 정적 서빙
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+  // ── 내부 관리자 API (localhost만 허용) ──
+  const checkLocalhost = (req: any): boolean => {
+    const forwarded = req.headers['x-forwarded-for'];
+    const remoteIp = req.ip || req.socket.remoteAddress || '';
+    return !forwarded && (remoteIp === '127.0.0.1' || remoteIp === '::1' || remoteIp === '::ffff:127.0.0.1');
+  };
+
+  // 생산일지 재생성
+  app.post("/api/internal/regenerate-production-daily", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { date, tenantId } = req.body || {};
+      if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
+      const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+      const result = await autoRegenerateProductionDaily(Number(tenantId), String(date));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 완제품 출고검사 기본 배송방법 일괄 변경
+  app.post("/api/internal/fix-ship-method", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { tenantId } = req.body || {};
+      if (!tenantId) return res.status(400).json({ error: "tenantId required" });
+      const { getDb } = await import("../db");
+      const { sql } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return res.status(500).json({ error: "DB 연결 실패" });
+      // DB 컬럼 기본값 변경
+      await db.execute(sql`ALTER TABLE h_finished_product_inspection_items MODIFY COLUMN ship_method VARCHAR(30) DEFAULT '택배(아이스박스)'`).catch(() => {});
+      // 기존 '차량배송' 데이터를 '택배(아이스박스)'로 일괄 변경
+      const result = await db.execute(sql`
+        UPDATE h_finished_product_inspection_items
+        SET ship_method = '택배(아이스박스)'
+        WHERE tenant_id = ${Number(tenantId)} AND (ship_method = '차량배송' OR ship_method IS NULL)
+      `);
+      const affected = (result as any)[0]?.affectedRows || 0;
+      res.json({ success: true, message: `${affected}건 배송방법 변경 완료 (차량배송 → 택배(아이스박스))` });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

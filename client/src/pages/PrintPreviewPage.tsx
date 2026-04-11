@@ -207,59 +207,37 @@ export default function PrintPreviewPage() {
             totalPages: 1,
           });
         } else {
-          const byType: Record<string, any[]> = {};
-          ccpRecords.forEach((fr: any) => {
-            const t = fr.ccpType || fr.ccp_type || "UNKNOWN";
-            if (!byType[t]) byType[t] = [];
-            byType[t].push(fr);
+          // ★ CCP-4P(금속검출)는 별도 승인문서로 출력되므로 배치 CCP 인쇄에서 제외
+          const filteredRecords = ccpRecords.filter((fr: any) => {
+            const t = fr.ccpType || fr.ccp_type || "";
+            return t !== "CCP-4P";
           });
-          const typeKeys = Object.keys(byType);
-          const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
-          typeKeys.forEach((ccpType, typeIdx) => {
-            const records = byType[ccpType];
-            if (ccpType === "CCP-4P" && records.length > 1) {
-              const allRows: any[] = [];
-              for (const fr of records) {
-                const rows = fr.rows || [];
-                allRows.push(...rows);
-              }
-              allRows.sort((a: any, b: any) => {
-                const typeA = (a.equipmentType || a.equipment_type) || "";
-                const typeB = (b.equipmentType || b.equipment_type) || "";
-                if (typeA !== typeB) return typeA === "sensitivity" ? -1 : 1;
-                const tA = String(a.metalPassTime || a.metal_pass_time || a.passTimeStart || a.pass_time_start || "");
-                const tB = String(b.metalPassTime || b.metal_pass_time || b.passTimeStart || b.pass_time_start || "");
-                return tA.localeCompare(tB);
-              });
-              const mergedFr = { ...records[0], rows: allRows };
+
+          if (filteredRecords.length === 0) {
+            // CCP-4P만 있고 나머지가 없는 경우 (이론상 드묾)
+            pages.push({
+              doc: { ...doc, ...safeDocDates, authorName, reviewerName, approverName },
+              pageContent: renderCcpBatchSummary(doc),
+              pageTitle: `배치 CCP 기록지 - ${doc.title || ""}`,
+              pageIndex: 0,
+              totalPages: 1,
+            });
+          } else {
+            const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+            // ★ 각 CCP 기록지(제품별)를 개별 페이지로 생성 (page-break 자동 적용)
+            filteredRecords.forEach((fr: any, idx: number) => {
+              const ccpType = fr.ccpType || fr.ccp_type || "";
+              const pName = fr.productName || fr.product_name || "";
+              const gName = fr.processGroupName || fr.process_group_name || "";
               pages.push({
                 doc: enrichedDoc,
-                pageContent: renderCcpFormRecord(mergedFr, enrichedDoc),
-                pageTitle: `CCP 기록지 - CCP-4P (금속검출공정)`,
-                pageIndex: typeIdx,
-                totalPages: typeKeys.length,
+                pageContent: renderCcpFormRecord(fr, enrichedDoc),
+                pageTitle: `CCP 기록지 - ${ccpType} ${pName} (${gName})`,
+                pageIndex: idx,
+                totalPages: filteredRecords.length,
               });
-            } else {
-              const combinedContent = (
-                <div>
-                  {records.map((fr: any, idx: number) => (
-                    <div key={idx} className={idx > 0 ? "mt-4" : ""}>
-                      {idx > 0 && <hr className="border-gray-400 mb-4" />}
-                      {renderCcpFormRecord(fr, enrichedDoc)}
-                    </div>
-                  ))}
-                </div>
-              );
-              const firstFr = records[0];
-              pages.push({
-                doc: enrichedDoc,
-                pageContent: combinedContent,
-                pageTitle: `CCP 기록지 - ${ccpType} (${firstFr.processGroupName || firstFr.process_group_name || ""})`,
-                pageIndex: typeIdx,
-                totalPages: typeKeys.length,
-              });
-            }
-          });
+            });
+          }
         }
       } else if (doc.formType === "ccp_form") {
         const fr = doc.formData?.ccpFormRecord;
@@ -348,7 +326,31 @@ export default function PrintPreviewPage() {
   return (
     <>
       <style>{`
-        @media print { body { margin: 0; padding: 0; } .no-print { display: none !important; } .print-page { page-break-after: always; } .print-page:last-child { page-break-after: auto; } table { break-inside: auto; } tr { break-inside: avoid; } thead { display: table-header-group; } .ccp-corrective-section { break-inside: avoid; page-break-inside: avoid; } .text-xs { font-size: 11px; } }
+        @media print {
+          body { margin: 0; padding: 0; }
+          .no-print { display: none !important; }
+          .print-page { page-break-after: always; break-after: page; }
+          .print-page:last-child { page-break-after: auto; break-after: auto; }
+          /* 첫 번째가 아닌 모든 print-page에 page-break-before 강제 */
+          .print-page + .print-page { page-break-before: always; break-before: page; }
+          /* 테이블 행 단위로 페이지 분할 (행 중간에서 잘리지 않음) */
+          table { break-inside: auto; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          thead { display: table-header-group; }
+          /* CCP 개선조치 섹션: 한 페이지 안에 유지 */
+          .ccp-corrective-section { break-inside: avoid; page-break-inside: avoid; }
+          /* CCP 기록지 전체 테이블: 헤더 반복 + 행 보호 */
+          .ccp-print-table { break-inside: auto; }
+          .ccp-print-table thead { display: table-header-group; }
+          .ccp-print-table tr { break-inside: avoid; page-break-inside: avoid; }
+          /* 인쇄 양식 헤더(결재란 포함): 페이지 시작 시 유지 */
+          .print-header { break-inside: avoid; page-break-inside: avoid; }
+          /* 주기/모니터링 방법 섹션: 잘리지 않게 */
+          .ccp-info-section { break-inside: avoid; page-break-inside: avoid; }
+          .text-xs { font-size: 11px; }
+          /* A4 여백 최적화 */
+          @page { size: A4; margin: 10mm 10mm 15mm 10mm; }
+        }
         @media screen { .print-page { max-width: 210mm; margin: 0 auto 20px; padding: 15mm; box-shadow: 0 2px 8px rgba(0,0,0,0.1); background: white; border: 1px solid #e5e7eb; } }
         /* CCP 테이블 인쇄 미리보기 안정화 */
         .ccp-print-table { table-layout: fixed; width: 100%; }
@@ -380,7 +382,7 @@ export default function PrintPreviewPage() {
         {allPages.map((page, index) => {
           const isCcpForm = ["batch_production", "batch_approval", "ccp_form"].includes(page.doc.formType || "");
           return (
-          <div key={index} className="print-page">
+          <div key={index} className="print-page" style={index > 0 ? { pageBreakBefore: 'always', breakBefore: 'page' } : undefined}>
             {/* 결재란은 각 페이지 렌더러 내부 TitleRow에 포함됨 */}
             <div className="print-content mb-2">{page.pageContent}</div>
             <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>

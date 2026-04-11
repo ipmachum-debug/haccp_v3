@@ -467,4 +467,18 @@ export const genericChecklistRouter = router({
       }
       return { success: true, message: "검토 및 승인이 완료되었습니다." };
     }),
+
+  // ── 생산일지 수동 재생성 (관리자용) ──
+  regenerateProductionDaily: tenantRequiredProcedure
+    .input(z.object({ date: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const { autoRegenerateProductionDaily } = await import("../../lib/autoProductionDaily");
+        await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, input.date);
+        return { success: true, message: `${input.date} 생산일지 재생성 완료` };
+      } catch (err: any) {
+        console.error("[regenerateProductionDaily]", err);
+        return { success: false, message: err.message || "재생성 실패" };
+      }
+    }),
 });

@@ -61,7 +61,7 @@ export async function autoRegenerateProductionDaily(
         GROUP BY fr2.batch_id
       ) ccp_time ON ccp_time.batch_id = b.id
       WHERE b.tenant_id = ${tenantId}
-        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+        AND DATE(b.planned_date) = ${dateStr}
       ORDER BY b.created_at ASC
     `);
     const batches = Array.isArray(batchResult) && Array.isArray(batchResult[0])
@@ -78,7 +78,7 @@ export async function autoRegenerateProductionDaily(
       INNER JOIN h_batches b ON fr.batch_id = b.id
       LEFT JOIN h_ccp_form_rows r ON r.form_record_id = fr.id AND r.tenant_id = ${tenantId}
       WHERE fr.tenant_id = ${tenantId}
-        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+        AND DATE(b.planned_date) = ${dateStr}
       GROUP BY fr.batch_id, fr.ccp_type, fr.status
     `);
     const ccpDetails = Array.isArray(ccpDetailResult) && Array.isArray(ccpDetailResult[0])
@@ -94,7 +94,7 @@ export async function autoRegenerateProductionDaily(
       FROM h_ccp_form_records fr
       INNER JOIN h_batches b ON fr.batch_id = b.id
       WHERE fr.tenant_id = ${tenantId}
-        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+        AND DATE(b.planned_date) = ${dateStr}
     `);
     const ccpStatsRaw = (ccpResult as any)[0]?.[0] || { total_ccp: 0, deviation_count: 0 };
     const ccpStats = {
@@ -112,7 +112,7 @@ export async function autoRegenerateProductionDaily(
       INNER JOIN h_batches b ON fr.batch_id = b.id
       LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ${tenantId}
       WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
-        AND (DATE(b.planned_date) = ${dateStr} OR DATE(b.created_at) = ${dateStr})
+        AND DATE(b.planned_date) = ${dateStr}
       ORDER BY r.measurement_time ASC
     `);
     const issues = Array.isArray(issueResult) && Array.isArray(issueResult[0])
@@ -129,16 +129,33 @@ export async function autoRegenerateProductionDaily(
 
     // ── CCP 상세 맵 생성 (batch_id -> ccpDetails) ──
     const ccpByBatch = new Map<number, any[]>();
+    let sharedCcp4p: any = null; // CCP-4P는 금속검출로 전 제품 공유
     for (const c of ccpDetails as any[]) {
       const bId = Number(c.batch_id);
-      if (!ccpByBatch.has(bId)) ccpByBatch.set(bId, []);
-      ccpByBatch.get(bId)!.push({
+      const detail = {
         ccpType: c.ccp_type,
         status: c.ccp_status,
         rowCount: Number(c.row_count || 0),
         passCount: Number(c.pass_count || 0),
         failCount: Number(c.fail_count || 0),
-      });
+      };
+      if (!ccpByBatch.has(bId)) ccpByBatch.set(bId, []);
+      ccpByBatch.get(bId)!.push(detail);
+      // CCP-4P(금속검출)는 하루 전체 공유 → 모든 배치에 표시
+      if (c.ccp_type === 'CCP-4P' && !sharedCcp4p) {
+        sharedCcp4p = detail;
+      }
+    }
+    // CCP-4P가 있으면 아직 CCP-4P가 없는 배치에 추가
+    if (sharedCcp4p) {
+      const allBatchIds = (batches as any[]).map((b: any) => Number(b.id));
+      for (const bId of allBatchIds) {
+        if (!ccpByBatch.has(bId)) ccpByBatch.set(bId, []);
+        const existing = ccpByBatch.get(bId)!;
+        if (!existing.some(d => d.ccpType === 'CCP-4P')) {
+          existing.push(sharedCcp4p);
+        }
+      }
     }
 
     // ── 배치 파이프라인 상태 매핑 ──

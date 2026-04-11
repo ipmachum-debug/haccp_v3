@@ -174,7 +174,7 @@ export const weeklyLogsRouter = router({
             `);
           } else {
             await db.execute(sql`
-              UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
+              UPDATE h_approval_requests SET status = 'pending_review'
               WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
             `);
           }

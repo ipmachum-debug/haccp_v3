@@ -40,7 +40,7 @@ export const finishedProductInspectionRouter = router({
           quantity: z.string().default(''),
           packagingStatus: z.string().default('○'),
           labelStatus: z.string().default('○'),
-          shipMethod: z.string().default('차량배송'),
+          shipMethod: z.string().default('택배(아이스박스)'),
           temperature: z.string().default(''),
           iceBoxStatus: z.string().default('○'),
           result: z.string().default('적합'),

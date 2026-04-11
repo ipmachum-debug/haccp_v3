@@ -1666,7 +1666,7 @@ export const hCcpFormRecords = mysqlTable("h_ccp_form_records", {
   batchCount: int("batch_count").notNull().default(1),
 
   // 설비 그룹 설정
-  equipGroupMode: mysqlEnum("equip_group_mode", ["concurrent", "sequential"]).notNull().default("sequential"),
+  equipGroupMode: mysqlEnum("equip_group_mode", ["concurrent", "sequential", "grouped"]).notNull().default("sequential"),
   equipIntervalMin: int("equip_interval_min").default(10),
 
   // CL 한계기준 - CCP-2B (굽기)
@@ -1758,7 +1758,7 @@ export const hCcpEquipBatchSettings = mysqlTable("h_ccp_equip_batch_settings", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenant_id").notNull().default(1),
   processGroupId: int("process_group_id").notNull(),
-  groupMode: mysqlEnum("group_mode", ["concurrent", "sequential"]).notNull().default("sequential"),
+  groupMode: mysqlEnum("group_mode", ["concurrent", "sequential", "grouped"]).notNull().default("sequential"),
   intervalBetweenMin: int("interval_between_min").default(10),
   maxConcurrent: int("max_concurrent").default(1),
   notes: text("notes"),

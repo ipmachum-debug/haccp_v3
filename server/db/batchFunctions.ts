@@ -42,12 +42,13 @@ export async function createBatch(batch: {
 
   // Use raw SQL to avoid Drizzle's date serialization and `as any` type issues
   const conn = await getRawConnection();
+  const isAutoCompleted = batch.status === "completed";
   const [result]: any = await conn.execute(
     `INSERT INTO h_batches
        (tenant_id, site_id, batch_code, day_batch_group, batch_order,
-        product_id, planned_quantity, planned_date, start_time,
-        status, mode, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        product_id, planned_quantity, actual_quantity, planned_date, start_time,
+        status, mode, completed_at, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       batch.tenantId,
       batch.siteId,
@@ -56,10 +57,12 @@ export async function createBatch(batch: {
       batch.batchOrder != null ? batch.batchOrder : null,
       batch.productId,
       batch.plannedQuantity,
+      isAutoCompleted ? batch.plannedQuantity : null, // auto: actual=planned
       plannedDateStr,
       startTimeStr,
       batch.status || "planned",
       batch.mode || "auto",
+      isAutoCompleted ? new Date() : null, // auto: 즉시 완료
       batch.createdBy,
     ]
   );

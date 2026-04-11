@@ -629,7 +629,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
           <CardTitle>품목제조보고 목록</CardTitle>
           <CardDescription>등록된 품목제조보고서를 조회하고 관리할 수 있습니다</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-visible px-0 sm:px-6">
           {/* 일괄 작업 */}
           {selectedIds.length > 0 && (
             <div className="flex gap-4 items-center mb-4 p-4 bg-muted rounded-lg">
@@ -729,7 +729,8 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : filteredReports && filteredReports.length > 0 ? (
-            <Table>
+            <div className="overflow-x-auto -mx-2 sm:mx-0" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">
@@ -811,6 +812,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
                 ))}
               </TableBody>
             </Table>
+            </div>
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />

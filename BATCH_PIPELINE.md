@@ -346,6 +346,16 @@ pending_review → pending_approval → approved / rejected
 
 ## 12. 배치 라이프사이클
 
+### 모드별 상태 흐름
+
+**auto 모드 (자동배치 — 백오피스 사후 입력)**
+```
+[생성 = 즉시 completed] → approved → shipped → archived
+```
+- 배치 생성 시 `status='completed'`, `actual_quantity=planned_quantity`
+- 승인요청 자동 생성 → 승인 처리
+
+**manual 모드 (수동배치 — 현장 운영)**
 ```
 planned → in_progress → completed → approved → shipped → archived
               ↓                        ↓
@@ -353,6 +363,27 @@ planned → in_progress → completed → approved → shipped → archived
               ↓
            cancelled / failed
 ```
+- 사용자가 수동으로 시작/완료 전환
+
+**IoT 모드 (향후 — 센서 연동)**
+```
+planned → in_progress → completed → approved → shipped → archived
+              ↑                ↑
+          센서 시작신호     센서 완료신호
+```
+- 센서 데이터 기반 자동 단계 전환
+- 파이프라인 9단계가 실시간 동작
+
+### 상태 전이 이벤트
+
+| 전이 | auto 모드 | manual 모드 | IoT (향후) |
+|------|-----------|-------------|-----------|
+| → planned | - | 배치 생성 | 배치 생성 |
+| → in_progress | - | 수동 시작 | 센서 시작신호 |
+| → completed | **즉시** (생성과 동시) | 수동 완료 | 센서 완료신호 |
+| → approved | 승인 처리 | 승인 처리 | 자동 승인 |
+
+### 자동 처리 (모든 모드 공통)
 
 | 전이 | 트리거 | 자동 처리 |
 |------|--------|-----------|
