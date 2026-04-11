@@ -101,7 +101,8 @@ export default function BatchList() {
   const batches = batchData?.items || [];
   const totalPages = batchData?.totalPages || 1;
 
-  const { isWorker } = useAuth();
+  const { isWorker, user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const exportBatches = trpc.excel.exportBatches.useMutation();
   const [showCost, setShowCost] = useState(false);
   const [batchCosts, setBatchCosts] = useState<Record<number, number>>({});
@@ -441,7 +442,7 @@ export default function BatchList() {
                               <Link href={`/dashboard/batch/${batch.id}`}>
                                 <Button variant="outline" size="sm">상세 보기</Button>
                               </Link>
-                              {isWorker && batch.status !== 'completed' && (
+                              {(isWorker || isAdmin) && (
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -495,7 +496,7 @@ export default function BatchList() {
                           </Link>
                           <div className="flex flex-col items-end gap-2">
                             <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-1" />
-                            {isWorker && batch.status !== 'completed' && (
+                            {(isWorker || isAdmin) && (
                               <Button
                                 variant="outline"
                                 size="sm"
