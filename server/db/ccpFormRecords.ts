@@ -1290,9 +1290,17 @@ export async function syncCcpRowsToFormRows(params: {
     // ═══ 교차배치 시간 누적: 이전 배치들의 작업시간을 합산하여 시작시간 이동 ═══
     // 일괄배치에서 제품A → 제품B → 제품C 순서로 같은 설비를 사용하면
     // 제품B는 제품A의 작업이 끝난 후부터 시작해야 함
+    // ★ 설비 N대가 병렬 가동: 실제 소요 = ceil(batch_count / equipCount) × cycle_duration
+    //
+    // 정상 시간 스케줄 예시 (교반기 3대, 사이클 70분, 간격 17분):
+    //   1호기: 05:00(배치1) → 06:10(배치4) → 07:20(배치7)
+    //   2호기: 05:17(배치2) → 06:27(배치5) → 07:37(배치8)
+    //   3호기: 05:34(배치3) → 06:44(배치6) → 07:54(배치9)
+    // 다음 제품: 이전 제품 마지막 라운드 종료 후 시작
     let crossBatchTimeOffsetMin = 0;
-    if (equipStartIndex > 0 && ccpType !== "CCP-4P") {
-      // 이전 배치들의 배치수 × 사이클시간 합산
+    // ★ FIX: batchOrder > 1이면 이전 배치가 존재 → 누적 시간 계산 필요
+    //   (기존 equipStartIndex 변수는 아래 else 블록에서만 선언되어 여기서 항상 undefined였음)
+    if (batchOrder > 1 && ccpType !== "CCP-4P" && processGroupId) {
       try {
         const [prevTimeRows] = await rawConn.execute<any[]>(
           `SELECT fr2.batch_count,
@@ -1309,7 +1317,9 @@ export async function syncCcpRowsToFormRows(params: {
         for (const pt of prevTimeRows as any[]) {
           const bc = pt.batch_count ? Number(pt.batch_count) : 1;
           const cd = pt.cycle_duration ? Number(pt.cycle_duration) : 70; // 기본 70분
-          crossBatchTimeOffsetMin += bc * cd;
+          // 설비 N대 병렬: 실제 라운드 수 = ceil(batch_count / equipCount)
+          const actualRounds = Math.ceil(bc / Math.max(1, equipCount));
+          crossBatchTimeOffsetMin += actualRounds * cd;
         }
       } catch { /* 실패 시 오프셋 0 */ }
     }

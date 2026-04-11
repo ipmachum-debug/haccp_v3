@@ -241,6 +241,157 @@ async function startServer() {
     }
   });
 
+  // DB 조회 (관리용, localhost only)
+  app.post("/api/internal/query", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { sql: sqlQuery, params } = req.body || {};
+      if (!sqlQuery) return res.status(400).json({ error: "sql required" });
+      // SELECT만 허용
+      if (!/^\s*SELECT/i.test(sqlQuery)) return res.status(400).json({ error: "SELECT only" });
+      const { getRawConnection } = await import("../db/connection");
+      const pool = await getRawConnection();
+      const [rows] = await pool.execute(sqlQuery, params || []);
+      res.json({ success: true, count: (rows as any[]).length, rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DB 수정 (관리용, localhost only)
+  app.post("/api/internal/execute", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { sql: sqlQuery, params } = req.body || {};
+      if (!sqlQuery) return res.status(400).json({ error: "sql required" });
+      const { getRawConnection } = await import("../db/connection");
+      const pool = await getRawConnection();
+      const [result] = await pool.execute(sqlQuery, params || []);
+      const affected = (result as any).affectedRows || 0;
+      res.json({ success: true, affectedRows: affected });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 특정 날짜 생산배치 강제 삭제 (완료 상태 포함)
+  app.post("/api/internal/force-delete-batches", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { date, tenantId } = req.body || {};
+      if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
+      const { getRawConnection } = await import("../db/connection");
+      const pool = await getRawConnection();
+
+      // 1. 해당 날짜의 배치 목록 조회
+      const [batchRows] = await pool.execute(
+        `SELECT b.id, b.batch_code, b.status, p.product_name
+         FROM h_batches b
+         LEFT JOIN h_products_v2 p ON b.product_id = p.id
+         WHERE b.planned_date = ? AND b.tenant_id = ?`,
+        [String(date), Number(tenantId)]
+      ) as any;
+      
+      if (!batchRows || batchRows.length === 0) {
+        return res.json({ success: true, message: `${date} 날짜에 배치가 없습니다.`, deleted: 0, batches: [] });
+      }
+
+      const deletedBatches: any[] = [];
+      const { deleteBatch } = await import("../db/batchFunctions");
+
+      // 2. 각 배치를 강제 삭제 (deleteBatch 함수 사용 - CCP, 일정, 승인 등 cascade 삭제)
+      for (const batch of batchRows) {
+        try {
+          await deleteBatch(Number(batch.id), Number(tenantId));
+          deletedBatches.push({
+            id: batch.id,
+            batchCode: batch.batch_code,
+            productName: batch.product_name,
+            status: batch.status,
+            result: 'deleted'
+          });
+        } catch (err: any) {
+          deletedBatches.push({
+            id: batch.id,
+            batchCode: batch.batch_code,
+            productName: batch.product_name,
+            status: batch.status,
+            result: `error: ${err.message}`
+          });
+        }
+      }
+
+      // 3. 일일일지(h_generic_checklist_records)에서 해당 날짜 배치 정보 제거
+      try {
+        const [clRows] = await pool.execute(
+          `SELECT id, form_data FROM h_generic_checklist_records
+           WHERE form_type = 'daily_log' AND form_date = ? AND tenant_id = ? LIMIT 1`,
+          [String(date), Number(tenantId)]
+        ) as any;
+        if (clRows && clRows.length > 0) {
+          const cl = clRows[0];
+          let formData: any = {};
+          try { formData = typeof cl.form_data === 'string' ? JSON.parse(cl.form_data) : (cl.form_data || {}); } catch {}
+          if (Array.isArray(formData.batches)) {
+            const deletedIds = new Set(deletedBatches.filter((b: any) => b.result === 'deleted').map((b: any) => b.id));
+            formData.batches = formData.batches.filter((b: any) => !deletedIds.has(b.batchId));
+            formData.totalBatches = formData.batches.length;
+            formData.totalProduction = formData.batches.reduce((s: number, b: any) => s + (b.actualQuantity || 0), 0);
+            await pool.execute(
+              `UPDATE h_generic_checklist_records SET form_data = ?, updated_at = NOW() WHERE id = ?`,
+              [JSON.stringify(formData), Number(cl.id)]
+            );
+          }
+        }
+      } catch (dlErr: any) {
+        console.error('[force-delete-batches] 일일일지 정리 실패:', dlErr);
+      }
+
+      // 4. 생산일지(h_daily_reports) 해당 날짜 삭제
+      try {
+        await pool.execute(
+          `DELETE FROM h_daily_reports WHERE report_date = ? AND report_type = 'production_daily' AND tenant_id = ?`,
+          [String(date), Number(tenantId)]
+        );
+      } catch (_e) {}
+
+      // 5. production_sku_output 해당 날짜 삭제
+      try {
+        await pool.execute(
+          `DELETE FROM production_sku_output WHERE work_date = ? AND tenant_id = ?`,
+          [String(date), Number(tenantId)]
+        );
+      } catch (_e) {}
+
+      // 6. h_production_performance 해당 날짜 삭제
+      try {
+        await pool.execute(
+          `DELETE FROM h_production_performance WHERE work_date = ? AND tenant_id = ?`,
+          [String(date), Number(tenantId)]
+        );
+      } catch (_e) {}
+
+      // 7. h_production_start 해당 날짜 삭제
+      try {
+        await pool.execute(
+          `DELETE FROM h_production_start WHERE work_date = ? AND tenant_id = ?`,
+          [String(date), Number(tenantId)]
+        );
+      } catch (_e) {}
+
+      res.json({
+        success: true,
+        message: `${date} 생산배치 ${deletedBatches.filter((b: any) => b.result === 'deleted').length}/${batchRows.length}건 삭제 완료`,
+        deleted: deletedBatches.filter((b: any) => b.result === 'deleted').length,
+        total: batchRows.length,
+        batches: deletedBatches
+      });
+    } catch (err: any) {
+      console.error('[force-delete-batches] error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
