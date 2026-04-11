@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar, Package, AlertCircle } from "lucide-react";
@@ -25,6 +26,40 @@ export default function ProductionSchedule() {
     endDate,
   });
   
+  // 정렬 상태 (기본: 최근 날짜 순)
+  type SortField = "plannedDate" | "batchCode" | "productName" | "plannedQuantity" | "status";
+  const [sortField, setSortField] = useState<SortField>("plannedDate");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc"); // 최근 날짜 먼저
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir(field === "plannedDate" ? "desc" : "asc");
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-30" />;
+    return sortDir === "asc" ? <ArrowUp className="w-3 h-3 ml-1" /> : <ArrowDown className="w-3 h-3 ml-1" />;
+  };
+
+  const sortedBatches = useMemo(() => {
+    if (!batchSchedule) return [];
+    return [...(batchSchedule as any[])].sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case "plannedDate": cmp = String(a.plannedDate || "").localeCompare(String(b.plannedDate || "")); break;
+        case "batchCode": cmp = String(a.batchCode || "").localeCompare(String(b.batchCode || "")); break;
+        case "productName": cmp = String(a.productName || "").localeCompare(String(b.productName || "")); break;
+        case "plannedQuantity": cmp = (parseFloat(a.plannedQuantity) || 0) - (parseFloat(b.plannedQuantity) || 0); break;
+        case "status": cmp = String(a.status || "").localeCompare(String(b.status || "")); break;
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [batchSchedule, sortField, sortDir]);
+
   // 배치별 원재료 소요량 조회
   const { data: materialRequirements, isLoading: isLoadingMaterials } = trpc.productionSchedule.calculateMaterialRequirements.useQuery(
     { batchId: selectedBatchId! },
@@ -92,16 +127,26 @@ export default function ProductionSchedule() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>배치 코드</TableHead>
-                  <TableHead>제품</TableHead>
-                  <TableHead>계획 일자</TableHead>
-                  <TableHead>계획 수량</TableHead>
-                  <TableHead>상태</TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("batchCode")}>
+                    <span className="flex items-center">배치 코드<SortIcon field="batchCode" /></span>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("productName")}>
+                    <span className="flex items-center">제품<SortIcon field="productName" /></span>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("plannedDate")}>
+                    <span className="flex items-center">계획 일자<SortIcon field="plannedDate" /></span>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("plannedQuantity")}>
+                    <span className="flex items-center">계획 수량<SortIcon field="plannedQuantity" /></span>
+                  </TableHead>
+                  <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("status")}>
+                    <span className="flex items-center">상태<SortIcon field="status" /></span>
+                  </TableHead>
                   <TableHead>원재료 소요량</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {batchSchedule.map((batch: any) => (
+                {sortedBatches.map((batch: any) => (
                   <TableRow key={batch.id}>
                     <TableCell className="font-medium">{batch.batchCode}</TableCell>
                     <TableCell>

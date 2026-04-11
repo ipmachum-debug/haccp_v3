@@ -153,58 +153,31 @@ export async function getOrCreateCcpFormRecord(params: {
     return { record: { ...rec, batchCount: newBatchCount ?? rec.batchCount }, rows };
   }
 
-  // 배치 수 계산 (BOM 기준 단위배치)
+  // 배치 수 계산
   let batchCount = 1;
   if (params.bomBatchKg && params.plannedQtyKg && params.bomBatchKg > 0) {
     batchCount = Math.ceil(params.plannedQtyKg / params.bomBatchKg);
     if (batchCount < 1) batchCount = 1;
   }
 
-  // 설비 배치 설정 가져오기 (ccp_process_groups 우선)
-  let equipGroupMode: "concurrent" | "sequential" | "grouped" = "sequential";
+  // 설비 배치 설정 가져오기
+  let equipGroupMode: "concurrent" | "sequential" = "sequential";
   let equipIntervalMin = 10;
-  let equipBatchSize = 1; // grouped 모드: 1배치당 병렬 설비 수
   if (params.processGroupId) {
-    // ccp_process_groups에서 설비 운영 모드 조회
-    try {
-      const rawConn = await getRawConnection();
-      const [pgRows] = await rawConn.execute<any[]>(
-        `SELECT equip_group_mode, equip_interval_min, equip_batch_size
-         FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
-        [params.processGroupId, params.tenantId],
-      );
-      if ((pgRows as any[]).length > 0) {
-        const pg = (pgRows as any[])[0];
-        if (pg.equip_group_mode === 'concurrent' || pg.equip_group_mode === 'sequential' || pg.equip_group_mode === 'grouped') {
-          equipGroupMode = pg.equip_group_mode;
-        }
-        equipIntervalMin = pg.equip_interval_min != null ? Number(pg.equip_interval_min) : 10;
-        equipBatchSize = pg.equip_batch_size != null ? Number(pg.equip_batch_size) : 1;
-      }
-    } catch {
-      // 폴백: hCcpEquipBatchSettings
-      const settings = await db
-        .select()
-        .from(hCcpEquipBatchSettings)
-        .where(
-          and(
-            eq(hCcpEquipBatchSettings.tenantId, params.tenantId),
-            eq(hCcpEquipBatchSettings.processGroupId, params.processGroupId)
-          )
+    const settings = await db
+      .select()
+      .from(hCcpEquipBatchSettings)
+      .where(
+        and(
+          eq(hCcpEquipBatchSettings.tenantId, params.tenantId),
+          eq(hCcpEquipBatchSettings.processGroupId, params.processGroupId)
         )
-        .limit(1);
-      if (settings.length > 0) {
-        equipGroupMode = settings[0].groupMode;
-        equipIntervalMin = settings[0].intervalBetweenMin ?? 10;
-      }
+      )
+      .limit(1);
+    if (settings.length > 0) {
+      equipGroupMode = settings[0].groupMode;
+      equipIntervalMin = settings[0].intervalBetweenMin ?? 10;
     }
-  }
-
-  // grouped 모드: equip_batch_size만큼 병렬 → 실제 배치수 축소
-  // 예) 87kg, BOM 5kg → batchCount=18, equip_batch_size=3 → ceil(18/3)=6
-  if (equipBatchSize > 1) {
-    batchCount = Math.ceil(batchCount / equipBatchSize);
-    if (batchCount < 1) batchCount = 1;
   }
 
   // CCP-4P: 일일 통합 기록 → productName/plannedQtyKg를 당일 전체 기준으로 설정
@@ -1194,29 +1167,12 @@ export async function syncCcpRowsToFormRows(params: {
     if (totalBatchCount < 1) totalBatchCount = 1;
 
     // ★ h_ccp_rows 기반 배치수 결정:
-    //    sequential: 1배치 = 1설비 1운전 → ccpRows.length = 배치수
-    //    grouped: N대 설비가 동시 운전 → 배치수 = ccpRows.length / pgBatchSize
-    //    concurrent: 모든 설비가 동시 시작 → 배치수 = ccpRows.length / equipCount
-    //    예(sequential): 3배치, 설비 2대 → 3행 (라운드로빈 순환), batch_count=3
-    //    예(grouped):    6그룹, 설비 6대, batch_size=3 → 18행, batch_count=6
+    //    라운드로빈: 1배치 = 1설비 1운전 → ccpRows.length = 배치수
+    //    예: 3배치, 설비 2대 → 3행 (라운드로빈 순환)
     if (ccpType !== "CCP-4P" && ccpRows.length > 0) {
-      let ccpBasedBatchCount: number;
-      if (pgGroupMode === 'grouped' && pgBatchSize > 1) {
-        // grouped 모드: pgBatchSize대의 설비가 동시 운전하므로 행 수를 pgBatchSize로 나눔
-        ccpBasedBatchCount = Math.ceil(ccpRows.length / pgBatchSize);
-      } else if (pgGroupMode === 'concurrent' && equipCount > 1) {
-        // concurrent 모드: 모든 설비가 동시 시작하므로 행 수를 설비수로 나눔
-        ccpBasedBatchCount = Math.ceil(ccpRows.length / equipCount);
-      } else {
-        // sequential 모드: 각 행이 1개 서브배치
-        ccpBasedBatchCount = ccpRows.length;
-      }
-      if (ccpBasedBatchCount < 1) ccpBasedBatchCount = 1;
-
-      // 기존 form_rows가 잘못된 수이면 삭제 후 재생성
-      // ★ ccpRows.length(=실제 측정 행 수)와 비교: grouped 모드에서 batch_count≠행수
-      const expectedFormRowCount = ccpRows.length > 0 ? ccpRows.length : ccpBasedBatchCount;
-      if (existingSeqs.size > 0 && existingSeqs.size !== expectedFormRowCount) {
+      const ccpBasedBatchCount = ccpRows.length;
+      // 기존 form_rows가 잘못된 batch_count 기반이면 삭제 후 재생성
+      if (existingSeqs.size > 0 && existingSeqs.size !== ccpBasedBatchCount) {
         await rawConn.execute(
           `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
           [formRecordId, tenantId],
@@ -1247,10 +1203,6 @@ export async function syncCcpRowsToFormRows(params: {
       const frPlannedKg = parseFloat(fr.planned_qty_kg) || batchPlannedKg || 0;
       if (localBomBatchKg && localBomBatchKg > 0 && frPlannedKg > 0) {
         totalBatchCount = Math.ceil(frPlannedKg / localBomBatchKg);
-        // grouped 모드: equip_batch_size만큼 병렬 → 실제 배치수 축소
-        if (pgGroupMode === 'grouped' && pgBatchSize > 1) {
-          totalBatchCount = Math.ceil(totalBatchCount / pgBatchSize);
-        }
         if (totalBatchCount < 1) totalBatchCount = 1;
         // DB에도 batch_count 업데이트
         await rawConn.execute(
@@ -1334,6 +1286,33 @@ export async function syncCcpRowsToFormRows(params: {
     const randomSeed = batchId * 1000 + (processGroupId || 0) * 100 + ccpType.charCodeAt(4);
     const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
     const adjustedStartTime = processStartTime ? addMinutesToTime(processStartTime, randomOffsetMin) : processStartTime;
+
+    // ═══ 교차배치 시간 누적: 이전 배치들의 작업시간을 합산하여 시작시간 이동 ═══
+    // 일괄배치에서 제품A → 제품B → 제품C 순서로 같은 설비를 사용하면
+    // 제품B는 제품A의 작업이 끝난 후부터 시작해야 함
+    let crossBatchTimeOffsetMin = 0;
+    if (equipStartIndex > 0 && ccpType !== "CCP-4P") {
+      // 이전 배치들의 배치수 × 사이클시간 합산
+      try {
+        const [prevTimeRows] = await rawConn.execute<any[]>(
+          `SELECT fr2.batch_count,
+                  (SELECT MAX(cr.duration_min) FROM h_ccp_rows cr WHERE cr.instance_id IN (
+                    SELECT ci.id FROM h_ccp_instances ci WHERE ci.batch_id = fr2.batch_id AND ci.process_group_id = fr2.process_group_id
+                  )) as cycle_duration
+           FROM h_ccp_form_records fr2
+           JOIN h_batches b2 ON b2.id = fr2.batch_id AND b2.tenant_id = fr2.tenant_id
+           WHERE fr2.tenant_id = ? AND fr2.process_group_id = ? AND fr2.ccp_type = ?
+             AND b2.planned_date = ? AND b2.batch_order < ?
+           ORDER BY b2.batch_order`,
+          [tenantId, processGroupId, ccpType, plannedDate, batchOrder]
+        );
+        for (const pt of prevTimeRows as any[]) {
+          const bc = pt.batch_count ? Number(pt.batch_count) : 1;
+          const cd = pt.cycle_duration ? Number(pt.cycle_duration) : 70; // 기본 70분
+          crossBatchTimeOffsetMin += bc * cd;
+        }
+      } catch { /* 실패 시 오프셋 0 */ }
+    }
 
     if (ccpType === "CCP-4P") {
       // ═══════════════════════════════════════════════════════════
@@ -1886,11 +1865,7 @@ export async function syncCcpRowsToFormRows(params: {
 
     } else {
       // ═══ CCP-1B / CCP-2B: 가열(증숙/굽기) 공정 ═══
-      // ★ rowCount = 실제 측정 행 수 (= h_ccp_rows 개수)
-      //    grouped 모드: 6배치 × 3장비 = 18행 (totalBatchCount=6이지만 form_rows는 18행 필요)
-      //    sequential 모드: ccpRows.length = totalBatchCount (1:1 대응)
-      //    form_rows가 없으면 totalBatchCount를 폴백으로 사용
-      const rowCount = ccpRows.length > 0 ? ccpRows.length : totalBatchCount;
+      const rowCount = totalBatchCount;
 
       // ═══ 교차배치 설비 순환 (Cross-batch equipment rotation) ═══
       // 같은 day_batch_group (또는 같은 planned_date) 내에서 같은 process_group의 이전 배치들이
@@ -1975,23 +1950,21 @@ export async function syncCcpRowsToFormRows(params: {
           const cycleDuration = row.duration_min != null ? Number(row.duration_min) : 70;
 
           if (pgGroupMode === "concurrent") {
-            measurementTime = adjustedStartTime;
+            measurementTime = addMinutesToTime(adjustedStartTime, crossBatchTimeOffsetMin);
 
           } else if (pgGroupMode === "grouped") {
             const groupsPerRound = Math.max(1, Math.ceil(equipCount / pgBatchSize));
             const groupIndex = Math.floor(globalSeqIdx / pgBatchSize);
             const roundIndex = Math.floor(groupIndex / groupsPerRound);
             const groupInRound = groupIndex % groupsPerRound;
-            const offsetMin = roundIndex * cycleDuration + groupInRound * pgIntervalMin;
+            const offsetMin = crossBatchTimeOffsetMin + roundIndex * cycleDuration + groupInRound * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
             // sequential (기본) — 배치 내 로컬 인덱스로 설비 선택
-            // globalSeqIdx는 이전 배치 설비가 누적되어 3→1 역전 문제 발생
-            // seqIdx(배치 내 0,1,2...)를 사용하여 1호기→2호기→3호기 순서 보장
             const equipIndex = seqIdx % equipCount;
             const localRoundIndex = Math.floor(seqIdx / equipCount);
-            const offsetMin = localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
+            const offsetMin = crossBatchTimeOffsetMin + localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
           }
         }
