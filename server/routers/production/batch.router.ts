@@ -899,17 +899,15 @@ export const batchRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { getBatchById, deleteBatch } = await import("../../db");
-        
-        // 락 체크: 완료된 배치 삭제 금지
+
         const batch = await getBatchById(input.id, ctx.tenantId!);
         if (!batch) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "배치를 찾을 수 없습니다."
-          });
+          throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
         }
-        
-        if (batch.status === 'completed') {
+
+        // 락 체크: 완료된 배치는 admin만 삭제 가능
+        const isAdmin = ctx.user?.role === 'admin' || ctx.user?.role === 'super_admin';
+        if (batch.status === 'completed' && !isAdmin) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "완료된 배치는 삭제할 수 없습니다."
@@ -971,7 +969,20 @@ export const batchRouter = router({
 
         return { success: true, message: "배치가 삭제되었습니다." };
       }),
-    
+
+    /** 날짜별 일괄 배치 삭제 (롤백용) — admin 전용 */
+    deleteByDate: tenantRequiredProcedure
+      .input(z.object({ plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .mutation(async ({ input, ctx }) => {
+        const isAdmin = ctx.user?.role === 'admin' || ctx.user?.role === 'super_admin';
+        if (!isAdmin) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 일괄 삭제할 수 있습니다." });
+        }
+        const { deleteBatchesByDate } = await import("../../db/batchFunctions");
+        const result = await deleteBatchesByDate(input.plannedDate, ctx.tenantId!);
+        return { success: true, ...result, message: `${input.plannedDate} 배치 ${result.deletedCount}건 삭제 완료` };
+      }),
+
 // ═══════════════════════════════════════════════════════════════
 // CCP 자동생성 및 HACCP 보고서
 // ═══════════════════════════════════════════════════════════════

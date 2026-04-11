@@ -448,6 +448,68 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
   } else {
     await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ?`, [batchId]);
   }
+  // SKU 생산수량 삭제
+  try {
+    await pool.execute(`DELETE FROM production_sku_output WHERE batch_id = ?${tenantId ? ' AND tenant_id = ?' : ''}`, tenantId ? [batchId, tenantId] : [batchId]);
+  } catch { /* ignore */ }
+  // 금속검출 시간 슬롯/감도체크 삭제
+  try {
+    await pool.execute(
+      `DELETE sc FROM h_ccp_metal_sensitivity_checks sc
+       JOIN h_ccp_batch_process_runs pr ON sc.batch_process_run_id = pr.id
+       WHERE pr.batch_id = ?${tenantId ? ' AND pr.tenant_id = ?' : ''}`,
+      tenantId ? [batchId, tenantId] : [batchId]
+    );
+    await pool.execute(
+      `DELETE sl FROM h_ccp_metal_sku_slots sl
+       JOIN h_ccp_batch_process_runs pr ON sl.batch_process_run_id = pr.id
+       WHERE pr.batch_id = ?${tenantId ? ' AND pr.tenant_id = ?' : ''}`,
+      tenantId ? [batchId, tenantId] : [batchId]
+    );
+    await pool.execute(`DELETE FROM h_ccp_batch_process_runs WHERE batch_id = ?${tenantId ? ' AND tenant_id = ?' : ''}`, tenantId ? [batchId, tenantId] : [batchId]);
+  } catch { /* ignore */ }
+}
+
+/**
+ * 날짜별 일괄 배치 삭제 (관련 모든 데이터 포함)
+ * 잘못된 데이터를 롤백할 때 사용
+ */
+export async function deleteBatchesByDate(plannedDate: string, tenantId: number): Promise<{ deletedCount: number }> {
+  const pool = await getRawConnection();
+  const [rows] = await pool.execute<any[]>(
+    `SELECT id FROM h_batches WHERE planned_date = ? AND tenant_id = ?`,
+    [plannedDate, tenantId]
+  );
+  const batchIds = (rows as any[]).map((r: any) => r.id);
+  if (batchIds.length === 0) return { deletedCount: 0 };
+
+  for (const batchId of batchIds) {
+    await deleteBatch(batchId, tenantId);
+  }
+
+  // 해당 날짜의 일일일지 삭제
+  try {
+    await pool.execute(
+      `DELETE FROM h_generic_checklist_records WHERE form_type = 'daily_log' AND form_date = ? AND tenant_id = ?`,
+      [plannedDate, tenantId]
+    );
+  } catch { /* ignore */ }
+
+  // CCP-4P 통합 기록 삭제 (고아 방지)
+  try {
+    await pool.execute(
+      `DELETE rows FROM h_ccp_form_rows rows
+       JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id
+       WHERE rec.ccp_type = 'CCP-4P' AND rec.work_date = ? AND rec.tenant_id = ?`,
+      [plannedDate, tenantId]
+    );
+    await pool.execute(
+      `DELETE FROM h_ccp_form_records WHERE ccp_type = 'CCP-4P' AND work_date = ? AND tenant_id = ?`,
+      [plannedDate, tenantId]
+    );
+  } catch { /* ignore */ }
+
+  return { deletedCount: batchIds.length };
 }
 
 export async function generateBatchCode(productId: number, tenantId?: number) {
