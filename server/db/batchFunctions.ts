@@ -43,12 +43,24 @@ export async function createBatch(batch: {
   // Use raw SQL to avoid Drizzle's date serialization and `as any` type issues
   const conn = await getRawConnection();
   const isAutoCompleted = batch.status === "completed";
+
+  // auto 모드: 종료시간 계산 (시작시간 + BOM 배치수 × 사이클시간)
+  // 정확한 계산은 BOM 조회가 필요하므로, 여기서는 시작시간 + 2시간을 기본값으로 설정
+  // 실제 종료시간은 completeBatch에서 정확히 갱신
+  let endTimeStr: string | null = null;
+  if (isAutoCompleted && startTimeStr) {
+    // 시작시간에서 2시간 후를 기본 종료시간으로 설정
+    const [h, m] = (batch.batchStartTime || "09:00").split(":").map(Number);
+    const endH = h + 2;
+    endTimeStr = `${plannedDateStr} ${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+  }
+
   const [result]: any = await conn.execute(
     `INSERT INTO h_batches
        (tenant_id, site_id, batch_code, day_batch_group, batch_order,
-        product_id, planned_quantity, actual_quantity, planned_date, start_time,
+        product_id, planned_quantity, actual_quantity, planned_date, start_time, end_time,
         status, mode, completed_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       batch.tenantId,
       batch.siteId,
@@ -57,12 +69,13 @@ export async function createBatch(batch: {
       batch.batchOrder != null ? batch.batchOrder : null,
       batch.productId,
       batch.plannedQuantity,
-      isAutoCompleted ? batch.plannedQuantity : null, // auto: actual=planned
+      isAutoCompleted ? batch.plannedQuantity : null,
       plannedDateStr,
       startTimeStr,
+      endTimeStr,                                        // 종료시간 추가
       batch.status || "planned",
       batch.mode || "auto",
-      isAutoCompleted ? new Date() : null, // auto: 즉시 완료
+      isAutoCompleted ? new Date() : null,
       batch.createdBy,
     ]
   );
