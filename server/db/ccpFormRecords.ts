@@ -1291,8 +1291,16 @@ export async function syncCcpRowsToFormRows(params: {
     // 일괄배치에서 제품A → 제품B → 제품C 순서로 같은 설비를 사용하면
     // 제품B는 제품A의 작업이 끝난 후부터 시작해야 함
     // ★ 설비 N대가 병렬 가동: 실제 소요 = ceil(batch_count / equipCount) × cycle_duration
+    //
+    // 정상 시간 스케줄 예시 (교반기 3대, 사이클 70분, 간격 17분):
+    //   1호기: 05:00(배치1) → 06:10(배치4) → 07:20(배치7)
+    //   2호기: 05:17(배치2) → 06:27(배치5) → 07:37(배치8)
+    //   3호기: 05:34(배치3) → 06:44(배치6) → 07:54(배치9)
+    // 다음 제품: 이전 제품 마지막 라운드 종료 후 시작
     let crossBatchTimeOffsetMin = 0;
-    if (equipStartIndex > 0 && ccpType !== "CCP-4P") {
+    // ★ FIX: batchOrder > 1이면 이전 배치가 존재 → 누적 시간 계산 필요
+    //   (기존 equipStartIndex 변수는 아래 else 블록에서만 선언되어 여기서 항상 undefined였음)
+    if (batchOrder > 1 && ccpType !== "CCP-4P" && processGroupId) {
       try {
         const [prevTimeRows] = await rawConn.execute<any[]>(
           `SELECT fr2.batch_count,
