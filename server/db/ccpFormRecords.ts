@@ -1287,6 +1287,33 @@ export async function syncCcpRowsToFormRows(params: {
     const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
     const adjustedStartTime = processStartTime ? addMinutesToTime(processStartTime, randomOffsetMin) : processStartTime;
 
+    // ═══ 교차배치 시간 누적: 이전 배치들의 작업시간을 합산하여 시작시간 이동 ═══
+    // 일괄배치에서 제품A → 제품B → 제품C 순서로 같은 설비를 사용하면
+    // 제품B는 제품A의 작업이 끝난 후부터 시작해야 함
+    let crossBatchTimeOffsetMin = 0;
+    if (equipStartIndex > 0 && ccpType !== "CCP-4P") {
+      // 이전 배치들의 배치수 × 사이클시간 합산
+      try {
+        const [prevTimeRows] = await rawConn.execute<any[]>(
+          `SELECT fr2.batch_count,
+                  (SELECT MAX(cr.duration_min) FROM h_ccp_rows cr WHERE cr.instance_id IN (
+                    SELECT ci.id FROM h_ccp_instances ci WHERE ci.batch_id = fr2.batch_id AND ci.process_group_id = fr2.process_group_id
+                  )) as cycle_duration
+           FROM h_ccp_form_records fr2
+           JOIN h_batches b2 ON b2.id = fr2.batch_id AND b2.tenant_id = fr2.tenant_id
+           WHERE fr2.tenant_id = ? AND fr2.process_group_id = ? AND fr2.ccp_type = ?
+             AND b2.planned_date = ? AND b2.batch_order < ?
+           ORDER BY b2.batch_order`,
+          [tenantId, processGroupId, ccpType, plannedDate, batchOrder]
+        );
+        for (const pt of prevTimeRows as any[]) {
+          const bc = pt.batch_count ? Number(pt.batch_count) : 1;
+          const cd = pt.cycle_duration ? Number(pt.cycle_duration) : 70; // 기본 70분
+          crossBatchTimeOffsetMin += bc * cd;
+        }
+      } catch { /* 실패 시 오프셋 0 */ }
+    }
+
     if (ccpType === "CCP-4P") {
       // ═══════════════════════════════════════════════════════════
       // CCP-4P: 금속검출공정 v3
@@ -1923,23 +1950,21 @@ export async function syncCcpRowsToFormRows(params: {
           const cycleDuration = row.duration_min != null ? Number(row.duration_min) : 70;
 
           if (pgGroupMode === "concurrent") {
-            measurementTime = adjustedStartTime;
+            measurementTime = addMinutesToTime(adjustedStartTime, crossBatchTimeOffsetMin);
 
           } else if (pgGroupMode === "grouped") {
             const groupsPerRound = Math.max(1, Math.ceil(equipCount / pgBatchSize));
             const groupIndex = Math.floor(globalSeqIdx / pgBatchSize);
             const roundIndex = Math.floor(groupIndex / groupsPerRound);
             const groupInRound = groupIndex % groupsPerRound;
-            const offsetMin = roundIndex * cycleDuration + groupInRound * pgIntervalMin;
+            const offsetMin = crossBatchTimeOffsetMin + roundIndex * cycleDuration + groupInRound * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
 
           } else {
             // sequential (기본) — 배치 내 로컬 인덱스로 설비 선택
-            // globalSeqIdx는 이전 배치 설비가 누적되어 3→1 역전 문제 발생
-            // seqIdx(배치 내 0,1,2...)를 사용하여 1호기→2호기→3호기 순서 보장
             const equipIndex = seqIdx % equipCount;
             const localRoundIndex = Math.floor(seqIdx / equipCount);
-            const offsetMin = localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
+            const offsetMin = crossBatchTimeOffsetMin + localRoundIndex * cycleDuration + equipIndex * pgIntervalMin;
             measurementTime = addMinutesToTime(adjustedStartTime, offsetMin);
           }
         }
