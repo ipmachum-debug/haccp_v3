@@ -274,6 +274,34 @@ async function startServer() {
     }
   });
 
+  // CCP form rows resync (특정 날짜 배치 전체)
+  app.post("/api/internal/resync-form-rows", async (req, res) => {
+    try {
+      if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
+      const { date, tenantId } = req.body || {};
+      if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
+      const { getRawConnection } = await import("../db/connection");
+      const { syncCcpRowsToFormRows } = await import("../db/ccpFormRecords");
+      const pool = await getRawConnection();
+      const [batchRows] = await pool.execute(
+        `SELECT id, batch_code, batch_order FROM h_batches WHERE planned_date = ? AND tenant_id = ? ORDER BY batch_order`,
+        [String(date), Number(tenantId)]
+      ) as any;
+      const results: any[] = [];
+      for (const b of (batchRows || [])) {
+        try {
+          const r = await syncCcpRowsToFormRows({ batchId: b.id, tenantId: Number(tenantId) });
+          results.push({ batchId: b.id, batchCode: b.batch_code, synced: r.synced });
+        } catch (e: any) {
+          results.push({ batchId: b.id, batchCode: b.batch_code, error: e.message });
+        }
+      }
+      res.json({ success: true, count: batchRows.length, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // 특정 날짜 생산배치 강제 삭제 (완료 상태 포함)
   app.post("/api/internal/force-delete-batches", async (req, res) => {
     try {

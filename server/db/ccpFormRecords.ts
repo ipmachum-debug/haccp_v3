@@ -746,7 +746,7 @@ export async function syncCcpRowsToFormRows(params: {
   // 1. 해당 배치의 모든 form records 조회 (batch_count 포함)
   // CCP-4P 일일 통합: batchId로 연결된 기록 + 같은 workDate의 CCP-4P 일일 기록 모두 포함
   const [formRecords] = await rawConn.execute<any[]>(
-    `SELECT fr.id, fr.ccp_type, fr.process_group_id, fr.product_name, fr.planned_qty_kg, fr.bom_batch_kg, fr.batch_count,
+    `SELECT fr.id, fr.batch_id as fr_batch_id, fr.ccp_type, fr.process_group_id, fr.product_name, fr.planned_qty_kg, fr.bom_batch_kg, fr.batch_count,
             DATE_FORMAT(fr.work_date, '%Y-%m-%d') as work_date
      FROM h_ccp_form_records fr
      WHERE fr.tenant_id = ?
@@ -951,10 +951,38 @@ export async function syncCcpRowsToFormRows(params: {
       }
     }
 
-    // CCP-4P는 감도/통과 등 특수 행이므로 기존 로직 유지 (있으면 건너뜀)
-    // CCP-1B/2B는 batch_count 기반으로 누락된 행만 추가
+    // CCP-4P는 감도/통과 등 특수 행이므로 기존 데이터가 있으면 건너뜀
+    // ★ 단, 연결된 배치가 삭제되어 form_record.batch_id가 존재하지 않으면 재생성
+    //   (배치 삭제 후 새 배치 생성 시 CCP-4P 데이터가 갱신되어야 함)
     if (ccpType === "CCP-4P" && existingSeqs.size > 0) {
-      continue;
+      // 연결된 배치가 아직 존재하는지 확인
+      const frBatchId = fr.fr_batch_id;
+      let linkedBatchExists = true;
+      if (frBatchId && frBatchId !== batchId) {
+        try {
+          const [bCheck] = await rawConn.execute<any[]>(
+            `SELECT id FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+            [frBatchId, tenantId],
+          );
+          linkedBatchExists = (bCheck as any[]).length > 0;
+        } catch { /* 조회 실패 시 기존 로직 유지 */ }
+      }
+      if (linkedBatchExists) {
+        continue; // 연결 배치 존재 → 기존 데이터 유지
+      }
+      // 연결 배치 삭제됨 → 기존 행 삭제 후 재생성
+      await rawConn.execute(
+        `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
+        [formRecordId, tenantId],
+      );
+      existingSeqs.clear();
+      // form_record의 batch_id를 현재 배치로 갱신
+      try {
+        await rawConn.execute(
+          `UPDATE h_ccp_form_records SET batch_id = ? WHERE id = ? AND tenant_id = ?`,
+          [batchId, formRecordId, tenantId],
+        );
+      } catch { /* 갱신 실패 시 무시 */ }
     }
     // ★ batch_count가 1이면 CCP 점검 데이터로 재계산될 수 있으므로 건너뛰지 않음
     //    (BOM 없이 생성된 form_record는 batch_count=1이 기본값이지만 실제 배치수는 더 클 수 있음)
@@ -1245,15 +1273,15 @@ export async function syncCcpRowsToFormRows(params: {
     }
 
     // ═══ 공정별 시작시간 결정 ═══
-    // 교반공정(PG 1): batchStartTime 사용 (배치 시작시간 = 교반 시작, 통상 새벽 5시경)
-    // 증숙/오븐 등 후속공정: 해당 공정그룹 설비의 work_start_time 사용
-    //   (교반 3시간 후 실제 생산 시작 → 증숙 08:40경, 오븐 09:00경)
-    // 금속검출(CCP-4P): 별도 로직으로 처리 (아래 CCP-4P 섹션)
-    let processStartTime: string = batchStartTime; // 기본값: 배치 시작시간 (교반용)
+    // 배치 시작시간(batchStartTime)을 기본값으로 사용하되,
+    // 공정그룹 설비에 별도 work_start_time이 있으면 그것을 사용
+    // ★ 하드코딩 제거: processGroupId !== 1 대신, 설비의 work_start_time 유무로 동적 판별
+    //   (설비에 work_start_time이 설정되어 있으면 해당 시간 사용, 없으면 batchStartTime)
+    let processStartTime: string = batchStartTime; // 기본값: 배치 시작시간
 
-    // 교반공정이 아닌 경우: 설비의 work_start_time 사용
-    // ★ 교반공정(process_group_id = 1) 외의 공정은 별도 시작시간이 있음
-    if (processGroupId && processGroupId !== 1 && ccpType !== "CCP-4P") {
+    // 공정그룹 설비의 work_start_time 조회 → 있으면 해당 시간 사용
+    // (교반공정은 보통 설비 work_start_time = 배치 시작시간과 동일하므로 사실상 동일)
+    if (processGroupId && ccpType !== "CCP-4P") {
       try {
         const [equipTimeRows] = await rawConn.execute<any[]>(
           `SELECT e.work_start_time
@@ -1298,10 +1326,33 @@ export async function syncCcpRowsToFormRows(params: {
     //   3호기: 05:34(배치3) → 06:44(배치6) → 07:54(배치9)
     // 다음 제품: 이전 제품 마지막 라운드 종료 후 시작
     let crossBatchTimeOffsetMin = 0;
-    // ★ FIX: batchOrder > 1이면 이전 배치가 존재 → 누적 시간 계산 필요
-    //   (기존 equipStartIndex 변수는 아래 else 블록에서만 선언되어 여기서 항상 undefined였음)
+    // ═══ 교차배치 시간 누적: 공정그룹 전체 설비 대수 기반 ═══
+    // ★ FIX v3: 공정그룹에 등록된 전체 설비 대수를 사용하여 라운드 수 계산
+    //   핵심 원리: 3대의 교반기가 모두 가용 → 한 배치가 2대만 사용해도 3번째 교반기는 비어있음
+    //   따라서 다음 배치의 대기 시간은 ceil(bc / 전체설비수) × cycleDuration
+    //   예: 교반기 3대 등록, 다이스인절미(bc=3) → ceil(3/3)=1라운드 → 70분 후 다음 제품 시작
+    //
+    //   정상 스케줄 (교반기 3대, 사이클 70분, 간격 17분):
+    //     1호기: 05:00 → 06:10 → 07:20
+    //     2호기: 05:17 → 06:27 → 07:37
+    //     3호기: 05:34 → 06:44 → 07:54
+    //   다음 제품: 이전 제품 마지막 라운드 종료 후 시작
     if (batchOrder > 1 && ccpType !== "CCP-4P" && processGroupId) {
       try {
+        // 1. 공정그룹에 등록된 전체 설비 대수 조회
+        let processGroupEquipCount = equipCount; // 폴백: 현재 배치의 설비 수
+        try {
+          const [pgEqRows] = await rawConn.execute<any[]>(
+            `SELECT COUNT(*) as cnt FROM ccp_process_group_equipments 
+             WHERE process_group_id = ? AND tenant_id = ?`,
+            [processGroupId, tenantId],
+          );
+          if ((pgEqRows as any[]).length > 0 && Number((pgEqRows as any[])[0].cnt) > 0) {
+            processGroupEquipCount = Number((pgEqRows as any[])[0].cnt);
+          }
+        } catch { /* 폴백 사용 */ }
+
+        // 2. 이전 배치들의 batch_count와 cycle_duration 조회
         const [prevTimeRows] = await rawConn.execute<any[]>(
           `SELECT fr2.batch_count,
                   (SELECT MAX(cr.duration_min) FROM h_ccp_rows cr WHERE cr.instance_id IN (
@@ -1317,8 +1368,8 @@ export async function syncCcpRowsToFormRows(params: {
         for (const pt of prevTimeRows as any[]) {
           const bc = pt.batch_count ? Number(pt.batch_count) : 1;
           const cd = pt.cycle_duration ? Number(pt.cycle_duration) : 70; // 기본 70분
-          // 설비 N대 병렬: 실제 라운드 수 = ceil(batch_count / equipCount)
-          const actualRounds = Math.ceil(bc / Math.max(1, equipCount));
+          // ★ 공정그룹 전체 설비 대수로 라운드 수 계산
+          const actualRounds = Math.ceil(bc / Math.max(1, processGroupEquipCount));
           crossBatchTimeOffsetMin += actualRounds * cd;
         }
       } catch { /* 실패 시 오프셋 0 */ }
