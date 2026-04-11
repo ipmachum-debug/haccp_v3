@@ -507,7 +507,17 @@ export async function autoCreateCcpInstancesForBatch(args: {
       existingGroupIds.add(group.id); // 다음 반복에서 중복 방지
 
       // ── 6. 배치수 × 설비별 기본 행 생성 (CCP-4P 제외: batch_count 무시)
-      const groupBatchCount = group.ccp_type === 'CCP-4P' ? 1 : batchCount;
+      // grouped 모드: 1배치에 equip_batch_size 대가 병렬 → 실제 배치수 축소
+      // 예) 87kg, BOM 5kg, equip_batch_size=3 → 기본 batchCount=18 → grouped: ceil(18/3)=6
+      let groupBatchCount = 1;
+      if (group.ccp_type === 'CCP-4P') {
+        groupBatchCount = 1;
+      } else if (group.equip_group_mode === 'grouped' && (group.equip_batch_size ?? 1) > 1) {
+        groupBatchCount = Math.ceil(batchCount / (group.equip_batch_size ?? 1));
+        if (groupBatchCount < 1) groupBatchCount = 1;
+      } else {
+        groupBatchCount = batchCount;
+      }
       await createCcpRowsForGroup(instanceId, group, equipments, conn, tenantId, groupBatchCount);
 
       console.log(

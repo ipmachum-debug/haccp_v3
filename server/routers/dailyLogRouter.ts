@@ -181,7 +181,7 @@ export const dailyLogRouter = router({
             `);
           } else {
             await db.execute(sql`
-              UPDATE h_approval_requests SET status = 'pending_review', updated_at = NOW()
+              UPDATE h_approval_requests SET status = 'pending_review'
               WHERE id = ${approvalRows[0].id}
             `);
           }
@@ -290,16 +290,21 @@ export const dailyLogRouter = router({
           let formData: any = {};
           try { formData = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
           const hc = formData.hygieneChecks || {};
-          const hasHygieneData = typeof hc === 'object' && Object.values(hc).some((v: any) => v !== null && v !== undefined);
-          // 위생점검 항목수 카운트
-          const hygieneTotal = typeof hc === 'object' ? Object.keys(hc).length : 0;
-          const hygieneChecked = typeof hc === 'object' ? Object.values(hc).filter((v: any) => v === '적합' || v === 'Y' || v === true).length : 0;
-          // 이물관리 항목수 카운트
+          const hasHygieneData = typeof hc === 'object' && (Array.isArray(hc) ? hc.length > 0 : Object.values(hc).some((v: any) => v !== null && v !== undefined));
+          // 위생점검 항목수 카운트 (배열 또는 객체 모두 지원)
+          const isCheckedVal = (v: any) => v === '적합' || v === 'yes' || v === 'Y' || v === 'pass' || v === true;
+          const hygieneTotal = Array.isArray(hc) ? hc.length : (typeof hc === 'object' ? Object.keys(hc).length : 0);
+          const hygieneChecked = Array.isArray(hc)
+            ? hc.filter((item: any) => isCheckedVal(item?.checkResult)).length
+            : (typeof hc === 'object' ? Object.values(hc).filter((v: any) => isCheckedVal(v)).length : 0);
+          // 이물관리 항목수 카운트 (배열 또는 객체 모두 지원)
           const fc = formData.foreignMaterialChecks || {};
-          const foreignTotal = typeof fc === 'object' ? Object.keys(fc).length : 0;
-          const foreignChecked = typeof fc === 'object' ? Object.values(fc).filter((v: any) => v === '적합' || v === 'Y' || v === true).length : 0;
+          const foreignTotal = Array.isArray(fc) ? fc.length : (typeof fc === 'object' ? Object.keys(fc).length : 0);
+          const foreignChecked = Array.isArray(fc)
+            ? fc.filter((item: any) => isCheckedVal(item?.checkResult)).length
+            : (typeof fc === 'object' ? Object.values(fc).filter((v: any) => isCheckedVal(v)).length : 0);
           // 온도 기록 여부
-          const hasTemp = !!(formData.roomTemperatures || formData.freezerTemperatures || formData.fridgeTemperatures);
+          const hasTemp = !!(formData.roomTemperatures || formData.freezerTemperatures || formData.fridgeTemperatures || formData.temperatureHumidity || formData.freezerTemperature || formData.refrigeratorTemperature || formData.temperatureRecords);
 
           // 작성자: 문서결재설정 작성자 우선, 없으면 같은 테넌트의 users.name
           const displayAuthor = authorEmployeeName || r.creator_name || "-";

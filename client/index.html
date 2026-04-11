@@ -122,6 +122,39 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // SW 업데이트 감지 및 자동 리로드 (v6)
+      if ('serviceWorker' in navigator) {
+        // 즉시 SW 업데이트 확인
+        navigator.serviceWorker.register('/sw.js').then(function(reg) {
+          // 즉시 업데이트 확인
+          reg.update().catch(function(){});
+          reg.addEventListener('updatefound', function() {
+            var newSW = reg.installing;
+            if (newSW) {
+              newSW.addEventListener('statechange', function() {
+                if (newSW.state === 'activated') {
+                  // 새 SW 활성화 → 즉시 리로드
+                  window.location.reload();
+                }
+              });
+            }
+          });
+        });
+        // SW에서 보낸 리로드 메시지 수신
+        navigator.serviceWorker.addEventListener('message', function(e) {
+          if (e.data && e.data.type === 'SW_UPDATED') {
+            window.location.reload();
+          }
+        });
+        // 30초 간격으로 SW 업데이트 체크 (브라우저 기본 24시간 대기 방지)
+        setInterval(function() {
+          navigator.serviceWorker.getRegistration().then(function(reg) {
+            if (reg) reg.update().catch(function(){});
+          });
+        }, 30000);
+      }
+    </script>
     <script
       defer
       data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>

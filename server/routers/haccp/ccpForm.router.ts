@@ -11,6 +11,13 @@ export const ccpFormRouter = router({
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId!;
         if (input.includeRows) {
+          // ★ 행 포함 조회 시 자동 resync (form_rows가 없거나 batch_count와 불일치하면 재생성)
+          try {
+            const { syncCcpRowsToFormRows } = await import("../../db/ccpFormRecords");
+            await syncCcpRowsToFormRows({ batchId: input.batchId, tenantId });
+          } catch (syncErr) {
+            console.error("[getByBatch] auto-resync failed:", syncErr);
+          }
           const { getCcpFormRecordsWithRowsByBatch } = await import("../../db/ccpFormRecords");
           return getCcpFormRecordsWithRowsByBatch(input.batchId, tenantId);
         }
@@ -52,17 +59,36 @@ export const ccpFormRouter = router({
           [dayBatchGroup, tenantId]
         );
         const batchIds = (batchRows as any[]).map((r: any) => r.id);
-        // 3) 모든 배치의 CCP 기록지 조회
+        // 2.5) includeRows일 때 각 배치에 대해 자동 resync (form_rows 정합성 보장)
+        if (input.includeRows) {
+          try {
+            const { syncCcpRowsToFormRows } = await import("../../db/ccpFormRecords");
+            for (const bid of batchIds) {
+              await syncCcpRowsToFormRows({ batchId: bid, tenantId });
+            }
+          } catch (syncErr) {
+            console.error("[getByBatchGroup] auto-resync failed:", syncErr);
+          }
+        }
+        // 3) 모든 배치의 CCP 기록지 조회 (CCP-4P 중복 제거)
         const allRecords: any[] = [];
+        const seenRecordIds = new Set<number>();
         for (const bid of batchIds) {
+          let records: any[] = [];
           if (input.includeRows) {
             const { getCcpFormRecordsWithRowsByBatch } = await import("../../db/ccpFormRecords");
-            const records = await getCcpFormRecordsWithRowsByBatch(bid, tenantId);
-            allRecords.push(...(records || []));
+            records = (await getCcpFormRecordsWithRowsByBatch(bid, tenantId)) || [];
           } else {
             const { getCcpFormRecordsByBatch } = await import("../../db/ccpFormRecords");
-            const records = await getCcpFormRecordsByBatch(bid, tenantId);
-            allRecords.push(...(records || []));
+            records = (await getCcpFormRecordsByBatch(bid, tenantId)) || [];
+          }
+          // CCP-4P는 일일 통합이므로 동일 record.id가 여러 배치에서 중복 반환됨 → 중복 제거
+          for (const rec of records) {
+            const recId = rec.id;
+            if (!seenRecordIds.has(recId)) {
+              seenRecordIds.add(recId);
+              allRecords.push(rec);
+            }
           }
         }
         return allRecords;
@@ -127,7 +153,7 @@ export const ccpFormRouter = router({
     updateRecord: workerProcedure
       .input(z.object({
         id: z.number(),
-        equipGroupMode: z.enum(["concurrent", "sequential"]).optional(),
+        equipGroupMode: z.enum(["concurrent", "sequential", "grouped"]).optional(),
         equipIntervalMin: z.number().optional(),
         clHeatTimeMinLo: z.number().optional(),
         clHeatTimeMinHi: z.number().optional(),
@@ -348,7 +374,7 @@ export const ccpFormRouter = router({
     saveEquipSettings: workerProcedure
       .input(z.object({
         processGroupId: z.number(),
-        groupMode: z.enum(["concurrent", "sequential"]),
+        groupMode: z.enum(["concurrent", "sequential", "grouped"]),
         intervalBetweenMin: z.number().optional(),
         maxConcurrent: z.number().optional(),
         notes: z.string().optional(),

@@ -249,6 +249,37 @@ export async function autoGenerateWeeklyLog(
     // 5. 주간일지 생성 (h_generic_checklist_records)
     const formData = buildDefaultWeeklyFormData(workDate, batchInfo);
 
+    // ★ 이전 주간일지에서 저장된 점검 데이터 참조 (사용자가 작성한 값 계승)
+    try {
+      const prevResult = await db.execute(sql`
+        SELECT form_data FROM h_generic_checklist_records
+        WHERE form_type = 'weekly_log' AND tenant_id = ${tenantId}
+          AND form_date < ${workDate} AND form_data IS NOT NULL
+        ORDER BY form_date DESC LIMIT 1
+      `);
+      const prevRows = getRows(prevResult);
+      if (prevRows.length > 0) {
+        let prevFd: any = {};
+        try { prevFd = typeof prevRows[0].form_data === 'string' ? JSON.parse(prevRows[0].form_data) : prevRows[0].form_data; } catch {}
+        // 점검 항목값만 복사 (날짜/메모/자동생성 플래그는 제외)
+        const copyArrayKeys = ['hygieneChecks', 'pestChecks'];
+        for (const key of copyArrayKeys) {
+          if (Array.isArray(prevFd[key]) && prevFd[key].length > 0 && Array.isArray((formData as any)[key])) {
+            // 이전 데이터의 각 항목 checkResult를 새 기본 양식에 매핑
+            (formData as any)[key] = (formData as any)[key].map((item: any, idx: number) => ({
+              ...item,
+              checkResult: prevFd[key][idx]?.checkResult ?? item.checkResult,
+            }));
+          }
+        }
+        (formData as any).preFilledFrom = prevRows[0].form_date instanceof Date
+          ? prevRows[0].form_date.toISOString().split('T')[0]
+          : String(prevRows[0].form_date || '');
+      }
+    } catch (prevErr) {
+      console.warn('[autoPeriodicLogs] 주간 이전 데이터 조회 실패:', prevErr);
+    }
+
     const seqResult = await db.execute(sql`
       SELECT COALESCE(MAX(tenant_seq), 0) + 1 as next_seq
       FROM h_generic_checklist_records
@@ -366,6 +397,37 @@ export async function autoGenerateMonthlyLog(
 
     // 5. 월간일지 생성 (h_generic_checklist_records)
     const formData = buildDefaultMonthlyFormData(workDate, batchInfo);
+
+    // ★ 이전 월간일지에서 저장된 점검 데이터 참조 (사용자가 작성한 값 계승)
+    try {
+      const prevResult = await db.execute(sql`
+        SELECT form_data FROM h_generic_checklist_records
+        WHERE form_type = 'monthly_log' AND tenant_id = ${tenantId}
+          AND form_date < ${workDate} AND form_data IS NOT NULL
+        ORDER BY form_date DESC LIMIT 1
+      `);
+      const prevRows = getRows(prevResult);
+      if (prevRows.length > 0) {
+        let prevFd: any = {};
+        try { prevFd = typeof prevRows[0].form_data === 'string' ? JSON.parse(prevRows[0].form_data) : prevRows[0].form_data; } catch {}
+        // 점검 항목값만 복사 (날짜/메모/자동생성 플래그는 제외)
+        const copyArrayKeys = ['hygieneChecks', 'ccpChecks'];
+        for (const key of copyArrayKeys) {
+          if (Array.isArray(prevFd[key]) && prevFd[key].length > 0 && Array.isArray((formData as any)[key])) {
+            (formData as any)[key] = (formData as any)[key].map((item: any, idx: number) => ({
+              ...item,
+              checkResult: prevFd[key][idx]?.checkResult ?? item.checkResult,
+              notes: prevFd[key][idx]?.notes ?? item.notes,
+            }));
+          }
+        }
+        (formData as any).preFilledFrom = prevRows[0].form_date instanceof Date
+          ? prevRows[0].form_date.toISOString().split('T')[0]
+          : String(prevRows[0].form_date || '');
+      }
+    } catch (prevErr) {
+      console.warn('[autoPeriodicLogs] 월간 이전 데이터 조회 실패:', prevErr);
+    }
 
     const seqResult = await db.execute(sql`
       SELECT COALESCE(MAX(tenant_seq), 0) + 1 as next_seq
