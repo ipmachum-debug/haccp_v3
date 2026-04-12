@@ -290,8 +290,15 @@ export default function DocumentPrintManagement() {
     const isPrinted = printedIds.has(request.id);
     const cat = getCategoryForRequest(request.requestType);
     const catColor = CATEGORY_BADGE_COLORS[cat] || "";
-    const approvedDate = request.approvedAt ? new Date(request.approvedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-";
-    const requestedDate = request.requestedAt ? new Date(request.requestedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-";
+    // ★ 작업일(work_date) 우선 표시: 제목에서 작업일을 추출하고, 없으면 approvedAt/requestedAt 사용
+    // 승인 요청이 일괄 생성될 때 approvedAt/requestedAt이 실제 작업일과 다를 수 있음
+    const workDateStr = extractDateFromTitle(request.title || "");
+    const approvedDate = workDateStr
+      ? (() => { const d = new Date(workDateStr + "T00:00:00"); return d.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }); })()
+      : (request.approvedAt ? new Date(request.approvedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-");
+    const requestedDate = workDateStr
+      ? (() => { const d = new Date(workDateStr + "T00:00:00"); return d.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }); })()
+      : (request.requestedAt ? new Date(request.requestedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-");
 
     return (
       <div key={request.id}
@@ -320,8 +327,8 @@ export default function DocumentPrintManagement() {
         <div className="flex-1 min-w-0">
           <div className="font-medium truncate text-sm">{request.title}</div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-            <span className="flex items-center gap-0.5"><CheckCircle className="h-2.5 w-2.5 text-green-500" />승인 {approvedDate}</span>
-            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />요청 {requestedDate}</span>
+            <span className="flex items-center gap-0.5"><CheckCircle className="h-2.5 w-2.5 text-green-500" />{workDateStr ? "작업" : "승인"} {approvedDate}</span>
+            {!workDateStr && <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />요청 {requestedDate}</span>}
             <span className="text-gray-300">#{request.id}</span>
           </div>
         </div>

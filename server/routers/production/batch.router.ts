@@ -487,6 +487,51 @@ export const batchRouter = router({
 
         const successResults = results.filter((r: any) => r.batchId > 0);
 
+        // === 2.5 CCP-4P 일일 통합 재동기화 (모든 배치 생성 후) ===
+        // ★ 문제: createSingleBatch가 배치별로 syncCcpRowsToFormRows를 호출하는데,
+        //    CCP-4P는 당일 모든 배치의 SKU를 조회하여 통합 기록지를 생성함.
+        //    배치가 순차 생성되므로, 중간 배치에서 sync가 실행되면 아직 생성되지 않은
+        //    후속 배치의 제품이 누락됨 (예: 7개 중 5개만 포함되는 현상).
+        // ★ 해결: 모든 배치 생성 완료 후, 기존 CCP-4P form_rows를 삭제하고
+        //    마지막 배치 ID로 재생성하여 모든 제품이 포함되도록 보장.
+        // ★ 주의: syncCcpRowsToFormRows는 existingSeqs.size > 0이면 CCP-4P를 건너뛰므로
+        //    반드시 form_rows를 먼저 삭제해야 재생성이 동작함.
+        if (successResults.length > 1) {
+          try {
+            const lastBatch = successResults[successResults.length - 1];
+            const connResync = await getRawConnection();
+
+            // 당일 CCP-4P form_record 조회
+            const [ccp4pRecords] = await connResync.execute<any[]>(
+              `SELECT id FROM h_ccp_form_records
+               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
+               LIMIT 1`,
+              [ctx.tenantId, input.workDate],
+            );
+
+            if ((ccp4pRecords as any[]).length > 0) {
+              const ccp4pFormRecordId = (ccp4pRecords as any[])[0].id;
+
+              // 기존 CCP-4P form_rows 삭제 (불완전한 데이터 — 일부 배치 누락)
+              await connResync.execute(
+                `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
+                [ccp4pFormRecordId, ctx.tenantId],
+              );
+
+              console.log(`[bulkCreateForDay] CCP-4P form_rows 삭제 완료: formRecordId=${ccp4pFormRecordId}`);
+            }
+
+            // 마지막 배치 ID로 재동기화 → 이제 모든 배치가 DB에 존재하므로
+            // SKU 쿼리가 당일 전체 배치의 제품을 반환
+            const { syncCcpRowsToFormRows } = await import("../../db/ccpFormRecords");
+            await syncCcpRowsToFormRows({ batchId: lastBatch.batchId, tenantId: ctx.tenantId! });
+
+            console.log(`[bulkCreateForDay] CCP-4P 재동기화 완료: batchId=${lastBatch.batchId}`);
+          } catch (resyncErr) {
+            console.error("[bulkCreateForDay] CCP-4P 재동기화 실패:", resyncErr);
+          }
+        }
+
         // === 3. 그룹 레벨 일일일지 생성 (전체 배치 묶음) ===
         let groupApprovalRequestId: number | null = null;
         let groupDailyReportCreated = false;
