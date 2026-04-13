@@ -183,14 +183,14 @@ async function startServer() {
   // Login route (네이티브 HTML form 제출용)
   app.use(loginRouter);
   // 특정기간일지 REST API 라우트
-  const customPeriodLogRouter = (await import("../routers/customPeriodLogs")).default;
+  const customPeriodLogRouter = (await import("../routers/production/customPeriodLogs.router")).default;
   app.use("/api/customPeriodLog", customPeriodLogRouter);
   // 연간일지 REST API 라우트
-  const yearlyLogRestRouter = (await import("../routers/yearlyLogRest")).default;
+  const yearlyLogRestRouter = (await import("../routers/production/yearlyLogRest.router")).default;
   app.use("/api/yearlyLog", yearlyLogRestRouter);
   app.use("/api/superadmin", superadminRouter);
   // 비용전표 첨부파일 업로드 REST API
-  const expenseUploadRouter = (await import("../routers/expenseUpload")).default;
+  const expenseUploadRouter = (await import("../routers/accounting/expenseUpload.router")).default;
   app.use("/api/expense", expenseUploadRouter);
   // 업로드 파일 정적 서빙
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
@@ -208,7 +208,7 @@ async function startServer() {
       if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
       const { date, tenantId } = req.body || {};
       if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
-      const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+      const { autoRegenerateProductionDaily } = await import("../lib/production/autoProductionDaily");
       const result = await autoRegenerateProductionDaily(Number(tenantId), String(date));
       res.json(result);
     } catch (err: any) {
@@ -281,7 +281,7 @@ async function startServer() {
       const { date, tenantId } = req.body || {};
       if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
       const { getRawConnection } = await import("../db/connection");
-      const { syncCcpRowsToFormRows } = await import("../db/ccpFormRecords");
+      const { syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
       const pool = await getRawConnection();
       const [batchRows] = await pool.execute(
         `SELECT id, batch_code, batch_order FROM h_batches WHERE planned_date = ? AND tenant_id = ? ORDER BY batch_order`,
@@ -325,7 +325,7 @@ async function startServer() {
       }
 
       const deletedBatches: any[] = [];
-      const { deleteBatch } = await import("../db/batchFunctions");
+      const { deleteBatch } = await import("../db/production/batchFunctions");
 
       // 2. 각 배치를 강제 삭제 (deleteBatch 함수 사용 - CCP, 일정, 승인 등 cascade 삭제)
       for (const batch of batchRows) {

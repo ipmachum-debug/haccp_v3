@@ -19,13 +19,13 @@ export const productRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
         
         const page = input?.page || 1;
         const limit = input?.limit || 20;
         const offset = (page - 1) * limit;
         
-        const conditions = [eq(hProductsV2.tenantId, ctx.tenantId ?? undefined), eq(hProductsV2.isActive, 1)];
+        const conditions = [eq(hProductsV2.tenantId, ctx.tenantId), eq(hProductsV2.isActive, 1)];
         
         if (input?.search) {
           conditions.push(
@@ -68,13 +68,13 @@ export const productRouter = router({
       .query(async ({ ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
         
         const items = await db
           .select()
           .from(hProductsV2)
           .where(and(
-            eq(hProductsV2.tenantId, ctx.tenantId ?? undefined),
+            eq(hProductsV2.tenantId, ctx.tenantId),
             eq(hProductsV2.isActive, 1)
           ))
           .orderBy(asc(hProductsV2.productCode));
@@ -116,13 +116,13 @@ export const productRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
         const { shelfLifeMonths, ...rest } = input;
         const shelfLifeDays = shelfLifeMonths ? shelfLifeMonths * 30 : undefined;
         const result = await db.insert(hProductsV2).values({
           ...rest,
           shelfLifeDays,
-          tenantId: ctx.tenantId ?? undefined,
+          tenantId: ctx.tenantId,
           isActive: input.isActive ?? 1,
         });
         const newProductId = Number(result[0].insertId);
@@ -131,7 +131,7 @@ export const productRouter = router({
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.insert(itemMaster).values({
-            tenantId: ctx.tenantId ?? undefined,
+            tenantId: ctx.tenantId,
             itemCode: input.productCode,
             itemName: input.productName,
             itemType: 'own_product',
@@ -164,7 +164,7 @@ export const productRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
         const { id, shelfLifeMonths, ...rest } = input;
         const shelfLifeDays = shelfLifeMonths ? shelfLifeMonths * 30 : undefined;
         const updateData: any = { ...rest };
@@ -182,7 +182,7 @@ export const productRouter = router({
           if (shelfLifeDays !== undefined) syncData.shelfLifeDays = shelfLifeDays;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyProductId, id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
+              and(eq(itemMaster.legacyProductId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
             );
           }
         } catch (syncErr) {
@@ -194,7 +194,7 @@ export const productRouter = router({
         // CCP 비정규화 제품명 동기화 (해당 제품의 배치에 연결된 CCP 레코드)
         if (rest.productName) {
           try {
-            const { getRawConnection } = await import("../../db/index.js");
+            const { getRawConnection } = await import("../../db/connection");
             const pool = await getRawConnection();
             if (pool) {
               // h_ccp_instances - 배치 기반 CCP 인스턴스
@@ -235,14 +235,14 @@ export const productRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
-        await db.update(hProductsV2).set({ isActive: 0 } as any).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId ?? undefined as any) ));
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
+        await db.update(hProductsV2).set({ isActive: 0 } as any).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId as any) ));
         
         // item_master 동기화 (비활성화)
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.update(itemMaster).set({ isActive: 0 }).where(
-            and(eq(itemMaster.legacyProductId, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
+            and(eq(itemMaster.legacyProductId, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
           );
         } catch (syncErr) {
           console.error('item_master 동기화 실패:', syncErr);
@@ -254,8 +254,8 @@ export const productRouter = router({
     // 자동 코드 생성
     generateCode: tenantRequiredProcedure
       .query(async ({ ctx }) => {
-        const { generateProductCode } = await import("../../db/codeGenerator.js");
-        return await generateProductCode(ctx.tenantId ?? undefined);
+        const { generateProductCode } = await import("../../db/system/codeGenerator.js");
+        return await generateProductCode(ctx.tenantId);
       }),
 
     // 일괄 등록 (UPSERT - 동일 제품명 있으면 수정, 없으면 신규)
@@ -277,13 +277,13 @@ export const productRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { hProductsV2 } = await import("../../../drizzle/schema_main.js");
-        const { createUploadHistory } = await import("../../db/uploadHistory.js");
+        const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
+        const { createUploadHistory } = await import("../../db/system/uploadHistory.js");
         
         const results = { successCount: 0, insertCount: 0, updateCount: 0, failureCount: 0, errors: [] as any[] };
 
         // 통일된 제품코드 생성기 사용 (숫자 형식: 30001, 30002...)
-        const { generateProductCode } = await import("../../db/codeGenerator.js");
+        const { generateProductCode } = await import("../../db/system/codeGenerator.js");
 
         for (let i = 0; i < input.products.length; i++) {
           try {
@@ -295,7 +295,7 @@ export const productRouter = router({
             }
             
             const existing = await db.select().from(hProductsV2)
-              .where(and(eq(hProductsV2.tenantId, ctx.tenantId ?? undefined as any) , eq(hProductsV2.productName, product.productName.trim())) as any)
+              .where(and(eq(hProductsV2.tenantId, ctx.tenantId as any) , eq(hProductsV2.productName, product.productName.trim())) as any)
               .limit(1);
             
             const shelfLifeDays = product.shelfLifeMonths ? product.shelfLifeMonths * 30 : undefined;
@@ -312,10 +312,10 @@ export const productRouter = router({
               }
               results.updateCount++;
             } else {
-              const productCode = product.productCode || await generateProductCode(ctx.tenantId ?? undefined);
+              const productCode = product.productCode || await generateProductCode(ctx.tenantId);
               
               const insertResult = await db.insert(hProductsV2).values({
-                tenantId: ctx.tenantId ?? undefined,
+                tenantId: ctx.tenantId,
                 productCode,
                 productName: product.productName.trim(),
                 category: product.category || null,
@@ -328,7 +328,7 @@ export const productRouter = router({
               try {
                 const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
                 await db.insert(itemMaster).values({
-                  tenantId: ctx.tenantId ?? undefined,
+                  tenantId: ctx.tenantId,
                   itemCode: productCode,
                   itemName: product.productName.trim(),
                   itemType: 'own_product',

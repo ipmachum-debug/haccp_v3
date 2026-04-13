@@ -29,8 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Upload, FileSpreadsheet, FileDown, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
-import ProductBulkUploadModal from "@/components/ProductBulkUploadModal";
-import TemplateCustomizer from "@/components/TemplateCustomizer";
+import ProductBulkUploadModal from "@/components/masterData/ProductBulkUploadModal";
+import TemplateCustomizer from "@/components/checklist/TemplateCustomizer";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 

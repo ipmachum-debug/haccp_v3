@@ -15,7 +15,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter,
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import SuperAdminLayout from "@/components/SuperAdminLayout";
+import SuperAdminLayout from "@/components/dashboard/SuperAdminLayout";
 
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   pending: { label: "승인 대기", color: "bg-yellow-100 text-yellow-800" },

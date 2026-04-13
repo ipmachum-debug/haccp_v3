@@ -15,6 +15,8 @@ export const materialLedgerDaily = mysqlTable("material_ledger_daily", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 }, (table) => ({
+  // ★ ON DUPLICATE KEY UPDATE 동작을 위한 UNIQUE 제약
+  uqTenantMaterialDate: uniqueIndex("uq_mld_tenant_material_date").on(table.tenantId, table.materialId, table.ledgerDate),
   tenantDateIdx: index("idx_tenant_date").on(table.tenantId, table.ledgerDate),
   materialDateIdx: index("idx_material_date").on(table.materialId, table.ledgerDate),
 }));

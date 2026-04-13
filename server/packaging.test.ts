@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { createPurchase } from "./db/haccpIntegration";
+import { createPurchase } from "./db/haccp/haccpIntegration";
 import { getDb } from "./db";
 import { hMaterials, partners } from "../drizzle/schema";
 import { eq } from "drizzle-orm";

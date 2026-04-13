@@ -55,19 +55,33 @@ interface TransactionStatementData {
 }
 
 // 한글 폰트 경로 찾기
+// ★ 2026-04-13: PM2 dist 실행, 개발 서버, 컨테이너 등 다양한 cwd 대응
 function findFontPath(fontName: string): string | null {
+  const cwd = process.cwd();
   const possiblePaths = [
-    path.join(process.cwd(), "fonts", fontName),
-    path.join(process.cwd(), "..", "fonts", fontName),
-    path.join(process.cwd(), "..", "..", "fonts", fontName),
+    path.join(cwd, "fonts", fontName),
+    path.join(cwd, "..", "fonts", fontName),
+    path.join(cwd, "..", "..", "fonts", fontName),
+    path.join(cwd, "..", "..", "..", "fonts", fontName),
+    // 하드코딩 대체 경로
+    `/home/root/haccp_v3/fonts/${fontName}`,
     `/root/haccp_v3/fonts/${fontName}`,
+    // __dirname 기반 (dist/index.js 에서 실행 시)
+    path.join(__dirname, "..", "fonts", fontName),
+    path.join(__dirname, "..", "..", "fonts", fontName),
   ];
-  
+
   for (const p of possiblePaths) {
-    if (fs.existsSync(p)) {
-      return p;
-    }
+    try {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    } catch (_) { /* ignore */ }
   }
+
+  console.warn(
+    `[PDF] 한글 폰트 못찾음: ${fontName}. 탐색한 경로:\n  ${possiblePaths.join("\n  ")}`,
+  );
   return null;
 }
 
@@ -86,19 +100,21 @@ export async function generateTransactionStatementPDF(
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
 
-      // 한글 폰트 등록
+      // 한글 폰트 등록 — 반드시 필요. 없으면 pdfkit 이 한글 렌더링에서 crash.
       const regularFontPath = findFontPath("NanumGothic-Regular.ttf");
       const boldFontPath = findFontPath("NanumGothic-Bold.ttf");
-      
-      const FONT_REGULAR = regularFontPath ? "NanumGothic" : "Helvetica";
-      const FONT_BOLD = boldFontPath ? "NanumGothicBold" : "Helvetica-Bold";
-      
-      if (regularFontPath) {
-        doc.registerFont("NanumGothic", regularFontPath);
+
+      if (!regularFontPath || !boldFontPath) {
+        const msg = `한글 폰트 파일 없음 (NanumGothic-Regular.ttf / NanumGothic-Bold.ttf). ` +
+          `서버의 fonts/ 폴더를 확인하세요. cwd=${process.cwd()}`;
+        console.error(`[PDF] ${msg}`);
+        return reject(new Error(msg));
       }
-      if (boldFontPath) {
-        doc.registerFont("NanumGothicBold", boldFontPath);
-      }
+
+      doc.registerFont("NanumGothic", regularFontPath);
+      doc.registerFont("NanumGothicBold", boldFontPath);
+      const FONT_REGULAR = "NanumGothic";
+      const FONT_BOLD = "NanumGothicBold";
 
       // 폰트 크기 설정
       const titleFontSize = 18;

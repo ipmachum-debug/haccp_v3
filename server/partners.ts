@@ -12,7 +12,7 @@ import {
   type InsertPartner,
   type InsertApLedgerEntry,
   type InsertArLedgerEntry
-} from "../drizzle/schema_main";
+} from "../drizzle/schema/schema_main";
 import { eq, and, desc, sql, or, like, asc, type SQL } from "drizzle-orm";
 
 // ============================================
@@ -40,7 +40,7 @@ export async function createPartner(data: InsertPartner & { tenantId?: number })
       }
     }
     
-    const [result] = await db.insert(partners).values(cleanData);
+    const [result] = await db.insert(partners).values(cleanData as any);
     return result.insertId;
   } catch (error: unknown) {
     console.error("[createPartner] Error:", error);

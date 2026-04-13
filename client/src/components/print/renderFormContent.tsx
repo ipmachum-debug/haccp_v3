@@ -19,6 +19,11 @@ import {
   renderPersonalHygieneCheck,
   renderProductTestReport,
 } from "./ChecklistRenderers";
+import {
+  renderVisualInspectionLog,
+  renderFinishedProductInspectionLog,
+  renderMaterialUsageReport,
+} from "./InspectionRenderers";
 
 // ============================================================================
 // 범용 데이터 렌더러 (fallback)
@@ -137,6 +142,9 @@ export function renderFormContent(data: any, formType: string, doc?: any) {
     case "waste_management": return renderRowsTable(data, "폐기물 관리 기록", [{key:"date",label:"일자"},{key:"type",label:"폐기물종류"},{key:"amount",label:"수량"},{key:"method",label:"처리방법"},{key:"handler",label:"처리자"}]);
     case "pest_control_checklist": return renderRowsTable(data, "방충·방서 점검표", [{key:"location",label:"설치장소"},{key:"deviceType",label:"장치유형"},{key:"captureCount",label:"포획수"},{key:"notes",label:"비고"}]);
     case "product_test_report": return renderProductTestReport(data, doc);
+    case "visual_inspection": return renderVisualInspectionLog(data, doc);
+    case "finished_product_inspection": return renderFinishedProductInspectionLog(data, doc);
+    case "material_usage_report": return renderMaterialUsageReport(data, doc);
     default: return renderGenericData(data, formType, doc);
   }
 }

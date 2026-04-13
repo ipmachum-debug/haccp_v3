@@ -1,5 +1,5 @@
 import {mysqlTable, varchar, decimal, timestamp, text, mysqlEnum, tinyint, int, bigint} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 // CCP 한계기준 테이블
 export const ccpLimits = mysqlTable('ccp_limits', {

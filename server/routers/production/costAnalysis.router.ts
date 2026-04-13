@@ -7,7 +7,7 @@ export const costAnalysisRouter = router({
     calculateRecipeCost: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { calculateRecipeCost } = await import("../../api/costAnalysis");
+        const { calculateRecipeCost } = await import("../../db/production/costAnalysisAPI");
         const tenantId = ctx.tenantId;
         return await calculateRecipeCost(input.recipeId, tenantId ?? undefined);
       }),
@@ -17,7 +17,7 @@ export const costAnalysisRouter = router({
       .input(z.object({ productId: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const { calculateProductCostStats } = await import("../../api/costAnalysis");
+        const { calculateProductCostStats } = await import("../../db/production/costAnalysisAPI");
         return await calculateProductCostStats(input.productId, tenantId ?? undefined);
       }),
 
@@ -32,9 +32,9 @@ export const costAnalysisRouter = router({
         limit: z.number().optional()
       }))
       .query(async ({ input, ctx }) => {
-        const { getBatchMaterialCosts } = await import("../../db/realCostAnalysis");
+        const { getBatchMaterialCosts } = await import("../../db/production/realCostAnalysis");
         return await getBatchMaterialCosts({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           startDate: input.startDate,
           endDate: input.endDate,
           productId: input.productId,
@@ -49,9 +49,9 @@ export const costAnalysisRouter = router({
         endDate: z.string().optional()
       }))
       .query(async ({ input, ctx }) => {
-        const { getProductCostSummary } = await import("../../db/realCostAnalysis");
+        const { getProductCostSummary } = await import("../../db/production/realCostAnalysis");
         return await getProductCostSummary({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           startDate: input.startDate,
           endDate: input.endDate
         });
@@ -65,9 +65,9 @@ export const costAnalysisRouter = router({
         limit: z.number().optional()
       }))
       .query(async ({ input, ctx }) => {
-        const { getMaterialUsageRanking } = await import("../../db/realCostAnalysis");
+        const { getMaterialUsageRanking } = await import("../../db/production/realCostAnalysis");
         return await getMaterialUsageRanking({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           startDate: input.startDate,
           endDate: input.endDate,
           limit: input.limit
@@ -78,9 +78,9 @@ export const costAnalysisRouter = router({
     getCostTrend: tenantRequiredProcedure
       .input(z.object({ months: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        const { getCostTrend } = await import("../../db/realCostAnalysis");
+        const { getCostTrend } = await import("../../db/production/realCostAnalysis");
         return await getCostTrend({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           months: input.months
         });
       }),
@@ -89,9 +89,9 @@ export const costAnalysisRouter = router({
     getBatchMaterialDetail: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getBatchMaterialDetail } = await import("../../db/realCostAnalysis");
+        const { getBatchMaterialDetail } = await import("../../db/production/realCostAnalysis");
         return await getBatchMaterialDetail({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           batchId: input.batchId
         });
       }),

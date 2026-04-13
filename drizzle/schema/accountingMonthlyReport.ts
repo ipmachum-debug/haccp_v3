@@ -1,5 +1,5 @@
 import {mysqlTable, bigint, varchar, text, decimal, date, timestamp, mysqlEnum, index, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 월 마감 요약 테이블

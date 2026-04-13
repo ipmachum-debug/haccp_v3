@@ -1,5 +1,5 @@
 import { getDb } from "./db";
-import { users } from "../drizzle/schema_main";
+import { users } from "../drizzle/schema/schema_main";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcrypt";
 import { generateToken } from "./_core/jwtAuth";

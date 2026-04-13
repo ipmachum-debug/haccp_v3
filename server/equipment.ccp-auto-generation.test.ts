@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { getDb } from "./db";
 import { equipments } from "../drizzle/schema/equipment";
-import { hBatches } from "../drizzle/schema_main";
+import { hBatches } from "../drizzle/schema/schema_main";
 import { ccpMonitoringInstances, ccpMonitoringRecords } from "../drizzle/schema/ccpMonitoring";
 import { eq, and } from "drizzle-orm";
 import { generateCCPInstancesForBatch } from "./services/ccp-batch";

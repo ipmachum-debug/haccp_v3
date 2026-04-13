@@ -1,5 +1,5 @@
 import { getDb } from "../db";
-import { tenants, subscriptionNotifications } from "../../drizzle/schema_main";
+import { tenants, subscriptionNotifications } from "../../drizzle/schema/schema_main";
 import { eq, and, lte, gte, sql } from "drizzle-orm";
 
 import { formatLocalDate } from "../utils/timezone";

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -267,7 +267,9 @@ function PurchasesManagementContent() {
           transactionDate,
           partnerId: Number(selectedPartnerId),
           itemName: item.itemName,
-          materialId: item.itemMasterId,
+          // ★ 2026-04-13 수정: itemMasterId 를 올바른 필드로 전달
+          //   createPurchase 가 itemMasterId → legacyMaterialId 자동 매핑
+          itemMasterId: item.itemMasterId,
           quantity: item.quantity,
           packagingSize: item.packagingSize,
           unitPrice: item.unitPrice,

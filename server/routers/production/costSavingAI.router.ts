@@ -13,11 +13,11 @@ export const costSavingAIRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        const { analyzePriceTrend } = await import("../../db/costSavingAI");
+        const { analyzePriceTrend } = await import("../../db/production/costSavingAI");
         const startDate = new Date(input.startDate);
         const endDate = new Date(input.endDate);
         const tenantId = ctx.tenantId;
-        return await analyzePriceTrend(input.materialId, startDate, endDate, tenantId ?? undefined);
+        return await analyzePriceTrend(tenantId, input.materialId, startDate, endDate);
       }),
 
     // 최적 구매 시점 추천
@@ -25,7 +25,7 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const { recommendPurchaseTiming } = await import("../../db/costSavingAI");
+        const { recommendPurchaseTiming } = await import("../../db/production/costSavingAI");
         return await recommendPurchaseTiming(input.materialId, tenantId ?? undefined);
       }),
 
@@ -34,7 +34,7 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const { recommendAlternativeSuppliers } = await import("../../db/costSavingAI");
+        const { recommendAlternativeSuppliers } = await import("../../db/production/costSavingAI");
         return await recommendAlternativeSuppliers(input.materialId, tenantId ?? undefined);
       }),
 
@@ -43,7 +43,7 @@ export const costSavingAIRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const { generateCostSavingProposal } = await import("../../db/costSavingAI");
+        const { generateCostSavingProposal } = await import("../../db/production/costSavingAI");
         return await generateCostSavingProposal(input.materialId, tenantId ?? undefined);
       })
 });

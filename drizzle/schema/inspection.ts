@@ -1,5 +1,5 @@
 import {mysqlTable,  varchar, date, text, mysqlEnum, timestamp, decimal, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 원재료 검사 기록

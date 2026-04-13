@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure, superAdminProcedure } from "./_core/trpc";
 import { getDb } from "./db";
-import { partners } from "../drizzle/schema_main";
+import { partners } from "../drizzle/schema/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
 import {
   testOpscoreConnection,

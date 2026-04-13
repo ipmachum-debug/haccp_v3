@@ -19,7 +19,7 @@ export const stockAlertsRouter = router({
         const { hStockAlerts, hInventoryLots, hInventory } = await import("../../../drizzle/schema/part2");
         const { eq, and, isNull, isNotNull, desc } = await import("drizzle-orm");
 
-        const conditions = [eq(hStockAlerts.tenantId, ctx.tenantId ?? undefined)];
+        const conditions = [eq(hStockAlerts.tenantId, ctx.tenantId)];
         if (input.resolved !== undefined) {
           conditions.push(input.resolved ? isNotNull(hStockAlerts.resolvedAt) : isNull(hStockAlerts.resolvedAt));
         }
@@ -69,7 +69,7 @@ export const stockAlertsRouter = router({
             resolvedAt: new Date(),
             resolvedBy: ctx.user.id
           })
-          .where(and(eq(hStockAlerts.id, input.id), eq(hStockAlerts.tenantId, ctx.tenantId ?? undefined)));
+          .where(and(eq(hStockAlerts.id, input.id), eq(hStockAlerts.tenantId, ctx.tenantId)));
 
         return { success: true };
       }),
@@ -80,7 +80,7 @@ export const stockAlertsRouter = router({
       const { hStockAlerts } = await import("../../../drizzle/schema/part2");
       const { eq, count, isNull, and } = await import("drizzle-orm");
 
-      const tenantFilter = eq(hStockAlerts.tenantId, ctx.tenantId ?? undefined);
+      const tenantFilter = eq(hStockAlerts.tenantId, ctx.tenantId);
 
       const [totalResult] = await db.select({ count: count() }).from(hStockAlerts).where(and(tenantFilter, isNull(hStockAlerts.resolvedAt)));
 

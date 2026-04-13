@@ -7,7 +7,7 @@ import {
   timestamp,
   varchar
 } from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 카테고리 관리 시스템

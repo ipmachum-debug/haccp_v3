@@ -2,7 +2,7 @@
 import { tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
 import { and, asc, count, desc, eq, like, lt, or, sql } from "drizzle-orm";
-import { hMaterials } from "../../../drizzle/schema_main";
+import { hMaterials } from "../../../drizzle/schema/schema_main";
 import { getDb } from "../../db";
 
 export const materialRouter = router({
@@ -31,7 +31,7 @@ export const materialRouter = router({
         
         // WHERE 조건 구성 - itemMaster 기반
         const conditions: any[] = [
-          eq(itemMaster.tenantId, ctx.tenantId ?? undefined),
+          eq(itemMaster.tenantId, ctx.tenantId),
           eq(itemMaster.itemType, "raw_material")
         ];
         
@@ -110,7 +110,7 @@ export const materialRouter = router({
           .select()
           .from(hMaterials)
           .where(and(
-            eq(hMaterials.tenantId, ctx.tenantId ?? undefined),
+            eq(hMaterials.tenantId, ctx.tenantId),
             eq(hMaterials.isActive, 1)
           ))
           .orderBy(asc(hMaterials.materialCode));
@@ -131,7 +131,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.id, input.id),
-              eq(hMaterials.tenantId, ctx.tenantId ?? undefined)
+              eq(hMaterials.tenantId, ctx.tenantId)
             )
           )
           .limit(1);
@@ -176,7 +176,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.materialCode, input.materialCode),
-              eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
+              eq(hMaterials.tenantId, ctx.tenantId as any) 
             )
           )
           .limit(1);
@@ -187,7 +187,7 @@ export const materialRouter = router({
         
         const result = await db.insert(hMaterials).values({
           ...input,
-          tenantId: ctx.tenantId ?? undefined
+          tenantId: ctx.tenantId
         } as any);
         const newMaterialId = Number(result[0].insertId);
         
@@ -195,7 +195,7 @@ export const materialRouter = router({
         try {
           const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
           await db.insert(itemMaster).values({
-            tenantId: ctx.tenantId ?? undefined,
+            tenantId: ctx.tenantId,
             itemCode: input.materialCode,
             itemName: input.materialName,
             itemType: 'raw_material',
@@ -254,7 +254,7 @@ export const materialRouter = router({
           .where(
             and(
               eq(hMaterials.id, id),
-              eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
+              eq(hMaterials.tenantId, ctx.tenantId as any) 
             )
           );
         
@@ -270,7 +270,7 @@ export const materialRouter = router({
           if (data.description) syncData.description = data.description;
           if (Object.keys(syncData).length > 0) {
             await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
+              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
             );
           }
         } catch (syncErr) {
@@ -295,14 +295,14 @@ export const materialRouter = router({
           .where(
             and(
               eq(itemMaster.id, input.id),
-              eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) 
+              eq(itemMaster.tenantId, ctx.tenantId as any) 
             )
           )
           .limit(1);
         
         // itemMaster 비활성화
         await db.update(itemMaster).set({ isActive: 0 }).where(
-          and(eq(itemMaster.id, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId ?? undefined as any) )
+          and(eq(itemMaster.id, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
         );
         
         // hMaterials도 비활성화 (legacyMaterialId로 연결)
@@ -313,7 +313,7 @@ export const materialRouter = router({
             .where(
               and(
                 eq(hMaterials.id, item.legacyMaterialId),
-                eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
+                eq(hMaterials.tenantId, ctx.tenantId as any) 
               )
             );
         }
@@ -372,7 +372,7 @@ export const materialRouter = router({
               .where(
                 and(
                   eq(hMaterials.materialName, trimmedName),
-                  eq(hMaterials.tenantId, ctx.tenantId ?? undefined as any) 
+                  eq(hMaterials.tenantId, ctx.tenantId as any) 
                 )
               )
               .limit(1);
@@ -414,14 +414,14 @@ export const materialRouter = router({
                 safetyStockLevel: mat.safetyStock !== undefined ? String(mat.safetyStock) : "0.000",
                 expiryWarningDays: mat.expiryWarningDays || 7,
                 description: [mat.storageMethod, mat.notes].filter(Boolean).join(" / ") || null,
-                tenantId: ctx.tenantId ?? undefined,
+                tenantId: ctx.tenantId,
               });
               
               // item_master 동기화
               try {
                 const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
                 await db.insert(itemMaster).values({
-                  tenantId: ctx.tenantId ?? undefined,
+                  tenantId: ctx.tenantId,
                   itemCode: materialCode,
                   itemName: trimmedName,
                   itemType: 'raw_material',

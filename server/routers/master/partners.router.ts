@@ -23,7 +23,7 @@ export const partnersRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createPartner } = await import("../../partners");
-        const id = await createPartner({ ...input, tenantId: ctx.tenantId ?? undefined });
+        const id = await createPartner({ ...input, tenantId: ctx.tenantId });
         return { id };
       }),
 
@@ -39,7 +39,7 @@ export const partnersRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllPartners } = await import("../../partners");
-        return await getAllPartners(input, ctx.tenantId ?? undefined);
+        return await getAllPartners(input, ctx.tenantId);
       }),
 
     // 거래처 상세 조회
@@ -47,7 +47,7 @@ export const partnersRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getPartnerById } = await import("../../partners");
-        return await getPartnerById(input.id, ctx.tenantId ?? undefined);
+        return await getPartnerById(input.id, ctx.tenantId);
       }),
 
     // 거래처 수정
@@ -101,7 +101,7 @@ export const partnersRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getRawConnection } = await import("../../db");
-        const tenantId = ctx.tenantId ?? undefined;
+        const tenantId = ctx.tenantId;
         const conn = await getRawConnection();
         let where = "tenant_id = ? AND is_active = 1";
         const params: any[] = [tenantId];

@@ -5,7 +5,7 @@ import { z } from "zod";
 export const favoritesRouter = router({
     // 즐겨찾기 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
-      const { getUserFavorites } = await import("../../db/favorites");
+      const { getUserFavorites } = await import("../../db/system/favorites");
       return await getUserFavorites(ctx.user.id);
     }),
 
@@ -17,13 +17,13 @@ export const favoritesRouter = router({
         menuIcon: z.string().optional()
       }))
       .mutation(async ({ ctx, input }) => {
-        const { addUserFavorite } = await import("../../db/favorites");
+        const { addUserFavorite } = await import("../../db/system/favorites");
         const id = await addUserFavorite(
           ctx.user.id,
           input.menuPath,
           input.menuLabel,
           input.menuIcon,
-          ctx.tenantId ?? undefined
+          ctx.tenantId
         );
         return { id };
       }),
@@ -32,7 +32,7 @@ export const favoritesRouter = router({
     remove: tenantRequiredProcedure
       .input(z.object({ favoriteId: z.number() }))
       .mutation(async ({ ctx, input }) => {
-        const { removeUserFavorite } = await import("../../db/favorites");
+        const { removeUserFavorite } = await import("../../db/system/favorites");
         await removeUserFavorite(ctx.user.id, input.favoriteId);
         return { success: true };
       }),
@@ -46,7 +46,7 @@ export const favoritesRouter = router({
         }))
       }))
       .mutation(async ({ ctx, input }) => {
-        const { updateFavoriteOrder } = await import("../../db/favorites");
+        const { updateFavoriteOrder } = await import("../../db/system/favorites");
         for (const update of input.updates) {
           await updateFavoriteOrder(ctx.user.id, update.favoriteId, update.displayOrder);
         }

@@ -8,7 +8,7 @@ import { bankTransactions } from "../../../drizzle/schema";
 import { eq, and, gte, lte, like, or, sql, desc, inArray } from "drizzle-orm";
 import { omitUndefined } from "@shared/utils";
 import { assertBankAccountOwned } from "./bankAccount.service";
-import { postBankTransactionJournal, cancelBankTransactionJournal } from "../../db/journalHelper";
+import { postBankTransactionJournal, cancelBankTransactionJournal } from "../../db/accounting/journalHelper";
 
 export async function listTransactions(tenantId: number, filters?: {
   bankAccountId?: number;

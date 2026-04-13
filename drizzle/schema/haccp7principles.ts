@@ -10,7 +10,7 @@ import {
   tinyint,
   varchar
 } from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * HACCP 7원칙 관련 테이블

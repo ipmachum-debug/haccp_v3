@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";

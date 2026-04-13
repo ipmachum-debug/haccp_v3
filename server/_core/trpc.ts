@@ -24,18 +24,18 @@ export const publicProcedure = t.procedure;
  */
 function resolveTenantContext(ctx: TrpcContext) {
   // 슈퍼관리자는 actingTenantId를 우선 사용
-  let tenantId: number | null = null;
-  
+  let tenantId: number | undefined = undefined;
+
   if (ctx.user?.role === "super_admin") {
     // 슈퍼관리자: actingTenantId 사용 (선택한 테넌트)
-    tenantId = ctx.actingTenantId ?? null;
+    tenantId = ctx.actingTenantId ?? undefined;
   } else {
     // ✨ 일반 사용자: actingTenantId 강제 무시 (보안)
     if (ctx.actingTenantId) {
       console.warn(`[SECURITY] Non-super-admin user ${ctx.user?.email} (id: ${ctx.user?.id}) attempted to use actingTenantId=${ctx.actingTenantId}. Ignoring.`);
     }
     // 일반 사용자: 기본 tenantId만 사용
-    tenantId = ctx.tenantId ?? (ctx.user as any)?.tenantId ?? null;
+    tenantId = ctx.tenantId ?? (ctx.user as any)?.tenantId ?? undefined;
     
     // 일반 사용자는 tenantId 필수
     if (ctx.user && !tenantId) {
@@ -120,7 +120,7 @@ const requireUserWithTenant = t.middleware(async opts => {
     ctx: {
       ...ctx,
       user: ctx.user,
-      tenantId,
+      tenantId: tenantId as number,
       db: tenantDb,
       isSuperAdminActing,  // ✅ 슈퍼관리자 활동 여부
     },
@@ -201,7 +201,7 @@ const requireTenant = t.middleware(async opts => {
     ctx: {
       ...ctx,
       user: ctx.user,
-      tenantId,
+      tenantId: tenantId as number, // 위에서 !tenantId 검증 완료
       db: tenantDb,
       isSuperAdminActing,
     },
@@ -261,7 +261,7 @@ const requireTenantReadOnly = t.middleware(async opts => {
     ctx: {
       ...ctx,
       user: ctx.user,
-      tenantId,
+      tenantId: tenantId as number,
       db: tenantDb,
       isSuperAdminActing,
     },
@@ -292,7 +292,7 @@ export const adminProcedure = t.procedure.use(
       ctx: {
         ...ctx,
         user: ctx.user,
-        tenantId,
+        tenantId: tenantId as number,
         db: tenantDb,
         isSuperAdminActing,
       },
@@ -322,7 +322,7 @@ export const workerProcedure = t.procedure.use(
       ctx: {
         ...ctx,
         user: ctx.user,
-        tenantId,
+        tenantId: tenantId as number,
         db: tenantDb,
         isSuperAdminActing,
       },
@@ -352,7 +352,7 @@ export const monitorProcedure = t.procedure.use(
       ctx: {
         ...ctx,
         user: ctx.user,
-        tenantId,
+        tenantId: tenantId as number,
         db: tenantDb,
         isSuperAdminActing,
       },
@@ -445,7 +445,7 @@ export function createFeatureProcedure(feature: FeatureArea, permission: Permiss
         ctx: {
           ...ctx,
           user: ctx.user,
-          tenantId,
+          tenantId: tenantId as number,
           db: tenantDb,
           isSuperAdminActing,
         },

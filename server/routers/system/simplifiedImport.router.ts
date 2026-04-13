@@ -10,7 +10,7 @@ import { z } from "zod";
 import {
   processOnboardingData,
   type OnboardingDataInput,
-} from "../../db/simplifiedDataProcessor";
+} from "../../db/system/simplifiedDataProcessor";
 
 // ── Zod 스키마 ──
 
@@ -77,7 +77,7 @@ export const simplifiedImportRouter = router({
   importJson: tenantRequiredProcedure
     .input(onboardingInputSchema)
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const userId = ctx.user!.id as number;
 
       const result = await processOnboardingData(tenantId, userId, input as OnboardingDataInput);
@@ -91,14 +91,14 @@ export const simplifiedImportRouter = router({
   importExcel: tenantRequiredProcedure
     .input(z.object({ fileBase64: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const userId = ctx.user!.id as number;
 
       // ExcelJS로 파싱
       const ExcelJS = await import("exceljs");
       const wb = new ExcelJS.default.Workbook();
       const buffer = Buffer.from(input.fileBase64, "base64");
-      await wb.xlsx.load(buffer);
+      await wb.xlsx.load(buffer as any);
 
       const data: OnboardingDataInput = { purchases: [], productions: [] };
 
@@ -220,7 +220,7 @@ export const simplifiedImportRouter = router({
       const ExcelJS = await import("exceljs");
       const wb = new ExcelJS.default.Workbook();
       const buffer = Buffer.from(input.fileBase64, "base64");
-      await wb.xlsx.load(buffer);
+      await wb.xlsx.load(buffer as any);
 
       return validateParsedData(wb);
     }),

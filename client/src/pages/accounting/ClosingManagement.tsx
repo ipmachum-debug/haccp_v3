@@ -1,4 +1,4 @@
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DailyCloseTab from "@/components/closing/DailyCloseTab";
 import MonthlyCloseTab from "@/components/closing/MonthlyCloseTab";

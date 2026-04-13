@@ -1,5 +1,5 @@
 import { getDb } from '../db';
-import { auditLogs } from '../../drizzle/schema_control_plane_ops';
+import { auditLogs } from '../../drizzle/schema/schema_control_plane_ops';
 import { randomUUID } from 'crypto';
 
 /**

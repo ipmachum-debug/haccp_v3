@@ -5,263 +5,264 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { FEATURES } from "@/lib/featureFlags";
 
 // Lazy load pages
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
-const SupportManagePage = lazy(() => import("./pages/SupportManagePage"));
-const BatchListPage = lazy(() => import("./pages/BatchListPage"));
-const BatchCreate = lazy(() => import("./pages/BatchCreate"));
-const BatchDetail = lazy(() => import("./pages/BatchDetail"));
-const DailyBatchCreate = lazy(() => import("./pages/DailyBatchCreate"));
-const CcpInspection = lazy(() => import("./pages/CcpInspection"));
-const CcpRecords = lazy(() => import("./pages/CcpRecords"));
-const Inventory = lazy(() => import("./pages/Inventory"));
-const CcpCalendar = lazy(() => import("./pages/CcpCalendar"));
-const DailyLogs = lazy(() => import("./pages/DailyLogs"));
-const ProductionPerformance = lazy(() => import("./pages/ProductionPerformance"));
-const InventoryForecastDashboard = lazy(() => import("./pages/InventoryForecastDashboard"));
-const BatchCostAnalysisDashboard = lazy(() => import("./pages/BatchCostAnalysisDashboard"));
-const UserManagement = lazy(() => import("./pages/UserManagement"));
-const AccountingManagement = lazy(() => import("./pages/AccountingManagement"));
-const AccountingMonthlyClose = lazy(() => import("./pages/AccountingMonthlyClose"));
-const AccountingCloseManagement = lazy(() => import("./pages/AccountingCloseManagement"));
-const ChecklistTemplates = lazy(() => import("./pages/ChecklistTemplates"));
-const ChecklistTemplateForm = lazy(() => import("./pages/ChecklistTemplateForm"));
-const ChecklistInstance = lazy(() => import("./pages/ChecklistInstance"));
-const ChecklistScheduleManagement = lazy(() => import("./pages/ChecklistScheduleManagement"));
-const ChecklistInstanceForm = lazy(() => import("./pages/ChecklistInstanceForm"));
-const ChecklistApprovalManagement = lazy(() => import("./pages/ChecklistApprovalManagement"));
-const EmployeeHealthChecklist = lazy(() => import("./pages/EmployeeHealthChecklist"));
-const MaterialInspections = lazy(() => import("./pages/MaterialInspections"));
-const MaterialInspectionForm = lazy(() => import("./pages/MaterialInspectionForm"));
-const MaterialInspectionDetail = lazy(() => import("./pages/MaterialInspectionDetail"));
-const StockAlerts = lazy(() => import("./pages/StockAlerts"));
-const InventoryLots = lazy(() => import("./pages/InventoryLots"));
-const ShippingInspectionDetail = lazy(() => import("./pages/ShippingInspectionDetail"));
-const HygieneInspectionDetail = lazy(() => import("./pages/HygieneInspectionDetail"));
-const ShippingInspections = lazy(() => import("./pages/ShippingInspections"));
-const ShippingInspectionForm = lazy(() => import("./pages/ShippingInspectionForm"));
-const HygieneInspections = lazy(() => import("./pages/HygieneInspections"));
-const HygieneInspectionForm = lazy(() => import("./pages/HygieneInspectionForm"));
-const SelfQualityInspectionList = lazy(() => import("./pages/SelfQualityInspectionList"));
-const SelfQualityInspectionForm = lazy(() => import("./pages/SelfQualityInspectionForm"));
-const ProductCcpMapping = lazy(() => import("./pages/ProductCcpMapping"));
-const DailyLogForm = lazy(() => import("./pages/DailyLogForm"));
-const WeeklyLogForm = lazy(() => import("./pages/WeeklyLogForm"));
-const MonthlyLogForm = lazy(() => import("./pages/MonthlyLogForm"));
-const EquipmentManagement = lazy(() => import("./pages/EquipmentManagement"));
-const DocumentApprovalManagement = lazy(() => import("./pages/DocumentApprovalManagement"));
-const DocumentApprovalSettingsPage = lazy(() => import("./pages/DocumentApprovalSettingsPage"));
-const DocumentPrintManagement = lazy(() => import("./pages/DocumentPrintManagement"));
-const PrintPreviewPage = lazy(() => import("./pages/PrintPreviewPage"));
-const CalibrationManagement = lazy(() => import("./pages/CalibrationManagement"));
-const ProductManagement = lazy(() => import("./pages/ProductManagement"));
-const MaterialManagement = lazy(() => import("./pages/MaterialManagement"));
-const CcpStats = lazy(() => import("./pages/CcpStats"));
-const CCPMonitoring = lazy(() => import("./pages/CCPMonitoring"));
-const RecipeManagement = lazy(() => import("./pages/RecipeManagement"));
-const CCPLimitsManagement = lazy(() => import("./pages/CCPLimitsManagement"));
-const ProductSpecificationManagement = lazy(() => import("./pages/ProductSpecificationManagement"));
-const HazardAnalysisManagement = lazy(() => import("./pages/HazardAnalysisManagement"));
-const CcpDeviationDashboard = lazy(() => import("./pages/CcpDeviationDashboard"));
-const InventoryTurnoverDashboard = lazy(() => import("./pages/InventoryTurnoverDashboard"));
-const BatchProfitabilityDashboard = lazy(() => import("./pages/BatchProfitabilityDashboard"));
-const SupplierManagement = lazy(() => import("./pages/SupplierManagement"));
-const SupplierEvaluation = lazy(() => import("./pages/SupplierEvaluation"));
-const IntermediateManagement = lazy(() => import("./pages/IntermediateManagement"));
-const InventoryAnalytics = lazy(() => import("./pages/InventoryAnalytics"));
-const CostSavingAI = lazy(() => import("./pages/CostSavingAI"));
-const MfReportCreate = lazy(() => import("./pages/MfReportCreate"));
-const MfReportList = lazy(() => import("./pages/MfReportList"));
-const MfReportEdit = lazy(() => import("./pages/MfReportEdit"));
-const MfReportModify = lazy(() => import("./pages/MfReportModify"));
-const ManufacturingStandards = lazy(() => import("./pages/ManufacturingStandards"));
-const AuditManagement = lazy(() => import("./pages/AuditManagement"));
-const NonconformingManagement = lazy(() => import("./pages/NonconformingManagement"));
-const HaccpVerification = lazy(() => import("./pages/HaccpVerification"));
-const ProductionOperations = lazy(() => import("./pages/ProductionOperations"));
-const ProductionManagement = lazy(() => import("./pages/ProductionManagement"));
-const SupplierPerformance = lazy(() => import("./pages/SupplierPerformance"));
-const NotificationHistory = lazy(() => import("./pages/NotificationHistory"));
-const ApprovalManagement = lazy(() => import("./pages/ApprovalManagement"));
-const SystemManagement = lazy(() => import("./pages/SystemManagement"));
-const NotificationSettings = lazy(() => import("./pages/NotificationSettings"));
-const NotificationCenter = lazy(() => import("./pages/NotificationCenter"));
-const NotificationStatistics = lazy(() => import("./pages/NotificationStatistics"));
-const ProductionMonitor = lazy(() => import("./pages/ProductionMonitor"));
-const InventoryPredictionDashboard = lazy(() => import("./pages/InventoryPredictionDashboard"));
-const MobileQuickCheck = lazy(() => import("./pages/MobileQuickCheck"));
-const BatchScheduleCalendar = lazy(() => import("./pages/BatchScheduleCalendar"));
+const Dashboard = lazy(() => import("./pages/system/Dashboard"));
+const SuperAdminDashboard = lazy(() => import("./pages/system/SuperAdminDashboard"));
+const SupportManagePage = lazy(() => import("./pages/system/SupportManagePage"));
+const BatchListPage = lazy(() => import("./pages/production/BatchListPage"));
+const BatchCreate = lazy(() => import("./pages/production/BatchCreate"));
+const BatchDetail = lazy(() => import("./pages/production/BatchDetail"));
+const DailyBatchCreate = lazy(() => import("./pages/production/DailyBatchCreate"));
+const CcpInspection = lazy(() => import("./pages/haccp/CcpInspection"));
+const CcpRecords = lazy(() => import("./pages/haccp/CcpRecords"));
+const Inventory = lazy(() => import("./pages/inventory/Inventory"));
+const CcpCalendar = lazy(() => import("./pages/haccp/CcpCalendar"));
+const DailyLogs = lazy(() => import("./pages/production/DailyLogs"));
+const ProductionPerformance = lazy(() => import("./pages/production/ProductionPerformance"));
+const InventoryForecastDashboard = lazy(() => import("./pages/inventory/InventoryForecastDashboard"));
+const BatchCostAnalysisDashboard = lazy(() => import("./pages/production/BatchCostAnalysisDashboard"));
+const UserManagement = lazy(() => import("./pages/system/UserManagement"));
+const AccountingManagement = lazy(() => import("./pages/accounting/AccountingManagement"));
+const AccountingMonthlyClose = lazy(() => import("./pages/accounting/AccountingMonthlyClose"));
+const AccountingCloseManagement = lazy(() => import("./pages/accounting/AccountingCloseManagement"));
+const ChecklistTemplates = lazy(() => import("./pages/checklist/ChecklistTemplates"));
+const ChecklistTemplateForm = lazy(() => import("./pages/checklist/ChecklistTemplateForm"));
+const ChecklistInstance = lazy(() => import("./pages/checklist/ChecklistInstance"));
+const ChecklistScheduleManagement = lazy(() => import("./pages/checklist/ChecklistScheduleManagement"));
+const ChecklistInstanceForm = lazy(() => import("./pages/checklist/ChecklistInstanceForm"));
+const ChecklistApprovalManagement = lazy(() => import("./pages/checklist/ChecklistApprovalManagement"));
+const EmployeeHealthChecklist = lazy(() => import("./pages/checklist/EmployeeHealthChecklist"));
+const MaterialInspections = lazy(() => import("./pages/quality/MaterialInspections"));
+const MaterialInspectionForm = lazy(() => import("./pages/quality/MaterialInspectionForm"));
+const MaterialInspectionDetail = lazy(() => import("./pages/quality/MaterialInspectionDetail"));
+const StockAlerts = lazy(() => import("./pages/inventory/StockAlerts"));
+const InventoryLots = lazy(() => import("./pages/inventory/InventoryLots"));
+const ShippingInspectionDetail = lazy(() => import("./pages/quality/ShippingInspectionDetail"));
+const HygieneInspectionDetail = lazy(() => import("./pages/quality/HygieneInspectionDetail"));
+const ShippingInspections = lazy(() => import("./pages/quality/ShippingInspections"));
+const ShippingInspectionForm = lazy(() => import("./pages/quality/ShippingInspectionForm"));
+const HygieneInspections = lazy(() => import("./pages/quality/HygieneInspections"));
+const HygieneInspectionForm = lazy(() => import("./pages/quality/HygieneInspectionForm"));
+const SelfQualityInspectionList = lazy(() => import("./pages/quality/SelfQualityInspectionList"));
+const SelfQualityInspectionForm = lazy(() => import("./pages/quality/SelfQualityInspectionForm"));
+const ProductCcpMapping = lazy(() => import("./pages/haccp/ProductCcpMapping"));
+const DailyLogForm = lazy(() => import("./pages/production/DailyLogForm"));
+const WeeklyLogForm = lazy(() => import("./pages/production/WeeklyLogForm"));
+const MonthlyLogForm = lazy(() => import("./pages/production/MonthlyLogForm"));
+const EquipmentManagement = lazy(() => import("./pages/system/EquipmentManagement"));
+const DocumentApprovalManagement = lazy(() => import("./pages/system/DocumentApprovalManagement"));
+const DocumentApprovalSettingsPage = lazy(() => import("./pages/system/DocumentApprovalSettingsPage"));
+const DocumentPrintManagement = lazy(() => import("./pages/system/DocumentPrintManagement"));
+const PrintPreviewPage = lazy(() => import("./pages/system/PrintPreviewPage"));
+const CalibrationManagement = lazy(() => import("./pages/checklist/CalibrationManagement"));
+const ProductManagement = lazy(() => import("./pages/master/ProductManagement"));
+const MaterialManagement = lazy(() => import("./pages/master/MaterialManagement"));
+const CcpStats = lazy(() => import("./pages/haccp/CcpStats"));
+const CCPMonitoring = lazy(() => import("./pages/haccp/CCPMonitoring"));
+const RecipeManagement = lazy(() => import("./pages/production/RecipeManagement"));
+const CCPLimitsManagement = lazy(() => import("./pages/haccp/CCPLimitsManagement"));
+const ProductSpecificationManagement = lazy(() => import("./pages/haccp/ProductSpecificationManagement"));
+const HazardAnalysisManagement = lazy(() => import("./pages/haccp/HazardAnalysisManagement"));
+const CcpDeviationDashboard = lazy(() => import("./pages/haccp/CcpDeviationDashboard"));
+const InventoryTurnoverDashboard = lazy(() => import("./pages/inventory/InventoryTurnoverDashboard"));
+const BatchProfitabilityDashboard = lazy(() => import("./pages/production/BatchProfitabilityDashboard"));
+const SupplierManagement = lazy(() => import("./pages/master/SupplierManagement"));
+const SupplierEvaluation = lazy(() => import("./pages/master/SupplierEvaluation"));
+const IntermediateManagement = lazy(() => import("./pages/production/IntermediateManagement"));
+const InventoryAnalytics = lazy(() => import("./pages/inventory/InventoryAnalytics"));
+const CostSavingAI = lazy(() => import("./pages/production/CostSavingAI"));
+const MfReportCreate = lazy(() => import("./pages/production/MfReportCreate"));
+const MfReportList = lazy(() => import("./pages/production/MfReportList"));
+const MfReportEdit = lazy(() => import("./pages/production/MfReportEdit"));
+const MfReportModify = lazy(() => import("./pages/production/MfReportModify"));
+const ManufacturingStandards = lazy(() => import("./pages/production/ManufacturingStandards"));
+const AuditManagement = lazy(() => import("./pages/haccp/AuditManagement"));
+const NonconformingManagement = lazy(() => import("./pages/haccp/NonconformingManagement"));
+const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
+const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
+const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
+const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformance"));
+const NotificationHistory = lazy(() => import("./pages/system/NotificationHistory"));
+const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
+const SystemManagement = lazy(() => import("./pages/system/SystemManagement"));
+const NotificationSettings = lazy(() => import("./pages/system/NotificationSettings"));
+const NotificationCenter = lazy(() => import("./pages/system/NotificationCenter"));
+const NotificationStatistics = lazy(() => import("./pages/system/NotificationStatistics"));
+const ProductionMonitor = lazy(() => import("./pages/production/ProductionMonitor"));
+const InventoryPredictionDashboard = lazy(() => import("./pages/inventory/InventoryPredictionDashboard"));
+const MobileQuickCheck = lazy(() => import("./pages/system/MobileQuickCheck"));
+const BatchScheduleCalendar = lazy(() => import("./pages/production/BatchScheduleCalendar"));
 const BatchSchedule = lazy(() => import("./pages/batch/BatchSchedule"));
-const CorrectiveActionList = lazy(() => import("./pages/CorrectiveActionList"));
-const SystemSettings = lazy(() => import("./pages/SystemSettings"));
-const OpscoreSync = lazy(() => import("./pages/OpscoreSync"));
-const CompanySettings = lazy(() => import("./pages/CompanySettings"));
-const AccountCategoryManagement = lazy(() => import("./pages/AccountCategoryManagement"));
-const CategoryManagement = lazy(() => import("./pages/CategoryManagement"));
-const Traceability = lazy(() => import("./pages/Traceability"));
-const HazardAnalysis = lazy(() => import("./pages/HazardAnalysis"));
-const HaccpPlanVerification = lazy(() => import("./pages/HaccpPlanVerification"));
-const InternalAuditPlan = lazy(() => import("./pages/InternalAuditPlan"));
-const NonconformingProduct = lazy(() => import("./pages/NonconformingProduct"));
-const RecallSimulation = lazy(() => import("./pages/RecallSimulation"));
-const SupplierAudit = lazy(() => import("./pages/SupplierAudit"));
-const InternalAudit = lazy(() => import("./pages/InternalAudit"));
-const CorrectiveAction = lazy(() => import("./pages/CorrectiveAction"));
-const TrainingManagement = lazy(() => import("./pages/TrainingManagement"));
-const TrainingLogList = lazy(() => import("./pages/TrainingLogList"));
-const TrainingLogForm = lazy(() => import("./pages/TrainingLogForm"));
-const Login = lazy(() => import("./pages/Login"));
-const Register = lazy(() => import("./pages/Register"));
-const PendingApproval = lazy(() => import("./pages/PendingApproval"));
-// const UserApproval = lazy(() => import("./pages/UserApproval"));
+const CorrectiveActionList = lazy(() => import("./pages/haccp/CorrectiveActionList"));
+const SystemSettings = lazy(() => import("./pages/system/SystemSettings"));
+const OpscoreSync = lazy(() => import("./pages/system/OpscoreSync"));
+const CompanySettings = lazy(() => import("./pages/system/CompanySettings"));
+const AccountCategoryManagement = lazy(() => import("./pages/accounting/AccountCategoryManagement"));
+const CategoryManagement = lazy(() => import("./pages/accounting/CategoryManagement"));
+const Traceability = lazy(() => import("./pages/haccp/Traceability"));
+const HazardAnalysis = lazy(() => import("./pages/haccp/HazardAnalysis"));
+const HaccpPlanVerification = lazy(() => import("./pages/haccp/HaccpPlanVerification"));
+const InternalAuditPlan = lazy(() => import("./pages/haccp/InternalAuditPlan"));
+const NonconformingProduct = lazy(() => import("./pages/haccp/NonconformingProduct"));
+const RecallSimulation = lazy(() => import("./pages/haccp/RecallSimulation"));
+const SupplierAudit = lazy(() => import("./pages/haccp/SupplierAudit"));
+const InternalAudit = lazy(() => import("./pages/haccp/InternalAudit"));
+const CorrectiveAction = lazy(() => import("./pages/haccp/CorrectiveAction"));
+const TrainingManagement = lazy(() => import("./pages/system/TrainingManagement"));
+const TrainingLogList = lazy(() => import("./pages/system/TrainingLogList"));
+const TrainingLogForm = lazy(() => import("./pages/system/TrainingLogForm"));
+const Login = lazy(() => import("./pages/system/Login"));
+const Register = lazy(() => import("./pages/system/Register"));
+const PendingApproval = lazy(() => import("./pages/system/PendingApproval"));
+// const UserApproval = lazy(() => import("./pages/system/UserApproval"));
 const SuperAdminUserApproval = lazy(() => import("./pages/admin/UserApproval"));
-const EmployeeApproval = lazy(() => import("./pages/EmployeeApproval"));
-const TenantManagement = lazy(() => import("./pages/TenantManagement"));
-const BannerManagement = lazy(() => import("./pages/BannerManagement"));
-const SystemMonitoring = lazy(() => import("./pages/SystemMonitoring"));
-const BillingManagement = lazy(() => import("./pages/BillingManagement"));
-const AuditLogs = lazy(() => import("./pages/AuditLogs"));
-const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
-const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const EmployeeApproval = lazy(() => import("./pages/system/EmployeeApproval"));
+const TenantManagement = lazy(() => import("./pages/system/TenantManagement"));
+const BannerManagement = lazy(() => import("./pages/system/BannerManagement"));
+const SystemMonitoring = lazy(() => import("./pages/system/SystemMonitoring"));
+const BillingManagement = lazy(() => import("./pages/system/BillingManagement"));
+const AuditLogs = lazy(() => import("./pages/system/AuditLogs"));
+const ForgotPassword = lazy(() => import("./pages/system/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/system/ResetPassword"));
 const FailedTasks = lazy(() => import("./pages/admin/FailedTasks"));
-const BackupManagement = lazy(() => import("./pages/BackupManagement"));
-const AdminSettings = lazy(() => import("./pages/AdminSettings"));
-const CcpManagement = lazy(() => import("./pages/CcpManagement"));
-const NotificationManagement = lazy(() => import("./pages/NotificationManagement"));
-const InspectionManagement = lazy(() => import("./pages/InspectionManagement"));
-const MaterialInspection = lazy(() => import("./pages/MaterialInspection"));
-const InspectionStatistics = lazy(() => import("./pages/InspectionStatistics"));
-const ProductionPrediction = lazy(() => import("./pages/ProductionPrediction"));
-const ApprovalDashboard = lazy(() => import("./pages/ApprovalDashboard"));
-const HygieneInspection = lazy(() => import("./pages/HygieneInspection"));
-const ShippingInspection = lazy(() => import("./pages/ShippingInspection"));
-const BatchManagement = lazy(() => import("./pages/BatchManagement"));
-const Today = lazy(() => import("./pages/Today"));
-const InventoryManagement = lazy(() => import("./pages/InventoryManagement"));
-const ProductionSchedule = lazy(() => import("./pages/ProductionSchedule"));
-const MasterDataManagement = lazy(() => import("./pages/MasterDataManagement"));
-const UploadHistory = lazy(() => import("./pages/UploadHistory"));
-const MaterialReceiptManagement = lazy(() => import("./pages/MaterialReceiptManagement"));
-const ProductionEfficiency = lazy(() => import("./pages/ProductionEfficiency"));
-const InventoryTrend = lazy(() => import("./pages/InventoryTrend"));
-const InventoryForecast = lazy(() => import("./pages/InventoryForecast"));
-const PurchaseProposalHistory = lazy(() => import("./pages/PurchaseProposalHistory"));
-const IntegratedDashboard = lazy(() => import("./pages/IntegratedDashboard"));
-const QualityChecklistMap = lazy(() => import("@/pages/QualityChecklistMap"));
-const TemplateManagement = lazy(() => import("./pages/TemplateManagement"));
-const ApprovalQueue = lazy(() => import("./pages/ApprovalQueue"));
-const HygieneChecklistList = lazy(() => import("./pages/HygieneChecklistList"));
-const HygieneChecklistForm = lazy(() => import("./pages/HygieneChecklistForm"));
-const PestControlChecklistList = lazy(() => import("./pages/PestControlChecklistList"));
-const PestControlChecklistForm = lazy(() => import("./pages/PestControlChecklistForm"));
-const TrainingCourseList = lazy(() => import("./pages/TrainingCourseList"));
-const ChecklistList = lazy(() => import("./pages/ChecklistList"));
-const ChecklistCreate = lazy(() => import("./pages/ChecklistCreate"));
-const ChecklistDashboard = lazy(() => import("./pages/ChecklistDashboard"));
-const ChecklistDetail = lazy(() => import("./pages/ChecklistDetail"));
-const ChecklistHistory = lazy(() => import("./pages/ChecklistHistory"));
-const ChecklistStatistics = lazy(() => import("./pages/ChecklistStatistics"));
-const ChecklistNotificationSettings = lazy(() => import("./pages/ChecklistNotificationSettings"));
-const RecipeList = lazy(() => import("./pages/RecipeList"));
-const RecipeDetail = lazy(() => import("./pages/RecipeDetail"));
-const InventoryReceipt = lazy(() => import("./pages/InventoryReceipt"));
-const InventoryRelease = lazy(() => import("./pages/InventoryRelease"));
-const ProductionDailyReport = lazy(() => import("./pages/ProductionDailyReport"));
-const BatchProductionDashboard = lazy(() => import("./pages/BatchProductionDashboard"));
-const InventoryManagementIntegrated = lazy(() => import("./pages/InventoryManagementIntegrated"));
-const PipelineDashboard = lazy(() => import("./pages/PipelineDashboard"));
+const BackupManagement = lazy(() => import("./pages/system/BackupManagement"));
+const AdminSettings = lazy(() => import("./pages/system/AdminSettings"));
+const CcpManagement = lazy(() => import("./pages/haccp/CcpManagement"));
+const NotificationManagement = lazy(() => import("./pages/system/NotificationManagement"));
+const InspectionManagement = lazy(() => import("./pages/quality/InspectionManagement"));
+const MaterialInspection = lazy(() => import("./pages/quality/MaterialInspection"));
+const InspectionStatistics = lazy(() => import("./pages/quality/InspectionStatistics"));
+const ProductionPrediction = lazy(() => import("./pages/production/ProductionPrediction"));
+const ApprovalDashboard = lazy(() => import("./pages/system/ApprovalDashboard"));
+const HygieneInspection = lazy(() => import("./pages/quality/HygieneInspection"));
+const ShippingInspection = lazy(() => import("./pages/quality/ShippingInspection"));
+const BatchManagement = lazy(() => import("./pages/production/BatchManagement"));
+const Today = lazy(() => import("./pages/system/Today"));
+const InventoryManagement = lazy(() => import("./pages/inventory/InventoryManagement"));
+const ProductionSchedule = lazy(() => import("./pages/production/ProductionSchedule"));
+const MasterDataManagement = lazy(() => import("./pages/master/MasterDataManagement"));
+const UploadHistory = lazy(() => import("./pages/system/UploadHistory"));
+const MaterialReceiptManagement = lazy(() => import("./pages/production/MaterialReceiptManagement"));
+const ProductionEfficiency = lazy(() => import("./pages/production/ProductionEfficiency"));
+const InventoryTrend = lazy(() => import("./pages/inventory/InventoryTrend"));
+const InventoryForecast = lazy(() => import("./pages/inventory/InventoryForecast"));
+const PurchaseProposalHistory = lazy(() => import("./pages/inventory/PurchaseProposalHistory"));
+const IntegratedDashboard = lazy(() => import("./pages/system/IntegratedDashboard"));
+const QualityChecklistMap = lazy(() => import("@/pages/checklist/QualityChecklistMap"));
+const TemplateManagement = lazy(() => import("./pages/system/TemplateManagement"));
+const ApprovalQueue = lazy(() => import("./pages/system/ApprovalQueue"));
+const HygieneChecklistList = lazy(() => import("./pages/checklist/HygieneChecklistList"));
+const HygieneChecklistForm = lazy(() => import("./pages/checklist/HygieneChecklistForm"));
+const PestControlChecklistList = lazy(() => import("./pages/checklist/PestControlChecklistList"));
+const PestControlChecklistForm = lazy(() => import("./pages/checklist/PestControlChecklistForm"));
+const TrainingCourseList = lazy(() => import("./pages/system/TrainingCourseList"));
+const ChecklistList = lazy(() => import("./pages/checklist/ChecklistList"));
+const ChecklistCreate = lazy(() => import("./pages/checklist/ChecklistCreate"));
+const ChecklistDashboard = lazy(() => import("./pages/checklist/ChecklistDashboard"));
+const ChecklistDetail = lazy(() => import("./pages/checklist/ChecklistDetail"));
+const ChecklistHistory = lazy(() => import("./pages/checklist/ChecklistHistory"));
+const ChecklistStatistics = lazy(() => import("./pages/checklist/ChecklistStatistics"));
+const ChecklistNotificationSettings = lazy(() => import("./pages/checklist/ChecklistNotificationSettings"));
+const RecipeList = lazy(() => import("./pages/production/RecipeList"));
+const RecipeDetail = lazy(() => import("./pages/production/RecipeDetail"));
+const InventoryReceipt = lazy(() => import("./pages/production/InventoryReceipt"));
+const InventoryRelease = lazy(() => import("./pages/production/InventoryRelease"));
+const ProductionDailyReport = lazy(() => import("./pages/production/ProductionDailyReport"));
+const BatchProductionDashboard = lazy(() => import("./pages/production/BatchProductionDashboard"));
+const InventoryManagementIntegrated = lazy(() => import("./pages/inventory/InventoryManagementIntegrated"));
+const PipelineDashboard = lazy(() => import("./pages/production/PipelineDashboard"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
-const SupportPage = lazy(() => import("./pages/SupportPage"));
+const SupportPage = lazy(() => import("./pages/system/SupportPage"));
 const LegalPage = lazy(() => import("./pages/LegalPage"));
 
 // 11개 미구현 HACCP 체크리스트
-const WaterQualityTestList = lazy(() => import("./pages/WaterQualityTestList"));
-const WaterQualityTestForm = lazy(() => import("./pages/WaterQualityTestForm"));
-const AirCompressorList = lazy(() => import("./pages/AirCompressorList"));
-const AirCompressorForm = lazy(() => import("./pages/AirCompressorForm"));
-const ValidityEvaluationList = lazy(() => import("./pages/ValidityEvaluationList"));
-const ValidityEvaluationForm = lazy(() => import("./pages/ValidityEvaluationForm"));
-const PersonalHygieneCheckList = lazy(() => import("./pages/PersonalHygieneCheckList"));
-const PersonalHygieneCheckForm = lazy(() => import("./pages/PersonalHygieneCheckForm"));
-const WaterUsageCheckList = lazy(() => import("./pages/WaterUsageCheckList"));
-const WaterUsageCheckForm = lazy(() => import("./pages/WaterUsageCheckForm"));
-const EquipmentCleaningRecordList = lazy(() => import("./pages/EquipmentCleaningRecordList"));
-const EquipmentCleaningRecordForm = lazy(() => import("./pages/EquipmentCleaningRecordForm"));
-const ForeignMaterialRecordList = lazy(() => import("./pages/ForeignMaterialRecordList"));
-const ForeignMaterialRecordForm = lazy(() => import("./pages/ForeignMaterialRecordForm"));
-const RefrigerationCheckList = lazy(() => import("./pages/RefrigerationCheckList"));
-const RefrigerationCheckForm = lazy(() => import("./pages/RefrigerationCheckForm"));
-const PackagingStorageRecordList = lazy(() => import("./pages/PackagingStorageRecordList"));
-const PackagingStorageRecordForm = lazy(() => import("./pages/PackagingStorageRecordForm"));
-const QualityIssueRecordList = lazy(() => import("./pages/QualityIssueRecordList"));
-const QualityIssueRecordForm = lazy(() => import("./pages/QualityIssueRecordForm"));
-const CapaRecordList = lazy(() => import("./pages/CapaRecordList"));
-const CapaRecordForm = lazy(() => import("./pages/CapaRecordForm"));
+const WaterQualityTestList = lazy(() => import("./pages/checklist/WaterQualityTestList"));
+const WaterQualityTestForm = lazy(() => import("./pages/checklist/WaterQualityTestForm"));
+const AirCompressorList = lazy(() => import("./pages/checklist/AirCompressorList"));
+const AirCompressorForm = lazy(() => import("./pages/checklist/AirCompressorForm"));
+const ValidityEvaluationList = lazy(() => import("./pages/checklist/ValidityEvaluationList"));
+const ValidityEvaluationForm = lazy(() => import("./pages/checklist/ValidityEvaluationForm"));
+const PersonalHygieneCheckList = lazy(() => import("./pages/checklist/PersonalHygieneCheckList"));
+const PersonalHygieneCheckForm = lazy(() => import("./pages/checklist/PersonalHygieneCheckForm"));
+const WaterUsageCheckList = lazy(() => import("./pages/checklist/WaterUsageCheckList"));
+const WaterUsageCheckForm = lazy(() => import("./pages/checklist/WaterUsageCheckForm"));
+const EquipmentCleaningRecordList = lazy(() => import("./pages/checklist/EquipmentCleaningRecordList"));
+const EquipmentCleaningRecordForm = lazy(() => import("./pages/checklist/EquipmentCleaningRecordForm"));
+const ForeignMaterialRecordList = lazy(() => import("./pages/checklist/ForeignMaterialRecordList"));
+const ForeignMaterialRecordForm = lazy(() => import("./pages/checklist/ForeignMaterialRecordForm"));
+const RefrigerationCheckList = lazy(() => import("./pages/checklist/RefrigerationCheckList"));
+const RefrigerationCheckForm = lazy(() => import("./pages/checklist/RefrigerationCheckForm"));
+const PackagingStorageRecordList = lazy(() => import("./pages/checklist/PackagingStorageRecordList"));
+const PackagingStorageRecordForm = lazy(() => import("./pages/checklist/PackagingStorageRecordForm"));
+const QualityIssueRecordList = lazy(() => import("./pages/checklist/QualityIssueRecordList"));
+const QualityIssueRecordForm = lazy(() => import("./pages/checklist/QualityIssueRecordForm"));
+const CapaRecordList = lazy(() => import("./pages/checklist/CapaRecordList"));
+const CapaRecordForm = lazy(() => import("./pages/checklist/CapaRecordForm"));
 
 // PDF 양식 기반 체크리스트
-const EmployeeHealthCheckRecordList = lazy(() => import("./pages/EmployeeHealthCheckRecordList"));
-const EmployeeHealthCheckForm = lazy(() => import("./pages/EmployeeHealthCheckForm"));
-const TemperatureHumidityCheckList = lazy(() => import("./pages/TemperatureHumidityCheckList"));
-const TemperatureHumidityCheckForm = lazy(() => import("./pages/TemperatureHumidityCheckForm"));
-const SanitationRecordList = lazy(() => import("./pages/SanitationRecordList"));
-const SanitationRecordForm = lazy(() => import("./pages/SanitationRecordForm"));
+const EmployeeHealthCheckRecordList = lazy(() => import("./pages/checklist/EmployeeHealthCheckRecordList"));
+const EmployeeHealthCheckForm = lazy(() => import("./pages/checklist/EmployeeHealthCheckForm"));
+const TemperatureHumidityCheckList = lazy(() => import("./pages/checklist/TemperatureHumidityCheckList"));
+const TemperatureHumidityCheckForm = lazy(() => import("./pages/checklist/TemperatureHumidityCheckForm"));
+const SanitationRecordList = lazy(() => import("./pages/checklist/SanitationRecordList"));
+const SanitationRecordForm = lazy(() => import("./pages/checklist/SanitationRecordForm"));
 
 // 공지보드 & 알림 (역할별 UX)
-const NoticeBoard = lazy(() => import("./pages/NoticeBoard"));
-const BoardAlarms = lazy(() => import("./pages/BoardAlarms"));
+const NoticeBoard = lazy(() => import("./pages/system/NoticeBoard"));
+const BoardAlarms = lazy(() => import("./pages/system/BoardAlarms"));
 
 // 조직도 관리
-const DepartmentManagement = lazy(() => import("./pages/DepartmentManagement"));
-const PositionManagement = lazy(() => import("./pages/PositionManagement"));
-const EmployeeManagement = lazy(() => import("./pages/EmployeeManagement"));
+const DepartmentManagement = lazy(() => import("./pages/system/DepartmentManagement"));
+const PositionManagement = lazy(() => import("./pages/system/PositionManagement"));
+const EmployeeManagement = lazy(() => import("./pages/system/EmployeeManagement"));
 
 // 신규 체크리스트 양식 (PDF 기반)
-const SurfaceContaminationTestForm = lazy(() => import("./pages/SurfaceContaminationTestForm"));
-const SurfaceContaminationTestList = lazy(() => import("./pages/SurfaceContaminationTestList"));
-const HygieneFacilityCheckForm = lazy(() => import("./pages/HygieneFacilityCheckForm"));
-const HygieneFacilityCheckList = lazy(() => import("./pages/HygieneFacilityCheckList"));
-const WorkplaceHygieneCheckList = lazy(() => import("./pages/WorkplaceHygieneCheckList"));
-const WorkplaceHygieneCheckForm = lazy(() => import("./pages/WorkplaceHygieneCheckForm"));
-const IlluminationCheckForm = lazy(() => import("./pages/IlluminationCheckForm"));
-const IlluminationCheckList = lazy(() => import("./pages/IlluminationCheckList"));
-const VehicleTemperatureCheckForm = lazy(() => import("./pages/VehicleTemperatureCheckForm"));
-const VehicleTemperatureCheckList = lazy(() => import("./pages/VehicleTemperatureCheckList"));
-const EquipmentHistoryForm = lazy(() => import("./pages/EquipmentHistoryForm"));
-const EquipmentHistoryList = lazy(() => import("./pages/EquipmentHistoryList"));
-const EquipmentInspectionForm = lazy(() => import("./pages/EquipmentInspectionForm"));
-const EquipmentInspectionList = lazy(() => import("./pages/EquipmentInspectionList"));
-const ConsumerComplaintForm = lazy(() => import("./pages/ConsumerComplaintForm"));
-const ConsumerComplaintList = lazy(() => import("./pages/ConsumerComplaintList"));
-const WeightQualityCheckForm = lazy(() => import("./pages/WeightQualityCheckForm"));
-const WeightQualityCheckList = lazy(() => import("./pages/WeightQualityCheckList"));
-const ProductTestReportForm = lazy(() => import("./pages/ProductTestReportForm"));
-const ProductTestReportList = lazy(() => import("./pages/ProductTestReportList"));
-const ProductTestLogForm = lazy(() => import("./pages/ProductTestLogForm"));
-const ProductTestLogList = lazy(() => import("./pages/ProductTestLogList"));
-const FinishedProductCheckForm = lazy(() => import("./pages/FinishedProductCheckForm"));
-const FinishedProductCheckList = lazy(() => import("./pages/FinishedProductCheckList"));
-const SupplierInspectionForm = lazy(() => import("./pages/SupplierInspectionForm"));
-const SupplierInspectionList = lazy(() => import("./pages/SupplierInspectionList"));
-const AirborneBacteriaTestForm = lazy(() => import("./pages/AirborneBacteriaTestForm"));
-const AirborneBacteriaTestList = lazy(() => import("./pages/AirborneBacteriaTestList"));
-const FoodRecallNoticeForm = lazy(() => import("./pages/FoodRecallNoticeForm"));
-const FoodRecallNoticeList = lazy(() => import("./pages/FoodRecallNoticeList"));
-const WaterManagementCheckForm = lazy(() => import("./pages/WaterManagementCheckForm"));
-const WaterManagementCheckList = lazy(() => import("./pages/WaterManagementCheckList"));
-const HandoverDocumentForm = lazy(() => import("./pages/HandoverDocumentForm"));
-const HandoverDocumentList = lazy(() => import("./pages/HandoverDocumentList"));
+const SurfaceContaminationTestForm = lazy(() => import("./pages/checklist/SurfaceContaminationTestForm"));
+const SurfaceContaminationTestList = lazy(() => import("./pages/checklist/SurfaceContaminationTestList"));
+const HygieneFacilityCheckForm = lazy(() => import("./pages/checklist/HygieneFacilityCheckForm"));
+const HygieneFacilityCheckList = lazy(() => import("./pages/checklist/HygieneFacilityCheckList"));
+const WorkplaceHygieneCheckList = lazy(() => import("./pages/checklist/WorkplaceHygieneCheckList"));
+const WorkplaceHygieneCheckForm = lazy(() => import("./pages/checklist/WorkplaceHygieneCheckForm"));
+const IlluminationCheckForm = lazy(() => import("./pages/checklist/IlluminationCheckForm"));
+const IlluminationCheckList = lazy(() => import("./pages/checklist/IlluminationCheckList"));
+const VehicleTemperatureCheckForm = lazy(() => import("./pages/checklist/VehicleTemperatureCheckForm"));
+const VehicleTemperatureCheckList = lazy(() => import("./pages/checklist/VehicleTemperatureCheckList"));
+const EquipmentHistoryForm = lazy(() => import("./pages/checklist/EquipmentHistoryForm"));
+const EquipmentHistoryList = lazy(() => import("./pages/checklist/EquipmentHistoryList"));
+const EquipmentInspectionForm = lazy(() => import("./pages/checklist/EquipmentInspectionForm"));
+const EquipmentInspectionList = lazy(() => import("./pages/checklist/EquipmentInspectionList"));
+const ConsumerComplaintForm = lazy(() => import("./pages/checklist/ConsumerComplaintForm"));
+const ConsumerComplaintList = lazy(() => import("./pages/checklist/ConsumerComplaintList"));
+const WeightQualityCheckForm = lazy(() => import("./pages/checklist/WeightQualityCheckForm"));
+const WeightQualityCheckList = lazy(() => import("./pages/checklist/WeightQualityCheckList"));
+const ProductTestReportForm = lazy(() => import("./pages/checklist/ProductTestReportForm"));
+const ProductTestReportList = lazy(() => import("./pages/checklist/ProductTestReportList"));
+const ProductTestLogForm = lazy(() => import("./pages/checklist/ProductTestLogForm"));
+const ProductTestLogList = lazy(() => import("./pages/checklist/ProductTestLogList"));
+const FinishedProductCheckForm = lazy(() => import("./pages/checklist/FinishedProductCheckForm"));
+const FinishedProductCheckList = lazy(() => import("./pages/checklist/FinishedProductCheckList"));
+const SupplierInspectionForm = lazy(() => import("./pages/checklist/SupplierInspectionForm"));
+const SupplierInspectionList = lazy(() => import("./pages/checklist/SupplierInspectionList"));
+const AirborneBacteriaTestForm = lazy(() => import("./pages/checklist/AirborneBacteriaTestForm"));
+const AirborneBacteriaTestList = lazy(() => import("./pages/checklist/AirborneBacteriaTestList"));
+const FoodRecallNoticeForm = lazy(() => import("./pages/checklist/FoodRecallNoticeForm"));
+const FoodRecallNoticeList = lazy(() => import("./pages/checklist/FoodRecallNoticeList"));
+const WaterManagementCheckForm = lazy(() => import("./pages/checklist/WaterManagementCheckForm"));
+const WaterManagementCheckList = lazy(() => import("./pages/checklist/WaterManagementCheckList"));
+const HandoverDocumentForm = lazy(() => import("./pages/checklist/HandoverDocumentForm"));
+const HandoverDocumentList = lazy(() => import("./pages/checklist/HandoverDocumentList"));
 
 // 신규 추가 페이지
-const AirCompressorMaintenanceForm = lazy(() => import("./pages/AirCompressorMaintenanceForm"));
-const AirCompressorMaintenanceList = lazy(() => import("./pages/AirCompressorMaintenanceList"));
-const DailyDisposalRecordForm = lazy(() => import("./pages/DailyDisposalRecordForm"));
-const DailyDisposalRecordList = lazy(() => import("./pages/DailyDisposalRecordList"));
-const WasteManagementForm = lazy(() => import("./pages/WasteManagementForm"));
-const WasteManagementList = lazy(() => import("./pages/WasteManagementList"));
+const AirCompressorMaintenanceForm = lazy(() => import("./pages/checklist/AirCompressorMaintenanceForm"));
+const AirCompressorMaintenanceList = lazy(() => import("./pages/checklist/AirCompressorMaintenanceList"));
+const DailyDisposalRecordForm = lazy(() => import("./pages/checklist/DailyDisposalRecordForm"));
+const DailyDisposalRecordList = lazy(() => import("./pages/checklist/DailyDisposalRecordList"));
+const WasteManagementForm = lazy(() => import("./pages/checklist/WasteManagementForm"));
+const WasteManagementList = lazy(() => import("./pages/checklist/WasteManagementList"));
 
 
 
@@ -316,7 +317,7 @@ function Router() {
       <Route path="/dashboard/integrated" component={IntegratedDashboard} />
       <Route path="/dashboard/pipeline" component={PipelineDashboard} />
       <Route path="/dashboard/master-data" component={MasterDataManagement} />
-      <Route path="/dashboard/item-master" component={lazy(() => import("@/pages/ItemMasterManagement"))} />
+      <Route path="/dashboard/item-master" component={lazy(() => import("@/pages/master/ItemMasterManagement"))} />
       <Route path="/dashboard/upload-history" component={UploadHistory} />
       <Route path="/quality/checklists" component={ChecklistDashboard} />
       <Route path="/calibration" component={CalibrationManagement} />
@@ -396,24 +397,26 @@ function Router() {
           <Route path="/dashboard/tenants" component={TenantManagement} />
           <Route path="/dashboard/banners" component={BannerManagement} />
           <Route path="/dashboard/accounting" component={AccountingManagement} />
-      <Route path="/dashboard/accounting/bank-management" component={lazy(() => import("@/pages/BankManagement"))} />
-      <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/BankAccountManagement"))} />
-      <Route path="/dashboard/accounting/bank-transactions" component={lazy(() => import("@/pages/BankTransactionManagement"))} />
-      <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/BankMatchingRuleManagement"))} />
-      <Route path="/dashboard/accounting/partners" component={lazy(() => import("@/pages/PartnersQuery"))} />
-      <Route path="/dashboard/accounting/purchases/create" component={lazy(() => import("@/pages/PurchasesManagement"))} />
-      <Route path="/dashboard/accounting/purchases/list" component={lazy(() => import("@/pages/PurchasesList"))} />
-      <Route path="/dashboard/accounting/purchases/:id" component={lazy(() => import("@/pages/PurchaseDetail"))} />
-      <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/SalesManagement"))} />
-      <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/SalesList"))} />
-      <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/SaleDetail"))} />
-      <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/BankAccountManagement"))} />
-      <Route path="/dashboard/accounting/bank-matching" component={lazy(() => import("@/pages/BankTransactionMatching"))} />
-      <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/MatchingRulesManagement"))} />
-      <Route path="/dashboard/accounting/accounts" component={lazy(() => import("@/pages/AccountingAccounts"))} />
+      <Route path="/dashboard/accounting/bank-management" component={lazy(() => import("@/pages/accounting/BankManagement"))} />
+      <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/accounting/BankAccountManagement"))} />
+      <Route path="/dashboard/accounting/bank-transactions" component={lazy(() => import("@/pages/accounting/BankTransactionManagement"))} />
+      <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/BankMatchingRuleManagement"))} />
+      <Route path="/dashboard/accounting/partners" component={lazy(() => import("@/pages/accounting/PartnersQuery"))} />
+      <Route path="/dashboard/accounting/purchases/create" component={lazy(() => import("@/pages/accounting/PurchasesManagement"))} />
+      <Route path="/dashboard/accounting/purchases/list" component={lazy(() => import("@/pages/accounting/PurchasesList"))} />
+      <Route path="/dashboard/accounting/purchases/:id" component={lazy(() => import("@/pages/accounting/PurchaseDetail"))} />
+      <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
+      <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
+      <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />
+      <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/accounting/BankAccountManagement"))} />
+      <Route path="/dashboard/accounting/bank-matching" component={lazy(() => import("@/pages/accounting/BankTransactionMatching"))} />
+      <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/MatchingRulesManagement"))} />
+      <Route path="/dashboard/accounting/accounts" component={lazy(() => import("@/pages/accounting/AccountingAccounts"))} />
       <Route path="/dashboard/accounting/daily-close" component={lazy(() => import("@/pages/accounting/AccountingDailyClose"))} />
       <Route path="/dashboard/accounting/closing-management" component={lazy(() => import("@/pages/accounting/ClosingManagement"))} />
       <Route path="/dashboard/accounting/material-ledger" component={lazy(() => import("@/pages/accounting/MaterialLedger"))} />
+      <Route path="/dashboard/accounting/material-usage-reports" component={lazy(() => import("@/pages/accounting/MaterialUsageReportList"))} />
+      <Route path="/material-usage-report-print" component={lazy(() => import("@/pages/accounting/MaterialUsageReportPrint"))} />
       <Route path="/dashboard/accounting/financial-reports" component={lazy(() => import("@/pages/accounting/FinancialReports"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />
       <Route path="/accounting-close" component={AccountingCloseManagement} />
@@ -423,8 +426,8 @@ function Router() {
       <Route path="/accounting/documents" component={lazy(() => import("@/pages/accounting/AccountingDocuments"))} />
       <Route path="/accounting/documents/:id" component={lazy(() => import("@/pages/accounting/AccountingDocumentDetail"))} />
       <Route path="/dashboard/accounting/communication-log" component={lazy(() => import("@/pages/accounting/CommunicationLog"))} />
-      <Route path="/dashboard/accounting/notice-board" component={lazy(() => import("@/pages/AccountingNoticeBoard"))} />
-      <Route path="/dashboard/accounting/expense" component={lazy(() => import("@/pages/ExpenseManagement"))} />
+      <Route path="/dashboard/accounting/notice-board" component={lazy(() => import("@/pages/accounting/AccountingNoticeBoard"))} />
+      <Route path="/dashboard/accounting/expense" component={lazy(() => import("@/pages/accounting/ExpenseManagement"))} />
       <Route path="/dashboard/inspection/material" component={MaterialInspection} />
       <Route path="/dashboard/inspection/hygiene" component={HygieneInspection} />
       <Route path="/dashboard/inspection/shipping" component={ShippingInspection} />
@@ -458,7 +461,10 @@ function Router() {
       <Route path="/category-management" component={CategoryManagement} />
       <Route path="/admin/failed-tasks" component={FailedTasks} />
       <Route path="/admin/settings" component={SystemManagement} />
-      <Route path="/admin/opscore-sync" component={OpscoreSync} />
+      {/* ★ GOGOGOPICK 연동 라우트는 feature flag 로 제어 (기본 비활성) */}
+      {FEATURES.GOGOGOPICK_INTEGRATION && (
+        <Route path="/admin/opscore-sync" component={OpscoreSync} />
+      )}
       <Route path="/traceability" component={Traceability} />
       <Route path="/dashboard/haccp/hazard-analysis" component={HazardAnalysis} />
       <Route path="/dashboard/haccp/plan-verification" component={HaccpPlanVerification} />
@@ -475,18 +481,18 @@ function Router() {
       <Route path="/internal-audit-plan" component={InternalAuditPlan} />
       <Route path="/dashboard/haccp/corrective-action" component={CorrectiveAction} />
       <Route path="/dashboard/haccp/training" component={TrainingManagement} />
-      <Route path="/dashboard/training-admin" component={lazy(() => import("@/pages/TrainingAdmin"))} />
-      <Route path="/dashboard/server-monitor" component={lazy(() => import("@/pages/ServerMonitorDashboard"))} />
-      <Route path="/dashboard/scan-checklist" component={lazy(() => import("@/pages/ScanChecklistUpload"))} />
-      <Route path="/dashboard/audit-report" component={lazy(() => import("@/pages/AuditReportDashboard"))} />
+      <Route path="/dashboard/training-admin" component={lazy(() => import("@/pages/system/TrainingAdmin"))} />
+      <Route path="/dashboard/server-monitor" component={lazy(() => import("@/pages/system/ServerMonitorDashboard"))} />
+      <Route path="/dashboard/scan-checklist" component={lazy(() => import("@/pages/checklist/ScanChecklistUpload"))} />
+      <Route path="/dashboard/audit-report" component={lazy(() => import("@/pages/system/AuditReportDashboard"))} />
       <Route path="/dashboard/approval" component={ApprovalManagement} />
       <Route path="/dashboard/audit-logs" component={AuditLogs} />
 
       {/* AI HACCP Assistant */}
-      <Route path="/dashboard/ai-assistant" component={lazy(() => import("@/pages/AIDashboard"))} />
+      <Route path="/dashboard/ai-assistant" component={lazy(() => import("@/pages/ai/AIDashboard"))} />
 
       {/* 통합 데이터 임포트 (기존 엑셀 + 단순 + AI 검증) */}
-      <Route path="/dashboard/data-import" component={lazy(() => import("@/pages/DataImport"))} />
+      <Route path="/dashboard/data-import" component={lazy(() => import("@/pages/system/DataImport"))} />
       {/* 하위 호환: 기존 경로 리다이렉트 */}
       <Route path="/dashboard/excel-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>
       <Route path="/dashboard/simplified-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>

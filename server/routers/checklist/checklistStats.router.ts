@@ -7,13 +7,13 @@ export const checklistStatsRouter = router({
     getByCategory: tenantRequiredProcedure
       .input(z.object({ category: z.string() }))
       .query(async ({ input, ctx }) => {
-        const { getChecklistStatsByCategory } = await import("../../db/checklistStats");
-        return await getChecklistStatsByCategory(input.category, ctx.tenantId ?? undefined);
+        const { getChecklistStatsByCategory } = await import("../../db/haccp/checklistStats");
+        return await getChecklistStatsByCategory(input.category, ctx.tenantId);
       }),
 
     // 오늘 전체 상태 조회
     getToday: tenantRequiredProcedure.query(async ({ ctx }) => {
-      const { getTodayChecklistStats } = await import("../../db/checklistStats");
-      return await getTodayChecklistStats(ctx.tenantId ?? undefined);
+      const { getTodayChecklistStats } = await import("../../db/haccp/checklistStats");
+      return await getTodayChecklistStats(ctx.tenantId);
     })
 });

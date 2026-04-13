@@ -1,5 +1,5 @@
 import { mysqlTable, bigint, int, text, varchar, timestamp, boolean, index, foreignKey } from "drizzle-orm/mysql-core";
-import { tenants } from "../schema_main";
+import { tenants } from "./schema_main";
 import { communicationLogs } from "./communicationLog";
 
 // 커뮤니케이션 로그 댓글 테이블

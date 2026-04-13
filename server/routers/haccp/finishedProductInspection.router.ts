@@ -11,8 +11,8 @@ export const finishedProductInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { getOrCreateFinishedProductLog } = await import("../../db/visualInspection");
-        return await getOrCreateFinishedProductLog(db, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
+        const { getOrCreateFinishedProductLog } = await import("../../db/haccp/visualInspection");
+        return await getOrCreateFinishedProductLog(db, ctx.tenantId, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
       }),
 
     getById: tenantRequiredProcedure
@@ -22,8 +22,8 @@ export const finishedProductInspectionRouter = router({
         const db = await getDb();
         if (!db) return null;
         try {
-          const { getFinishedProductLog } = await import("../../db/visualInspection");
-          return await getFinishedProductLog(db, ctx.tenantId ?? undefined, input.id);
+          const { getFinishedProductLog } = await import("../../db/haccp/visualInspection");
+          return await getFinishedProductLog(db, ctx.tenantId, input.id);
         } catch (err) {
           console.error('[finishedProductInspection.getById]', err);
           return null;
@@ -53,8 +53,8 @@ export const finishedProductInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { saveFinishedProductItems } = await import("../../db/visualInspection");
-        return await saveFinishedProductItems(db, ctx.tenantId ?? undefined, input.logId, input.items);
+        const { saveFinishedProductItems } = await import("../../db/haccp/visualInspection");
+        return await saveFinishedProductItems(db, ctx.tenantId, input.logId, input.items);
       }),
 
     delete: tenantRequiredProcedure
@@ -63,8 +63,8 @@ export const finishedProductInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { deleteFinishedProductLog } = await import("../../db/visualInspection");
-        return await deleteFinishedProductLog(db, ctx.tenantId ?? undefined, input.id);
+        const { deleteFinishedProductLog } = await import("../../db/haccp/visualInspection");
+        return await deleteFinishedProductLog(db, ctx.tenantId, input.id);
       }),
 
     submitForApproval: tenantRequiredProcedure
@@ -74,8 +74,8 @@ export const finishedProductInspectionRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const pool = await getRawConnection();
-        const { submitFinishedProductApproval } = await import("../../db/visualInspection");
-        return await submitFinishedProductApproval(db, pool, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.logId, ctx.user.id);
+        const { submitFinishedProductApproval } = await import("../../db/haccp/visualInspection");
+        return await submitFinishedProductApproval(db, pool, ctx.tenantId, ctx.user.siteId || ctx.tenantId, input.logId, ctx.user.id);
       }),
 
     fetchBatches: tenantRequiredProcedure
@@ -85,8 +85,8 @@ export const finishedProductInspectionRouter = router({
         const db = await getDb();
         if (!db) return [];
         try {
-          const { fetchCompletedBatchesForMonth } = await import("../../db/visualInspection");
-          return await fetchCompletedBatchesForMonth(db, ctx.tenantId ?? undefined, input.year, input.month);
+          const { fetchCompletedBatchesForMonth } = await import("../../db/haccp/visualInspection");
+          return await fetchCompletedBatchesForMonth(db, ctx.tenantId, input.year, input.month);
         } catch (err) {
           console.error('[finishedProductInspection.fetchBatches]', err);
           return [];
@@ -100,8 +100,8 @@ export const finishedProductInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { syncOutboundsToFinishedProductLog } = await import("../../db/visualInspection");
-        return await syncOutboundsToFinishedProductLog(db, ctx.tenantId ?? undefined, input.logId, input.year, input.month);
+        const { syncOutboundsToFinishedProductLog } = await import("../../db/haccp/visualInspection");
+        return await syncOutboundsToFinishedProductLog(db, ctx.tenantId, input.logId, input.year, input.month);
       }),
 
     // 이전 입력 데이터 기반 자동완성 (제품명별 최신 값)
@@ -112,8 +112,8 @@ export const finishedProductInspectionRouter = router({
         const db = await getDb();
         if (!db) return {};
         try {
-          const { fetchPreviousFinishedProductDefaults } = await import("../../db/visualInspection");
-          return await fetchPreviousFinishedProductDefaults(db, ctx.tenantId ?? undefined, input.year, input.month);
+          const { fetchPreviousFinishedProductDefaults } = await import("../../db/haccp/visualInspection");
+          return await fetchPreviousFinishedProductDefaults(db, ctx.tenantId, input.year, input.month);
         } catch (err) {
           console.error('[finishedProductInspection.fetchPreviousDefaults]', err);
           return {};

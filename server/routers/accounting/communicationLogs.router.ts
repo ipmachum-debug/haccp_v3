@@ -15,10 +15,10 @@ export const communicationLogsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { createCommunicationLog } = await import("../communicationLog");
+        const { createCommunicationLog } = await import("./communicationLog.router");
         const id = await createCommunicationLog({
           ...input,
-          tenantId: ctx.tenantId ?? undefined,
+          tenantId: ctx.tenantId,
           authorId: ctx.user.id,
         });
         return { id, success: true };
@@ -34,9 +34,9 @@ export const communicationLogsRouter = router({
         }).optional()
       )
       .query(async ({ input, ctx }) => {
-        const { getCommunicationLogs } = await import("../communicationLog");
+        const { getCommunicationLogs } = await import("./communicationLog.router");
         return await getCommunicationLogs({
-          tenantId: ctx.tenantId ?? undefined,
+          tenantId: ctx.tenantId,
           partnerId: input?.partnerId,
           status: input?.status,
           authorId: input?.authorId,
@@ -47,8 +47,8 @@ export const communicationLogsRouter = router({
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getCommunicationLogById } = await import("../communicationLog");
-        return await getCommunicationLogById(input.id, ctx.tenantId ?? undefined);
+        const { getCommunicationLogById } = await import("./communicationLog.router");
+        return await getCommunicationLogById(input.id, ctx.tenantId);
       }),
 
     // 커뮤니케이션 로그 수정
@@ -62,9 +62,9 @@ export const communicationLogsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { updateCommunicationLog } = await import("../communicationLog");
+        const { updateCommunicationLog } = await import("./communicationLog.router");
         const { id, ...data } = input;
-        await updateCommunicationLog(id, data, ctx.tenantId ?? undefined, ctx.user.id);
+        await updateCommunicationLog(id, data, ctx.tenantId, ctx.user.id);
         return { success: true };
       }),
 
@@ -72,8 +72,8 @@ export const communicationLogsRouter = router({
     delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { deleteCommunicationLog } = await import("../communicationLog");
-        await deleteCommunicationLog(input.id, ctx.tenantId ?? undefined, ctx.user.id);
+        const { deleteCommunicationLog } = await import("./communicationLog.router");
+        await deleteCommunicationLog(input.id, ctx.tenantId, ctx.user.id);
         return { success: true };
       }),
 
@@ -86,8 +86,8 @@ export const communicationLogsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { updateCommunicationLogStatus } = await import("../communicationLog");
-        await updateCommunicationLogStatus({ id: input.id, status: input.status, tenantId: ctx.tenantId ?? undefined, userId: ctx.user.id });
+        const { updateCommunicationLogStatus } = await import("./communicationLog.router");
+        await updateCommunicationLogStatus({ id: input.id, status: input.status, tenantId: ctx.tenantId, userId: ctx.user.id });
         return { success: true };
       }),
 
@@ -95,30 +95,30 @@ export const communicationLogsRouter = router({
     stats: tenantRequiredProcedure
       .input(z.object({ partnerId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getCommunicationLogStats } = await import("../communicationLog");
-        return await getCommunicationLogStats(input.partnerId, ctx.tenantId ?? undefined);
+        const { getCommunicationLogStats } = await import("./communicationLog.router");
+        return await getCommunicationLogStats(input.partnerId, ctx.tenantId);
       }),
     // 댓글 생성
     createComment: tenantRequiredProcedure
       .input(z.object({ logId: z.number(), content: z.string().min(1), mentions: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
-        const { createComment } = await import("../communicationLog");
-        const id = await createComment({ ...input, tenantId: ctx.tenantId ?? undefined, authorId: ctx.user.id });
+        const { createComment } = await import("./communicationLog.router");
+        const id = await createComment({ ...input, tenantId: ctx.tenantId, authorId: ctx.user.id });
         return { id, success: true };
       }),
     // 댓글 목록 조회
     getComments: tenantRequiredProcedure
       .input(z.object({ logId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getComments } = await import("../communicationLog");
-        return await getComments(input.logId, ctx.tenantId ?? undefined);
+        const { getComments } = await import("./communicationLog.router");
+        return await getComments(input.logId, ctx.tenantId);
       }),
     // 댓글 삭제
     deleteComment: tenantRequiredProcedure
       .input(z.object({ commentId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { deleteComment } = await import("../communicationLog");
-        await deleteComment(input.commentId, ctx.tenantId ?? undefined, ctx.user.id);
+        const { deleteComment } = await import("./communicationLog.router");
+        await deleteComment(input.commentId, ctx.tenantId, ctx.user.id);
         return { success: true };
       }),
 });

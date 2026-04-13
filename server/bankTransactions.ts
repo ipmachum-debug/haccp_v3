@@ -6,7 +6,7 @@ import {
   partners,
   apLedger,
   arLedger
-} from "../drizzle/schema_main";
+} from "../drizzle/schema/schema_main";
 import { eq, and, desc, sql, gte, lte, isNull } from "drizzle-orm";
 import * as crypto from "crypto";
 

@@ -6,7 +6,7 @@ import { getDb } from "../../db";
 import { bankTransactions, matchingRules } from "../../../drizzle/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { assertBankAccountOwned } from "./bankAccount.service";
-import { postBankTransactionJournal } from "../../db/journalHelper";
+import { postBankTransactionJournal } from "../../db/accounting/journalHelper";
 
 function parseJsonSafe(text: string | null | undefined): any {
   if (!text) return null;

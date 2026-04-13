@@ -16,7 +16,7 @@ export async function getCcpReportData(params: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   
-  const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema_main");
+  const { hCcpInstances, hCcpRows, hBatches, hProductsV2 } = await import("../../drizzle/schema/schema_main");
   
   // CCP 인스턴스 및 행 조회 (★ hProductsV2 사용 - h_products_v2 테이블이 실제 운영 제품 데이터)
   const ccpRecords = await db
