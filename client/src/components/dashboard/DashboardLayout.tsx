@@ -55,7 +55,7 @@ import { GripVertical } from "lucide-react";
 
 // Subscription Info Component
 function SubscriptionInfo({ isCollapsed }: { isCollapsed: boolean }) {
-  const checkSubscription = trpc.subscription.checkSubscriptionStatus.useMutation();
+  const checkSubscription = trpc.subscriptionPublic.checkSubscriptionStatus.useMutation();
   const [subInfo, setSubInfo] = useState<any>(null);
 
   useEffect(() => {

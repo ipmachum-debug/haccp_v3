@@ -30,8 +30,8 @@ function formatWon(amount: number) {
 export default function BillingManagement() {
   const [activeTab, setActiveTab] = useState("overview");
 
-  const { data: stats, isLoading: statsLoading } = trpc.subscription.getSubscriptionStats.useQuery();
-  const { data: expiring } = trpc.subscription.getExpiringTenants.useQuery({ days: 30 });
+  const { data: stats, isLoading: statsLoading } = trpc.subscriptionPublic.getSubscriptionStats.useQuery();
+  const { data: expiring } = trpc.subscriptionPublic.getExpiringTenants.useQuery({ days: 30 });
 
   // 전체 테넌트 목록 (구독 정보 포함)
   const { data: tenantList } = trpc.superadmin.listTenants.useQuery();

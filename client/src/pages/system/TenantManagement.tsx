@@ -163,7 +163,7 @@ export default function TenantManagement() {
   });
 
   // 구독 업데이트 mutation
-  const updateSubscriptionMutation = trpc.subscription.updateSubscription.useMutation({
+  const updateSubscriptionMutation = trpc.subscriptionPublic.updateSubscription.useMutation({
     onSuccess: () => {
       toast({
         title: "성공",
@@ -204,7 +204,7 @@ export default function TenantManagement() {
   });
 
   // 구독 연장 mutation
-  const extendSubscriptionMutation = trpc.subscription.extendSubscription.useMutation({
+  const extendSubscriptionMutation = trpc.subscriptionPublic.extendSubscription.useMutation({
     onSuccess: () => {
       toast({
         title: "성공",
