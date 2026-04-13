@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Sparkles } from "lucide-react";
@@ -63,6 +63,35 @@ export default function MatchingRulesManagement() {
 
   const utils = trpc.useUtils();
   const { data: rules = [], isLoading } = trpc.matchingRules.list.useQuery();
+
+  // ★ 2026-04-13: 거래처 / 계정과목 드롭다운용 데이터
+  const { data: partnersData } = trpc.partners.list.useQuery();
+  const partnersArr: any[] = Array.isArray(partnersData) ? partnersData : ((partnersData as any)?.items ?? []);
+
+  const { data: accountingAccountsList } = trpc.accountingAccounts.list.useQuery({ isActive: "Y" });
+  const accountingAccountsArr: any[] = Array.isArray(accountingAccountsList)
+    ? accountingAccountsList
+    : ((accountingAccountsList as any)?.items ?? []);
+
+  const groupedAccounts = useMemo(() => {
+    const groups: Record<string, any[]> = {
+      assets: [], liabilities: [], equity: [], revenue: [], expenses: [], other: [],
+    };
+    for (const acc of accountingAccountsArr) {
+      const cat = String(acc.category || "other");
+      if (groups[cat]) groups[cat].push(acc);
+      else groups.other.push(acc);
+    }
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+    }
+    return groups;
+  }, [accountingAccountsArr]);
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    assets: "자산", liabilities: "부채", equity: "자본",
+    revenue: "수익", expenses: "비용", other: "기타",
+  };
 
   const createMutation = trpc.matchingRules.create.useMutation({
     onSuccess: () => {
@@ -360,32 +389,52 @@ export default function MatchingRulesManagement() {
                 </Select>
               </div>
 
-              {/* 거래처 ID */}
+              {/* 거래처 선택 */}
               <div>
-                <Label htmlFor="targetPartnerId">거래처 ID</Label>
-                <Input
-                  id="targetPartnerId"
-                  type="number"
+                <Label htmlFor="targetPartnerId">거래처</Label>
+                <Select
                   value={formData.targetPartnerId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, targetPartnerId: e.target.value })
-                  }
-                  placeholder="거래처 ID"
-                />
+                  onValueChange={(v) => setFormData({ ...formData, targetPartnerId: v })}
+                >
+                  <SelectTrigger id="targetPartnerId">
+                    <SelectValue placeholder="거래처를 선택하세요" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px]">
+                    {partnersArr.map((p: any) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.companyName || p.name || `Partner#${p.id}`}
+                        {p.bizNo ? ` (${p.bizNo})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
-              {/* 계정과목 ID */}
+              {/* 계정과목 선택 (5분류 그룹) */}
               <div>
-                <Label htmlFor="targetAccountId">계정과목 ID</Label>
-                <Input
-                  id="targetAccountId"
-                  type="number"
+                <Label htmlFor="targetAccountId">계정과목</Label>
+                <Select
                   value={formData.targetAccountId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, targetAccountId: e.target.value })
-                  }
-                  placeholder="계정과목 ID"
-                />
+                  onValueChange={(v) => setFormData({ ...formData, targetAccountId: v })}
+                >
+                  <SelectTrigger id="targetAccountId">
+                    <SelectValue placeholder="계정과목을 선택하세요" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px]">
+                    {(["assets", "liabilities", "equity", "revenue", "expenses", "other"] as const).map((k) =>
+                      groupedAccounts[k].length > 0 ? (
+                        <SelectGroup key={k}>
+                          <SelectLabel>{CATEGORY_LABELS[k]}</SelectLabel>
+                          {groupedAccounts[k].map((acc: any) => (
+                            <SelectItem key={acc.id} value={String(acc.id)}>
+                              {acc.code} · {acc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ) : null,
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* 우선순위 */}

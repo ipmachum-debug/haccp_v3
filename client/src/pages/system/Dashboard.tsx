@@ -213,8 +213,12 @@ export default function Dashboard() {
 
   // Chart data for production trend
   const trendChartData = useMemo(() => {
-    if (!productionTrend || !Array.isArray(productionTrend)) return [];
-    return productionTrend.map((item: any) => ({
+    if (!productionTrend) return [];
+    // ★ 2026-04-13: 서버가 { trend, total } 객체 또는 배열 어느쪽이든 수용
+    const trendArr = Array.isArray(productionTrend)
+      ? productionTrend
+      : ((productionTrend as any).trend ?? []);
+    return trendArr.map((item: any) => ({
       date: item.date?.slice(5) || "",
       생산: item.count || item.total || 0,
       완료: item.completed || 0,

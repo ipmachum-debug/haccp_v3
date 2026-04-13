@@ -18,6 +18,18 @@ const PLAN_COLORS: Record<string, string> = {
   enterprise: "bg-amber-50 border-amber-200 text-amber-700",
 };
 
+// ★ 2026-04-13: Date 또는 string 어느쪽이 와도 안전하게 표시 (React #31 버그 수정)
+function formatDateSafe(val: any): string {
+  if (!val) return "-";
+  try {
+    const d = val instanceof Date ? val : new Date(val);
+    if (isNaN(d.getTime())) return String(val);
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return String(val);
+  }
+}
+
 const FEATURE_LABELS: Record<string, string> = {
   accounting: "회계 모듈",
   aiAssistant: "AI 비서 '하나'",
@@ -102,7 +114,7 @@ export default function SubscriptionManagement() {
           {status.subscriptionEndDate && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Calendar className="h-4 w-4" />
-              구독 기간: {status.subscriptionStartDate} ~ {status.subscriptionEndDate}
+              구독 기간: {formatDateSafe(status.subscriptionStartDate)} ~ {formatDateSafe(status.subscriptionEndDate)}
             </div>
           )}
 

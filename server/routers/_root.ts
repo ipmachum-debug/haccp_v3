@@ -348,14 +348,27 @@ export const appRouter = router({
   opscoreSync: opscoreSyncRouter,
 
   // ── company info (stub) ──
+  // ★ 2026-04-13: companyInfo 라우터 실제 구현 연결 (stub 제거)
+  //   - 거래명세표 PDF 에서 회사명/사업자번호/주소/대표자/전화 자동 사용
+  //   - 시스템관리 > 시스템 설정 탭의 회사 정보 폼과 연동
   companyInfo: router({
-    get: tenantRequiredProcedure.query(async () => ({
-      companyName: "", businessNumber: "", representative: "",
-      address: "", phone: "", email: "",
-    })),
+    get: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const { getCompanyInfo } = await import("../db/system/companyInfo");
+      return await getCompanyInfo(ctx.tenantId);
+    }),
     update: tenantRequiredProcedure
-      .input(z.any())
-      .mutation(async () => ({ success: true })),
+      .input(z.object({
+        companyName: z.string().optional(),
+        companyBusinessNumber: z.string().optional(),
+        companyAddress: z.string().optional(),
+        companyRepresentative: z.string().optional(),
+        companyPhone: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const { updateCompanyInfo } = await import("../db/system/companyInfo");
+        await updateCompanyInfo(input, ctx.tenantId);
+        return { success: true };
+      }),
   }),
 });
 

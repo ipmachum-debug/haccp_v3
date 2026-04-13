@@ -219,18 +219,32 @@ export async function getBatchProgress(tenantId?: number) {
   if (!db) throw new Error("DB 연결 실패");
   const { hBatches } = await import("../../../drizzle/schema");
 
+  // ★ 2026-04-13 버그 수정: h_batches status enum 은
+  //   'planned','in_progress','paused','completed','failed','cancelled','shipped','archived'
+  //   이전 코드는 'running','finished' 라는 존재하지 않는 값을 조회해서 항상 0 반환 → 빈 차트
+  //   클라이언트의 { planned, running, finished, shipped } 키 형식은 유지하되 실제 enum 값으로 매핑.
   const batches = await db
     .select({
       total: sql<number>`COUNT(*)`,
       planned: sql<number>`SUM(CASE WHEN status = 'planned' THEN 1 ELSE 0 END)`,
-      running: sql<number>`SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END)`,
-      finished: sql<number>`SUM(CASE WHEN status = 'finished' THEN 1 ELSE 0 END)`,
-      shipped: sql<number>`SUM(CASE WHEN status = 'shipped' THEN 1 ELSE 0 END)`
+      running: sql<number>`SUM(CASE WHEN status IN ('in_progress','paused') THEN 1 ELSE 0 END)`,
+      finished: sql<number>`SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`,
+      shipped: sql<number>`SUM(CASE WHEN status IN ('shipped','archived') THEN 1 ELSE 0 END)`,
+      failed: sql<number>`SUM(CASE WHEN status IN ('failed','cancelled') THEN 1 ELSE 0 END)`,
     })
     .from(hBatches)
     .where(tenantId ? eq(hBatches.tenantId, tenantId) : undefined);
 
-  return batches[0];
+  // MySQL SUM 결과가 string 으로 올 수 있으므로 Number 로 캐스팅
+  const row = (batches[0] || {}) as any;
+  return {
+    total: Number(row.total || 0),
+    planned: Number(row.planned || 0),
+    running: Number(row.running || 0),
+    finished: Number(row.finished || 0),
+    shipped: Number(row.shipped || 0),
+    failed: Number(row.failed || 0),
+  };
 }
 
 /**

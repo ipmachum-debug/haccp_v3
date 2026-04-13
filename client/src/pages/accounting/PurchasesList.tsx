@@ -74,33 +74,52 @@ function PurchasesListContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 25;
 
-  // 거래명세표 PDF 생성 (다운로드)
+  // ★ 2026-04-13: PDF base64 → Blob 공통 헬퍼
+  const base64ToPdfBlob = (b64: string): Blob => {
+    const byteCharacters = atob(b64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    return new Blob([new Uint8Array(byteNumbers)], { type: "application/pdf" });
+  };
+
+  // 🖨️ 인쇄 (Printer 버튼) — 숨은 iframe 에 PDF 로드 후 자동으로 프린트 대화상자 열기
   const generatePDFMutation = trpc.haccpIntegration.generatePurchasePDF.useMutation({
     onSuccess: (data: any) => {
-      const linkSource = `data:application/pdf;base64,${data.pdf}`;
-      const downloadLink = document.createElement("a");
-      downloadLink.href = linkSource;
-      downloadLink.download = data.filename;
-      downloadLink.click();
-      toast({ title: "인쇄 성공", description: "거래명세표가 다운로드되었습니다." });
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      iframe.src = url;
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (_) {
+          // PDF iframe 인쇄가 막힌 브라우저 → 폴백: 새 탭 열기
+          window.open(url, "_blank");
+        }
+      };
+      document.body.appendChild(iframe);
+      // 메모리 정리 (2분 후)
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
+      }, 120_000);
+      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
     onError: (error: any) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
 
-  // 거래명세표 PDF 미리보기
+  // 👁️ 자세히보기 (Eye 버튼) — 새 탭에 PDF 미리보기 (브라우저 내장 viewer 의 인쇄/다운로드 사용)
   const previewPDFMutation = trpc.haccpIntegration.generatePurchasePDF.useMutation({
     onSuccess: (data: any) => {
-      const byteCharacters = atob(data.pdf);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: "application/pdf" });
-      window.open(URL.createObjectURL(blob), "_blank");
-      toast({ title: "미리보기", description: "거래명세표가 새 탭에서 열렸습니다." });
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      toast({ title: "미리보기", description: "새 탭에서 인쇄/다운로드가 가능합니다." });
     },
     onError: (error: any) => {
       toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });

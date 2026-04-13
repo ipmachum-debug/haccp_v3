@@ -27,6 +27,7 @@ import {
   Search,
   FileText,
   Printer,
+  Eye,
   Trash2,
   Edit,
   TrendingUp,
@@ -67,23 +68,62 @@ function SalesListContent() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
 
-  // 거래명세표 PDF 생성
+  // ★ 2026-04-13: base64 → Blob 공통 헬퍼
+  const base64ToPdfBlob = (b64: string): Blob => {
+    const byteCharacters = atob(b64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    return new Blob([new Uint8Array(byteNumbers)], { type: "application/pdf" });
+  };
+
+  // 🖨️ 인쇄 — iframe 기반 자동 인쇄 대화상자
   const generatePDFMutation = trpc.haccpIntegration.generateSalePDF.useMutation({
     onSuccess: (data: any) => {
-      const linkSource = `data:application/pdf;base64,${data.pdf}`;
-      const downloadLink = document.createElement("a");
-      downloadLink.href = linkSource;
-      downloadLink.download = data.filename;
-      downloadLink.click();
-      toast({ title: "인쇄 성공", description: "거래명세표가 다운로드되었습니다." });
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      iframe.src = url;
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (_) {
+          window.open(url, "_blank");
+        }
+      };
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
+      }, 120_000);
+      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
     onError: (error: any) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
 
+  // 👁️ 자세히보기 — 새 탭 미리보기
+  const previewPDFMutation = trpc.haccpIntegration.generateSalePDF.useMutation({
+    onSuccess: (data: any) => {
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      toast({ title: "미리보기", description: "새 탭에서 인쇄/다운로드가 가능합니다." });
+    },
+    onError: (error: any) => {
+      toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handlePrintStatement = (saleId: number) => {
     generatePDFMutation.mutate({ saleId });
+  };
+
+  const handlePreviewStatement = (saleId: number) => {
+    previewPDFMutation.mutate({ saleId });
   };
 
   // 삭제 mutation
@@ -509,8 +549,12 @@ function SalesListContent() {
                           <TableCell>{getStatusBadge(sale.status)}</TableCell>
                           <TableCell>
                             <div className="flex items-center justify-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                              <Button size="sm" variant="outline" onClick={() => handlePreviewStatement(sale.id)}
+                                disabled={previewPDFMutation.isPending} title="자세히 보기 (미리보기)" className="h-7 w-7 p-0">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
                               <Button size="sm" variant="outline" onClick={() => handlePrintStatement(sale.id)}
-                                disabled={generatePDFMutation.isPending} title="거래명세표 출력" className="h-7 w-7 p-0">
+                                disabled={generatePDFMutation.isPending} title="인쇄" className="h-7 w-7 p-0">
                                 <Printer className="h-3.5 w-3.5" />
                               </Button>
                               <Button size="sm" variant="outline"

@@ -56,7 +56,8 @@ const roleColors: Record<UserRole, string> = {
 };
 
 export default function UserManagement() {
-  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected" | "all">("pending");
+  // ★ 2026-04-13: 기본 탭을 '전체' 로 변경 — 기본 진입 시 빈 화면 대신 전체 목록 표시
+  const [activeTab, setActiveTab] = useState<"pending" | "approved" | "rejected" | "all">("all");
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({

@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Loader2, Database, FileSpreadsheet, AlertTriangle, Trash2, Archive, Settings, Clock, Play } from "lucide-react";
+import { Loader2, Database, FileSpreadsheet, AlertTriangle, Trash2, Archive, Settings, Clock, Play, Building2, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 // DashboardLayout removed - managed by SystemManagement
@@ -30,6 +30,44 @@ export default function AdminSettings() {
   const [deleteOldDays, setDeleteOldDays] = useState(30);
   const [archiveType, setArchiveType] = useState("");
   const [retentionDays, setRetentionDays] = useState(30);
+
+  // ★ 2026-04-13: 회사 정보 (거래명세표 PDF 에 자동 반영)
+  const [companyForm, setCompanyForm] = useState({
+    companyName: "",
+    companyBusinessNumber: "",
+    companyRepresentative: "",
+    companyAddress: "",
+    companyPhone: "",
+  });
+  const utilsCompany = trpc.useUtils();
+  const { data: companyInfoData } = trpc.companyInfo.get.useQuery();
+  useEffect(() => {
+    if (companyInfoData) {
+      setCompanyForm({
+        companyName: (companyInfoData as any).companyName || "",
+        companyBusinessNumber: (companyInfoData as any).companyBusinessNumber || "",
+        companyRepresentative: (companyInfoData as any).companyRepresentative || "",
+        companyAddress: (companyInfoData as any).companyAddress || "",
+        companyPhone: (companyInfoData as any).companyPhone || "",
+      });
+    }
+  }, [companyInfoData]);
+  const updateCompanyInfoMutation = trpc.companyInfo.update.useMutation({
+    onSuccess: () => {
+      toast.success("회사 정보가 저장되었습니다. 거래명세표에 즉시 반영됩니다.");
+      utilsCompany.companyInfo.get.invalidate();
+    },
+    onError: (err: any) => {
+      toast.error(`저장 실패: ${err.message || "알 수 없는 오류"}`);
+    },
+  });
+  const handleSaveCompanyInfo = () => {
+    if (!companyForm.companyName.trim()) {
+      toast.error("회사명은 필수입니다");
+      return;
+    }
+    updateCompanyInfoMutation.mutate(companyForm);
+  };
   
   // 알림 보관 정책 설정 조회
   const { data: retentionPolicy } = trpc.notification.getNotificationRetentionPolicy.useQuery();
@@ -142,9 +180,93 @@ export default function AdminSettings() {
       <div>
         <h1 className="text-3xl font-bold">관리자 설정</h1>
         <p className="text-muted-foreground mt-2">
-          시스템 데이터베이스 초기화 및 샘플 데이터 생성
+          회사 정보, 시스템 데이터베이스 초기화 및 샘플 데이터 생성
         </p>
       </div>
+
+      {/* ★ 2026-04-13: 회사 정보 (거래명세표 PDF 에 자동 반영) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            <CardTitle>회사 정보</CardTitle>
+          </div>
+          <CardDescription>
+            매입/매출 거래명세표 PDF 및 공식 문서에 표시되는 우리 회사 정보입니다.
+            저장 후 즉시 반영됩니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="companyName">회사명 *</Label>
+              <Input
+                id="companyName"
+                value={companyForm.companyName}
+                onChange={(e) => setCompanyForm({ ...companyForm, companyName: e.target.value })}
+                placeholder="예: (주)인투푸드"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="companyBusinessNumber">사업자등록번호</Label>
+              <Input
+                id="companyBusinessNumber"
+                value={companyForm.companyBusinessNumber}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, companyBusinessNumber: e.target.value })
+                }
+                placeholder="예: 123-45-67890"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="companyRepresentative">대표자명</Label>
+              <Input
+                id="companyRepresentative"
+                value={companyForm.companyRepresentative}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, companyRepresentative: e.target.value })
+                }
+                placeholder="예: 홍길동"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="companyAddress">주소</Label>
+              <Input
+                id="companyAddress"
+                value={companyForm.companyAddress}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, companyAddress: e.target.value })
+                }
+                placeholder="예: 서울특별시 강남구 테헤란로 123"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="companyPhone">전화번호</Label>
+              <Input
+                id="companyPhone"
+                value={companyForm.companyPhone}
+                onChange={(e) =>
+                  setCompanyForm({ ...companyForm, companyPhone: e.target.value })
+                }
+                placeholder="예: 02-1234-5678"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSaveCompanyInfo}
+              disabled={updateCompanyInfoMutation.isPending || !companyForm.companyName.trim()}
+            >
+              {updateCompanyInfoMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              회사 정보 저장
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 스케줄러 모니터링 */}
       <Card className="md:col-span-2">
