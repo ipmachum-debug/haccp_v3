@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +23,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -82,6 +84,43 @@ export default function BankTransactionTab() {
   // 계좌 목록
   const { data: accountsData } = trpc.bankAccount.list.useQuery();
   const accounts = accountsData?.accounts || [];
+
+  // ★ 2026-04-13: 수동 매칭용 계정과목 목록 (ID 직접 입력 → 드롭다운 선택 UX 개선)
+  const { data: accountingAccountsList } = trpc.accountingAccounts.list.useQuery({ isActive: "Y" });
+  const accountingAccounts: any[] = Array.isArray(accountingAccountsList)
+    ? accountingAccountsList
+    : ((accountingAccountsList as any)?.items ?? []);
+
+  // 5분류별 그룹화 (자산/부채/자본/수익/비용)
+  const groupedAccounts = useMemo(() => {
+    const groups: Record<string, any[]> = {
+      assets: [],
+      liabilities: [],
+      equity: [],
+      revenue: [],
+      expenses: [],
+      other: [],
+    };
+    for (const acc of accountingAccounts) {
+      const cat = String(acc.category || "other");
+      if (groups[cat]) groups[cat].push(acc);
+      else groups.other.push(acc);
+    }
+    // 각 그룹 내에서 code 순 정렬
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+    }
+    return groups;
+  }, [accountingAccounts]);
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    assets: "자산",
+    liabilities: "부채",
+    equity: "자본",
+    revenue: "수익",
+    expenses: "비용",
+    other: "기타",
+  };
 
   // 첫 활성 계좌 자동 선택
   useEffect(() => {
@@ -314,7 +353,7 @@ export default function BankTransactionTab() {
   // 수동 매칭 실행
   const handleManualMatch = () => {
     if (!selectedTransaction || !matchAccountingId) {
-      toast.error("계정과목 ID를 입력해주세요");
+      toast.error("계정과목을 선택해주세요");
       return;
     }
     matchMutation.mutate({
@@ -1026,18 +1065,87 @@ export default function BankTransactionTab() {
                 </p>
               </div>
 
-              {/* 계정과목 ID 입력 */}
+              {/* 계정과목 선택 (5분류별 그룹화) */}
               <div>
-                <Label htmlFor="accountingId">계정과목 ID *</Label>
-                <Input
-                  id="accountingId"
-                  type="number"
-                  value={matchAccountingId}
-                  onChange={(e) => setMatchAccountingId(e.target.value)}
-                  placeholder="계정과목 ID를 입력하세요"
-                />
+                <Label htmlFor="accountingId">계정과목 *</Label>
+                <Select value={matchAccountingId} onValueChange={setMatchAccountingId}>
+                  <SelectTrigger id="accountingId">
+                    <SelectValue placeholder="계정과목을 선택하세요" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px]">
+                    {/* 거래 타입에 따라 추천 그룹을 먼저 표시 */}
+                    {selectedTransaction?.transactionType === "deposit" ? (
+                      <>
+                        {groupedAccounts.revenue.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>💰 수익 (입금 권장)</SelectLabel>
+                            {groupedAccounts.revenue.map((acc) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {groupedAccounts.assets.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>자산</SelectLabel>
+                            {groupedAccounts.assets.map((acc) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {groupedAccounts.expenses.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>💸 비용 (출금 권장)</SelectLabel>
+                            {groupedAccounts.expenses.map((acc) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {groupedAccounts.liabilities.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>부채</SelectLabel>
+                            {groupedAccounts.liabilities.map((acc) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                      </>
+                    )}
+                    {/* 나머지 분류 */}
+                    {(["assets", "liabilities", "equity", "revenue", "expenses", "other"] as const)
+                      .filter((k) => {
+                        // 위에서 이미 표시한 그룹 제외
+                        if (selectedTransaction?.transactionType === "deposit") {
+                          return k !== "revenue" && k !== "assets";
+                        }
+                        return k !== "expenses" && k !== "liabilities";
+                      })
+                      .map((k) =>
+                        groupedAccounts[k].length > 0 ? (
+                          <SelectGroup key={k}>
+                            <SelectLabel>{CATEGORY_LABELS[k]}</SelectLabel>
+                            {groupedAccounts[k].map((acc) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null,
+                      )}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  회계 계정과목 ID를 입력하면 해당 거래가 매칭됩니다.
+                  계정과목을 선택하면 해당 거래가 매칭되고 자동 매칭 규칙에 학습됩니다.
                 </p>
               </div>
             </div>
