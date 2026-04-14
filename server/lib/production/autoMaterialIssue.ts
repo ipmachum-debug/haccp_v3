@@ -1,6 +1,6 @@
 /**
  * 배치 시작 시 원료 자동 출고 서비스
- * 
+ *
  * 워크플로우 (v2 - h_batch_inputs 기반):
  * 1. 배치 정보 조회
  * 2. h_batch_inputs에서 이미 계산된 원재료 투입 계획 조회
@@ -10,6 +10,17 @@
  * 5. 재고 원장 기록 (h_inventory_transactions)
  * 6. h_batch_inputs.inventory_deducted = 1 업데이트
  * 7. 수불부 반영 (material_ledger_daily)
+ *
+ * ★ 2026-04-14 Module 3 노트:
+ *   재고 음수 방지: LOT/inventory 차감 모두 GREATEST(?, 0) 방어 이미 적용됨 ✅
+ *
+ *   Technical Debt (향후 개선 필요):
+ *   - 현재 각 원재료별 처리가 독립적인 try-catch 패턴이라 "일부 원재료만 부분 차감"
+ *     이 가능함. 이상적으로는 각 원재료당 withTransaction 래핑이 필요하지만,
+ *     FEFO 할당 + 거래 기록 + 인벤토리 업데이트 + 수불부 반영이 복잡하게 얽혀
+ *     있어 리팩터 시 운영 리스크가 큼. 실제 운영 데이터에서 문제 발견 시 도입.
+ *   - completeBatch 와의 2중 차감 방지는 현재 inventory_deducted 플래그에 의존.
+ *     FOR UPDATE 잠금으로 race condition 완전 차단 필요 (별도 세션).
  */
 
 import { getDb } from "../../db";

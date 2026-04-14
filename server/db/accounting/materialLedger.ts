@@ -68,7 +68,22 @@ export async function getDailyLedger(date: string, tenantId: number) {
   return rows as Record<string, unknown>[];
 }
 
-/** 일별 수불 데이터 upsert (자동 또는 수동) */
+/**
+ * 일별 수불 데이터 upsert (자동 또는 수동)
+ *
+ * ★ 2026-04-14 Module 6 노트 (Technical Debt):
+ *   이 함수는 material_ledger_daily 만 직접 업데이트하고 h_inventory/h_inventory_lots
+ *   와 동기화하지 않음. 결과적으로 수불부와 재고 원장이 diverge 가능 (verify-consistency
+ *   의 XCHK_LEDGER_VS_TX 원인).
+ *
+ *   이상적 구조: 항상 h_inventory_transactions 를 single source 로 기록하고
+ *   `syncLedgerFromTransaction()` 트리거로 material_ledger_daily 를 파생시키는 것.
+ *   기존 호출처가 많아 (매입/매출/배치/엑셀임포트 등) 전면 리팩터 시 운영 리스크가
+ *   매우 크므로 별도 세션에서 단계적 처리 예정.
+ *
+ *   현재는 각 호출처마다 h_inventory_transactions + upsertDailyLedger 를 함께
+ *   호출하는 패턴으로 완화 (매입/매출/배치 완료 로직에서 이미 적용).
+ */
 export async function upsertDailyLedger(data: {
   materialId: number;
   ledgerDate: string;

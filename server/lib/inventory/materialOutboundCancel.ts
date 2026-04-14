@@ -19,6 +19,16 @@ import { todayKST } from "../../utils/timezone";
  *
  * **멱등성 보장:**
  * - actionType: "REVERSAL"로 중복 방지
+ *
+ * ★ 2026-04-14 Module 5 노트 (Technical Debt):
+ *   현재 원본 분개 조회를 `description LIKE '[원재료출고] 원재료 출고 (출고 #${id})%'`
+ *   패턴 매칭에 의존. description 포맷이 한 글자라도 바뀌면 매칭 실패.
+ *
+ *   이상적 해결: expense_journal_entries 에 source_type + source_id FK 컬럼 추가
+ *     → `WHERE source_type='OUTBOUND' AND source_id=?` 같은 견고한 조회
+ *
+ *   현재는 fallback (재고원장에서 금액 산출) 이 있어 description 매칭 실패해도
+ *   동작하지만 신뢰도 낮음. 대규모 스키마 변경이라 별도 세션에서 처리 예정.
  */
 
 interface MaterialOutboundDocument {

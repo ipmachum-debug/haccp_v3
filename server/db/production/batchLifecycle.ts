@@ -427,11 +427,12 @@ export async function completeBatch(params: {
       }
 
       // 재고 거래 기록 생성 (transactionType: "usage"로 소모이력에 표시)
+      // ★ 2026-04-14 Module 3: silent fail → 로깅 강화 (디버그 가능)
       try {
         if (pool) {
           const txnDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
           await pool.execute(
-            `INSERT INTO h_inventory_transactions 
+            `INSERT INTO h_inventory_transactions
              (lot_id, transaction_type, quantity, unit, unit_cost, amount,
               transaction_date, source_type, source_id, action_type, purpose, tenant_id)
              VALUES (?, 'usage', ?, ?, ?, ?, ?, 'batch_completion', ?, 'AUTO_ISSUE', 'production', ?)`,
@@ -441,7 +442,12 @@ export async function completeBatch(params: {
             ]
           );
         }
-      } catch (_e) { /* 트랜잭션 기록 실패 시 무시 */ }
+      } catch (txErr: any) {
+        console.error(
+          `[completeBatch] 거래 기록 생성 실패 (배치#${batchId}, material#${input.materialId}, qty=${qty}):`,
+          txErr.message || txErr,
+        );
+      }
 
       // 수불부 반영
       try {
@@ -457,7 +463,12 @@ export async function completeBatch(params: {
             ]
           );
         }
-      } catch (_e) { /* 수불부 실패 시 무시 */ }
+      } catch (ledgerErr: any) {
+        console.error(
+          `[completeBatch] 수불부 반영 실패 (배치#${batchId}, material#${input.materialId}):`,
+          ledgerErr.message || ledgerErr,
+        );
+      }
 
       // inventory_deducted = 1 설정 (autoMaterialIssue와 동일한 플래그)
       try {

@@ -3,7 +3,7 @@
  * 배치 생산 시 원재료 출고 기록 및 h_inventory 재고 자동 차감
  */
 
-import { getDb } from "../connection";
+import { getDb, withTransaction } from "../connection";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../../drizzle/schema";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
@@ -54,6 +54,11 @@ async function decreaseInventoryQuantity(params: {
 /**
  * 출고 등록 (LOT 차감 + 재고 반영)
  * 배치 생산 시 원재료 출고 기록
+ *
+ * ★ 2026-04-14 Module 4: withTransaction + FOR UPDATE 원자성 강화
+ *   - LOT 잠금 후 재검증 → 차감 → tx 기록 → inventory 차감을 하나의 트랜잭션
+ *   - Race condition 방지 (동시 출고 요청 시)
+ *   - 재고 음수 절대 금지 (GREATEST + 사전 검증)
  */
 export async function createOutboundRecord(params: {
   materialId: number;
@@ -67,7 +72,7 @@ export async function createOutboundRecord(params: {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  // 원재료 정보 조회
+  // 원재료 정보 조회 (읽기 전용 - 트랜잭션 밖)
   const [material] = await db
     .select()
     .from(hMaterials)
@@ -79,62 +84,89 @@ export async function createOutboundRecord(params: {
     throw new Error("원재료를 찾을 수 없습니다.");
   }
 
-  // LOT 정보 조회
-  const [lot] = await db
-    .select()
-    .from(hInventoryLots)
-    .where(eq(hInventoryLots.id, params.lotId));
-  if (!lot) {
-    throw new Error("LOT를 찾을 수 없습니다.");
-  }
-
-  // LOT 수량 확인 (available_quantity 기준)
-  const currentAvailQty = parseFloat(lot.availableQuantity || lot.quantity);
-  if (currentAvailQty < params.quantity) {
-    throw new Error(
-      `LOT 수량이 부족합니다. 현재 가용 수량: ${currentAvailQty}, 요청 수량: ${params.quantity}`
+  // 원자적 실행
+  return await withTransaction(async (conn) => {
+    // (A) LOT 잠금 + 재검증
+    const [lotLockRows] = await conn.execute(
+      `SELECT id, lot_number, quantity, available_quantity, current_quantity
+       FROM h_inventory_lots
+       WHERE id = ? ${tenantId ? "AND tenant_id = ?" : ""}
+       FOR UPDATE`,
+      tenantId ? [params.lotId, tenantId] : [params.lotId],
     );
-  }
+    const lot = (lotLockRows as any[])[0];
+    if (!lot) {
+      throw new Error("LOT를 찾을 수 없습니다.");
+    }
 
-  // LOT 수량 차감 (quantity + available_quantity 모두 차감, 음수 방지)
-  const newQty = Math.max(parseFloat(lot.quantity) - params.quantity, 0);
-  const newAvailQty = Math.max(currentAvailQty - params.quantity, 0);
-  await db
-    .update(hInventoryLots)
-    .set({
-      quantity: newQty.toFixed(1),
-      availableQuantity: newAvailQty.toFixed(1)
-    })
-    .where(eq(hInventoryLots.id, params.lotId));
-  // 재고 거래 내역 기록
-  await db.insert(hInventoryTransactions).values({
-    tenantId: tenantId!,
-    lotId: params.lotId,
-    transactionType: "usage",
-    quantity: params.quantity.toString(),
-    unit: params.unit,
-    referenceType: params.batchId ? "batch" : "outbound",
-    referenceId: params.batchId || null,
-    notes: params.notes || null,
-    createdBy: params.createdBy
-  } as any);
+    const currentAvailQty = parseFloat(lot.available_quantity || lot.quantity || "0");
+    if (currentAvailQty < params.quantity - 0.001) {
+      throw new Error(
+        `LOT#${params.lotId} 수량 부족: 가용 ${currentAvailQty}, 요청 ${params.quantity}`,
+      );
+    }
 
-  // h_inventory 테이블 재고 차감
-  await decreaseInventoryQuantity({
-    db,
-    materialId: params.materialId,
-    quantityChange: params.quantity,
-    tenantId: tenantId as number
-  });
+    // (B) LOT 차감 (GREATEST 방어)
+    await conn.execute(
+      `UPDATE h_inventory_lots
+       SET quantity = GREATEST(0, quantity - ?),
+           available_quantity = GREATEST(0, available_quantity - ?),
+           current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
+           status = CASE
+             WHEN GREATEST(0, available_quantity - ?) <= 0.001 THEN 'used'
+             ELSE status
+           END,
+           updated_at = NOW()
+       WHERE id = ?`,
+      [params.quantity, params.quantity, params.quantity, params.quantity, params.lotId],
+    );
 
-  return {
-    lotId: params.lotId,
-    lotNumber: lot.lotNumber,
-    materialName: material.materialName,
-    quantity: params.quantity,
-    unit: params.unit,
-    remainingQuantity: (lot as any).availableQuantity - params.quantity
-  };
+    // (C) 재고 거래 내역 기록 (양수 quantity, type='usage')
+    await conn.execute(
+      `INSERT INTO h_inventory_transactions
+         (tenant_id, lot_id, transaction_type, quantity, unit,
+          reference_type, reference_id, notes, created_by)
+       VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, ?)`,
+      [
+        tenantId ?? null,
+        params.lotId,
+        params.quantity.toString(),
+        params.unit,
+        params.batchId ? "batch" : "outbound",
+        params.batchId ?? null,
+        params.notes ?? null,
+        params.createdBy,
+      ],
+    );
+
+    // (D) h_inventory 차감 (GREATEST 방어)
+    const [invRows] = await conn.execute(
+      `SELECT id, total_quantity, available_quantity FROM h_inventory
+       WHERE material_id = ? ${tenantId ? "AND tenant_id = ?" : ""}
+       LIMIT 1 FOR UPDATE`,
+      tenantId ? [params.materialId, tenantId] : [params.materialId],
+    );
+    const existingInv = (invRows as any[])[0];
+    if (existingInv) {
+      await conn.execute(
+        `UPDATE h_inventory
+         SET total_quantity = GREATEST(0, total_quantity - ?),
+             available_quantity = GREATEST(0, available_quantity - ?),
+             last_updated = NOW()
+         WHERE id = ?`,
+        [params.quantity, params.quantity, existingInv.id],
+      );
+    }
+
+    return {
+      lotId: params.lotId,
+      lotNumber: lot.lot_number,
+      materialName: material.materialName,
+      quantity: params.quantity,
+      unit: params.unit,
+      remainingQuantity: Math.max(0, currentAvailQty - params.quantity),
+    };
+  }, `createOutboundRecord:LOT-${params.lotId}`);
 }
 
 /**

@@ -3,7 +3,7 @@
  * h_inventory_lots와 h_inventory_transactions 테이블을 활용한 입고 관리
  */
 
-import { getDb } from "../connection";
+import { getDb, withTransaction } from "../connection";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../../drizzle/schema";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
@@ -85,6 +85,10 @@ export async function generateLotNumber(materialCode: string, tenantId?: number)
 /**
  * 입고 등록
  * 새로운 LOT를 생성하고 재고 거래 내역에 기록
+ *
+ * ★ 2026-04-14 Module 4: withTransaction 원자성 강화
+ *   - LOT INSERT + 거래 INSERT + 인벤토리 UPDATE 를 하나의 트랜잭션으로 묶음
+ *   - 중간 실패 시 전체 rollback (부분 반영 방지)
  */
 export async function createInboundReceipt(params: {
   materialId: number;
@@ -102,7 +106,7 @@ export async function createInboundReceipt(params: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 원재료 정보 조회
+  // 원재료 정보 조회 (트랜잭션 밖 - 읽기 전용)
   const [material] = await db
     .select()
     .from(hMaterials)
@@ -114,7 +118,7 @@ export async function createInboundReceipt(params: {
     throw new Error(`Material not found: ${params.materialId}`);
   }
 
-  // LOT 번호 자동 생성
+  // LOT 번호 자동 생성 (트랜잭션 밖)
   const lotNumber = await generateLotNumber(material.materialCode);
 
   // 입고일 기본값 설정
@@ -127,50 +131,92 @@ export async function createInboundReceipt(params: {
     expiryDate.setDate(expiryDate.getDate() + material.shelfLifeDays);
   }
 
-  // LOT 생성
-  const insertResult = await db.insert(hInventoryLots).values({
-    tenantId: tenantId,
-    lotNumber,
-    materialId: params.materialId,
-    quantity: params.quantity.toString(),
-    availableQuantity: params.quantity.toString(),
-    unit: params.unit,
-    unitPrice: params.unitPrice?.toString() || null,
-    receiptDate: receiptDate.toISOString().slice(0, 10),
-    expiryDate: expiryDate ? expiryDate.toISOString().slice(0, 10) : null,
-    supplierName: params.supplierName || null,
-    manufacturerName: params.manufacturerName || null,
-    location: params.location || null,
-    status: "available"
-  } as any);
+  // 원자적 실행
+  const result = await withTransaction(async (conn) => {
+    // (A) LOT 생성
+    const [lotResult] = await conn.execute(
+      `INSERT INTO h_inventory_lots
+         (tenant_id, lot_number, material_id, quantity, available_quantity,
+          current_quantity, unit, unit_price, receipt_date, expiry_date,
+          supplier_name, manufacturer_name, location, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+      [
+        tenantId ?? null,
+        lotNumber,
+        params.materialId,
+        params.quantity.toString(),
+        params.quantity.toString(),
+        params.quantity.toString(),
+        params.unit,
+        params.unitPrice?.toString() ?? null,
+        receiptDate.toISOString().slice(0, 10),
+        expiryDate ? expiryDate.toISOString().slice(0, 10) : null,
+        params.supplierName ?? null,
+        params.manufacturerName ?? null,
+        params.location ?? null,
+      ],
+    );
+    const lotId = (lotResult as any).insertId;
 
-  const lotId = (insertResult as any).insertId;
+    // (B) 재고 거래 내역 기록 (양수 quantity, type='receipt')
+    await conn.execute(
+      `INSERT INTO h_inventory_transactions
+         (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+          reference_type, reference_id, notes, created_by)
+       VALUES (?, ?, 'receipt', ?, ?, ?, 'inbound_receipt', ?, ?, ?)`,
+      [
+        tenantId ?? null,
+        lotId,
+        params.quantity.toString(),
+        params.unit,
+        receiptDate.toISOString().slice(0, 10),
+        lotId,
+        params.notes ?? null,
+        params.createdBy,
+      ],
+    );
 
-  // 재고 거래 내역 기록
-  await db.insert(hInventoryTransactions).values({
-    tenantId: tenantId,
-    lotId: lotId,
-    transactionType: "receipt",
-    quantity: params.quantity.toString(),
-    unit: params.unit,
-    referenceType: "inbound_receipt",
-    referenceId: lotId,
-    notes: params.notes || null,
-    createdBy: params.createdBy
-  } as any);
+    // (C) h_inventory 테이블 업데이트 (총 재고량 증가)
+    //     - 기존 레코드 있으면 UPDATE, 없으면 INSERT
+    //     - GREATEST(0,...) 로 음수 방어 (입고는 양수라 의미는 약하지만 일관성)
+    const [invRows] = await conn.execute(
+      `SELECT id, total_quantity, available_quantity FROM h_inventory
+       WHERE material_id = ? ${tenantId ? "AND tenant_id = ?" : ""}
+       LIMIT 1 FOR UPDATE`,
+      tenantId ? [params.materialId, tenantId] : [params.materialId],
+    );
+    const existingInv = (invRows as any[])[0];
 
-  // h_inventory 테이블 업데이트 (총 재고량 증가)
-  await updateInventoryQuantity({
-    db,
-    materialId: params.materialId,
-    quantityChange: params.quantity,
-    unit: params.unit,
-    tenantId
-  });
+    if (existingInv) {
+      await conn.execute(
+        `UPDATE h_inventory
+         SET total_quantity = GREATEST(0, total_quantity + ?),
+             available_quantity = GREATEST(0, available_quantity + ?),
+             last_updated = NOW()
+         WHERE id = ?`,
+        [params.quantity, params.quantity, existingInv.id],
+      );
+    } else {
+      await conn.execute(
+        `INSERT INTO h_inventory
+           (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit, last_updated)
+         VALUES (?, ?, ?, ?, '0.000', ?, NOW())`,
+        [
+          tenantId ?? null,
+          params.materialId,
+          params.quantity.toString(),
+          params.quantity.toString(),
+          params.unit,
+        ],
+      );
+    }
+
+    return { lotId, lotNumber };
+  }, `createInboundReceipt:${params.materialId}`);
 
   return {
-    lotId,
-    lotNumber,
+    lotId: result.lotId,
+    lotNumber: result.lotNumber,
     materialName: material.materialName,
     quantity: params.quantity,
     unit: params.unit,
