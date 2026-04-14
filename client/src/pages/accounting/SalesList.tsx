@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -41,10 +40,6 @@ import {
   CheckCircle,
   DollarSign,
   XCircle,
-  ChevronDown,
-  ChevronRight,
-  Layers,
-  List,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -178,17 +173,55 @@ function SalesListContent() {
     },
   });
 
-  // ─── 그룹 뷰 state + 액션 핸들러 ─────────────────────────
-  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (groupKey: string) => {
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupKey)) next.delete(groupKey);
-      else next.add(groupKey);
-      return next;
-    });
-  };
+  // ─── 거래 그룹화 + 액션 핸들러 ─────────────────────────
+  // 2026-04-14 재설계: rowspan-flat 방식 (토글/접힘 제거, 플랫 배치 + 그룹 rowspan)
+  const groupedSales = useMemo(() => groupTransactions(sales as any), [sales]);
+
+  // 그룹 단위 페이지네이션
+  const [groupPage, setGroupPage] = useState(1);
+  const GROUP_PAGE_SIZE = 25;
+  const totalGroupPages = Math.max(1, Math.ceil(groupedSales.length / GROUP_PAGE_SIZE));
+  const safeGroupPage = Math.min(groupPage, totalGroupPages);
+  const pagedGroupsSales = useMemo(() => {
+    const start = (safeGroupPage - 1) * GROUP_PAGE_SIZE;
+    return groupedSales.slice(start, start + GROUP_PAGE_SIZE);
+  }, [groupedSales, safeGroupPage]);
+  const pagedSalesItems = useMemo(
+    () => pagedGroupsSales.flatMap((g: any) => g.items),
+    [pagedGroupsSales],
+  );
+
+  // ─── 그룹 PDF ───────────────────────────────────────────
+  const previewGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
+    onSuccess: (data: any) => {
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      toast({ title: "거래명세표 미리보기", description: "새 탭에서 열렸습니다." });
+    },
+    onError: (error: any) => {
+      toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+    },
+  });
+  const printGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
+    onSuccess: (data: any) => {
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      iframe.src = url;
+      iframe.onload = () => {
+        try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); }
+        catch (_) { window.open(url, "_blank"); }
+      };
+      document.body.appendChild(iframe);
+      setTimeout(() => { try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ } }, 120_000);
+      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
+    },
+    onError: (error: any) => {
+      toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
+    },
+  });
 
   const handleGroupAction = async (
     group: TransactionGroup,
@@ -261,31 +294,8 @@ function SalesListContent() {
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [sales]);
 
-  // 페이지네이션 + 정렬
-  const {
-    sort, handleSort, pagination, setPage, setPageSize,
-    pageData, totalItems, totalPages, startIdx, endIdx
-  } = usePaginatedSort(sales, {
-    defaultSort: { key: "transactionDate", direction: "desc" },
-    defaultPageSize: 30,
-    sortFn: (a: any, b: any, key: string, dir) => {
-      let aVal = a[key], bVal = b[key];
-      // numeric fields
-      if (["quantity", "unitPrice", "amount", "taxAmount"].includes(key)) {
-        aVal = parseFloat(aVal || "0"); bVal = parseFloat(bVal || "0");
-        return dir === "asc" ? aVal - bVal : bVal - aVal;
-      }
-      // date
-      if (key === "transactionDate") {
-        aVal = aVal || ""; bVal = bVal || "";
-        return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-      // string
-      aVal = String(aVal || ""); bVal = String(bVal || "");
-      const cmp = aVal.localeCompare(bVal, "ko");
-      return dir === "asc" ? cmp : -cmp;
-    },
-  });
+  // ★ 2026-04-14: rowspan-flat 그룹 뷰로 전환하면서 usePaginatedSort 제거
+  //   그룹 단위 페이지네이션은 groupedSales + groupPage 로 별도 구현
 
   // 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
@@ -574,7 +584,9 @@ function SalesListContent() {
                 <FileText className="h-4 w-4" />
                 매출 거래 내역
               </CardTitle>
-              <span className="text-sm text-muted-foreground">총 {totalItems.toLocaleString()}건 중 {startIdx}-{endIdx}</span>
+              <span className="text-sm text-muted-foreground">
+                총 {sales.length.toLocaleString()}개 품목 · {groupedSales.length.toLocaleString()}건 거래
+              </span>
             </div>
           </CardHeader>
           <CardContent>
@@ -592,36 +604,11 @@ function SalesListContent() {
               </div>
             ) : (
               <>
-              {/* 뷰 모드 토글 */}
+              {/* 거래 / 품목 수 요약 */}
               <div className="flex items-center justify-between gap-2 mb-3">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>
-                    {viewMode === "grouped"
-                      ? `총 ${groupTransactions(sales as any).length}건 거래 (${sales.length}개 품목)`
-                      : `총 ${sales.length}개 품목`}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1">
-                  <Button
-                    size="sm"
-                    variant={viewMode === "grouped" ? "default" : "ghost"}
-                    onClick={() => setViewMode("grouped")}
-                    className="h-7 px-2 text-xs"
-                    title="거래 단위로 묶어서 보기 (거래명세표 기준)"
-                  >
-                    <Layers className="h-3.5 w-3.5 mr-1" />
-                    거래별
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={viewMode === "flat" ? "default" : "ghost"}
-                    onClick={() => setViewMode("flat")}
-                    className="h-7 px-2 text-xs"
-                    title="품목 단위로 한 줄씩 보기"
-                  >
-                    <List className="h-3.5 w-3.5 mr-1" />
-                    품목별
-                  </Button>
+                <div className="text-xs text-muted-foreground">
+                  총 <span className="font-semibold text-foreground">{groupedSales.length}</span>건 거래 ·{" "}
+                  <span className="font-semibold text-foreground">{sales.length}</span>개 품목
                 </div>
               </div>
 
@@ -630,19 +617,17 @@ function SalesListContent() {
                   <TableHeader>
                     <TableRow className="bg-muted/30">
                       <TableHead className="w-[44px]">
-                        {viewMode === "flat" && (
-                          <Checkbox
-                            checked={selectedIds.length === pageData.length && pageData.length > 0}
-                            onCheckedChange={(checked) => setSelectedIds(checked ? pageData.map((s: any) => s.id) : [])}
-                          />
-                        )}
+                        <Checkbox
+                          checked={pagedSalesItems.length > 0 && pagedSalesItems.every((s: any) => selectedIds.includes(s.id))}
+                          onCheckedChange={(checked) => setSelectedIds(checked ? pagedSalesItems.map((s: any) => s.id) : [])}
+                        />
                       </TableHead>
-                      <SortableHeader label="거래일자" sortKey="transactionDate" currentSort={sort} onSort={handleSort} />
-                      <SortableHeader label="거래처명" sortKey="partnerName" currentSort={sort} onSort={handleSort} />
-                      <SortableHeader label="품목명" sortKey="itemName" currentSort={sort} onSort={handleSort} />
-                      <SortableHeader label="수량" sortKey="quantity" currentSort={sort} onSort={handleSort} align="right" />
-                      <SortableHeader label="단가" sortKey="unitPrice" currentSort={sort} onSort={handleSort} align="right" />
-                      <SortableHeader label="금액" sortKey="amount" currentSort={sort} onSort={handleSort} align="right" />
+                      <TableHead className="text-xs font-semibold">거래일자</TableHead>
+                      <TableHead className="text-xs font-semibold">거래처명</TableHead>
+                      <TableHead className="text-xs font-semibold">품목명</TableHead>
+                      <TableHead className="text-xs font-semibold text-right">수량</TableHead>
+                      <TableHead className="text-xs font-semibold text-right">단가</TableHead>
+                      <TableHead className="text-xs font-semibold text-right">금액</TableHead>
                       <TableHead className="text-xs font-semibold text-right">세금</TableHead>
                       <TableHead className="text-xs font-semibold text-right">합계</TableHead>
                       <TableHead className="text-xs font-semibold">증빙</TableHead>
@@ -651,247 +636,182 @@ function SalesListContent() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {viewMode === "flat" && pageData.map((sale: any) => {
-                      const amount = parseFloat(sale.amount || "0");
-                      const tax = parseFloat(sale.taxAmount || "0");
-                      const availableActions = getAvailableActions(sale.status, "sale");
-                      return (
-                        <TableRow key={sale.id} className="group hover:bg-muted/20">
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedIds.includes(sale.id)}
-                              onCheckedChange={(checked) => handleSelectOne(sale.id, checked as boolean)}
-                            />
-                          </TableCell>
-                          <TableCell className="text-sm whitespace-nowrap">
-                            {new Date(sale.transactionDate).toLocaleDateString("ko-KR")}
-                          </TableCell>
-                          <TableCell className="text-sm font-medium">{sale.partnerName || "-"}</TableCell>
-                          <TableCell className="text-sm max-w-[160px] truncate">{sale.itemName || "-"}</TableCell>
-                          <TableCell className="text-sm text-right tabular-nums">
-                            {parseFloat(sale.quantity || "0").toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-sm text-right tabular-nums">
-                            {formatCurrency(sale.unitPrice || "0")}
-                          </TableCell>
-                          <TableCell className="text-sm text-right tabular-nums">
-                            {formatCurrency(amount)}
-                          </TableCell>
-                          <TableCell className="text-sm text-right tabular-nums text-muted-foreground">
-                            {formatCurrency(tax)}
-                          </TableCell>
-                          <TableCell className="text-sm text-right tabular-nums font-semibold">
-                            {formatCurrency(amount + tax)}
-                          </TableCell>
-                          <TableCell>{getProofBadge(sale.proofType)}</TableCell>
-                          <TableCell>{getStatusBadge(sale.status)}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                              {availableActions.includes("approve") && (
-                                <Button size="sm" variant="default"
-                                  onClick={() => { if (confirm("이 매출을 승인하시겠습니까?")) postMutation.mutate({ saleId: sale.id }); }}
-                                  disabled={postMutation.isPending}
-                                  title="승인" className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
-                                  <CheckCircle className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {availableActions.includes("markReceived") && (
-                                <Button size="sm" variant="default"
-                                  onClick={() => { if (confirm("수금 완료 처리하시겠습니까?")) markReceivedMutation.mutate({ saleId: sale.id }); }}
-                                  disabled={markReceivedMutation.isPending}
-                                  title="수금 완료" className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
-                                  <DollarSign className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {availableActions.includes("restore") && (
-                                <Button size="sm" variant="outline"
-                                  onClick={() => { if (confirm("대기 상태로 복구하시겠습니까?")) saleRestoreMutation.mutate({ saleId: sale.id }); }}
-                                  disabled={saleRestoreMutation.isPending}
-                                  title="복구" className="h-7 w-7 p-0 text-amber-600">
-                                  <RotateCcw className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              <Button size="sm" variant="outline" onClick={() => handlePreviewStatement(sale.id)}
-                                disabled={previewPDFMutation.isPending} title="자세히 보기" className="h-7 w-7 p-0">
-                                <Eye className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => handlePrintStatement(sale.id)}
-                                disabled={generatePDFMutation.isPending} title="인쇄" className="h-7 w-7 p-0">
-                                <Printer className="h-3.5 w-3.5" />
-                              </Button>
-                              {availableActions.includes("edit") && (
-                                <Button size="sm" variant="outline"
-                                  onClick={() => { setEditingSale(sale); setIsEditDialogOpen(true); }}
-                                  title="수정" className="h-7 w-7 p-0">
-                                  <Edit className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {availableActions.includes("cancel") && (
-                                <Button size="sm" variant="outline"
-                                  onClick={() => { if (confirm("이 매출을 취소하시겠습니까?")) saleCancelMutation.mutate({ saleId: sale.id }); }}
-                                  disabled={saleCancelMutation.isPending}
-                                  title="취소" className="h-7 w-7 p-0 text-zinc-500 hover:bg-zinc-100">
-                                  <XCircle className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {availableActions.includes("delete") && (
-                                <Button size="sm" variant="outline"
-                                  onClick={() => { if (confirm("이 거래를 삭제하시겠습니까?")) deleteMutation.mutate({ id: sale.id }); }}
-                                  title="삭제" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-
-                    {viewMode === "grouped" && groupTransactions(sales as any).map((group) => {
-                      const isExpanded = expandedGroups.has(group.groupKey);
-                      const availableActions = getAvailableActions(group.dominantStatus, "sale");
+                    {/* 거래별 그룹화 rowspan-flat 렌더 (2026-04-14 재설계) */}
+                    {pagedGroupsSales.map((group: any, groupIdx: number) => {
+                      const groupBgClass = groupIdx % 2 === 0 ? "" : "bg-slate-50/40";
+                      const availableGroupActions = getAvailableActions(group.dominantStatus, "sale");
                       const statusLabel = STATUS_LABELS[group.dominantStatus] || group.dominantStatus;
                       const statusColor = STATUS_COLORS[group.dominantStatus] || "";
-                      return (
-                        <React.Fragment key={group.groupKey}>
-                          <TableRow className="bg-indigo-50/60 hover:bg-indigo-50 font-semibold cursor-pointer"
-                            onClick={() => toggleGroup(group.groupKey)}>
+                      const isMultiItem = group.items.length > 1;
+
+                      return group.items.map((sale: any, itemIdx: number) => {
+                        const isFirst = itemIdx === 0;
+                        const amount = parseFloat(sale.amount || "0");
+                        const tax = parseFloat(sale.taxAmount || "0");
+                        const itemActions = getAvailableActions(sale.status, "sale");
+
+                        return (
+                          <TableRow
+                            key={`${group.groupKey}-${sale.id}`}
+                            className={`group hover:bg-muted/20 ${groupBgClass}`}
+                          >
                             <TableCell>
-                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
-                                onClick={(e) => { e.stopPropagation(); toggleGroup(group.groupKey); }}>
-                                {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                              </Button>
+                              <Checkbox
+                                checked={selectedIds.includes(sale.id)}
+                                onCheckedChange={(checked) => handleSelectOne(sale.id, checked as boolean)}
+                              />
                             </TableCell>
                             <TableCell className="text-sm whitespace-nowrap">
-                              {new Date(group.transactionDate).toLocaleDateString("ko-KR")}
+                              {isFirst && new Date(group.transactionDate).toLocaleDateString("ko-KR")}
                             </TableCell>
-                            <TableCell className="text-sm">{group.partnerName}</TableCell>
-                            <TableCell colSpan={4} className="text-xs text-muted-foreground">
-                              📦 <span className="font-semibold text-foreground">{group.itemCount}개 품목</span>
-                              {group.evidenceNumber && (
-                                <span className="ml-2">· 증빙 {group.evidenceNumber}</span>
+                            <TableCell className="text-sm">
+                              {isFirst && (
+                                <>
+                                  <div className="font-medium">{group.partnerName}</div>
+                                  {isMultiItem && (
+                                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                                      [{group.itemCount}건] 총 {formatCurrency(group.grandTotal)}
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                              {formatCurrency(group.totalTax)}
+                            <TableCell className="text-sm max-w-[160px] truncate">
+                              {isMultiItem && !isFirst && <span className="text-muted-foreground mr-1">└</span>}
+                              {sale.itemName || "-"}
                             </TableCell>
-                            <TableCell className="text-right tabular-nums font-bold text-base">
-                              {formatCurrency(group.grandTotal)}
+                            <TableCell className="text-sm text-right tabular-nums">
+                              {parseFloat(sale.quantity || "0").toLocaleString()}
                             </TableCell>
-                            <TableCell>-</TableCell>
+                            <TableCell className="text-sm text-right tabular-nums">
+                              {formatCurrency(sale.unitPrice || "0")}
+                            </TableCell>
+                            <TableCell className="text-sm text-right tabular-nums">
+                              {formatCurrency(amount)}
+                            </TableCell>
+                            <TableCell className="text-sm text-right tabular-nums text-muted-foreground">
+                              {formatCurrency(tax)}
+                            </TableCell>
+                            <TableCell className="text-sm text-right tabular-nums font-semibold">
+                              {formatCurrency(amount + tax)}
+                            </TableCell>
                             <TableCell>
-                              <Badge variant="outline" className={`${statusColor} text-xs`}>
-                                {statusLabel}
-                                {group.isMixed && <span className="ml-1">⚠</span>}
-                              </Badge>
+                              {isFirst ? (
+                                group.evidenceNumber ? (
+                                  <Badge variant="outline" className="text-xs">{group.evidenceNumber}</Badge>
+                                ) : getProofBadge(sale.proofType)
+                              ) : ""}
                             </TableCell>
-                            <TableCell onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-center gap-1">
-                                {availableActions.includes("approve") && (
-                                  <Button size="sm" variant="default"
-                                    onClick={() => handleGroupAction(group, "approve")}
-                                    disabled={postMutation.isPending}
-                                    title="그룹 전체 승인" className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
-                                    <CheckCircle className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                                {availableActions.includes("markReceived") && (
-                                  <Button size="sm" variant="default"
-                                    onClick={() => handleGroupAction(group, "markReceived")}
-                                    disabled={markReceivedMutation.isPending}
-                                    title="그룹 전체 수금 완료" className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
-                                    <DollarSign className="h-3.5 w-3.5" />
-                                  </Button>
-                                )}
-                                {availableActions.includes("restore") && (
+                            <TableCell>
+                              {isFirst ? (
+                                <Badge variant="outline" className={`${statusColor} text-xs`}>
+                                  {statusLabel}
+                                  {group.isMixed && <span className="ml-1">⚠</span>}
+                                </Badge>
+                              ) : ""}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                {isFirst ? (
+                                  <>
+                                    {availableGroupActions.includes("approve") && (
+                                      <Button size="sm" variant="default"
+                                        onClick={() => handleGroupAction(group, "approve")}
+                                        disabled={postMutation.isPending}
+                                        title={isMultiItem ? "그룹 전체 승인" : "승인"}
+                                        className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
+                                        <CheckCircle className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {availableGroupActions.includes("markReceived") && (
+                                      <Button size="sm" variant="default"
+                                        onClick={() => handleGroupAction(group, "markReceived")}
+                                        disabled={markReceivedMutation.isPending}
+                                        title={isMultiItem ? "그룹 전체 수금 완료" : "수금 완료"}
+                                        className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
+                                        <DollarSign className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {availableGroupActions.includes("restore") && (
+                                      <Button size="sm" variant="outline"
+                                        onClick={() => handleGroupAction(group, "restore")}
+                                        disabled={saleRestoreMutation.isPending}
+                                        title={isMultiItem ? "그룹 전체 복구" : "복구"}
+                                        className="h-7 w-7 p-0 text-amber-600">
+                                        <RotateCcw className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {/* 거래명세표 PDF — 그룹 묶음 */}
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => previewGroupPDFMutation.mutate({ saleIds: group.items.map((i: any) => i.id) })}
+                                      disabled={previewGroupPDFMutation.isPending}
+                                      title="거래명세표 미리보기" className="h-7 w-7 p-0">
+                                      <Eye className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => printGroupPDFMutation.mutate({ saleIds: group.items.map((i: any) => i.id) })}
+                                      disabled={printGroupPDFMutation.isPending}
+                                      title="거래명세표 인쇄" className="h-7 w-7 p-0">
+                                      <Printer className="h-3.5 w-3.5" />
+                                    </Button>
+                                    {availableGroupActions.includes("cancel") && (
+                                      <Button size="sm" variant="outline"
+                                        onClick={() => handleGroupAction(group, "cancel")}
+                                        disabled={saleCancelMutation.isPending}
+                                        title={isMultiItem ? "그룹 전체 취소" : "취소"}
+                                        className="h-7 w-7 p-0 text-zinc-500 hover:bg-zinc-100">
+                                        <XCircle className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                  </>
+                                ) : null}
+                                {/* 품목 단위 액션 */}
+                                {itemActions.includes("edit") && (
                                   <Button size="sm" variant="outline"
-                                    onClick={() => handleGroupAction(group, "restore")}
-                                    disabled={saleRestoreMutation.isPending}
-                                    title="그룹 전체 복구" className="h-7 w-7 p-0 text-amber-600">
-                                    <RotateCcw className="h-3.5 w-3.5" />
+                                    onClick={() => { setEditingSale(sale); setIsEditDialogOpen(true); }}
+                                    title="품목 수정" className="h-7 w-7 p-0">
+                                    <Edit className="h-3.5 w-3.5" />
                                   </Button>
                                 )}
-                                <Button size="sm" variant="outline"
-                                  onClick={() => handlePreviewStatement(group.items[0].id)}
-                                  disabled={previewPDFMutation.isPending}
-                                  title="거래명세표 미리보기" className="h-7 w-7 p-0">
-                                  <Eye className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button size="sm" variant="outline"
-                                  onClick={() => handlePrintStatement(group.items[0].id)}
-                                  disabled={generatePDFMutation.isPending}
-                                  title="거래명세표 인쇄" className="h-7 w-7 p-0">
-                                  <Printer className="h-3.5 w-3.5" />
-                                </Button>
-                                {availableActions.includes("cancel") && (
+                                {itemActions.includes("delete") && (
                                   <Button size="sm" variant="outline"
-                                    onClick={() => handleGroupAction(group, "cancel")}
-                                    disabled={saleCancelMutation.isPending}
-                                    title="그룹 전체 취소" className="h-7 w-7 p-0 text-zinc-500 hover:bg-zinc-100">
-                                    <XCircle className="h-3.5 w-3.5" />
+                                    onClick={() => { if (confirm("이 거래를 삭제하시겠습니까?")) deleteMutation.mutate({ id: sale.id }); }}
+                                    title="품목 삭제" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                                    <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
                                 )}
                               </div>
                             </TableCell>
                           </TableRow>
-
-                          {isExpanded && group.items.map((item: any) => {
-                            const itemAmount = parseFloat(item.amount || "0");
-                            const itemTax = parseFloat(item.taxAmount || "0");
-                            const itemActions = getAvailableActions(item.status, "sale");
-                            return (
-                              <TableRow key={`${group.groupKey}-${item.id}`} className="bg-slate-50/40 hover:bg-slate-100/60">
-                                <TableCell></TableCell>
-                                <TableCell></TableCell>
-                                <TableCell className="text-xs text-muted-foreground">└</TableCell>
-                                <TableCell className="text-sm pl-2 max-w-[160px] truncate">{item.itemName || "-"}</TableCell>
-                                <TableCell className="text-xs text-right tabular-nums">
-                                  {parseFloat(item.quantity || "0").toLocaleString()}
-                                </TableCell>
-                                <TableCell className="text-xs text-right tabular-nums">{formatCurrency(item.unitPrice || "0")}</TableCell>
-                                <TableCell className="text-xs text-right tabular-nums">{formatCurrency(itemAmount)}</TableCell>
-                                <TableCell className="text-xs text-right tabular-nums text-muted-foreground">{formatCurrency(itemTax)}</TableCell>
-                                <TableCell className="text-xs text-right tabular-nums">{formatCurrency(itemAmount + itemTax)}</TableCell>
-                                <TableCell></TableCell>
-                                <TableCell>{getStatusBadge(item.status)}</TableCell>
-                                <TableCell>
-                                  <div className="flex items-center justify-center gap-1">
-                                    {itemActions.includes("edit") && (
-                                      <Button size="sm" variant="outline"
-                                        onClick={() => { setEditingSale(item); setIsEditDialogOpen(true); }}
-                                        title="품목 수정" className="h-6 w-6 p-0">
-                                        <Edit className="h-3 w-3" />
-                                      </Button>
-                                    )}
-                                    {itemActions.includes("delete") && (
-                                      <Button size="sm" variant="outline"
-                                        onClick={() => { if (confirm("이 품목을 삭제하시겠습니까?")) deleteMutation.mutate({ id: item.id }); }}
-                                        title="품목 삭제" className="h-6 w-6 p-0 text-red-500">
-                                        <Trash2 className="h-3 w-3" />
-                                      </Button>
-                                    )}
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </React.Fragment>
-                      );
+                        );
+                      });
                     })}
                   </TableBody>
                 </Table>
               </div>
-              {viewMode === "flat" && (
-                <PaginationBar
-                  totalItems={totalItems}
-                  totalPages={totalPages}
-                  currentPage={pagination.page}
-                  pageSize={pagination.pageSize}
-                  startIdx={startIdx}
-                  endIdx={endIdx}
-                  onPageChange={setPage}
-                  onPageSizeChange={setPageSize}
-                />
+              {/* 그룹 단위 페이지네이션 */}
+              {totalGroupPages > 1 && (
+                <div className="flex items-center justify-between pt-3">
+                  <p className="text-sm text-muted-foreground">
+                    {((safeGroupPage - 1) * GROUP_PAGE_SIZE) + 1}–{Math.min(safeGroupPage * GROUP_PAGE_SIZE, groupedSales.length)}건 /
+                    총 {groupedSales.length}건 거래
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                      onClick={() => setGroupPage(1)} disabled={safeGroupPage <= 1} title="첫 페이지">«
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                      onClick={() => setGroupPage(safeGroupPage - 1)} disabled={safeGroupPage <= 1} title="이전">‹
+                    </Button>
+                    <span className="text-sm px-2 tabular-nums">{safeGroupPage} / {totalGroupPages}</span>
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                      onClick={() => setGroupPage(safeGroupPage + 1)} disabled={safeGroupPage >= totalGroupPages} title="다음">›
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 w-8 p-0"
+                      onClick={() => setGroupPage(totalGroupPages)} disabled={safeGroupPage >= totalGroupPages} title="마지막">»
+                    </Button>
+                  </div>
+                </div>
               )}
               </>
             )}

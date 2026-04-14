@@ -266,11 +266,36 @@ export const haccpIntegrationRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { generateSaleStatementPDF } = await import("../../db/accounting/transactionStatement");
         const pdfBuffer = await generateSaleStatementPDF(input.saleId, ctx.tenantId);
-        
+
         // Base64로 변환하여 반환
         return {
           pdf: pdfBuffer.toString("base64"),
           filename: `매출거래명세표_${input.saleId}_${todayKST()}.pdf`
+        };
+      }),
+
+    // ─── 그룹 PDF (2026-04-14 추가) ─────────────────────────
+    // 매입 거래명세표 그룹 PDF — 같은 거래(날짜+거래처+증빙)의 여러 품목을 한 PDF 로 묶음
+    generatePurchaseGroupPDF: tenantRequiredProcedure
+      .input(z.object({ purchaseIds: z.array(z.number()).min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const { generatePurchaseStatementPDFByIds } = await import("../../db/accounting/transactionStatement");
+        const pdfBuffer = await generatePurchaseStatementPDFByIds(input.purchaseIds, ctx.tenantId);
+        return {
+          pdf: pdfBuffer.toString("base64"),
+          filename: `매입거래명세표_그룹_${input.purchaseIds.length}건_${todayKST()}.pdf`,
+        };
+      }),
+
+    // 매출 거래명세표 그룹 PDF — 같은 거래의 여러 품목을 한 PDF 로 묶음
+    generateSaleGroupPDF: tenantRequiredProcedure
+      .input(z.object({ saleIds: z.array(z.number()).min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const { generateSaleStatementPDFByIds } = await import("../../db/accounting/transactionStatement");
+        const pdfBuffer = await generateSaleStatementPDFByIds(input.saleIds, ctx.tenantId);
+        return {
+          pdf: pdfBuffer.toString("base64"),
+          filename: `매출거래명세표_그룹_${input.saleIds.length}건_${todayKST()}.pdf`,
         };
       }),
 

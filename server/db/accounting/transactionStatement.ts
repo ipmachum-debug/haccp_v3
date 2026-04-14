@@ -209,3 +209,212 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
     throw new Error(`거래명세표 생성 실패: ${err.message || String(err)}`);
   }
 }
+
+/**
+ * 매입 거래명세표 PDF — 여러 품목 한 장 묶음 (그룹 PDF)
+ * ★ 2026-04-14: 거래명세표 그룹화 지원
+ *   - (같은 날짜 + 같은 거래처 + 같은 증빙번호) 의 품목들을 하나의 PDF 로 묶음
+ *   - 공급자/공급받는자는 첫 매입 기준
+ *   - 품목은 모든 매입을 배열로 집계, 합계는 합산
+ */
+export async function generatePurchaseStatementPDFByIds(
+  purchaseIds: number[], tenantId?: number
+): Promise<Buffer> {
+  try {
+    if (!purchaseIds.length) throw new Error("매입 ID 가 제공되지 않았습니다.");
+    const db = await getDb();
+    if (!db) throw new Error("DB 연결 실패");
+
+    // 1. 모든 매입 조회
+    const purchases: any[] = [];
+    for (const id of purchaseIds) {
+      const p = await getPurchaseById(id, tenantId);
+      if (p) purchases.push(p);
+    }
+    if (!purchases.length) {
+      throw new Error(`유효한 매입이 없습니다. ids=${purchaseIds.join(',')}`);
+    }
+
+    const first = purchases[0];
+
+    // 2. 거래처 (첫 매입 기준)
+    let partner: any = EMPTY_PARTNER;
+    if (first.partnerId && tenantId) {
+      const [found] = await db
+        .select()
+        .from(partners)
+        .where(and(
+          eq(partners.tenantId, tenantId as any),
+          eq(partners.id, first.partnerId as any),
+        ) as any)
+        .limit(1);
+      if (found) partner = found;
+    }
+
+    // 3. 회사 정보
+    const companyInfo = tenantId ? await getCompanyInfo(tenantId) : {};
+
+    // 4. 품목 배열 집계
+    const items = purchases.map((p: any) => ({
+      itemName: p.itemName || "품목명 없음",
+      quantity: p.quantity,
+      unit: p.unit || "EA",
+      unitPrice: p.unitPrice,
+      amount: p.totalAmount,
+      note: p.notes || undefined,
+    }));
+
+    // 5. 합계 재계산
+    const totalAmount = purchases.reduce(
+      (sum: number, p: any) => sum + parseFloat(String(p.totalAmount || "0")), 0
+    );
+    const taxAmount = purchases.reduce(
+      (sum: number, p: any) => sum + parseFloat(String(p.taxAmount || "0")), 0
+    );
+    const grandTotal = totalAmount + taxAmount;
+
+    // 6. 메모 (품목 개수 안내 + 첫 메모 있으면 추가)
+    const memoParts: string[] = [];
+    if (purchases.length > 1) memoParts.push(`총 ${purchases.length}개 품목`);
+    if (first.notes) memoParts.push(first.notes);
+    const memo = memoParts.join(" · ") || undefined;
+
+    const pdfData = {
+      transactionDate: first.transactionDate,
+      transactionType: "purchase" as const,
+      supplier: {
+        name: partner.companyName || EMPTY_PARTNER.companyName,
+        businessNumber: partner.bizNo || undefined,
+        address: partner.address || undefined,
+        representative: partner.ceoName || undefined,
+        phone: partner.phone || undefined,
+      },
+      recipient: {
+        name: companyInfo.companyName || "회사명 미설정",
+        businessNumber: companyInfo.companyBusinessNumber,
+        address: companyInfo.companyAddress,
+        representative: companyInfo.companyRepresentative,
+        phone: companyInfo.companyPhone,
+      },
+      items,
+      totalAmount: String(totalAmount),
+      taxAmount: String(taxAmount),
+      grandTotal,
+      memo,
+    };
+
+    return await generateTransactionStatementPDF(pdfData);
+  } catch (err: any) {
+    console.error(`[generatePurchaseStatementPDFByIds] 실패: purchaseIds=${purchaseIds}, tenantId=${tenantId}`, err);
+    throw new Error(`거래명세표 그룹 생성 실패: ${err.message || String(err)}`);
+  }
+}
+
+/**
+ * 매출 거래명세표 PDF — 여러 품목 한 장 묶음 (그룹 PDF)
+ */
+export async function generateSaleStatementPDFByIds(
+  saleIds: number[], tenantId?: number
+): Promise<Buffer> {
+  try {
+    if (!saleIds.length) throw new Error("매출 ID 가 제공되지 않았습니다.");
+    const db = await getDb();
+    if (!db) throw new Error("DB 연결 실패");
+
+    // 1. 모든 매출 조회
+    const sales: any[] = [];
+    for (const id of saleIds) {
+      const s = await getSaleById(id, tenantId);
+      if (s) sales.push(s);
+    }
+    if (!sales.length) {
+      throw new Error(`유효한 매출이 없습니다. ids=${saleIds.join(',')}`);
+    }
+
+    const first = sales[0];
+
+    // 2. 거래처 (첫 매출 기준)
+    let partner: any = EMPTY_PARTNER;
+    if (first.partnerId && tenantId) {
+      const [found] = await db
+        .select()
+        .from(partners)
+        .where(and(
+          eq(partners.tenantId, tenantId as any),
+          eq(partners.id, first.partnerId as any),
+        ) as any)
+        .limit(1);
+      if (found) partner = found;
+    }
+
+    // 3. 회사 정보
+    const companyInfo = tenantId ? await getCompanyInfo(tenantId) : {};
+
+    // 4. 대표 계좌 (있으면)
+    let primaryAccount: any = null;
+    try {
+      primaryAccount = await getPrimaryBankAccount();
+    } catch (bankErr) {
+      console.warn(`[generateSaleStatementPDFByIds] getPrimaryBankAccount 실패 (graceful):`, bankErr);
+    }
+
+    // 5. 품목 배열 집계
+    const items = sales.map((s: any) => ({
+      itemName: s.itemName || "품목명 없음",
+      quantity: s.quantity,
+      unit: s.unit || "EA",
+      unitPrice: s.unitPrice,
+      amount: s.totalAmount,
+      note: s.notes || undefined,
+    }));
+
+    // 6. 합계 재계산
+    const totalAmount = sales.reduce(
+      (sum: number, s: any) => sum + parseFloat(String(s.totalAmount || "0")), 0
+    );
+    const taxAmount = sales.reduce(
+      (sum: number, s: any) => sum + parseFloat(String(s.taxAmount || "0")), 0
+    );
+    const grandTotal = totalAmount + taxAmount;
+
+    // 7. 메모
+    const memoParts: string[] = [];
+    if (sales.length > 1) memoParts.push(`총 ${sales.length}개 품목`);
+    if (first.notes) memoParts.push(first.notes);
+    const memo = memoParts.join(" · ") || undefined;
+
+    const pdfData = {
+      transactionDate: first.transactionDate,
+      transactionType: "sale" as const,
+      supplier: {
+        name: companyInfo.companyName || "회사명 미설정",
+        businessNumber: companyInfo.companyBusinessNumber,
+        address: companyInfo.companyAddress,
+        representative: companyInfo.companyRepresentative,
+        phone: companyInfo.companyPhone,
+      },
+      recipient: {
+        name: partner.companyName || EMPTY_PARTNER.companyName,
+        businessNumber: partner.bizNo || undefined,
+        address: partner.address || undefined,
+        representative: partner.ceoName || undefined,
+        phone: partner.phone || undefined,
+      },
+      items,
+      totalAmount: String(totalAmount),
+      taxAmount: String(taxAmount),
+      grandTotal,
+      memo,
+      bankAccount: primaryAccount ? {
+        bankName: primaryAccount.bankName,
+        accountNumber: primaryAccount.accountNo,
+        ownerName: (primaryAccount as any).ownerName || "예금주 미설정",
+      } : undefined,
+    };
+
+    return await generateTransactionStatementPDF(pdfData);
+  } catch (err: any) {
+    console.error(`[generateSaleStatementPDFByIds] 실패: saleIds=${saleIds}, tenantId=${tenantId}`, err);
+    throw new Error(`거래명세표 그룹 생성 실패: ${err.message || String(err)}`);
+  }
+}
