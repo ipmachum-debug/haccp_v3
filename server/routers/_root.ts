@@ -30,6 +30,7 @@ import {
   inventoryAccountingRouter,
   purchaseOrderRouter,
   partnerPriceRouter,
+  quotationRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -270,6 +271,8 @@ export const appRouter = router({
   purchaseOrder: purchaseOrderRouter,
   // Phase B (2026-04-14): 거래처별 단가표
   partnerPrice: partnerPriceRouter,
+  // Phase C (2026-04-14): 견적서
+  quotation: quotationRouter,
 
   // ── dashboard ──
   dashboard: dashboardRouter,

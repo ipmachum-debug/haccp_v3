@@ -578,6 +578,8 @@ function DashboardLayoutContent({
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"] },
     // Phase B (2026-04-14): 거래처별 단가표
     { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"] },
+    // Phase C (2026-04-14): 견적서
+    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"] },
     { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"] },
     { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"] },
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
