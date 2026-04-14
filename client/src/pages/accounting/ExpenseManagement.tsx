@@ -1473,7 +1473,7 @@ function VatSummaryTab() {
                       <TableCell className="text-right">{fmt(r.total_sum)}원</TableCell>
                       <TableCell>
                         {(r.proof_type === "tax_invoice" || r.proof_type === "card")
-                          ? <Badge className="bg-green-500">공제가능</Badge>
+                          ? <Badge className="bg-green-500 text-white border-transparent">공제가능</Badge>
                           : <Badge variant="secondary">불공제</Badge>}
                       </TableCell>
                     </TableRow>

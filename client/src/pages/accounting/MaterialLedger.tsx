@@ -322,9 +322,9 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       case "draft":
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />작성 중</Badge>;
       case "submitted":
-        return <Badge className="bg-yellow-500"><FileText className="w-3 h-3 mr-1" />승인 대기</Badge>;
+        return <Badge className="bg-yellow-500 text-white border-transparent"><FileText className="w-3 h-3 mr-1" />승인 대기</Badge>;
       case "approved":
-        return <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />승인 완료</Badge>;
+        return <Badge className="bg-green-600 text-white border-transparent"><CheckCircle className="w-3 h-3 mr-1" />승인 완료</Badge>;
       case "rejected":
         return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />반려</Badge>;
       default:

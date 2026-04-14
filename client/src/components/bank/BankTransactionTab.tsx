@@ -464,10 +464,12 @@ export default function BankTransactionTab() {
     transactionsData.items.every((tx: any) => selectedIds.has(tx.id));
 
   // 매칭 상태 뱃지
+  // ★ 2026-04-13: text-white 명시 — Badge 기본 variant 의 text-primary-foreground 가
+  //    bg-green-600 위에서 거의 안 보이던 문제 수정
   const getMatchStatusBadge = (status: string) => {
     switch (status) {
       case "matched":
-        return <Badge className="bg-green-600">매칭</Badge>;
+        return <Badge className="bg-green-600 text-white hover:bg-green-700 border-transparent">매칭</Badge>;
       case "partial":
         return <Badge variant="secondary">부분</Badge>;
       case "unmatched":
@@ -480,7 +482,7 @@ export default function BankTransactionTab() {
   const getApprovalBadge = (status: string) => {
     switch (status) {
       case "approved":
-        return <Badge className="bg-blue-600">승인</Badge>;
+        return <Badge className="bg-blue-600 text-white hover:bg-blue-700 border-transparent">승인</Badge>;
       case "rejected":
         return <Badge variant="destructive">반려</Badge>;
       case "pending":

@@ -63,7 +63,7 @@ export function HealthCertificateExpiringWidget() {
     } else if (daysLeft <= 7) {
       return <Badge variant="destructive">{daysLeft}일 남음</Badge>;
     } else if (daysLeft <= 30) {
-      return <Badge className="bg-yellow-500">{daysLeft}일 남음</Badge>;
+      return <Badge className="bg-yellow-500 text-white border-transparent">{daysLeft}일 남음</Badge>;
     } else {
       return <Badge variant="secondary">{daysLeft}일 남음</Badge>;
     }

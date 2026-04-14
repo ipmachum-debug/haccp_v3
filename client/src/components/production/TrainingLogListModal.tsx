@@ -134,11 +134,11 @@ export default function TrainingLogListModal({ open, onClose }: TrainingLogListM
       case "작성중":
         return <Badge variant="secondary">작성중</Badge>;
       case "승인대기":
-        return <Badge className="bg-yellow-500">승인대기</Badge>;
+        return <Badge className="bg-yellow-500 text-white border-transparent">승인대기</Badge>;
       case "승인완료":
-        return <Badge className="bg-green-500">승인완료</Badge>;
+        return <Badge className="bg-green-500 text-white border-transparent">승인완료</Badge>;
       case "반려":
-        return <Badge className="bg-red-500">반려</Badge>;
+        return <Badge className="bg-red-500 text-white border-transparent">반려</Badge>;
       default:
         return <Badge>{status}</Badge>;
     }
