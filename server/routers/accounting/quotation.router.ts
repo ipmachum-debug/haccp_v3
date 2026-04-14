@@ -705,4 +705,131 @@ export const quotationRouter = router({
       pipelineAmount: Number(row.pipelineAmount || 0),
     };
   }),
+
+  /**
+   * ★ 반복 판매 품목 추천 — Phase B (2026-04-14)
+   *
+   * 고객 선택 시 해당 고객사에게 과거에 자주/최근에 판매한 품목을
+   * 집계해서 견적서 라인 프리필 용도로 반환.
+   *
+   * 집계 소스:
+   *   - quotation_lines + quotations (견적 이력)
+   *   - accounting_sales (매출 이력)
+   */
+  suggestRepeatItems: tenantRequiredProcedure
+    .input(
+      z.object({
+        partnerId: z.number(),
+        limit: z.number().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // quotation_lines 기반 집계
+      const quoHistoryResult: any = await db.execute(sql`
+        SELECT
+          ql.target_type AS targetType,
+          ql.material_id AS materialId,
+          ql.product_id AS productId,
+          ql.item_name AS itemName,
+          ql.item_code AS itemCode,
+          ql.unit AS unit,
+          COUNT(*) AS purchaseCount,
+          AVG(CAST(ql.unit_price AS DECIMAL(15,2))) AS avgPrice,
+          MIN(CAST(ql.unit_price AS DECIMAL(15,2))) AS minPrice,
+          MAX(CAST(ql.unit_price AS DECIMAL(15,2))) AS maxPrice,
+          MAX(q.quote_date) AS lastOrderDate,
+          SUM(CAST(ql.quantity AS DECIMAL(15,3))) AS totalQty,
+          AVG(CAST(ql.quantity AS DECIMAL(15,3))) AS avgQty
+        FROM quotation_lines ql
+        INNER JOIN quotations q
+          ON ql.quotation_id = q.id AND ql.tenant_id = q.tenant_id
+        WHERE q.tenant_id = ${ctx.tenantId}
+          AND q.partner_id = ${input.partnerId}
+          AND q.status NOT IN ('cancelled', 'rejected')
+        GROUP BY ql.target_type, ql.material_id, ql.product_id, ql.item_name, ql.item_code, ql.unit
+        ORDER BY purchaseCount DESC, lastOrderDate DESC
+        LIMIT ${input.limit}
+      `);
+      const quoRows: any[] = quoHistoryResult?.[0] || [];
+
+      // accounting_sales 기반 집계
+      const saleHistoryResult: any = await db.execute(sql`
+        SELECT
+          'product' AS targetType,
+          asa.product_id AS productId,
+          NULL AS materialId,
+          asa.item_name AS itemName,
+          NULL AS itemCode,
+          asa.unit AS unit,
+          COUNT(*) AS purchaseCount,
+          AVG(CAST(asa.unit_price AS DECIMAL(15,2))) AS avgPrice,
+          MIN(CAST(asa.unit_price AS DECIMAL(15,2))) AS minPrice,
+          MAX(CAST(asa.unit_price AS DECIMAL(15,2))) AS maxPrice,
+          MAX(asa.transaction_date) AS lastOrderDate,
+          SUM(CAST(asa.quantity AS DECIMAL(15,3))) AS totalQty,
+          AVG(CAST(asa.quantity AS DECIMAL(15,3))) AS avgQty
+        FROM accounting_sales asa
+        WHERE asa.tenant_id = ${ctx.tenantId}
+          AND asa.partner_id = ${input.partnerId}
+          AND asa.status != 'cancelled'
+        GROUP BY asa.product_id, asa.item_name, asa.unit
+        ORDER BY purchaseCount DESC, lastOrderDate DESC
+        LIMIT ${input.limit}
+      `);
+      const saleRows: any[] = saleHistoryResult?.[0] || [];
+
+      // 병합
+      const merged = new Map<string, any>();
+      const mergeRow = (row: any) => {
+        const key = row.productId
+          ? `p-${row.productId}`
+          : row.materialId
+            ? `m-${row.materialId}`
+            : `n-${(row.itemName || "").trim()}`;
+        const existing = merged.get(key);
+        if (!existing) {
+          merged.set(key, {
+            key,
+            targetType: row.targetType || "product",
+            materialId: row.materialId ? Number(row.materialId) : null,
+            productId: row.productId ? Number(row.productId) : null,
+            itemName: row.itemName,
+            itemCode: row.itemCode || null,
+            unit: row.unit || "EA",
+            purchaseCount: Number(row.purchaseCount || 0),
+            avgPrice: Math.round(Number(row.avgPrice || 0)),
+            minPrice: Math.round(Number(row.minPrice || 0)),
+            maxPrice: Math.round(Number(row.maxPrice || 0)),
+            lastOrderDate: row.lastOrderDate,
+            totalQty: Number(row.totalQty || 0),
+            avgQty: Number(row.avgQty || 0),
+          });
+        } else {
+          existing.purchaseCount += Number(row.purchaseCount || 0);
+          existing.totalQty += Number(row.totalQty || 0);
+          if (row.lastOrderDate && (!existing.lastOrderDate || row.lastOrderDate > existing.lastOrderDate)) {
+            existing.lastOrderDate = row.lastOrderDate;
+          }
+          existing.avgPrice = Math.round((existing.avgPrice + Number(row.avgPrice || 0)) / 2);
+        }
+      };
+      quoRows.forEach(mergeRow);
+      saleRows.forEach(mergeRow);
+
+      const today = new Date();
+      const scored = Array.from(merged.values()).map((item: any) => {
+        const lastDate = item.lastOrderDate ? new Date(item.lastOrderDate) : null;
+        const daysSince = lastDate
+          ? Math.max(1, Math.round((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)))
+          : 999;
+        const score = Math.round((item.purchaseCount * 10) / Math.sqrt(daysSince));
+        return { ...item, daysSinceLast: daysSince, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, input.limit);
+    }),
 });

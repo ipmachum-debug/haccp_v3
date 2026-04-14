@@ -21,7 +21,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Save, ArrowLeft, FileText } from "lucide-react";
+import { Plus, Trash2, Save, ArrowLeft, FileText, Sparkles, Repeat } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
@@ -83,6 +84,13 @@ function QuotationCreateContent() {
   const [deliveryTerms, setDeliveryTerms] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [lines, setLines] = useState<QuoLine[]>([emptyLine()]);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(true);
+
+  // Phase B: 반복 판매 품목 추천 (고객 선택 시)
+  const { data: suggestions = [] } = trpc.quotation.suggestRepeatItems.useQuery(
+    { partnerId: partnerId!, limit: 20 },
+    { enabled: !!partnerId, staleTime: 30_000 },
+  );
 
   const utils = trpc.useUtils();
   const createMutation = trpc.quotation.create.useMutation({
@@ -108,6 +116,91 @@ function QuotationCreateContent() {
   const grandTotal = totals.amount + totals.tax;
 
   const handleAddLine = () => setLines((prev) => [...prev, emptyLine()]);
+
+  // Phase B: 추천 품목을 클릭 1번으로 라인 추가
+  const suggestionToLine = (s: any): QuoLine => {
+    const qty = Math.round((s.avgQty || 1) * 10) / 10 || 1;
+    const unitPrice = s.avgPrice || 0;
+    const gross = qty * unitPrice;
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      targetType: s.targetType || "product",
+      materialId: s.materialId,
+      productId: s.productId,
+      itemName: s.itemName,
+      itemCode: s.itemCode || "",
+      description: "",
+      quantity: qty,
+      unit: s.unit || "EA",
+      unitPrice,
+      discountRate: 0,
+      amount: gross,
+      taxAmount: Math.round(gross * 0.1),
+      notes: "",
+    };
+  };
+
+  const addSuggestedItem = (s: any) => {
+    const exists = lines.some(
+      (l) =>
+        (s.productId && l.productId === s.productId) ||
+        (s.materialId && l.materialId === s.materialId),
+    );
+    if (exists) {
+      toast({
+        title: "이미 추가된 품목",
+        description: `${s.itemName} 은 이미 라인에 있습니다`,
+      });
+      return;
+    }
+
+    const newLine = suggestionToLine(s);
+    const firstEmptyIdx = lines.findIndex((l) => !l.itemName && l.quantity === 0);
+    if (firstEmptyIdx >= 0) {
+      setLines((prev) =>
+        prev.map((l, i) => (i === firstEmptyIdx ? { ...newLine, id: l.id } : l)),
+      );
+    } else {
+      setLines((prev) => [...prev, newLine]);
+    }
+
+    toast({
+      title: "품목 추가",
+      description: `${s.itemName} (${s.avgPrice?.toLocaleString()}원)`,
+    });
+  };
+
+  const addAllTopSuggestions = (topN: number) => {
+    const top = (suggestions as any[]).slice(0, topN);
+    const newLines: QuoLine[] = [];
+    for (const s of top) {
+      const exists =
+        lines.some(
+          (l) =>
+            (s.productId && l.productId === s.productId) ||
+            (s.materialId && l.materialId === s.materialId),
+        ) ||
+        newLines.some(
+          (l) =>
+            (s.productId && l.productId === s.productId) ||
+            (s.materialId && l.materialId === s.materialId),
+        );
+      if (exists) continue;
+      newLines.push(suggestionToLine(s));
+    }
+    if (newLines.length === 0) {
+      toast({ title: "추가할 신규 품목이 없습니다" });
+      return;
+    }
+    setLines((prev) => [
+      ...prev.filter((l) => l.itemName || l.quantity > 0),
+      ...newLines,
+    ]);
+    toast({
+      title: `상위 ${newLines.length}개 품목 추가`,
+      description: "수량/단가 확인 후 저장하세요",
+    });
+  };
 
   const handleRemoveLine = (id: string) => {
     if (lines.length === 1) {
@@ -298,6 +391,102 @@ function QuotationCreateContent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Phase B: 자주 판매 품목 추천 패널 */}
+      {partnerId && (suggestions as any[]).length > 0 && showSuggestions && (
+        <Card className="border-2 border-violet-200 bg-gradient-to-br from-violet-50/50 to-indigo-50/30">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-violet-600" />
+                {partnerName} 에게 자주 판매한 품목
+                <Badge variant="outline" className="text-[10px] bg-violet-100 text-violet-700">
+                  AI 추천
+                </Badge>
+              </CardTitle>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                과거 견적/매출 이력 기반. 클릭 1번으로 라인 추가
+              </p>
+            </div>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => addAllTopSuggestions(5)}
+                className="h-7 text-xs"
+              >
+                상위 5개
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => addAllTopSuggestions(10)}
+                className="h-7 text-xs"
+              >
+                상위 10개
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setShowSuggestions(false)}
+                className="h-7 text-xs text-muted-foreground"
+              >
+                ✕
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {(suggestions as any[]).map((s: any, idx: number) => {
+                const alreadyAdded = lines.some(
+                  (l) =>
+                    (s.productId && l.productId === s.productId) ||
+                    (s.materialId && l.materialId === s.materialId),
+                );
+                return (
+                  <button
+                    key={s.key || idx}
+                    type="button"
+                    onClick={() => addSuggestedItem(s)}
+                    disabled={alreadyAdded}
+                    className={`group relative text-left border rounded-lg px-3 py-2 transition-all ${
+                      alreadyAdded
+                        ? "bg-emerald-50 border-emerald-300 opacity-60 cursor-not-allowed"
+                        : "bg-white border-violet-200 hover:border-violet-400 hover:shadow-md hover:-translate-y-0.5"
+                    }`}
+                    title={`${s.purchaseCount}회 판매 · ${s.daysSinceLast}일 전 마지막 거래 · 평균 ${s.avgPrice?.toLocaleString()}원`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <Repeat className="h-3 w-3 text-violet-500" />
+                      <span className="text-xs font-medium truncate max-w-[180px]">
+                        {s.itemName}
+                      </span>
+                      {alreadyAdded && (
+                        <span className="text-[9px] text-emerald-600 ml-1">✓ 추가됨</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <span className="font-mono">
+                        {s.avgPrice?.toLocaleString()}원
+                      </span>
+                      <span>·</span>
+                      <span>{s.purchaseCount}회</span>
+                      {s.daysSinceLast < 30 && (
+                        <Badge
+                          variant="outline"
+                          className="h-3.5 px-1 py-0 text-[8px] bg-amber-100 text-amber-700 border-amber-300"
+                        >
+                          최근
+                        </Badge>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 품목 라인 */}
       <Card>
