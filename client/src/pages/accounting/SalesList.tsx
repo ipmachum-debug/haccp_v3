@@ -173,24 +173,6 @@ function SalesListContent() {
     },
   });
 
-  // ─── 거래 그룹화 + 액션 핸들러 ─────────────────────────
-  // 2026-04-14 재설계: rowspan-flat 방식 (토글/접힘 제거, 플랫 배치 + 그룹 rowspan)
-  const groupedSales = useMemo(() => groupTransactions(sales as any), [sales]);
-
-  // 그룹 단위 페이지네이션
-  const [groupPage, setGroupPage] = useState(1);
-  const GROUP_PAGE_SIZE = 25;
-  const totalGroupPages = Math.max(1, Math.ceil(groupedSales.length / GROUP_PAGE_SIZE));
-  const safeGroupPage = Math.min(groupPage, totalGroupPages);
-  const pagedGroupsSales = useMemo(() => {
-    const start = (safeGroupPage - 1) * GROUP_PAGE_SIZE;
-    return groupedSales.slice(start, start + GROUP_PAGE_SIZE);
-  }, [groupedSales, safeGroupPage]);
-  const pagedSalesItems = useMemo(
-    () => pagedGroupsSales.flatMap((g: any) => g.items),
-    [pagedGroupsSales],
-  );
-
   // ─── 그룹 PDF ───────────────────────────────────────────
   const previewGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
     onSuccess: (data: any) => {
@@ -284,6 +266,24 @@ function SalesListContent() {
     itemName: itemNameSearch || undefined,
     status: selectedStatus !== "all" ? selectedStatus : undefined,
   });
+
+  // ─── 거래 그룹화 + 페이지네이션 ─────────────────────────
+  // ★ 2026-04-14: sales 선언 뒤로 이동 (TDZ 에러 방지)
+  const groupedSales = useMemo(() => groupTransactions(sales as any), [sales]);
+
+  // 그룹 단위 페이지네이션
+  const [groupPage, setGroupPage] = useState(1);
+  const GROUP_PAGE_SIZE = 25;
+  const totalGroupPages = Math.max(1, Math.ceil(groupedSales.length / GROUP_PAGE_SIZE));
+  const safeGroupPage = Math.min(groupPage, totalGroupPages);
+  const pagedGroupsSales = useMemo(() => {
+    const start = (safeGroupPage - 1) * GROUP_PAGE_SIZE;
+    return groupedSales.slice(start, start + GROUP_PAGE_SIZE);
+  }, [groupedSales, safeGroupPage]);
+  const pagedSalesItems = useMemo(
+    () => pagedGroupsSales.flatMap((g: any) => g.items),
+    [pagedGroupsSales],
+  );
 
   // KPI 계산
   const kpiData = useMemo(() => {
