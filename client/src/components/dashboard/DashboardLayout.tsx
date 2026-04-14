@@ -569,30 +569,37 @@ function DashboardLayoutContent({
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
-  // 회계 탭 메뉴 정의 (이카운트 ERP 참고)
+  // 회계 탭 메뉴 정의 — Option A 대칭 구조 (2026-04-14 재구성)
+  // 6개 그룹: 개요 / 매입·구매 / 매출·판매 / 자금·비용 / 기준정보 / 마감·문서
   const accountingMenuItems = [
-    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"] },
-    { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"] },
-    { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"] },
-    // Phase A (2026-04-14): 발주·구매 관리
-    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"] },
-    // Phase B (2026-04-14): 거래처별 단가표
-    { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"] },
-    // Phase C (2026-04-14): 견적서
-    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"] },
-    // Phase C Part 2 (2026-04-14): 세금계산서 (팝빌 설정은 세금계산서 페이지 내 모달)
-    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"] },
-    { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"] },
-    { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"] },
-    { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
-    { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"] },
-    { icon: Building2, label: "거래처 조회", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"] },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"] },
-    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"] },
-    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"] },
-    { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"] },
-    { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"] },
-    // 사내공지보드 → HACCP탭 사내공지관리 메뉴로 이동
+    // 📊 개요
+    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "개요" },
+
+    // 📥 매입·구매 (공급 흐름)
+    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
+    { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
+    { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
+
+    // 📤 매출·판매 (판매 흐름)
+    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
+    { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
+    { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
+    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
+
+    // 💳 자금·비용
+    { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
+    { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용" },
+
+    // 📇 기준정보 (마스터)
+    { icon: Building2, label: "거래처", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"], group: "기준정보" },
+
+    // 🔒 마감·문서
+    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감·문서" },
+    { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감·문서" },
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
@@ -758,13 +765,9 @@ function DashboardLayoutContent({
             <SidebarMenu className="px-3 py-1">
               {(() => {
                 const visibleItems = displayedMenuItems.filter((item: any) => user && item.roles?.includes(user.role));
-                // 현재 경로에 정확히 매칭되거나, childRoutes에 매칭되는 메뉴가 있으면 startsWith 매칭은 비활성
-                const hasExactOrChildMatch = visibleItems.some(
-                  (item: any) => location === item.path || isChildRoute(item.path)
-                );
-                return visibleItems;
-              })()
-                .map((item: any) => {
+                let prevGroup: string | undefined;
+
+                return visibleItems.map((item: any, idx: number) => {
                   const exactMatch = location === item.path;
                   const childMatch = isChildRoute(item.path);
                   // startsWith 매칭: 다른 메뉴에 정확한 매칭이 있으면 사용하지 않음
@@ -773,8 +776,20 @@ function DashboardLayoutContent({
                   );
                   const prefixMatch = !hasOtherExactMatch && location.startsWith(item.path + "/");
                   const isActive = exactMatch || childMatch || prefixMatch;
+
+                  // 그룹 헤더 표시 여부 (이전 group 과 다를 때만)
+                  const showGroupHeader = !isCollapsed && item.group && item.group !== prevGroup;
+                  prevGroup = item.group;
+
                   return (
                     <div key={item.path}>
+                      {showGroupHeader && (
+                        <div className={cn("px-1 pb-1", idx === 0 ? "pt-0" : "pt-3")}>
+                          <p className="text-[10px] font-semibold text-sidebar-foreground/50 uppercase tracking-wider">
+                            {item.group}
+                          </p>
+                        </div>
+                      )}
                       <SidebarMenuItem>
                         <div className="flex items-center gap-1 w-full">
                           <SidebarMenuButton
@@ -800,12 +815,12 @@ function DashboardLayoutContent({
                                   addFavoriteMutation.mutate({
                                     menuPath: item.path,
                                     menuLabel: item.label,
-                                    menuIcon: item.icon.name || "FileText",
+                                    menuIcon: (item.icon as any).displayName || (item.icon as any).name || "FileText",
                                   });
                                 }
                               }}
                               className="p-1 hover:bg-accent rounded mr-2"
-                              title="즐겨찾기"
+                              title={favorites.some((fav: any) => fav.menuPath === item.path) ? "즐겨찾기 제거" : "즐겨찾기 추가"}
                             >
                               <Star
                                 className={cn(
@@ -821,8 +836,9 @@ function DashboardLayoutContent({
                       </SidebarMenuItem>
                     </div>
                   );
-                })}
-              
+                });
+              })()}
+
 
               {/* Super Admin - Premium */}
               {user?.role === "super_admin" && activeTab === "work" && !isCollapsed && (
@@ -847,8 +863,10 @@ function DashboardLayoutContent({
                 </div>
               )}
               
-              {/* WORK 탭에서 즐겨찾기 섹션 표시 (모든 사용자) */}
-              {activeTab === "work" && favoriteMenuItems.length > 0 && !isCollapsed && (
+              {/* 즐겨찾기 섹션 — 모든 탭(WORK/회계/HACCP)에서 표시 (2026-04-14 수정)
+                  ★ 이전: activeTab === "work" 조건 → 다른 탭에서는 즐겨찾기 자체가 안 보였음
+                  ★ 현재: 탭 무관하게 항상 노출 (사용자가 핀 해둔 항목은 어디서든 접근 가능) */}
+              {favoriteMenuItems.length > 0 && !isCollapsed && (
                 <>
                   <div className="px-3 py-2 mt-2">
                     <div className="h-px bg-sidebar-border" />
