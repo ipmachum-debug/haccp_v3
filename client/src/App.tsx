@@ -413,6 +413,9 @@ function Router() {
       {/* Phase C (2026-04-14): 견적서 */}
       <Route path="/dashboard/accounting/quotations" component={lazy(() => import("@/pages/accounting/QuotationList"))} />
       <Route path="/dashboard/accounting/quotations/create" component={lazy(() => import("@/pages/accounting/QuotationCreate"))} />
+      {/* Phase C Part 2 (2026-04-14): 세금계산서 + 팝빌 */}
+      <Route path="/dashboard/accounting/tax-invoices" component={lazy(() => import("@/pages/accounting/TaxInvoiceManagement"))} />
+      <Route path="/dashboard/accounting/popbill-settings" component={lazy(() => import("@/pages/accounting/PopbillSettings"))} />
       <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
       <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
       <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />

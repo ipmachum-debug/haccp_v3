@@ -489,4 +489,102 @@ export const taxInvoiceRouter = router({
       `);
       return (result as any)[0] || [];
     }),
+
+  /**
+   * ★ 세금계산서 PDF 생성 — 자세히/인쇄 버튼용
+   *   - base64 인코딩 후 반환 (클라가 iframe 인쇄 또는 새탭 미리보기)
+   */
+  generatePdf: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const [ti] = await db
+        .select()
+        .from(taxInvoices)
+        .leftJoin(partners, eq(taxInvoices.partnerId, partners.id))
+        .where(
+          and(eq(taxInvoices.id, input.id), eq(taxInvoices.tenantId, ctx.tenantId)),
+        )
+        .limit(1);
+      if (!ti) throw new Error(`세금계산서 #${input.id} 없음`);
+
+      const header = (ti as any).tax_invoices;
+      const partner = (ti as any).partners;
+
+      const lines = await db
+        .select()
+        .from(taxInvoiceLines)
+        .where(
+          and(
+            eq(taxInvoiceLines.taxInvoiceId, input.id),
+            eq(taxInvoiceLines.tenantId, ctx.tenantId),
+          ),
+        )
+        .orderBy(taxInvoiceLines.lineNumber);
+
+      // 회사 정보 조회
+      const { getCompanyInfo } = await import("../../db/system/companyInfo");
+      const companyInfo = await getCompanyInfo(ctx.tenantId);
+
+      // 매출 / 매입에 따라 공급자-공급받는자 스왑
+      const ourParty = {
+        bizNo: header.issuerBizNo || companyInfo.companyBusinessNumber,
+        name: header.issuerName || companyInfo.companyName || "회사명 미설정",
+        ceo: companyInfo.companyRepresentative,
+        address: companyInfo.companyAddress,
+        bizType: (companyInfo as any).companyBizType,
+        bizClass: (companyInfo as any).companyBizClass,
+      };
+      const theirParty = {
+        bizNo: header.partnerBizNo || partner?.bizNo,
+        name: header.partnerName || partner?.companyName || "거래처 미지정",
+        ceo: header.partnerCeo || partner?.ceoName,
+        address: header.partnerAddress || partner?.address,
+        bizType: partner?.bizType || null,
+        bizClass: partner?.bizClass || null,
+      };
+
+      const supplier = header.invoiceType === "sales" ? ourParty : theirParty;
+      const receiver = header.invoiceType === "sales" ? theirParty : ourParty;
+
+      const { generateTaxInvoicePDF } = await import("../../lib/taxInvoicePdf");
+      const pdfBuffer = await generateTaxInvoicePDF({
+        invoiceNumber: header.invoiceNumber,
+        invoiceType: header.invoiceType,
+        taxCategory: header.taxCategory,
+        receiptType: header.receiptType,
+        issueDate: header.issueDate,
+        supplyDate: header.supplyDate,
+        supplier,
+        receiver,
+        lines: lines.map((l: any) => ({
+          lineNumber: Number(l.lineNumber),
+          itemName: l.itemName,
+          itemSpec: l.itemSpec,
+          quantity: l.quantity != null ? Number(l.quantity) : null,
+          unit: l.unit,
+          unitPrice: l.unitPrice != null ? Number(l.unitPrice) : null,
+          supplyAmount: Number(l.supplyAmount),
+          taxAmount: Number(l.taxAmount || 0),
+          notes: l.notes,
+        })),
+        supplyAmountTotal: Number(header.supplyAmount || 0),
+        taxAmountTotal: Number(header.taxAmount || 0),
+        grandTotal: Number(header.totalAmount || 0),
+        remark1: header.remark1,
+        remark2: header.remark2,
+        remark3: header.remark3,
+        popbillIssueId: header.popbillIssueId,
+        popbillMgtKey: header.popbillMgtKey,
+        status: header.status,
+        notes: header.notes,
+      });
+
+      return {
+        pdf: pdfBuffer.toString("base64"),
+        filename: `세금계산서_${header.invoiceNumber}.pdf`,
+      };
+    }),
 });

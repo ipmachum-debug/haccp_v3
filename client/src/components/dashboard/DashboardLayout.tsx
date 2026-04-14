@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload, Scan, DollarSign } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload, Scan, DollarSign, Receipt, Settings2 } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -580,6 +580,9 @@ function DashboardLayoutContent({
     { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"] },
     // Phase C (2026-04-14): 견적서
     { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"] },
+    // Phase C Part 2 (2026-04-14): 세금계산서 + 팝빌
+    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"] },
+    { icon: Settings2, label: "팝빌 설정", path: "/dashboard/accounting/popbill-settings", roles: ["super_admin", "admin"] },
     { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"] },
     { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"] },
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
