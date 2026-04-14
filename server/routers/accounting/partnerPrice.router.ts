@@ -544,4 +544,225 @@ export const partnerPriceRouter = router({
         };
       });
     }),
+
+  /**
+   * ★ AI 매칭 (LLM 기반) — Phase B (2026-04-14)
+   *
+   * 규칙기반 matchItems 로 매칭 실패했거나 신뢰도 낮은 건을
+   * GPT-4o-mini 에게 보내서 의미론적으로 매칭.
+   *
+   * 예:
+   *   "우리집 밀가루 특 5kg" → "국산 밀가루 (MAT-001)"
+   *   "소맥분" → "밀가루" (동의어)
+   *   "가래떡용 쌀가루 고급" → "쌀가루 프리미엄 (MAT-025)"
+   *
+   * JSON schema output 으로 structured response 보장.
+   * OPENAI_API_KEY 미설정 시 규칙기반 fallback.
+   */
+  matchItemsAI: tenantRequiredProcedure
+    .input(
+      z.object({
+        items: z
+          .array(
+            z.object({
+              targetType: z.enum(["material", "product"]),
+              query: z.string(),
+              itemCode: z.string().optional(),
+              // 클라이언트가 이미 규칙기반으로 본 top-5 후보 (있으면 LLM 힌트로 사용)
+              candidates: z
+                .array(
+                  z.object({
+                    id: z.number(),
+                    name: z.string(),
+                    code: z.string().nullable().optional(),
+                  }),
+                )
+                .optional(),
+            }),
+          )
+          .min(1)
+          .max(50), // LLM 배치는 비용/속도 고려 50건 제한
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const { hMaterials, hProductsV2 } = await import("../../../drizzle/schema/schema_main");
+
+      // 마스터 로드 (LLM context 로 넘김)
+      const needMaterials = input.items.some((i) => i.targetType === "material");
+      const needProducts = input.items.some((i) => i.targetType === "product");
+
+      const materialRows = needMaterials
+        ? await db
+            .select({
+              id: hMaterials.id,
+              code: hMaterials.materialCode,
+              name: hMaterials.materialName,
+            })
+            .from(hMaterials)
+            .where(
+              and(eq(hMaterials.tenantId, ctx.tenantId), eq(hMaterials.isActive, 1)),
+            )
+        : [];
+
+      const productRows = needProducts
+        ? await db
+            .select({
+              id: hProductsV2.id,
+              code: hProductsV2.productCode,
+              name: hProductsV2.productName,
+            })
+            .from(hProductsV2)
+            .where(
+              and(eq(hProductsV2.tenantId, ctx.tenantId), eq(hProductsV2.isActive, 1)),
+            )
+        : [];
+
+      // LLM 호출
+      const { invokeLLM } = await import("../../_core/llm");
+
+      // 마스터가 너무 많으면 토큰 초과 방지를 위해 간소화
+      const materialCatalog = materialRows
+        .map((m) => `[mat-${m.id}] ${m.code || "-"} | ${m.name}`)
+        .join("\n")
+        .slice(0, 15000); // ~15KB
+      const productCatalog = productRows
+        .map((p) => `[prod-${p.id}] ${p.code || "-"} | ${p.name}`)
+        .join("\n")
+        .slice(0, 15000);
+
+      const systemPrompt = `당신은 식품 제조 ERP 의 품목 매칭 전문가입니다.
+사용자가 입력한 품목명(오타/자연어/동의어/브랜드명 가능)을 받아서
+마스터 카탈로그에서 가장 일치하는 ID 를 찾아 반환합니다.
+
+매칭 규칙:
+1. 동의어 인식: "소맥분"=밀가루, "당근"=홍근, "쌀"=백미 등
+2. 브랜드/일반 구분: "CJ 설탕"→"설탕", "오뚜기 케첩"→"케첩"
+3. 스펙/포장 무시: "밀가루 1kg"와 "밀가루 5kg"는 같은 품목으로 취급
+4. 오타 허용: "밀갈루"→"밀가루"
+5. 확신이 없으면 confidence 를 낮게 주고 candidate IDs 를 여러개 제안`;
+
+      const userPrompt = `=== 원재료 카탈로그 (material) ===
+${materialCatalog || "(없음)"}
+
+=== 제품 카탈로그 (product) ===
+${productCatalog || "(없음)"}
+
+=== 매칭 요청 ===
+${input.items
+  .map(
+    (it, idx) =>
+      `${idx + 1}. [${it.targetType}] "${it.query}"${it.itemCode ? ` (코드: ${it.itemCode})` : ""}`,
+  )
+  .join("\n")}
+
+각 요청에 대해 가장 적합한 마스터 ID 를 반환하세요.
+- match_id 는 카탈로그의 "[mat-XX]" 또는 "[prod-XX]" 에서 숫자 부분
+- confidence 는 0-100
+- 확신이 없으면 match_id 를 null`;
+
+      try {
+        const result = await invokeLLM({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          maxTokens: 4000,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "item_match_results",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["matches"],
+                properties: {
+                  matches: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["index", "match_id", "confidence", "reason"],
+                      properties: {
+                        index: { type: "integer", description: "요청 순번 (1-based)" },
+                        match_id: {
+                          type: ["integer", "null"],
+                          description: "매칭된 마스터 ID. 확신 없으면 null",
+                        },
+                        confidence: {
+                          type: "integer",
+                          minimum: 0,
+                          maximum: 100,
+                        },
+                        reason: { type: "string", description: "매칭 근거 (한 줄)" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const content = result.choices[0]?.message?.content;
+        const parsed = typeof content === "string" ? JSON.parse(content) : { matches: [] };
+        const matches: Array<{
+          index: number;
+          match_id: number | null;
+          confidence: number;
+          reason: string;
+        }> = parsed.matches || [];
+
+        // LLM 결과 → 클라이언트 응답 형식으로 변환
+        return input.items.map((item, idx) => {
+          const m = matches.find((x) => x.index === idx + 1);
+          if (!m || m.match_id === null) {
+            return {
+              query: item.query,
+              itemCode: item.itemCode,
+              targetType: item.targetType,
+              confidence: "none" as const,
+              bestMatch: null,
+              aiReason: m?.reason || "AI가 적합한 매칭을 찾지 못함",
+            };
+          }
+          const masters = item.targetType === "material" ? materialRows : productRows;
+          const found = masters.find((x) => x.id === m.match_id);
+          if (!found) {
+            return {
+              query: item.query,
+              itemCode: item.itemCode,
+              targetType: item.targetType,
+              confidence: "none" as const,
+              bestMatch: null,
+              aiReason: `AI 반환 ID ${m.match_id} 가 카탈로그에 없음`,
+            };
+          }
+          const confidence: "high" | "medium" | "low" | "none" =
+            m.confidence >= 85 ? "high" : m.confidence >= 60 ? "medium" : "low";
+          return {
+            query: item.query,
+            itemCode: item.itemCode,
+            targetType: item.targetType,
+            confidence,
+            bestMatch: {
+              id: found.id,
+              code: found.code,
+              name: found.name,
+              score: m.confidence,
+              matchedBy: "ai_llm",
+            },
+            aiReason: m.reason,
+          };
+        });
+      } catch (err: any) {
+        console.error("[matchItemsAI] LLM 호출 실패:", err);
+        throw new Error(
+          `AI 매칭 실패: ${err?.message || "알 수 없는 오류"}. OPENAI_API_KEY 설정을 확인하세요.`,
+        );
+      }
+    }),
 });

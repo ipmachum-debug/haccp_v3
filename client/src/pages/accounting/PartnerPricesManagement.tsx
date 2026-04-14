@@ -47,6 +47,8 @@ import {
   FileSpreadsheet,
   Download,
   Upload,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
@@ -437,6 +439,70 @@ function PartnerPricesContent() {
     }
   };
 
+  // ─── AI 매칭 (저신뢰도 건 재처리) ───────────────
+  // 규칙기반으로 매칭 실패 / 낮은 신뢰도 건만 골라서 LLM 에 재요청
+  const [aiMatching, setAiMatching] = useState(false);
+  const runAiMatching = async () => {
+    const targetLines = batchLines.filter(
+      (l) => l.confidence === "none" || l.confidence === "low",
+    );
+    if (targetLines.length === 0) {
+      toast({
+        title: "AI 매칭할 건이 없습니다",
+        description: "매칭 실패 / 낮은 신뢰도 건이 없습니다",
+      });
+      return;
+    }
+
+    setAiMatching(true);
+    try {
+      const aiResults = await utils.partnerPrice.matchItemsAI.fetch({
+        items: targetLines.map((l) => ({
+          targetType: l.targetType,
+          query: l.originalQuery || l.itemName,
+          itemCode: l.itemCode || undefined,
+        })),
+      });
+
+      // 결과로 batchLines 업데이트
+      setBatchLines((prev) => {
+        const next = [...prev];
+        targetLines.forEach((line, idx) => {
+          const result = aiResults[idx];
+          if (!result || !result.bestMatch) return;
+          const lineIdx = next.findIndex((l) => l.id === line.id);
+          if (lineIdx === -1) return;
+          // AI 결과로 채움
+          next[lineIdx] = {
+            ...next[lineIdx],
+            materialId: result.targetType === "material" ? result.bestMatch.id : null,
+            productId: result.targetType === "product" ? result.bestMatch.id : null,
+            itemName: result.bestMatch.name,
+            itemCode: result.bestMatch.code || next[lineIdx].itemCode,
+            confidence: result.confidence,
+            matchedBy: "ai_llm",
+          };
+        });
+        return next;
+      });
+
+      const successCount = aiResults.filter((r: any) => r.bestMatch).length;
+      const failCount = aiResults.length - successCount;
+      toast({
+        title: `✨ AI 매칭 완료`,
+        description: `${successCount}건 추가 매칭 / ${failCount}건 여전히 매칭 실패`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "AI 매칭 실패",
+        description: err.message || "OPENAI_API_KEY 설정을 확인하세요",
+        variant: "destructive",
+      });
+    } finally {
+      setAiMatching(false);
+    }
+  };
+
   // ─── 단건 수정 ─────────────────────────────────────
   const openEditDialog = (row: any) => {
     setEditingRow(row);
@@ -755,6 +821,29 @@ function PartnerPricesContent() {
             </Button>
             <Button size="sm" variant="outline" onClick={() => addMultipleBatchLines(10)}>
               <Plus className="h-3.5 w-3.5 mr-1" /> +10
+            </Button>
+            <div className="h-4 w-px bg-border mx-1" />
+            {/* ✨ AI 재매칭 — 저신뢰도 건만 대상 */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={runAiMatching}
+              disabled={aiMatching}
+              className="text-violet-700 border-violet-300 hover:bg-violet-50"
+              title="규칙기반 매칭 실패/저신뢰도 건을 AI 로 재매칭"
+            >
+              {aiMatching ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5 mr-1" />
+              )}
+              AI 매칭
+              {(() => {
+                const count = batchLines.filter(
+                  (l) => l.confidence === "none" || l.confidence === "low",
+                ).length;
+                return count > 0 ? ` (${count})` : "";
+              })()}
             </Button>
             <div className="h-4 w-px bg-border mx-1" />
             {/* 일괄 타입 변경 */}
