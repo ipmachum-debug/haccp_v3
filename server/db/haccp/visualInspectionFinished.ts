@@ -296,6 +296,7 @@ export async function getOrCreateFinishedProductLog(
 
 export async function getFinishedProductLog(db: any, tenantId: number, logId: number) {
   await createFinishedProductInspectionTables(db);
+  // ★ 2026-04-14: u_creator JOIN + creator_name 폴백 (원재료 육안검사와 동일 패턴)
   const logResult = await db.execute(sql`
     SELECT fpl.*,
       ar.id as approval_id, ar.status as approval_status,
@@ -303,7 +304,8 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
       ar.requested_by, ar.approved_by, ar.reviewed_by,
       u_req.name as requester_name,
       u_rev.name as reviewer_name,
-      u_app.name as approver_name
+      u_app.name as approver_name,
+      u_creator.name as creator_name
     FROM h_finished_product_inspection_logs fpl
     LEFT JOIN h_approval_requests ar
       ON ar.reference_type = 'finished_product_inspection'
@@ -313,6 +315,7 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
     LEFT JOIN users u_req ON u_req.id = ar.requested_by
     LEFT JOIN users u_rev ON u_rev.id = ar.reviewed_by
     LEFT JOIN users u_app ON u_app.id = ar.approved_by
+    LEFT JOIN users u_creator ON u_creator.id = fpl.created_by
     WHERE fpl.id = ${logId} AND fpl.tenant_id = ${tenantId}
     LIMIT 1
   `);
@@ -355,7 +358,8 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
     requestedAt: log.requested_at || null,
     approvedAt: log.approved_at || null,
     reviewedAt: log.reviewed_at || null,
-    requesterName: cfg.cfg_author_name || log.requester_name || null,
+    // ★ 2026-04-14: 작성자 = 설정 > 결재요청 > 로그 생성자 우선순위
+    requesterName: cfg.cfg_author_name || log.requester_name || log.creator_name || null,
     reviewerName: cfg.cfg_reviewer_name || log.reviewer_name || null,
     approverName: cfg.cfg_approver_name || log.approver_name || null,
     items: (items as any[]).map((i: any) => ({

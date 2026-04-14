@@ -160,7 +160,7 @@ function generatePrintHTML(items: InspectionItem[], year: number, month: number,
           <tr><th colspan="3" class="seal-header">\uACB0 \uC7AC</th></tr>
           <tr><th class="seal-role">\uC791 \uC131</th><th class="seal-role">\uAC80 \uD1A0</th><th class="seal-role">\uC2B9 \uC778</th></tr>
           <tr>
-            <td class="seal-cell">${sealCell(ai.requesterName, ai.requestedAt, "\uC791\uC131")}</td>
+            <td class="seal-cell">${sealCell(ai.requesterName, ai.requestedAt || ai.createdAt, "\uC791\uC131")}</td>
             <td class="seal-cell">${sealCell(ai.reviewerName, ai.reviewedAt, "\uAC80\uD1A0")}</td>
             <td class="seal-cell">${sealCell(ai.approverName, ai.approvedAt, "\uC2B9\uC778")}</td>
           </tr>
@@ -256,7 +256,7 @@ function VisualInspectionDocument({
   items, year, month, approvalInfo,
 }: {
   items: InspectionItem[]; year: number; month: number;
-  approvalInfo?: { requesterName?: string; reviewerName?: string; approverName?: string; approvedAt?: string; reviewedAt?: string; requestedAt?: string };
+  approvalInfo?: { requesterName?: string; reviewerName?: string; approverName?: string; approvedAt?: string; reviewedAt?: string; requestedAt?: string; createdAt?: string };
 }) {
   const bCls = "border border-gray-600";
   const thCls = `${bCls} px-1 py-1 text-[8px] font-semibold bg-blue-50 text-center whitespace-nowrap`;
@@ -288,7 +288,7 @@ function VisualInspectionDocument({
           <tbody>
             <tr>
               <td className="border border-gray-600 text-center align-middle p-0" style={{height:'32px'}}>
-                {ai.requesterName ? <ApprovalSeal approverName={ai.requesterName} approvalDate={ai.requestedAt} approvalType="작성" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미작성</span>}
+                {ai.requesterName ? <ApprovalSeal approverName={ai.requesterName} approvalDate={ai.requestedAt || ai.createdAt} approvalType="작성" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미작성</span>}
               </td>
               <td className="border border-gray-600 text-center align-middle p-0" style={{height:'32px'}}>
                 {ai.reviewerName && ai.reviewedAt ? <ApprovalSeal approverName={ai.reviewerName} approvalDate={ai.reviewedAt} approvalType="검토" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미검토</span>}
@@ -472,6 +472,7 @@ export function VisualInspectionLogContent() {
   const approvalInfo = logDetail ? {
     requesterName: logDetail.requesterName, reviewerName: logDetail.reviewerName, approverName: logDetail.approverName,
     approvedAt: logDetail.approvedAt, reviewedAt: logDetail.reviewedAt, requestedAt: logDetail.requestedAt,
+    createdAt: logDetail.createdAt,  // ★ 2026-04-14: 작성자 도장 날짜 폴백용
   } : undefined;
   const isApproved = logDetail?.approvalStatus === "approved";
   const isPending = logDetail?.approvalStatus === "pending_review" || logDetail?.approvalStatus === "pending_approval";

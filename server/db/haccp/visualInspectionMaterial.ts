@@ -149,16 +149,20 @@ export async function listVisualInspectionLogs(db: any, tenantId: number, year: 
 /** 육안검사일지 상세 조회 (items 포함) */
 export async function getVisualInspectionLog(db: any, tenantId: number, logId: number) {
   // 로그 기본 정보
+  // ★ 2026-04-14: u_creator JOIN 추가
+  //   결재설정 / 결재요청이 없을 때도 "작성자" 가 비어있지 않도록
+  //   log.created_by 사용자 이름을 폴백으로 사용
   const logResult = await db.execute(sql`
-    SELECT vil.*, 
+    SELECT vil.*,
       ar.id as approval_id, ar.status as approval_status,
       ar.requested_at, ar.approved_at, ar.reviewed_at,
       ar.requested_by, ar.approved_by, ar.reviewed_by,
       u_req.name as requester_name,
       u_rev.name as reviewer_name,
-      u_app.name as approver_name
+      u_app.name as approver_name,
+      u_creator.name as creator_name
     FROM h_visual_inspection_logs vil
-    LEFT JOIN h_approval_requests ar 
+    LEFT JOIN h_approval_requests ar
       ON ar.reference_type = 'visual_inspection'
       AND ar.reference_id = vil.id
       AND ar.request_type = 'visual_inspection'
@@ -166,6 +170,7 @@ export async function getVisualInspectionLog(db: any, tenantId: number, logId: n
     LEFT JOIN users u_req ON u_req.id = ar.requested_by
     LEFT JOIN users u_rev ON u_rev.id = ar.reviewed_by
     LEFT JOIN users u_app ON u_app.id = ar.approved_by
+    LEFT JOIN users u_creator ON u_creator.id = vil.created_by
     WHERE vil.id = ${logId} AND vil.tenant_id = ${tenantId}
     LIMIT 1
   `);
@@ -223,7 +228,13 @@ export async function getVisualInspectionLog(db: any, tenantId: number, logId: n
     requestedAt: log.requested_at || null,
     approvedAt: log.approved_at || null,
     reviewedAt: log.reviewed_at || null,
-    requesterName: cfg.cfg_author_name || log.requester_name || null,
+    // ★ 2026-04-14: 작성자 폴백 순서
+    //   1. 결재설정 지정 작성자 (h_document_approval_settings)
+    //   2. 결재요청 요청자 (h_approval_requests)
+    //   3. 로그 생성자 (h_visual_inspection_logs.created_by) ← NEW
+    //   결재설정/결재요청이 없어도 "작성자" 필드가 비어있지 않음.
+    //   검토/승인은 결재 워크플로우를 거쳐야 채워지므로 폴백 없음.
+    requesterName: cfg.cfg_author_name || log.requester_name || log.creator_name || null,
     reviewerName: cfg.cfg_reviewer_name || log.reviewer_name || null,
     approverName: cfg.cfg_approver_name || log.approver_name || null,
     items: (items as any[]).map((i: any) => ({
