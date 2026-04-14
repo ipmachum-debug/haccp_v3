@@ -63,10 +63,23 @@ export const bankTransactionRouter = router({
     }),
 
   match: tenantRequiredProcedure
-    .input(z.object({ id: z.number(), accountingAccountId: z.number() }))
+    .input(z.object({
+      id: z.number(),
+      accountingAccountId: z.number(),
+      learnRule: z.boolean().optional().default(true), // ★ 2026-04-14: 규칙 자동 학습 (기본 ON)
+    }))
     .mutation(async ({ ctx, input }) => {
-      await txService.matchTransaction(ctx.tenantId, input.id, input.accountingAccountId, ctx.user.id);
-      return { message: "매칭이 완료되었습니다." };
+      const result = await txService.matchTransaction(
+        ctx.tenantId,
+        input.id,
+        input.accountingAccountId,
+        ctx.user.id,
+        { learnRule: input.learnRule },
+      );
+      const learnedMsg = result?.learnedRule?.created
+        ? ` (규칙 학습: "${result.learnedRule.keyword}")`
+        : "";
+      return { message: `매칭이 완료되었습니다.${learnedMsg}`, learnedRule: result?.learnedRule };
     }),
 
   unmatch: tenantRequiredProcedure

@@ -70,6 +70,12 @@ export default function BankTransactionTab() {
   const [selectedTransaction, setSelectedTransaction] = useState<any>(null);
   const [matchAccountingId, setMatchAccountingId] = useState("");
   const [matchDescription, setMatchDescription] = useState("");
+  // ★ 2026-04-14: 수동 매칭 시 규칙 자동 학습 (기본 ON)
+  const [learnRuleOnMatch, setLearnRuleOnMatch] = useState(true);
+  // ★ 2026-04-14: AI 자동 매칭 Preview
+  const [isAutoMatchPreviewOpen, setIsAutoMatchPreviewOpen] = useState(false);
+  const [autoMatchPreview, setAutoMatchPreview] = useState<any[]>([]);
+  const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<number>>(new Set());
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [editingTxId, setEditingTxId] = useState<number | null>(null);
@@ -165,10 +171,31 @@ export default function BankTransactionTab() {
     },
   });
 
-  // 자동 매칭
-  const runAutoMatchMutation = trpc.bankTransactionBulk.runAutoMatch.useMutation({
+  // ★ 2026-04-14: 자동 매칭 — 2단계 (Preview → Apply)
+  // Phase 1: dryRun 으로 매칭 후보 미리보기
+  const runAutoMatchPreviewMutation = trpc.bankTransactionBulk.runAutoMatch.useMutation({
+    onSuccess: (result: any) => {
+      if (!result.preview || result.preview.length === 0) {
+        toast.info("자동 매칭 가능한 거래가 없습니다. 먼저 수동 매칭으로 규칙을 학습하세요.");
+        return;
+      }
+      setAutoMatchPreview(result.preview);
+      // 기본: 전체 선택
+      setSelectedPreviewIds(new Set(result.preview.map((p: any) => p.transactionId)));
+      setIsAutoMatchPreviewOpen(true);
+    },
+    onError: (error: any) => {
+      toast.error(`자동 매칭 미리보기 오류: ${error.message}`);
+    },
+  });
+
+  // Phase 2: 선택한 것만 실제 적용
+  const runAutoMatchApplyMutation = trpc.bankTransactionBulk.runAutoMatch.useMutation({
     onSuccess: (result: any) => {
       toast.success(`AI 자동 매칭 완료: ${result.matched}건 매칭됨`);
+      setIsAutoMatchPreviewOpen(false);
+      setAutoMatchPreview([]);
+      setSelectedPreviewIds(new Set());
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
@@ -336,10 +363,41 @@ export default function BankTransactionTab() {
     toast.success("템플릿이 다운로드되었습니다");
   };
 
-  // AI 자동 매칭
+  // ★ AI 자동 매칭: Preview 먼저 (dryRun), 사용자 확인 후 실제 적용
   const handleRunAutoMatch = () => {
     if (!selectedAccountId) return;
-    runAutoMatchMutation.mutate({ bankAccountId: selectedAccountId });
+    runAutoMatchPreviewMutation.mutate({ bankAccountId: selectedAccountId, dryRun: true });
+  };
+
+  // Preview Dialog 에서 선택한 건만 실제 매칭
+  const handleApplyAutoMatch = () => {
+    if (!selectedAccountId) return;
+    if (selectedPreviewIds.size === 0) {
+      toast.error("적용할 거래를 선택해주세요");
+      return;
+    }
+    runAutoMatchApplyMutation.mutate({
+      bankAccountId: selectedAccountId,
+      dryRun: false,
+      onlyTxIds: Array.from(selectedPreviewIds),
+    });
+  };
+
+  const togglePreviewId = (txId: number) => {
+    setSelectedPreviewIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(txId)) next.delete(txId);
+      else next.add(txId);
+      return next;
+    });
+  };
+
+  const togglePreviewAll = () => {
+    if (selectedPreviewIds.size === autoMatchPreview.length) {
+      setSelectedPreviewIds(new Set());
+    } else {
+      setSelectedPreviewIds(new Set(autoMatchPreview.map((p) => p.transactionId)));
+    }
   };
 
   // 수동 매칭 Dialog 열기
@@ -350,7 +408,7 @@ export default function BankTransactionTab() {
     setIsMatchDialogOpen(true);
   };
 
-  // 수동 매칭 실행
+  // 수동 매칭 실행 — ★ 2026-04-14: learnRule 옵션 전달
   const handleManualMatch = () => {
     if (!selectedTransaction || !matchAccountingId) {
       toast.error("계정과목을 선택해주세요");
@@ -359,6 +417,7 @@ export default function BankTransactionTab() {
     matchMutation.mutate({
       id: selectedTransaction.id,
       accountingAccountId: parseInt(matchAccountingId),
+      learnRule: learnRuleOnMatch,
     });
   };
 
@@ -615,10 +674,14 @@ export default function BankTransactionTab() {
               size="sm"
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
               onClick={handleRunAutoMatch}
-              disabled={runAutoMatchMutation.isPending}
+              disabled={runAutoMatchPreviewMutation.isPending || runAutoMatchApplyMutation.isPending}
             >
-              <Sparkles className={`h-4 w-4 mr-1 ${runAutoMatchMutation.isPending ? "animate-spin" : ""}`} />
-              {runAutoMatchMutation.isPending ? "매칭 중..." : "AI 자동 매칭"}
+              <Sparkles
+                className={`h-4 w-4 mr-1 ${
+                  runAutoMatchPreviewMutation.isPending ? "animate-spin" : ""
+                }`}
+              />
+              {runAutoMatchPreviewMutation.isPending ? "분석 중..." : "AI 자동 매칭"}
             </Button>
 
             <div className="flex-1" />
@@ -1147,8 +1210,27 @@ export default function BankTransactionTab() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  계정과목을 선택하면 해당 거래가 매칭되고 자동 매칭 규칙에 학습됩니다.
+                  계정과목을 선택하면 해당 거래가 매칭됩니다.
                 </p>
+              </div>
+
+              {/* ★ 2026-04-14: 규칙 자동 학습 옵션 */}
+              <div className="flex items-start gap-2 p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                <Checkbox
+                  id="learnRule"
+                  checked={learnRuleOnMatch}
+                  onCheckedChange={(checked) => setLearnRuleOnMatch(!!checked)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <Label htmlFor="learnRule" className="text-sm font-medium cursor-pointer flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                    이 패턴을 자동 매칭 규칙으로 학습
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    체크하면 이후 AI 자동 매칭 시 같은 거래처/적요를 가진 미매칭 거래들이 자동으로 검색됩니다.
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -1164,6 +1246,133 @@ export default function BankTransactionTab() {
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
               매칭 확정
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ 2026-04-14: AI 자동 매칭 Preview Dialog */}
+      <Dialog open={isAutoMatchPreviewOpen} onOpenChange={setIsAutoMatchPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-600" />
+              AI 자동 매칭 미리보기
+            </DialogTitle>
+            <DialogDescription>
+              학습된 매칭 규칙으로 자동 매칭 가능한 거래 <strong>{autoMatchPreview.length}건</strong>을
+              찾았습니다. 적용할 거래만 선택한 후 확정하세요.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center justify-between border-b pb-2 mb-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={
+                  autoMatchPreview.length > 0 &&
+                  selectedPreviewIds.size === autoMatchPreview.length
+                }
+                onCheckedChange={togglePreviewAll}
+              />
+              <span className="text-sm font-medium">
+                전체 선택 ({selectedPreviewIds.size}/{autoMatchPreview.length})
+              </span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              선택한 거래는 매칭 확정 + 자동 분개됩니다
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-background border-b">
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="w-8 py-2"></th>
+                  <th className="py-2">거래일</th>
+                  <th className="py-2">적요</th>
+                  <th className="py-2 text-right">금액</th>
+                  <th className="py-2">→ 계정과목</th>
+                  <th className="py-2">규칙</th>
+                </tr>
+              </thead>
+              <tbody>
+                {autoMatchPreview.map((item) => {
+                  const acc = accountingAccounts.find(
+                    (a: any) => Number(a.id) === Number(item.accountingAccountId),
+                  );
+                  return (
+                    <tr
+                      key={item.transactionId}
+                      className="border-b hover:bg-muted/40 cursor-pointer"
+                      onClick={() => togglePreviewId(item.transactionId)}
+                    >
+                      <td className="py-2">
+                        <Checkbox
+                          checked={selectedPreviewIds.has(item.transactionId)}
+                          onCheckedChange={() => togglePreviewId(item.transactionId)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </td>
+                      <td className="py-2 text-xs text-muted-foreground">
+                        {item.transactionDate
+                          ? new Date(item.transactionDate).toLocaleDateString("ko-KR", {
+                              month: "2-digit",
+                              day: "2-digit",
+                            })
+                          : "-"}
+                      </td>
+                      <td className="py-2 max-w-[240px] truncate" title={item.description}>
+                        {item.description || "-"}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums">
+                        <span
+                          className={
+                            item.transactionType === "deposit"
+                              ? "text-blue-600"
+                              : "text-red-600"
+                          }
+                        >
+                          {item.transactionType === "deposit" ? "+" : "-"}
+                          {Number(item.amount).toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="py-2">
+                        {acc ? (
+                          <Badge variant="outline" className="text-xs font-normal">
+                            {acc.code} · {acc.name}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            #{item.accountingAccountId}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-xs text-muted-foreground truncate max-w-[120px]" title={item.ruleName}>
+                        {item.ruleName}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <DialogFooter className="border-t pt-3">
+            <Button
+              variant="outline"
+              onClick={() => setIsAutoMatchPreviewOpen(false)}
+            >
+              취소
+            </Button>
+            <Button
+              onClick={handleApplyAutoMatch}
+              disabled={selectedPreviewIds.size === 0 || runAutoMatchApplyMutation.isPending}
+              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+            >
+              {runAutoMatchApplyMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              선택한 {selectedPreviewIds.size}건 매칭 확정
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -4,11 +4,108 @@
 
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db";
-import { bankTransactions } from "../../../drizzle/schema";
+import { bankTransactions, matchingRules } from "../../../drizzle/schema";
 import { eq, and, gte, lte, like, or, sql, desc, inArray } from "drizzle-orm";
 import { omitUndefined } from "@shared/utils";
 import { assertBankAccountOwned } from "./bankAccount.service";
 import { postBankTransactionJournal, cancelBankTransactionJournal } from "../../db/accounting/journalHelper";
+
+/**
+ * ★ 2026-04-14: 거래 description 에서 자동 매칭용 키워드 추출
+ *
+ * 예시:
+ *   "조은영 (조은영)"      → "조은영"
+ *   "(주)단지 1,500,000"   → "(주)단지"
+ *   "카드매출 ABC123"      → "카드매출"
+ *   "PAYROLL-APR"          → "PAYROLL-APR"
+ *
+ * 전략: 괄호/숫자/특수문자 앞까지의 첫 "의미있는 단어" 를 추출
+ */
+export function extractMatchingKeyword(description: string): string | null {
+  if (!description) return null;
+  const trimmed = description.trim();
+
+  // 1) 동일한 이름이 괄호 안에도 있는 경우: "조은영 (조은영)" → "조은영"
+  const mirrorMatch = trimmed.match(/^(.+?)\s*\(\1\)/);
+  if (mirrorMatch) return mirrorMatch[1].trim();
+
+  // 2) 괄호 앞까지의 첫 단어: "카드사 (12345)" → "카드사"
+  const beforeParen = trimmed.split(/[(（]/)[0].trim();
+  if (beforeParen && beforeParen.length >= 2) {
+    // 숫자만 있는 경우는 제외
+    if (!/^[\d\s,.\-]+$/.test(beforeParen)) {
+      return beforeParen;
+    }
+  }
+
+  // 3) 공백/숫자로 자르고 첫 토큰
+  const firstToken = trimmed.split(/[\s\d]+/)[0];
+  if (firstToken && firstToken.length >= 2) return firstToken;
+
+  return null;
+}
+
+/**
+ * ★ 2026-04-14: 매칭 규칙 자동 학습
+ *   - 수동 매칭 시 같은 패턴의 규칙이 없으면 keyword 기반 규칙 자동 생성
+ *   - 중복 방지: 같은 (tenant, keyword, accountingAccountId) 있으면 skip
+ */
+export async function learnMatchingRule(
+  tenantId: number,
+  description: string,
+  accountingAccountId: number,
+  userId: number,
+  transactionType?: "deposit" | "withdrawal",
+): Promise<{ created: boolean; ruleId?: number; keyword?: string }> {
+  const keyword = extractMatchingKeyword(description);
+  if (!keyword) return { created: false };
+
+  const db = await getDb();
+
+  // 중복 체크: 같은 tenant + keyword 로 이미 active 규칙이 있는지
+  const existing = await db
+    .select({ id: matchingRules.id, conditions: matchingRules.conditions, actions: matchingRules.actions })
+    .from(matchingRules)
+    .where(and(eq(matchingRules.tenantId, tenantId), eq(matchingRules.isActive, 1)));
+
+  for (const r of existing) {
+    try {
+      const cond = typeof r.conditions === "string" ? JSON.parse(r.conditions) : r.conditions;
+      const actions = typeof r.actions === "string" ? JSON.parse(r.actions) : r.actions;
+      if (
+        cond?.keyword?.toLowerCase() === keyword.toLowerCase() &&
+        (actions?.accountingAccountId === accountingAccountId || actions?.targetAccountId === accountingAccountId)
+      ) {
+        return { created: false, ruleId: r.id, keyword };
+      }
+    } catch (_) { /* ignore malformed */ }
+  }
+
+  // 신규 규칙 생성
+  const ruleName = `${keyword} → 계정 #${accountingAccountId} (자동학습)`;
+  const conditions = JSON.stringify({
+    name: ruleName,
+    keyword,
+    transactionType: transactionType ?? undefined,
+    learnedFrom: "manual-match",
+  });
+  const actions = JSON.stringify({
+    accountingAccountId,
+  });
+
+  const [result] = await db.insert(matchingRules).values({
+    tenantId,
+    userId,
+    ruleType: "keyword",
+    priority: 100,
+    weight: "1.00",
+    conditions,
+    actions,
+    isActive: 1,
+  } as any);
+
+  return { created: true, ruleId: (result as any).insertId, keyword };
+}
 
 export async function listTransactions(tenantId: number, filters?: {
   bankAccountId?: number;
@@ -147,7 +244,13 @@ export async function deleteTransaction(tenantId: number, transactionId: number)
     .where(and(eq(bankTransactions.id, transactionId), eq(bankTransactions.tenantId, tenantId)));
 }
 
-export async function matchTransaction(tenantId: number, transactionId: number, accountingAccountId: number, userId: number) {
+export async function matchTransaction(
+  tenantId: number,
+  transactionId: number,
+  accountingAccountId: number,
+  userId: number,
+  options?: { learnRule?: boolean },
+) {
   const db = await getDb();
 
   // 먼저 거래 정보 조회 (분개용)
@@ -181,6 +284,31 @@ export async function matchTransaction(tenantId: number, transactionId: number, 
     console.error("[matchTransaction] 자동분개 실패:", e);
     // 매칭은 성공, 분개 실패 시 무시 (매칭 상태는 유지)
   }
+
+  // ★ 2026-04-14: 매칭 규칙 자동 학습 (사용자 선택, 기본 ON)
+  //    수동 매칭 시 같은 패턴의 다른 미매칭 거래를 AI 자동 매칭에서 처리할 수 있도록
+  //    keyword 기반 규칙을 자동으로 생성 (중복 방지)
+  let learnedRule: { created: boolean; ruleId?: number; keyword?: string } = { created: false };
+  if (options?.learnRule !== false) {
+    try {
+      learnedRule = await learnMatchingRule(
+        tenantId,
+        transaction.description || "",
+        accountingAccountId,
+        userId,
+        transaction.transactionType as "deposit" | "withdrawal" | undefined,
+      );
+      if (learnedRule.created) {
+        console.log(
+          `[matchTransaction] 규칙 자동 학습: keyword="${learnedRule.keyword}" → 계정 #${accountingAccountId} (ruleId=${learnedRule.ruleId})`,
+        );
+      }
+    } catch (learnErr) {
+      console.error("[matchTransaction] 규칙 학습 실패 (매칭은 성공):", learnErr);
+    }
+  }
+
+  return { learnedRule };
 }
 
 export async function unmatchTransaction(tenantId: number, transactionId: number) {

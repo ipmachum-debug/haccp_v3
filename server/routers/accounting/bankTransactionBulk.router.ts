@@ -24,13 +24,26 @@ export const bankTransactionBulkRouter = router({
     }),
 
   runAutoMatch: tenantRequiredProcedure
-    .input(z.object({ bankAccountId: z.number().optional() }).optional())
+    .input(
+      z.object({
+        bankAccountId: z.number().optional(),
+        // ★ 2026-04-14: Preview 모드 지원
+        dryRun: z.boolean().optional().default(false),
+        onlyTxIds: z.array(z.number()).optional(), // 사용자가 체크한 거래만 실행
+      }).optional(),
+    )
     .mutation(async ({ ctx, input }) => {
-      const { total, matched } = await runAutoMatch(ctx.tenantId, ctx.user.id, input?.bankAccountId);
+      const result = await runAutoMatch(
+        ctx.tenantId,
+        ctx.user.id,
+        input?.bankAccountId,
+        { dryRun: input?.dryRun, onlyTxIds: input?.onlyTxIds },
+      );
       return {
-        total,
-        matched,
-        message: `${total}건 중 ${matched}건이 자동 매칭되었습니다.`,
+        ...result,
+        message: result.dryRun
+          ? `미리보기: ${result.total}건 중 ${result.preview.length}건이 자동 매칭 가능합니다.`
+          : `${result.total}건 중 ${result.matched}건이 자동 매칭되었습니다.`,
       };
     }),
 });
