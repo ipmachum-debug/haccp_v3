@@ -220,22 +220,48 @@ function PurchasesManagementContent() {
     );
   };
 
-  const handleItemMasterSelect = (selectedMasterItem: any) => {
+  const handleItemMasterSelect = async (selectedMasterItem: any) => {
     if (!materialSearchItemId) return;
 
-    setItems(
-      items.map((item) => {
-        if (item.id !== materialSearchItemId) return item;
+    // Phase B: 거래처별 단가 조회
+    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    if (selectedPartnerId && selectedMasterItem.id) {
+      try {
+        const price = await utils.partnerPrice.resolvePrice.fetch({
+          partnerId: Number(selectedPartnerId),
+          targetType: "material",
+          materialId: selectedMasterItem.id,
+        });
+        if (price && price.unitPrice > 0) {
+          resolvedUnitPrice = price.unitPrice;
+          toast({
+            title: "거래처 단가 자동 적용",
+            description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
+          });
+        }
+      } catch {
+        // 단가 없음 → defaultUnitPrice 사용
+      }
+    }
 
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== materialSearchItemId) return item;
+        const quantity = item.quantity;
+        const amount = quantity * resolvedUnitPrice;
+        const taxAmount = item.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
         return {
           ...item,
           itemMasterId: selectedMasterItem.id,
           itemType: selectedMasterItem.itemType,
           itemName: selectedMasterItem.itemName || "",
-          unitPrice: selectedMasterItem.defaultUnitPrice || 0,
+          unitPrice: resolvedUnitPrice,
           packagingUnit: selectedMasterItem.baseUnit || "kg",
+          amount,
+          taxAmount,
+          totalAmount: amount + taxAmount,
         };
-      })
+      }),
     );
 
     setMaterialSearchItemId(null);

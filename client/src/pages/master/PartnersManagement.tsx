@@ -78,6 +78,12 @@ export default function PartnersManagement() {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+
+    // Phase B: 거래처 고도화 필드 (숫자 변환)
+    const paymentTermsRaw = formData.get("paymentTermsDays") as string;
+    const creditLimitRaw = formData.get("creditLimit") as string;
+    const defaultDiscountRaw = formData.get("defaultDiscountRate") as string;
+
     const data = {
       partnerType: formData.get("partnerType") as "supplier" | "customer" | "subcontractor",
       bizNo: formData.get("bizNo") as string,
@@ -91,6 +97,11 @@ export default function PartnersManagement() {
       email: formData.get("email") as string || undefined,
       bankName: formData.get("bankName") as string || undefined,
       bankAccount: formData.get("bankAccount") as string || undefined,
+      // Phase B (2026-04-14): 거래처 고도화
+      grade: (formData.get("grade") as string) || undefined,
+      paymentTermsDays: paymentTermsRaw ? parseInt(paymentTermsRaw) : undefined,
+      creditLimit: creditLimitRaw ? parseFloat(creditLimitRaw) : undefined,
+      defaultDiscountRate: defaultDiscountRaw ? parseFloat(defaultDiscountRaw) : undefined,
     };
 
     if (editingPartner) {
@@ -349,6 +360,74 @@ export default function PartnersManagement() {
                     name="bankAccount"
                     defaultValue={editingPartner?.bankAccount}
                   />
+                </div>
+              </div>
+
+              {/* Phase B (2026-04-14): 거래처 고도화 */}
+              <div className="mt-2 pt-4 border-t">
+                <h3 className="text-sm font-semibold text-muted-foreground mb-3">
+                  ● 거래 조건 (Phase B)
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="grade">거래처 등급</Label>
+                    <select
+                      id="grade"
+                      name="grade"
+                      defaultValue={editingPartner?.grade || ""}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">(선택 안 함)</option>
+                      <option value="VIP">VIP (최우수)</option>
+                      <option value="A">A (우수)</option>
+                      <option value="B">B (일반)</option>
+                      <option value="C">C (주의)</option>
+                      <option value="D">D (거래 제한)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="paymentTermsDays">
+                      결제 조건 (일)
+                      <span className="text-xs text-muted-foreground ml-1">
+                        예: 30 = 익월 30일
+                      </span>
+                    </Label>
+                    <Input
+                      id="paymentTermsDays"
+                      name="paymentTermsDays"
+                      type="number"
+                      min={0}
+                      placeholder="30"
+                      defaultValue={editingPartner?.paymentTermsDays || ""}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="creditLimit">여신 한도 (원)</Label>
+                    <Input
+                      id="creditLimit"
+                      name="creditLimit"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      placeholder="10000000"
+                      defaultValue={editingPartner?.creditLimit || ""}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="defaultDiscountRate">기본 할인율 (%)</Label>
+                    <Input
+                      id="defaultDiscountRate"
+                      name="defaultDiscountRate"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      placeholder="0"
+                      defaultValue={editingPartner?.defaultDiscountRate || ""}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

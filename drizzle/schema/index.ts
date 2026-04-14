@@ -28,6 +28,7 @@ export * from "./companies";
 export * from "./schema_accounting_extended";
 export * from "./schema_accounting_items";
 export * from "./schema_purchase_orders";
+export * from "./schema_partner_prices";
 export * from "./accountingMonthlyReport";
 export * from "./schema_categories";
 export * from "./accountingAccounts";

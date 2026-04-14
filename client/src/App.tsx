@@ -408,6 +408,8 @@ function Router() {
       {/* Phase A (2026-04-14): 발주·구매 관리 */}
       <Route path="/dashboard/accounting/purchase-orders" component={lazy(() => import("@/pages/accounting/PurchaseOrderList"))} />
       <Route path="/dashboard/accounting/purchase-orders/create" component={lazy(() => import("@/pages/accounting/PurchaseOrderCreate"))} />
+      {/* Phase B (2026-04-14): 거래처별 단가표 */}
+      <Route path="/dashboard/accounting/partner-prices" component={lazy(() => import("@/pages/accounting/PartnerPricesManagement"))} />
       <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
       <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
       <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />

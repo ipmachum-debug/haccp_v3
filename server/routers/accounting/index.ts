@@ -20,3 +20,5 @@ export { accountCategoriesRouter } from "./accountCategories.router";
 export { inventoryAccountingRouter } from "./inventoryAccounting.router";
 // Phase A (2026-04-14): 발주/구매 관리
 export { purchaseOrderRouter } from "./purchaseOrder.router";
+// Phase B (2026-04-14): 거래처별 단가표
+export { partnerPriceRouter } from "./partnerPrice.router";

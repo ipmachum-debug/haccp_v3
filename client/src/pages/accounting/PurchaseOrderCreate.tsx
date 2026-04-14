@@ -108,16 +108,18 @@ function PurchaseOrderCreateContent() {
   };
 
   const updateLine = (id: string, patch: Partial<POLine>) => {
-    setLines(lines.map((l) => {
-      if (l.id !== id) return l;
-      const updated = { ...l, ...patch };
-      // 금액/세액 자동 계산
-      if ("orderedQty" in patch || "unitPrice" in patch) {
-        const amt = (updated.orderedQty || 0) * (updated.unitPrice || 0);
-        updated.taxAmount = Math.round(amt * 0.1);
-      }
-      return updated;
-    }));
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const updated = { ...l, ...patch };
+        // 금액/세액 자동 계산
+        if ("orderedQty" in patch || "unitPrice" in patch) {
+          const amt = (updated.orderedQty || 0) * (updated.unitPrice || 0);
+          updated.taxAmount = Math.round(amt * 0.1);
+        }
+        return updated;
+      }),
+    );
   };
 
   const handleSave = () => {
@@ -265,14 +267,33 @@ function PurchaseOrderCreateContent() {
                 <MaterialCombobox
                   selectedId={line.materialId}
                   selectedName={line.itemName}
-                  onSelect={(m) =>
+                  onSelect={async (m) => {
                     updateLine(line.id, {
                       materialId: m.id,
                       itemName: m.materialName,
                       itemCode: m.materialCode,
                       unit: m.unit || line.unit,
-                    })
-                  }
+                    });
+                    // Phase B: 거래처별 단가 자동 적용
+                    if (partnerId) {
+                      try {
+                        const price = await utils.partnerPrice.resolvePrice.fetch({
+                          partnerId: parseInt(partnerId),
+                          targetType: "material",
+                          materialId: m.id,
+                        });
+                        if (price && price.unitPrice > 0) {
+                          updateLine(line.id, { unitPrice: price.unitPrice });
+                          toast({
+                            title: "거래처 단가 자동 적용",
+                            description: `${m.materialName}: ${price.unitPrice.toLocaleString()}원`,
+                          });
+                        }
+                      } catch (err) {
+                        // 단가가 없으면 조용히 무시
+                      }
+                    }
+                  }}
                   onClear={() =>
                     updateLine(line.id, { materialId: null, itemName: "", itemCode: "" })
                   }

@@ -31,13 +31,20 @@ export const arLedgerRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = getEffectiveTenantId(ctx);
-        const { createArLedgerEntry } = await import("../../partners");
+        const { createArLedgerEntry, resolveDueDate } = await import("../../partners");
         const { occurredAt, dueDate, ...rest } = input;
+        // Phase B: payment_terms_days 기반 자동 만기일 계산 (dueDate 명시 없을 때)
+        const resolvedDueDate = await resolveDueDate(
+          tenantId,
+          input.customerPartnerId,
+          occurredAt,
+          dueDate,
+        );
         const id = await createArLedgerEntry({
           ...rest,
           tenantId,
           occurredAt: new Date(occurredAt),
-          dueDate: dueDate ? new Date(dueDate) : undefined,
+          dueDate: resolvedDueDate ?? undefined,
           createdBy: ctx.user.id
         });
         return { id };

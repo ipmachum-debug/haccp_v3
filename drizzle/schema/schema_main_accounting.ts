@@ -95,6 +95,11 @@ export const partners = mysqlTable("partners", {
   email: varchar({ length: 320 }),
   bankName: varchar("bank_name", { length: 50 }), // 은행명
   bankAccount: varchar("bank_account", { length: 50 }), // 계좌번호
+  // ★ 2026-04-14 Phase B: 거래처 고도화 필드
+  grade: varchar("grade", { length: 20 }),                      // vip / standard / economy (자유 텍스트)
+  paymentTermsDays: int("payment_terms_days"),                  // 결제 조건 일수 (예: 30, 60, 90)
+  creditLimit: decimal("credit_limit", { precision: 15, scale: 2 }), // 여신 한도
+  defaultDiscountRate: decimal("default_discount_rate", { precision: 5, scale: 2 }), // 기본 할인율 %
   isActive: tinyint("is_active").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
@@ -128,6 +133,7 @@ export const apLedger = mysqlTable("ap_ledger", {
   occurredAt: timestamp("occurred_at").notNull(),
   apEntryType: mysqlEnum("ap_entry_type", ["bill", "payment", "credit", "adjust"]).notNull(),
   amount: decimal({ precision: 18, scale: 2 }).notNull(),
+  dueDate: date("due_date"), // Phase B (2026-04-14): 지급 만기일 (payment_terms_days 기반 자동 계산)
   refType: varchar("ref_type", { length: 50 }), // 'receiving', 'manual', etc.
   refId: bigint("ref_id", { mode: "number" }), // h_material_receivings.id, etc.
   memo: varchar({ length: 255 }),

@@ -111,6 +111,39 @@ export async function updatePartner(id: number, data: Partial<InsertPartner>, te
 }
 
 /**
+ * Phase B (2026-04-14): 결제 만기일 자동 계산
+ * - partner.paymentTermsDays 를 occurredAt 에 더해서 dueDate 반환
+ * - 기본값(30일) 은 partner.paymentTermsDays 가 null 일 때 사용
+ * - explicitDueDate 가 있으면 그대로 사용 (수동 지정 우선)
+ */
+export async function resolveDueDate(
+  tenantId: number,
+  partnerId: number,
+  occurredAt: Date | string,
+  explicitDueDate?: Date | string | null,
+): Promise<Date | null> {
+  if (explicitDueDate) {
+    return typeof explicitDueDate === "string" ? new Date(explicitDueDate) : explicitDueDate;
+  }
+  const db = await getDb();
+  if (!db) return null;
+
+  const [partner] = await db
+    .select({ paymentTermsDays: partners.paymentTermsDays })
+    .from(partners)
+    .where(and(eq(partners.id, partnerId), eq(partners.tenantId, tenantId)))
+    .limit(1);
+
+  const days = partner?.paymentTermsDays ?? 30; // 기본 30일
+  const base = typeof occurredAt === "string" ? new Date(occurredAt) : occurredAt;
+  if (!base || isNaN(base.getTime())) return null;
+
+  const due = new Date(base);
+  due.setDate(due.getDate() + days);
+  return due;
+}
+
+/**
  * 거래처 삭제 (소프트 삭제)
  */
 export async function deletePartner(id: number, tenantId?: number) {
