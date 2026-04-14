@@ -180,6 +180,90 @@ export const partnerPriceRouter = router({
   }),
 
   /**
+   * ★ 다중 품목 일괄 등록 — Phase B (2026-04-14)
+   * 거래처당 수십 품목을 한 번에 등록.
+   * 중복(UNIQUE 위반) 은 skip 카운트로 보고, 나머지는 성공.
+   */
+  createBatch: adminProcedure
+    .input(
+      z.object({
+        partnerId: z.number(),
+        effectiveFrom: z.string(), // 공통 적용일
+        effectiveTo: z.string().optional(),
+        currency: z.string().default("KRW"),
+        items: z
+          .array(
+            z.object({
+              targetType: z.enum(["material", "product"]),
+              materialId: z.number().optional(),
+              productId: z.number().optional(),
+              itemName: z.string().min(1),
+              itemCode: z.string().optional(),
+              unitPrice: z.number().nonnegative(),
+              discountRate: z.number().min(0).max(100).optional(),
+              notes: z.string().optional(),
+            }),
+          )
+          .min(1, "최소 1개 품목 필요")
+          .max(200, "한 번에 200개까지"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      let successCount = 0;
+      let skipCount = 0;
+      const errors: Array<{ itemName: string; error: string }> = [];
+
+      for (const item of input.items) {
+        if (item.targetType === "material" && !item.materialId) {
+          errors.push({ itemName: item.itemName, error: "원재료 ID 필요" });
+          continue;
+        }
+        if (item.targetType === "product" && !item.productId) {
+          errors.push({ itemName: item.itemName, error: "제품 ID 필요" });
+          continue;
+        }
+        try {
+          await db.insert(partnerPrices).values({
+            tenantId: ctx.tenantId,
+            partnerId: input.partnerId,
+            targetType: item.targetType,
+            materialId: item.materialId ?? null,
+            productId: item.productId ?? null,
+            itemName: item.itemName,
+            itemCode: item.itemCode ?? null,
+            unitPrice: item.unitPrice.toString(),
+            currency: input.currency,
+            discountRate: (item.discountRate ?? 0).toString(),
+            effectiveFrom: input.effectiveFrom,
+            effectiveTo: input.effectiveTo ?? null,
+            notes: item.notes ?? null,
+            isActive: 1,
+            createdBy: ctx.user.id,
+          } as any);
+          successCount++;
+        } catch (err: any) {
+          // UNIQUE 위반 (같은 partner+item+effective_from)
+          if (err?.code === "ER_DUP_ENTRY" || /Duplicate/.test(err?.message || "")) {
+            skipCount++;
+          } else {
+            errors.push({ itemName: item.itemName, error: err?.message || "저장 실패" });
+          }
+        }
+      }
+
+      return {
+        successCount,
+        skipCount,
+        errorCount: errors.length,
+        errors,
+        message: `${successCount}건 등록 · ${skipCount}건 중복 skip · ${errors.length}건 오류`,
+      };
+  }),
+
+  /**
    * 단가 수정
    */
   update: adminProcedure

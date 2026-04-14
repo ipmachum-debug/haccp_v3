@@ -59,6 +59,8 @@ export interface QuotationPdfData {
 }
 
 // 한글 폰트 경로 찾기
+// ★ 2026-04-14: esbuild ESM 번들 호환 — import.meta.url/fileURLToPath/__dirname 미사용
+//   process.cwd() + 하드코딩 절대경로만 사용 (GenSpark PDF 패턴)
 function findFontPath(fontName: string): string | null {
   const cwd = process.cwd();
   const candidates = [
@@ -66,10 +68,11 @@ function findFontPath(fontName: string): string | null {
     path.join(cwd, "..", "fonts", fontName),
     path.join(cwd, "..", "..", "fonts", fontName),
     path.join(cwd, "..", "..", "..", "fonts", fontName),
-    `/home/root/haccp_v3/fonts/${fontName}`,
+    // 하드코딩 절대 경로 (PM2 / 컨테이너 / systemd 등 cwd 변동 대응)
     `/root/haccp_v3/fonts/${fontName}`,
-    path.join(__dirname, "..", "..", "fonts", fontName),
-    path.join(__dirname, "..", "..", "..", "fonts", fontName),
+    `/home/root/haccp_v3/fonts/${fontName}`,
+    `/var/www/haccp_v3/fonts/${fontName}`,
+    `/home/user/haccp_v3/fonts/${fontName}`,
   ];
   for (const p of candidates) {
     try {

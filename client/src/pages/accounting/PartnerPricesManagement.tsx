@@ -1,10 +1,12 @@
 /**
  * 거래처별 단가표 관리 페이지 — Phase B (2026-04-14)
  * ═══════════════════════════════════════════════════════════════
- * 거래처/원재료·제품별 단가 CRUD + 유효기간 관리
+ * - 다중 품목 일괄 등록 (한 거래처에 수십 품목 한 번에)
+ * - 엑셀 템플릿 다운로드 + 업로드
+ * - 단건 수정 (row 에서 Edit)
  * ═══════════════════════════════════════════════════════════════
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -39,22 +41,50 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   DollarSign,
   Plus,
-  Search,
   Trash2,
   Edit,
-  ToggleLeft,
-  ToggleRight,
   Package,
+  FileSpreadsheet,
+  Download,
+  Upload,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
+import * as XLSX from "xlsx";
 
 const TARGET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   material: { label: "원재료", color: "bg-blue-100 text-blue-700" },
   product: { label: "제품", color: "bg-purple-100 text-purple-700" },
 };
+
+// 일괄 등록용 라인 타입
+interface BatchLine {
+  id: string;
+  targetType: "material" | "product";
+  materialId: number | null;
+  productId: number | null;
+  itemName: string;
+  itemCode: string;
+  unitPrice: number;
+  discountRate: number;
+  notes: string;
+}
+
+function emptyBatchLine(): BatchLine {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    targetType: "material",
+    materialId: null,
+    productId: null,
+    itemName: "",
+    itemCode: "",
+    unitPrice: 0,
+    discountRate: 0,
+    notes: "",
+  };
+}
 
 export default function PartnerPricesManagement() {
   return (
@@ -65,26 +95,30 @@ export default function PartnerPricesManagement() {
 }
 
 function PartnerPricesContent() {
-  // 필터: partner 는 검색/자동완성 입력
+  // 필터
   const [partnerFilterId, setPartnerFilterId] = useState<number | null>(null);
   const [partnerFilterName, setPartnerFilterName] = useState<string>("");
   const [targetFilter, setTargetFilter] = useState<string>("all");
   const [activeOnly, setActiveOnly] = useState<boolean>(true);
 
-  // 등록 Dialog
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState({
-    partnerId: null as number | null,
-    partnerName: "",
-    targetType: "material" as "material" | "product",
-    materialId: null as number | null,
-    productId: null as number | null,
-    itemName: "",
-    itemCode: "",
+  // 일괄 등록 Dialog
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchPartnerId, setBatchPartnerId] = useState<number | null>(null);
+  const [batchPartnerName, setBatchPartnerName] = useState<string>("");
+  const [batchEffectiveFrom, setBatchEffectiveFrom] = useState<string>(
+    () => new Date().toISOString().slice(0, 10),
+  );
+  const [batchEffectiveTo, setBatchEffectiveTo] = useState<string>("");
+  const [batchLines, setBatchLines] = useState<BatchLine[]>([emptyBatchLine()]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 단건 수정 Dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
     unitPrice: 0,
     discountRate: 0,
-    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveFrom: "",
     effectiveTo: "",
     notes: "",
   });
@@ -98,23 +132,34 @@ function PartnerPricesContent() {
     activeOnly,
   });
 
+  // 원재료/제품 전체 목록 (엑셀 업로드 시 매칭용)
+  const { data: allMaterials = [] } = trpc.material.list.useQuery({}, { staleTime: 60_000 });
+  const { data: allProducts = [] } = trpc.product.list.useQuery(undefined, { staleTime: 60_000 });
+
   // Mutations
-  const createMutation = trpc.partnerPrice.create.useMutation({
-    onSuccess: () => {
-      toast({ title: "단가 등록 완료" });
+  const createBatchMutation = trpc.partnerPrice.createBatch.useMutation({
+    onSuccess: (res: any) => {
+      toast({
+        title: "일괄 등록 완료",
+        description: res.message,
+      });
       utils.partnerPrice.list.invalidate();
-      closeDialog();
+      if (res.errorCount === 0) {
+        closeBatchDialog();
+      }
     },
-    onError: (e: any) => toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) =>
+      toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
   });
 
   const updateMutation = trpc.partnerPrice.update.useMutation({
     onSuccess: () => {
       toast({ title: "단가 수정 완료" });
       utils.partnerPrice.list.invalidate();
-      closeDialog();
+      setEditDialogOpen(false);
     },
-    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) =>
+      toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = trpc.partnerPrice.delete.useMutation({
@@ -122,7 +167,8 @@ function PartnerPricesContent() {
       toast({ title: "단가 삭제 완료" });
       utils.partnerPrice.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+    onError: (e: any) =>
+      toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
   });
 
   // 통계
@@ -134,95 +180,268 @@ function PartnerPricesContent() {
     return { total, materials, products, uniquePartners };
   }, [prices]);
 
-  const openNewDialog = () => {
-    setEditingId(null);
-    setFormData({
-      partnerId: partnerFilterId,
-      partnerName: partnerFilterName,
-      targetType: "material",
-      materialId: null,
-      productId: null,
-      itemName: "",
-      itemCode: "",
-      unitPrice: 0,
-      discountRate: 0,
-      effectiveFrom: new Date().toISOString().slice(0, 10),
-      effectiveTo: "",
-      notes: "",
-    });
-    setDialogOpen(true);
+  // ─── 일괄 등록 ─────────────────────────────────────
+  const openBatchDialog = () => {
+    setBatchPartnerId(partnerFilterId);
+    setBatchPartnerName(partnerFilterName);
+    setBatchEffectiveFrom(new Date().toISOString().slice(0, 10));
+    setBatchEffectiveTo("");
+    setBatchLines([emptyBatchLine()]);
+    setBatchDialogOpen(true);
   };
 
+  const closeBatchDialog = () => {
+    setBatchDialogOpen(false);
+    setBatchPartnerId(null);
+    setBatchPartnerName("");
+    setBatchLines([emptyBatchLine()]);
+  };
+
+  const addBatchLine = () => setBatchLines((prev) => [...prev, emptyBatchLine()]);
+  const addMultipleBatchLines = (n: number) =>
+    setBatchLines((prev) => [
+      ...prev,
+      ...Array.from({ length: n }, () => emptyBatchLine()),
+    ]);
+
+  const removeBatchLine = (id: string) => {
+    if (batchLines.length === 1) {
+      toast({ title: "최소 1개 라인이 필요합니다", variant: "destructive" });
+      return;
+    }
+    setBatchLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const updateBatchLine = (id: string, patch: Partial<BatchLine>) => {
+    setBatchLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, ...patch } : l)),
+    );
+  };
+
+  const handleBatchSave = () => {
+    if (!batchPartnerId) {
+      toast({ title: "거래처를 선택하세요", variant: "destructive" });
+      return;
+    }
+    if (!batchEffectiveFrom) {
+      toast({ title: "유효 시작일을 입력하세요", variant: "destructive" });
+      return;
+    }
+
+    const validLines = batchLines.filter(
+      (l) => l.itemName && l.unitPrice > 0 && (l.materialId || l.productId),
+    );
+    if (validLines.length === 0) {
+      toast({
+        title: "유효한 품목이 없습니다",
+        description: "품목/단가를 최소 1개 입력하세요",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    createBatchMutation.mutate({
+      partnerId: batchPartnerId,
+      effectiveFrom: batchEffectiveFrom,
+      effectiveTo: batchEffectiveTo || undefined,
+      items: validLines.map((l) => ({
+        targetType: l.targetType,
+        materialId: l.materialId || undefined,
+        productId: l.productId || undefined,
+        itemName: l.itemName,
+        itemCode: l.itemCode || undefined,
+        unitPrice: l.unitPrice,
+        discountRate: l.discountRate || undefined,
+        notes: l.notes || undefined,
+      })),
+    });
+  };
+
+  // ─── 엑셀 템플릿 다운로드 ─────────────────────────
+  const downloadExcelTemplate = () => {
+    const template = [
+      {
+        "대상타입": "material",
+        "품목코드": "MAT-001",
+        "품목명": "밀가루",
+        "단가": 1500,
+        "할인율(%)": 0,
+        "메모": "예시 행 - 실제 작성 시 삭제",
+      },
+      {
+        "대상타입": "product",
+        "품목코드": "PROD-001",
+        "품목명": "식빵 1kg",
+        "단가": 3500,
+        "할인율(%)": 5,
+        "메모": "",
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(template);
+    // 열 너비
+    ws["!cols"] = [
+      { wch: 10 }, // 대상타입
+      { wch: 15 }, // 품목코드
+      { wch: 30 }, // 품목명
+      { wch: 12 }, // 단가
+      { wch: 10 }, // 할인율
+      { wch: 25 }, // 메모
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "거래처단가");
+    XLSX.writeFile(wb, "거래처_단가_템플릿.xlsx");
+    toast({
+      title: "엑셀 템플릿 다운로드",
+      description:
+        "대상타입은 material(원재료) 또는 product(제품). 품목코드로 매칭됩니다.",
+    });
+  };
+
+  // ─── 엑셀 업로드 ────────────────────────────────────
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer, { type: "array" });
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+      if (rows.length === 0) {
+        toast({ title: "데이터가 없습니다", variant: "destructive" });
+        return;
+      }
+
+      // 품목코드 → ID 매칭
+      const materialMap = new Map<string, any>();
+      (allMaterials as any[]).forEach((m: any) => {
+        const code = (m.materialCode || m.itemCode || "").toString().trim();
+        if (code) materialMap.set(code, m);
+      });
+      const productMap = new Map<string, any>();
+      (allProducts as any[]).forEach((p: any) => {
+        const code = (p.productCode || "").toString().trim();
+        if (code) productMap.set(code, p);
+      });
+
+      const newLines: BatchLine[] = [];
+      const unmatched: string[] = [];
+
+      for (const row of rows) {
+        const targetTypeRaw = String(row["대상타입"] || "").trim().toLowerCase();
+        let targetType: "material" | "product" =
+          targetTypeRaw === "product" || targetTypeRaw === "제품"
+            ? "product"
+            : "material";
+
+        const itemCode = String(row["품목코드"] || "").trim();
+        const itemName = String(row["품목명"] || "").trim();
+        const unitPrice = Number(row["단가"]) || 0;
+        const discountRate = Number(row["할인율(%)"] || row["할인율"] || 0) || 0;
+        const notes = String(row["메모"] || "").trim();
+
+        if (!itemCode && !itemName) continue;
+        if (unitPrice <= 0) continue;
+
+        // 품목코드로 매칭
+        let matchedId: number | null = null;
+        let matchedName = itemName;
+        let matchedCode = itemCode;
+
+        if (targetType === "material") {
+          const match = itemCode ? materialMap.get(itemCode) : null;
+          if (match) {
+            matchedId = match.id;
+            matchedName = match.materialName || match.itemName || itemName;
+            matchedCode = match.materialCode || match.itemCode || itemCode;
+          }
+        } else {
+          const match = itemCode ? productMap.get(itemCode) : null;
+          if (match) {
+            matchedId = match.id;
+            matchedName = match.productName || itemName;
+            matchedCode = match.productCode || itemCode;
+          }
+        }
+
+        if (!matchedId) {
+          unmatched.push(`${targetType === "material" ? "원재료" : "제품"} ${itemCode || itemName}`);
+        }
+
+        newLines.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          targetType,
+          materialId: targetType === "material" ? matchedId : null,
+          productId: targetType === "product" ? matchedId : null,
+          itemName: matchedName,
+          itemCode: matchedCode,
+          unitPrice,
+          discountRate,
+          notes,
+        });
+      }
+
+      if (newLines.length === 0) {
+        toast({
+          title: "유효한 행이 없습니다",
+          description: "대상타입/품목코드/단가 컬럼을 확인하세요",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setBatchLines(newLines);
+      toast({
+        title: `${newLines.length}건 로드 완료`,
+        description:
+          unmatched.length > 0
+            ? `미매칭 ${unmatched.length}건 (품목코드 확인 필요): ${unmatched.slice(0, 3).join(", ")}${unmatched.length > 3 ? " ..." : ""}`
+            : "모든 품목이 매칭되었습니다",
+        variant: unmatched.length > 0 ? "default" : "default",
+      });
+    } catch (err: any) {
+      toast({
+        title: "엑셀 파싱 실패",
+        description: err.message || "파일 형식을 확인하세요",
+        variant: "destructive",
+      });
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  // ─── 단건 수정 ─────────────────────────────────────
   const openEditDialog = (row: any) => {
-    setEditingId(row.id);
-    setFormData({
-      partnerId: row.partnerId,
-      partnerName: row.partnerName || `#${row.partnerId}`,
-      targetType: row.targetType,
-      materialId: row.materialId,
-      productId: row.productId,
-      itemName: row.itemName,
-      itemCode: row.itemCode || "",
+    setEditingRow(row);
+    setEditForm({
       unitPrice: Number(row.unitPrice),
       discountRate: Number(row.discountRate || 0),
       effectiveFrom: row.effectiveFrom,
       effectiveTo: row.effectiveTo || "",
       notes: row.notes || "",
     });
-    setDialogOpen(true);
+    setEditDialogOpen(true);
   };
 
-  const closeDialog = () => {
-    setDialogOpen(false);
-    setEditingId(null);
-  };
-
-  const handleSave = () => {
-    if (!formData.partnerId) {
-      toast({ title: "거래처를 선택하세요", variant: "destructive" });
-      return;
-    }
-    if (formData.targetType === "material" && !formData.materialId) {
-      toast({ title: "원재료를 선택하세요", variant: "destructive" });
-      return;
-    }
-    if (formData.targetType === "product" && !formData.productId) {
-      toast({ title: "제품을 선택하세요", variant: "destructive" });
-      return;
-    }
-    if (formData.unitPrice <= 0) {
+  const handleEditSave = () => {
+    if (!editingRow) return;
+    if (editForm.unitPrice <= 0) {
       toast({ title: "단가는 양수여야 합니다", variant: "destructive" });
       return;
     }
-
-    if (editingId) {
-      updateMutation.mutate({
-        id: editingId,
-        unitPrice: formData.unitPrice,
-        discountRate: formData.discountRate,
-        effectiveFrom: formData.effectiveFrom,
-        effectiveTo: formData.effectiveTo || null,
-        notes: formData.notes || undefined,
-      });
-    } else {
-      createMutation.mutate({
-        partnerId: formData.partnerId,
-        targetType: formData.targetType,
-        materialId: formData.materialId || undefined,
-        productId: formData.productId || undefined,
-        itemName: formData.itemName,
-        itemCode: formData.itemCode || undefined,
-        unitPrice: formData.unitPrice,
-        discountRate: formData.discountRate || undefined,
-        effectiveFrom: formData.effectiveFrom,
-        effectiveTo: formData.effectiveTo || undefined,
-        notes: formData.notes || undefined,
-      });
-    }
+    updateMutation.mutate({
+      id: editingRow.id,
+      unitPrice: editForm.unitPrice,
+      discountRate: editForm.discountRate,
+      effectiveFrom: editForm.effectiveFrom,
+      effectiveTo: editForm.effectiveTo || null,
+      notes: editForm.notes || undefined,
+    });
   };
 
   const handleDelete = (row: any) => {
-    if (confirm(`${row.partnerName} · ${row.itemName} 단가를 삭제하시겠습니까?`)) {
+    if (confirm(`${row.partnerName || row.partnerId} · ${row.itemName} 단가를 삭제하시겠습니까?`)) {
       deleteMutation.mutate({ id: row.id });
     }
   };
@@ -237,15 +456,20 @@ function PartnerPricesContent() {
             거래처별 단가표
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            공급업체/고객별 원재료·제품 단가를 관리합니다. 발주/매입/매출 등록 시 자동 적용됩니다.
+            공급업체/고객별 원재료·제품 단가를 일괄 등록. 발주/매입/매출 등록 시 자동 적용됩니다.
           </p>
         </div>
-        <Button
-          onClick={openNewDialog}
-          className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
-        >
-          <Plus className="h-4 w-4 mr-1" /> 단가 등록
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={downloadExcelTemplate}>
+            <Download className="h-4 w-4 mr-1" /> 엑셀 템플릿
+          </Button>
+          <Button
+            onClick={openBatchDialog}
+            className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+          >
+            <Plus className="h-4 w-4 mr-1" /> 일괄 등록
+          </Button>
+        </div>
       </div>
 
       {/* KPI */}
@@ -311,7 +535,10 @@ function PartnerPricesContent() {
             </div>
             <div>
               <Label className="text-xs">활성 상태</Label>
-              <Select value={activeOnly ? "active" : "all"} onValueChange={(v) => setActiveOnly(v === "active")}>
+              <Select
+                value={activeOnly ? "active" : "all"}
+                onValueChange={(v) => setActiveOnly(v === "active")}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
@@ -355,7 +582,7 @@ function PartnerPricesContent() {
               ) : prices.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
-                    등록된 단가가 없습니다. 우측 상단 "단가 등록" 으로 시작하세요.
+                    등록된 단가가 없습니다. 우측 상단 "일괄 등록" 또는 "엑셀 템플릿" 으로 시작하세요.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -424,131 +651,291 @@ function PartnerPricesContent() {
         </CardContent>
       </Card>
 
-      {/* 등록/수정 Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-xl">
+      {/* ═══ 일괄 등록 Dialog ═══ */}
+      <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingId ? "단가 수정" : "단가 등록"}</DialogTitle>
+            <DialogTitle>거래처 단가 일괄 등록</DialogTitle>
             <DialogDescription>
-              거래처와 품목을 선택하고 유효 기간과 함께 단가를 입력하세요.
+              한 거래처에 여러 품목의 단가를 한 번에 등록합니다. 엑셀 업로드로 수십 건을 빠르게 처리하세요.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* 공통 설정 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <Label className="text-xs">거래처 *</Label>
+              <PartnerSearchInput
+                selectedId={batchPartnerId}
+                selectedName={batchPartnerName}
+                onSelect={(id, name) => {
+                  setBatchPartnerId(id);
+                  setBatchPartnerName(name);
+                }}
+                onClear={() => {
+                  setBatchPartnerId(null);
+                  setBatchPartnerName("");
+                }}
+                placeholder="거래처 검색"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">유효 시작일 *</Label>
+              <Input
+                type="date"
+                value={batchEffectiveFrom}
+                onChange={(e) => setBatchEffectiveFrom(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">유효 종료일</Label>
+              <Input
+                type="date"
+                value={batchEffectiveTo}
+                onChange={(e) => setBatchEffectiveTo(e.target.value)}
+                className="h-9"
+                placeholder="비워두면 무제한"
+              />
+            </div>
+          </div>
+
+          {/* 엑셀 업로드 + 라인 추가 */}
+          <div className="flex flex-wrap items-center gap-2 py-2 border-y bg-muted/20 px-3 rounded">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={handleExcelUpload}
+              className="hidden"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-emerald-700 border-emerald-300"
+            >
+              <Upload className="h-3.5 w-3.5 mr-1" /> 엑셀 업로드
+            </Button>
+            <Button size="sm" variant="outline" onClick={downloadExcelTemplate}>
+              <Download className="h-3.5 w-3.5 mr-1" /> 템플릿 받기
+            </Button>
+            <div className="h-4 w-px bg-border mx-1" />
+            <Button size="sm" variant="outline" onClick={addBatchLine}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> 라인 +1
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => addMultipleBatchLines(5)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> +5
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => addMultipleBatchLines(10)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> +10
+            </Button>
+            <div className="flex-1 text-right text-xs text-muted-foreground">
+              총 <span className="font-bold text-foreground">{batchLines.length}</span>건
+            </div>
+          </div>
+
+          {/* 라인 테이블 */}
+          <div className="max-h-[50vh] overflow-auto">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10">
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead className="w-24">타입</TableHead>
+                  <TableHead>품목</TableHead>
+                  <TableHead className="w-28 text-right">단가 *</TableHead>
+                  <TableHead className="w-20 text-right">할인%</TableHead>
+                  <TableHead className="w-40">메모</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {batchLines.map((line, idx) => (
+                  <TableRow key={line.id}>
+                    <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={line.targetType}
+                        onValueChange={(v) =>
+                          updateBatchLine(line.id, {
+                            targetType: v as any,
+                            materialId: null,
+                            productId: null,
+                            itemName: "",
+                            itemCode: "",
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="material">원재료</SelectItem>
+                          <SelectItem value="product">제품</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell>
+                      {line.materialId || line.productId ? (
+                        <div className="h-8 px-2 flex items-center gap-2 border rounded bg-emerald-50 text-xs">
+                          <Package className="h-3 w-3 text-emerald-600 shrink-0" />
+                          <span className="truncate flex-1">{line.itemName}</span>
+                          {line.itemCode && (
+                            <span className="text-[9px] text-muted-foreground shrink-0">
+                              {line.itemCode}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateBatchLine(line.id, {
+                                materialId: null,
+                                productId: null,
+                                itemName: "",
+                                itemCode: "",
+                              })
+                            }
+                            className="text-muted-foreground hover:text-red-500 text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : line.targetType === "material" ? (
+                        <MaterialCombobox
+                          selectedId={line.materialId}
+                          selectedName={line.itemName}
+                          onSelect={(m) =>
+                            updateBatchLine(line.id, {
+                              materialId: m.id,
+                              productId: null,
+                              itemName: m.materialName,
+                              itemCode: m.materialCode || "",
+                            })
+                          }
+                          onClear={() =>
+                            updateBatchLine(line.id, {
+                              materialId: null,
+                              itemName: "",
+                              itemCode: "",
+                            })
+                          }
+                        />
+                      ) : (
+                        <ProductCombobox
+                          selectedId={line.productId}
+                          selectedName={line.itemName}
+                          onSelect={(p) =>
+                            updateBatchLine(line.id, {
+                              productId: p.id,
+                              materialId: null,
+                              itemName: p.productName,
+                              itemCode: p.productCode || "",
+                            })
+                          }
+                          onClear={() =>
+                            updateBatchLine(line.id, {
+                              productId: null,
+                              itemName: "",
+                              itemCode: "",
+                            })
+                          }
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        value={line.unitPrice || ""}
+                        onChange={(e) =>
+                          updateBatchLine(line.id, {
+                            unitPrice: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        className="h-8 text-right text-xs"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="number"
+                        value={line.discountRate || ""}
+                        onChange={(e) =>
+                          updateBatchLine(line.id, {
+                            discountRate: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        min={0}
+                        max={100}
+                        step={0.01}
+                        className="h-8 text-right text-xs"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={line.notes}
+                        onChange={(e) =>
+                          updateBatchLine(line.id, { notes: e.target.value })
+                        }
+                        className="h-8 text-xs"
+                        placeholder="선택"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => removeBatchLine(line.id)}
+                        className="h-7 w-7 p-0 text-red-500"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter>
+            <div className="flex-1 text-xs text-muted-foreground">
+              <FileSpreadsheet className="inline h-3 w-3 mr-1" />
+              중복(같은 거래처+품목+유효시작일) 은 자동 skip 됩니다.
+            </div>
+            <Button variant="outline" onClick={closeBatchDialog}>
+              취소
+            </Button>
+            <Button
+              onClick={handleBatchSave}
+              disabled={createBatchMutation.isPending}
+              className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+            >
+              {createBatchMutation.isPending
+                ? "등록 중..."
+                : `일괄 등록 (${batchLines.filter((l) => l.itemName && l.unitPrice > 0).length}건)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ 단건 수정 Dialog ═══ */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>단가 수정</DialogTitle>
+            <DialogDescription>
+              {editingRow?.partnerName} · {editingRow?.itemName}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
-            {/* 거래처 */}
-            <div>
-              <Label className="text-xs">거래처 *</Label>
-              {editingId ? (
-                <div className="h-10 px-3 flex items-center border rounded-lg bg-muted/30 text-sm">
-                  {formData.partnerName || `#${formData.partnerId}`}
-                </div>
-              ) : (
-                <PartnerSearchInput
-                  selectedId={formData.partnerId}
-                  selectedName={formData.partnerName}
-                  onSelect={(id, name) =>
-                    setFormData({ ...formData, partnerId: id, partnerName: name })
-                  }
-                  onClear={() =>
-                    setFormData({ ...formData, partnerId: null, partnerName: "" })
-                  }
-                  placeholder="거래처 검색 / 입력"
-                />
-              )}
-            </div>
-
-            {/* 대상 타입 + 품목 */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-1">
-                <Label className="text-xs">대상 타입 *</Label>
-                <Select
-                  value={formData.targetType}
-                  onValueChange={(v) =>
-                    setFormData({
-                      ...formData,
-                      targetType: v as any,
-                      materialId: null,
-                      productId: null,
-                      itemName: "",
-                      itemCode: "",
-                    })
-                  }
-                  disabled={!!editingId}
-                >
-                  <SelectTrigger className="h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="material">원재료</SelectItem>
-                    <SelectItem value="product">제품</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-2">
-                <Label className="text-xs">
-                  {formData.targetType === "material" ? "원재료" : "제품"} *
-                </Label>
-                {editingId ? (
-                  <div className="h-10 px-3 flex items-center border rounded-lg bg-muted/30 text-sm">
-                    <Package className="h-4 w-4 mr-2 text-muted-foreground" />
-                    {formData.itemName}
-                  </div>
-                ) : formData.targetType === "material" ? (
-                  <MaterialCombobox
-                    selectedId={formData.materialId}
-                    selectedName={formData.itemName}
-                    onSelect={(m) =>
-                      setFormData({
-                        ...formData,
-                        materialId: m.id,
-                        productId: null,
-                        itemName: m.materialName,
-                        itemCode: m.materialCode || "",
-                      })
-                    }
-                    onClear={() =>
-                      setFormData({
-                        ...formData,
-                        materialId: null,
-                        itemName: "",
-                        itemCode: "",
-                      })
-                    }
-                  />
-                ) : (
-                  <ProductCombobox
-                    selectedId={formData.productId}
-                    selectedName={formData.itemName}
-                    onSelect={(p) =>
-                      setFormData({
-                        ...formData,
-                        productId: p.id,
-                        materialId: null,
-                        itemName: p.productName,
-                        itemCode: p.productCode || "",
-                      })
-                    }
-                    onClear={() =>
-                      setFormData({
-                        ...formData,
-                        productId: null,
-                        itemName: "",
-                        itemCode: "",
-                      })
-                    }
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* 단가 + 할인율 */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">단가 *</Label>
                 <Input
                   type="number"
-                  value={formData.unitPrice || ""}
-                  onChange={(e) => setFormData({ ...formData, unitPrice: parseFloat(e.target.value) || 0 })}
+                  value={editForm.unitPrice || ""}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, unitPrice: parseFloat(e.target.value) || 0 })
+                  }
                   className="h-9 text-right"
                 />
               </div>
@@ -556,8 +943,10 @@ function PartnerPricesContent() {
                 <Label className="text-xs">할인율 (%)</Label>
                 <Input
                   type="number"
-                  value={formData.discountRate || ""}
-                  onChange={(e) => setFormData({ ...formData, discountRate: parseFloat(e.target.value) || 0 })}
+                  value={editForm.discountRate || ""}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, discountRate: parseFloat(e.target.value) || 0 })
+                  }
                   min={0}
                   max={100}
                   step={0.01}
@@ -565,52 +954,46 @@ function PartnerPricesContent() {
                 />
               </div>
             </div>
-
-            {/* 유효 기간 */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">유효 시작일 *</Label>
                 <Input
                   type="date"
-                  value={formData.effectiveFrom}
-                  onChange={(e) => setFormData({ ...formData, effectiveFrom: e.target.value })}
+                  value={editForm.effectiveFrom}
+                  onChange={(e) => setEditForm({ ...editForm, effectiveFrom: e.target.value })}
                   className="h-9"
                 />
               </div>
               <div>
-                <Label className="text-xs">유효 종료일 (선택)</Label>
+                <Label className="text-xs">유효 종료일</Label>
                 <Input
                   type="date"
-                  value={formData.effectiveTo}
-                  onChange={(e) => setFormData({ ...formData, effectiveTo: e.target.value })}
+                  value={editForm.effectiveTo}
+                  onChange={(e) => setEditForm({ ...editForm, effectiveTo: e.target.value })}
                   className="h-9"
-                  placeholder="비워두면 무제한"
                 />
               </div>
             </div>
-
-            {/* 메모 */}
             <div>
               <Label className="text-xs">메모</Label>
               <Textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="예: 2026년 계약 단가"
+                value={editForm.notes}
+                onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
                 rows={2}
               />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
               취소
             </Button>
             <Button
-              onClick={handleSave}
-              disabled={createMutation.isPending || updateMutation.isPending}
+              onClick={handleEditSave}
+              disabled={updateMutation.isPending}
               className="bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
             >
-              {editingId ? "수정" : "등록"}
+              수정
             </Button>
           </DialogFooter>
         </DialogContent>
