@@ -227,6 +227,49 @@ export async function getInvoiceUrl(
 }
 
 /**
+ * ─────────────────────────────────────────────────────
+ * 팝빌 호스팅 페이지 단축 URL (인증 토큰 포함)
+ * ─────────────────────────────────────────────────────
+ *
+ * 테넌트별 개별 관리 모델 (2026-04-14):
+ *   각 테넌트가 자기 corpNum으로 팝빌 호스팅 페이지(충전/로그인/회원정보)에
+ *   바로 접근할 수 있도록 인증된 URL 을 생성.
+ *
+ * type:
+ *   - CHRG   → 포인트 충전 페이지
+ *   - LOGIN  → 팝빌 홈택스 대시보드 (로그인 세션 자동 생성)
+ *   - MEMBER → 회원정보 변경 페이지
+ *   - PWD    → 비밀번호 변경 페이지
+ */
+export type PopbillHostedPageType = "CHRG" | "LOGIN" | "MEMBER" | "PWD";
+
+export async function getPopbillURL(
+  corpNum: string,
+  type: PopbillHostedPageType,
+  userId?: string,
+): Promise<string | null> {
+  if (isPopbillStubMode()) {
+    const stubPaths: Record<PopbillHostedPageType, string> = {
+      CHRG: "charge",
+      LOGIN: "login",
+      MEMBER: "member",
+      PWD: "password",
+    };
+    return `https://popbill-stub.local/${stubPaths[type]}?corpNum=${corpNum}&userId=${userId || ""}&stub=1`;
+  }
+  // TODO: popbill-node SDK 통합
+  //   const popbill = require("popbill");
+  //   popbill.config({ LinkID, SecretKey, ... });
+  //   return new Promise((resolve, reject) =>
+  //     popbill.taxinvoice.getPopbillURL(corpNum, userId || "", type, (err, url) =>
+  //       err ? reject(err) : resolve(url)
+  //     )
+  //   );
+  console.warn(`[Popbill LIVE 미구현] getPopbillURL(${corpNum}, ${type})`);
+  return null;
+}
+
+/**
  * 사내 세금계산서 → 팝빌 형식 변환
  *
  * tax_invoices 테이블의 raw 데이터를 PopbillTaxInvoice 로 변환.

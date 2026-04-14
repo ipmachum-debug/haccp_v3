@@ -174,4 +174,57 @@ export const popbillSettingsRouter = router({
 
     return { remainPoint: balance.remainPoint, unPaidAmount: balance.unPaidAmount ?? 0 };
   }),
+
+  /**
+   * ★ 팝빌 호스팅 페이지 URL 조회 — 테넌트별 개별 관리 (2026-04-14)
+   *
+   * 각 테넌트가 자기 corpNum 으로 포인트 충전 / 팝빌 로그인 / 회원정보 페이지에
+   * 바로 접속할 수 있도록 인증 토큰이 포함된 단축 URL 을 반환.
+   *
+   * 용도:
+   *   - CHRG   : 포인트 충전 (가장 많이 사용)
+   *   - LOGIN  : 팝빌 홈택스 대시보드 (사용 이력, 결제 내역 확인)
+   *   - MEMBER : 회원정보 변경
+   *   - PWD    : 비밀번호 변경
+   */
+  getHostedUrl: adminProcedure
+    .input(
+      z.object({
+        type: z.enum(["CHRG", "LOGIN", "MEMBER", "PWD"]),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const [settings] = await db
+        .select()
+        .from(popbillSettings)
+        .where(eq(popbillSettings.tenantId, ctx.tenantId))
+        .limit(1);
+      if (!settings) {
+        throw new Error("먼저 팝빌 설정을 저장하세요.");
+      }
+
+      const { getPopbillURL, isPopbillStubMode } = await import(
+        "../../lib/popbill/popbillAdapter"
+      );
+      const url = await getPopbillURL(
+        settings.corpNum,
+        input.type,
+        settings.userId ?? undefined,
+      );
+
+      if (!url) {
+        throw new Error(
+          "팝빌 URL 생성 실패. LIVE 모드가 아직 활성화되지 않았거나 팝빌 API 오류입니다.",
+        );
+      }
+
+      return {
+        url,
+        type: input.type,
+        mode: isPopbillStubMode() ? "stub" : "live",
+      };
+    }),
 });
