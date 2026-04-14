@@ -52,7 +52,11 @@ import {
   Eye,
   FileText,
   Printer,
+  Edit,
+  Save,
 } from "lucide-react";
+import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
+import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { toast } from "@/hooks/use-toast";
 
 const STATUS_LABELS: Record<string, { label: string; variant: string; className: string }> = {
@@ -77,6 +81,27 @@ function PurchaseOrderListContent() {
   const [searchText, setSearchText] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+
+  // 수정 Dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingPo, setEditingPo] = useState<any>(null);
+  const [editPartnerId, setEditPartnerId] = useState<number | null>(null);
+  const [editPartnerName, setEditPartnerName] = useState("");
+  const [editOrderDate, setEditOrderDate] = useState("");
+  const [editExpectedDeliveryDate, setEditExpectedDeliveryDate] = useState("");
+  const [editDeliveryAddress, setEditDeliveryAddress] = useState("");
+  const [editNotes, setEditNotes] = useState("");
+  const [editLines, setEditLines] = useState<Array<{
+    id: string;
+    materialId: number | null;
+    itemName: string;
+    itemCode?: string;
+    orderedQty: number;
+    unit: string;
+    unitPrice: number;
+    taxAmount: number;
+    notes?: string;
+  }>>([]);
 
   // 입고 처리 Dialog
   const [receiveDialogOpen, setReceiveDialogOpen] = useState(false);
@@ -122,6 +147,16 @@ function PurchaseOrderListContent() {
       utils.purchaseOrder.list.invalidate();
     },
     onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMutation = trpc.purchaseOrder.update.useMutation({
+    onSuccess: (r: any) => {
+      toast({ title: "수정 완료", description: r.message });
+      utils.purchaseOrder.list.invalidate();
+      setEditDialogOpen(false);
+      setEditingPo(null);
+    },
+    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
 
   const receiveMutation = trpc.purchaseOrder.receive.useMutation({
@@ -191,6 +226,107 @@ function PurchaseOrderListContent() {
     const pending = orders.filter((o: any) => o.status === "approved").length;
     return { count, grandTotal, pending };
   }, [orders]);
+
+  // 수정 Dialog 열기
+  const handleOpenEdit = async (po: any) => {
+    setEditingPo(po);
+    setEditPartnerId(po.partnerId);
+    setEditPartnerName(po.partnerName || `#${po.partnerId}`);
+    setEditOrderDate(po.orderDate || "");
+    setEditExpectedDeliveryDate(po.expectedDeliveryDate || "");
+    setEditDeliveryAddress("");
+    setEditNotes(po.notes || "");
+    // 상세 조회로 라인 데이터 가져오기
+    try {
+      const detail = await utils.purchaseOrder.getById.fetch({ id: po.id });
+      setEditDeliveryAddress((detail as any)?.deliveryAddress || "");
+      setEditLines(
+        ((detail as any)?.lines || []).map((l: any) => ({
+          id: `${l.id}-${Date.now()}`,
+          materialId: l.materialId,
+          itemName: l.itemName,
+          itemCode: l.itemCode || "",
+          orderedQty: Number(l.orderedQty),
+          unit: l.unit || "EA",
+          unitPrice: Number(l.unitPrice),
+          taxAmount: Number(l.taxAmount || 0),
+          notes: l.notes || "",
+        }))
+      );
+    } catch (e) {
+      setEditLines([]);
+    }
+    setEditDialogOpen(true);
+  };
+
+  const handleEditSave = () => {
+    if (!editingPo) return;
+    if (!editPartnerId) {
+      toast({ title: "공급업체를 선택하세요", variant: "destructive" });
+      return;
+    }
+    if (editLines.some((l) => !l.itemName || l.orderedQty <= 0 || l.unitPrice < 0)) {
+      toast({ title: "모든 품목의 품목명/수량/단가를 확인하세요", variant: "destructive" });
+      return;
+    }
+    updateMutation.mutate({
+      id: editingPo.id,
+      partnerId: editPartnerId,
+      orderDate: editOrderDate,
+      expectedDeliveryDate: editExpectedDeliveryDate || undefined,
+      deliveryAddress: editDeliveryAddress || undefined,
+      notes: editNotes || undefined,
+      lines: editLines.map((l) => ({
+        materialId: l.materialId || undefined,
+        itemName: l.itemName,
+        itemCode: l.itemCode || undefined,
+        orderedQty: l.orderedQty,
+        unit: l.unit,
+        unitPrice: l.unitPrice,
+        taxAmount: l.taxAmount,
+        notes: l.notes || undefined,
+      })),
+    });
+  };
+
+  const addEditLine = () => {
+    setEditLines((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        materialId: null,
+        itemName: "",
+        itemCode: "",
+        orderedQty: 0,
+        unit: "EA",
+        unitPrice: 0,
+        taxAmount: 0,
+        notes: "",
+      },
+    ]);
+  };
+
+  const removeEditLine = (id: string) => {
+    if (editLines.length <= 1) {
+      toast({ title: "최소 1개 품목이 필요합니다", variant: "destructive" });
+      return;
+    }
+    setEditLines((prev) => prev.filter((l) => l.id !== id));
+  };
+
+  const updateEditLine = (id: string, patch: Record<string, any>) => {
+    setEditLines((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const updated = { ...l, ...patch };
+        if ("orderedQty" in patch || "unitPrice" in patch) {
+          const amt = (updated.orderedQty || 0) * (updated.unitPrice || 0);
+          updated.taxAmount = Math.round(amt * 0.1);
+        }
+        return updated;
+      })
+    );
+  };
 
   const handleApprove = (id: number, poNumber: string) => {
     if (confirm(`발주서 ${poNumber} 를 승인하시겠습니까?`)) {
@@ -402,6 +538,17 @@ function PurchaseOrderListContent() {
                             <Button
                               size="sm"
                               variant="outline"
+                              onClick={() => handleOpenEdit(po)}
+                              title="수정"
+                              className="h-7 w-7 p-0 text-orange-600 hover:bg-orange-50"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {po.status === "draft" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
                               onClick={() => handleApprove(po.id, po.poNumber)}
                               title="승인"
                               className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
@@ -452,6 +599,152 @@ function PurchaseOrderListContent() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* 수정 Dialog */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit className="h-5 w-5 text-orange-600" />
+              발주서 수정 — {editingPo?.poNumber}
+            </DialogTitle>
+            <DialogDescription>
+              작성 중(draft) 발주서의 내용을 수정합니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            {/* 거래 정보 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="col-span-2">
+                <Label className="text-xs">공급업체 *</Label>
+                <PartnerSearchInput
+                  partnerType="supplier"
+                  selectedId={editPartnerId}
+                  selectedName={editPartnerName}
+                  onSelect={(id, name) => {
+                    setEditPartnerId(id);
+                    setEditPartnerName(name);
+                  }}
+                  onClear={() => {
+                    setEditPartnerId(null);
+                    setEditPartnerName("");
+                  }}
+                  placeholder="공급업체 검색"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">발주일 *</Label>
+                <Input type="date" value={editOrderDate} onChange={(e) => setEditOrderDate(e.target.value)} className="h-9" />
+              </div>
+              <div>
+                <Label className="text-xs">납기 예정일</Label>
+                <Input type="date" value={editExpectedDeliveryDate} onChange={(e) => setEditExpectedDeliveryDate(e.target.value)} className="h-9" />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">납품 장소</Label>
+                <Input value={editDeliveryAddress} onChange={(e) => setEditDeliveryAddress(e.target.value)} placeholder="예: 본사 창고" className="h-9" />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-xs">메모</Label>
+                <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="특이사항" className="h-9" />
+              </div>
+            </div>
+
+            {/* 품목 라인 */}
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">품목 ({editLines.length})</Label>
+              <Button size="sm" variant="outline" onClick={addEditLine}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> 추가
+              </Button>
+            </div>
+            <div className="border rounded max-h-[300px] overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[40px]">#</TableHead>
+                    <TableHead>원재료</TableHead>
+                    <TableHead className="w-[90px]">수량</TableHead>
+                    <TableHead className="w-[70px]">단위</TableHead>
+                    <TableHead className="w-[100px]">단가</TableHead>
+                    <TableHead className="w-[100px] text-right">금액</TableHead>
+                    <TableHead className="w-[40px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {editLines.map((line, idx) => (
+                    <TableRow key={line.id}>
+                      <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell>
+                        <MaterialCombobox
+                          selectedId={line.materialId}
+                          selectedName={line.itemName}
+                          onSelect={(m) => {
+                            updateEditLine(line.id, {
+                              materialId: m.id,
+                              itemName: m.materialName,
+                              itemCode: m.materialCode || "",
+                              unit: m.unit || line.unit,
+                            });
+                          }}
+                          onClear={() => updateEditLine(line.id, { materialId: null, itemName: "", itemCode: "" })}
+                          placeholder="원재료 검색..."
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          step="0.001"
+                          value={line.orderedQty || ""}
+                          onChange={(e) => updateEditLine(line.id, { orderedQty: parseFloat(e.target.value) || 0 })}
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          value={line.unit}
+                          onChange={(e) => updateEditLine(line.id, { unit: e.target.value })}
+                          className="h-8"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          value={line.unitPrice || ""}
+                          onChange={(e) => updateEditLine(line.id, { unitPrice: parseFloat(e.target.value) || 0 })}
+                          className="h-8 text-right"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs">
+                        {Math.round((line.orderedQty || 0) * (line.unitPrice || 0)).toLocaleString()}원
+                      </TableCell>
+                      <TableCell>
+                        <Button size="sm" variant="ghost" onClick={() => removeEditLine(line.id)} className="h-6 w-6 p-0 text-red-500">
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={handleEditSave}
+              disabled={updateMutation.isPending}
+              className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {updateMutation.isPending ? "저장 중..." : "수정 저장"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 입고 처리 Dialog */}
       <Dialog open={receiveDialogOpen} onOpenChange={setReceiveDialogOpen}>

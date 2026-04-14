@@ -75,7 +75,7 @@ interface BatchLine {
 function emptyBatchLine(): BatchLine {
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    targetType: "material",
+    targetType: "product", // 기본값: 제품 (일반적으로 고객사 대상 단가 등록이 많음)
     materialId: null,
     productId: null,
     itemName: "",
@@ -218,6 +218,24 @@ function PartnerPricesContent() {
     );
   };
 
+  // 일괄 타입 변경: 모든 라인의 targetType 을 한 번에 변경 + 선택된 품목 초기화
+  const setAllBatchType = (targetType: "material" | "product") => {
+    setBatchLines((prev) =>
+      prev.map((l) => ({
+        ...l,
+        targetType,
+        materialId: null,
+        productId: null,
+        itemName: "",
+        itemCode: "",
+      })),
+    );
+    toast({
+      title: `전체 라인을 ${targetType === "product" ? "제품" : "원재료"} 로 변경`,
+      description: "선택된 품목은 초기화되었습니다. 다시 선택하세요.",
+    });
+  };
+
   const handleBatchSave = () => {
     if (!batchPartnerId) {
       toast({ title: "거래처를 선택하세요", variant: "destructive" });
@@ -261,19 +279,19 @@ function PartnerPricesContent() {
   const downloadExcelTemplate = () => {
     const template = [
       {
-        "대상타입": "material",
-        "품목코드": "MAT-001",
-        "품목명": "밀가루",
-        "단가": 1500,
-        "할인율(%)": 0,
-        "메모": "예시 행 - 실제 작성 시 삭제",
-      },
-      {
         "대상타입": "product",
         "품목코드": "PROD-001",
         "품목명": "식빵 1kg",
         "단가": 3500,
         "할인율(%)": 5,
+        "메모": "예시 행 - 실제 작성 시 삭제",
+      },
+      {
+        "대상타입": "material",
+        "품목코드": "MAT-001",
+        "품목명": "밀가루",
+        "단가": 1500,
+        "할인율(%)": 0,
         "메모": "",
       },
     ];
@@ -330,10 +348,11 @@ function PartnerPricesContent() {
 
       for (const row of rows) {
         const targetTypeRaw = String(row["대상타입"] || "").trim().toLowerCase();
-        let targetType: "material" | "product" =
-          targetTypeRaw === "product" || targetTypeRaw === "제품"
-            ? "product"
-            : "material";
+        // 기본값: product (대상타입 비어 있거나 "제품" 이면 product, "material"/"원재료" 면 material)
+        const targetType: "material" | "product" =
+          targetTypeRaw === "material" || targetTypeRaw === "원재료"
+            ? "material"
+            : "product";
 
         const itemCode = String(row["품목코드"] || "").trim();
         const itemName = String(row["품목명"] || "").trim();
@@ -729,6 +748,25 @@ function PartnerPricesContent() {
             </Button>
             <Button size="sm" variant="outline" onClick={() => addMultipleBatchLines(10)}>
               <Plus className="h-3.5 w-3.5 mr-1" /> +10
+            </Button>
+            <div className="h-4 w-px bg-border mx-1" />
+            {/* 일괄 타입 변경 */}
+            <span className="text-xs text-muted-foreground">전체 타입:</span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAllBatchType("product")}
+              className="text-purple-700 border-purple-300 hover:bg-purple-50"
+            >
+              <Package className="h-3.5 w-3.5 mr-1" /> 전체 제품
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setAllBatchType("material")}
+              className="text-blue-700 border-blue-300 hover:bg-blue-50"
+            >
+              <Package className="h-3.5 w-3.5 mr-1" /> 전체 원재료
             </Button>
             <div className="flex-1 text-right text-xs text-muted-foreground">
               총 <span className="font-bold text-foreground">{batchLines.length}</span>건

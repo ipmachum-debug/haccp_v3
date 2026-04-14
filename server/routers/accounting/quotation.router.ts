@@ -243,6 +243,145 @@ export const quotationRouter = router({
   }),
 
   /**
+   * 견적서 수정 (draft 상태만 가능)
+   */
+  update: adminProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        partnerId: z.number().optional(),
+        quoteDate: z.string().optional(),
+        validUntil: z.string().optional(),
+        title: z.string().optional(),
+        paymentTerms: z.string().optional(),
+        deliveryTerms: z.string().optional(),
+        notes: z.string().optional(),
+        lines: z.array(lineInput).min(1, "최소 1개 품목 필요").optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // 상태 검증
+      const [existing] = await db
+        .select({ status: quotations.status, quotationNumber: quotations.quotationNumber })
+        .from(quotations)
+        .where(
+          and(eq(quotations.id, input.id), eq(quotations.tenantId, ctx.tenantId)),
+        )
+        .limit(1);
+      if (!existing) throw new Error(`견적서 #${input.id} 없음`);
+      if (existing.status !== "draft") {
+        throw new Error(`작성 중(draft) 견적서만 수정 가능합니다. 현재: ${existing.status}`);
+      }
+
+      return await withTransaction(async (conn) => {
+        const headerUpdates: string[] = [];
+        const headerParams: any[] = [];
+
+        if (input.partnerId !== undefined) {
+          headerUpdates.push("partner_id = ?");
+          headerParams.push(input.partnerId);
+        }
+        if (input.quoteDate !== undefined) {
+          headerUpdates.push("quote_date = ?");
+          headerParams.push(input.quoteDate);
+        }
+        if (input.validUntil !== undefined) {
+          headerUpdates.push("valid_until = ?");
+          headerParams.push(input.validUntil || null);
+        }
+        if (input.title !== undefined) {
+          headerUpdates.push("title = ?");
+          headerParams.push(input.title || null);
+        }
+        if (input.paymentTerms !== undefined) {
+          headerUpdates.push("payment_terms = ?");
+          headerParams.push(input.paymentTerms || null);
+        }
+        if (input.deliveryTerms !== undefined) {
+          headerUpdates.push("delivery_terms = ?");
+          headerParams.push(input.deliveryTerms || null);
+        }
+        if (input.notes !== undefined) {
+          headerUpdates.push("notes = ?");
+          headerParams.push(input.notes || null);
+        }
+
+        // 라인 재생성
+        if (input.lines) {
+          let totalAmount = 0;
+          let taxAmount = 0;
+          for (const line of input.lines) {
+            const gross = line.quantity * line.unitPrice;
+            const discount = gross * ((line.discountRate ?? 0) / 100);
+            const lineAmount = gross - discount;
+            totalAmount += lineAmount;
+            taxAmount += line.taxAmount ?? Math.round(lineAmount * 0.1);
+          }
+          const grandTotal = totalAmount + taxAmount;
+
+          headerUpdates.push("total_amount = ?");
+          headerParams.push(totalAmount.toFixed(2));
+          headerUpdates.push("tax_amount = ?");
+          headerParams.push(taxAmount.toFixed(2));
+          headerUpdates.push("grand_total = ?");
+          headerParams.push(grandTotal.toFixed(2));
+        }
+
+        if (headerUpdates.length > 0) {
+          await conn.execute(
+            `UPDATE quotations SET ${headerUpdates.join(", ")}
+             WHERE id = ? AND tenant_id = ?`,
+            [...headerParams, input.id, ctx.tenantId],
+          );
+        }
+
+        if (input.lines) {
+          await conn.execute(
+            `DELETE FROM quotation_lines WHERE quotation_id = ? AND tenant_id = ?`,
+            [input.id, ctx.tenantId],
+          );
+
+          let lineNumber = 1;
+          for (const line of input.lines) {
+            const gross = line.quantity * line.unitPrice;
+            const discount = gross * ((line.discountRate ?? 0) / 100);
+            const lineAmount = gross - discount;
+            await conn.execute(
+              `INSERT INTO quotation_lines
+                 (tenant_id, quotation_id, line_number, target_type, material_id, product_id,
+                  item_name, item_code, description, quantity, unit, unit_price,
+                  discount_rate, amount, tax_amount, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                ctx.tenantId,
+                input.id,
+                lineNumber++,
+                line.targetType,
+                line.materialId ?? null,
+                line.productId ?? null,
+                line.itemName,
+                line.itemCode ?? null,
+                line.description ?? null,
+                line.quantity.toString(),
+                line.unit,
+                line.unitPrice.toFixed(2),
+                (line.discountRate ?? 0).toFixed(2),
+                lineAmount.toFixed(2),
+                (line.taxAmount ?? Math.round(lineAmount * 0.1)).toFixed(2),
+                line.notes ?? null,
+              ],
+            );
+          }
+        }
+
+        return { message: `견적서 ${existing.quotationNumber} 수정 완료` };
+      }, `quotation.update:${input.id}`);
+    }),
+
+  /**
    * 견적서 발송 (draft → sent)
    * - PDF 생성 후 고객에게 이메일/카톡 등으로 전송
    * - 상태 sent + sent_at 기록

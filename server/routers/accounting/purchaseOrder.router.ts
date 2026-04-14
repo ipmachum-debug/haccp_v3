@@ -242,6 +242,131 @@ export const purchaseOrderRouter = router({
   }),
 
   /**
+   * 발주서 수정 (draft 상태만 가능)
+   */
+  update: adminProcedure
+    .input(
+      z.object({
+        id: z.number(),
+        partnerId: z.number().optional(),
+        orderDate: z.string().optional(),
+        expectedDeliveryDate: z.string().optional(),
+        deliveryAddress: z.string().optional(),
+        notes: z.string().optional(),
+        lines: z.array(lineInput).min(1, "최소 1개 품목 필요").optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // 상태 검증
+      const [existing] = await db
+        .select({ status: purchaseOrders.status, poNumber: purchaseOrders.poNumber })
+        .from(purchaseOrders)
+        .where(
+          and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.tenantId, ctx.tenantId)),
+        )
+        .limit(1);
+      if (!existing) throw new Error(`발주서 #${input.id} 없음`);
+      if (existing.status !== "draft") {
+        throw new Error(`작성 중(draft) 발주서만 수정 가능합니다. 현재: ${existing.status}`);
+      }
+
+      return await withTransaction(async (conn) => {
+        // 헤더 업데이트
+        const headerUpdates: string[] = [];
+        const headerParams: any[] = [];
+
+        if (input.partnerId !== undefined) {
+          headerUpdates.push("partner_id = ?");
+          headerParams.push(input.partnerId);
+        }
+        if (input.orderDate !== undefined) {
+          headerUpdates.push("order_date = ?");
+          headerParams.push(input.orderDate);
+        }
+        if (input.expectedDeliveryDate !== undefined) {
+          headerUpdates.push("expected_delivery_date = ?");
+          headerParams.push(input.expectedDeliveryDate || null);
+        }
+        if (input.deliveryAddress !== undefined) {
+          headerUpdates.push("delivery_address = ?");
+          headerParams.push(input.deliveryAddress || null);
+        }
+        if (input.notes !== undefined) {
+          headerUpdates.push("notes = ?");
+          headerParams.push(input.notes || null);
+        }
+
+        // 라인 재생성 (전체 교체)
+        if (input.lines) {
+          // 합계 재계산
+          let totalAmount = 0;
+          let taxAmount = 0;
+          for (const line of input.lines) {
+            const lineAmount = line.orderedQty * line.unitPrice;
+            totalAmount += lineAmount;
+            taxAmount += line.taxAmount ?? Math.round(lineAmount * 0.1);
+          }
+          const grandTotal = totalAmount + taxAmount;
+
+          headerUpdates.push("total_amount = ?");
+          headerParams.push(totalAmount.toFixed(2));
+          headerUpdates.push("tax_amount = ?");
+          headerParams.push(taxAmount.toFixed(2));
+          headerUpdates.push("grand_total = ?");
+          headerParams.push(grandTotal.toFixed(2));
+        }
+
+        if (headerUpdates.length > 0) {
+          await conn.execute(
+            `UPDATE purchase_orders SET ${headerUpdates.join(", ")}
+             WHERE id = ? AND tenant_id = ?`,
+            [...headerParams, input.id, ctx.tenantId],
+          );
+        }
+
+        if (input.lines) {
+          // 기존 라인 삭제 후 재생성
+          await conn.execute(
+            `DELETE FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`,
+            [input.id, ctx.tenantId],
+          );
+
+          let lineNumber = 1;
+          for (const line of input.lines) {
+            const lineAmount = line.orderedQty * line.unitPrice;
+            await conn.execute(
+              `INSERT INTO purchase_order_lines
+                 (tenant_id, po_id, line_number, material_id, item_name, item_code,
+                  ordered_qty, received_qty, unit, unit_price, amount, tax_amount,
+                  expected_delivery_date, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, '0.000', ?, ?, ?, ?, ?, ?)`,
+              [
+                ctx.tenantId,
+                input.id,
+                lineNumber++,
+                line.materialId ?? null,
+                line.itemName,
+                line.itemCode ?? null,
+                line.orderedQty.toString(),
+                line.unit,
+                line.unitPrice.toFixed(2),
+                lineAmount.toFixed(2),
+                (line.taxAmount ?? Math.round(lineAmount * 0.1)).toFixed(2),
+                line.expectedDeliveryDate ?? null,
+                line.notes ?? null,
+              ],
+            );
+          }
+        }
+
+        return { message: `발주서 ${existing.poNumber} 수정 완료` };
+      }, `purchaseOrder.update:${input.id}`);
+    }),
+
+  /**
    * 발주 승인 (draft → approved)
    */
   approve: adminProcedure
