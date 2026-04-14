@@ -221,18 +221,29 @@ export async function generatePurchaseStatementPDFByIds(
   purchaseIds: number[], tenantId?: number
 ): Promise<Buffer> {
   try {
+    console.log(`[generatePurchaseStatementPDFByIds] 시작: ids=${JSON.stringify(purchaseIds)}, tenantId=${tenantId}`);
     if (!purchaseIds.length) throw new Error("매입 ID 가 제공되지 않았습니다.");
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
 
-    // 1. 모든 매입 조회
+    // 1. 모든 매입 조회 — 개별 실패는 스킵 (한 건만 깨져도 전체 실패 방지)
     const purchases: any[] = [];
+    const failedIds: number[] = [];
     for (const id of purchaseIds) {
-      const p = await getPurchaseById(id, tenantId);
-      if (p) purchases.push(p);
+      try {
+        const p = await getPurchaseById(id, tenantId);
+        if (p) purchases.push(p);
+        else failedIds.push(id);
+      } catch (itemErr: any) {
+        console.warn(`[generatePurchaseStatementPDFByIds] id=${id} 조회 실패: ${itemErr?.message || itemErr}`);
+        failedIds.push(id);
+      }
     }
     if (!purchases.length) {
-      throw new Error(`유효한 매입이 없습니다. ids=${purchaseIds.join(',')}`);
+      throw new Error(`유효한 매입이 없습니다. ids=${purchaseIds.join(',')}, failed=${failedIds.join(',')}`);
+    }
+    if (failedIds.length) {
+      console.warn(`[generatePurchaseStatementPDFByIds] 일부 실패 계속 진행: failed=${failedIds.join(',')}`);
     }
 
     const first = purchases[0];
@@ -317,18 +328,29 @@ export async function generateSaleStatementPDFByIds(
   saleIds: number[], tenantId?: number
 ): Promise<Buffer> {
   try {
+    console.log(`[generateSaleStatementPDFByIds] 시작: ids=${JSON.stringify(saleIds)}, tenantId=${tenantId}`);
     if (!saleIds.length) throw new Error("매출 ID 가 제공되지 않았습니다.");
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
 
-    // 1. 모든 매출 조회
+    // 1. 모든 매출 조회 — 개별 실패는 스킵
     const sales: any[] = [];
+    const failedIds: number[] = [];
     for (const id of saleIds) {
-      const s = await getSaleById(id, tenantId);
-      if (s) sales.push(s);
+      try {
+        const s = await getSaleById(id, tenantId);
+        if (s) sales.push(s);
+        else failedIds.push(id);
+      } catch (itemErr: any) {
+        console.warn(`[generateSaleStatementPDFByIds] id=${id} 조회 실패: ${itemErr?.message || itemErr}`);
+        failedIds.push(id);
+      }
     }
     if (!sales.length) {
-      throw new Error(`유효한 매출이 없습니다. ids=${saleIds.join(',')}`);
+      throw new Error(`유효한 매출이 없습니다. ids=${saleIds.join(',')}, failed=${failedIds.join(',')}`);
+    }
+    if (failedIds.length) {
+      console.warn(`[generateSaleStatementPDFByIds] 일부 실패 계속 진행: failed=${failedIds.join(',')}`);
     }
 
     const first = sales[0];

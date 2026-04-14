@@ -174,6 +174,7 @@ function SalesListContent() {
   });
 
   // ─── 그룹 PDF ───────────────────────────────────────────
+  // 실패 시: 단일 PDF 로 자동 폴백 (첫 품목 기준)
   const previewGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
     onSuccess: (data: any) => {
       const blob = base64ToPdfBlob(data.pdf);
@@ -181,8 +182,15 @@ function SalesListContent() {
       window.open(url, "_blank");
       toast({ title: "거래명세표 미리보기", description: "새 탭에서 열렸습니다." });
     },
-    onError: (error: any) => {
-      toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+    onError: (error: any, variables: any) => {
+      console.error("[generateSaleGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백:", error.message, variables);
+      const firstId = variables?.saleIds?.[0];
+      if (firstId) {
+        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
+        previewPDFMutation.mutate({ saleId: firstId });
+      } else {
+        toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+      }
     },
   });
   const printGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
@@ -200,8 +208,15 @@ function SalesListContent() {
       setTimeout(() => { try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ } }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (error: any) => {
-      toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
+    onError: (error: any, variables: any) => {
+      console.error("[printSaleGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백:", error.message, variables);
+      const firstId = variables?.saleIds?.[0];
+      if (firstId) {
+        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
+        generatePDFMutation.mutate({ saleId: firstId });
+      } else {
+        toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
+      }
     },
   });
 

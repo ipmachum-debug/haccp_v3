@@ -138,6 +138,7 @@ function PurchasesListContent() {
 
   // ─── 그룹 PDF (2026-04-14 추가) ───────────────────────────
   // 같은 거래의 여러 품목을 한 PDF 로 묶어서 출력
+  // 실패 시: 단일 PDF 로 자동 폴백 (첫 품목 기준)
   const previewGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
     onSuccess: (data: any) => {
       const blob = base64ToPdfBlob(data.pdf);
@@ -145,8 +146,16 @@ function PurchasesListContent() {
       window.open(url, "_blank");
       toast({ title: "거래명세표 미리보기", description: "새 탭에서 열렸습니다." });
     },
-    onError: (error: any) => {
-      toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+    onError: (error: any, variables: any) => {
+      console.error("[generatePurchaseGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백 시도:", error.message, variables);
+      // 폴백: 첫 품목으로 단일 PDF 호출
+      const firstId = variables?.purchaseIds?.[0];
+      if (firstId) {
+        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
+        previewPDFMutation.mutate({ purchaseId: firstId });
+      } else {
+        toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
+      }
     },
   });
   const printGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
@@ -164,8 +173,15 @@ function PurchasesListContent() {
       setTimeout(() => { try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ } }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (error: any) => {
-      toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
+    onError: (error: any, variables: any) => {
+      console.error("[printGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백 시도:", error.message, variables);
+      const firstId = variables?.purchaseIds?.[0];
+      if (firstId) {
+        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
+        generatePDFMutation.mutate({ purchaseId: firstId });
+      } else {
+        toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
+      }
     },
   });
 
