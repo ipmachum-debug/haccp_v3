@@ -49,6 +49,8 @@ import {
   Upload,
   Sparkles,
   Loader2,
+  Eye,
+  Printer,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
@@ -205,6 +207,66 @@ function PartnerPricesContent() {
     },
     onError: (e: any) =>
       toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // ─── 상세보기 / PDF 출력 (Phase B Part 2 UI) ────────────
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailRow, setDetailRow] = useState<any>(null);
+
+  const openDetailDialog = (row: any) => {
+    setDetailRow(row);
+    setDetailOpen(true);
+  };
+
+  // PDF base64 → Blob 헬퍼
+  const base64ToPdfBlob = (b64: string): Blob => {
+    const byteCharacters = atob(b64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    return new Blob([new Uint8Array(byteNumbers)], { type: "application/pdf" });
+  };
+
+  // 미리보기 (새 탭)
+  const previewPdfMutation = trpc.partnerPrice.generatePdf.useMutation({
+    onSuccess: (res: any) => {
+      const blob = base64ToPdfBlob(res.pdf);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      toast({ title: "미리보기", description: "새 탭에서 열렸습니다." });
+    },
+    onError: (e: any) =>
+      toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // 인쇄 (iframe 자동 프린트)
+  const printPdfMutation = trpc.partnerPrice.generatePdf.useMutation({
+    onSuccess: (res: any) => {
+      const blob = base64ToPdfBlob(res.pdf);
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      iframe.src = url;
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (_) {
+          window.open(url, "_blank");
+        }
+      };
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try {
+          document.body.removeChild(iframe);
+          URL.revokeObjectURL(url);
+        } catch (_) { /* ignore */ }
+      }, 120_000);
+      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
+    },
+    onError: (e: any) =>
+      toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
   });
 
   // 통계
@@ -952,6 +1014,50 @@ function PartnerPricesContent() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openDetailDialog(row)}
+                            title="상세보기"
+                            className="h-7 w-7 p-0"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              previewPdfMutation.mutate({
+                                partnerId: row.partnerId,
+                                activeOnly: false,
+                              })
+                            }
+                            disabled={previewPdfMutation.isPending}
+                            title="거래처 단가표 PDF 미리보기"
+                            className="h-7 w-7 p-0 text-indigo-600"
+                          >
+                            {previewPdfMutation.isPending &&
+                            previewPdfMutation.variables?.partnerId === row.partnerId ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileSpreadsheet className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              printPdfMutation.mutate({
+                                partnerId: row.partnerId,
+                                activeOnly: false,
+                              })
+                            }
+                            disabled={printPdfMutation.isPending}
+                            title="거래처 단가표 인쇄"
+                            className="h-7 w-7 p-0"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -1756,6 +1862,146 @@ function PartnerPricesContent() {
             >
               수정
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ 단가 상세보기 Dialog (Phase B Part 2 UI) ═══ */}
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-indigo-600" />
+              단가 상세보기
+            </DialogTitle>
+            <DialogDescription>
+              거래처별 단가 등록 정보 (읽기 전용)
+            </DialogDescription>
+          </DialogHeader>
+          {detailRow && (
+            <div className="space-y-4 py-2">
+              {/* 상태 배지 */}
+              <div className="flex items-center gap-2">
+                {detailRow.isActive === 1 ? (
+                  <Badge className="bg-green-600 text-white">활성</Badge>
+                ) : (
+                  <Badge variant="outline">비활성</Badge>
+                )}
+                <Badge
+                  variant="outline"
+                  className={
+                    TARGET_TYPE_LABELS[detailRow.targetType]?.color || ""
+                  }
+                >
+                  {TARGET_TYPE_LABELS[detailRow.targetType]?.label ||
+                    detailRow.targetType}
+                </Badge>
+              </div>
+
+              {/* 상세 필드 그리드 */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground">거래처</div>
+                  <div className="font-semibold text-base">
+                    {detailRow.partnerName || `#${detailRow.partnerId}`}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">품목명</div>
+                  <div className="font-medium">{detailRow.itemName}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">품목 코드</div>
+                  <div className="font-mono text-xs">
+                    {detailRow.itemCode || "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">단가</div>
+                  <div className="font-mono text-lg font-bold text-indigo-600">
+                    {Number(detailRow.unitPrice).toLocaleString()}
+                    <span className="text-xs text-muted-foreground ml-1">
+                      {detailRow.currency || "KRW"}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">할인율</div>
+                  <div className="font-medium">
+                    {Number(detailRow.discountRate || 0) > 0
+                      ? `${detailRow.discountRate}%`
+                      : "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">유효 시작</div>
+                  <div className="font-mono text-xs">
+                    {detailRow.effectiveFrom}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">유효 종료</div>
+                  <div className="font-mono text-xs">
+                    {detailRow.effectiveTo || "무제한"}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-muted-foreground">메모</div>
+                  <div className="text-sm whitespace-pre-wrap p-2 bg-slate-50 dark:bg-slate-900/30 rounded min-h-[40px]">
+                    {detailRow.notes || (
+                      <span className="text-muted-foreground italic">
+                        (메모 없음)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">등록일</div>
+                  <div className="text-xs text-muted-foreground">
+                    {detailRow.createdAt
+                      ? new Date(detailRow.createdAt).toLocaleString("ko-KR")
+                      : "-"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">최종 수정</div>
+                  <div className="text-xs text-muted-foreground">
+                    {detailRow.updatedAt
+                      ? new Date(detailRow.updatedAt).toLocaleString("ko-KR")
+                      : "-"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (detailRow) {
+                  previewPdfMutation.mutate({
+                    partnerId: detailRow.partnerId,
+                    activeOnly: false,
+                  });
+                }
+              }}
+              disabled={previewPdfMutation.isPending}
+              className="text-indigo-600"
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-1" />
+              거래처 단가표 PDF
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDetailOpen(false);
+                if (detailRow) openEditDialog(detailRow);
+              }}
+            >
+              <Edit className="h-4 w-4 mr-1" />
+              수정
+            </Button>
+            <Button onClick={() => setDetailOpen(false)}>닫기</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

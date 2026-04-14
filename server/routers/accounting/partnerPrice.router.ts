@@ -979,4 +979,109 @@ ${input.items
         );
       }
     }),
+
+  /**
+   * ★ 거래처별 단가표 PDF 생성 — Phase B Part 2 UI (2026-04-14)
+   *   - 입력: partnerId (+ activeOnly 옵션)
+   *   - 해당 거래처의 모든 단가 + 거래처 정보 + 회사 정보 조회
+   *   - base64 인코딩 PDF 반환 (클라가 iframe 인쇄 또는 새탭 미리보기)
+   */
+  generatePdf: tenantRequiredProcedure
+    .input(
+      z.object({
+        partnerId: z.number(),
+        activeOnly: z.boolean().default(false),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // 거래처 조회
+      const [partner] = await db
+        .select()
+        .from(partners)
+        .where(
+          and(
+            eq(partners.id, input.partnerId),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
+        .limit(1);
+      if (!partner) throw new Error(`거래처 #${input.partnerId} 없음`);
+
+      // 단가 조회 (활성 우선 + effectiveFrom desc)
+      const priceConditions: any[] = [
+        eq(partnerPrices.tenantId, ctx.tenantId),
+        eq(partnerPrices.partnerId, input.partnerId),
+      ];
+      if (input.activeOnly) {
+        priceConditions.push(eq(partnerPrices.isActive, 1));
+      }
+      const prices = await db
+        .select()
+        .from(partnerPrices)
+        .where(and(...priceConditions))
+        .orderBy(
+          desc(partnerPrices.isActive),
+          asc(partnerPrices.targetType),
+          asc(partnerPrices.itemName),
+        );
+
+      if (prices.length === 0) {
+        throw new Error(
+          `거래처 "${partner.companyName}" 에 등록된 단가가 없습니다.`,
+        );
+      }
+
+      // 회사 정보 조회
+      const { getCompanyInfo } = await import("../../db/system/companyInfo");
+      const companyInfo = await getCompanyInfo(ctx.tenantId);
+
+      const { generatePartnerPricesPDF } = await import(
+        "../../lib/partnerPricesPdf"
+      );
+
+      const today = new Date().toISOString().slice(0, 10);
+
+      const pdfBuffer = await generatePartnerPricesPDF({
+        issuer: {
+          name: companyInfo.companyName || "회사명 미설정",
+          businessNumber: companyInfo.companyBusinessNumber,
+          address: companyInfo.companyAddress,
+          representative: companyInfo.companyRepresentative,
+          phone: companyInfo.companyPhone,
+        },
+        partner: {
+          name: partner.companyName || "거래처",
+          businessNumber: partner.bizNo || undefined,
+          address: partner.address || undefined,
+          representative: partner.ceoName || undefined,
+          phone: partner.phone || undefined,
+          grade: (partner as any).grade || null,
+          paymentTerms: (partner as any).paymentTerms || null,
+        },
+        issueDate: today,
+        validUntil: null,
+        lines: prices.map((p: any, idx: number) => ({
+          lineNumber: idx + 1,
+          targetTypeLabel: p.targetType === "material" ? "원재료" : "제품",
+          itemName: p.itemName,
+          itemCode: p.itemCode,
+          unitPrice: Number(p.unitPrice),
+          currency: p.currency || "KRW",
+          discountRate: p.discountRate ? Number(p.discountRate) : null,
+          effectiveFrom: p.effectiveFrom,
+          effectiveTo: p.effectiveTo,
+          isActive: p.isActive === 1,
+          notes: p.notes,
+        })),
+        notes: null,
+      });
+
+      return {
+        pdf: pdfBuffer.toString("base64"),
+        filename: `단가표_${partner.companyName}_${today}.pdf`,
+      };
+    }),
 });
