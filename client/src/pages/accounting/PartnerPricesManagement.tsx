@@ -129,6 +129,37 @@ function PartnerPricesContent() {
     notes: "",
   });
 
+  // 일괄 수정 Dialog (전체 불러오기 + AI 일괄 가격 조정)
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditPartnerId, setBulkEditPartnerId] = useState<number | null>(null);
+  const [bulkEditPartnerName, setBulkEditPartnerName] = useState<string>("");
+  // 로드된 원본 + 사용자가 수정한 draft
+  interface BulkEditRow {
+    id: number;
+    targetType: "material" | "product";
+    materialId: number | null;
+    productId: number | null;
+    itemName: string;
+    itemCode: string | null;
+    originalUnitPrice: number;
+    originalDiscountRate: number;
+    unitPrice: number;
+    discountRate: number;
+    effectiveFrom: string;
+    effectiveTo: string | null;
+    notes: string;
+    isActive: number;
+    dirty: boolean; // 사용자가 수정한 상태
+    aiApplied?: boolean; // AI 로 적용한 상태
+    aiReason?: string;
+  }
+  const [bulkEditRows, setBulkEditRows] = useState<BulkEditRow[]>([]);
+  const [bulkEditSearch, setBulkEditSearch] = useState<string>("");
+  const [aiCommand, setAiCommand] = useState<string>("");
+  const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
+  const [aiPreview, setAiPreview] = useState<any>(null);
+  const [aiSmartLoading, setAiSmartLoading] = useState(false);
+
   const utils = trpc.useUtils();
 
   // 데이터 조회
@@ -503,6 +534,206 @@ function PartnerPricesContent() {
     }
   };
 
+  // ─── 일괄 수정 (전체 불러오기 + AI) ───────────────
+  const bulkUpdateMutation = trpc.partnerPrice.bulkUpdate.useMutation({
+    onSuccess: (res: any) => {
+      toast({
+        title: "일괄 수정 완료",
+        description: res.message,
+      });
+      utils.partnerPrice.list.invalidate();
+      if (res.errorCount === 0) {
+        setBulkEditOpen(false);
+      }
+    },
+    onError: (e: any) =>
+      toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // 거래처 선택 시 해당 거래처의 모든 단가 로드
+  const handleBulkEditPartnerSelect = async (partnerId: number, partnerName: string) => {
+    setBulkEditPartnerId(partnerId);
+    setBulkEditPartnerName(partnerName);
+    try {
+      const rows = await utils.partnerPrice.listByPartner.fetch({ partnerId });
+      const mapped: BulkEditRow[] = (rows as any[]).map((r) => ({
+        id: r.id,
+        targetType: r.targetType as "material" | "product",
+        materialId: r.materialId ?? null,
+        productId: r.productId ?? null,
+        itemName: r.itemName,
+        itemCode: r.itemCode,
+        originalUnitPrice: Number(r.unitPrice),
+        originalDiscountRate: Number(r.discountRate || 0),
+        unitPrice: Number(r.unitPrice),
+        discountRate: Number(r.discountRate || 0),
+        effectiveFrom: r.effectiveFrom,
+        effectiveTo: r.effectiveTo,
+        notes: r.notes || "",
+        isActive: r.isActive,
+        dirty: false,
+      }));
+      setBulkEditRows(mapped);
+      toast({
+        title: `${mapped.length}건 로드 완료`,
+        description: `${partnerName} 의 단가표를 수정할 수 있습니다`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "불러오기 실패",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openBulkEditDialog = () => {
+    setBulkEditPartnerId(null);
+    setBulkEditPartnerName("");
+    setBulkEditRows([]);
+    setBulkEditSearch("");
+    setAiCommand("");
+    setBulkEditOpen(true);
+  };
+
+  const updateBulkEditRow = (id: number, patch: Partial<BulkEditRow>) => {
+    setBulkEditRows((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              ...patch,
+              dirty:
+                (patch.unitPrice !== undefined && patch.unitPrice !== r.originalUnitPrice) ||
+                (patch.discountRate !== undefined &&
+                  patch.discountRate !== r.originalDiscountRate) ||
+                r.dirty,
+            }
+          : r,
+      ),
+    );
+  };
+
+  const resetBulkEditRow = (id: number) => {
+    setBulkEditRows((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              unitPrice: r.originalUnitPrice,
+              discountRate: r.originalDiscountRate,
+              dirty: false,
+              aiApplied: false,
+              aiReason: undefined,
+            }
+          : r,
+      ),
+    );
+  };
+
+  // AI 자연어 명령 → 가격 조정 미리보기
+  const handleAiSmartCommand = async () => {
+    if (!aiCommand.trim()) {
+      toast({ title: "AI 명령어를 입력하세요", variant: "destructive" });
+      return;
+    }
+    if (bulkEditRows.length === 0) {
+      toast({ title: "먼저 거래처를 선택하세요", variant: "destructive" });
+      return;
+    }
+
+    // 검색 필터 적용된 행만 대상
+    const filtered = bulkEditSearch
+      ? bulkEditRows.filter(
+          (r) =>
+            r.itemName.toLowerCase().includes(bulkEditSearch.toLowerCase()) ||
+            (r.itemCode || "").toLowerCase().includes(bulkEditSearch.toLowerCase()),
+        )
+      : bulkEditRows;
+
+    if (filtered.length === 0) {
+      toast({ title: "대상 행이 없습니다", variant: "destructive" });
+      return;
+    }
+
+    if (filtered.length > 100) {
+      toast({
+        title: "행이 너무 많습니다",
+        description: "100건 이하로 검색 필터를 좁혀주세요",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setAiSmartLoading(true);
+    try {
+      const result = await utils.partnerPrice.aiSmartUpdate.fetch({
+        command: aiCommand.trim(),
+        rows: filtered.map((r) => ({
+          id: r.id,
+          targetType: r.targetType,
+          itemName: r.itemName,
+          itemCode: r.itemCode,
+          unitPrice: r.unitPrice,
+          discountRate: r.discountRate,
+        })),
+      });
+      setAiPreview(result);
+      setAiPreviewOpen(true);
+    } catch (err: any) {
+      toast({
+        title: "AI 가격 조정 실패",
+        description: err.message || "OPENAI_API_KEY 설정을 확인하세요",
+        variant: "destructive",
+      });
+    } finally {
+      setAiSmartLoading(false);
+    }
+  };
+
+  // AI 미리보기 결과를 실제 row 에 적용
+  const applyAiPreview = () => {
+    if (!aiPreview) return;
+    const applied: number[] = [];
+    setBulkEditRows((prev) =>
+      prev.map((r) => {
+        const p = aiPreview.preview.find((x: any) => x.id === r.id);
+        if (!p || p.skip || p.newUnitPrice === null) return r;
+        applied.push(r.id);
+        return {
+          ...r,
+          unitPrice: p.newUnitPrice,
+          discountRate: p.newDiscountRate !== null ? p.newDiscountRate : r.discountRate,
+          dirty: true,
+          aiApplied: true,
+          aiReason: p.reason,
+        };
+      }),
+    );
+    toast({
+      title: `✨ AI 조정 적용`,
+      description: `${applied.length}건 적용. "일괄 저장" 버튼으로 DB 반영하세요.`,
+    });
+    setAiPreviewOpen(false);
+    setAiPreview(null);
+  };
+
+  // 수정된 행 일괄 저장
+  const handleBulkEditSave = () => {
+    const dirtyRows = bulkEditRows.filter((r) => r.dirty);
+    if (dirtyRows.length === 0) {
+      toast({ title: "수정된 행이 없습니다" });
+      return;
+    }
+    bulkUpdateMutation.mutate({
+      updates: dirtyRows.map((r) => ({
+        id: r.id,
+        unitPrice: r.unitPrice,
+        discountRate: r.discountRate,
+      })),
+    });
+  };
+
   // ─── 단건 수정 ─────────────────────────────────────
   const openEditDialog = (row: any) => {
     setEditingRow(row);
@@ -554,6 +785,13 @@ function PartnerPricesContent() {
         <div className="flex gap-2">
           <Button variant="outline" onClick={downloadExcelTemplate}>
             <Download className="h-4 w-4 mr-1" /> 엑셀 템플릿
+          </Button>
+          <Button
+            variant="outline"
+            onClick={openBulkEditDialog}
+            className="text-violet-700 border-violet-300 hover:bg-violet-50"
+          >
+            <Sparkles className="h-4 w-4 mr-1" /> AI 일괄 수정
           </Button>
           <Button
             onClick={openBatchDialog}
@@ -1092,6 +1330,348 @@ function PartnerPricesContent() {
               {createBatchMutation.isPending
                 ? "등록 중..."
                 : `일괄 등록 (${batchLines.filter((l) => l.itemName && l.unitPrice > 0).length}건)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ AI 일괄 수정 Dialog ═══ */}
+      <Dialog open={bulkEditOpen} onOpenChange={setBulkEditOpen}>
+        <DialogContent className="max-w-6xl max-h-[92vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-violet-600" />
+              거래처 단가 일괄 수정 (AI)
+            </DialogTitle>
+            <DialogDescription>
+              거래처를 선택하면 기존 단가표 전체가 로드됩니다. 값을 직접 수정하거나,
+              자연어 명령으로 AI 에게 맡길 수 있습니다.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* 거래처 선택 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="md:col-span-2">
+              <Label className="text-xs">거래처 *</Label>
+              <PartnerSearchInput
+                selectedId={bulkEditPartnerId}
+                selectedName={bulkEditPartnerName}
+                onSelect={handleBulkEditPartnerSelect}
+                onClear={() => {
+                  setBulkEditPartnerId(null);
+                  setBulkEditPartnerName("");
+                  setBulkEditRows([]);
+                }}
+                placeholder="거래처 선택 → 전체 단가 자동 로드"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">행 검색 (필터)</Label>
+              <Input
+                value={bulkEditSearch}
+                onChange={(e) => setBulkEditSearch(e.target.value)}
+                placeholder="품목명/코드 검색"
+                className="h-9"
+              />
+            </div>
+          </div>
+
+          {/* AI 자연어 명령 */}
+          {bulkEditRows.length > 0 && (
+            <div className="border-2 border-violet-200 bg-violet-50/30 rounded-lg p-3 space-y-2">
+              <Label className="text-xs text-violet-900 font-semibold flex items-center gap-1">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI 가격 조정 명령 (자연어)
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  value={aiCommand}
+                  onChange={(e) => setAiCommand(e.target.value)}
+                  placeholder='예: "모든 원재료 5% 인상", "밀가루 관련만 10% 인하", "설탕은 동결"'
+                  className="h-9 bg-white"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleAiSmartCommand();
+                  }}
+                />
+                <Button
+                  onClick={handleAiSmartCommand}
+                  disabled={aiSmartLoading || !aiCommand.trim()}
+                  className="bg-violet-600 hover:bg-violet-700"
+                >
+                  {aiSmartLoading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-1" />
+                  )}
+                  AI 분석
+                </Button>
+              </div>
+              <p className="text-[10px] text-violet-700">
+                ⓘ AI 가 판단 후 미리보기를 표시합니다. 확인 후 "적용" 을 눌러야 실제 반영됩니다.
+                저장은 별도 버튼을 눌러야 DB 에 기록됩니다.
+              </p>
+            </div>
+          )}
+
+          {/* 단가 행 테이블 */}
+          <div className="flex-1 overflow-auto border rounded">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background z-10">
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead className="w-20">타입</TableHead>
+                  <TableHead>품목</TableHead>
+                  <TableHead className="w-32 text-right">현재 단가</TableHead>
+                  <TableHead className="w-32 text-right">수정 단가</TableHead>
+                  <TableHead className="w-24 text-right">할인%</TableHead>
+                  <TableHead className="w-24 text-right">증감</TableHead>
+                  <TableHead className="w-10"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {bulkEditRows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      {bulkEditPartnerId
+                        ? "이 거래처에 등록된 단가가 없습니다"
+                        : "거래처를 선택하면 전체 단가가 로드됩니다"}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  bulkEditRows
+                    .filter((r) =>
+                      bulkEditSearch
+                        ? r.itemName.toLowerCase().includes(bulkEditSearch.toLowerCase()) ||
+                          (r.itemCode || "").toLowerCase().includes(bulkEditSearch.toLowerCase())
+                        : true,
+                    )
+                    .map((row, idx) => {
+                      const diff = row.unitPrice - row.originalUnitPrice;
+                      const diffPct =
+                        row.originalUnitPrice > 0
+                          ? Math.round((diff / row.originalUnitPrice) * 10000) / 100
+                          : 0;
+                      return (
+                        <TableRow
+                          key={row.id}
+                          className={
+                            row.dirty
+                              ? row.aiApplied
+                                ? "bg-violet-50"
+                                : "bg-amber-50"
+                              : ""
+                          }
+                        >
+                          <TableCell className="text-xs text-muted-foreground">
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                row.targetType === "material"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-purple-100 text-purple-700"
+                              }
+                            >
+                              {row.targetType === "material" ? "원재료" : "제품"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">
+                            <div>{row.itemName}</div>
+                            {row.itemCode && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {row.itemCode}
+                              </div>
+                            )}
+                            {row.aiReason && (
+                              <div className="text-[10px] text-violet-600 mt-0.5">
+                                ✨ {row.aiReason}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                            {row.originalUnitPrice.toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={row.unitPrice || ""}
+                              onChange={(e) =>
+                                updateBulkEditRow(row.id, {
+                                  unitPrice: parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              className="h-8 text-right text-xs font-mono"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              value={row.discountRate || ""}
+                              onChange={(e) =>
+                                updateBulkEditRow(row.id, {
+                                  discountRate: parseFloat(e.target.value) || 0,
+                                })
+                              }
+                              min={0}
+                              max={100}
+                              step={0.01}
+                              className="h-8 text-right text-xs"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right text-xs">
+                            {row.dirty && diff !== 0 ? (
+                              <span
+                                className={diff > 0 ? "text-rose-600" : "text-emerald-600"}
+                              >
+                                {diff > 0 ? "+" : ""}
+                                {diff.toLocaleString()}
+                                <div className="text-[9px]">
+                                  ({diffPct > 0 ? "+" : ""}
+                                  {diffPct}%)
+                                </div>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {row.dirty && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => resetBulkEditRow(row.id)}
+                                className="h-7 w-7 p-0 text-muted-foreground"
+                                title="원래 값으로 되돌리기"
+                              >
+                                ↺
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter>
+            <div className="flex-1 text-xs text-muted-foreground">
+              {bulkEditRows.length > 0 && (
+                <>
+                  전체 <b>{bulkEditRows.length}</b>건 ·{" "}
+                  <span className="text-amber-600">
+                    수정됨 {bulkEditRows.filter((r) => r.dirty).length}건
+                  </span>{" "}
+                  ·{" "}
+                  <span className="text-violet-600">
+                    AI 적용 {bulkEditRows.filter((r) => r.aiApplied).length}건
+                  </span>
+                </>
+              )}
+            </div>
+            <Button variant="outline" onClick={() => setBulkEditOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={handleBulkEditSave}
+              disabled={bulkUpdateMutation.isPending || bulkEditRows.filter((r) => r.dirty).length === 0}
+              className="bg-violet-600 hover:bg-violet-700"
+            >
+              {bulkUpdateMutation.isPending
+                ? "저장 중..."
+                : `일괄 저장 (${bulkEditRows.filter((r) => r.dirty).length}건)`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ AI 조정 미리보기 Dialog ═══ */}
+      <Dialog open={aiPreviewOpen} onOpenChange={setAiPreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-violet-600" />
+              AI 가격 조정 미리보기
+            </DialogTitle>
+            <DialogDescription>
+              {aiPreview?.summary || "AI 가 분석한 결과입니다. 적용 전에 확인하세요."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex items-center gap-4 text-xs">
+            <Badge className="bg-emerald-600 text-white">
+              ✓ 조정 {aiPreview?.affectedCount || 0}건
+            </Badge>
+            <Badge variant="outline">⊘ 제외 {aiPreview?.skippedCount || 0}건</Badge>
+          </div>
+
+          <div className="flex-1 overflow-auto border rounded">
+            <Table>
+              <TableHeader className="sticky top-0 bg-background">
+                <TableRow>
+                  <TableHead>품목</TableHead>
+                  <TableHead className="text-right">현재</TableHead>
+                  <TableHead className="text-right">변경</TableHead>
+                  <TableHead className="text-right">증감</TableHead>
+                  <TableHead>판단</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {aiPreview?.preview?.map((p: any) => (
+                  <TableRow key={p.id} className={p.skip ? "opacity-50" : ""}>
+                    <TableCell className="text-sm">
+                      <div>{p.itemName}</div>
+                      {p.itemCode && (
+                        <div className="text-[10px] text-muted-foreground">{p.itemCode}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                      {Number(p.currentPrice).toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs font-bold">
+                      {p.skip
+                        ? "-"
+                        : p.newUnitPrice !== null
+                          ? Number(p.newUnitPrice).toLocaleString()
+                          : "-"}
+                    </TableCell>
+                    <TableCell className="text-right text-xs">
+                      {p.skip ? (
+                        <span className="text-muted-foreground">제외</span>
+                      ) : p.priceDiff !== 0 ? (
+                        <span
+                          className={p.priceDiff > 0 ? "text-rose-600" : "text-emerald-600"}
+                        >
+                          {p.priceDiff > 0 ? "+" : ""}
+                          {p.priceDiffPct}%
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </TableCell>
+                    <TableCell className="text-[11px] text-muted-foreground max-w-xs">
+                      {p.reason}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAiPreviewOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={applyAiPreview}
+              className="bg-violet-600 hover:bg-violet-700"
+              disabled={!aiPreview || aiPreview.affectedCount === 0}
+            >
+              <Sparkles className="h-4 w-4 mr-1" />
+              {aiPreview?.affectedCount || 0}건 적용
             </Button>
           </DialogFooter>
         </DialogContent>

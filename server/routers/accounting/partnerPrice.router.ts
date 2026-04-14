@@ -346,6 +346,220 @@ export const partnerPriceRouter = router({
     }),
 
   /**
+   * ★ 다중 행 일괄 수정 — Phase B (2026-04-14)
+   *
+   * 가격 변동 (상승/하락) 시 전체 불러오기 후 값만 일괄 수정.
+   * 각 항목의 id 별로 unit_price / discount_rate / effective_from / effective_to / notes 업데이트.
+   */
+  bulkUpdate: adminProcedure
+    .input(
+      z.object({
+        updates: z
+          .array(
+            z.object({
+              id: z.number(),
+              unitPrice: z.number().nonnegative().optional(),
+              discountRate: z.number().min(0).max(100).optional(),
+              effectiveFrom: z.string().optional(),
+              effectiveTo: z.string().optional().nullable(),
+              notes: z.string().optional(),
+              isActive: z.boolean().optional(),
+            }),
+          )
+          .min(1)
+          .max(500),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      let successCount = 0;
+      const errors: Array<{ id: number; error: string }> = [];
+
+      for (const u of input.updates) {
+        try {
+          const patch: any = {};
+          if (u.unitPrice !== undefined) patch.unitPrice = u.unitPrice.toString();
+          if (u.discountRate !== undefined) patch.discountRate = u.discountRate.toString();
+          if (u.effectiveFrom !== undefined) patch.effectiveFrom = u.effectiveFrom;
+          if (u.effectiveTo !== undefined) patch.effectiveTo = u.effectiveTo;
+          if (u.notes !== undefined) patch.notes = u.notes;
+          if (u.isActive !== undefined) patch.isActive = u.isActive ? 1 : 0;
+
+          if (Object.keys(patch).length === 0) continue;
+
+          await db
+            .update(partnerPrices)
+            .set(patch)
+            .where(
+              and(
+                eq(partnerPrices.id, u.id),
+                eq(partnerPrices.tenantId, ctx.tenantId),
+              ),
+            );
+          successCount++;
+        } catch (err: any) {
+          errors.push({ id: u.id, error: err?.message || "수정 실패" });
+        }
+      }
+
+      return {
+        successCount,
+        errorCount: errors.length,
+        errors,
+        message: `${successCount}건 수정 완료${errors.length > 0 ? `, ${errors.length}건 실패` : ""}`,
+      };
+    }),
+
+  /**
+   * ★ AI 일괄 가격 조정 — Phase B (2026-04-14)
+   *
+   * 자연어 명령 + 대상 단가 행 목록을 받아서 LLM 이 어떻게 수정할지 결정.
+   *
+   * 사용 예시:
+   *   - "모든 원재료 5% 인상"
+   *   - "밀가루 관련 품목만 10% 할인 적용"
+   *   - "2026년 4월부터 적용 밀가루 단가 1800원으로 통일"
+   *   - "설탕, 소금은 가격 동결"
+   *
+   * LLM 은 대상 행 목록을 보고 각 행에 대해:
+   *   - unitPrice: 새 단가 (숫자)
+   *   - discountRate: 새 할인율
+   *   - skip: true (조정 안 함)
+   *   - reason: 판단 근거
+   * 를 반환. 사용자는 미리보기 후 bulkUpdate 로 확정.
+   */
+  aiSmartUpdate: tenantRequiredProcedure
+    .input(
+      z.object({
+        command: z.string().min(1).max(500),
+        rows: z
+          .array(
+            z.object({
+              id: z.number(),
+              targetType: z.enum(["material", "product"]),
+              itemName: z.string(),
+              itemCode: z.string().nullable().optional(),
+              unitPrice: z.number(),
+              discountRate: z.number().optional(),
+            }),
+          )
+          .min(1)
+          .max(100), // 비용/속도 고려 100건 제한
+      }),
+    )
+    .query(async ({ ctx: _ctx, input }) => {
+      const { invokeLLM } = await import("../../_core/llm");
+
+      const systemPrompt = `당신은 식품 제조 ERP 의 가격 관리 어시스턴트입니다.
+사용자의 자연어 명령을 해석해서 단가 행을 어떻게 수정할지 결정합니다.
+
+규칙:
+1. 명령이 특정 품목을 지칭하면 해당 행만 대상 (예: "밀가루만")
+2. 비율 조정은 현재 단가에 곱셈: newPrice = currentPrice * (1 + rate/100)
+3. 반올림: 정수원 단위 (Math.round)
+4. 판단이 애매하면 skip=true + reason 설명
+5. 가격 동결/제외 명령이면 명시적으로 skip=true`;
+
+      const userPrompt = `=== 수정 대상 단가 행 ===
+${input.rows
+  .map(
+    (r, idx) =>
+      `${idx + 1}. [id=${r.id}] [${r.targetType}] ${r.itemName}${r.itemCode ? ` (${r.itemCode})` : ""} - 현재: ${r.unitPrice}원, 할인: ${r.discountRate || 0}%`,
+  )
+  .join("\n")}
+
+=== 사용자 명령 ===
+${input.command}
+
+각 행에 대해 수정 내용을 결정하세요.`;
+
+      try {
+        const result = await invokeLLM({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          maxTokens: 3000,
+          responseFormat: {
+            type: "json_schema",
+            json_schema: {
+              name: "price_adjustments",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["adjustments", "summary"],
+                properties: {
+                  summary: {
+                    type: "string",
+                    description: "전체 명령에 대한 한 줄 요약",
+                  },
+                  adjustments: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      additionalProperties: false,
+                      required: ["id", "skip", "reason"],
+                      properties: {
+                        id: { type: "integer" },
+                        skip: { type: "boolean" },
+                        newUnitPrice: { type: ["number", "null"] },
+                        newDiscountRate: { type: ["number", "null"] },
+                        reason: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        const content = result.choices[0]?.message?.content;
+        const parsed =
+          typeof content === "string" ? JSON.parse(content) : { adjustments: [], summary: "" };
+
+        // LLM 결과 + 원본 행 결합 (미리보기용)
+        const preview = input.rows.map((row) => {
+          const adj = parsed.adjustments?.find((a: any) => a.id === row.id);
+          return {
+            id: row.id,
+            itemName: row.itemName,
+            itemCode: row.itemCode,
+            currentPrice: row.unitPrice,
+            currentDiscount: row.discountRate || 0,
+            skip: adj?.skip ?? true,
+            newUnitPrice: adj?.newUnitPrice ?? null,
+            newDiscountRate: adj?.newDiscountRate ?? null,
+            priceDiff:
+              adj && !adj.skip && adj.newUnitPrice !== null
+                ? adj.newUnitPrice - row.unitPrice
+                : 0,
+            priceDiffPct:
+              adj && !adj.skip && adj.newUnitPrice !== null && row.unitPrice > 0
+                ? Math.round(((adj.newUnitPrice - row.unitPrice) / row.unitPrice) * 10000) / 100
+                : 0,
+            reason: adj?.reason || "매칭 없음",
+          };
+        });
+
+        return {
+          summary: parsed.summary || "",
+          preview,
+          affectedCount: preview.filter((p) => !p.skip).length,
+          skippedCount: preview.filter((p) => p.skip).length,
+        };
+      } catch (err: any) {
+        console.error("[aiSmartUpdate] LLM 호출 실패:", err);
+        throw new Error(
+          `AI 가격 조정 실패: ${err?.message || "알 수 없는 오류"}. OPENAI_API_KEY 설정을 확인하세요.`,
+        );
+      }
+    }),
+
+  /**
    * ★ 지능형 품목 매칭 — Phase B (2026-04-14)
    *
    * 엑셀 업로드 시 품목명/품목코드 오타/공백/어순 변형을 허용하여
