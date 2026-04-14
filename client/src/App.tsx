@@ -405,6 +405,9 @@ function Router() {
       <Route path="/dashboard/accounting/purchases/create" component={lazy(() => import("@/pages/accounting/PurchasesManagement"))} />
       <Route path="/dashboard/accounting/purchases/list" component={lazy(() => import("@/pages/accounting/PurchasesList"))} />
       <Route path="/dashboard/accounting/purchases/:id" component={lazy(() => import("@/pages/accounting/PurchaseDetail"))} />
+      {/* Phase A (2026-04-14): 발주·구매 관리 */}
+      <Route path="/dashboard/accounting/purchase-orders" component={lazy(() => import("@/pages/accounting/PurchaseOrderList"))} />
+      <Route path="/dashboard/accounting/purchase-orders/create" component={lazy(() => import("@/pages/accounting/PurchaseOrderCreate"))} />
       <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
       <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
       <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />

@@ -28,6 +28,7 @@ import {
   accountingAccountsRouter,
   accountCategoriesRouter,
   inventoryAccountingRouter,
+  purchaseOrderRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -264,6 +265,8 @@ export const appRouter = router({
   accountCategories: accountCategoriesRouter,
   accountingAccountCategories: accountCategoriesRouter,
   inventoryAccounting: inventoryAccountingRouter,
+  // Phase A (2026-04-14): 발주/구매 관리
+  purchaseOrder: purchaseOrderRouter,
 
   // ── dashboard ──
   dashboard: dashboardRouter,

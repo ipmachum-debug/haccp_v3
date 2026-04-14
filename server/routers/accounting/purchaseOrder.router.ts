@@ -1,0 +1,451 @@
+/**
+ * 발주서 (Purchase Order) 라우터 — Phase A (2026-04-14)
+ * ═══════════════════════════════════════════════════════════════
+ * 발주 → 승인 → 입고 → 매입전표 자동 변환 전체 워크플로우
+ * ═══════════════════════════════════════════════════════════════
+ */
+import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
+import { z } from "zod";
+import { getDb, withTransaction } from "../../db";
+import { purchaseOrders, purchaseOrderLines } from "../../../drizzle/schema/schema_purchase_orders";
+import { partners } from "../../../drizzle/schema/schema_main_accounting";
+import { and, eq, desc, sql, like, gte, lte, inArray } from "drizzle-orm";
+
+// ─── PO 번호 자동 생성 (PO-YYYY-NNNN) ────────────────────────
+async function generatePoNumber(tenantId: number): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const year = new Date().getFullYear();
+  const prefix = `PO-${year}-`;
+
+  const [lastRow]: any = await (await import("../../db")).getRawConnection().then((pool) =>
+    pool.execute(
+      `SELECT po_number FROM purchase_orders
+       WHERE tenant_id = ? AND po_number LIKE ?
+       ORDER BY id DESC LIMIT 1`,
+      [tenantId, `${prefix}%`],
+    ),
+  );
+  const rows = lastRow as any[];
+
+  let nextSeq = 1;
+  if (rows && rows[0]?.po_number) {
+    const match = rows[0].po_number.match(/-(\d+)$/);
+    if (match) nextSeq = parseInt(match[1], 10) + 1;
+  }
+  return `${prefix}${String(nextSeq).padStart(4, "0")}`;
+}
+
+// ─── Zod 스키마 ──────────────────────────────────────────────
+const lineInput = z.object({
+  materialId: z.number().optional(),
+  itemName: z.string().min(1, "품목명 필수"),
+  itemCode: z.string().optional(),
+  orderedQty: z.number().positive("수량은 양수"),
+  unit: z.string().default("EA"),
+  unitPrice: z.number().nonnegative(),
+  taxAmount: z.number().nonnegative().optional(),
+  expectedDeliveryDate: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+const createInput = z.object({
+  partnerId: z.number(),
+  orderDate: z.string(),
+  expectedDeliveryDate: z.string().optional(),
+  deliveryAddress: z.string().optional(),
+  notes: z.string().optional(),
+  lines: z.array(lineInput).min(1, "최소 1개 품목 필요"),
+});
+
+const receiveInput = z.object({
+  poId: z.number(),
+  lines: z
+    .array(
+      z.object({
+        lineId: z.number(),
+        receivedQty: z.number().positive(),
+      }),
+    )
+    .min(1),
+  receiptDate: z.string().optional(), // 입고일 (기본: 오늘)
+});
+
+// ─── Router ──────────────────────────────────────────────────
+export const purchaseOrderRouter = router({
+  /**
+   * 발주 목록 조회 (필터 지원)
+   */
+  list: tenantRequiredProcedure
+    .input(
+      z
+        .object({
+          status: z
+            .enum(["draft", "approved", "partial_received", "received", "cancelled"])
+            .optional(),
+          partnerId: z.number().optional(),
+          startDate: z.string().optional(),
+          endDate: z.string().optional(),
+          search: z.string().optional(), // PO 번호 또는 거래처명
+        })
+        .optional(),
+    )
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const conditions: any[] = [eq(purchaseOrders.tenantId, ctx.tenantId)];
+      if (input?.status) conditions.push(eq(purchaseOrders.status, input.status));
+      if (input?.partnerId) conditions.push(eq(purchaseOrders.partnerId, input.partnerId));
+      if (input?.startDate) conditions.push(gte(purchaseOrders.orderDate, input.startDate));
+      if (input?.endDate) conditions.push(lte(purchaseOrders.orderDate, input.endDate));
+      if (input?.search) {
+        conditions.push(like(purchaseOrders.poNumber, `%${input.search}%`));
+      }
+
+      const rows = await db
+        .select({
+          id: purchaseOrders.id,
+          poNumber: purchaseOrders.poNumber,
+          partnerId: purchaseOrders.partnerId,
+          partnerName: partners.companyName,
+          orderDate: purchaseOrders.orderDate,
+          expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+          totalAmount: purchaseOrders.totalAmount,
+          taxAmount: purchaseOrders.taxAmount,
+          grandTotal: purchaseOrders.grandTotal,
+          status: purchaseOrders.status,
+          notes: purchaseOrders.notes,
+          createdAt: purchaseOrders.createdAt,
+          approvedAt: purchaseOrders.approvedAt,
+        })
+        .from(purchaseOrders)
+        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .where(and(...conditions))
+        .orderBy(desc(purchaseOrders.orderDate), desc(purchaseOrders.id));
+
+      return rows;
+    }),
+
+  /**
+   * 발주 상세 조회 (헤더 + 라인)
+   */
+  getById: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const [po] = await db
+        .select()
+        .from(purchaseOrders)
+        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .where(
+          and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.tenantId, ctx.tenantId)),
+        )
+        .limit(1);
+
+      if (!po) throw new Error(`발주서 #${input.id} 를 찾을 수 없습니다.`);
+
+      const lines = await db
+        .select()
+        .from(purchaseOrderLines)
+        .where(
+          and(
+            eq(purchaseOrderLines.poId, input.id),
+            eq(purchaseOrderLines.tenantId, ctx.tenantId),
+          ),
+        )
+        .orderBy(purchaseOrderLines.lineNumber);
+
+      return {
+        ...po.purchase_orders,
+        partner: po.partners,
+        lines,
+      };
+    }),
+
+  /**
+   * 발주 생성 (draft 상태로 시작)
+   */
+  create: adminProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    const db = await getDb();
+    if (!db) throw new Error("DB 연결 실패");
+
+    // 합계 계산
+    let totalAmount = 0;
+    let taxAmount = 0;
+    for (const line of input.lines) {
+      const lineAmount = line.orderedQty * line.unitPrice;
+      totalAmount += lineAmount;
+      taxAmount += line.taxAmount ?? Math.round(lineAmount * 0.1);
+    }
+    const grandTotal = totalAmount + taxAmount;
+
+    const poNumber = await generatePoNumber(ctx.tenantId);
+
+    return await withTransaction(async (conn) => {
+      // 1. 헤더 insert
+      const [headerResult] = await conn.execute(
+        `INSERT INTO purchase_orders
+           (tenant_id, po_number, partner_id, order_date, expected_delivery_date,
+            delivery_address, total_amount, tax_amount, grand_total, status, notes, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+        [
+          ctx.tenantId,
+          poNumber,
+          input.partnerId,
+          input.orderDate,
+          input.expectedDeliveryDate ?? null,
+          input.deliveryAddress ?? null,
+          totalAmount.toFixed(2),
+          taxAmount.toFixed(2),
+          grandTotal.toFixed(2),
+          input.notes ?? null,
+          ctx.user.id,
+        ],
+      );
+      const poId = Number((headerResult as any).insertId);
+
+      // 2. 라인 insert
+      let lineNumber = 1;
+      for (const line of input.lines) {
+        const lineAmount = line.orderedQty * line.unitPrice;
+        await conn.execute(
+          `INSERT INTO purchase_order_lines
+             (tenant_id, po_id, line_number, material_id, item_name, item_code,
+              ordered_qty, received_qty, unit, unit_price, amount, tax_amount,
+              expected_delivery_date, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '0.000', ?, ?, ?, ?, ?, ?)`,
+          [
+            ctx.tenantId,
+            poId,
+            lineNumber++,
+            line.materialId ?? null,
+            line.itemName,
+            line.itemCode ?? null,
+            line.orderedQty.toString(),
+            line.unit,
+            line.unitPrice.toFixed(2),
+            lineAmount.toFixed(2),
+            (line.taxAmount ?? Math.round(lineAmount * 0.1)).toFixed(2),
+            line.expectedDeliveryDate ?? null,
+            line.notes ?? null,
+          ],
+        );
+      }
+
+      return { id: poId, poNumber, message: `발주서 ${poNumber} 생성 완료` };
+    }, `purchaseOrder.create`);
+  }),
+
+  /**
+   * 발주 승인 (draft → approved)
+   */
+  approve: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM purchase_orders WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.id, ctx.tenantId],
+        );
+        const current = (rows as any[])[0];
+        if (!current) throw new Error(`발주서 #${input.id} 없음`);
+        if (current.status !== "draft") {
+          throw new Error(`작성 중(draft) 발주서만 승인 가능. 현재: ${current.status}`);
+        }
+
+        await conn.execute(
+          `UPDATE purchase_orders
+           SET status = 'approved', approved_by = ?, approved_at = NOW()
+           WHERE id = ? AND tenant_id = ?`,
+          [ctx.user.id, input.id, ctx.tenantId],
+        );
+
+        return { message: "발주서가 승인되었습니다." };
+      }, `purchaseOrder.approve:${input.id}`);
+    }),
+
+  /**
+   * 발주 취소 (draft/approved → cancelled)
+   * 이미 입고가 시작된 (partial_received/received) 건은 취소 불가
+   */
+  cancel: adminProcedure
+    .input(z.object({ id: z.number(), reason: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM purchase_orders WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.id, ctx.tenantId],
+        );
+        const current = (rows as any[])[0];
+        if (!current) throw new Error(`발주서 #${input.id} 없음`);
+        if (!["draft", "approved"].includes(current.status)) {
+          throw new Error(`이미 입고가 시작된 발주서는 취소할 수 없습니다. 현재: ${current.status}`);
+        }
+
+        await conn.execute(
+          `UPDATE purchase_orders
+           SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW(), cancel_reason = ?
+           WHERE id = ? AND tenant_id = ?`,
+          [ctx.user.id, input.reason ?? null, input.id, ctx.tenantId],
+        );
+
+        return { message: "발주서가 취소되었습니다." };
+      }, `purchaseOrder.cancel:${input.id}`);
+    }),
+
+  /**
+   * 발주 삭제 (draft 만 가능)
+   */
+  delete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM purchase_orders WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.id, ctx.tenantId],
+        );
+        const current = (rows as any[])[0];
+        if (!current) throw new Error(`발주서 #${input.id} 없음`);
+        if (current.status !== "draft") {
+          throw new Error(`작성 중 발주서만 삭제 가능. 현재: ${current.status}. 취소(cancel)를 사용하세요.`);
+        }
+        await conn.execute(
+          `DELETE FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId],
+        );
+        await conn.execute(
+          `DELETE FROM purchase_orders WHERE id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId],
+        );
+        return { message: "발주서가 삭제되었습니다." };
+      }, `purchaseOrder.delete:${input.id}`);
+    }),
+
+  /**
+   * ★ 입고 처리 — PO → accounting_purchases 자동 생성
+   *
+   * 워크플로우:
+   *   1. PO 잠금 + 상태 검증 (approved 또는 partial_received 만 가능)
+   *   2. 각 라인별 입고량 검증 (ordered_qty - received_qty 초과 금지)
+   *   3. haccpIntegration.createPurchase 호출 → 매입전표 생성
+   *      → 이 경로가 h_inventory_lots + h_inventory_transactions
+   *      + h_inbound_headers + material_ledger_daily 자동 처리
+   *   4. 라인 received_qty 누적
+   *   5. 전량 입고면 status='received', 일부면 'partial_received'
+   */
+  receive: adminProcedure.input(receiveInput).mutation(async ({ ctx, input }) => {
+    const db = await getDb();
+    if (!db) throw new Error("DB 연결 실패");
+
+    // PO 헤더 + 라인 조회
+    const [po] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(
+        and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId)),
+      )
+      .limit(1);
+    if (!po) throw new Error(`발주서 #${input.poId} 없음`);
+    if (!["approved", "partial_received"].includes(po.status!)) {
+      throw new Error(`승인(approved) 상태 발주서만 입고 처리 가능. 현재: ${po.status}`);
+    }
+
+    const lineIds = input.lines.map((l) => l.lineId);
+    const existingLines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(
+        and(
+          eq(purchaseOrderLines.poId, input.poId),
+          eq(purchaseOrderLines.tenantId, ctx.tenantId),
+          inArray(purchaseOrderLines.id, lineIds),
+        ),
+      );
+
+    // 라인별 검증 + 매입전표 생성 + received_qty 업데이트
+    const { createPurchase } = await import("../../db/haccp/haccpIntegration");
+    const receiptDate = input.receiptDate || new Date().toISOString().slice(0, 10);
+    const createdPurchases: number[] = [];
+
+    for (const received of input.lines) {
+      const line = existingLines.find((l) => l.id === received.lineId);
+      if (!line) throw new Error(`라인 #${received.lineId} 없음`);
+
+      const ordered = Number(line.orderedQty);
+      const alreadyReceived = Number(line.receivedQty);
+      const remaining = ordered - alreadyReceived;
+
+      if (received.receivedQty > remaining + 0.001) {
+        throw new Error(
+          `라인 #${line.lineNumber} (${line.itemName}) 입고량 초과: ` +
+            `발주 ${ordered}, 기존 입고 ${alreadyReceived}, 요청 ${received.receivedQty}, 잔량 ${remaining}`,
+        );
+      }
+
+      // 매입전표 자동 생성 (기존 로직 재사용)
+      const purchaseResult: any = await createPurchase(
+        {
+          transactionDate: receiptDate,
+          partnerId: po.partnerId,
+          itemName: line.itemName,
+          materialId: line.materialId ?? undefined,
+          quantity: received.receivedQty,
+          unitPrice: Number(line.unitPrice),
+          amount: received.receivedQty * Number(line.unitPrice),
+          taxAmount: Math.round(received.receivedQty * Number(line.unitPrice) * 0.1),
+          memo: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
+          unit: line.unit,
+          createdBy: ctx.user.id,
+        },
+        ctx.tenantId,
+      );
+      if (purchaseResult?.insertId) createdPurchases.push(Number(purchaseResult.insertId));
+
+      // 라인 received_qty 업데이트
+      await db
+        .update(purchaseOrderLines)
+        .set({
+          receivedQty: (alreadyReceived + received.receivedQty).toFixed(3),
+        })
+        .where(
+          and(
+            eq(purchaseOrderLines.id, received.lineId),
+            eq(purchaseOrderLines.tenantId, ctx.tenantId),
+          ),
+        );
+    }
+
+    // PO 상태 업데이트 (전부 received 인지 확인)
+    const allLines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(
+        and(
+          eq(purchaseOrderLines.poId, input.poId),
+          eq(purchaseOrderLines.tenantId, ctx.tenantId),
+        ),
+      );
+
+    const allReceived = allLines.every(
+      (l) => Number(l.receivedQty) >= Number(l.orderedQty) - 0.001,
+    );
+    const newStatus = allReceived ? "received" : "partial_received";
+
+    await db
+      .update(purchaseOrders)
+      .set({ status: newStatus })
+      .where(
+        and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId)),
+      );
+
+    return {
+      message: `${input.lines.length}건 입고 처리 완료`,
+      newStatus,
+      createdPurchaseIds: createdPurchases,
+    };
+  }),
+});

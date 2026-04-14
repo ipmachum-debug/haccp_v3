@@ -18,3 +18,5 @@ export { bankTransactionBulkRouter } from "./bankTransactionBulk.router";
 export { accountingAccountsRouter } from "./accountingAccounts.router";
 export { accountCategoriesRouter } from "./accountCategories.router";
 export { inventoryAccountingRouter } from "./inventoryAccounting.router";
+// Phase A (2026-04-14): 발주/구매 관리
+export { purchaseOrderRouter } from "./purchaseOrder.router";

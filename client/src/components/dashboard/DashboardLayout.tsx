@@ -574,6 +574,8 @@ function DashboardLayoutContent({
     { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"] },
     { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"] },
     { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"] },
+    // Phase A (2026-04-14): 발주·구매 관리
+    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"] },
     { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"] },
     { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"] },
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"] },
