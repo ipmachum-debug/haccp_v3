@@ -82,7 +82,7 @@ export default function TenantManagement() {
 
   // 구독 폼 상태
   const [subscriptionForm, setSubscriptionForm] = useState({
-    subscriptionPackage: "basic" as "basic" | "pro",
+    subscriptionPackage: "starter" as "starter" | "standard" | "enterprise",
     subscriptionDays: 30,
     startDate: todayLocal(),
   });
@@ -297,10 +297,32 @@ export default function TenantManagement() {
 
   const openSubscriptionDialog = (tenant: any) => {
     setSelectedTenant(tenant);
+    // ★ 2026-04-14: Date/ISO string → "YYYY-MM-DD" 변환
+    //   <Input type="date"> 는 "YYYY-MM-DD" 문자열만 받으므로 Date 객체를 주면 빈 값 표시됨
+    //   → 사용자가 그대로 "업데이트" 누르면 Zod 에서 string 이 아닌 값 받아 실패하던 버그 수정
+    let startDateStr = todayLocal();
+    if (tenant.subscriptionStartDate) {
+      try {
+        const d = new Date(tenant.subscriptionStartDate);
+        if (!isNaN(d.getTime())) {
+          // 로컬 기준 YYYY-MM-DD (UTC 변환 시 날짜 밀림 방지)
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, "0");
+          const dd = String(d.getDate()).padStart(2, "0");
+          startDateStr = `${yyyy}-${mm}-${dd}`;
+        }
+      } catch { /* fallback to todayLocal */ }
+    }
+    // ★ 패키지 값 검증 (구 값 "basic" / "pro" 호환)
+    const rawPkg = tenant.subscriptionPackage;
+    const validPkg: "starter" | "standard" | "enterprise" =
+      rawPkg === "starter" || rawPkg === "standard" || rawPkg === "enterprise"
+        ? rawPkg
+        : "starter";
     setSubscriptionForm({
-      subscriptionPackage: tenant.subscriptionPackage || "basic",
+      subscriptionPackage: validPkg,
       subscriptionDays: tenant.subscriptionDays || 30,
-      startDate: tenant.subscriptionStartDate || todayLocal(),
+      startDate: startDateStr,
     });
     setSubscriptionTab("haccp");
     setSubscriptionDialogOpen(true);
