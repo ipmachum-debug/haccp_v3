@@ -55,7 +55,8 @@ interface TransactionStatementData {
 }
 
 // 한글 폰트 경로 찾기
-// ★ 2026-04-13: PM2 dist 실행, 개발 서버, 컨테이너 등 다양한 cwd 대응
+// ★ 2026-04-14: esbuild ESM 번들 호환 — __dirname 제거
+//   ("type": "module" + format=esm 환경에서 __dirname 은 undefined 이므로 배열 생성 시점에 ReferenceError 발생 → 폰트 탐색 전체 실패)
 function findFontPath(fontName: string): string | null {
   const cwd = process.cwd();
   const possiblePaths = [
@@ -63,12 +64,11 @@ function findFontPath(fontName: string): string | null {
     path.join(cwd, "..", "fonts", fontName),
     path.join(cwd, "..", "..", "fonts", fontName),
     path.join(cwd, "..", "..", "..", "fonts", fontName),
-    // 하드코딩 대체 경로
-    `/home/root/haccp_v3/fonts/${fontName}`,
+    // 하드코딩 절대 경로 (PM2 / 컨테이너 / systemd 등 cwd 변동 대응)
     `/root/haccp_v3/fonts/${fontName}`,
-    // __dirname 기반 (dist/index.js 에서 실행 시)
-    path.join(__dirname, "..", "fonts", fontName),
-    path.join(__dirname, "..", "..", "fonts", fontName),
+    `/home/root/haccp_v3/fonts/${fontName}`,
+    `/var/www/haccp_v3/fonts/${fontName}`,
+    `/home/user/haccp_v3/fonts/${fontName}`,
   ];
 
   for (const p of possiblePaths) {

@@ -28,16 +28,18 @@ import * as fs from "fs";
 // PDF 한글 폰트 유틸리티
 // ═══════════════════════════════════════════════════════════════
 
-/** 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음) */
+/** 한글 폰트 경로 찾기 (서버 배포 환경에서 cwd가 다를 수 있음)
+ * ★ 2026-04-14: esbuild ESM 번들 호환 — __dirname 제거 */
 function findFontPath(fontName: string): string | null {
   const possiblePaths = [
     path.join(process.cwd(), "fonts", fontName),
     path.join(process.cwd(), "..", "fonts", fontName),
     path.join(process.cwd(), "..", "..", "fonts", fontName),
-    path.join(__dirname, "..", "..", "fonts", fontName),
-    path.join(__dirname, "..", "..", "..", "fonts", fontName),
+    path.join(process.cwd(), "..", "..", "..", "fonts", fontName),
     `/root/haccp_v3/fonts/${fontName}`,
     `/home/root/haccp_v3/fonts/${fontName}`,
+    `/var/www/haccp_v3/fonts/${fontName}`,
+    `/home/user/haccp_v3/fonts/${fontName}`,
   ];
   for (const p of possiblePaths) {
     try { if (fs.existsSync(p)) return p; } catch {}
