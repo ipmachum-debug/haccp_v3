@@ -70,6 +70,10 @@ interface BatchLine {
   unitPrice: number;
   discountRate: number;
   notes: string;
+  // 매칭 메타 (엑셀 업로드 후 표시용)
+  confidence?: "high" | "medium" | "low" | "none";
+  matchedBy?: string; // code_exact / name_exact / name_similar ...
+  originalQuery?: string; // 엑셀에서 입력된 원본 문자열
 }
 
 function emptyBatchLine(): BatchLine {
@@ -132,9 +136,8 @@ function PartnerPricesContent() {
     activeOnly,
   });
 
-  // 원재료/제품 전체 목록 (엑셀 업로드 시 매칭용)
-  const { data: allMaterials = [] } = trpc.material.list.useQuery({}, { staleTime: 60_000 });
-  const { data: allProducts = [] } = trpc.product.list.useQuery(undefined, { staleTime: 60_000 });
+  // Phase B: 엑셀 업로드 매칭은 서버 matchItems 엔드포인트로 위임
+  //   (client 에서 전체 master 를 들고 오지 않음 — 대용량 대응)
 
   // Mutations
   const createBatchMutation = trpc.partnerPrice.createBatch.useMutation({
@@ -315,7 +318,10 @@ function PartnerPricesContent() {
     });
   };
 
-  // ─── 엑셀 업로드 ────────────────────────────────────
+  // ─── 엑셀 업로드 (지능형 매칭 적용) ────────────────
+  // Phase B (2026-04-14): partnerPrice.matchItems 서버 매칭 사용
+  //   - 완전일치 / 포함관계 / Levenshtein 편집거리 / 토큰중복
+  //   - 오타/공백/어순/하이픈 변형 자동 허용
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -331,24 +337,19 @@ function PartnerPricesContent() {
         return;
       }
 
-      // 품목코드 → ID 매칭
-      const materialMap = new Map<string, any>();
-      (allMaterials as any[]).forEach((m: any) => {
-        const code = (m.materialCode || m.itemCode || "").toString().trim();
-        if (code) materialMap.set(code, m);
-      });
-      const productMap = new Map<string, any>();
-      (allProducts as any[]).forEach((p: any) => {
-        const code = (p.productCode || "").toString().trim();
-        if (code) productMap.set(code, p);
-      });
-
-      const newLines: BatchLine[] = [];
-      const unmatched: string[] = [];
+      // 1) 엑셀 행 → 매칭 요청 아이템 변환
+      type ParsedRow = {
+        targetType: "material" | "product";
+        itemCode: string;
+        itemName: string;
+        unitPrice: number;
+        discountRate: number;
+        notes: string;
+      };
+      const parsedRows: ParsedRow[] = [];
 
       for (const row of rows) {
         const targetTypeRaw = String(row["대상타입"] || "").trim().toLowerCase();
-        // 기본값: product (대상타입 비어 있거나 "제품" 이면 product, "material"/"원재료" 면 material)
         const targetType: "material" | "product" =
           targetTypeRaw === "material" || targetTypeRaw === "원재료"
             ? "material"
@@ -363,61 +364,67 @@ function PartnerPricesContent() {
         if (!itemCode && !itemName) continue;
         if (unitPrice <= 0) continue;
 
-        // 품목코드로 매칭
-        let matchedId: number | null = null;
-        let matchedName = itemName;
-        let matchedCode = itemCode;
-
-        if (targetType === "material") {
-          const match = itemCode ? materialMap.get(itemCode) : null;
-          if (match) {
-            matchedId = match.id;
-            matchedName = match.materialName || match.itemName || itemName;
-            matchedCode = match.materialCode || match.itemCode || itemCode;
-          }
-        } else {
-          const match = itemCode ? productMap.get(itemCode) : null;
-          if (match) {
-            matchedId = match.id;
-            matchedName = match.productName || itemName;
-            matchedCode = match.productCode || itemCode;
-          }
-        }
-
-        if (!matchedId) {
-          unmatched.push(`${targetType === "material" ? "원재료" : "제품"} ${itemCode || itemName}`);
-        }
-
-        newLines.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          targetType,
-          materialId: targetType === "material" ? matchedId : null,
-          productId: targetType === "product" ? matchedId : null,
-          itemName: matchedName,
-          itemCode: matchedCode,
-          unitPrice,
-          discountRate,
-          notes,
-        });
+        parsedRows.push({ targetType, itemCode, itemName, unitPrice, discountRate, notes });
       }
 
-      if (newLines.length === 0) {
+      if (parsedRows.length === 0) {
         toast({
           title: "유효한 행이 없습니다",
-          description: "대상타입/품목코드/단가 컬럼을 확인하세요",
+          description: "대상타입/품목명/단가 컬럼을 확인하세요",
           variant: "destructive",
         });
         return;
       }
 
+      // 2) 서버 매칭 호출
+      const matchResults = await utils.partnerPrice.matchItems.fetch({
+        items: parsedRows.map((r) => ({
+          targetType: r.targetType,
+          query: r.itemName,
+          itemCode: r.itemCode || undefined,
+        })),
+      });
+
+      // 3) 결과 → BatchLine 구성
+      const newLines: BatchLine[] = parsedRows.map((r, idx) => {
+        const mr = matchResults[idx];
+        const best = mr?.bestMatch;
+        // high / medium 은 자동 채움, low / none 은 품목 선택을 비워두어 사용자가 수동 선택
+        const autoApply = best && (mr.confidence === "high" || mr.confidence === "medium");
+        return {
+          id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 4)}`,
+          targetType: r.targetType,
+          materialId: autoApply && r.targetType === "material" ? best.id : null,
+          productId: autoApply && r.targetType === "product" ? best.id : null,
+          itemName: autoApply ? best.name : r.itemName,
+          itemCode: autoApply && best.code ? best.code : r.itemCode,
+          unitPrice: r.unitPrice,
+          discountRate: r.discountRate,
+          notes: r.notes,
+          confidence: mr?.confidence ?? "none",
+          matchedBy: best?.matchedBy,
+          originalQuery: r.itemName,
+        };
+      });
+
+      // 4) confidence 별 집계
+      const counts = { high: 0, medium: 0, low: 0, none: 0 };
+      for (const line of newLines) {
+        counts[line.confidence || "none"]++;
+      }
+
       setBatchLines(newLines);
+
       toast({
         title: `${newLines.length}건 로드 완료`,
         description:
-          unmatched.length > 0
-            ? `미매칭 ${unmatched.length}건 (품목코드 확인 필요): ${unmatched.slice(0, 3).join(", ")}${unmatched.length > 3 ? " ..." : ""}`
-            : "모든 품목이 매칭되었습니다",
-        variant: unmatched.length > 0 ? "default" : "default",
+          `✓ 자동매칭 ${counts.high}건 · ` +
+          `⚠ 유사매칭 ${counts.medium}건 · ` +
+          `? 후보있음 ${counts.low}건 · ` +
+          `✗ 매칭실패 ${counts.none}건` +
+          (counts.low + counts.none > 0
+            ? "  (낮은 신뢰도 / 실패 건은 품목을 직접 선택하세요)"
+            : ""),
       });
     } catch (err: any) {
       toast({
@@ -815,9 +822,34 @@ function PartnerPricesContent() {
                     </TableCell>
                     <TableCell>
                       {line.materialId || line.productId ? (
-                        <div className="h-8 px-2 flex items-center gap-2 border rounded bg-emerald-50 text-xs">
-                          <Package className="h-3 w-3 text-emerald-600 shrink-0" />
+                        <div
+                          className={`h-8 px-2 flex items-center gap-2 border rounded text-xs ${
+                            line.confidence === "high"
+                              ? "bg-emerald-50 border-emerald-300"
+                              : line.confidence === "medium"
+                                ? "bg-amber-50 border-amber-300"
+                                : "bg-emerald-50 border-emerald-200"
+                          }`}
+                        >
+                          <Package className="h-3 w-3 shrink-0 text-emerald-600" />
                           <span className="truncate flex-1">{line.itemName}</span>
+                          {/* 매칭 신뢰도 배지 */}
+                          {line.confidence === "high" && (
+                            <span
+                              className="text-[9px] px-1 py-px rounded bg-emerald-600 text-white shrink-0"
+                              title={`자동 매칭: ${line.matchedBy}`}
+                            >
+                              ✓ 자동
+                            </span>
+                          )}
+                          {line.confidence === "medium" && (
+                            <span
+                              className="text-[9px] px-1 py-px rounded bg-amber-500 text-white shrink-0"
+                              title={`유사 매칭: ${line.matchedBy} — 확인 필요`}
+                            >
+                              ⚠ 유사
+                            </span>
+                          )}
                           {line.itemCode && (
                             <span className="text-[9px] text-muted-foreground shrink-0">
                               {line.itemCode}
@@ -829,55 +861,77 @@ function PartnerPricesContent() {
                               updateBatchLine(line.id, {
                                 materialId: null,
                                 productId: null,
-                                itemName: "",
+                                itemName: line.originalQuery || "",
                                 itemCode: "",
+                                confidence: undefined,
+                                matchedBy: undefined,
                               })
                             }
                             className="text-muted-foreground hover:text-red-500 text-xs"
+                            title="매칭 해제 / 직접 선택"
                           >
                             ✕
                           </button>
                         </div>
-                      ) : line.targetType === "material" ? (
-                        <MaterialCombobox
-                          selectedId={line.materialId}
-                          selectedName={line.itemName}
-                          onSelect={(m) =>
-                            updateBatchLine(line.id, {
-                              materialId: m.id,
-                              productId: null,
-                              itemName: m.materialName,
-                              itemCode: m.materialCode || "",
-                            })
-                          }
-                          onClear={() =>
-                            updateBatchLine(line.id, {
-                              materialId: null,
-                              itemName: "",
-                              itemCode: "",
-                            })
-                          }
-                        />
                       ) : (
-                        <ProductCombobox
-                          selectedId={line.productId}
-                          selectedName={line.itemName}
-                          onSelect={(p) =>
-                            updateBatchLine(line.id, {
-                              productId: p.id,
-                              materialId: null,
-                              itemName: p.productName,
-                              itemCode: p.productCode || "",
-                            })
-                          }
-                          onClear={() =>
-                            updateBatchLine(line.id, {
-                              productId: null,
-                              itemName: "",
-                              itemCode: "",
-                            })
-                          }
-                        />
+                        <div className="space-y-1">
+                          {/* 매칭 실패 / 낮은 신뢰도 — 원본 쿼리 표시 + 수동 combobox */}
+                          {line.confidence === "none" && line.originalQuery && (
+                            <div className="text-[10px] text-rose-600">
+                              ✗ 매칭 실패 — "{line.originalQuery}"
+                            </div>
+                          )}
+                          {line.confidence === "low" && line.originalQuery && (
+                            <div className="text-[10px] text-orange-600">
+                              ? 신뢰도 낮음 — "{line.originalQuery}"
+                            </div>
+                          )}
+                          {line.targetType === "material" ? (
+                            <MaterialCombobox
+                              selectedId={line.materialId}
+                              selectedName={line.itemName}
+                              onSelect={(m) =>
+                                updateBatchLine(line.id, {
+                                  materialId: m.id,
+                                  productId: null,
+                                  itemName: m.materialName,
+                                  itemCode: m.materialCode || "",
+                                  confidence: undefined,
+                                  matchedBy: undefined,
+                                })
+                              }
+                              onClear={() =>
+                                updateBatchLine(line.id, {
+                                  materialId: null,
+                                  itemName: "",
+                                  itemCode: "",
+                                })
+                              }
+                            />
+                          ) : (
+                            <ProductCombobox
+                              selectedId={line.productId}
+                              selectedName={line.itemName}
+                              onSelect={(p) =>
+                                updateBatchLine(line.id, {
+                                  productId: p.id,
+                                  materialId: null,
+                                  itemName: p.productName,
+                                  itemCode: p.productCode || "",
+                                  confidence: undefined,
+                                  matchedBy: undefined,
+                                })
+                              }
+                              onClear={() =>
+                                updateBatchLine(line.id, {
+                                  productId: null,
+                                  itemName: "",
+                                  itemCode: "",
+                                })
+                              }
+                            />
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

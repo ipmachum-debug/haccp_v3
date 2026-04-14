@@ -344,4 +344,204 @@ export const partnerPriceRouter = router({
         )
         .orderBy(desc(partnerPrices.isActive), desc(partnerPrices.effectiveFrom));
     }),
+
+  /**
+   * ★ 지능형 품목 매칭 — Phase B (2026-04-14)
+   *
+   * 엑셀 업로드 시 품목명/품목코드 오타/공백/어순 변형을 허용하여
+   * 마스터 테이블(hMaterials / hProductsV2) 과 매칭.
+   *
+   * 매칭 우선순위:
+   *   1. 코드 완전일치 (정규화 후)       → 100점
+   *   2. 이름 완전일치 (정규화 후)       → 95점
+   *   3. 코드 부분일치                   → 85~90
+   *   4. 이름 포함관계 (양방향)          → 70~90
+   *   5. Levenshtein 편집거리            → 60~85
+   *   6. 토큰 중복 (한글/영숫자 분리)    → 30~60
+   *
+   * 반환:
+   *   - bestMatch: 최고점 후보 (score + matchedBy 라벨)
+   *   - suggestions: 상위 5개 후보 (score > 30)
+   *   - confidence: "high" (≥90) / "medium" (60~89) / "low" (30~59) / "none" (<30)
+   */
+  matchItems: tenantRequiredProcedure
+    .input(
+      z.object({
+        items: z
+          .array(
+            z.object({
+              targetType: z.enum(["material", "product"]),
+              query: z.string(),
+              itemCode: z.string().optional(),
+            }),
+          )
+          .min(1)
+          .max(500),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // 마스터 데이터 로드 (한 번만)
+      const { hMaterials, hProductsV2 } = await import("../../../drizzle/schema/schema_main");
+
+      const needMaterials = input.items.some((i) => i.targetType === "material");
+      const needProducts = input.items.some((i) => i.targetType === "product");
+
+      const materialRows = needMaterials
+        ? await db
+            .select({
+              id: hMaterials.id,
+              code: hMaterials.materialCode,
+              name: hMaterials.materialName,
+            })
+            .from(hMaterials)
+            .where(
+              and(eq(hMaterials.tenantId, ctx.tenantId), eq(hMaterials.isActive, 1)),
+            )
+        : [];
+
+      const productRows = needProducts
+        ? await db
+            .select({
+              id: hProductsV2.id,
+              code: hProductsV2.productCode,
+              name: hProductsV2.productName,
+            })
+            .from(hProductsV2)
+            .where(
+              and(eq(hProductsV2.tenantId, ctx.tenantId), eq(hProductsV2.isActive, 1)),
+            )
+        : [];
+
+      // ─── 매칭 유틸 ─────────────────────────────────
+      const normalize = (s: string): string =>
+        (s || "")
+          .toLowerCase()
+          .replace(/[\s\-_.,()\/\\]/g, "")
+          .trim();
+
+      const levenshtein = (a: string, b: string): number => {
+        const m = a.length;
+        const n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        const dp: number[][] = Array.from({ length: m + 1 }, () =>
+          new Array(n + 1).fill(0),
+        );
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+          for (let j = 1; j <= n; j++) {
+            dp[i][j] =
+              a[i - 1] === b[j - 1]
+                ? dp[i - 1][j - 1]
+                : Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]) + 1;
+          }
+        }
+        return dp[m][n];
+      };
+
+      const tokenize = (s: string): string[] =>
+        s.match(/[가-힣]+|\d+|[a-z]+/gi) || [];
+
+      interface Candidate {
+        id: number;
+        code: string | null;
+        name: string;
+      }
+
+      const scoreMatch = (
+        query: { query: string; itemCode?: string },
+        master: Candidate,
+      ): { score: number; matchedBy: string } => {
+        const qName = normalize(query.query || "");
+        const qCode = normalize(query.itemCode || "");
+        const mName = normalize(master.name || "");
+        const mCode = normalize(master.code || "");
+
+        // 1. 코드 완전일치
+        if (qCode && mCode && qCode === mCode) return { score: 100, matchedBy: "code_exact" };
+
+        // 2. 이름 완전일치
+        if (qName && mName && qName === mName) return { score: 95, matchedBy: "name_exact" };
+
+        // 3. 코드 부분일치
+        if (qCode && mCode && (qCode.includes(mCode) || mCode.includes(qCode))) {
+          return { score: 88, matchedBy: "code_partial" };
+        }
+
+        // 4. 이름 포함 관계
+        if (qName && mName && (mName.includes(qName) || qName.includes(mName))) {
+          const ratio =
+            Math.min(qName.length, mName.length) / Math.max(qName.length, mName.length);
+          return { score: Math.round(70 + ratio * 20), matchedBy: "name_contains" };
+        }
+
+        // 5. Levenshtein 편집거리 (오타 허용)
+        if (qName.length > 0 && mName.length > 0) {
+          const dist = levenshtein(qName, mName);
+          const maxLen = Math.max(qName.length, mName.length);
+          const similarity = 1 - dist / maxLen;
+          if (similarity > 0.7) {
+            return { score: Math.round(60 + similarity * 25), matchedBy: "name_similar" };
+          }
+        }
+
+        // 6. 토큰 중복 (어순 변경 대응)
+        const qTokens = tokenize(qName);
+        const mTokens = tokenize(mName);
+        if (qTokens.length > 0 && mTokens.length > 0) {
+          const common = qTokens.filter((t) =>
+            mTokens.some((mt) => mt === t || mt.includes(t) || t.includes(mt)),
+          );
+          const overlap = common.length / Math.max(qTokens.length, mTokens.length);
+          if (overlap > 0.3) {
+            return { score: Math.round(30 + overlap * 30), matchedBy: "token_overlap" };
+          }
+        }
+
+        return { score: 0, matchedBy: "none" };
+      };
+
+      // ─── 각 쿼리 매칭 ─────────────────────────────
+      return input.items.map((item) => {
+        const masters: Candidate[] =
+          item.targetType === "material" ? materialRows : productRows;
+
+        const scored = masters
+          .map((m) => {
+            const { score, matchedBy } = scoreMatch(item, m);
+            return {
+              id: m.id,
+              code: m.code,
+              name: m.name,
+              score,
+              matchedBy,
+            };
+          })
+          .filter((c) => c.score > 20)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+
+        const best = scored[0] || null;
+        const confidence: "high" | "medium" | "low" | "none" = !best
+          ? "none"
+          : best.score >= 90
+            ? "high"
+            : best.score >= 60
+              ? "medium"
+              : "low";
+
+        return {
+          query: item.query,
+          itemCode: item.itemCode,
+          targetType: item.targetType,
+          confidence,
+          bestMatch: best,
+          suggestions: scored,
+        };
+      });
+    }),
 });
