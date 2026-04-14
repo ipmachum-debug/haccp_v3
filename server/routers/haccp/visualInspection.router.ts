@@ -42,7 +42,28 @@ export const visualInspectionRouter = router({
         if (!db) return null;
         try {
           const { getVisualInspectionLog } = await import("../../db/haccp/visualInspection");
-          return await getVisualInspectionLog(db, ctx.tenantId, input.id);
+          const { sql } = await import("drizzle-orm");
+
+          // ★ 2026-04-14: 기존 로그의 created_by 가 NULL 이면 현재 사용자로 백필
+          //   복구 후 또는 오래된 로그에서 발생 가능. 한 번 set 되면 다음 조회부터
+          //   creator_name 폴백이 정상 작동.
+          await db.execute(sql`
+            UPDATE h_visual_inspection_logs
+            SET created_by = ${ctx.user.id}
+            WHERE id = ${input.id}
+              AND tenant_id = ${ctx.tenantId}
+              AND (created_by IS NULL OR created_by = 0)
+          `);
+
+          const result = await getVisualInspectionLog(db, ctx.tenantId, input.id);
+
+          // ★ 최종 폴백: 작성자 이름이 여전히 비어있으면 현재 로그인 유저 이름 사용
+          //   (복구된 로그에서 created_by 가 유효 user_id 가 아닐 경우 대비)
+          if (result && !result.requesterName) {
+            (result as any).requesterName = ctx.user.name || "미지정";
+          }
+
+          return result;
         } catch (err) {
           console.error('[visualInspection.getById]', err);
           return null;

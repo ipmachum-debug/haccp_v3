@@ -23,7 +23,25 @@ export const finishedProductInspectionRouter = router({
         if (!db) return null;
         try {
           const { getFinishedProductLog } = await import("../../db/haccp/visualInspection");
-          return await getFinishedProductLog(db, ctx.tenantId, input.id);
+          const { sql } = await import("drizzle-orm");
+
+          // ★ 2026-04-14: 기존 로그 created_by 가 NULL 이면 현재 사용자로 백필
+          await db.execute(sql`
+            UPDATE h_finished_product_inspection_logs
+            SET created_by = ${ctx.user.id}
+            WHERE id = ${input.id}
+              AND tenant_id = ${ctx.tenantId}
+              AND (created_by IS NULL OR created_by = 0)
+          `);
+
+          const result = await getFinishedProductLog(db, ctx.tenantId, input.id);
+
+          // ★ 최종 폴백: 작성자 이름이 여전히 비어있으면 현재 로그인 유저
+          if (result && !result.requesterName) {
+            (result as any).requesterName = ctx.user.name || "미지정";
+          }
+
+          return result;
         } catch (err) {
           console.error('[finishedProductInspection.getById]', err);
           return null;
