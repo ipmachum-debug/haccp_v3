@@ -14,16 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Plus, Trash2, Save, ArrowLeft, ClipboardList } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
+import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { todayLocal } from "@/lib/dateUtils";
 
 interface POLine {
@@ -62,15 +56,13 @@ export default function PurchaseOrderCreate() {
 
 function PurchaseOrderCreateContent() {
   const [, navigate] = useLocation();
-  const [partnerId, setPartnerId] = useState<string>("");
+  const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [partnerName, setPartnerName] = useState<string>("");
   const [orderDate, setOrderDate] = useState<string>(todayLocal());
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
   const [deliveryAddress, setDeliveryAddress] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [lines, setLines] = useState<POLine[]>([emptyLine()]);
-
-  const { data: partnersData = [] } = trpc.partners.list.useQuery();
-  const partners: any[] = Array.isArray(partnersData) ? partnersData : ((partnersData as any)?.items ?? []);
 
   const utils = trpc.useUtils();
   const createMutation = trpc.purchaseOrder.create.useMutation({
@@ -133,7 +125,7 @@ function PurchaseOrderCreateContent() {
     }
 
     createMutation.mutate({
-      partnerId: parseInt(partnerId),
+      partnerId,
       orderDate,
       expectedDeliveryDate: expectedDeliveryDate || undefined,
       deliveryAddress: deliveryAddress || undefined,
@@ -178,21 +170,20 @@ function PurchaseOrderCreateContent() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="space-y-1.5 md:col-span-2">
               <Label className="text-xs">공급업체 *</Label>
-              <Select value={partnerId} onValueChange={setPartnerId}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="공급업체를 선택하세요" />
-                </SelectTrigger>
-                <SelectContent>
-                  {partners
-                    .filter((p) => p.partnerType === "supplier" || !p.partnerType)
-                    .map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.companyName || p.name}
-                        {p.bizNo ? ` (${p.bizNo})` : ""}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <PartnerSearchInput
+                partnerType="supplier"
+                selectedId={partnerId}
+                selectedName={partnerName}
+                onSelect={(id, name) => {
+                  setPartnerId(id);
+                  setPartnerName(name);
+                }}
+                onClear={() => {
+                  setPartnerId(null);
+                  setPartnerName("");
+                }}
+                placeholder="공급업체 검색 (F2)"
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">발주일 *</Label>
@@ -278,7 +269,7 @@ function PurchaseOrderCreateContent() {
                     if (partnerId) {
                       try {
                         const price = await utils.partnerPrice.resolvePrice.fetch({
-                          partnerId: parseInt(partnerId),
+                          partnerId,
                           targetType: "material",
                           materialId: m.id,
                         });

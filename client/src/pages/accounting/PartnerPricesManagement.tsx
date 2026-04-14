@@ -49,6 +49,7 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
+import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 
 const TARGET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   material: { label: "원재료", color: "bg-blue-100 text-blue-700" },
@@ -64,7 +65,9 @@ export default function PartnerPricesManagement() {
 }
 
 function PartnerPricesContent() {
-  const [partnerFilter, setPartnerFilter] = useState<string>("all");
+  // 필터: partner 는 검색/자동완성 입력
+  const [partnerFilterId, setPartnerFilterId] = useState<number | null>(null);
+  const [partnerFilterName, setPartnerFilterName] = useState<string>("");
   const [targetFilter, setTargetFilter] = useState<string>("all");
   const [activeOnly, setActiveOnly] = useState<boolean>(true);
 
@@ -72,7 +75,8 @@ function PartnerPricesContent() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState({
-    partnerId: "",
+    partnerId: null as number | null,
+    partnerName: "",
     targetType: "material" as "material" | "product",
     materialId: null as number | null,
     productId: null as number | null,
@@ -89,15 +93,10 @@ function PartnerPricesContent() {
 
   // 데이터 조회
   const { data: prices = [], isLoading } = trpc.partnerPrice.list.useQuery({
-    partnerId: partnerFilter !== "all" ? parseInt(partnerFilter) : undefined,
+    partnerId: partnerFilterId ?? undefined,
     targetType: targetFilter !== "all" ? (targetFilter as any) : undefined,
     activeOnly,
   });
-
-  const { data: partnersData = [] } = trpc.partners.list.useQuery();
-  const partnersArr: any[] = Array.isArray(partnersData)
-    ? partnersData
-    : ((partnersData as any)?.items ?? []);
 
   // Mutations
   const createMutation = trpc.partnerPrice.create.useMutation({
@@ -138,7 +137,8 @@ function PartnerPricesContent() {
   const openNewDialog = () => {
     setEditingId(null);
     setFormData({
-      partnerId: partnerFilter !== "all" ? partnerFilter : "",
+      partnerId: partnerFilterId,
+      partnerName: partnerFilterName,
       targetType: "material",
       materialId: null,
       productId: null,
@@ -156,7 +156,8 @@ function PartnerPricesContent() {
   const openEditDialog = (row: any) => {
     setEditingId(row.id);
     setFormData({
-      partnerId: String(row.partnerId),
+      partnerId: row.partnerId,
+      partnerName: row.partnerName || `#${row.partnerId}`,
       targetType: row.targetType,
       materialId: row.materialId,
       productId: row.productId,
@@ -205,7 +206,7 @@ function PartnerPricesContent() {
       });
     } else {
       createMutation.mutate({
-        partnerId: parseInt(formData.partnerId),
+        partnerId: formData.partnerId,
         targetType: formData.targetType,
         materialId: formData.materialId || undefined,
         productId: formData.productId || undefined,
@@ -281,21 +282,19 @@ function PartnerPricesContent() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div>
               <Label className="text-xs">거래처</Label>
-              <Select value={partnerFilter} onValueChange={setPartnerFilter}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="max-h-[400px]">
-                  <SelectItem value="all">전체 거래처</SelectItem>
-                  {partnersArr.map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.companyName}
-                      {p.partnerType === "supplier" && " (공급)"}
-                      {p.partnerType === "customer" && " (고객)"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <PartnerSearchInput
+                selectedId={partnerFilterId}
+                selectedName={partnerFilterName}
+                onSelect={(id, name) => {
+                  setPartnerFilterId(id);
+                  setPartnerFilterName(name);
+                }}
+                onClear={() => {
+                  setPartnerFilterId(null);
+                  setPartnerFilterName("");
+                }}
+                placeholder="거래처 검색 (비우면 전체)"
+              />
             </div>
             <div>
               <Label className="text-xs">대상</Label>
@@ -439,24 +438,23 @@ function PartnerPricesContent() {
             {/* 거래처 */}
             <div>
               <Label className="text-xs">거래처 *</Label>
-              <Select
-                value={formData.partnerId}
-                onValueChange={(v) => setFormData({ ...formData, partnerId: v })}
-                disabled={!!editingId}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="거래처 선택" />
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {partnersArr.map((p: any) => (
-                    <SelectItem key={p.id} value={String(p.id)}>
-                      {p.companyName}
-                      {p.partnerType === "supplier" && " (공급)"}
-                      {p.partnerType === "customer" && " (고객)"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {editingId ? (
+                <div className="h-10 px-3 flex items-center border rounded-lg bg-muted/30 text-sm">
+                  {formData.partnerName || `#${formData.partnerId}`}
+                </div>
+              ) : (
+                <PartnerSearchInput
+                  selectedId={formData.partnerId}
+                  selectedName={formData.partnerName}
+                  onSelect={(id, name) =>
+                    setFormData({ ...formData, partnerId: id, partnerName: name })
+                  }
+                  onClear={() =>
+                    setFormData({ ...formData, partnerId: null, partnerName: "" })
+                  }
+                  placeholder="거래처 검색 / 입력"
+                />
+              )}
             </div>
 
             {/* 대상 타입 + 품목 */}
