@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
 import { FEATURES } from "@/lib/featureFlags";
@@ -817,10 +818,18 @@ function DashboardLayoutContent({
                                     menuLabel: item.label,
                                     menuIcon: (item.icon as any).displayName || (item.icon as any).name || "FileText",
                                   });
+                                  // WORK 탭이 아닌 탭에서 추가 시 안내 토스트
+                                  // (즐겨찾기 섹션은 WORK 탭 허브에서만 표시됨)
+                                  if (activeTab !== "work") {
+                                    toast({
+                                      title: `즐겨찾기 추가: ${item.label}`,
+                                      description: "WORK 탭 하단의 즐겨찾기에서 확인할 수 있습니다.",
+                                    });
+                                  }
                                 }
                               }}
                               className="p-1 hover:bg-accent rounded mr-2"
-                              title={favorites.some((fav: any) => fav.menuPath === item.path) ? "즐겨찾기 제거" : "즐겨찾기 추가"}
+                              title={favorites.some((fav: any) => fav.menuPath === item.path) ? "즐겨찾기 제거" : "즐겨찾기 추가 (WORK 탭에서 확인)"}
                             >
                               <Star
                                 className={cn(
@@ -863,10 +872,13 @@ function DashboardLayoutContent({
                 </div>
               )}
               
-              {/* 즐겨찾기 섹션 — 모든 탭(WORK/회계/HACCP)에서 표시 (2026-04-14 수정)
-                  ★ 이전: activeTab === "work" 조건 → 다른 탭에서는 즐겨찾기 자체가 안 보였음
-                  ★ 현재: 탭 무관하게 항상 노출 (사용자가 핀 해둔 항목은 어디서든 접근 가능) */}
-              {favoriteMenuItems.length > 0 && !isCollapsed && (
+              {/* 즐겨찾기 섹션 — WORK 탭 전용 허브 (원래 디자인 복원)
+                  ★ 2026-04-14: 회계/HACCP 탭에서 표시하던 걸 WORK 탭으로 원복.
+                     이유: 회계 탭에서 HACCP 메뉴(생산관리 등)가 즐겨찾기로 보이는
+                     어색한 상황 발생. 즐겨찾기는 사용자가 원래 WORK 탭에서 한 곳에서
+                     관리하도록 설계됨. 다른 탭에서 Star 클릭 시 toast 로 WORK 탭
+                     안내 메시지 표시. */}
+              {activeTab === "work" && favoriteMenuItems.length > 0 && !isCollapsed && (
                 <>
                   <div className="px-3 py-2 mt-2">
                     <div className="h-px bg-sidebar-border" />
