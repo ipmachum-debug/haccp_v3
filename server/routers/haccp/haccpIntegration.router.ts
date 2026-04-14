@@ -159,6 +159,7 @@ export const haccpIntegrationRouter = router({
         z.object({
           transactionDate: z.string(),
           partnerId: z.number(),
+          productId: z.number().optional(), // ★ 2026-04-14: h_products FK (Module 2)
           itemName: z.string(),
           quantity: z.number(),
           unitPrice: z.number(),
@@ -218,6 +219,7 @@ export const haccpIntegrationRouter = router({
           id: z.number(),
           transactionDate: z.string().optional(),
           partnerId: z.number().optional(),
+          productId: z.number().optional(), // ★ 2026-04-14: h_products FK (Module 2)
           itemName: z.string().optional(),
           category: z.string().optional(),
           quantity: z.number().optional(),

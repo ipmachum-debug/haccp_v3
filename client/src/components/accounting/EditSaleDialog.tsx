@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 
 interface EditSaleDialogProps {
   sale: any;
@@ -37,6 +38,7 @@ export function EditSaleDialog({
   const [formData, setFormData] = useState({
     transactionDate: "",
     partnerId: "none",
+    productId: null as number | null, // ★ 2026-04-14: h_products_v2 FK (Module 2)
     itemName: "",
     category: "",
     quantity: "",
@@ -62,6 +64,7 @@ export function EditSaleDialog({
       setFormData({
         transactionDate: sale.transactionDate?.split("T")[0] || "",
         partnerId: sale.partnerId?.toString() || "none",
+        productId: sale.productId ? Number(sale.productId) : null,
         itemName: sale.itemName || "",
         category: sale.category || "",
         quantity: sale.quantity?.toString() || "",
@@ -111,7 +114,7 @@ export function EditSaleDialog({
     if (!formData.itemName) {
       toast({
         title: "입력 오류",
-        description: "품목명을 입력해주세요.",
+        description: "제품을 선택해주세요.",
         variant: "destructive",
       });
       return;
@@ -121,6 +124,7 @@ export function EditSaleDialog({
       id: sale.id,
       transactionDate: formData.transactionDate,
       partnerId: formData.partnerId && formData.partnerId !== "none" ? parseInt(formData.partnerId) : undefined,
+      productId: formData.productId || undefined, // ★ 제품 FK
       itemName: formData.itemName,
       category: formData.category || undefined,
       quantity: formData.quantity ? parseFloat(formData.quantity) : undefined,
@@ -183,16 +187,29 @@ export function EditSaleDialog({
               </Select>
             </div>
 
-            {/* 품목명 */}
-            <div className="space-y-2">
-              <Label htmlFor="itemName">품목명 *</Label>
-              <Input
-                id="itemName"
-                value={formData.itemName}
-                onChange={(e) =>
-                  setFormData({ ...formData, itemName: e.target.value })
+            {/* 제품 (ProductCombobox - 검색/자동완성) */}
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="itemName">제품 *</Label>
+              <ProductCombobox
+                selectedId={formData.productId}
+                selectedName={formData.itemName}
+                onSelect={(p) =>
+                  setFormData({
+                    ...formData,
+                    productId: p.id,
+                    itemName: p.productName,
+                    unit: p.unit || formData.unit,
+                  })
+                }
+                onClear={() =>
+                  setFormData({
+                    ...formData,
+                    productId: null,
+                    itemName: "",
+                  })
                 }
                 required
+                placeholder="제품 검색... (이름/코드)"
               />
             </div>
 

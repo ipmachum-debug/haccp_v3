@@ -77,6 +77,11 @@ export const accountingSales = mysqlTable("accounting_sales", {
   
   // 품목 정보
   itemName: varchar("item_name", { length: 255 }).notNull(), // 품목명
+  // ★ 2026-04-14 추가: h_products 연결 FK (Module 2 - 매출 전체 재구축)
+  //   - 매출 입력 시 ProductCombobox 로 선택 강제
+  //   - 재고 차감 (FEFO) + COGS 분개에 사용
+  //   - 제품 수불부 / 매출 원가 집계에 사용
+  productId: bigint("product_id", { mode: "number" }), // 제품 FK (h_products.id)
   // category 필드 제거 - 실제 DB에 없음
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(), // 수량
   unit: varchar("unit", { length: 20 }).notNull(), // 단위
@@ -114,4 +119,5 @@ export const accountingSales = mysqlTable("accounting_sales", {
   partnerIdIdx: index("partner_id_idx").on(table.partnerId),
   sourceIdx: index("source_idx").on(table.sourceType, table.sourceId),
   tenantIdIdx: index("tenant_id_idx").on(table.tenantId),
+  productIdIdx: index("idx_sales_product_id").on(table.productId),
 }));

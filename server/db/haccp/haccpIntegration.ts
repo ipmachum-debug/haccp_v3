@@ -189,6 +189,7 @@ export async function createSale(params: {
   transactionDate: string;
   partnerId: number;
   itemName: string;
+  productId?: number; // ★ 2026-04-14: h_products FK (Module 2)
   quantity: number;
   unitPrice: number;
   amount: number;
@@ -205,6 +206,7 @@ export async function createSale(params: {
     tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
+    productId: params.productId ?? null, // ★ 2026-04-14: 제품 FK 저장
     itemName: params.itemName,
     quantity: params.quantity.toString(),
     unit: params.unit || "개",
@@ -215,8 +217,8 @@ export async function createSale(params: {
     sourceType: "manual",
     notes: params.memo ?? null,
     status: "approved",
-    createdBy: params.createdBy
-  });
+    createdBy: params.createdBy,
+  } as any);
 
   return sale;
 }
@@ -430,6 +432,7 @@ export async function getAllSales(filters?: {
       transactionDate: accountingSales.transactionDate,
       partnerId: accountingSales.partnerId,
       partnerName: partners.companyName,
+      productId: accountingSales.productId, // ★ 2026-04-14 추가 (Module 2)
       itemName: accountingSales.itemName,
       quantity: accountingSales.quantity,
       unit: accountingSales.unit,
@@ -709,6 +712,7 @@ export async function updateSale(
   data: {
     transactionDate?: string;
     partnerId?: number;
+    productId?: number; // ★ 2026-04-14: h_products FK (Module 2)
     itemName?: string;
     category?: string;
     quantity?: number;
@@ -723,7 +727,9 @@ export async function updateSale(
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const updateData: any = { ...data, updatedAt: new Date() };
+  // category 는 accounting_sales 에 없는 컬럼 → 제거
+  const { category: _category, ...rest } = data;
+  const updateData: any = { ...rest, updatedAt: new Date() };
   if (updateData.quantity !== undefined) updateData.quantity = updateData.quantity.toString();
   if (updateData.unitPrice !== undefined) updateData.unitPrice = updateData.unitPrice.toString();
   if (updateData.totalAmount !== undefined) updateData.totalAmount = updateData.totalAmount.toString();
