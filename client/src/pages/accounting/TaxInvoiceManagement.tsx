@@ -51,9 +51,11 @@ import {
   Send,
   AlertTriangle,
   FileText,
+  Settings2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
+import PopbillSettingsContent from "./PopbillSettings";
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   draft: { label: "작성 중", className: "bg-slate-200 text-slate-700 border-transparent" },
@@ -115,6 +117,7 @@ function TaxInvoiceContent() {
 
   // 등록 Dialog
   const [createOpen, setCreateOpen] = useState(false);
+  const [popbillOpen, setPopbillOpen] = useState(false);
   const [createType, setCreateType] = useState<InvoiceType>("sales");
   const [createTaxCategory, setCreateTaxCategory] = useState<
     "taxed" | "zero_rated" | "tax_free"
@@ -427,6 +430,14 @@ function TaxInvoiceContent() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            onClick={() => setPopbillOpen(true)}
+            variant="outline"
+            className="border-slate-300 text-slate-700 hover:bg-slate-50"
+            title="팝빌 연동 설정"
+          >
+            <Settings2 className="h-4 w-4 mr-1" /> 팝빌 설정
+          </Button>
           <Button
             onClick={() => openCreate("sales")}
             className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700"
@@ -951,6 +962,22 @@ function TaxInvoiceContent() {
               {createMutation.isPending ? "생성 중..." : "등록"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ═══ 팝빌 설정 Dialog ═══ */}
+      <Dialog open={popbillOpen} onOpenChange={setPopbillOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-indigo-600" />
+              팝빌 연동 설정
+            </DialogTitle>
+            <DialogDescription>
+              전자세금계산서 발행 파트너 (팝빌) 연동 설정 · 회원 등록 · 잔여 포인트 조회
+            </DialogDescription>
+          </DialogHeader>
+          <PopbillSettingsContent />
         </DialogContent>
       </Dialog>
     </div>

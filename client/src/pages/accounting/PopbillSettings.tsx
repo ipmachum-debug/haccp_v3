@@ -1,6 +1,7 @@
 /**
- * 팝빌 (Popbill) 설정 페이지 — Phase C Part 2 UI (2026-04-14)
+ * 팝빌 (Popbill) 설정 컴포넌트 — Phase C Part 2 UI (2026-04-14)
  * ═══════════════════════════════════════════════════════════════
+ * - 세금계산서 페이지에서 모달 형태로 열림 (독립 페이지 X)
  * - 테넌트별 팝빌 연동 설정 (CorpNum, 활성화, 테스트/운영)
  * - 팝빌 회원 등록 (RegistContact)
  * - 잔여 포인트 조회
@@ -8,7 +9,6 @@
  * ═══════════════════════════════════════════════════════════════
  */
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Settings2,
   AlertTriangle,
   RefreshCw,
   UserPlus,
@@ -28,15 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-export default function PopbillSettings() {
-  return (
-    <DashboardLayout>
-      <PopbillSettingsContent />
-    </DashboardLayout>
-  );
-}
-
-function PopbillSettingsContent() {
+export default function PopbillSettingsContent() {
   const [corpNum, setCorpNum] = useState("");
   const [userId, setUserId] = useState("");
   const [isEnabled, setIsEnabled] = useState(false);
@@ -148,18 +139,7 @@ function PopbillSettingsContent() {
   const balance = Number(s?.balanceCached || 0);
 
   return (
-    <div className="p-4 space-y-4 max-w-5xl">
-      {/* 헤더 */}
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2">
-          <Settings2 className="h-5 w-5 text-indigo-600" />
-          팝빌 연동 설정
-        </h1>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          전자세금계산서 발행 파트너 (팝빌) 연동 설정 및 회원 등록
-        </p>
-      </div>
-
+    <div className="space-y-4">
       {/* STUB 모드 배너 */}
       {isStubMode && (
         <Card className="border-amber-300 bg-amber-50">
