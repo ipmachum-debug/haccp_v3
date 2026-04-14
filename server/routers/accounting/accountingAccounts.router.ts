@@ -262,21 +262,42 @@ export const accountingAccountsRouter = router({
       const db = await getDb();
       // ✅ P0 FIX: tenantId 필터
       const tenantId = getEffectiveTenantId(ctx);
-      const allAccounts = await db.select().from(accountingAccounts).where(eq(accountingAccounts.tenantId, tenantId));
-      
-      const stats = {
-        total: allAccounts.length,
-        active: allAccounts.filter((a) => a.isActive === "Y").length,
-        byCategory: {
-          assets: allAccounts.filter((a) => a.category === "assets").length,
-          liabilities: allAccounts.filter((a) => a.category === "liabilities").length,
-          equity: allAccounts.filter((a) => a.category === "equity").length,
-          revenue: allAccounts.filter((a) => a.category === "revenue").length,
-          expenses: allAccounts.filter((a) => a.category === "expenses").length,
-        },
+      // ★ 2026-04-14: 성능 최적화 — SELECT * + JS count 대신 SQL GROUP BY 집계
+      //   이전: 모든 row 를 fetch 후 JS 에서 filter/count (N+1+1+1... 형태)
+      //   현재: GROUP BY category + 활성 여부를 한 번에 집계 (전체 row 스캔 없음)
+      //   결과: 수백 ~ 수천 계정에서도 수 ms 수준
+      const { sql } = await import("drizzle-orm");
+      const rows: any = await db.execute(sql`
+        SELECT
+          category,
+          COUNT(*) AS cnt,
+          SUM(CASE WHEN is_active = 'Y' THEN 1 ELSE 0 END) AS active_cnt
+        FROM accounting_accounts
+        WHERE tenant_id = ${tenantId}
+        GROUP BY category
+      `);
+      const result = ((rows as any)[0] || []) as Array<{ category: string; cnt: number; active_cnt: number }>;
+
+      const byCategory: Record<string, number> = {
+        assets: 0, liabilities: 0, equity: 0, revenue: 0, expenses: 0,
       };
-      
-      return stats;
+      let total = 0;
+      let active = 0;
+      for (const r of result) {
+        const cnt = Number(r.cnt || 0);
+        const activeCnt = Number(r.active_cnt || 0);
+        total += cnt;
+        active += activeCnt;
+        if (r.category in byCategory) {
+          byCategory[r.category] = cnt;
+        }
+      }
+
+      return {
+        total,
+        active,
+        byCategory,
+      };
     } catch (error: any) {
       console.error('[accountingAccounts.getStats] Error:', error.message, error.stack);
       throw error;

@@ -230,11 +230,21 @@ function AccountStructureTab() {
   });
 
   // 상위계정(그룹) = account_categories
-  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery();
-  
+  // ★ 2026-04-14: staleTime 60s 추가 — 탭 전환/재진입 시 불필요한 재요청 방지
+  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
+
   // 세부 계정 = accounting_accounts
-  const { data: allAccounts = [] } = trpc.accountingAccounts.list.useQuery({});
-  const { data: stats } = trpc.accountingAccounts.getStats.useQuery();
+  const { data: allAccounts = [] } = trpc.accountingAccounts.list.useQuery(
+    {},
+    { staleTime: 60_000 }
+  );
+  const { data: stats } = trpc.accountingAccounts.getStats.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
 
   // 상위계정 그룹별 분류
   const groupedCategories = useMemo(() => {
@@ -865,16 +875,26 @@ function AccountListTab() {
   const utils = trpc.useUtils();
 
   // 계정 과목 목록
-  const { data: accounts = [], isLoading } = trpc.accountingAccounts.list.useQuery({
-    category: filterCategory === "ALL" ? undefined : filterCategory,
-    isActive: filterActive === "ALL" ? undefined : filterActive,
-  });
+  // ★ 2026-04-14: staleTime 60s 추가 — 탭 전환/재진입 시 재요청 방지
+  const { data: accounts = [], isLoading } = trpc.accountingAccounts.list.useQuery(
+    {
+      category: filterCategory === "ALL" ? undefined : filterCategory,
+      isActive: filterActive === "ALL" ? undefined : filterActive,
+    },
+    { staleTime: 60_000 }
+  );
 
   // 상위계정(그룹) 목록
-  const { data: categories = [] } = trpc.accountCategories.getAll.useQuery();
+  const { data: categories = [] } = trpc.accountCategories.getAll.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
 
   // 통계
-  const { data: stats } = trpc.accountingAccounts.getStats.useQuery();
+  const { data: stats } = trpc.accountingAccounts.getStats.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
 
   // 상위계정 ID → 이름 매핑
   const groupNameMap = useMemo(() => {
