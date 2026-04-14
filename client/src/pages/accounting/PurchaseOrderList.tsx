@@ -51,6 +51,7 @@ import {
   PackageCheck,
   Eye,
   FileText,
+  Printer,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
@@ -135,6 +136,52 @@ function PurchaseOrderListContent() {
       setReceiveLines({});
     },
     onError: (e: any) => toast({ title: "입고 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // ★ 2026-04-14: 발주서 PDF 공통 헬퍼
+  const base64ToPdfBlob = (b64: string): Blob => {
+    const byteCharacters = atob(b64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    return new Blob([new Uint8Array(byteNumbers)], { type: "application/pdf" });
+  };
+
+  // 🖨️ 인쇄 (iframe 자동 프린트)
+  const generatePdfMutation = trpc.purchaseOrder.generatePdf.useMutation({
+    onSuccess: (data: any) => {
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+      iframe.src = url;
+      iframe.onload = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (_) {
+          window.open(url, "_blank");
+        }
+      };
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ }
+      }, 120_000);
+      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
+    },
+    onError: (e: any) => toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // 👁️ 자세히보기 (새 탭)
+  const previewPdfMutation = trpc.purchaseOrder.generatePdf.useMutation({
+    onSuccess: (data: any) => {
+      const blob = base64ToPdfBlob(data.pdf);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      toast({ title: "미리보기", description: "새 탭에서 열렸습니다." });
+    },
+    onError: (e: any) => toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
   });
 
   // 통계 카드
@@ -329,6 +376,28 @@ function PurchaseOrderListContent() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
+                          {/* 👁️ 자세히보기 (미리보기) */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => previewPdfMutation.mutate({ id: po.id })}
+                            disabled={previewPdfMutation.isPending}
+                            title="발주서 미리보기"
+                            className="h-7 w-7 p-0"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          {/* 🖨️ 인쇄 */}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => generatePdfMutation.mutate({ id: po.id })}
+                            disabled={generatePdfMutation.isPending}
+                            title="발주서 인쇄"
+                            className="h-7 w-7 p-0"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
                           {po.status === "draft" && (
                             <Button
                               size="sm"

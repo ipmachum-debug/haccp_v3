@@ -4,11 +4,12 @@
 
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db";
-import { bankTransactions, matchingRules } from "../../../drizzle/schema";
-import { eq, and, gte, lte, like, or, sql, desc, inArray } from "drizzle-orm";
+import { bankTransactions, matchingRules, arLedger } from "../../../drizzle/schema";
+import { eq, and, gte, lte, like, or, sql, desc, inArray, asc } from "drizzle-orm";
 import { omitUndefined } from "@shared/utils";
 import { assertBankAccountOwned } from "./bankAccount.service";
-import { postBankTransactionJournal, cancelBankTransactionJournal } from "../../db/accounting/journalHelper";
+import { postBankTransactionJournal, cancelBankTransactionJournal, resolveSystemAccount } from "../../db/accounting/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
 /**
  * ★ 2026-04-14: 거래 description 에서 자동 매칭용 키워드 추출
@@ -380,4 +381,193 @@ export async function deleteAllByAccount(tenantId: number, bankAccountId: number
     .where(and(eq(bankTransactions.bankAccountId, bankAccountId), eq(bankTransactions.tenantId, tenantId)));
 
   return result?.[0]?.affectedRows ?? result?.rowCount ?? 0;
+}
+
+/**
+ * ★ 2026-04-14: 입금 매칭 B-1 — AR 회수 (가장 중요)
+ * ═══════════════════════════════════════════════════════════════
+ * 특정 거래처의 미수 AR 목록 조회 (FIFO 잔액 계산)
+ *
+ * ar_ledger 는 entry 누적 방식 (debit/payment/writeoff).
+ * 각 'debit' 엔트리를 독립 인보이스로 보고, 이후 payment/writeoff 를
+ * FIFO 순으로 차감하여 "아직 미수인 debit 엔트리" 를 반환.
+ *
+ * 반환 구조:
+ *   [{ id, occurredAt, originalAmount, paidAmount, remainingAmount, ... }]
+ */
+export async function listOpenArByPartner(
+  tenantId: number,
+  partnerId: number,
+): Promise<Array<{
+  id: number;
+  occurredAt: Date;
+  originalAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+  dueDate: any;
+  memo: string;
+  refType: string;
+  refId: number;
+}>> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const rows = await db
+    .select({
+      id: arLedger.id,
+      occurredAt: arLedger.occurredAt,
+      arEntryType: arLedger.arEntryType,
+      amount: arLedger.amount,
+      dueDate: arLedger.dueDate,
+      memo: arLedger.memo,
+      refType: arLedger.refType,
+      refId: arLedger.refId,
+    })
+    .from(arLedger)
+    .where(and(
+      eq(arLedger.tenantId, tenantId),
+      eq(arLedger.customerPartnerId, partnerId),
+    ))
+    .orderBy(asc(arLedger.occurredAt), asc(arLedger.id));
+
+  const debits = rows.filter((r) => r.arEntryType === "debit");
+  const payments = rows.filter((r) => ["payment", "writeoff"].includes(r.arEntryType as any));
+
+  // 전체 payment 풀을 debits 에 FIFO 로 소진
+  let paymentPool = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+  const openArs: Array<any> = [];
+  for (const d of debits) {
+    const orig = Number(d.amount || 0);
+    const paid = Math.min(orig, paymentPool);
+    paymentPool -= paid;
+    const remaining = orig - paid;
+    if (remaining > 0.01) {
+      openArs.push({
+        id: d.id,
+        occurredAt: d.occurredAt,
+        originalAmount: orig,
+        paidAmount: paid,
+        remainingAmount: remaining,
+        dueDate: d.dueDate,
+        memo: d.memo || "",
+        refType: d.refType || "",
+        refId: d.refId || 0,
+      });
+    }
+  }
+  return openArs;
+}
+
+/**
+ * ★ 2026-04-14: 입금 거래를 AR 회수로 매칭
+ * ═══════════════════════════════════════════════════════════════
+ * 워크플로우:
+ *   1. 입금 거래 + 할당할 AR 목록 검증 (금액 합 = 입금 금액)
+ *   2. 각 AR 에 대해 'payment' 엔트리 추가 (분할 가능)
+ *   3. bank_transactions 상태 업데이트 + 분개 생성
+ *      (차변 보통예금 / 대변 외상매출금)
+ */
+export async function matchTransactionAsArRecovery(
+  tenantId: number,
+  transactionId: number,
+  partnerId: number,
+  arAllocations: Array<{ arLedgerId: number; amount: number }>,
+  userId: number,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const tx = await getTransactionById(tenantId, transactionId);
+  if (!tx) throw new Error("거래를 찾을 수 없습니다");
+  if (tx.transactionType !== "deposit") {
+    throw new Error("입금 거래만 AR 회수 매칭이 가능합니다.");
+  }
+
+  const txAmount = Number(tx.amount);
+  const totalAllocated = arAllocations.reduce((s, a) => s + a.amount, 0);
+  if (Math.abs(totalAllocated - txAmount) > 0.01) {
+    throw new Error(
+      `할당 금액 합계가 입금 금액과 다릅니다: 할당 ${totalAllocated}, 입금 ${txAmount}`,
+    );
+  }
+
+  // 1. 각 AR 에 payment 엔트리 추가
+  for (const alloc of arAllocations) {
+    if (alloc.amount <= 0) continue;
+
+    const [original]: any = await db
+      .select()
+      .from(arLedger)
+      .where(
+        and(eq(arLedger.id, alloc.arLedgerId), eq(arLedger.tenantId, tenantId)),
+      )
+      .limit(1);
+    if (!original) throw new Error(`AR #${alloc.arLedgerId} 를 찾을 수 없습니다.`);
+    if (Number(original.customerPartnerId) !== partnerId) {
+      throw new Error(`AR #${alloc.arLedgerId} 의 거래처가 일치하지 않습니다.`);
+    }
+
+    await db.insert(arLedger).values({
+      tenantId,
+      customerPartnerId: partnerId,
+      occurredAt: (tx.transactionDate as any) ?? new Date(),
+      arEntryType: "payment",
+      amount: alloc.amount.toString(),
+      refType: "bank_transaction",
+      refId: transactionId,
+      memo: `[입금회수] bank_tx#${transactionId} → AR#${alloc.arLedgerId}`,
+      createdBy: userId,
+    } as any);
+  }
+
+  // 2. 외상매출금 시스템 계정 조회
+  const arAcc = await resolveSystemAccount(
+    tenantId,
+    SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE,
+    "1030",
+    "외상매출금",
+  );
+  if (arAcc.id === 0) {
+    throw new Error("ACCOUNTS_RECEIVABLE 계정이 없습니다. 계정 시드 필요.");
+  }
+
+  // 3. 거래 업데이트
+  await db
+    .update(bankTransactions)
+    .set({
+      matchingStatus: "matched",
+      accountingAccountId: arAcc.id,
+      matchedPartnerId: partnerId,
+      matchedLedgerType: "ar",
+      matchedBy: userId,
+      matchedAt: new Date(),
+    } as any)
+    .where(
+      and(eq(bankTransactions.id, transactionId), eq(bankTransactions.tenantId, tenantId)),
+    );
+
+  // 4. 분개 생성 (차변 보통예금 / 대변 외상매출금)
+  try {
+    await postBankTransactionJournal({
+      tenantId,
+      transactionId,
+      accountingAccountId: arAcc.id,
+      amount: txAmount,
+      transactionType: "deposit",
+      description: tx.description || `입금회수 AR ${arAllocations.length}건`,
+      transactionDate: tx.transactionDate,
+      bankAccountId: Number(tx.bankAccountId),
+      partnerId,
+      postedBy: userId,
+    });
+  } catch (e) {
+    console.error("[matchTransactionAsArRecovery] 자동분개 실패:", e);
+  }
+
+  return {
+    matchedArCount: arAllocations.length,
+    totalAmount: txAmount,
+    message: `${arAllocations.length}개 미수금에 ${txAmount.toLocaleString()}원 분할 회수 완료`,
+  };
 }

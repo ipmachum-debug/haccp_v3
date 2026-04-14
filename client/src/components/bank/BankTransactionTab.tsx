@@ -76,6 +76,14 @@ export default function BankTransactionTab() {
   const [isAutoMatchPreviewOpen, setIsAutoMatchPreviewOpen] = useState(false);
   const [autoMatchPreview, setAutoMatchPreview] = useState<any[]>([]);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<Set<number>>(new Set());
+
+  // ★ 2026-04-14: 입금 매칭 3패턴 토글
+  // 'account' = 단순 계정 매칭 (기존 방식, 모든 거래)
+  // 'ar' = AR 회수 (입금만, 거래처 + 미수 AR 선택)
+  // 'sale' = 매출 자동 분개 (입금만, 매출 계정 선택 + 부가세 분리)
+  const [depositMatchMode, setDepositMatchMode] = useState<"account" | "ar" | "sale">("account");
+  const [arPartnerId, setArPartnerId] = useState<string>("");
+  const [arAllocations, setArAllocations] = useState<Record<number, number>>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadResult, setUploadResult] = useState<any>(null);
   const [editingTxId, setEditingTxId] = useState<number | null>(null);
@@ -91,11 +99,23 @@ export default function BankTransactionTab() {
   const { data: accountsData } = trpc.bankAccount.list.useQuery();
   const accounts = accountsData?.accounts || [];
 
+  // ★ 2026-04-14: 거래처 목록 (AR 회수 매칭용)
+  const { data: partnersData = [] } = trpc.partners.list.useQuery();
+  const partnersArr: any[] = Array.isArray(partnersData)
+    ? partnersData
+    : ((partnersData as any)?.items ?? []);
+
   // ★ 2026-04-13: 수동 매칭용 계정과목 목록 (ID 직접 입력 → 드롭다운 선택 UX 개선)
   const { data: accountingAccountsList } = trpc.accountingAccounts.list.useQuery({ isActive: "Y" });
   const accountingAccounts: any[] = Array.isArray(accountingAccountsList)
     ? accountingAccountsList
     : ((accountingAccountsList as any)?.items ?? []);
+
+  // ★ 2026-04-14: 선택된 거래처의 미수 AR 목록 (조건부 fetch)
+  const { data: openArList = [], isLoading: openArLoading } = trpc.bankTransaction.listOpenArByPartner.useQuery(
+    { partnerId: parseInt(arPartnerId) },
+    { enabled: depositMatchMode === "ar" && !!arPartnerId && !isNaN(parseInt(arPartnerId)) },
+  );
 
   // 5분류별 그룹화 (자산/부채/자본/수익/비용)
   const groupedAccounts = useMemo(() => {
@@ -202,6 +222,21 @@ export default function BankTransactionTab() {
     onError: (error: any) => {
       toast.error(`자동 매칭 오류: ${error.message}`);
     },
+  });
+
+  // ★ 2026-04-14: AR 회수 매칭 (입금 전용)
+  const matchAsArRecoveryMutation = trpc.bankTransaction.matchAsArRecovery.useMutation({
+    onSuccess: (r: any) => {
+      toast.success(r.message || "AR 회수 매칭 완료");
+      setIsMatchDialogOpen(false);
+      setSelectedTransaction(null);
+      setArPartnerId("");
+      setArAllocations({});
+      setDepositMatchMode("account");
+      utils.bankTransaction.list.invalidate();
+      utils.bankAccount.getStats.invalidate();
+    },
+    onError: (e: any) => toast.error(`AR 회수 실패: ${e.message}`),
   });
 
   // 수동 매칭
@@ -405,12 +440,56 @@ export default function BankTransactionTab() {
     setSelectedTransaction(tx);
     setMatchAccountingId(tx.accountingAccountId?.toString() || "");
     setMatchDescription(tx.description || "");
+    // 입금 거래면 기본 모드를 AR 회수로 (가장 흔한 케이스)
+    if (tx.transactionType === "deposit") {
+      setDepositMatchMode("ar");
+    } else {
+      setDepositMatchMode("account");
+    }
+    setArPartnerId("");
+    setArAllocations({});
     setIsMatchDialogOpen(true);
   };
 
-  // 수동 매칭 실행 — ★ 2026-04-14: learnRule 옵션 전달
+  // 수동 매칭 실행 — ★ 2026-04-14: 3패턴 분기 (입금 AR 회수 / 매출 / 계정)
   const handleManualMatch = () => {
-    if (!selectedTransaction || !matchAccountingId) {
+    if (!selectedTransaction) return;
+
+    // 입금 + AR 회수 모드
+    if (selectedTransaction.transactionType === "deposit" && depositMatchMode === "ar") {
+      if (!arPartnerId) {
+        toast.error("거래처를 선택해주세요");
+        return;
+      }
+      const allocations = Object.entries(arAllocations)
+        .filter(([, amount]) => amount > 0)
+        .map(([arLedgerId, amount]) => ({
+          arLedgerId: parseInt(arLedgerId),
+          amount,
+        }));
+      if (allocations.length === 0) {
+        toast.error("회수할 미수금을 선택하고 금액을 입력하세요");
+        return;
+      }
+      const totalAllocated = allocations.reduce((s, a) => s + a.amount, 0);
+      const txAmount = Math.abs(parseFloat(selectedTransaction.amount));
+      if (Math.abs(totalAllocated - txAmount) > 0.01) {
+        toast.error(
+          `할당 합계 ${totalAllocated.toLocaleString()} ≠ 입금 ${txAmount.toLocaleString()}`,
+        );
+        return;
+      }
+      matchAsArRecoveryMutation.mutate({
+        transactionId: selectedTransaction.id,
+        partnerId: parseInt(arPartnerId),
+        arAllocations: allocations,
+      });
+      return;
+    }
+
+    // 그 외 모드 (account 또는 sale) — 기존 match 경로 재사용
+    //   'sale' 모드는 사용자가 매출 계정 선택 → 동일 흐름 (부가세 분리는 post 단계에서)
+    if (!matchAccountingId) {
       toast.error("계정과목을 선택해주세요");
       return;
     }
@@ -1130,8 +1209,200 @@ export default function BankTransactionTab() {
                 </p>
               </div>
 
-              {/* 계정과목 선택 (5분류별 그룹화) */}
-              <div>
+              {/* ★ 2026-04-14: 입금 거래는 3가지 매칭 유형 선택 */}
+              {selectedTransaction.transactionType === "deposit" && (
+                <div>
+                  <Label className="text-xs mb-1.5 block">입금 매칭 유형</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDepositMatchMode("ar")}
+                      className={`p-2.5 rounded-lg border-2 text-left transition ${
+                        depositMatchMode === "ar"
+                          ? "border-green-500 bg-green-50 dark:bg-green-950/30"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="text-sm font-medium flex items-center gap-1">
+                        💰 AR 회수
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        외상 매출금 회수 (기존 매출에 대한 입금)
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDepositMatchMode("sale")}
+                      className={`p-2.5 rounded-lg border-2 text-left transition ${
+                        depositMatchMode === "sale"
+                          ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="text-sm font-medium flex items-center gap-1">
+                        🛒 매출 인식
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        전표 없이 직접 매출 계정 분개
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDepositMatchMode("account")}
+                      className={`p-2.5 rounded-lg border-2 text-left transition ${
+                        depositMatchMode === "account"
+                          ? "border-purple-500 bg-purple-50 dark:bg-purple-950/30"
+                          : "border-border hover:bg-muted/50"
+                      }`}
+                    >
+                      <div className="text-sm font-medium flex items-center gap-1">
+                        📎 기타
+                      </div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">
+                        이자 수익, 환입, 기타 수익
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ★ AR 회수 모드 — 거래처 선택 + 미수 AR 목록 */}
+              {selectedTransaction.transactionType === "deposit" &&
+                depositMatchMode === "ar" && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">거래처 *</Label>
+                      <Select value={arPartnerId} onValueChange={setArPartnerId}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="고객 거래처 선택" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          {partnersArr
+                            .filter((p: any) => p.partnerType === "customer" || !p.partnerType)
+                            .map((p: any) => (
+                              <SelectItem key={p.id} value={String(p.id)}>
+                                {p.companyName || p.name}
+                                {p.bizNo ? ` (${p.bizNo})` : ""}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {arPartnerId && (
+                      <div>
+                        <Label className="text-xs mb-1.5 block">
+                          미수금 선택 * (합계: {Object.values(arAllocations).reduce((s, a) => s + (a || 0), 0).toLocaleString()} /
+                          입금: {Math.abs(parseFloat(selectedTransaction.amount)).toLocaleString()})
+                        </Label>
+                        <div className="border rounded-lg max-h-[250px] overflow-y-auto">
+                          {openArLoading ? (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              미수 AR 조회 중...
+                            </div>
+                          ) : openArList.length === 0 ? (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              이 거래처의 미수금이 없습니다. '매출 인식' 또는 '기타' 모드를 사용하세요.
+                            </div>
+                          ) : (
+                            <table className="w-full text-xs">
+                              <thead className="sticky top-0 bg-muted/60">
+                                <tr>
+                                  <th className="text-left px-2 py-1.5">발생일</th>
+                                  <th className="text-right px-2 py-1.5">원금</th>
+                                  <th className="text-right px-2 py-1.5">미수잔액</th>
+                                  <th className="text-right px-2 py-1.5 w-[110px]">회수 금액</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {openArList.map((ar: any) => {
+                                  const allocated = arAllocations[ar.id] || 0;
+                                  return (
+                                    <tr key={ar.id} className="border-t hover:bg-muted/30">
+                                      <td className="px-2 py-1.5">
+                                        {ar.occurredAt
+                                          ? format(new Date(ar.occurredAt), "yy-MM-dd")
+                                          : "-"}
+                                        {ar.memo && (
+                                          <div className="text-[9px] text-muted-foreground truncate max-w-[120px]">
+                                            {ar.memo}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right font-mono tabular-nums">
+                                        {Number(ar.originalAmount).toLocaleString()}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold text-red-600">
+                                        {Number(ar.remainingAmount).toLocaleString()}
+                                      </td>
+                                      <td className="px-2 py-1.5">
+                                        <Input
+                                          type="number"
+                                          value={allocated || ""}
+                                          onChange={(e) => {
+                                            const v = parseFloat(e.target.value) || 0;
+                                            const max = Number(ar.remainingAmount);
+                                            setArAllocations({
+                                              ...arAllocations,
+                                              [ar.id]: Math.min(v, max),
+                                            });
+                                          }}
+                                          placeholder={String(ar.remainingAmount)}
+                                          className="h-7 text-right text-xs"
+                                          max={ar.remainingAmount}
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                        {openArList.length > 0 && (
+                          <div className="flex gap-2 mt-1.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                // 자동 할당: 오래된 것부터 입금액만큼
+                                const txAmt = Math.abs(parseFloat(selectedTransaction.amount));
+                                let remaining = txAmt;
+                                const next: Record<number, number> = {};
+                                for (const ar of openArList) {
+                                  if (remaining <= 0.01) break;
+                                  const take = Math.min(remaining, Number(ar.remainingAmount));
+                                  next[ar.id] = take;
+                                  remaining -= take;
+                                }
+                                setArAllocations(next);
+                              }}
+                            >
+                              자동 할당 (오래된 것부터)
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs"
+                              onClick={() => setArAllocations({})}
+                            >
+                              전체 초기화
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {/* 계정과목 선택 — account 또는 sale 모드 (출금은 항상 이 영역) */}
+              {!(
+                selectedTransaction.transactionType === "deposit" && depositMatchMode === "ar"
+              ) && (
+                <div>
                 <Label htmlFor="accountingId">계정과목 *</Label>
                 <Select value={matchAccountingId} onValueChange={setMatchAccountingId}>
                   <SelectTrigger id="accountingId">
@@ -1213,6 +1484,7 @@ export default function BankTransactionTab() {
                   계정과목을 선택하면 해당 거래가 매칭됩니다.
                 </p>
               </div>
+              )}
 
               {/* ★ 2026-04-14: 규칙 자동 학습 옵션 */}
               <div className="flex items-start gap-2 p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg">
@@ -1240,9 +1512,27 @@ export default function BankTransactionTab() {
             </Button>
             <Button
               onClick={handleManualMatch}
-              disabled={!matchAccountingId || matchMutation.isPending}
+              disabled={(() => {
+                if (!selectedTransaction) return true;
+                if (matchMutation.isPending || matchAsArRecoveryMutation.isPending) return true;
+                // AR 회수 모드
+                if (
+                  selectedTransaction.transactionType === "deposit" &&
+                  depositMatchMode === "ar"
+                ) {
+                  if (!arPartnerId) return true;
+                  const totalAllocated = Object.values(arAllocations).reduce(
+                    (s, a) => s + (a || 0),
+                    0,
+                  );
+                  if (totalAllocated <= 0) return true;
+                  return false;
+                }
+                // 계정 모드
+                return !matchAccountingId;
+              })()}
             >
-              {matchMutation.isPending && (
+              {(matchMutation.isPending || matchAsArRecoveryMutation.isPending) && (
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               )}
               매칭 확정

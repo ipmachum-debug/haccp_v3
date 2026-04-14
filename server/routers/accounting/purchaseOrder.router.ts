@@ -10,6 +10,7 @@ import { getDb, withTransaction } from "../../db";
 import { purchaseOrders, purchaseOrderLines } from "../../../drizzle/schema/schema_purchase_orders";
 import { partners } from "../../../drizzle/schema/schema_main_accounting";
 import { and, eq, desc, sql, like, gte, lte, inArray } from "drizzle-orm";
+import { todayKST } from "../../utils/timezone";
 
 // ─── PO 번호 자동 생성 (PO-YYYY-NNNN) ────────────────────────
 async function generatePoNumber(tenantId: number): Promise<string> {
@@ -448,4 +449,90 @@ export const purchaseOrderRouter = router({
       createdPurchaseIds: createdPurchases,
     };
   }),
+
+  /**
+   * ★ 발주서 PDF 생성 — Phase A-6 (2026-04-14)
+   * - 헤더 + 라인 + 거래처 정보 + 회사 정보 조회
+   * - purchaseOrderPdf.ts 로 PDF Buffer 생성
+   * - base64 반환 (클라이언트가 iframe print 또는 새탭 미리보기)
+   */
+  generatePdf: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      const [po] = await db
+        .select()
+        .from(purchaseOrders)
+        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .where(
+          and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.tenantId, ctx.tenantId)),
+        )
+        .limit(1);
+
+      if (!po) throw new Error(`발주서 #${input.id} 없음`);
+
+      const lines = await db
+        .select()
+        .from(purchaseOrderLines)
+        .where(
+          and(
+            eq(purchaseOrderLines.poId, input.id),
+            eq(purchaseOrderLines.tenantId, ctx.tenantId),
+          ),
+        )
+        .orderBy(purchaseOrderLines.lineNumber);
+
+      // 회사 정보 조회 (발주처)
+      const { getCompanyInfo } = await import("../../db/system/companyInfo");
+      const companyInfo = await getCompanyInfo(ctx.tenantId);
+
+      const header = (po as any).purchase_orders;
+      const partner = (po as any).partners;
+
+      // PDF 생성
+      const { generatePurchaseOrderPDF } = await import("../../lib/purchaseOrderPdf");
+      const pdfBuffer = await generatePurchaseOrderPDF({
+        poNumber: header.poNumber,
+        orderDate: header.orderDate,
+        expectedDeliveryDate: header.expectedDeliveryDate,
+        deliveryAddress: header.deliveryAddress,
+        buyer: {
+          name: companyInfo.companyName || "회사명 미설정",
+          businessNumber: companyInfo.companyBusinessNumber,
+          address: companyInfo.companyAddress,
+          representative: companyInfo.companyRepresentative,
+          phone: companyInfo.companyPhone,
+        },
+        supplier: {
+          name: partner?.companyName || "거래처 미지정",
+          businessNumber: partner?.bizNo || undefined,
+          address: partner?.address || undefined,
+          representative: partner?.ceoName || undefined,
+          phone: partner?.phone || undefined,
+        },
+        lines: lines.map((l: any) => ({
+          lineNumber: Number(l.lineNumber),
+          itemName: l.itemName,
+          itemCode: l.itemCode || undefined,
+          orderedQty: Number(l.orderedQty),
+          unit: l.unit || "EA",
+          unitPrice: Number(l.unitPrice),
+          amount: Number(l.amount),
+          expectedDeliveryDate: l.expectedDeliveryDate || undefined,
+          notes: l.notes || undefined,
+        })),
+        totalAmount: Number(header.totalAmount || 0),
+        taxAmount: Number(header.taxAmount || 0),
+        grandTotal: Number(header.grandTotal || 0),
+        notes: header.notes || undefined,
+        status: header.status,
+      });
+
+      return {
+        pdf: pdfBuffer.toString("base64"),
+        filename: `발주서_${header.poNumber}_${todayKST()}.pdf`,
+      };
+    }),
 });

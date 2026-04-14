@@ -89,6 +89,44 @@ export const bankTransactionRouter = router({
       return { message: "매칭이 해제되었습니다." };
     }),
 
+  /**
+   * ★ 2026-04-14: 거래처 미수 AR 목록 조회 (입금 매칭용)
+   */
+  listOpenArByPartner: tenantRequiredProcedure
+    .input(z.object({ partnerId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      return txService.listOpenArByPartner(ctx.tenantId, input.partnerId);
+    }),
+
+  /**
+   * ★ 2026-04-14: 입금 거래를 AR 회수로 매칭
+   * 하나의 입금을 여러 미수 AR 에 분할 할당 가능
+   */
+  matchAsArRecovery: tenantRequiredProcedure
+    .input(
+      z.object({
+        transactionId: z.number(),
+        partnerId: z.number(),
+        arAllocations: z
+          .array(
+            z.object({
+              arLedgerId: z.number(),
+              amount: z.number().positive(),
+            }),
+          )
+          .min(1, "AR 할당이 최소 1개 필요"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return await txService.matchTransactionAsArRecovery(
+        ctx.tenantId,
+        input.transactionId,
+        input.partnerId,
+        input.arAllocations,
+        ctx.user.id,
+      );
+    }),
+
   approve: tenantRequiredProcedure
     .input(z.object({ id: z.number(), confirmedAmount: z.number().positive().optional() }))
     .mutation(async ({ ctx, input }) => {
