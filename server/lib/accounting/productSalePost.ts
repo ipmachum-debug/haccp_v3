@@ -334,10 +334,15 @@ export async function postProductSale(
       });
     }
 
-    // (D) accounting_sales 상태 전환
+    // (D) accounting_sales 상태 전환: pending → approved (승인됨)
+    //   ★ 2026-04-14: 상태 머신 정상화
+    //     - 이전: pending → received (단계 건너뜀)
+    //     - 현재: pending → approved
+    //     - "수금 완료(received)" 는 별도 markReceived 뮤테이션에서 전환
+    //   FEFO 재고 차감 / COGS 분개 / 매출 분개는 승인 시점에 수행
     await conn.execute(
       `UPDATE accounting_sales
-       SET status = 'received',
+       SET status = 'approved',
            product_id = COALESCE(product_id, ?),
            posted_at = NOW(),
            posted_by = ?

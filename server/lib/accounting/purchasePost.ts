@@ -252,13 +252,18 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       partnerId: (purchase as any).partnerId || null,
     });
 
-    // (D) 상태 전환
+    // (D) 상태 전환: pending → approved (승인됨)
+    //   ★ 2026-04-14: 상태 머신 정상화
+    //     - 이전: pending → paid (단계 건너뜀, approved 도달 불가)
+    //     - 현재: pending → approved 로 변경
+    //     - "지급 완료(paid)" 는 별도 markPaid 뮤테이션으로 전환 (실제 대금 지급 시점)
+    //   분개 / 재고 / LOT 생성은 승인(approved) 시점에 수행 (회계상 post to GL)
     await conn.execute(
-      `UPDATE accounting_purchases SET status = 'paid', posted_at = NOW(), posted_by = ? WHERE id = ? AND tenant_id = ?`,
+      `UPDATE accounting_purchases SET status = 'approved', posted_at = NOW(), posted_by = ? WHERE id = ? AND tenant_id = ?`,
       [userId, purchaseId, tenantId]
     );
 
-    console.log(`[POST] 매입 전표 ID ${purchaseId} 확정 완료 (LOT: ${lotNumber})`);
+    console.log(`[POST] 매입 전표 ID ${purchaseId} 승인 완료 (LOT: ${lotNumber})`);
     return { alreadyProcessed: false };
   });
 }

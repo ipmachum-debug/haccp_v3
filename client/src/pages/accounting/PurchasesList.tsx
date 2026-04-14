@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,11 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
+  DollarSign,
+  XCircle,
+  Layers,
+  List,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -51,6 +56,13 @@ import { useLocation } from "wouter";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
 import { todayLocal } from "../../lib/dateUtils";
+import {
+  groupTransactions,
+  getAvailableActions,
+  STATUS_LABELS,
+  STATUS_COLORS,
+  type TransactionGroup,
+} from "../../lib/transactionGrouping";
 
 export default function PurchasesList() {
   return (
@@ -73,6 +85,19 @@ function PurchasesListContent() {
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 25;
+
+  // ─── 그룹 뷰 (2026-04-14 추가) ──────────────────────────────
+  // flat view: 기존 품목별 한 줄씩 / grouped view: (date, partner, 증빙) 로 묶음
+  const [viewMode, setViewMode] = useState<"grouped" | "flat">("grouped");
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (groupKey: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) next.delete(groupKey);
+      else next.add(groupKey);
+      return next;
+    });
+  };
 
   // ★ 2026-04-13: PDF base64 → Blob 공통 헬퍼
   const base64ToPdfBlob = (b64: string): Blob => {
@@ -134,14 +159,14 @@ function PurchasesListContent() {
     previewPDFMutation.mutate({ purchaseId });
   };
 
-  // 매입 확정 mutation
+  // 매입 승인 mutation (pending → approved) — 재고/회계 원장 반영
   const postMutation = trpc.inventoryAccounting.purchasePost.useMutation({
     onSuccess: () => {
-      toast({ title: "매입 확정 성공", description: "매입이 확정되어 재고 및 회계 원장에 반영되었습니다." });
+      toast({ title: "매입 승인 완료", description: "매입이 승인되어 재고 및 회계 원장에 반영되었습니다." });
       refetch();
     },
     onError: (error: any) => {
-      toast({ title: "확정 실패", description: error.message, variant: "destructive" });
+      toast({ title: "승인 실패", description: error.message, variant: "destructive" });
     },
   });
 
@@ -155,6 +180,73 @@ function PurchasesListContent() {
       toast({ title: "취소 실패", description: error.message, variant: "destructive" });
     },
   });
+
+  // 매입 지급 완료 mutation (approved → paid)
+  const markPaidMutation = trpc.inventoryAccounting.purchaseMarkPaid.useMutation({
+    onSuccess: () => {
+      toast({ title: "지급 완료 처리", description: "매입이 지급 완료 상태로 전환되었습니다." });
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "지급 처리 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // 매입 복구 mutation (cancelled → pending)
+  const restoreMutation = trpc.inventoryAccounting.purchaseRestore.useMutation({
+    onSuccess: () => {
+      toast({ title: "복구 완료", description: "취소된 매입이 대기 상태로 복구되었습니다." });
+      refetch();
+    },
+    onError: (error: any) => {
+      toast({ title: "복구 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // ─── 그룹 단위 액션 핸들러 (Promise.all) ─────────────────────
+  const handleGroupAction = async (
+    group: TransactionGroup,
+    action: "approve" | "markPaid" | "cancel" | "restore",
+  ) => {
+    const actionLabels: Record<string, string> = {
+      approve: "승인",
+      markPaid: "지급 완료 처리",
+      cancel: "취소",
+      restore: "복구",
+    };
+    const label = actionLabels[action];
+    const itemText = group.itemCount > 1 ? `${group.itemCount}개 품목` : "이 거래";
+    if (!confirm(`${group.transactionDate} ${group.partnerName} — ${itemText}을(를) ${label}하시겠습니까?`)) {
+      return;
+    }
+
+    const targetIds = group.items
+      .filter((item) => {
+        const available = getAvailableActions(item.status, "purchase");
+        return available.includes(action);
+      })
+      .map((item) => item.id);
+
+    if (targetIds.length === 0) {
+      toast({ title: `${label} 불가`, description: "해당 상태의 품목이 없습니다.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      if (action === "approve") {
+        await Promise.all(targetIds.map((id) => postMutation.mutateAsync({ purchaseId: id })));
+      } else if (action === "markPaid") {
+        await Promise.all(targetIds.map((id) => markPaidMutation.mutateAsync({ purchaseId: id })));
+      } else if (action === "cancel") {
+        await Promise.all(targetIds.map((id) => cancelMutation.mutateAsync({ purchaseId: id })));
+      } else if (action === "restore") {
+        await Promise.all(targetIds.map((id) => restoreMutation.mutateAsync({ purchaseId: id })));
+      }
+      toast({ title: `그룹 ${label} 완료`, description: `${targetIds.length}개 품목 처리됨` });
+    } catch (err: any) {
+      toast({ title: `그룹 ${label} 실패`, description: err?.message || "일부 품목 처리 실패", variant: "destructive" });
+    }
+  };
 
   // 삭제 mutation
   const deleteMutation = trpc.haccpIntegration.deletePurchase.useMutation({
@@ -190,13 +282,26 @@ function PurchasesListContent() {
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [purchases]);
 
-  // 페이지네이션 계산
-  const totalPages = Math.max(1, Math.ceil(purchases.length / PAGE_SIZE));
+  // 그룹화 계산 (viewMode === "grouped" 일 때만 사용)
+  const groupedPurchases = useMemo(
+    () => groupTransactions(purchases as any),
+    [purchases],
+  );
+
+  // 페이지네이션: flat 은 rows 기준, grouped 는 group 기준
+  const totalPages = useMemo(() => {
+    const count = viewMode === "grouped" ? groupedPurchases.length : purchases.length;
+    return Math.max(1, Math.ceil(count / PAGE_SIZE));
+  }, [viewMode, groupedPurchases.length, purchases.length]);
   const safePage = Math.min(currentPage, totalPages);
   const pagedPurchases = useMemo(() => {
     const start = (safePage - 1) * PAGE_SIZE;
     return purchases.slice(start, start + PAGE_SIZE);
   }, [purchases, safePage]);
+  const pagedGroups = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return groupedPurchases.slice(start, start + PAGE_SIZE);
+  }, [groupedPurchases, safePage]);
 
   // 필터 변경 시 페이지 리셋
   const resetPage = () => setCurrentPage(1);
@@ -493,15 +598,50 @@ function PurchasesListContent() {
             </div>
           ) : (
             <div className="space-y-4">
+            {/* 뷰 모드 토글 */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>
+                  {viewMode === "grouped"
+                    ? `총 ${groupedPurchases.length}건 거래 (${purchases.length}개 품목)`
+                    : `총 ${purchases.length}개 품목`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 bg-muted/40 rounded-lg p-1">
+                <Button
+                  size="sm"
+                  variant={viewMode === "grouped" ? "default" : "ghost"}
+                  onClick={() => setViewMode("grouped")}
+                  className="h-7 px-2 text-xs"
+                  title="거래 단위로 묶어서 보기 (거래명세표 기준)"
+                >
+                  <Layers className="h-3.5 w-3.5 mr-1" />
+                  거래별
+                </Button>
+                <Button
+                  size="sm"
+                  variant={viewMode === "flat" ? "default" : "ghost"}
+                  onClick={() => setViewMode("flat")}
+                  className="h-7 px-2 text-xs"
+                  title="품목 단위로 한 줄씩 보기"
+                >
+                  <List className="h-3.5 w-3.5 mr-1" />
+                  품목별
+                </Button>
+              </div>
+            </div>
+
             <div className="rounded-lg border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30">
                     <TableHead className="w-[44px]">
-                      <Checkbox
-                        checked={pagedPurchases.length > 0 && pagedPurchases.every((p: any) => selectedIds.includes(p.id))}
-                        onCheckedChange={handleSelectAll}
-                      />
+                      {viewMode === "flat" && (
+                        <Checkbox
+                          checked={pagedPurchases.length > 0 && pagedPurchases.every((p: any) => selectedIds.includes(p.id))}
+                          onCheckedChange={handleSelectAll}
+                        />
+                      )}
                     </TableHead>
                     <TableHead className="text-xs font-semibold">거래일자</TableHead>
                     <TableHead className="text-xs font-semibold">거래처명</TableHead>
@@ -517,9 +657,10 @@ function PurchasesListContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pagedPurchases.map((purchase: any) => {
+                  {viewMode === "flat" && pagedPurchases.map((purchase: any) => {
                     const amount = parseFloat(purchase.amount || purchase.totalAmount || "0");
                     const tax = parseFloat(purchase.taxAmount || "0");
+                    const availableActions = getAvailableActions(purchase.status, "purchase");
                     return (
                       <TableRow key={purchase.id} className="group hover:bg-muted/20">
                         <TableCell>
@@ -555,36 +696,201 @@ function PurchasesListContent() {
                         </TableCell>
                         <TableCell>{getStatusBadge(purchase.status)}</TableCell>
                         <TableCell>
-                          <div className="flex items-center justify-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              size="sm" variant="default"
-                              onClick={() => { if (confirm("이 매입을 확정하시겠습니까?")) postMutation.mutate({ purchaseId: purchase.id }); }}
-                              disabled={postMutation.isPending || purchase.status === "POSTED"}
-                              title="매입 확정" className="h-7 w-7 p-0"
-                            >
-                              <CheckCircle className="h-3.5 w-3.5" />
-                            </Button>
+                          <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            {/* 상태별 주요 액션 */}
+                            {availableActions.includes("approve") && (
+                              <Button size="sm" variant="default"
+                                onClick={() => { if (confirm("이 매입을 승인하시겠습니까?")) postMutation.mutate({ purchaseId: purchase.id }); }}
+                                disabled={postMutation.isPending}
+                                title="승인" className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
+                                <CheckCircle className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {availableActions.includes("markPaid") && (
+                              <Button size="sm" variant="default"
+                                onClick={() => { if (confirm("지급 완료 처리하시겠습니까?")) markPaidMutation.mutate({ purchaseId: purchase.id }); }}
+                                disabled={markPaidMutation.isPending}
+                                title="지급 완료" className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
+                                <DollarSign className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {availableActions.includes("restore") && (
+                              <Button size="sm" variant="outline"
+                                onClick={() => { if (confirm("대기 상태로 복구하시겠습니까?")) restoreMutation.mutate({ purchaseId: purchase.id }); }}
+                                disabled={restoreMutation.isPending}
+                                title="복구" className="h-7 w-7 p-0 text-amber-600">
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {/* 공통 액션 */}
                             <Button size="sm" variant="outline" onClick={() => handlePreviewStatement(purchase.id)}
                               disabled={previewPDFMutation.isPending} title="미리보기" className="h-7 w-7 p-0">
                               <Eye className="h-3.5 w-3.5" />
                             </Button>
                             <Button size="sm" variant="outline" onClick={() => handlePrintStatement(purchase.id)}
-                              disabled={generatePDFMutation.isPending} title="다운로드" className="h-7 w-7 p-0">
+                              disabled={generatePDFMutation.isPending} title="인쇄" className="h-7 w-7 p-0">
                               <Printer className="h-3.5 w-3.5" />
                             </Button>
-                            <Button size="sm" variant="outline"
-                              onClick={() => { setEditingPurchase(purchase); setIsEditDialogOpen(true); }}
-                              title="수정" className="h-7 w-7 p-0">
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button size="sm" variant="outline"
-                              onClick={() => { if (confirm("이 거래를 삭제하시겠습니까?")) deleteMutation.mutate({ id: purchase.id }); }}
-                              title="삭제" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {availableActions.includes("edit") && (
+                              <Button size="sm" variant="outline"
+                                onClick={() => { setEditingPurchase(purchase); setIsEditDialogOpen(true); }}
+                                title="수정" className="h-7 w-7 p-0">
+                                <Edit className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {availableActions.includes("cancel") && (
+                              <Button size="sm" variant="outline"
+                                onClick={() => { if (confirm("이 매입을 취소하시겠습니까?")) cancelMutation.mutate({ purchaseId: purchase.id }); }}
+                                disabled={cancelMutation.isPending}
+                                title="취소" className="h-7 w-7 p-0 text-zinc-500 hover:bg-zinc-100">
+                                <XCircle className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {availableActions.includes("delete") && (
+                              <Button size="sm" variant="outline"
+                                onClick={() => { if (confirm("이 거래를 삭제하시겠습니까?")) deleteMutation.mutate({ id: purchase.id }); }}
+                                title="삭제" className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
+                    );
+                  })}
+
+                  {viewMode === "grouped" && pagedGroups.map((group) => {
+                    const isExpanded = expandedGroups.has(group.groupKey);
+                    const availableActions = getAvailableActions(group.dominantStatus, "purchase");
+                    const statusLabel = STATUS_LABELS[group.dominantStatus] || group.dominantStatus;
+                    const statusColor = STATUS_COLORS[group.dominantStatus] || "";
+                    return (
+                      <React.Fragment key={group.groupKey}>
+                        {/* 그룹 헤더 행 */}
+                        <TableRow className="bg-indigo-50/60 hover:bg-indigo-50 font-semibold cursor-pointer"
+                          onClick={() => toggleGroup(group.groupKey)}>
+                          <TableCell>
+                            <Button size="sm" variant="ghost" className="h-6 w-6 p-0"
+                              onClick={(e) => { e.stopPropagation(); toggleGroup(group.groupKey); }}>
+                              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </Button>
+                          </TableCell>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {new Date(group.transactionDate).toLocaleDateString("ko-KR")}
+                          </TableCell>
+                          <TableCell className="text-sm">{group.partnerName}</TableCell>
+                          <TableCell colSpan={4} className="text-xs text-muted-foreground">
+                            📦 <span className="font-semibold text-foreground">{group.itemCount}개 품목</span>
+                            {group.evidenceNumber && (
+                              <span className="ml-2">· 증빙 {group.evidenceNumber}</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                            {formatCurrency(group.totalTax)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums font-bold text-base">
+                            {formatCurrency(group.grandTotal)}
+                          </TableCell>
+                          <TableCell>-</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`${statusColor} text-xs`}>
+                              {statusLabel}
+                              {group.isMixed && <span className="ml-1">⚠</span>}
+                            </Badge>
+                          </TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-1">
+                              {availableActions.includes("approve") && (
+                                <Button size="sm" variant="default"
+                                  onClick={() => handleGroupAction(group, "approve")}
+                                  disabled={postMutation.isPending}
+                                  title="그룹 전체 승인" className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
+                                  <CheckCircle className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {availableActions.includes("markPaid") && (
+                                <Button size="sm" variant="default"
+                                  onClick={() => handleGroupAction(group, "markPaid")}
+                                  disabled={markPaidMutation.isPending}
+                                  title="그룹 전체 지급 완료" className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
+                                  <DollarSign className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {availableActions.includes("restore") && (
+                                <Button size="sm" variant="outline"
+                                  onClick={() => handleGroupAction(group, "restore")}
+                                  disabled={restoreMutation.isPending}
+                                  title="그룹 전체 복구" className="h-7 w-7 p-0 text-amber-600">
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {/* 거래명세표 PDF (그룹의 첫 item 기준 — 동일 거래이므로) */}
+                              <Button size="sm" variant="outline"
+                                onClick={() => handlePreviewStatement(group.items[0].id)}
+                                disabled={previewPDFMutation.isPending}
+                                title="거래명세표 미리보기" className="h-7 w-7 p-0">
+                                <Eye className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button size="sm" variant="outline"
+                                onClick={() => handlePrintStatement(group.items[0].id)}
+                                disabled={generatePDFMutation.isPending}
+                                title="거래명세표 인쇄" className="h-7 w-7 p-0">
+                                <Printer className="h-3.5 w-3.5" />
+                              </Button>
+                              {availableActions.includes("cancel") && (
+                                <Button size="sm" variant="outline"
+                                  onClick={() => handleGroupAction(group, "cancel")}
+                                  disabled={cancelMutation.isPending}
+                                  title="그룹 전체 취소" className="h-7 w-7 p-0 text-zinc-500 hover:bg-zinc-100">
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+
+                        {/* 하위 품목 행 (확장 시) */}
+                        {isExpanded && group.items.map((item: any) => {
+                          const itemAmount = parseFloat(item.amount || item.totalAmount || "0");
+                          const itemTax = parseFloat(item.taxAmount || "0");
+                          const itemActions = getAvailableActions(item.status, "purchase");
+                          return (
+                            <TableRow key={`${group.groupKey}-${item.id}`} className="bg-slate-50/40 hover:bg-slate-100/60">
+                              <TableCell></TableCell>
+                              <TableCell></TableCell>
+                              <TableCell className="text-xs text-muted-foreground">└</TableCell>
+                              <TableCell className="text-sm pl-2 max-w-[160px] truncate">{item.itemName}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">
+                                {item.quantity} {item.unit || ""}
+                              </TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{formatCurrency(item.unitPrice)}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{formatCurrency(itemAmount)}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums text-muted-foreground">{formatCurrency(itemTax)}</TableCell>
+                              <TableCell className="text-xs text-right tabular-nums">{formatCurrency(itemAmount + itemTax)}</TableCell>
+                              <TableCell></TableCell>
+                              <TableCell>{getStatusBadge(item.status)}</TableCell>
+                              <TableCell>
+                                <div className="flex items-center justify-center gap-1">
+                                  {itemActions.includes("edit") && (
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => { setEditingPurchase(item); setIsEditDialogOpen(true); }}
+                                      title="품목 수정" className="h-6 w-6 p-0">
+                                      <Edit className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                  {itemActions.includes("delete") && (
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => { if (confirm("이 품목을 삭제하시겠습니까?")) deleteMutation.mutate({ id: item.id }); }}
+                                      title="품목 삭제" className="h-6 w-6 p-0 text-red-500">
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })}
                 </TableBody>

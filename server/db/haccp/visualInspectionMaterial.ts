@@ -190,9 +190,23 @@ export async function getVisualInspectionLog(db: any, tenantId: number, logId: n
   const cfg = (cfgRows as any[])[0] || {};
 
   // 항목들 (최근 날짜 우선 정렬)
+  // ★ 2026-04-14: month-mismatch 아이템 필터 추가
+  //   - receipt_date 형식은 "MM-DD" (예: "03-25", "04-14")
+  //   - 로그의 log_month 와 receipt_date 앞 2글자가 일치하지 않으면 제외
+  //   - 빈 문자열('') 은 허용 (사용자가 아직 날짜 입력 안 한 경우)
+  //   - 이렇게 하면 DB에 오래된 mismatch 데이터가 있어도 UI 에는 안 보임
+  //   원인: saveItems / syncReceivings 에서 stale state / race condition 으로
+  //         다른 월의 receipt_date 아이템이 로그에 삽입되는 경우가 있었음.
+  //         쓰기 검증과 함께 3-레이어 방어의 첫 번째 레이어.
+  const logMonthStr = String(log.log_month).padStart(2, '0');
   const itemResult = await db.execute(sql`
     SELECT * FROM h_visual_inspection_items
     WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+      AND (
+        receipt_date = ''
+        OR receipt_date IS NULL
+        OR SUBSTRING(receipt_date, 1, 2) = ${logMonthStr}
+      )
     ORDER BY receipt_date DESC, id DESC
   `);
   const items = (itemResult as any)[0] || [];
@@ -249,18 +263,53 @@ export async function createVisualInspectionLog(
   return { id, title };
 }
 
-/** 육안검사 항목 저장 (전체 교체 방식) */
+/** 육안검사 항목 저장 (전체 교체 방식)
+ * ★ 2026-04-14: month-mismatch 방어 추가
+ *   - 로그의 log_year/log_month 조회
+ *   - receipt_date 가 해당 월과 일치하지 않는 아이템은 자동 제외
+ *   - stale editItems 상태에서 실수로 저장해도 다른 월 데이터 유입 차단
+ */
 export async function saveVisualInspectionItems(
   db: any, tenantId: number, logId: number, items: VisualInspectionItem[]
 ) {
+  // 로그 월 정보 조회 (쓰기 검증용)
+  const logRes = await db.execute(sql`
+    SELECT log_year, log_month FROM h_visual_inspection_logs
+    WHERE id = ${logId} AND tenant_id = ${tenantId} LIMIT 1
+  `);
+  const logRow = ((logRes as any)[0] || [])[0];
+  if (!logRow) {
+    throw new Error(`육안검사일지 #${logId} 없음`);
+  }
+  const logMonthStr = String(logRow.log_month).padStart(2, '0');
+
+  // 월 불일치 아이템 필터링 (자동 제외)
+  const validItems: VisualInspectionItem[] = [];
+  let rejectedCount = 0;
+  for (const item of items) {
+    const rd = (item.receiptDate || '').trim();
+    if (!rd) {
+      // 빈 날짜는 허용
+      validItems.push(item);
+      continue;
+    }
+    const itemMonth = rd.substring(0, 2);
+    if (itemMonth === logMonthStr) {
+      validItems.push(item);
+    } else {
+      rejectedCount++;
+      console.warn(`[saveVisualInspectionItems] month-mismatch 제외: logId=${logId} logMonth=${logMonthStr} receipt_date=${rd} product=${item.productName}`);
+    }
+  }
+
   // 기존 항목 삭제
   await db.execute(sql`
     DELETE FROM h_visual_inspection_items WHERE log_id = ${logId} AND tenant_id = ${tenantId}
   `);
-  
-  // 새 항목 삽입
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i];
+
+  // 새 항목 삽입 (필터링된 것만)
+  for (let i = 0; i < validItems.length; i++) {
+    const item = validItems[i];
     await db.execute(sql`
       INSERT INTO h_visual_inspection_items 
         (tenant_id, log_id, receipt_date, product_name, import_cert_origin,
@@ -276,8 +325,58 @@ export async function saveVisualInspectionItems(
          ${item.correctiveAction || ''}, ${item.note || ''}, ${i})
     `);
   }
-  
-  return { success: true, count: items.length };
+
+  return {
+    success: true,
+    count: validItems.length,
+    rejected: rejectedCount,
+  };
+}
+
+/** month-mismatch 정리 — 특정 로그에서 receipt_date 가 로그 월과 다른 아이템을 영구 삭제
+ * ★ 2026-04-14: 과거 데이터 오염 수동 정리용
+ *   getVisualInspectionLog 의 읽기 필터는 UI 표시만 차단하므로,
+ *   관리자가 DB 차원에서 실제로 삭제하고 싶을 때 이 함수 호출.
+ *   반환: { deleted: number } */
+export async function cleanupMismatchedItems(
+  db: any, tenantId: number, logId: number
+): Promise<{ deleted: number; logMonth: string }> {
+  // 로그 월 조회
+  const logRes = await db.execute(sql`
+    SELECT log_month FROM h_visual_inspection_logs
+    WHERE id = ${logId} AND tenant_id = ${tenantId} LIMIT 1
+  `);
+  const logRow = ((logRes as any)[0] || [])[0];
+  if (!logRow) {
+    throw new Error(`육안검사일지 #${logId} 없음`);
+  }
+  const logMonthStr = String(logRow.log_month).padStart(2, '0');
+
+  // 삭제 대상 개수 먼저 카운트 (로그용)
+  const countRes = await db.execute(sql`
+    SELECT COUNT(*) as cnt FROM h_visual_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+      AND receipt_date != ''
+      AND receipt_date IS NOT NULL
+      AND SUBSTRING(receipt_date, 1, 2) != ${logMonthStr}
+  `);
+  const targetCount = Number(((countRes as any)[0] || [])[0]?.cnt ?? 0);
+
+  if (targetCount === 0) {
+    return { deleted: 0, logMonth: logMonthStr };
+  }
+
+  // 실제 삭제
+  await db.execute(sql`
+    DELETE FROM h_visual_inspection_items
+    WHERE log_id = ${logId} AND tenant_id = ${tenantId}
+      AND receipt_date != ''
+      AND receipt_date IS NOT NULL
+      AND SUBSTRING(receipt_date, 1, 2) != ${logMonthStr}
+  `);
+
+  console.log(`[cleanupMismatchedItems] logId=${logId} logMonth=${logMonthStr} → ${targetCount}건 삭제`);
+  return { deleted: targetCount, logMonth: logMonthStr };
 }
 
 /** 육안검사일지 삭제 */
@@ -419,11 +518,35 @@ export async function fetchMaterialReceivingsForMonth(
   return items;
 }
 
-/** 관리자용: 원재료 입고 → 육안검사 항목 자동 동기화 (신규 입고건만 추가) */
+/** 관리자용: 원재료 입고 → 육안검사 항목 자동 동기화 (신규 입고건만 추가)
+ * ★ 2026-04-14: year/month 와 logId 의 log_year/log_month 일치 검증 추가
+ *   - 프론트 race condition 으로 잘못된 month 가 전달되어도 차단
+ *   - 예: logId=APRIL_LOG 에 month=3 으로 sync 호출 → throw
+ */
 export async function syncReceivingsToInspectionLog(
   db: any, tenantId: number, logId: number, year: number, month: number
 ) {
-  // fetchMaterialReceivingsForMonth 재사용하여 입고 데이터 조회
+  // 로그 메타 검증: 입력 year/month 가 log 의 year/month 와 일치하는지
+  const logMetaRes = await db.execute(sql`
+    SELECT log_year, log_month FROM h_visual_inspection_logs
+    WHERE id = ${logId} AND tenant_id = ${tenantId} LIMIT 1
+  `);
+  const logMetaRow = ((logMetaRes as any)[0] || [])[0];
+  if (!logMetaRow) {
+    throw new Error(`육안검사일지 #${logId} 없음`);
+  }
+  if (Number(logMetaRow.log_year) !== year || Number(logMetaRow.log_month) !== month) {
+    // 프론트 state race 로 mismatch 시 경고 + 로그의 실제 year/month 로 강제 재조회
+    console.warn(
+      `[syncReceivingsToInspectionLog] month mismatch 감지: logId=${logId} ` +
+      `(log_year=${logMetaRow.log_year}, log_month=${logMetaRow.log_month}) ` +
+      `vs input(year=${year}, month=${month}) → 로그 기준으로 강제 변경`
+    );
+    year = Number(logMetaRow.log_year);
+    month = Number(logMetaRow.log_month);
+  }
+
+  // fetchMaterialReceivingsForMonth 재사용하여 입고 데이터 조회 (검증된 year/month)
   const receivings = await fetchMaterialReceivingsForMonth(db, tenantId, year, month);
   if (!receivings.length) return { synced: 0 };
 

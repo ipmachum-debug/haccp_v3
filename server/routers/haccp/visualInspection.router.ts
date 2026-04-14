@@ -141,6 +141,17 @@ export const visualInspectionRouter = router({
         return await syncReceivingsToInspectionLog(db, ctx.tenantId, input.logId, input.year, input.month);
       }),
 
+    // month-mismatch 아이템 정리 (관리자용) — 2026-04-14 추가
+    cleanupMismatched: tenantRequiredProcedure
+      .input(z.object({ logId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { cleanupMismatchedItems } = await import("../../db/haccp/visualInspection");
+        return await cleanupMismatchedItems(db, ctx.tenantId, input.logId);
+      }),
+
     // 원재료 입고 데이터 자동 가져오기
     fetchMaterialReceivings: tenantRequiredProcedure
       .input(z.object({ year: z.number(), month: z.number() }))
