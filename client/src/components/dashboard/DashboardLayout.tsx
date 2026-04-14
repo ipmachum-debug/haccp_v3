@@ -94,8 +94,16 @@ function SubscriptionInfo({ isCollapsed }: { isCollapsed: boolean }) {
     statusDot = "bg-amber-500/70";
   }
 
-  // 패키지 표시
-  const packageLabel = subInfo.subscriptionPackage === "pro" ? "Pro" : "Basic";
+  // 패키지 표시 — 신 체계(starter/standard/enterprise) + 구 체계(basic/pro) 호환
+  // ★ 2026-04-14: 구 체계만 지원하던 버그 수정 (사이드바/시스템관리 표시 불일치)
+  const PACKAGE_LABEL: Record<string, string> = {
+    starter: "Starter",
+    standard: "Standard",
+    enterprise: "Enterprise",
+    pro: "Pro",      // legacy
+    basic: "Basic",  // legacy
+  };
+  const packageLabel = PACKAGE_LABEL[subInfo.subscriptionPackage as string] || "Basic";
 
   return (
     <div className="mb-1.5 flex items-center justify-between px-1">
