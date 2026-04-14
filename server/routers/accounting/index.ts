@@ -24,3 +24,6 @@ export { purchaseOrderRouter } from "./purchaseOrder.router";
 export { partnerPriceRouter } from "./partnerPrice.router";
 // Phase C (2026-04-14): 견적서
 export { quotationRouter } from "./quotation.router";
+// Phase C (2026-04-14): 세금계산서 + 팝빌
+export { taxInvoiceRouter } from "./taxInvoice.router";
+export { popbillSettingsRouter } from "./popbillSettings.router";

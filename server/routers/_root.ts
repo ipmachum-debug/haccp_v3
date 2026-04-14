@@ -31,6 +31,8 @@ import {
   purchaseOrderRouter,
   partnerPriceRouter,
   quotationRouter,
+  taxInvoiceRouter,
+  popbillSettingsRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -273,6 +275,9 @@ export const appRouter = router({
   partnerPrice: partnerPriceRouter,
   // Phase C (2026-04-14): 견적서
   quotation: quotationRouter,
+  // Phase C (2026-04-14): 세금계산서 + 팝빌
+  taxInvoice: taxInvoiceRouter,
+  popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──
   dashboard: dashboardRouter,
