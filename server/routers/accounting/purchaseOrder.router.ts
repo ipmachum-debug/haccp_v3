@@ -660,4 +660,137 @@ export const purchaseOrderRouter = router({
         filename: `발주서_${header.poNumber}_${todayKST()}.pdf`,
       };
     }),
+
+  /**
+   * ★ 반복 구매 품목 추천 — Phase B (2026-04-14)
+   *
+   * 거래처 선택 시 해당 공급업체로부터 과거에 자주/최근에 구매한 품목을
+   * 집계해서 발주서 라인 프리필 용도로 반환.
+   *
+   * 집계 소스:
+   *   - purchase_order_lines + purchase_orders (발주 이력)
+   *   - accounting_purchases (매입 이력)
+   *
+   * 점수:
+   *   - 최근성 (days_since_last_purchase 역수)
+   *   - 빈도 (purchase_count)
+   *   - 최신 단가 (last_unit_price)
+   *
+   * 반환 상위 20건.
+   */
+  suggestRepeatItems: tenantRequiredProcedure
+    .input(
+      z.object({
+        partnerId: z.number(),
+        limit: z.number().min(1).max(50).default(20),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+
+      // purchase_order_lines + accounting_purchases 에서 반복 구매 집계
+      const poHistoryResult: any = await db.execute(sql`
+        SELECT
+          pol.material_id AS materialId,
+          pol.item_name AS itemName,
+          pol.item_code AS itemCode,
+          pol.unit AS unit,
+          COUNT(*) AS purchaseCount,
+          AVG(CAST(pol.unit_price AS DECIMAL(15,2))) AS avgPrice,
+          MAX(CAST(pol.unit_price AS DECIMAL(15,2))) AS maxPrice,
+          MIN(CAST(pol.unit_price AS DECIMAL(15,2))) AS minPrice,
+          MAX(po.order_date) AS lastOrderDate,
+          SUM(CAST(pol.ordered_qty AS DECIMAL(15,3))) AS totalQty,
+          AVG(CAST(pol.ordered_qty AS DECIMAL(15,3))) AS avgQty
+        FROM purchase_order_lines pol
+        INNER JOIN purchase_orders po
+          ON pol.po_id = po.id AND pol.tenant_id = po.tenant_id
+        WHERE po.tenant_id = ${ctx.tenantId}
+          AND po.partner_id = ${input.partnerId}
+          AND po.status != 'cancelled'
+        GROUP BY pol.material_id, pol.item_name, pol.item_code, pol.unit
+        ORDER BY purchaseCount DESC, lastOrderDate DESC
+        LIMIT ${input.limit}
+      `);
+      const poRows: any[] = poHistoryResult?.[0] || [];
+
+      // accounting_purchases 이력도 병합 (legacy 데이터 + 수동 매입)
+      const apHistoryResult: any = await db.execute(sql`
+        SELECT
+          ap.material_id AS materialId,
+          ap.item_name AS itemName,
+          ap.unit AS unit,
+          COUNT(*) AS purchaseCount,
+          AVG(CAST(ap.unit_price AS DECIMAL(15,2))) AS avgPrice,
+          MAX(CAST(ap.unit_price AS DECIMAL(15,2))) AS maxPrice,
+          MIN(CAST(ap.unit_price AS DECIMAL(15,2))) AS minPrice,
+          MAX(ap.transaction_date) AS lastOrderDate,
+          SUM(CAST(ap.quantity AS DECIMAL(15,3))) AS totalQty,
+          AVG(CAST(ap.quantity AS DECIMAL(15,3))) AS avgQty
+        FROM accounting_purchases ap
+        WHERE ap.tenant_id = ${ctx.tenantId}
+          AND ap.partner_id = ${input.partnerId}
+          AND ap.status != 'cancelled'
+        GROUP BY ap.material_id, ap.item_name, ap.unit
+        ORDER BY purchaseCount DESC, lastOrderDate DESC
+        LIMIT ${input.limit}
+      `);
+      const apRows: any[] = apHistoryResult?.[0] || [];
+
+      // 병합 (material_id 또는 item_name 기준) - material_id 가 같으면 합침
+      const merged = new Map<string, any>();
+      const mergeRow = (source: string, row: any) => {
+        const key = row.materialId ? `m-${row.materialId}` : `n-${(row.itemName || "").trim()}`;
+        const existing = merged.get(key);
+        if (!existing) {
+          merged.set(key, {
+            key,
+            source,
+            materialId: row.materialId ? Number(row.materialId) : null,
+            itemName: row.itemName,
+            itemCode: row.itemCode || null,
+            unit: row.unit || "EA",
+            purchaseCount: Number(row.purchaseCount || 0),
+            avgPrice: Math.round(Number(row.avgPrice || 0)),
+            minPrice: Math.round(Number(row.minPrice || 0)),
+            maxPrice: Math.round(Number(row.maxPrice || 0)),
+            lastOrderDate: row.lastOrderDate,
+            totalQty: Number(row.totalQty || 0),
+            avgQty: Number(row.avgQty || 0),
+          });
+        } else {
+          // 둘 다 있으면 합계 병합
+          existing.purchaseCount += Number(row.purchaseCount || 0);
+          existing.totalQty += Number(row.totalQty || 0);
+          // 최근 날짜로 업데이트
+          if (row.lastOrderDate && (!existing.lastOrderDate || row.lastOrderDate > existing.lastOrderDate)) {
+            existing.lastOrderDate = row.lastOrderDate;
+          }
+          // 평균 단가는 가중평균 (간이 처리: 그냥 평균)
+          existing.avgPrice = Math.round((existing.avgPrice + Number(row.avgPrice || 0)) / 2);
+        }
+      };
+      poRows.forEach((r) => mergeRow("po", r));
+      apRows.forEach((r) => mergeRow("ap", r));
+
+      // 최근성 스코어 계산 (days_since 역수 + 빈도)
+      const today = new Date();
+      const scored = Array.from(merged.values()).map((item: any) => {
+        const lastDate = item.lastOrderDate ? new Date(item.lastOrderDate) : null;
+        const daysSince = lastDate
+          ? Math.max(1, Math.round((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)))
+          : 999;
+        // 스코어: 빈도 * 10 / sqrt(최근성)
+        const score = Math.round((item.purchaseCount * 10) / Math.sqrt(daysSince));
+        return {
+          ...item,
+          daysSinceLast: daysSince,
+          score,
+        };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, input.limit);
+    }),
 });
