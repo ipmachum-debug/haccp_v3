@@ -107,7 +107,13 @@ async function startServer() {
 
   const app = express();
   const server = createServer(app);
-  
+
+  // trust proxy — nginx 뒤에서 X-Forwarded-For 헤더를 사용해 실제 클라이언트 IP 식별
+  // ★ 2026-04-15 Genspark 커밋 fa64385 동기화
+  //   이전: 모든 요청이 127.0.0.1 로 카운트 → 한 사람이 전체 한계 소진 → 429
+  //   현재: trust proxy 1 → req.ip 가 X-Forwarded-For 의 실제 클라이언트 IP 반환
+  app.set('trust proxy', 1);
+
   // Rate Limiting
   // ★ 2026-04-15 조정: SPA tRPC 부하를 고려하여 한계 대폭 상향
   //   이전: 200 req/min → CCP 모니터링 같은 다중 쿼리 페이지에서 정상 사용자도 429
@@ -129,7 +135,9 @@ async function startServer() {
     ) {
       return next();
     }
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // trust proxy 설정으로 req.ip 가 X-Forwarded-For 의 실제 클라이언트 IP 반환
+    // 폴백: X-Forwarded-For 헤더 직접 파싱
+    const ip = req.ip || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const entry = rateMap.get(ip);
     if (!entry || now > entry.resetAt) {
