@@ -299,6 +299,8 @@ export async function createSingleBatch(
 
     // === 6.1. CCP-4P 금속검출 통합 승인요청 (단일 배치 모드) ===
     // CCP-4P는 날짜별 1건 통합 기록지 → 승인요청이 없으면 자동 생성
+    // ★ 2026-04-15 수정: 작성자 자동승인 후 'pending_review' 상태 (검토자 단계)
+    //   이전: status='approved' 로 즉시 점프 → 검토/승인 단계 건너뛰기 버그
     if (ccpGroups.some(g => g.ccp_type === "CCP-4P")) {
       try {
         const conn4p = await getRawConnection();
@@ -312,30 +314,25 @@ export async function createSingleBatch(
         if ((ccp4pRecs as any[]).length > 0) {
           const ccp4pRec = (ccp4pRecs as any[])[0];
           if (!ccp4pRec.approval_request_id) {
+            // form_record 는 'submitted' 로 (작성자 완료 + 검토 대기)
             await conn4p.execute(
-              `UPDATE h_ccp_form_records SET status='approved', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
+              `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
               [input.userId, ccp4pRec.id, input.tenantId],
             );
-            const title4p = `[CCP-CCP-4P] ${input.workDate} 금속검출 통합`;
-            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}`;
-            // ★ 즉시 approved 로 등록 (작성자=검토자=승인자 단일 단계)
+            const title4p = `[CCP 기록지-CCP-4P] ${input.workDate} 금속검출 통합`;
+            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n[작성자 자동승인 → 검토자 대기]`;
+            // ★ pending_review 로 등록 (작성자 자동승인 → 검토자 단계)
             const [approvalResult4p] = await conn4p.execute(
               `INSERT INTO h_approval_requests
                 (site_id, tenant_id, request_type, reference_type, reference_id,
                  title, description, status, priority,
-                 requested_by, requested_at,
-                 reviewed_by, reviewed_at, review_comments,
-                 approved_by, approved_at, created_at)
+                 requested_by, requested_at, created_at)
                VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
-                       ?, ?, 'approved', 'high',
-                       ?, NOW(),
-                       ?, NOW(), '작성 = 확정',
+                       ?, ?, 'pending_review', 'high',
                        ?, NOW(), NOW())`,
               [
                 input.siteId, input.tenantId, ccp4pRec.id,
                 title4p, desc4p,
-                input.userId,
-                input.userId,
                 input.userId,
               ],
             );
@@ -344,7 +341,7 @@ export async function createSingleBatch(
               `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
               [approvalId4p, ccp4pRec.id, input.tenantId],
             );
-            console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 즉시 승인 등록: approvalId=${approvalId4p}`);
+            console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 등록 (pending_review): approvalId=${approvalId4p}`);
           }
         }
       } catch (ccp4pErr) {
@@ -354,27 +351,23 @@ export async function createSingleBatch(
 
   }
 
-  // === 6.2. CCP-1B / CCP-2B h_ccp_form_records.status 만 'approved' 로 전환 ===
-  // ★ 2026-04-15 수정: skipGroupActions 블록 밖으로 이동 — 일괄배치(bulk)에서도 실행
-  //   기존에는 skipGroupActions=true 일 때 이 블록이 스킵되어
-  //   CCP-1B form_record 가 draft 상태로 남아 승인관리에 넘어가지 않는 버그 존재
-  //   batch_production 승인요청 1건(배치 단위)만 생성되도록 단순화.
-  //   PrintPreviewPage 가 batch_production 을 열 때 해당 배치의 모든 CCP 기록지를
-  //   렌더링하므로 개별 승인요청이 불필요 → 출력대기 리스트에 중복 표시 방지.
-  //   form_record 상태만 approved 로 전환하여 잠금 효과 유지.
+  // === 6.2. CCP-1B / CCP-2B h_ccp_form_records.status → 'submitted' 전환 ===
+  // ★ 2026-04-15 수정: 'approved' → 'submitted' (작성자 완료 후 검토 대기)
+  //   이전: approved 로 즉시 넘겨 승인 워크플로우 건너뛰기
+  //   현재: 작성자 자동승인 단계로 submitted, 검토자가 검토 필요
   if (ccpCreated) {
     try {
       const ccp1b2bConn = await getRawConnection();
       const [updateResult] = await ccp1b2bConn.execute(
         `UPDATE h_ccp_form_records
-         SET status = 'approved', submitted_at = NOW(), writer_id = ?
+         SET status = 'submitted', submitted_at = NOW(), writer_id = ?
          WHERE batch_id = ? AND tenant_id = ? AND ccp_type IN ('CCP-1B','CCP-2B')
-           AND status != 'approved'`,
+           AND status NOT IN ('submitted', 'approved')`,
         [input.userId, batchId, input.tenantId],
       );
       const affected = (updateResult as any).affectedRows || 0;
       if (affected > 0) {
-        console.log(`[batchOrchestrator] CCP-1B/2B form_record ${affected}건 → approved (batchId=${batchId})`);
+        console.log(`[batchOrchestrator] CCP-1B/2B form_record ${affected}건 → submitted (batchId=${batchId})`);
       }
     } catch (ccp1b2bErr) {
       console.error("[batchOrchestrator] CCP-1B/2B form_record status 전환 실패:", ccp1b2bErr);
@@ -382,11 +375,10 @@ export async function createSingleBatch(
   }
 
   // === 6.3. 배치별 batch_production 승인요청 생성 (CCP 기록지 인쇄용) ===
-  // ★ 2026-04-13: 단일 배치 / 일괄 배치 모두 이 경로에서 처리
-  //   - skipGroupActions 여부와 무관하게 배치 1건당 1개의 batch_production AR 생성
-  //   - status='approved' 로 즉시 등록 (작성자=검토자=승인자 단일 단계)
-  //   - PrintPreviewPage 가 이 AR 을 열 때 해당 배치의 CCP-1B/2B 를 모두 렌더
-  //   - CCP-4P 는 별도 일일 통합 AR 로 관리됨 (중복 배제)
+  // ★ 2026-04-15 수정:
+  //   - status: 'approved' → 'pending_review' (작성자 자동승인 → 검토자 단계)
+  //   - 제목: "[CCP 기록지]" prefix 로 생산일지와 구분 (중복 표시 오해 방지)
+  //   이전 버그: 검토/승인 단계 건너뛰고 즉시 출력 대기로 점프
   // 중복 생성 방지: 동일 batch_id 의 batch_production AR 이 이미 있으면 skip
   if (ccpCreated && ccpCount > 0) {
     try {
@@ -403,32 +395,28 @@ export async function createSingleBatch(
           .map((g: any) => `${g.name || g.ccp_type}(${g.ccp_type})`)
           .join(", ");
         const modeLabel = input.mode === "manual" ? "[수동]" : "[자동]";
-        const bpTitle = `${modeLabel} 배치 CCP 승인 - ${batchCodeFinal} (${productName})`;
+        const bpTitle = `[CCP 기록지]${modeLabel} ${batchCodeFinal} (${productName})`;
         const bpDesc =
           `제품: ${productName}\n계획일: ${input.workDate}\n` +
           `CCP ${ccpCount}건 자동 생성 완료\n배치코드: ${batchCodeFinal}\n` +
-          `CCP 공정: ${ccpGroupNames}`;
+          `CCP 공정: ${ccpGroupNames}\n` +
+          `[작성자 자동승인 → 검토자 대기]`;
+        // ★ pending_review 로 등록 → 검토자 검토 필수
         await bpConn.execute(
           `INSERT INTO h_approval_requests
              (site_id, tenant_id, request_type, reference_type, reference_id,
               title, description, status, priority,
-              requested_by, requested_at,
-              reviewed_by, reviewed_at, review_comments,
-              approved_by, approved_at, created_at)
+              requested_by, requested_at, created_at)
            VALUES (?, ?, 'batch_production', 'batch', ?,
-                   ?, ?, 'approved', 'high',
-                   ?, NOW(),
-                   ?, NOW(), '작성 = 확정',
+                   ?, ?, 'pending_review', 'high',
                    ?, NOW(), NOW())`,
           [
             input.siteId, input.tenantId, batchId,
             bpTitle, bpDesc,
             input.userId,
-            input.userId,
-            input.userId,
           ],
         );
-        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 즉시 승인 등록`);
+        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_review)`);
       }
     } catch (bpErr) {
       console.error(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 생성 실패:`, bpErr);
