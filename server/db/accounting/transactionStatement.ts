@@ -3,8 +3,8 @@ import { getPurchaseById, getSaleById } from "../haccp/haccpIntegration";
 import { getCompanyInfo } from "../system/companyInfo";
 import { getPrimaryBankAccount } from "../../bankTransactions";
 import { generateTransactionStatementPDF } from "../../transactionStatementPDF";
-import { partners } from "../../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { partners, accountingPurchases, accountingSales } from "../../../drizzle/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 // placeholder for missing partner info
 const EMPTY_PARTNER = {
@@ -250,10 +250,8 @@ export async function generatePurchaseStatementPDFByIds(
     //    ★ 2026-04-15: 이전에는 for 루프로 getPurchaseById 를 호출했으나,
     //    개별 호출이 throw 하면 그 id 가 누락되어 items 배열에 첫 품목만 남는 증상 발견
     //    → 단일 IN 쿼리로 교체하여 모든 id 를 한 번에 가져옴
-    //    ★ 2026-04-15 버그픽스: accountingPurchases 동적 import 누락으로
-    //    매입 그룹 PDF 전체 실패 — 매출과 동일하게 dynamic import 추가
-    const { inArray } = await import("drizzle-orm");
-    const { accountingPurchases } = await import("../../../drizzle/schema");
+    //    ★ 2026-04-15 버그픽스: accountingPurchases import 누락으로
+    //    매입 그룹 PDF 전체 실패 — 상단 static import 로 해결
     const conditions: any[] = [inArray(accountingPurchases.id, purchaseIds)];
     if (tenantId) {
       conditions.push(eq(accountingPurchases.tenantId, tenantId));
@@ -383,8 +381,7 @@ export async function generateSaleStatementPDFByIds(
 
     // 1. 모든 매출 한 번에 조회 — SQL IN 쿼리
     //    ★ 2026-04-15: 개별 getSaleById 루프 제거 → 단일 IN 쿼리
-    const { inArray } = await import("drizzle-orm");
-    const { accountingSales } = await import("../../../drizzle/schema");
+    // inArray, accountingSales 는 상단 static import 사용
     const conditions: any[] = [inArray(accountingSales.id, saleIds)];
     if (tenantId) {
       conditions.push(eq(accountingSales.tenantId, tenantId));

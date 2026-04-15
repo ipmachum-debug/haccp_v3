@@ -187,10 +187,10 @@ async function detectYieldAnomalies(tenantId: number): Promise<DetectedAnomaly[]
   // 최근 30일 배치별 수율
   const [rows] = await conn.execute(
     `SELECT b.id, b.batch_code, b.actual_yield, b.product_id,
-            COALESCE(p.name, '') as productName,
+            COALESCE(p.product_name, '') as productName,
             b.completed_at
      FROM h_batches b
-     LEFT JOIN products p ON p.id = b.product_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
      WHERE b.tenant_id = ? AND b.status = 'completed'
        AND b.actual_yield IS NOT NULL
        AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 90 DAY)
@@ -375,11 +375,11 @@ async function detectProductionTimeAnomalies(tenantId: number): Promise<Detected
 
   // 최근 완료 배치의 생산 소요시간
   const [rows] = await conn.execute(
-    `SELECT b.batch_code, b.product_id, COALESCE(p.name, '') as productName,
+    `SELECT b.batch_code, b.product_id, COALESCE(p.product_name, '') as productName,
             TIMESTAMPDIFF(MINUTE, b.start_time, b.end_time) as durationMin,
             b.completed_at
      FROM h_batches b
-     LEFT JOIN products p ON p.id = b.product_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
      WHERE b.tenant_id = ? AND b.status = 'completed'
        AND b.start_time IS NOT NULL AND b.end_time IS NOT NULL
        AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 60 DAY)

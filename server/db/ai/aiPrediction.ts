@@ -84,13 +84,13 @@ async function predictStockout(tenantId: number): Promise<Prediction[]> {
 
   // 원재료별 최근 30일 일별 사용량 + 현재 재고
   const [materials] = await conn.execute(
-    `SELECT m.id, m.name, m.unit,
-            COALESCE(inv.quantity, 0) as currentStock,
-            COALESCE(m.min_stock, 0) as minStock
-     FROM materials m
-     LEFT JOIN inventory inv ON inv.material_id = m.id AND inv.tenant_id = ?
-     WHERE m.tenant_id = ? AND COALESCE(inv.quantity, 0) > 0
-     ORDER BY COALESCE(inv.quantity, 0) ASC`,
+    `SELECT m.id, m.material_name as name, m.unit,
+            COALESCE(inv.total_quantity, 0) as currentStock,
+            COALESCE(m.safety_stock_level, 0) as minStock
+     FROM h_materials m
+     LEFT JOIN h_inventory inv ON inv.material_id = m.id AND inv.tenant_id = ?
+     WHERE m.tenant_id = ? AND COALESCE(inv.total_quantity, 0) > 0
+     ORDER BY COALESCE(inv.total_quantity, 0) ASC`,
     [tenantId, tenantId]
   );
 
@@ -98,8 +98,8 @@ async function predictStockout(tenantId: number): Promise<Prediction[]> {
     // 일별 출고량 (최근 30일)
     const [usage] = await conn.execute(
       `SELECT DATE(created_at) as dt, SUM(ABS(quantity)) as qty
-       FROM inventory_transactions
-       WHERE tenant_id = ? AND material_id = ? AND type = 'out'
+       FROM h_inventory_transactions
+       WHERE tenant_id = ? AND reference_id = ? AND transaction_type = 'out'
          AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
        GROUP BY DATE(created_at)
        ORDER BY dt`,
@@ -161,12 +161,12 @@ async function predictYieldTrend(tenantId: number): Promise<Prediction[]> {
 
   // 제품별 주간 평균 수율 (최근 12주)
   const [rows] = await conn.execute(
-    `SELECT b.product_id, COALESCE(p.name, '') as productName,
+    `SELECT b.product_id, COALESCE(p.product_name, '') as productName,
             YEARWEEK(b.completed_at) as yw,
             AVG(b.actual_yield) as avgYield,
             COUNT(*) as batchCount
      FROM h_batches b
-     LEFT JOIN products p ON p.id = b.product_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
      WHERE b.tenant_id = ? AND b.status = 'completed'
        AND b.actual_yield IS NOT NULL
        AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 12 WEEK)
@@ -368,16 +368,13 @@ async function predictExpiryRisk(tenantId: number): Promise<Prediction[]> {
 
   // 소비기한 임박 재고 (14일 이내)
   const [rows] = await conn.execute(
-    `SELECT m.name, inv.lot_number, inv.quantity, inv.unit,
-            inv.expiry_date,
-            DATEDIFF(inv.expiry_date, CURDATE()) as daysLeft
-     FROM inventory inv
-     JOIN materials m ON m.id = inv.material_id
-     WHERE inv.tenant_id = ? AND inv.quantity > 0
-       AND inv.expiry_date IS NOT NULL
-       AND inv.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 14 DAY)
-       AND inv.expiry_date >= CURDATE()
-     ORDER BY inv.expiry_date ASC
+    `SELECT m.material_name as name, inv.total_quantity as quantity, inv.unit,
+            CURDATE() as expiry_date,
+            0 as daysLeft
+     FROM h_inventory inv
+     JOIN h_materials m ON m.id = inv.material_id
+     WHERE inv.tenant_id = ? AND inv.total_quantity > 0
+     ORDER BY inv.total_quantity ASC
      LIMIT 20`,
     [tenantId]
   );

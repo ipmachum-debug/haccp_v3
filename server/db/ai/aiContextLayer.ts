@@ -80,7 +80,7 @@ export async function getBatchSummary(
        b.id as batchId,
        b.batch_code as batchCode,
        b.product_id as productId,
-       COALESCE(p.name, '') as productName,
+       COALESCE(p.product_name, '') as productName,
        b.status,
        COALESCE(b.planned_quantity, 0) as plannedQuantity,
        COALESCE(b.actual_quantity, 0) as actualQuantity,
@@ -111,7 +111,7 @@ export async function getBatchSummary(
           AND b2.id != b.id) as avgYield
 
      FROM h_batches b
-     LEFT JOIN products p ON p.id = b.product_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
      WHERE ${conditions.join(" AND ")}
      ORDER BY b.created_at DESC
      LIMIT ?`,
@@ -620,9 +620,9 @@ export async function getProductionAnalysis(
   const [batchRows] = await conn.execute(
     `SELECT b.id, b.batch_code, b.product_id, b.actual_yield, b.actual_quantity,
             b.planned_quantity, b.start_time, b.end_time,
-            COALESCE(p.name, '') as productName
+            COALESCE(p.product_name, '') as productName
      FROM h_batches b
-     LEFT JOIN products p ON p.id = b.product_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id
      WHERE b.id = ? AND b.tenant_id = ?`,
     [batchId, tenantId]
   );
@@ -662,14 +662,14 @@ export async function getProductionAnalysis(
 
   // 원인 분석 2: 투입 원료 변경 확인
   const [materialChanges] = await conn.execute(
-    `SELECT bi.material_id, m.name as materialName,
+    `SELECT bi.material_id, m.material_name as materialName,
             bi.actual_quantity as usedQty,
             (SELECT AVG(bi2.actual_quantity) FROM h_batch_inputs bi2
              JOIN h_batches b2 ON b2.id = bi2.batch_id
              WHERE bi2.material_id = bi.material_id AND b2.product_id = ? AND b2.tenant_id = ?
                AND b2.id != ? AND bi2.actual_quantity IS NOT NULL) as avgQty
      FROM h_batch_inputs bi
-     LEFT JOIN materials m ON m.id = bi.material_id
+     LEFT JOIN h_materials m ON m.id = bi.material_id
      WHERE bi.batch_id = ? AND bi.tenant_id = ?
      HAVING avgQty IS NOT NULL AND ABS(usedQty - avgQty) / avgQty > 0.1`,
     [batch.product_id, tenantId, batchId, batchId, tenantId]
