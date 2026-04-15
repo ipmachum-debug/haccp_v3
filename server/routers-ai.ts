@@ -402,8 +402,15 @@ export const aiRouter = router({
 
         return { success: true, response: assistantMessage, conversationId: convId };
       } catch (error: any) {
-        console.error("[AI Chat Error]", error?.message || error);
-        return { success: false, response: "AI 응답 생성 중 오류가 발생했습니다.", conversationId: convId };
+        // ★ 2026-04-15: 에러를 swallow 하지 말고 프론트로 노출 (디버깅 가능)
+        const errMsg = error?.message || String(error);
+        console.error("[AI Chat Error]", errMsg, error?.stack);
+        return {
+          success: false,
+          response: `AI 오류: ${errMsg}`,
+          conversationId: convId,
+          error: errMsg,
+        };
       }
     }),
 

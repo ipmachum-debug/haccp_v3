@@ -785,17 +785,33 @@ function PurchasesListContent() {
                                       <RotateCcw className="h-3.5 w-3.5" />
                                     </Button>
                                   )}
-                                  {/* 거래명세표 PDF — 그룹 전체 묶음 */}
+                                  {/* 거래명세표 PDF — 그룹 전체 묶음 (2026-04-15 가시화) */}
                                   <Button size="sm" variant="outline"
-                                    onClick={() => previewGroupPDFMutation.mutate({ purchaseIds: group.items.map((i: any) => i.id) })}
+                                    onClick={() => {
+                                      const ids = group.items.map((i: any) => i.id);
+                                      console.log(`[그룹 PDF 미리보기 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
+                                      toast({
+                                        title: `📄 ${ids.length}개 품목 묶음 PDF 생성 중`,
+                                        description: `ids=${JSON.stringify(ids)}`,
+                                      });
+                                      previewGroupPDFMutation.mutate({ purchaseIds: ids });
+                                    }}
                                     disabled={previewGroupPDFMutation.isPending}
-                                    title="거래명세표 미리보기" className="h-7 w-7 p-0">
+                                    title={`거래명세표 미리보기 (${group.items.length}개 품목)`} className="h-7 w-7 p-0">
                                     <Eye className="h-3.5 w-3.5" />
                                   </Button>
                                   <Button size="sm" variant="outline"
-                                    onClick={() => printGroupPDFMutation.mutate({ purchaseIds: group.items.map((i: any) => i.id) })}
+                                    onClick={() => {
+                                      const ids = group.items.map((i: any) => i.id);
+                                      console.log(`[그룹 PDF 인쇄 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
+                                      toast({
+                                        title: `🖨️ ${ids.length}개 품목 묶음 인쇄 중`,
+                                        description: `ids=${JSON.stringify(ids)}`,
+                                      });
+                                      printGroupPDFMutation.mutate({ purchaseIds: ids });
+                                    }}
                                     disabled={printGroupPDFMutation.isPending}
-                                    title="거래명세표 인쇄" className="h-7 w-7 p-0">
+                                    title={`거래명세표 인쇄 (${group.items.length}개 품목)`} className="h-7 w-7 p-0">
                                     <Printer className="h-3.5 w-3.5" />
                                   </Button>
                                   {availableGroupActions.includes("cancel") && (
