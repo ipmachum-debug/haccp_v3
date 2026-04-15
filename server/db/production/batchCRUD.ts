@@ -431,6 +431,8 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
   }
 
   // 배치 자체 삭제 (테넌트 격리 적용)
+  // ★ 2026-04-15: 레거시 `batches` 테이블은 존재하지 않음 (h_batches 단일 테이블)
+  //   이전: dual table sync 로 batches 도 DELETE → "Table doesn't exist" 에러
   if (tenantId) {
     await pool.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
   } else {

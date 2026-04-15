@@ -195,27 +195,44 @@ export const batchCrudRouter = router({
 
 
         // STEP 4. 승인 요청 큐 자동 등록 (pending_review)
+        // ★ 2026-04-15 수정:
+        //   - 제목: "[CCP 기록지]" prefix 로 생산일지와 구분 (중복 표시 오해 방지)
+        //   - 중복 방지: 동일 batchId 에 batch_production AR 이 이미 있으면 skip
         if (ccpCreated) {
           try {
             const { getRawConnection: _rc4 } = await import("../../db");
             const _pool4 = await _rc4(); // Pool 싱글턴
-            const ccpGroupNames = ccpGroups.map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
-            const modeLabel = input.mode === "auto" ? "[자동]" : "[수동]";
-            const [insResult] = await _pool4.execute(
-              `INSERT INTO h_approval_requests
-                 (site_id, tenant_id, request_type, reference_type, reference_id,
-                  title, description, status, priority, requested_by)
-               VALUES (?, ?, 'batch_production', 'batch', ?, ?, ?, 'pending_review', 'high', ?)`,
-              [
-                (input.siteId || ctx.user.siteId || ctx.tenantId),
-                tenantId,
-                batchId,
-                `${modeLabel} 배치 CCP 승인 - ${input.batchNumber} (${finalProductName || ""})`,
-                `제품: ${finalProductName || ""}\n계획일: ${workDate}\nCCP ${ccpCount}건 자동 생성 완료\n배치코드: ${input.batchNumber}\nCCP 공정: ${ccpGroupNames}\n처리방식: ${input.mode === "auto" ? "자동(승인관리 자동이동)" : "수동(배치상세 확인 후 이동)"}`,
-                ctx.user.id,
-              ]
+            // 중복 생성 방지 체크
+            const [existingBp] = await _pool4.execute<any[]>(
+              `SELECT id FROM h_approval_requests
+               WHERE tenant_id = ? AND request_type = 'batch_production'
+                 AND reference_type = 'batch' AND reference_id = ?
+               LIMIT 1`,
+              [tenantId, batchId]
             );
-            approvalRequestId = Number((insResult as any).insertId ?? 0);
+            if ((existingBp as any[]).length > 0) {
+              approvalRequestId = Number((existingBp as any[])[0].id);
+              console.log(`[파이프라인] 배치 #${batchId} batch_production AR 이미 존재 → skip (id=${approvalRequestId})`);
+            } else {
+              const ccpGroupNames = ccpGroups.map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
+              const modeLabel = input.mode === "auto" ? "[자동]" : "[수동]";
+              const [insResult] = await _pool4.execute(
+                `INSERT INTO h_approval_requests
+                   (site_id, tenant_id, request_type, reference_type, reference_id,
+                    title, description, status, priority, requested_by)
+                 VALUES (?, ?, 'batch_production', 'batch', ?, ?, ?, 'pending_review', 'high', ?)`,
+                [
+                  (input.siteId || ctx.user.siteId || ctx.tenantId),
+                  tenantId,
+                  batchId,
+                  `[CCP 기록지]${modeLabel} ${input.batchNumber} (${finalProductName || ""})`,
+                  `제품: ${finalProductName || ""}\n계획일: ${workDate}\nCCP ${ccpCount}건 자동 생성 완료\n배치코드: ${input.batchNumber}\nCCP 공정: ${ccpGroupNames}\n[작성자 자동승인 → 검토자 대기]`,
+                  ctx.user.id,
+                ]
+              );
+              approvalRequestId = Number((insResult as any).insertId ?? 0);
+              console.log(`[파이프라인] 배치 #${batchId} batch_production AR 등록 (pending_review, id=${approvalRequestId})`);
+            }
           } catch (appErr) {
             console.error("[파이프라인] 승인 요청 생성 실패 (배치 생성 유지):", appErr);
           }
