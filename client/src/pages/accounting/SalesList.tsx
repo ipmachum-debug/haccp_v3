@@ -377,6 +377,14 @@ function SalesListContent() {
     downloadExcel(sales, "매출조회", `매출조회_${todayLocal()}.xlsx`);
   };
 
+  // 자동생성 안내 문구(예: "제품출고 자동생성...") 는 비고에 표시하지 않음
+  const cleanNote = (n: any): string => {
+    const s = String(n || "").trim();
+    if (!s) return "-";
+    if (/^제품출고\s*자동생성/.test(s) || /\(B2[BC]\s*임포트\)/.test(s)) return "-";
+    return s;
+  };
+
   const downloadExcel = (data: any[], sheetName: string, fileName: string) => {
     const excelData = data.map((s: any) => ({
       거래일자: new Date(s.transactionDate).toLocaleDateString("ko-KR"),
@@ -389,7 +397,7 @@ function SalesListContent() {
       합계: parseFloat(s.amount || "0") + parseFloat(s.taxAmount || "0"),
       증빙유형: getProofLabel(s.proofType),
       상태: getStatusLabel(s.status),
-      비고: s.notes || "-",
+      비고: cleanNote(s.notes),
     }));
     const ws = XLSX.utils.json_to_sheet(excelData);
     const wb = XLSX.utils.book_new();

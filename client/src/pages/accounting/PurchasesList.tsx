@@ -415,6 +415,14 @@ function PurchasesListContent() {
     downloadExcel(purchases, "매입 목록", `매입_목록_${todayLocal()}.xlsx`);
   };
 
+  // 자동생성 안내 문구는 비고에 표시하지 않음
+  const cleanNote = (n: any): string => {
+    const s = String(n || "").trim();
+    if (!s) return "-";
+    if (/^(제품출고|매입|매출)\s*자동생성/.test(s) || /\(B2[BC]\s*임포트\)/.test(s)) return "-";
+    return s;
+  };
+
   const downloadExcel = (data: any[], sheetName: string, fileName: string) => {
     const excelData = data.map((p: any) => ({
       거래일자: p.transactionDate,
@@ -428,7 +436,7 @@ function PurchasesListContent() {
       합계: (parseFloat(p.amount || p.totalAmount || "0") + parseFloat(p.taxAmount || "0")).toFixed(2),
       증빙유형: p.documentType || "-",
       상태: getStatusLabel(p.status),
-      비고: p.notes || "-",
+      비고: cleanNote(p.notes),
     }));
     const ws = XLSX.utils.json_to_sheet(excelData);
     const wb = XLSX.utils.book_new();

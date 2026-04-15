@@ -370,6 +370,9 @@ export async function createProductOutbound(params: {
   const outboundId = (insertResult as any).insertId;
 
   // 회계 연동 — 매출전표 자동 생성 (sale/delivery만, SKU 명칭 반영)
+  // ★ 2026-04-15: 사용자 요청 — '제품출고 자동생성' 안내 문구 제거
+  //   LOT/배치/SKU 정보는 source_id 와 소스 테이블 조회로 추적 가능하므로
+  //   notes 에는 별도 정보를 넣지 않음 (빈 비고 → 깔끔한 거래명세표)
   let accountingSaleCreated = false;
   if (params.releaseType === "sale" || params.releaseType === "delivery") {
     try {
@@ -384,7 +387,7 @@ export async function createProductOutbound(params: {
           displayItemName,
           params.quantity, params.unit, params.unitPrice,
           totalAmount,
-          `제품출고 자동생성 (LOT: ${lotNumber}${batchCode ? `, 배치: ${batchCode}` : ""}${outboundSkuName ? `, SKU: ${outboundSkuName}` : ""}${params.partnerName ? `, 거래처: ${params.partnerName}` : ""})`,
+          null,
           outboundId,
           params.createdBy
         ]
