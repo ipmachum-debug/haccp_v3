@@ -494,8 +494,15 @@ export const purchaseOrderRouter = router({
         ),
       );
 
-    // 라인별 검증 + 매입전표 생성 + received_qty 업데이트
-    const { createPurchase } = await import("../../db/haccp/haccpIntegration");
+    // 라인별 검증 + 매입전표 생성 + received_qty 업데이트 + 재고/회계 POST
+    // ★ 2026-04-15 수정: createPurchase() → 직접 INSERT + postPurchase()
+    //   이전: createPurchase 가 h_inventory_lots + material_ledger_daily 만 생성
+    //         → h_inventory_transactions, h_inbound_headers, 회계 분개가 모두 누락
+    //         → 재고 원장 / 입고전표 / 재무제표 반영 안 됨
+    //   현재: pending 상태 INSERT 후 postPurchase 호출로 전체 파이프라인 처리
+    //         (LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개)
+    const { accountingPurchases } = await import("../../../drizzle/schema");
+    const { postPurchase } = await import("../../lib/accounting/purchasePost");
     const receiptDate = input.receiptDate || new Date().toISOString().slice(0, 10);
     const createdPurchases: number[] = [];
     // ★ 2026-04-15: 라인별 실패 수집 → 부분 성공 허용 + 상세 에러 메시지
@@ -522,26 +529,54 @@ export const purchaseOrderRouter = router({
       }
 
       try {
-        // 매입전표 자동 생성 (기존 로직 재사용)
-        const purchaseResult: any = await createPurchase(
-          {
-            transactionDate: receiptDate,
-            partnerId: po.partnerId,
-            itemName: line.itemName,
-            materialId: line.materialId ?? undefined,
-            quantity: received.receivedQty,
-            unitPrice: Number(line.unitPrice),
-            amount: received.receivedQty * Number(line.unitPrice),
-            taxAmount: Math.round(received.receivedQty * Number(line.unitPrice) * 0.1),
-            memo: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
-            unit: line.unit,
-            createdBy: ctx.user.id,
-          },
-          ctx.tenantId,
-        );
-        if (purchaseResult?.insertId) createdPurchases.push(Number(purchaseResult.insertId));
+        // (1) accounting_purchases INSERT (pending 상태) — 컬럼 부재 fallback 포함
+        const totalAmount = received.receivedQty * Number(line.unitPrice);
+        const taxAmount = Math.round(totalAmount * 0.1);
+        const baseValues: any = {
+          tenantId: ctx.tenantId,
+          transactionDate: receiptDate,
+          partnerId: po.partnerId,
+          itemName: line.itemName,
+          quantity: received.receivedQty.toString(),
+          unit: line.unit || "EA",
+          unitPrice: Number(line.unitPrice).toString(),
+          totalAmount: totalAmount.toString(),
+          taxAmount: taxAmount.toString(),
+          taxRate: "10.00",
+          sourceType: "purchase_order",
+          sourceId: input.poId,
+          notes: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
+          status: "pending", // postPurchase 가 approved 로 전환
+          createdBy: ctx.user.id,
+        };
+        if (line.materialId !== undefined && line.materialId !== null) {
+          baseValues.materialId = line.materialId;
+        }
 
-        // 라인 received_qty 업데이트
+        let insertResult: any;
+        try {
+          [insertResult] = await db.insert(accountingPurchases).values(baseValues);
+        } catch (insErr: any) {
+          const msg = insErr?.message || String(insErr);
+          // Unknown column → 선택 컬럼 제거 후 재시도
+          if (msg.includes("Unknown column") || insErr?.code === "ER_BAD_FIELD_ERROR") {
+            if (msg.includes("material_id")) delete baseValues.materialId;
+            if (msg.includes("source_type")) delete baseValues.sourceType;
+            if (msg.includes("source_id")) delete baseValues.sourceId;
+            [insertResult] = await db.insert(accountingPurchases).values(baseValues);
+            console.warn(`[purchaseOrder.receive] 컬럼 fallback INSERT 성공 (line ${line.lineNumber})`);
+          } else {
+            throw insErr;
+          }
+        }
+        const newPurchaseId = Number(insertResult?.insertId || 0);
+        if (!newPurchaseId) throw new Error("매입전표 INSERT 실패 (insertId 없음)");
+
+        // (2) postPurchase 호출 — LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개 전체 처리
+        await postPurchase(newPurchaseId, ctx.user.id);
+        createdPurchases.push(newPurchaseId);
+
+        // (3) 라인 received_qty 업데이트
         await db
           .update(purchaseOrderLines)
           .set({
@@ -554,7 +589,7 @@ export const purchaseOrderRouter = router({
             ),
           );
 
-        console.log(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 입고 완료: qty=${received.receivedQty}`);
+        console.log(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 입고 완료: qty=${received.receivedQty}, purchaseId=${newPurchaseId}`);
       } catch (lineErr: any) {
         const errMsg = lineErr?.message || String(lineErr);
         console.error(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 처리 실패:`, lineErr);
