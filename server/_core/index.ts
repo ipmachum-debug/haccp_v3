@@ -108,17 +108,21 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   
-  // Rate Limiting - 기본 IP당 분당 200회 제한
+  // trust proxy — nginx 뒤에서 X-Forwarded-For 헤더를 사용해 실제 클라이언트 IP 식별
+  app.set('trust proxy', 1);
+  
+  // Rate Limiting - 실제 클라이언트 IP당 분당 600회 제한
   const rateMap = new Map<string, { count: number; resetAt: number }>();
   app.use((req, res, next) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // trust proxy 설정으로 req.ip가 X-Forwarded-For의 실제 클라이언트 IP를 반환
+    const ip = req.ip || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const entry = rateMap.get(ip);
     if (!entry || now > entry.resetAt) {
       rateMap.set(ip, { count: 1, resetAt: now + 60000 });
     } else {
       entry.count++;
-      if (entry.count > 200) {
+      if (entry.count > 600) {
         res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
         return;
       }
