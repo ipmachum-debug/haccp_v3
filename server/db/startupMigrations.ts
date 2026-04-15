@@ -682,6 +682,137 @@ async function ensureAccountingAccountsColumns(conn: any) {
 }
 
 /**
+ * 승인/보고서/체크리스트 관련 테이블 확보
+ * ★ 2026-04-15: CCP-4P + 일일일지 + 주간일지 AR 미생성 문제의 근본 방지
+ *
+ * 관련 테이블:
+ *   - h_approval_requests (모든 AR 의 중심)
+ *   - h_document_approval_settings (작성자/검토자/승인자 설정)
+ *   - h_daily_reports (일일 보고서 요약)
+ *   - h_generic_checklist_records (일일일지 체크리스트)
+ *   - h_holidays (주간/월간 일지 휴무 계산)
+ */
+async function ensureWorkflowTables(conn: any) {
+  const tables: Array<{ name: string; sql: string }> = [
+    {
+      name: "h_approval_requests",
+      sql: `CREATE TABLE IF NOT EXISTS h_approval_requests (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        request_type VARCHAR(50) NOT NULL,
+        reference_type VARCHAR(50) NULL,
+        reference_id BIGINT NULL,
+        title VARCHAR(500) NOT NULL,
+        description TEXT,
+        status ENUM('pending_review','pending_approval','pending','approved','rejected','cancelled') DEFAULT 'pending_review',
+        priority ENUM('low','medium','high','urgent') DEFAULT 'medium',
+        requested_by BIGINT NOT NULL,
+        requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        reviewed_by BIGINT NULL,
+        reviewed_at TIMESTAMP NULL,
+        review_comments TEXT,
+        approved_by BIGINT NULL,
+        approved_at TIMESTAMP NULL,
+        rejected_by BIGINT NULL,
+        rejected_at TIMESTAMP NULL,
+        rejection_reason TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_ar_tenant_status (tenant_id, status),
+        INDEX idx_ar_tenant_type (tenant_id, request_type),
+        INDEX idx_ar_reference (reference_type, reference_id),
+        INDEX idx_ar_requested_at (requested_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_document_approval_settings",
+      sql: `CREATE TABLE IF NOT EXISTS h_document_approval_settings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        document_type VARCHAR(100) NOT NULL,
+        document_type_name VARCHAR(255) NOT NULL,
+        author_employee_id BIGINT NULL,
+        reviewer_employee_id BIGINT NULL,
+        approver_employee_id BIGINT NULL,
+        is_active TINYINT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_das_tenant_type (tenant_id, document_type),
+        INDEX idx_das_active (is_active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_daily_reports",
+      sql: `CREATE TABLE IF NOT EXISTS h_daily_reports (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        report_date DATE NOT NULL,
+        report_type VARCHAR(50),
+        summary TEXT,
+        pdf_url VARCHAR(500),
+        generated_by BIGINT NULL,
+        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_dr_tenant_date (tenant_id, report_date),
+        INDEX idx_dr_tenant_type (tenant_id, report_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_generic_checklist_records",
+      sql: `CREATE TABLE IF NOT EXISTS h_generic_checklist_records (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        site_id INT NOT NULL,
+        tenant_id INT NOT NULL DEFAULT 1,
+        form_type VARCHAR(100) NOT NULL,
+        tenant_seq INT NULL,
+        form_date VARCHAR(20) NOT NULL,
+        title VARCHAR(500),
+        form_data JSON,
+        status ENUM('draft','submitted','approved','rejected') DEFAULT 'draft',
+        created_by INT NULL,
+        updated_by INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_gcr_tenant_type (tenant_id, form_type),
+        INDEX idx_gcr_tenant_date (tenant_id, form_date),
+        INDEX idx_gcr_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_holidays",
+      sql: `CREATE TABLE IF NOT EXISTS h_holidays (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NULL,
+        holiday_date DATE NOT NULL,
+        holiday_name VARCHAR(100),
+        holiday_type ENUM('national','company','weekend') DEFAULT 'national',
+        is_active TINYINT DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_holidays_tenant_date (tenant_id, holiday_date),
+        UNIQUE KEY uk_holidays_tenant_date (tenant_id, holiday_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  let created = 0;
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+      const [rows] = await conn.query(
+        `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+        [t.name],
+      );
+      if ((rows as any[])[0]?.cnt > 0) created++;
+    } catch (err: any) {
+      console.warn(`[Migration] workflow table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log(`[Migration] Workflow tables verified: ${created}/${tables.length} exist`);
+}
+
+/**
  * Startup 스모크 테스트 — ensure 된 테이블에 실제 접근 가능한지 검증
  * ★ 2026-04-15: ensure 가 성공했다고 보고해도 권한/네트워크 이슈로 실제
  *   SELECT 가 실패할 수 있음. 서버 로그에 한 줄로 요약 출력하여
@@ -739,6 +870,7 @@ export async function runStartupMigrations() {
     await ensureAccountingAccountsColumns(conn);
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
+    await ensureWorkflowTables(conn);
 
     console.log("[Migration] Startup migrations completed");
 
