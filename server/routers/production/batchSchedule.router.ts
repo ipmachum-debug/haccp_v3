@@ -14,10 +14,10 @@ export const batchScheduleRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { createBatchSchedule } = await import("../../db/batchSchedules");
+        const { createBatchSchedule } = await import("../../db/production/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
-        const schedule = await createBatchSchedule({ ...input, tenantId: ctx.tenantId! });
+        const schedule = await createBatchSchedule({ ...input, tenantId: ctx.tenantId });
         
         // 감사 로그 기록
         await createAuditLog({
@@ -47,16 +47,16 @@ export const batchScheduleRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        const { getBatchSchedulesByDateRange } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByDateRange(ctx.tenantId!, input.startDate, input.endDate);
+        const { getBatchSchedulesByDateRange } = await import("../../db/production/batchSchedules");
+        return await getBatchSchedulesByDateRange(ctx.tenantId, input.startDate, input.endDate);
       }),
     
     // 배치 ID로 일정 조회
     getByBatchId: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getBatchSchedulesByBatchId } = await import("../../db/batchSchedules");
-        return await getBatchSchedulesByBatchId(ctx.tenantId!, input.batchId);
+        const { getBatchSchedulesByBatchId } = await import("../../db/production/batchSchedules");
+        return await getBatchSchedulesByBatchId(ctx.tenantId, input.batchId);
       }),
     
     // 배치 일정 수정
@@ -70,11 +70,11 @@ export const batchScheduleRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { updateBatchSchedule } = await import("../../db/batchSchedules");
+        const { updateBatchSchedule } = await import("../../db/production/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
         const { id, ...updateData } = input;
-        await updateBatchSchedule(ctx.tenantId!, id, updateData);
+        await updateBatchSchedule(ctx.tenantId, id, updateData);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -98,10 +98,10 @@ export const batchScheduleRouter = router({
     delete: workerProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { deleteBatchSchedule } = await import("../../db/batchSchedules");
+        const { deleteBatchSchedule } = await import("../../db/production/batchSchedules");
         const { createAuditLog } = await import("../../db");
         
-        await deleteBatchSchedule(ctx.tenantId!, input.id);
+        await deleteBatchSchedule(ctx.tenantId, input.id);
         
         // 감사 로그 기록
         await createAuditLog({

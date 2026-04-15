@@ -1,5 +1,5 @@
 import {mysqlTable, text,  timestamp, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * LOT 추적 이력 테이블

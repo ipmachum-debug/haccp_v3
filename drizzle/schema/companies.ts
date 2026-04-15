@@ -1,4 +1,4 @@
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 회사(테넌트) 관리 테이블

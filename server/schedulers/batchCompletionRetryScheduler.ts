@@ -6,7 +6,7 @@ import {
   getPendingRetryTasks,
   updateRetryTaskStatus,
   incrementRetryCount,
-} from "../db/batchCompletionRetries";
+} from "../db/production/batchCompletionRetries";
 import { notifyOwner } from "../_core/notification";
 
 /**

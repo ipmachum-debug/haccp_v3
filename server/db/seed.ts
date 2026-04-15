@@ -12,7 +12,7 @@ export async function seedSampleData() {
   }
 
   const {
-    hProductsV2V2,
+    hProductsV2,
     hMaterials,
     hBatches,
     users

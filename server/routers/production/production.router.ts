@@ -27,7 +27,7 @@ export const productionRouter = router({
           ...input,
           evaluationDate: new Date(input.evaluationDate),
           evaluatedBy: ctx.user.id
-        }, tenantId ?? undefined);
+        });
         return { success: true, evaluationId };
       }),
 

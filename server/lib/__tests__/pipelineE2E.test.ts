@@ -15,21 +15,21 @@ describe("멱등성 계약", () => {
     it("이미 paid 상태면 alreadyProcessed: true 반환 (에러 아님)", async () => {
       // purchasePost는 status === "paid" 체크 후 { alreadyProcessed: true } 반환
       // 이는 중복 호출이 부작용 없이 안전하게 처리됨을 보장
-      const { postPurchase } = await import("../purchasePost");
+      const { postPurchase } = await import("../accounting/purchasePost");
       expect(postPurchase).toBeDefined();
       expect(typeof postPurchase).toBe("function");
       // 반환 타입 시그니처: Promise<{ alreadyProcessed: boolean }>
     });
 
     it("cancelled 상태면 에러 throw", async () => {
-      const { postPurchase } = await import("../purchasePost");
+      const { postPurchase } = await import("../accounting/purchasePost");
       expect(postPurchase).toBeDefined();
     });
   });
 
   describe("purchaseCancel", () => {
     it("이미 cancelled 상태면 alreadyProcessed: true 반환", async () => {
-      const { cancelPurchase } = await import("../purchaseCancel");
+      const { cancelPurchase } = await import("../accounting/purchaseCancel");
       expect(cancelPurchase).toBeDefined();
       expect(typeof cancelPurchase).toBe("function");
     });
@@ -37,7 +37,7 @@ describe("멱등성 계약", () => {
 
   describe("productionCompletePost", () => {
     it("이미 completed 상태면 alreadyProcessed: true 반환", async () => {
-      const { postProductionComplete } = await import("../productionCompletePost");
+      const { postProductionComplete } = await import("../production/productionCompletePost");
       expect(postProductionComplete).toBeDefined();
       expect(typeof postProductionComplete).toBe("function");
     });
@@ -45,7 +45,7 @@ describe("멱등성 계약", () => {
 
   describe("autoMaterialIssue", () => {
     it("이미 전량 출고된 배치면 warnings로 반환 (에러 아님)", async () => {
-      const { autoIssueMaterialsForBatch } = await import("../autoMaterialIssue");
+      const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");
       expect(autoIssueMaterialsForBatch).toBeDefined();
       expect(typeof autoIssueMaterialsForBatch).toBe("function");
     });
@@ -135,23 +135,23 @@ describe("withTransaction", () => {
 describe("파이프라인 시나리오 (구매→입고→생산→완료→회계)", () => {
   it("전체 흐름의 함수 체인이 올바른 시그니처로 존재", async () => {
     // Step 1: 매입 확정 → LOT + 재고원장 + 회계분개
-    const { postPurchase } = await import("../purchasePost");
+    const { postPurchase } = await import("../accounting/purchasePost");
     expect(postPurchase.length).toBe(2); // (purchaseId, userId)
 
     // Step 2: 배치 시작 → 원료 자동 출고
-    const { autoIssueMaterialsForBatch } = await import("../autoMaterialIssue");
+    const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");
     expect(autoIssueMaterialsForBatch.length).toBe(2); // (batchId, userId)
 
     // Step 3: 생산 완료 → 제품재고 + 회계분개
-    const { postProductionComplete } = await import("../productionCompletePost");
+    const { postProductionComplete } = await import("../production/productionCompletePost");
     expect(postProductionComplete.length).toBe(4); // (batchId, qty, userId, tenantId)
 
     // Step 4: 매입 취소 (역거래)
-    const { cancelPurchase } = await import("../purchaseCancel");
+    const { cancelPurchase } = await import("../accounting/purchaseCancel");
     expect(cancelPurchase.length).toBe(3); // (purchaseId, userId, tenantId)
 
     // Step 5: 승인 자동 등록
-    const { autoCreateApprovalRequest } = await import("../autoApprovalRequest");
+    const { autoCreateApprovalRequest } = await import("../production/autoApprovalRequest");
     expect(autoCreateApprovalRequest.length).toBe(3); // (batchId, userId, pdfUrl?)
 
     // Step 6: PDF 생성

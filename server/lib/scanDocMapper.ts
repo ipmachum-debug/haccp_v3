@@ -399,6 +399,7 @@ async function validatePurchaseData(
     if (!itemName) continue;
 
     // 과거 30일 평균 단가 조회
+    // @ts-expect-error - library type issue
     const [priceRows] = await conn.execute<any[]>(
       `SELECT AVG(unit_price) as avgPrice, COUNT(*) as cnt
        FROM accounting_purchases
@@ -420,6 +421,7 @@ async function validatePurchaseData(
     }
 
     // 수량 이상치
+    // @ts-expect-error - library type issue
     const [qtyRows] = await conn.execute<any[]>(
       `SELECT AVG(quantity) as avgQty, STDDEV(quantity) as stdQty
        FROM accounting_purchases

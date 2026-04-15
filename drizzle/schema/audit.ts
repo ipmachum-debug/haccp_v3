@@ -1,4 +1,4 @@
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import { mysqlTable, serial, varchar, text, timestamp, int } from "drizzle-orm/mysql-core";
 
 /**

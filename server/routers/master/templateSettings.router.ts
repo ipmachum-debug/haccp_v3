@@ -7,8 +7,8 @@ export const templateSettingsRouter = router({
     getList: tenantRequiredProcedure
       .input(z.object({ templateType: z.string() }))
       .query(async ({ input, ctx }) => {
-        const { getUserTemplateSettings } = await import("../../db/templateSettings.js");
-        return await getUserTemplateSettings(ctx.user.id, input.templateType, ctx.tenantId ?? undefined);
+        const { getUserTemplateSettings } = await import("../../db/system/templateSettings.js");
+        return await getUserTemplateSettings(ctx.user.id, input.templateType, ctx.tenantId);
       }),
     
     // 템플릿 설정 생성
@@ -19,7 +19,7 @@ export const templateSettingsRouter = router({
         selectedFields: z.array(z.string())
       }))
       .mutation(async ({ input, ctx }) => {
-        const { createTemplateSetting } = await import("../../db/templateSettings.js");
+        const { createTemplateSetting } = await import("../../db/system/templateSettings.js");
         return await createTemplateSetting({
           userId: ctx.user.id,
           templateType: input.templateType,
@@ -32,15 +32,15 @@ export const templateSettingsRouter = router({
     get: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getTemplateSetting } = await import("../../db/templateSettings.js");
-        return await getTemplateSetting(input.id, ctx.user.id, ctx.tenantId ?? undefined);
+        const { getTemplateSetting } = await import("../../db/system/templateSettings.js");
+        return await getTemplateSetting(input.id, ctx.user.id, ctx.tenantId);
       }),
     
     // 템플릿 설정 삭제
     delete: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { deleteTemplateSetting } = await import("../../db/templateSettings.js");
-        return await deleteTemplateSetting(input.id, ctx.user.id, ctx.tenantId ?? undefined);
+        const { deleteTemplateSetting } = await import("../../db/system/templateSettings.js");
+        return await deleteTemplateSetting(input.id, ctx.user.id, ctx.tenantId);
       })
 });

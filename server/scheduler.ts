@@ -42,7 +42,7 @@ export function initScheduler() {
     // 소비기한 만료 알람 자동 생성
     console.log(`[Scheduler] ${timestamp} - 소비기한 만료 알람 생성 시작`);
     try {
-      const { generateExpiredAlerts } = await import("./lib/expiryAlertGenerator");
+      const { generateExpiredAlerts } = await import("./lib/inventory/expiryAlertGenerator");
       await generateExpiredAlerts();
       console.log(`[Scheduler] ${timestamp} - 소비기한 만료 알람 생성 완료`);
     } catch (error) {
@@ -148,7 +148,7 @@ export function initScheduler() {
     console.log(`[원료수불부 스케줄러] ${timestamp} - 일일 마감 자동 업데이트 시작`);
     
     try {
-      const { autoUpdateFromDailyClose } = await import("./db/materialLedger");
+      const { autoUpdateFromDailyClose } = await import("./db/accounting/materialLedger");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -188,7 +188,7 @@ export function initScheduler() {
     console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 시작`);
 
     try {
-      const { evaluateAllRules, saveAlerts } = await import("./db/rulesEngine");
+      const { evaluateAllRules, saveAlerts } = await import("./db/ai/rulesEngine");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -237,7 +237,7 @@ export function initScheduler() {
     console.log(`[ERP AI Scheduler] ${timestamp} - ERP AI 점검 시작`);
 
     try {
-      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accountingEventTriggers");
+      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accounting/accountingEventTriggers");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -286,9 +286,9 @@ export function initScheduler() {
     console.log(`[ERP AI Weekly] ${timestamp} - 주간 현금흐름/분개 점검 시작`);
 
     try {
-      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
-      const { validateJournalEntries } = await import("./db/aiJournalValidation");
-      const { saveAlerts } = await import("./db/rulesEngine");
+      const { forecastCashFlow } = await import("./db/ai/aiCashFlowForecast");
+      const { validateJournalEntries } = await import("./db/ai/aiJournalValidation");
+      const { saveAlerts } = await import("./db/ai/rulesEngine");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -344,6 +344,42 @@ export function initScheduler() {
     }
   });
   console.log("[Scheduler] ERP AI 주간 현금흐름/분개 점검 스케줄러 초기화 완료 (매주 월요일 오전 8시)");
+
+  // ===== 원료수불 주간 보고서 자동 생성 (매주 월요일 오전 6시) =====
+  // 지난 주(월~일) 데이터로 보고서를 자동 생성하고 검토 요청 상태로 등록
+  cron.schedule("0 6 * * 1", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[원료수불] ${timestamp} - 주간 보고서 자동 생성 시작`);
+    try {
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return;
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      const { autoGenerateLastWeekReport } = await import("./db/accounting/materialUsageReport");
+      let success = 0;
+      let failed = 0;
+      for (const t of activeTenants) {
+        try {
+          await autoGenerateLastWeekReport(t.id, 1);
+          success++;
+        } catch (e) {
+          failed++;
+          console.error(`[원료수불] tenant=${t.id} 자동생성 실패:`, e);
+        }
+      }
+      console.log(`[원료수불] ${timestamp} - 주간 보고서 자동 생성 완료 (성공 ${success}, 실패 ${failed})`);
+    } catch (error) {
+      console.error(`[원료수불] ${timestamp} - 자동 생성 실패:`, error);
+    }
+  });
+  console.log("[Scheduler] 원료수불 주간 보고서 자동 생성 스케줄러 초기화 완료 (매주 월요일 오전 6시)");
 
   // ===== 자동 백업 (매일 새벽 2시) =====
   cron.schedule("0 2 * * *", async () => {

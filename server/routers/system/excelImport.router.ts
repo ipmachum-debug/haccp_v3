@@ -7,7 +7,7 @@
 
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
-import mysql from "mysql2/promise";
+import mysql, { type Connection } from "mysql2/promise";
 import ExcelJS from "exceljs";
 // getEffectiveTenantId 제거 → tenantRequiredProcedure가 ctx.tenantId 보장
 
@@ -42,7 +42,7 @@ export const excelImportRouter = router({
     .mutation(async ({ input }) => {
       const buffer = Buffer.from(input.fileBase64, "base64");
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buffer);
+      await wb.xlsx.load(buffer as any);
 
       const sheets: Record<string, { rows: number; cols: number; sample: any[] }> = {};
       for (const ws of wb.worksheets) {
@@ -109,10 +109,10 @@ export const excelImportRouter = router({
       }).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const buffer = Buffer.from(input.fileBase64, "base64");
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buffer);
+      await wb.xlsx.load(buffer as any);
       const conn = await getDbConnection();
 
       const results = {
@@ -150,7 +150,7 @@ export const excelImportRouter = router({
   // ─── 임포트 상태 조회 ───
   status: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const conn = await getDbConnection();
 
       try {
@@ -191,7 +191,7 @@ export const excelImportRouter = router({
 // ═══════════════════════════════════════
 
 async function importMasterData(
-  conn: mysql.Connection, wb: ExcelJS.Workbook, tenantId: number,
+  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
   results: any
 ) {
   const partnerIdMap: Record<string, number> = {};
@@ -307,8 +307,8 @@ async function importMasterData(
 const materialQueue: Array<{ name: string; unit: string; idx: number }> = [];
 
 async function importBomData(
-  conn: mysql.Connection, wb: ExcelJS.Workbook, tenantId: number,
-  idMap: ReturnType<Awaited<typeof importMasterData>>,
+  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
+  idMap: Awaited<ReturnType<typeof importMasterData>>,
   results: any
 ) {
   const ws = wb.getWorksheet("🔖 배합비 참조");
@@ -390,8 +390,8 @@ async function importBomData(
 }
 
 async function importOperationsData(
-  conn: mysql.Connection, wb: ExcelJS.Workbook, tenantId: number,
-  idMap: ReturnType<Awaited<typeof importMasterData>>,
+  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
+  idMap: Awaited<ReturnType<typeof importMasterData>>,
   results: any
 ) {
   // ── 이월재고 ──
@@ -590,7 +590,7 @@ async function importOperationsData(
 const purchaseRows: any[] = [];
 const batchRows: any[] = [];
 
-async function generateDocuments(conn: mysql.Connection, tenantId: number, results: any) {
+async function generateDocuments(conn: Connection, tenantId: number, results: any) {
   // ── 승인 요청 ──
   const [batches] = (await conn.execute(
     `SELECT b.id, b.batch_code FROM h_batches b LEFT JOIN h_approval_requests ar ON ar.reference_id = b.id AND ar.reference_type = 'batch' AND ar.tenant_id = b.tenant_id WHERE b.tenant_id = ? AND b.notes = '엑셀 임포트' AND ar.id IS NULL`,

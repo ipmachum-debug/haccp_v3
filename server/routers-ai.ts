@@ -8,12 +8,12 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
 import { ENV } from "./_core/env";
-import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
-import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
+import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/ai/rulesEngine";
+import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/ai/standardChecklist";
 import { getRawConnection } from "./db";
-import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/aiActionEngine";
-import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
-import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
+import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/ai/aiActionEngine";
+import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/ai/aiContextLayer";
+import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/ai/knowledgeBase";
 
 import { toKSTDate, todayKST } from "./utils/timezone";
 
@@ -751,7 +751,7 @@ export const aiRouter = router({
           input.standardId,
           input.templateName,
           input.category,
-          input.items,
+          input.items as any,
           ctx.user?.id
         );
         return { success: true, ...result };
@@ -1085,7 +1085,7 @@ export const aiRouter = router({
       try {
         const result = await uploadDocument(ctx.tenantId, {
           ...input,
-          createdBy: ctx.userId,
+          createdBy: ctx.user.id,
         });
 
         // 감사 로그
@@ -1098,7 +1098,7 @@ export const aiRouter = router({
               ctx.tenantId,
               JSON.stringify({ title: input.title, docType: input.docType, contentLength: input.content.length }),
               JSON.stringify(result),
-              ctx.userId,
+              ctx.user.id,
             ]
           );
         } catch {}
@@ -1179,7 +1179,7 @@ export const aiRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await reindexDocument(ctx.tenantId, input.documentId);
-        return { success: true, ...result };
+        return { success: true, ...(result as any) };
       } catch (error: any) {
         return { success: false, error: error?.message, chunksUpdated: 0 };
       }
@@ -1260,7 +1260,7 @@ export const aiRouter = router({
           })),
           yieldDeviation: riskData?.yieldDeviation ?? null,
           ccpDeviationCount: riskData?.ccpDeviationCount ?? 0,
-          checklistMissing: riskData?.checklistMissing ?? 0,
+          checklistMissing: riskData?.checklistMissingCount ?? 0,
         };
       } catch (error: any) {
         return {
@@ -1313,7 +1313,7 @@ export const aiRouter = router({
       description: z.string().optional(),
       ruleType: z.enum(["threshold", "missing", "overdue", "anomaly", "recurrence"]),
       entityType: z.enum(["ccp", "checklist", "equipment", "batch", "lot", "inspection", "hygiene", "calibration", "document", "training"]),
-      conditions: z.record(z.any()),
+      conditions: z.record(z.string(), z.any()),
       severity: z.enum(["low", "medium", "high", "critical"]),
       notifyRoles: z.array(z.string()).optional(),
     }))
@@ -1348,7 +1348,7 @@ export const aiRouter = router({
       ruleId: z.number(),
       name: z.string().optional(),
       description: z.string().optional(),
-      conditions: z.record(z.any()).optional(),
+      conditions: z.record(z.string(), z.any()).optional(),
       severity: z.enum(["low", "medium", "high", "critical"]).optional(),
       notifyRoles: z.array(z.string()).optional(),
       isActive: z.boolean().optional(),
@@ -1421,7 +1421,7 @@ export const aiRouter = router({
   /** AI 이상탐지 (CCP/체크리스트/설비 패턴 분석) */
   detectAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { detectAnomalies } = await import("./db/aiAnomalyDetection");
+      const { detectAnomalies } = await import("./db/ai/aiAnomalyDetection");
       return detectAnomalies(ctx.tenantId);
     }),
 
@@ -1431,7 +1431,7 @@ export const aiRouter = router({
   getPredictions: tenantRequiredProcedure
     .input(z.object({ focus: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
-      const { generatePredictions } = await import("./db/aiPrediction");
+      const { generatePredictions } = await import("./db/ai/aiPrediction");
       return generatePredictions(ctx.tenantId, input?.focus);
     }),
 
@@ -1451,13 +1451,13 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateHaccpPlan } = await import("./db/aiHaccpPlan");
+      const { generateHaccpPlan } = await import("./db/ai/aiHaccpPlan");
       return generateHaccpPlan(ctx.tenantId, input);
     }),
 
   generateHaccpPlanAuto: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      const { generateHaccpPlanFromExistingData } = await import("./db/aiHaccpPlan");
+      const { generateHaccpPlanFromExistingData } = await import("./db/ai/aiHaccpPlan");
       return generateHaccpPlanFromExistingData(ctx.tenantId);
     }),
 
@@ -1473,20 +1473,20 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateFinancialNarrative } = await import("./db/aiReportNarrative");
+      const { generateFinancialNarrative } = await import("./db/ai/aiReportNarrative");
       return generateFinancialNarrative(ctx.tenantId, { startDate: input.startDate, endDate: input.endDate }, input.type);
     }),
 
   generateHaccpNarrative: tenantRequiredProcedure
     .input(z.object({ period: z.enum(["weekly", "monthly"]).optional() }).optional())
     .mutation(async ({ ctx, input }) => {
-      const { generateHaccpNarrative } = await import("./db/aiReportNarrative");
+      const { generateHaccpNarrative } = await import("./db/ai/aiReportNarrative");
       return generateHaccpNarrative(ctx.tenantId, input?.period);
     }),
 
   generateExecutiveSummary: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      const { generateExecutiveSummary } = await import("./db/aiReportNarrative");
+      const { generateExecutiveSummary } = await import("./db/ai/aiReportNarrative");
       return generateExecutiveSummary(ctx.tenantId);
     }),
 
@@ -1500,7 +1500,7 @@ export const aiRouter = router({
       }).optional()
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateAuditPackage } = await import("./db/aiAuditPackage");
+      const { generateAuditPackage } = await import("./db/ai/aiAuditPackage");
       return generateAuditPackage(ctx.tenantId, input?.auditType);
     }),
 
@@ -1509,7 +1509,7 @@ export const aiRouter = router({
   // ============================================================================
   analyzeSupplierRisk: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { analyzeSupplierRisk } = await import("./db/aiSupplierRisk");
+      const { analyzeSupplierRisk } = await import("./db/ai/aiSupplierRisk");
       return analyzeSupplierRisk(ctx.tenantId);
     }),
 
@@ -1518,7 +1518,7 @@ export const aiRouter = router({
   // ============================================================================
   getTrainingRecommendations: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { generateTrainingRecommendations } = await import("./db/aiTrainingRecommendation");
+      const { generateTrainingRecommendations } = await import("./db/ai/aiTrainingRecommendation");
       return generateTrainingRecommendations(ctx.tenantId);
     }),
 
@@ -1650,7 +1650,7 @@ export const aiRouter = router({
   /** 비용 이상탐지 (월별 비용 패턴 기반) */
   detectExpenseAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");
+      const { detectExpenseAnomalies } = await import("./db/ai/aiExpenseAnomaly");
       return detectExpenseAnomalies(ctx.tenantId);
     }),
 
@@ -1660,7 +1660,7 @@ export const aiRouter = router({
   forecastCashFlow: tenantRequiredProcedure
     .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
     .query(async ({ ctx, input }) => {
-      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      const { forecastCashFlow } = await import("./db/ai/aiCashFlowForecast");
       return forecastCashFlow(ctx.tenantId, input?.days || 30);
     }),
 
@@ -1669,7 +1669,7 @@ export const aiRouter = router({
   // ============================================================================
   analyzePaymentRisk: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { analyzePaymentRisk } = await import("./db/aiPaymentRiskAnalysis");
+      const { analyzePaymentRisk } = await import("./db/ai/aiPaymentRiskAnalysis");
       return analyzePaymentRisk(ctx.tenantId);
     }),
 
@@ -1682,14 +1682,14 @@ export const aiRouter = router({
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
-      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      const { validateJournalEntries } = await import("./db/ai/aiJournalValidation");
       return validateJournalEntries(ctx.tenantId, input?.startDate, input?.endDate);
     }),
 
   // ── AI 브리핑 (로그인 시 플로팅 메시지) ──
   briefing: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { generateAIBriefing } = await import("./db/aiBriefing");
+      const { generateAIBriefing } = await import("./db/ai/aiBriefing");
       return generateAIBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
     }),
 });

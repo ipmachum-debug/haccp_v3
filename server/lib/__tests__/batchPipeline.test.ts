@@ -128,7 +128,7 @@ describe("completeBatch security", () => {
   it("should require tenantId parameter (not optional)", async () => {
     // TypeScript 컴파일 타임에 tenantId?: number → tenantId: number 검증
     // 런타임 검증: tenantId 없으면 throw
-    const { completeBatch } = await import("../../db/batchFunctions");
+    const { completeBatch } = await import("../../db/production/batchFunctions");
     await expect(
       completeBatch({
         batchId: 99999,

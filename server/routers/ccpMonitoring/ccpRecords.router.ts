@@ -4,7 +4,7 @@ import { getDb } from "../../db";
 import { ccpMonitoringRecords } from "../../../drizzle/schema/ccpMonitoring";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { getEffectiveTenantId } from "./_helpers";
-import { triggerCcpTemperatureAlert } from "../../db/temperatureAlertTrigger";
+import { triggerCcpTemperatureAlert } from "../../db/system/temperatureAlertTrigger";
 
 export const ccpRecordsRouter = router({
   // CCP 모니터링 기록 관리

@@ -6,16 +6,16 @@ export const recipeApprovalRouter = router({
     // 승인 대기 중인 품목제조보고 목록 조회
     getPending: tenantRequiredProcedure
       .query(async ({ ctx }) => {
-        const { getPendingRecipes } = await import("../../api/recipeApproval");
-        return await getPendingRecipes(ctx.tenantId!);
+        const { getPendingRecipes } = await import("../../db/production/recipeApprovalAPI");
+        return await getPendingRecipes(ctx.tenantId);
       }),
 
     // 품목제조보고 승인
     approve: adminProcedure
       .input(z.object({ recipeId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { approveRecipe } = await import("../../api/recipeApproval");
-        return await approveRecipe(ctx.tenantId!, { recipeId: input.recipeId, userId: ctx.user.id });
+        const { approveRecipe } = await import("../../db/production/recipeApprovalAPI");
+        return await approveRecipe(ctx.tenantId, { recipeId: input.recipeId, userId: ctx.user.id });
       }),
 
     // 품목제조보고 승인 이력 조회
@@ -26,8 +26,8 @@ export const recipeApprovalRouter = router({
         endDate: z.string().optional()
       }).optional())
       .query(async ({ input, ctx }) => {
-        const { getRecipeApprovalHistory } = await import("../../api/recipeApproval");
-        return await getRecipeApprovalHistory(ctx.tenantId!, input);
+        const { getRecipeApprovalHistory } = await import("../../db/production/recipeApprovalAPI");
+        return await getRecipeApprovalHistory(ctx.tenantId, input);
       }),
 
     // 품목제조보고 반려
@@ -37,8 +37,8 @@ export const recipeApprovalRouter = router({
         reason: z.string().min(1, "반려 사유는 필수입니다")
       }))
       .mutation(async ({ input, ctx }) => {
-        const { rejectRecipe } = await import("../../api/recipeApproval");
-        return await rejectRecipe(ctx.tenantId!, {
+        const { rejectRecipe } = await import("../../db/production/recipeApprovalAPI");
+        return await rejectRecipe(ctx.tenantId, {
           recipeId: input.recipeId,
           userId: ctx.user.id,
           reason: input.reason
@@ -49,7 +49,7 @@ export const recipeApprovalRouter = router({
     getDetail: tenantRequiredProcedure
       .input(z.object({ recipeId: z.number() }))
       .query(async ({ input, ctx }) => {
-        const { getRecipeWithApprovalInfo } = await import("../../api/recipeApproval");
-        return await getRecipeWithApprovalInfo(ctx.tenantId!, input.recipeId);
+        const { getRecipeWithApprovalInfo } = await import("../../db/production/recipeApprovalAPI");
+        return await getRecipeWithApprovalInfo(ctx.tenantId, input.recipeId);
       })
 });

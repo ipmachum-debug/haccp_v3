@@ -1,7 +1,7 @@
 import {mysqlTable,  bigint, varchar, text, decimal, date, boolean, timestamp, mysqlEnum, index, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import { relations } from "drizzle-orm";
-import { users } from "../schema_main";
+import { users } from "./schema_main";
 
 // 검교정설비 등록
 export const calibrationEquipment = mysqlTable("calibration_equipment", {

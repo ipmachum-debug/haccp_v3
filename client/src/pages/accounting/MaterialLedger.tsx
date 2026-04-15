@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +43,7 @@ import {
   Search,
   AlertCircle,
   XCircle,
+  Printer,
 } from "lucide-react";
 
 // 날짜 유틸
@@ -73,6 +74,38 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
   const [editValue, setEditValue] = useState("");
   const [rejectDialog, setRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+
+  // ===== 기간 보고서 (주간/월간) =====
+  // 이번 주 (월~일) 자동 계산
+  const getThisWeekRange = () => {
+    const now = new Date();
+    const day = now.getDay(); // 0=일, 1=월
+    const diffToMon = day === 0 ? -6 : 1 - day; // 월요일까지 차이
+    const mon = new Date(now);
+    mon.setDate(now.getDate() + diffToMon);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate() + 6);
+    return { start: formatDate(mon), end: formatDate(sun) };
+  };
+  // 이번 달 (1일~말일)
+  const getThisMonthRange = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { start: formatDate(start), end: formatDate(end) };
+  };
+
+  const initWeek = getThisWeekRange();
+  const [reportType, setReportType] = useState<"week" | "month" | "custom">("week");
+  const [reportStart, setReportStart] = useState(initWeek.start);
+  const [reportEnd, setReportEnd] = useState(initWeek.end);
+
+  // 보고서 데이터
+  const { data: reportData, refetch: refetchReport, isFetching: reportLoading } =
+    trpc.materialLedger.getUsageReport.useQuery(
+      { start: reportStart, end: reportEnd, type: reportType },
+      { enabled: !!reportStart && !!reportEnd },
+    );
 
   // ========== 데이터 조회 ==========
   // 대시보드 요약 (선택된 월 기준)
@@ -241,15 +274,57 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
     downloadMutation.mutate({ yearMonth: selectedMonth });
   };
 
+  // 기간 보고서 빠른 선택
+  const handleSelectThisWeek = () => {
+    const r = getThisWeekRange();
+    setReportType("week");
+    setReportStart(r.start);
+    setReportEnd(r.end);
+  };
+  const handleSelectThisMonth = () => {
+    const r = getThisMonthRange();
+    setReportType("month");
+    setReportStart(r.start);
+    setReportEnd(r.end);
+  };
+  const handleSelectLastWeek = () => {
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMon = day === 0 ? -6 : 1 - day;
+    const thisMon = new Date(now);
+    thisMon.setDate(now.getDate() + diffToMon);
+    const lastMon = new Date(thisMon);
+    lastMon.setDate(thisMon.getDate() - 7);
+    const lastSun = new Date(lastMon);
+    lastSun.setDate(lastMon.getDate() + 6);
+    setReportType("week");
+    setReportStart(formatDate(lastMon));
+    setReportEnd(formatDate(lastSun));
+  };
+  const handleSelectLastMonth = () => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), 0);
+    setReportType("month");
+    setReportStart(formatDate(start));
+    setReportEnd(formatDate(end));
+  };
+  // 인쇄 미리보기 새 창 열기
+  const handlePrintReport = () => {
+    if (!reportStart || !reportEnd) return;
+    const url = `/material-usage-report-print?start=${reportStart}&end=${reportEnd}&type=${reportType}&autoprint=1`;
+    window.open(url, "_blank", "width=900,height=1100");
+  };
+
   // ========== 승인 상태 배지 ==========
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
         return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />작성 중</Badge>;
       case "submitted":
-        return <Badge className="bg-yellow-500"><FileText className="w-3 h-3 mr-1" />승인 대기</Badge>;
+        return <Badge className="bg-yellow-500 text-white border-transparent"><FileText className="w-3 h-3 mr-1" />승인 대기</Badge>;
       case "approved":
-        return <Badge className="bg-green-600"><CheckCircle className="w-3 h-3 mr-1" />승인 완료</Badge>;
+        return <Badge className="bg-green-600 text-white border-transparent"><CheckCircle className="w-3 h-3 mr-1" />승인 완료</Badge>;
       case "rejected":
         return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />반려</Badge>;
       default:
@@ -344,18 +419,15 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
 
         {/* 탭 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="daily">
-              <Calendar className="w-4 h-4 mr-2" />일일 확인
+              <Calendar className="w-4 h-4 mr-2" />일일 입출고
             </TabsTrigger>
             <TabsTrigger value="edit">
-              <Edit className="w-4 h-4 mr-2" />수정 / 삭제
+              <Edit className="w-4 h-4 mr-2" />월간 편집 / 마감
             </TabsTrigger>
-            <TabsTrigger value="approval">
-              <CheckCircle className="w-4 h-4 mr-2" />월마감 승인
-            </TabsTrigger>
-            <TabsTrigger value="export">
-              <Download className="w-4 h-4 mr-2" />출력 관리
+            <TabsTrigger value="report">
+              <Printer className="w-4 h-4 mr-2" />기간 보고서 (인쇄·엑셀)
             </TabsTrigger>
           </TabsList>
 
@@ -444,11 +516,54 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
 
           {/* ========== 탭 2: 수정 / 삭제 ========== */}
           <TabsContent value="edit" className="space-y-4">
+            {/* === 월마감 승인 (interleaved) === */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="text-base">📋 월마감 승인</CardTitle>
+                    <CardDescription className="text-xs">
+                      월간 원료수불부를 잠그고 회계 마감용으로 확정합니다.
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(approvalData?.status || "draft")}
+                    {(!approvalData?.status || approvalData.status === "draft" || approvalData.status === "rejected") && (
+                      <Button size="sm" onClick={handleSubmitApproval} className="bg-yellow-500 hover:bg-yellow-600">
+                        <FileText className="w-3.5 h-3.5 mr-1" />승인 요청
+                      </Button>
+                    )}
+                    {approvalData?.status === "submitted" && (
+                      <>
+                        <Button size="sm" onClick={handleApprove} className="bg-green-600 hover:bg-green-700">
+                          <CheckCircle className="w-3.5 h-3.5 mr-1" />승인
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => setRejectDialog(true)}>
+                          <XCircle className="w-3.5 h-3.5 mr-1" />반려
+                        </Button>
+                      </>
+                    )}
+                    {approvalData?.status === "approved" && (
+                      <span className="flex items-center gap-1 text-green-600 text-xs">
+                        <Lock className="w-3.5 h-3.5" /> 잠김 (승인 완료)
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {approvalData?.reject_reason && (
+                  <div className="mt-2 p-2 bg-red-50 rounded border border-red-200 text-xs text-red-700">
+                    <strong>반려 사유:</strong> {approvalData.reject_reason}
+                  </div>
+                )}
+              </CardHeader>
+            </Card>
+
+            {/* === 월별 편집 그리드 === */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>월별 원료수불부 수정</CardTitle>
+                    <CardTitle>월별 원료수불부 편집</CardTitle>
                     <CardDescription>
                       일별 입고/사용 데이터를 수정하거나 삭제할 수 있습니다.
                       {approvalData?.status === "approved" && (
@@ -574,199 +689,223 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
             </Card>
           </TabsContent>
 
-          {/* ========== 탭 3: 월마감 승인 ========== */}
-          <TabsContent value="approval" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>월마감 승인 관리</CardTitle>
-                  <CardDescription>월별 원료수불부의 승인 상태를 관리합니다.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Label>대상 월:</Label>
-                    <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                      <SelectTrigger className="w-40">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {monthOptions.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="p-4 rounded-lg border bg-slate-50 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">현재 상태:</span>
-                      {getStatusBadge(approvalData?.status || "draft")}
-                    </div>
-                    {approvalData?.submitted_by_name && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">요청자:</span>
-                        <span>{approvalData.submitted_by_name}</span>
-                      </div>
-                    )}
-                    {approvalData?.submitted_at && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">요청일:</span>
-                        <span>{new Date(approvalData.submitted_at).toLocaleString("ko-KR")}</span>
-                      </div>
-                    )}
-                    {approvalData?.approved_by_name && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">승인자:</span>
-                        <span>{approvalData.approved_by_name}</span>
-                      </div>
-                    )}
-                    {approvalData?.approved_at && (
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">승인일:</span>
-                        <span>{new Date(approvalData.approved_at).toLocaleString("ko-KR")}</span>
-                      </div>
-                    )}
-                    {approvalData?.reject_reason && (
-                      <div className="p-2 bg-red-50 rounded border border-red-200 text-sm text-red-700">
-                        <strong>반려 사유:</strong> {approvalData.reject_reason}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 flex-wrap">
-                    {(!approvalData?.status || approvalData.status === "draft" || approvalData.status === "rejected") && (
-                      <Button onClick={handleSubmitApproval} className="bg-yellow-500 hover:bg-yellow-600">
-                        <FileText className="w-4 h-4 mr-2" />승인 요청
-                      </Button>
-                    )}
-                    {approvalData?.status === "submitted" && (
-                      <>
-                        <Button onClick={handleApprove} className="bg-green-600 hover:bg-green-700">
-                          <CheckCircle className="w-4 h-4 mr-2" />승인
-                        </Button>
-                        <Button variant="destructive" onClick={() => setRejectDialog(true)}>
-                          <XCircle className="w-4 h-4 mr-2" />반려
-                        </Button>
-                      </>
-                    )}
-                    {approvalData?.status === "approved" && (
-                      <div className="flex items-center gap-2 text-green-600">
-                        <Lock className="w-4 h-4" />
-                        <span className="text-sm font-medium">승인 완료 - 데이터가 잠겨있습니다</span>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>월별 요약</CardTitle>
-                  <CardDescription>{selectedMonth} 원료수불부 요약 정보</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                      <span className="text-sm font-medium text-blue-700">총 입고량</span>
-                      <span className="text-lg font-bold text-blue-700">
-                        {Number(dashboard?.totalReceiving || 0).toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                      <span className="text-sm font-medium text-green-700">총 사용량</span>
-                      <span className="text-lg font-bold text-green-700">
-                        {Number(dashboard?.totalUsage || 0).toLocaleString()} kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
-                      <span className="text-sm font-medium text-orange-700">총 입고금액</span>
-                      <span className="text-lg font-bold text-orange-700">
-                        {Number(dashboard?.totalReceivingAmount || 0).toLocaleString()} 원
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                      <span className="text-sm font-medium text-purple-700">총 사용금액</span>
-                      <span className="text-lg font-bold text-purple-700">
-                        {Number(dashboard?.totalUsageAmount || 0).toLocaleString()} 원
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-slate-100 rounded-lg">
-                      <span className="text-sm font-medium">관리 원재료 수</span>
-                      <span className="text-lg font-bold">{dashboard?.materialCount || 0}종</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* ========== 탭 4: 출력 관리 ========== */}
-          <TabsContent value="export" className="space-y-4">
+          {/* ========== 탭 3: 기간 보고서 (주간/월간) ========== */}
+          <TabsContent value="report" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>원료수불부 출력 관리</CardTitle>
+                <CardTitle>원료수불 기간 보고서</CardTitle>
                 <CardDescription>
-                  월별 원료수불부를 엑셀 파일로 다운로드하여 파일링할 수 있습니다.
+                  실제 생산(배치) 기준으로 사용된 원재료를 날짜 / 제품 / 품목제조번호별로 정리합니다.
+                  주간 또는 월간 단위로 합계가 자동 계산되어 인쇄할 수 있습니다.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center gap-4">
-                  <Label>출력 대상 월:</Label>
-                  <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {monthOptions.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <CardContent className="space-y-4">
+                {/* 빠른 선택 */}
+                <div className="flex flex-wrap gap-2 items-center">
+                  <Label className="font-medium">빠른 선택:</Label>
+                  <Button
+                    size="sm"
+                    variant={reportType === "week" ? "default" : "outline"}
+                    onClick={handleSelectThisWeek}
+                  >
+                    이번 주
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleSelectLastWeek}>
+                    지난 주
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={reportType === "month" ? "default" : "outline"}
+                    onClick={handleSelectThisMonth}
+                  >
+                    이번 달
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={handleSelectLastMonth}>
+                    지난 달
+                  </Button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card className="border-2 border-dashed hover:border-blue-400 transition-colors cursor-pointer" onClick={handleDownloadExcel}>
-                    <CardContent className="flex flex-col items-center justify-center py-8">
-                      <Download className="w-12 h-12 text-blue-500 mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">월별 원료수불부 엑셀</h3>
-                      <p className="text-sm text-muted-foreground text-center">
-                        {selectedMonth} 원료수불부를 엑셀 파일로 다운로드합니다.<br />
-                        (원본 서식 적용)
-                      </p>
-                      <Button className="mt-4" disabled={downloadMutation.isPending}>
-                        {downloadMutation.isPending ? (
-                          <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />생성 중...</>
-                        ) : (
-                          <><Download className="w-4 h-4 mr-2" />다운로드</>
-                        )}
-                      </Button>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-2 border-dashed">
-                    <CardContent className="flex flex-col items-center justify-center py-8">
-                      <FileText className="w-12 h-12 text-gray-400 mb-4" />
-                      <h3 className="text-lg font-semibold mb-2 text-gray-500">인쇄용 PDF</h3>
-                      <p className="text-sm text-muted-foreground text-center">
-                        추후 지원 예정입니다.<br />
-                        엑셀 파일을 다운로드 후 인쇄하세요.
-                      </p>
-                      <Button className="mt-4" variant="outline" disabled>
-                        <FileText className="w-4 h-4 mr-2" />준비 중
-                      </Button>
-                    </CardContent>
-                  </Card>
+                {/* 커스텀 기간 */}
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <Label className="text-xs">시작일</Label>
+                    <Input
+                      type="date"
+                      value={reportStart}
+                      onChange={(e) => {
+                        setReportStart(e.target.value);
+                        setReportType("custom");
+                      }}
+                      className="w-44"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">종료일</Label>
+                    <Input
+                      type="date"
+                      value={reportEnd}
+                      onChange={(e) => {
+                        setReportEnd(e.target.value);
+                        setReportType("custom");
+                      }}
+                      className="w-44"
+                    />
+                  </div>
+                  <Button
+                    variant="outline"
+                    onClick={() => refetchReport()}
+                    disabled={reportLoading}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${reportLoading ? "animate-spin" : ""}`} />
+                    조회
+                  </Button>
+                  <Button
+                    onClick={handlePrintReport}
+                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={!reportData || (reportData?.totals?.batchCount ?? 0) === 0}
+                  >
+                    <Printer className="w-4 h-4 mr-2" />
+                    인쇄 미리보기
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadExcel}
+                    disabled={downloadMutation.isPending}
+                  >
+                    {downloadMutation.isPending ? (
+                      <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />생성 중...</>
+                    ) : (
+                      <><Download className="w-4 h-4 mr-2" />월간 엑셀 ({selectedMonth})</>
+                    )}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      window.location.href = "/dashboard/accounting/material-usage-reports";
+                    }}
+                  >
+                    <FileText className="w-4 h-4 mr-2" />
+                    보고서 관리 (생성/검토/승인)
+                  </Button>
                 </div>
 
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                {/* 요약 카드 */}
+                {reportData && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+                    <div className="p-3 rounded-lg border bg-slate-50">
+                      <div className="text-xs text-muted-foreground">생산 배치</div>
+                      <div className="text-xl font-bold">{reportData.totals?.batchCount ?? 0}건</div>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-slate-50">
+                      <div className="text-xs text-muted-foreground">생산 제품</div>
+                      <div className="text-xl font-bold">{reportData.totals?.productCount ?? 0}종</div>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-slate-50">
+                      <div className="text-xs text-muted-foreground">사용 원재료</div>
+                      <div className="text-xl font-bold">{reportData.totals?.materialCount ?? 0}종</div>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-blue-50">
+                      <div className="text-xs text-blue-700">총 사용량</div>
+                      <div className="text-xl font-bold text-blue-700">
+                        {Number(reportData.totals?.totalUsage || 0).toLocaleString()} kg
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 미리보기: 원재료별 합계 */}
+                {/* ★ 서버는 materialWeeklyTotal 필드로 반환 (materialSummary 아님) */}
+                {reportData && (reportData.materialWeeklyTotal?.length ?? 0) > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-amber-50 px-3 py-2 text-sm font-medium border-b">
+                      원재료별 사용 합계 (정제수 제외)
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12 text-center">No</TableHead>
+                          <TableHead>원재료 코드</TableHead>
+                          <TableHead>원재료명</TableHead>
+                          <TableHead className="text-right">총 사용량</TableHead>
+                          <TableHead className="text-center">단위</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(reportData.materialWeeklyTotal || []).map((m: any, i: number) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-center">{i + 1}</TableCell>
+                            <TableCell>{m.materialCode || "-"}</TableCell>
+                            <TableCell>{m.materialName}</TableCell>
+                            <TableCell className="text-right">
+                              {Number(m.totalQuantity || 0).toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-center">{m.unit || "kg"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+
+                {/* 미리보기: 날짜별 배치 (최대 5건만 표시) */}
+                {reportData && (reportData.batches?.length ?? 0) > 0 && (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-blue-50 px-3 py-2 text-sm font-medium border-b">
+                      날짜별 배치 / 제품 / 원재료 사용 (인쇄용 보고서에 모두 포함됨)
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>일자</TableHead>
+                          <TableHead>배치코드</TableHead>
+                          <TableHead>제품명</TableHead>
+                          <TableHead>품목제조번호</TableHead>
+                          <TableHead className="text-right">실수량</TableHead>
+                          <TableHead className="text-center">사용 원재료</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(reportData.batches || []).slice(0, 30).map((b: any) => (
+                          <TableRow key={b.batchId}>
+                            <TableCell>{b.plannedDate}</TableCell>
+                            <TableCell className="font-mono text-xs">{b.batchCode}</TableCell>
+                            <TableCell>{b.productName}</TableCell>
+                            <TableCell className="text-xs">{b.productCode || "-"}</TableCell>
+                            <TableCell className="text-right">
+                              {Number(b.actualQuantity || b.plannedQuantity || 0).toLocaleString()} {b.unit || ""}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="outline">{(b.inputs || []).length}종</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    {reportData.batches.length > 30 && (
+                      <div className="px-3 py-2 text-xs text-muted-foreground bg-slate-50">
+                        ... 외 {reportData.batches.length - 30}건. 인쇄 미리보기에서 전체 확인 가능합니다.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {reportData && (reportData.totals?.batchCount ?? 0) === 0 && (
+                  <div className="p-6 text-center text-muted-foreground bg-slate-50 rounded-lg">
+                    <FileText className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    해당 기간에 완료된 생산 배치가 없습니다.
+                  </div>
+                )}
+
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
                   <div className="flex items-start gap-2">
-                    <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                    <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     <div>
-                      <h4 className="font-medium text-amber-800">출력 안내</h4>
-                      <ul className="text-sm text-amber-700 mt-1 space-y-1">
-                        <li>• 월마감 승인이 완료된 후 출력하는 것을 권장합니다.</li>
-                        <li>• 엑셀 파일에는 원재료별 일별 입고/사용량, 합계, 금액이 포함됩니다.</li>
-                        <li>• 다운로드된 파일은 HACCP 서류 파일링에 활용할 수 있습니다.</li>
+                      <p className="font-medium mb-1">기간 보고서 안내</p>
+                      <ul className="space-y-1 text-xs">
+                        <li>• 실제 생산(배치)에 사용된 원재료만 출력됩니다 (정제수 제외).</li>
+                        <li>• 날짜별로 배치 → 제품 → 품목제조번호 → 사용 원재료 순으로 정리됩니다.</li>
+                        <li>• 주간/월간 단위로 원재료별 합계가 자동 계산됩니다.</li>
+                        <li>• 월마감 승인 완료 후 출력하는 것을 권장합니다.</li>
                       </ul>
                     </div>
                   </div>
@@ -774,6 +913,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
               </CardContent>
             </Card>
           </TabsContent>
+
         </Tabs>
       </div>
 

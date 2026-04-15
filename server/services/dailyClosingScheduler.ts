@@ -301,7 +301,7 @@ async function generateDailyReport(db: any, tenantId: number, dateStr: string, s
 
     // 생산일지(production_daily) 자동 생성/갱신 (일일마감 시 함께 처리)
     try {
-      const { autoRegenerateProductionDaily } = await import('../lib/autoProductionDaily');
+      const { autoRegenerateProductionDaily } = await import('../lib/production/autoProductionDaily');
       await autoRegenerateProductionDaily(tenantId, dateStr);
       console.log(`[일일마감] 생산일지(production_daily) 자동 갱신 완료 - tenant:${tenantId}, date:${dateStr}`);
     } catch (pdErr) {
@@ -713,7 +713,7 @@ export function initDailyClosingScheduler() {
           const tenantsResult = await db.execute(sql`SELECT DISTINCT tenant_id FROM h_batches WHERE tenant_id IS NOT NULL`);
           const tenants = ((tenantsResult as any)[0] || []) as any[];
           const todayStr = toKSTDate(new Date(Date.now() + 9 * 60 * 60 * 1000));
-          const { autoRegenerateProductionDaily } = await import('../lib/autoProductionDaily');
+          const { autoRegenerateProductionDaily } = await import('../lib/production/autoProductionDaily');
           for (const t of tenants) {
             try {
               await autoRegenerateProductionDaily(t.tenant_id, todayStr);

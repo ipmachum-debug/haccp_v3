@@ -8,3 +8,22 @@ export { arLedgerRouter } from "./arLedger.router";
 export { communicationLogsRouter } from "./communicationLogs.router";
 export { matchingRulesRouter } from "./matchingRules.router";
 export { financialReportsRouter } from "./financialReports.router";
+
+// v2-rebuild: 개별 파일에서 이동
+export { expenseRouter } from "./expense.router";
+export { default as expenseUploadRouter } from "./expenseUpload.router";
+export { bankAccountRouter } from "./bankAccount.router";
+export { bankTransactionRouter } from "./bankTransaction.router";
+export { bankTransactionBulkRouter } from "./bankTransactionBulk.router";
+export { accountingAccountsRouter } from "./accountingAccounts.router";
+export { accountCategoriesRouter } from "./accountCategories.router";
+export { inventoryAccountingRouter } from "./inventoryAccounting.router";
+// Phase A (2026-04-14): 발주/구매 관리
+export { purchaseOrderRouter } from "./purchaseOrder.router";
+// Phase B (2026-04-14): 거래처별 단가표
+export { partnerPriceRouter } from "./partnerPrice.router";
+// Phase C (2026-04-14): 견적서
+export { quotationRouter } from "./quotation.router";
+// Phase C (2026-04-14): 세금계산서 + 팝빌
+export { taxInvoiceRouter } from "./taxInvoice.router";
+export { popbillSettingsRouter } from "./popbillSettings.router";

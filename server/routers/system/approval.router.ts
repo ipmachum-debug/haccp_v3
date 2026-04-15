@@ -8,8 +8,8 @@ import { getDb } from "../../db";
 export const approvalRouter = router({
     // 승인 대시보드 - 전체 승인 대기 항목 조회
     getPendingApprovals: tenantRequiredProcedure.query(async ({ ctx }) => {
-      const { getPendingApprovals } = await import("../../db");
-      return await getPendingApprovals(ctx.tenantId!);
+      const { getPendingApprovals } = await import("../../db/system/approvalDashboard");
+      return await getPendingApprovals(ctx.tenantId);
     }),
     
     // 범용 승인 요청 생성
@@ -27,7 +27,7 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: input.requestType,
           referenceType: input.referenceType,
@@ -50,10 +50,22 @@ export const approvalRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getApprovalRequests } = await import("../../db");
-        if (!ctx.tenantId!) {
+        if (!ctx.tenantId) {
           throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
         }
-        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId! });
+        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId });
+      }),
+
+    // 여러 ID로 일괄 조회 (인쇄 미리보기 최적화)
+    listByIds: tenantRequiredProcedure
+      .input(z.object({ ids: z.array(z.number()) }))
+      .query(async ({ input, ctx }) => {
+        if (!ctx.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
+        }
+        if (input.ids.length === 0) return [];
+        const { getApprovalRequestsByIds } = await import("../../db");
+        return await getApprovalRequestsByIds(input.ids, ctx.tenantId);
       }),
 
     // 승인 요청 상세 조회
@@ -63,7 +75,7 @@ export const approvalRouter = router({
         const { getApprovalRequestById } = await import("../../db");
         const result = await getApprovalRequestById(input.id);
         // P1: 테넌트 소유권 검증
-        if (result && result.tenantId !== (ctx.tenantId!) && ctx.user.role !== 'super_admin') {
+        if (result && result.tenantId !== (ctx.tenantId) && ctx.user.role !== 'super_admin') {
           throw new TRPCError({ code: "FORBIDDEN", message: "다른 테넌트의 승인 요청을 조회할 수 없습니다." });
         }
         return result;
@@ -82,7 +94,7 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "batch_approval",
           referenceType: "batch",
@@ -108,7 +120,7 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "ccp_review",
           referenceType: "ccp_instance",
@@ -140,7 +152,7 @@ export const approvalRouter = router({
         if (request) {
           // 요청자에게 알림 전송
           await createNotification({
-            tenantId: ctx.tenantId!,
+            tenantId: ctx.tenantId,
             userId: request.requestedBy,
             notificationType: "approval_completed",
             title: "승인 완료",
@@ -175,7 +187,7 @@ export const approvalRouter = router({
             const request = await getApprovalRequestById(requestId);
             if (request) {
               await createNotification({
-                tenantId: ctx.tenantId!,
+                tenantId: ctx.tenantId,
             userId: request.requestedBy,
                 notificationType: "approval_completed",
                 title: "승인 완료",
@@ -218,7 +230,7 @@ export const approvalRouter = router({
         if (request) {
           // 요청자에게 알림 전송
           await createNotification({
-            tenantId: ctx.tenantId!,
+            tenantId: ctx.tenantId,
             userId: request.requestedBy,
             notificationType: "approval_rejected",
             title: "승인 거부",
@@ -243,7 +255,7 @@ export const approvalRouter = router({
     // 대기 중인 승인 요청 개수
     getPendingCount: tenantRequiredProcedure.query(async ({ ctx }) => {
       const { getPendingApprovalCount } = await import("../../db");
-      return await getPendingApprovalCount(ctx.tenantId!);
+      return await getPendingApprovalCount(ctx.tenantId);
     }),
 
     // 재고 조정 승인 요청
@@ -259,7 +271,7 @@ export const approvalRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { createApprovalRequest } = await import("../../db");
         const requestId = await createApprovalRequest({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           siteId: (ctx.user.siteId || ctx.tenantId) as number,
           requestType: "inventory_adjustment",
           referenceType: "inventory_adjustment",
@@ -357,8 +369,8 @@ export const approvalRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { reviewApprovalRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
+        const { reviewApprovalRequest } = await import("../../lib/production/autoApprovalRequest");
+        const result = await reviewApprovalRequest(input.requestId, ctx.user.id, ctx.tenantId, input.comments);
         return result;
       }),
 
@@ -371,8 +383,8 @@ export const approvalRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { finalApproveRequest } = await import("../../lib/autoApprovalRequest");
-        const result = await finalApproveRequest(input.requestId, ctx.user.id, ctx.tenantId!, input.comments);
+        const { finalApproveRequest } = await import("../../lib/production/autoApprovalRequest");
+        const result = await finalApproveRequest(input.requestId, ctx.user.id, ctx.tenantId, input.comments);
 
         // 승인 완료 알림 발송
         if (result.success) {
@@ -381,7 +393,7 @@ export const approvalRouter = router({
             const request = await getApprovalRequestById(input.requestId);
             if (request) {
               await createNotification({
-                tenantId: ctx.tenantId!,
+                tenantId: ctx.tenantId,
             userId: request.requestedBy,
                 notificationType: "approval_completed",
                 title: "최종 승인 완료",

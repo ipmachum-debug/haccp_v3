@@ -114,39 +114,39 @@ export const batchCostRouter = router({
   getCostAnalysis: tenantRequiredProcedure
     .input(z.object({ startDate: z.string().optional(), endDate: z.string().optional(), limit: z.number().optional() }))
     .query(async ({ input, ctx }) => {
-      const { getBatchCostAnalysis } = await import("../../db/batchCostAnalysis");
-      return await getBatchCostAnalysis({ startDate: input.startDate ? new Date(input.startDate) : undefined, endDate: input.endDate ? new Date(input.endDate) : undefined, limit: input.limit }, ctx.tenantId ?? undefined);
+      const { getBatchCostAnalysis } = await import("../../db/production/batchCostAnalysis");
+      return await getBatchCostAnalysis({ startDate: input.startDate ? new Date(input.startDate) : undefined, endDate: input.endDate ? new Date(input.endDate) : undefined, limit: input.limit }, ctx.tenantId);
     }),
 
   // 특정 배치의 원재료별 비용 분석
   getMaterialCostBreakdownByBatch: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
-      const { getBatchMaterialCostBreakdown } = await import("../../db/batchCostAnalysis");
-      return await getBatchMaterialCostBreakdown(input.batchId, ctx.tenantId ?? undefined);
+      const { getBatchMaterialCostBreakdown } = await import("../../db/production/batchCostAnalysis");
+      return await getBatchMaterialCostBreakdown(input.batchId, ctx.tenantId);
     }),
 
   // 기간별 비용 분석 집계
   getCostAnalysisPeriodSummary: tenantRequiredProcedure
     .input(z.object({ startDate: z.string(), endDate: z.string(), groupBy: z.enum(["month", "week", "day"]) }))
     .query(async ({ input, ctx }) => {
-      const { getCostAnalysisPeriodSummary } = await import("../../db/batchCostAnalysis");
-      return await getCostAnalysisPeriodSummary({ startDate: new Date(input.startDate), endDate: new Date(input.endDate), groupBy: input.groupBy }, ctx.tenantId ?? undefined);
+      const { getCostAnalysisPeriodSummary } = await import("../../db/production/batchCostAnalysis");
+      return await getCostAnalysisPeriodSummary({ startDate: new Date(input.startDate), endDate: new Date(input.endDate), groupBy: input.groupBy }, ctx.tenantId);
     }),
 
   // 원재료별 비용 분석
   getMaterialCostAnalysis: tenantRequiredProcedure
     .input(z.object({ startDate: z.string().optional(), endDate: z.string().optional() }))
     .query(async ({ input, ctx }) => {
-      const { getMaterialCostAnalysis } = await import("../../db/batchCostAnalysis");
-      return await getMaterialCostAnalysis({ startDate: input.startDate ? new Date(input.startDate) : undefined, endDate: input.endDate ? new Date(input.endDate) : undefined }, ctx.tenantId ?? undefined);
+      const { getMaterialCostAnalysis } = await import("../../db/production/batchCostAnalysis");
+      return await getMaterialCostAnalysis({ startDate: input.startDate ? new Date(input.startDate) : undefined, endDate: input.endDate ? new Date(input.endDate) : undefined }, ctx.tenantId);
     }),
 
   // 배치 원가율 계산
   getCostRate: workerProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
-      const { calculateBatchCost } = await import("../../db/batchCostCalculation");
-      return await calculateBatchCost(input.batchId, ctx.tenantId!);
+      const { calculateBatchCost } = await import("../../db/production/batchCostCalculation");
+      return await calculateBatchCost(input.batchId, ctx.tenantId);
     }),
 });

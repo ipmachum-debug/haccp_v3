@@ -1,6 +1,6 @@
 import {mysqlTable,  bigint, varchar, text, date, timestamp, mysqlEnum, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
-import { users } from "../schema_main";
+import { tenants } from './schema_main';
+import { users } from "./schema_main";
 
 /**
  * 일반위생관리 체크리스트

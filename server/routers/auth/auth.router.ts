@@ -3,14 +3,13 @@ import { publicProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { lt, or, eq, sql } from "drizzle-orm";
-import { users, tenants } from "../../../drizzle/schema_main";
+import { users, tenants } from "../../../drizzle/schema/schema_main";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "../../_core/cookies";
 import crypto from "crypto";
 import { getDb, getUserByEmail } from "../../db";
 import { loginUser as localLoginUser, hashPassword } from "../../localAuth";
 import { sendPasswordResetEmail } from "../../_core/email";
-import { users, tenants } from "../../../drizzle/schema_main";
 
 // 데모 계정 이메일 (상수)
 const DEMO_EMAIL = "demo@haccpone.com";
@@ -21,7 +20,7 @@ export const authRouter = router({
 
       // 로그인한 사용자의 경우 기본 즐겨찾기 자동 생성
       if (user) {
-        const { createDefaultFavorites } = await import("../../db/favorites");
+        const { createDefaultFavorites } = await import("../../db/system/favorites");
         try { await createDefaultFavorites(user.id, (user as any).tenantId); } catch (e) { console.error("[auth.me] Failed to create default favorites:", e); }
       }
 

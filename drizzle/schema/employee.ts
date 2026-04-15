@@ -1,5 +1,5 @@
 import {mysqlTable, varchar, timestamp, text, mysqlEnum,  bigint, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 종사자(직원) 테이블

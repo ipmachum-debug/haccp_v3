@@ -335,7 +335,7 @@ function ProcessGroupFormDialog({
                       </div>
                       <Badge variant="outline" className="text-xs">{eq.type}</Badge>
                       {form.selectedEquipmentIds.includes(eq.id) && (
-                        <Badge className="bg-blue-600 text-xs">
+                        <Badge className="bg-blue-600 text-white text-xs border-transparent">
                           #{form.selectedEquipmentIds.indexOf(eq.id) + 1}
                         </Badge>
                       )}
@@ -433,7 +433,7 @@ function ProcessGroupFormDialog({
                                 </div>
                               </div>
                               {selectedProductIds.includes(product.id) && (
-                                <Badge className="bg-green-600 text-[10px] px-1.5 py-0">매핑됨</Badge>
+                                <Badge className="bg-green-600 text-white text-[10px] px-1.5 py-0 border-transparent">매핑됨</Badge>
                               )}
                             </label>
                           ))}

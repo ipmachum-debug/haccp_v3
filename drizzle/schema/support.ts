@@ -1,7 +1,7 @@
 /**
  * support.ts - 문의 게시판 (Support Tickets) 스키마
  */
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import {
   mysqlTable, bigint, varchar, text, timestamp,
   mysqlEnum, index, int, tinyint

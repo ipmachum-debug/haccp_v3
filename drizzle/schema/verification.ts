@@ -11,7 +11,7 @@ import {
   varchar,
   index,
 } from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * HACCP 검증 시스템 (HACCP 원칙 6)

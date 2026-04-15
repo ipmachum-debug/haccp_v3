@@ -1,4 +1,4 @@
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import {
   mysqlTable, bigint, varchar, decimal, text, timestamp, date,
   mysqlEnum, index, unique, int, tinyint

@@ -1,0 +1,367 @@
+import { getDb } from "../connection";
+import { hBatches, hProductionLogs } from "../../../drizzle/schema/schema_main";
+import { eq, and, desc, sql, between } from "drizzle-orm";
+
+/**
+ * 배치 목록 조회
+ */
+export async function listBatches(params?: {
+  siteId?: number;
+  productId?: number;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  limit?: number;
+  offset?: number;
+}, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const conditions: any[] = [];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId as number));
+  if (params?.siteId) conditions.push(eq(hBatches.siteId, params.siteId));
+  if (params?.productId) conditions.push(eq(hBatches.productId, params.productId));
+  if (params?.status) conditions.push(eq(hBatches.status, params.status as any));
+  if (params?.startDate && params?.endDate) {
+    conditions.push(between(hBatches.plannedDate, new Date(params.startDate), new Date(params.endDate)));
+  }
+
+  let query: any = db.select().from(hBatches);
+  if (conditions.length > 0) query = query.where(and(...conditions));
+  query = query.orderBy(desc(hBatches.createdAt));
+  if (params?.limit) query = query.limit(params.limit);
+  if (params?.offset) query = query.offset(params.offset);
+
+  return await query;
+}
+
+/**
+ * 배치 상세 조회
+ */
+export async function getBatchById(id: number, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const [batch] = await db
+    .select()
+    .from(hBatches)
+    .where(and(...[tenantId ? eq(hBatches.tenantId, tenantId as number) : undefined, eq(hBatches.id, id)].filter(Boolean) as any));
+  return batch;
+}
+
+/**
+ * 배치 생성
+ */
+export async function createBatch(data: {
+  siteId: number;
+  batchCode: string;
+  productId: number;
+  recipeId?: number;
+  plannedQuantity: string;
+  plannedDate: string;
+  lotNumber?: string;
+  expiryDate?: string;
+  notes?: string;
+  createdBy: number;
+}, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const [batch] = await db.insert(hBatches).values({
+      tenantId,
+    siteId: data.siteId,
+    batchCode: data.batchCode,
+    productId: data.productId,
+    recipeId: data.recipeId,
+    plannedQuantity: data.plannedQuantity,
+    plannedDate: data.plannedDate,
+    lotNumber: data.lotNumber,
+    expiryDate: data.expiryDate,
+    notes: data.notes,
+    status: "planned",
+    createdBy: data.createdBy
+  } as any);
+
+  return batch;
+}
+
+/**
+ * 배치 수정
+ */
+export async function updateBatch(
+  id: number,
+  data: {
+    batchCode?: string;
+    productId?: number;
+    recipeId?: number;
+    plannedQuantity?: string;
+    actualQuantity?: string;
+    plannedDate?: string;
+    lotNumber?: string;
+    expiryDate?: string;
+    notes?: string;
+    status?: string;
+  }, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  await db
+    .update(hBatches)
+    .set({
+      ...data
+    } as any)
+    .where(and(eq(hBatches.tenantId, tenantId as number), eq(hBatches.id, id)));
+  return await getBatchById(id);
+}
+
+/**
+ * 배치 삭제
+ */
+export async function deleteBatch(id: number, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  await db.delete(hBatches).where(and(eq(hBatches.tenantId, tenantId as number), eq(hBatches.id, id)));}
+
+/**
+ * 생산 시작
+ */
+export async function startBatch(id: number, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  await db
+    .update(hBatches)
+    .set({
+      status: "in_progress",
+      startTime: new Date()
+    } as any)
+    .where(and(eq(hBatches.tenantId, tenantId as number), eq(hBatches.id, id)));
+  // 생산 로그 기록
+  await db.insert(hProductionLogs).values({
+      tenantId,
+    batchId: id,
+    logTime: new Date(),
+    eventType: "batch_started",
+    description: "생산 시작"
+  } as any);
+
+  return await getBatchById(id);
+}
+
+/**
+ * 생산 완료
+ */
+export async function completeBatch(
+  id: number,
+  data: {
+    actualQuantity: string;
+    lotNumber?: string;
+    expiryDate?: string;
+    notes?: string;
+  }, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  await db
+    .update(hBatches)
+    .set({
+      status: "completed",
+      endTime: new Date(),
+      completedAt: new Date(),
+      actualQuantity: data.actualQuantity,
+      lotNumber: data.lotNumber,
+      expiryDate: data.expiryDate,
+      notes: data.notes
+    } as any)
+    .where(and(eq(hBatches.tenantId, tenantId as number), eq(hBatches.id, id)));
+  // 생산 로그 기록
+  await db.insert(hProductionLogs).values({
+      tenantId: tenantId as number,
+    batchId: id,
+    logTime: new Date(),
+    eventType: "batch_completed",
+    description: `생산 완료 (실제 수량: ${data.actualQuantity} as any)`
+  });
+
+  // ★ 배치 완료 시 SKU별 제품 재고 LOT 자동 생성
+  try {
+    const batch = await getBatchById(id);
+    if (batch && tenantId) {
+      const batchCode = (batch as any).batchCode || (batch as any).batch_code || `B${id}`;
+      const productId = (batch as any).productId || (batch as any).product_id || 0;
+      const productName = (batch as any).productName || (batch as any).product_name || "제품";
+      
+      // production_sku_output에서 SKU 실적 조회
+      const { getRawConnection } = await import("../connection");
+      const pool = await getRawConnection();
+      const [skuOutputRows] = await pool.execute(
+        `SELECT pso.sku_id, pso.quantity, ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price
+         FROM production_sku_output pso
+         JOIN product_skus ps ON pso.sku_id = ps.id
+         WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
+        [id, tenantId]
+      );
+      
+      const skuRows = skuOutputRows as any[];
+      if (skuRows.length > 0) {
+        const { createProductLotFromBatch } = await import("./productOutboundManagement");
+        for (const sku of skuRows) {
+          const skuQty = parseInt(sku.quantity) || 0;
+          if (skuQty <= 0) continue;
+          await createProductLotFromBatch({
+            batchId: id,
+            batchCode,
+            productId,
+            productName,
+            quantity: skuQty,
+            unit: sku.sales_unit || "box",
+            lotNumber: `${batchCode}-${sku.sku_code || sku.sku_id}`,
+            expiryDate: data.expiryDate,
+            userId: 0,
+            skuId: sku.sku_id,
+            skuName: sku.sku_name,
+          }, tenantId);
+        }
+        console.log(`[completeBatch] ${skuRows.length}개 SKU LOT 자동 생성 완료 (배치: ${id})`);
+      } else {
+        // SKU 실적 없으면 기존 방식 fallback
+        const { createProductLotFromBatch } = await import("./productOutboundManagement");
+        await createProductLotFromBatch({
+          batchId: id,
+          batchCode,
+          productId,
+          productName,
+          quantity: parseFloat(data.actualQuantity || "0"),
+          unit: "kg",
+          lotNumber: data.lotNumber || `PROD-${batchCode}`,
+          expiryDate: data.expiryDate,
+          userId: 0,
+        }, tenantId);
+        console.log(`[completeBatch] fallback LOT 자동 생성 완료 (배치: ${id})`);
+      }
+    }
+  } catch (err) {
+    console.error(`[completeBatch] 제품 LOT 생성 실패 (배치: ${id}):`, err);
+  }
+
+  return await getBatchById(id);
+}
+
+/**
+ * 로트 번호 자동 생성
+ */
+export async function generateLotNumber(productId: number, tenantId?: number): Promise<string> {
+  const db = await getDb();
+  if (!db) {
+    // 데이터베이스 연결 실패 시 기본값 반환
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    return `LOT-${productId}-${dateStr}-001`;
+  }
+
+  try {
+    // 오늘 날짜 기준으로 최근 로트 번호 조회
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    const prefix = `LOT-${productId}-${dateStr}-`;
+
+    const [result] = await db
+      .select({ maxLotNumber: sql<string>`MAX(${hBatches.lotNumber})` })
+      .from(hBatches)
+      .where(sql`${hBatches.lotNumber} LIKE ${prefix + "%"}`);
+
+    if (result?.maxLotNumber) {
+      // 기존 로트 번호에서 순번 추출 및 증가
+      const lastNumber = parseInt(result.maxLotNumber.split("-").pop() || "0");
+      const nextNumber = (lastNumber + 1).toString().padStart(3, "0");
+      return `${prefix}${nextNumber}`;
+    } else {
+      // 첫 번째 로트 번호
+      return `${prefix}001`;
+    }
+  } catch (error) {
+    console.error("로트 번호 생성 오류:", error);
+    // 오류 발생 시 기본값 반환
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    return `LOT-${productId}-${dateStr}-001`;
+  }
+}
+
+/**
+ * 배치 코드 자동 생성
+ */
+export async function generateBatchCode(tenantId?: number): Promise<string> {
+  const db = await getDb();
+  if (!db) {
+    // 데이터베이스 연결 실패 시 기본값 반환 (KST 기준)
+    const today = new Date();
+    const kstDate = new Date(today.getTime() + 9 * 60 * 60 * 1000);
+    const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
+    return `BATCH-${dateStr}-001`;
+  }
+
+  try {
+    // 오늘 날짜 기준으로 최근 배치 코드 조회 (KST 기준)
+    const today = new Date();
+    const kstOffset = 9 * 60; // UTC+9
+    const kstDate = new Date(today.getTime() + kstOffset * 60 * 1000);
+    const dateStr = kstDate.toISOString().slice(0, 10).replace(/-/g, "");
+    const prefix = `BATCH-${dateStr}-`;
+
+    const [result] = await db
+      .select({ maxBatchCode: sql<string>`MAX(${hBatches.batchCode})` })
+      .from(hBatches)
+      .where(sql`${hBatches.batchCode} LIKE ${prefix + "%"}`);
+
+    if (result?.maxBatchCode) {
+      // 기존 배치 코드에서 순번 추출 및 증가
+      const lastNumber = parseInt(result.maxBatchCode.split("-").pop() || "0");
+      const nextNumber = (lastNumber + 1).toString().padStart(3, "0");
+      return `${prefix}${nextNumber}`;
+    } else {
+      // 첫 번째 배치 코드
+      return `${prefix}001`;
+    }
+  } catch (error) {
+    console.error("배치 코드 생성 오류:", error);
+    // 오류 발생 시 기본값 반환
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+    return `BATCH-${dateStr}-001`;
+  }
+}
+
+/**
+ * 생산 통계 조회
+ */
+export async function getBatchStatistics(params: {
+  siteId?: number;
+  startDate: string;
+  endDate: string;
+}, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const conditions = [];
+  if (tenantId) conditions.push(eq(hProductionLogs.tenantId, tenantId as number));
+  if (params.siteId) {
+    conditions.push(eq(hBatches.siteId, params.siteId));
+  }
+  conditions.push(between(hBatches.plannedDate, params.startDate as any, params.endDate as any));
+
+  const [stats] = await db
+    .select({
+      totalBatches: sql<number>`COUNT(*)`,
+      completedBatches: sql<number>`SUM(CASE WHEN ${hBatches.status} = 'completed' THEN 1 ELSE 0 END)`,
+      inProgressBatches: sql<number>`SUM(CASE WHEN ${hBatches.status} = 'in_progress' THEN 1 ELSE 0 END)`,
+      plannedBatches: sql<number>`SUM(CASE WHEN ${hBatches.status} = 'planned' THEN 1 ELSE 0 END)`,
+      totalPlannedQuantity: sql<string>`COALESCE(SUM(${hBatches.plannedQuantity}), 0)`,
+      totalActualQuantity: sql<string>`COALESCE(SUM(${hBatches.actualQuantity}), 0)`
+    })
+    .from(hBatches)
+    .where(and(eq(hBatches.tenantId, tenantId as number), ...conditions));
+
+  return stats;
+}

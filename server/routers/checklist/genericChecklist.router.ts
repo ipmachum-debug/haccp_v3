@@ -6,8 +6,8 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
-import { hGenericChecklistRecords } from "../../../drizzle/schema_main";
-import { eq, and, desc, gte, lte, sql } from "drizzle-orm";
+import { hGenericChecklistRecords } from "../../../drizzle/schema/schema_main";
+import { eq, and, desc, gte, lte, lt, sql } from "drizzle-orm";
 import { getEffectiveTenantId } from "./_helpers";
 
 import { toKSTDate, todayKST } from "../../utils/timezone";
@@ -22,14 +22,18 @@ export const genericChecklistRouter = router({
     .query(async ({ input, ctx }) => {
       const db = await getDb();
       const tenantId = getEffectiveTenantId(ctx);
+      // ★ 2026-04-13: formDate 와 같은 날짜의 기록은 제외 (자기 자신을 pre-fill 방지)
+      //    → 사용자가 오늘 작성한 draft 가 있으면 다른 이전 기록을 불러와야 함
       const records = await db
         .select()
         .from(hGenericChecklistRecords)
         .where(and(
           eq(hGenericChecklistRecords.formType, input.formType),
-          eq((hGenericChecklistRecords as any).tenantId, tenantId)
+          eq((hGenericChecklistRecords as any).tenantId, tenantId),
+          // 오늘 날짜의 기록은 제외 (같은 날 중복 pre-fill 방지)
+          lt(hGenericChecklistRecords.formDate, input.formDate),
         ))
-        .orderBy(desc(hGenericChecklistRecords.createdAt))
+        .orderBy(desc(hGenericChecklistRecords.formDate), desc(hGenericChecklistRecords.createdAt))
         .limit(1);
       return records[0] || null;
     }),
@@ -186,13 +190,17 @@ export const genericChecklistRouter = router({
 
       if (input.action === "approve") {
         // 배치 검토 시 h_batches 상태를 under_review로 변경
-        const reqRows: any[] = await db.execute(sql`
+        // ★ db.execute(sql`...`) 반환값은 MySQL2 tuple [rows, fields]
+        //    → 첫 row 접근은 result[0][0] 이어야 함 (기존 result[0].field 는 undefined)
+        const reqResult: any = await db.execute(sql`
           SELECT reference_id, request_type, reference_type
           FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
-        `) as any;
-        const reqType = reqRows?.[0]?.request_type;
-        const refType = reqRows?.[0]?.reference_type;
-        const refId = reqRows?.[0]?.reference_id;
+        `);
+        const reqRowsArr: any[] = (reqResult as any)?.[0] || [];
+        const firstReq = reqRowsArr[0] || {};
+        const reqType = firstReq.request_type;
+        const refType = firstReq.reference_type;
+        const refId = firstReq.reference_id;
         if (reqType === 'batch_production' && refType === 'batch' && refId) {
           await db.execute(sql`
             UPDATE h_batches SET status = 'under_review', updated_at = NOW()
@@ -207,13 +215,15 @@ export const genericChecklistRouter = router({
         `);
         return { success: true, message: "검토가 완료되었습니다. 최종 승인 대기 중입니다." };
       } else {
-        const rows: any[] = await db.execute(sql`
+        const rejResult: any = await db.execute(sql`
           SELECT reference_id, request_type, reference_type
           FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
-        `) as any;
-        const refId = rows?.[0]?.reference_id;
-        const reqType = rows?.[0]?.request_type;
-        const refType = rows?.[0]?.reference_type;
+        `);
+        const rejRowsArr: any[] = (rejResult as any)?.[0] || [];
+        const firstRej = rejRowsArr[0] || {};
+        const refId = firstRej.reference_id;
+        const reqType = firstRej.request_type;
+        const refType = firstRej.reference_type;
         if (refId) {
           if (reqType === 'batch_production' && refType === 'batch') {
             // 배치 반려: planned 상태로 되돌림
@@ -248,35 +258,51 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
 
-      const rows: any[] = await db.execute(sql`
+      // ★ CRITICAL FIX: db.execute(sql`...`) 반환값은 [rows, fields] 튜플
+      //    기존 코드 rows?.[0]?.reference_id 는 rows 배열에 .reference_id 접근 → 항상 undefined
+      //    → 배치 승인 시 h_batches 상태 업데이트가 한 번도 실행되지 않았음
+      //    → 캘린더에 '계획(planned)' 으로 유지되는 근본 원인
+      const execResult: any = await db.execute(sql`
         SELECT reference_id, request_type, reference_type
         FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
-      `) as any;
-      const refId = rows?.[0]?.reference_id;
-      const requestType = rows?.[0]?.request_type;
-      const referenceType = rows?.[0]?.reference_type;
+      `);
+      const rawRows: any[] = (execResult as any)?.[0] || [];
+      const firstRow = rawRows[0] || {};
+      const refId = firstRow.reference_id;
+      const requestType = firstRow.request_type;
+      const referenceType = firstRow.reference_type;
+
+      console.log(
+        `[approveChecklist] 시작: approvalRequestId=${input.approvalRequestId}, ` +
+          `action=${input.action}, requestType=${requestType}, referenceType=${referenceType}, refId=${refId}`,
+      );
 
       if (input.action === "approve") {
         if (refId) {
           if (requestType === 'batch_production' && referenceType === 'batch') {
-            // 배치 승인: h_batches 상태를 'approved'로 변경
+            // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
             await db.execute(sql`
-              UPDATE h_batches SET status = 'approved', updated_at = NOW()
+              UPDATE h_batches
+              SET status = 'approved',
+                  end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
+                  completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
+                  updated_at = NOW()
               WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
             `);
             console.log(`[approveChecklist] 배치 #${refId} 상태 → approved`);
 
             // 배치 승인 시 생산일지 갱신
             try {
-              const { autoRegenerateProductionDaily } = await import("../../lib/autoProductionDaily");
-              const batchResult: any[] = await db.execute(sql`
+              const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
+              const batchExec: any = await db.execute(sql`
                 SELECT planned_date FROM h_batches WHERE id = ${refId}
-              `) as any;
-              const bRow = batchResult?.[0];
+              `);
+              const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
+              const bRow = batchRowsArr[0];
               const bDate = bRow?.planned_date
                 ? toKSTDate(new Date(bRow.planned_date))
                 : todayKST();
-              await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+              await autoRegenerateProductionDaily(ctx.tenantId, bDate);
             } catch (pdErr) {
               console.error(`[approveChecklist] 생산일지 갱신 실패:`, pdErr);
             }
@@ -351,34 +377,42 @@ export const genericChecklistRouter = router({
       for (const id of input.approvalRequestIds) {
         try {
           // 승인 요청 정보 조회 (reference_id, request_type, reference_type)
-          const rows: any[] = await db.execute(sql`
+          // ★ CRITICAL FIX: db.execute(sql`...`) 튜플 언랩
+          const execResult: any = await db.execute(sql`
             SELECT reference_id, request_type, reference_type
             FROM h_approval_requests WHERE id = ${id} AND tenant_id = ${ctx.tenantId}
-          `) as any;
-          const refId = rows?.[0]?.reference_id;
-          const requestType = rows?.[0]?.request_type;
-          const referenceType = rows?.[0]?.reference_type;
+          `);
+          const rawRows: any[] = (execResult as any)?.[0] || [];
+          const firstRow = rawRows[0] || {};
+          const refId = firstRow.reference_id;
+          const requestType = firstRow.request_type;
+          const referenceType = firstRow.reference_type;
 
           if (refId) {
             if (requestType === 'batch_production' && referenceType === 'batch') {
-              // 배치 승인: h_batches 상태를 'approved'로 변경
+              // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
               await db.execute(sql`
-                UPDATE h_batches SET status = 'approved', updated_at = NOW()
+                UPDATE h_batches
+                SET status = 'approved',
+                    end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
+                    completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
+                    updated_at = NOW()
                 WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
               `);
               console.log(`[batchApproveChecklists] 배치 #${refId} 상태 → approved`);
 
               // 배치 승인 시 생산일지(production_daily) 자동 갱신
               try {
-                const { autoRegenerateProductionDaily } = await import("../../lib/autoProductionDaily");
-                const batchResult: any[] = await db.execute(sql`
+                const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
+                const batchExec: any = await db.execute(sql`
                   SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
-                `) as any;
-                const bRow = batchResult?.[0];
+                `);
+                const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
+                const bRow = batchRowsArr[0];
                 const bDate = bRow?.planned_date
                   ? toKSTDate(new Date(bRow.planned_date))
                   : todayKST();
-                await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+                await autoRegenerateProductionDaily(ctx.tenantId, bDate);
                 console.log(`[batchApproveChecklists] 생산일지 갱신 완료 (배치 #${refId})`);
               } catch (pdErr) {
                 console.error(`[batchApproveChecklists] 생산일지 갱신 실패:`, pdErr);
@@ -410,35 +444,49 @@ export const genericChecklistRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
-      const rows: any[] = await db.execute(sql`
+      // ★ CRITICAL FIX: db.execute(sql`...`) 반환값은 [rows, fields] 튜플
+      //    첫 row 접근은 result[0][0] 이어야 함
+      const execResult: any = await db.execute(sql`
         SELECT reference_id, status, request_type, reference_type
         FROM h_approval_requests WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
-      `) as any;
-      const refId = rows?.[0]?.reference_id;
-      const currentStatus = rows?.[0]?.status;
-      const requestType = rows?.[0]?.request_type;
-      const referenceType = rows?.[0]?.reference_type;
+      `);
+      const rawRows: any[] = (execResult as any)?.[0] || [];
+      const firstRow = rawRows[0] || {};
+      const refId = firstRow.reference_id;
+      const currentStatus = firstRow.status;
+      const requestType = firstRow.request_type;
+      const referenceType = firstRow.reference_type;
+
+      console.log(
+        `[approveWithAutoReview] 시작: approvalRequestId=${input.approvalRequestId}, ` +
+          `requestType=${requestType}, referenceType=${referenceType}, refId=${refId}`,
+      );
 
       if (refId) {
         if (requestType === 'batch_production' && referenceType === 'batch') {
-          // 배치 승인: h_batches 상태를 'approved'로 변경
+          // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
           await db.execute(sql`
-            UPDATE h_batches SET status = 'approved', updated_at = NOW()
+            UPDATE h_batches
+            SET status = 'approved',
+                end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
+                completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
+                updated_at = NOW()
             WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
           `);
           console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → approved`);
 
           // 배치 승인 시 생산일지(production_daily) 자동 갱신
           try {
-            const { autoRegenerateProductionDaily } = await import("../../lib/autoProductionDaily");
-            const batchResult: any[] = await db.execute(sql`
+            const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
+            const batchExec: any = await db.execute(sql`
               SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
-            `) as any;
-            const bRow = batchResult?.[0];
+            `);
+            const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
+            const bRow = batchRowsArr[0];
             const bDate = bRow?.planned_date
               ? toKSTDate(new Date(bRow.planned_date))
               : todayKST();
-            await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, bDate);
+            await autoRegenerateProductionDaily(ctx.tenantId, bDate);
             console.log(`[approveWithAutoReview] 생산일지 갱신 완료 (배치 #${refId})`);
           } catch (pdErr) {
             console.error(`[approveWithAutoReview] 생산일지 갱신 실패:`, pdErr);
@@ -473,8 +521,8 @@ export const genericChecklistRouter = router({
     .input(z.object({ date: z.string() }))
     .mutation(async ({ input, ctx }) => {
       try {
-        const { autoRegenerateProductionDaily } = await import("../../lib/autoProductionDaily");
-        await autoRegenerateProductionDaily(ctx.tenantId ?? undefined, input.date);
+        const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
+        await autoRegenerateProductionDaily(ctx.tenantId, input.date);
         return { success: true, message: `${input.date} 생산일지 재생성 완료` };
       } catch (err: any) {
         console.error("[regenerateProductionDaily]", err);

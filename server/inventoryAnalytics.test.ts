@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { calculateInventoryTurnover, calculateEfficiencyMetrics } from "./db/inventoryAnalytics";
-import { analyzePriceTrend, recommendPurchaseTiming, recommendAlternativeSuppliers, generateCostSavingProposal } from "./db/costSavingAI";
+import { calculateInventoryTurnover, calculateEfficiencyMetrics } from "./db/inventory/inventoryAnalytics";
+import { analyzePriceTrend, recommendPurchaseTiming, recommendAlternativeSuppliers, generateCostSavingProposal } from "./db/production/costSavingAI";
 
 describe("Inventory Analytics", () => {
   it("should calculate inventory turnover", async () => {
