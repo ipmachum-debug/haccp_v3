@@ -14,6 +14,12 @@ function getEffectiveTenantId(ctx: any): number {
   return tenantId;
 }
 
+// ★ 2026-04-15: account_category_id 컬럼 존재 여부 프로세스 단위 캐시
+//   이전: 매 요청마다 try { full query } catch { fallback query } → 컬럼이 없으면
+//         모든 list 호출이 2회 왕복 → 누적 10초 로딩
+//   현재: 첫 호출에서 한 번 확인한 뒤 결과를 메모이즈 → 이후 모든 호출이 1회 왕복
+let _hasAccountCategoryIdColumn: boolean | null = null;
+
 export const accountingAccountsRouter = router({
   /**
    * 계정 과목 목록 조회
@@ -30,51 +36,66 @@ export const accountingAccountsRouter = router({
         // ✅ P0 FIX: tenantId 강제 필터
         const tenantId = getEffectiveTenantId(ctx);
         const conditions = [eq(accountingAccounts.tenantId, tenantId)];
-        
+
         if (input.category) {
           conditions.push(eq(accountingAccounts.category, input.category));
         }
-        
+
         if (input.isActive) {
           conditions.push(eq(accountingAccounts.isActive, input.isActive));
         }
-        
+
         const db = await getDb();
-        try {
+
+        // ★ 컬럼 존재 여부가 아직 판정되지 않은 경우에만 probe (첫 요청 1회)
+        if (_hasAccountCategoryIdColumn === null) {
+          try {
+            await db
+              .select({ id: accountingAccounts.id })
+              .from(accountingAccounts)
+              .where(eq(accountingAccounts.accountCategoryId, -1))
+              .limit(1);
+            _hasAccountCategoryIdColumn = true;
+            console.log('[accountingAccounts.list] account_category_id 컬럼 확인 완료 → 정상 경로 사용');
+          } catch (probeErr: any) {
+            if (probeErr.message?.includes('account_category_id') || probeErr.message?.includes('Unknown column')) {
+              _hasAccountCategoryIdColumn = false;
+              console.warn('[accountingAccounts.list] account_category_id 컬럼 부재 → fallback 고정 (마이그레이션 필요: scripts/migrate-account-category-fk.ts)');
+            } else {
+              // 다른 에러는 그냥 다시 throw
+              throw probeErr;
+            }
+          }
+        }
+
+        if (_hasAccountCategoryIdColumn) {
           const accounts = await db
             .select()
             .from(accountingAccounts)
             .where(and(...conditions))
             .orderBy(accountingAccounts.code);
-          
           return accounts;
-        } catch (dbError: any) {
-          // account_category_id 컬럼이 없는 경우 컬럼 제외하고 재시도
-          if (dbError.message?.includes('account_category_id') || dbError.message?.includes('Unknown column')) {
-            console.warn('[accountingAccounts.list] account_category_id column not found, using fallback query');
-            const accounts = await db
-              .select({
-                id: accountingAccounts.id,
-                tenantId: accountingAccounts.tenantId,
-                category: accountingAccounts.category,
-                code: accountingAccounts.code,
-                systemCode: accountingAccounts.systemCode,
-                name: accountingAccounts.name,
-                parentId: accountingAccounts.parentId,
-                description: accountingAccounts.description,
-                isActive: accountingAccounts.isActive,
-                createdBy: accountingAccounts.createdBy,
-                createdAt: accountingAccounts.createdAt,
-                updatedAt: accountingAccounts.updatedAt,
-              })
-              .from(accountingAccounts)
-              .where(and(...conditions))
-              .orderBy(accountingAccounts.code);
-            
-            // accountCategoryId를 null로 추가
-            return accounts.map((acc: any) => ({ ...acc, accountCategoryId: null }));
-          }
-          throw dbError;
+        } else {
+          // 컬럼 부재 확정 — 최소 컬럼만 선택
+          const accounts = await db
+            .select({
+              id: accountingAccounts.id,
+              tenantId: accountingAccounts.tenantId,
+              category: accountingAccounts.category,
+              code: accountingAccounts.code,
+              systemCode: accountingAccounts.systemCode,
+              name: accountingAccounts.name,
+              parentId: accountingAccounts.parentId,
+              description: accountingAccounts.description,
+              isActive: accountingAccounts.isActive,
+              createdBy: accountingAccounts.createdBy,
+              createdAt: accountingAccounts.createdAt,
+              updatedAt: accountingAccounts.updatedAt,
+            })
+            .from(accountingAccounts)
+            .where(and(...conditions))
+            .orderBy(accountingAccounts.code);
+          return accounts.map((acc: any) => ({ ...acc, accountCategoryId: null }));
         }
       } catch (error: any) {
         console.error('[accountingAccounts.list] Error:', error.message, error.stack);
