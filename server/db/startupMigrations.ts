@@ -832,6 +832,11 @@ async function runSmokeTest(conn: any) {
     "h_batches", "h_ccp_instances", "h_ccp_form_records",
     // AI
     "ai_chat_history", "ai_alerts",
+    // 재고/매입 (createPurchase 가 의존 — 없으면 입고 확정 실패)
+    // ★ 2026-04-15: 이 테이블들은 ensure 하지 않음 (Drizzle 스키마와 정확히 일치 안 할 리스크)
+    //   smoke test 로만 감지 → 실패 시 PM2 로그에 노출되어 운영자가 수동 복구
+    "h_inventory_lots", "h_material_inspections", "h_stock_alerts",
+    "material_ledger_daily", "categories",
   ];
 
   const results: Array<{ table: string; ok: boolean; error?: string }> = [];

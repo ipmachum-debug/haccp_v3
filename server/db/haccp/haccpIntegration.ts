@@ -64,105 +64,121 @@ export async function createPurchase(params: {
   } as any);
 
   // 원재료 ID가 있으면 h_inventory_lots 및 h_material_inspections 자동 생성
+  // ★ 2026-04-15: HACCP 통합 블록 전체를 try/catch 로 보호
+  //   하위 테이블(h_inventory_lots, h_material_inspections, categories, h_stock_alerts)
+  //   중 하나라도 없으면 전체 입고가 실패하던 문제.
+  //   이제는 메인 매입전표(accounting_purchases) 는 이미 insert 완료된 상태이므로
+  //   HACCP 통합이 실패해도 로그만 남기고 계속 진행.
   if (resolvedMaterialId) {
-    const { hInventoryLots, hMaterialInspections, hMaterials } = await import("../../../drizzle/schema");
-    const { eq } = await import("drizzle-orm");
-    
-    // 원재료 정보 조회 (unit 필드 필요)
-    const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, resolvedMaterialId));
-    if (!material) {
-      console.warn(`[createPurchase] Material not found: ${resolvedMaterialId}, skipping HACCP integration`);
-      // 원재료를 찾지 못하면 HACCP 연동 건너뛰기 (매입 기록은 이미 생성됨)
-    } else {
-    
-    // LOT 번호 자동 생성 (형식: MAT-YYYYMMDD-순번)
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
-    const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-    const lotNumber = `MAT-${dateStr}-${randomSuffix}`;
-    
-    // 포장규격 × 수량 = 총 재고량
-    const totalInventoryQuantity = (params.packagingSize || 1) * params.quantity;
-    
-    // h_inventory_lots에 LOT 생성
-    const [lot] = await db.insert(hInventoryLots).values({
-      tenantId: tenantId,
-      lotNumber,
-      materialId: resolvedMaterialId,
-      quantity: totalInventoryQuantity,
-      availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
-      unit: material.unit, // 원재료의 단위 사용
-      receiptDate: params.transactionDate,
-      expiryDate: params.expiryDate || null,
-      productionDate: params.productionDate || null,
-      status: "available", // enum: available, reserved, used, expired, disposed
-    } as any);
-    
-    // h_material_inspections에 육안검사일지 자동 생성
-    // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
-    await db.insert(hMaterialInspections).values({
-      tenantId: tenantId,
-      receivingId: purchase.insertId as number, // accounting_purchases.id
-      inspectionDate: params.transactionDate,
-      inspectorId: params.createdBy,
-      status: "pending", // enum: pending, passed, failed, conditional - 초기 상태는 pending
-      result: "pass", // enum: pass, fail, conditional
-      notes: params.memo || null
-    } as any);
-    
-    // 카테고리의 alertDays 조회 및 알람 자동 생성
-    const { categories, hStockAlerts } = await import("../../../drizzle/schema");
-    // eslint-disable-next-line no-unreachable
-    
-    // 원재료의 categoryId 조회 (이미 조회한 material 변수 사용)
-    if (material?.categoryId) {
-      const [category] = await db.select().from(categories).where(eq(categories.id, material.categoryId));
-      
-      // alertDays > 0이면 알람 생성
-      if (category && category.alertDays && category.alertDays > 0) {
-        const alerts: any[] = [];
-        
-        // 소비기한 기반 알람 (expiryDate - alertDays)
-        if (params.expiryDate) {
-          const expiryDate = new Date(params.expiryDate);
-          const alertDate = new Date(expiryDate);
-          alertDate.setDate(alertDate.getDate() - category.alertDays);
-          
-          alerts.push({
-            tenantId: tenantId,
-            siteId: 1,
-            lotId: lot.insertId as number,
-            alertType: "expiring_soon",
-            alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
-            resolved: 0,
-            notes: `소비기한 ${category.alertDays}일 전 알람`
-          });
-        }
-        
-        // 생산일자 기반 알람 (productionDate + alertDays)
-        if (params.productionDate) {
-          const productionDate = new Date(params.productionDate);
-          const alertDate = new Date(productionDate);
-          alertDate.setDate(alertDate.getDate() + category.alertDays);
-          
-          alerts.push({
-            tenantId: tenantId,
-            siteId: 1,
-            lotId: lot.insertId as number,
-            alertType: "expiring_soon",
-            alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
-            resolved: 0,
-            notes: `생산일자 ${category.alertDays}일 후 알람`
-          });
-        }
-        
-        // 알람 일괄 삽입
-        if (alerts.length > 0) {
-          await db.insert(hStockAlerts).values(alerts);
-        }
+    try {
+      const { hInventoryLots, hMaterialInspections, hMaterials } = await import("../../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+
+      // 원재료 정보 조회 (unit 필드 필요)
+      const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, resolvedMaterialId));
+      if (!material) {
+        console.warn(`[createPurchase] Material not found: ${resolvedMaterialId}, skipping HACCP integration`);
+        // 원재료를 찾지 못하면 HACCP 연동 건너뛰기 (매입 기록은 이미 생성됨)
+      } else {
+
+      // LOT 번호 자동 생성 (형식: MAT-YYYYMMDD-순번)
+      const today = new Date();
+      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
+      const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+      const lotNumber = `MAT-${dateStr}-${randomSuffix}`;
+
+      // 포장규격 × 수량 = 총 재고량
+      const totalInventoryQuantity = (params.packagingSize || 1) * params.quantity;
+
+      // h_inventory_lots에 LOT 생성
+      const [lot] = await db.insert(hInventoryLots).values({
+        tenantId: tenantId,
+        lotNumber,
+        materialId: resolvedMaterialId,
+        quantity: totalInventoryQuantity,
+        availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
+        unit: material.unit, // 원재료의 단위 사용
+        receiptDate: params.transactionDate,
+        expiryDate: params.expiryDate || null,
+        productionDate: params.productionDate || null,
+        status: "available", // enum: available, reserved, used, expired, disposed
+      } as any);
+
+      // h_material_inspections에 육안검사일지 자동 생성
+      // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
+      try {
+        await db.insert(hMaterialInspections).values({
+          tenantId: tenantId,
+          receivingId: purchase.insertId as number, // accounting_purchases.id
+          inspectionDate: params.transactionDate,
+          inspectorId: params.createdBy,
+          status: "pending", // enum: pending, passed, failed, conditional - 초기 상태는 pending
+          result: "pass", // enum: pass, fail, conditional
+          notes: params.memo || null
+        } as any);
+      } catch (inspErr: any) {
+        console.warn(`[createPurchase] 육안검사일지 생성 실패 (비치명):`, inspErr?.message || inspErr);
       }
+
+      // 카테고리의 alertDays 조회 및 알람 자동 생성
+      try {
+        const { categories, hStockAlerts } = await import("../../../drizzle/schema");
+        // 원재료의 categoryId 조회 (이미 조회한 material 변수 사용)
+        if (material?.categoryId) {
+          const [category] = await db.select().from(categories).where(eq(categories.id, material.categoryId));
+
+          // alertDays > 0이면 알람 생성
+          if (category && category.alertDays && category.alertDays > 0) {
+            const alerts: any[] = [];
+
+            // 소비기한 기반 알람 (expiryDate - alertDays)
+            if (params.expiryDate) {
+              const expiryDate = new Date(params.expiryDate);
+              const alertDate = new Date(expiryDate);
+              alertDate.setDate(alertDate.getDate() - category.alertDays);
+
+              alerts.push({
+                tenantId: tenantId,
+                siteId: 1,
+                lotId: lot.insertId as number,
+                alertType: "expiring_soon",
+                alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
+                resolved: 0,
+                notes: `소비기한 ${category.alertDays}일 전 알람`
+              });
+            }
+
+            // 생산일자 기반 알람 (productionDate + alertDays)
+            if (params.productionDate) {
+              const productionDate = new Date(params.productionDate);
+              const alertDate = new Date(productionDate);
+              alertDate.setDate(alertDate.getDate() + category.alertDays);
+
+              alerts.push({
+                tenantId: tenantId,
+                siteId: 1,
+                lotId: lot.insertId as number,
+                alertType: "expiring_soon",
+                alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
+                resolved: 0,
+                notes: `생산일자 ${category.alertDays}일 후 알람`
+              });
+            }
+
+            // 알람 일괄 삽입
+            if (alerts.length > 0) {
+              await db.insert(hStockAlerts).values(alerts);
+            }
+          }
+        }
+      } catch (alertErr: any) {
+        console.warn(`[createPurchase] 재고 알람 생성 실패 (비치명):`, alertErr?.message || alertErr);
+      }
+      } // close else block for material found check
+    } catch (haccpErr: any) {
+      // HACCP 통합 전체 실패 — 매입전표는 이미 생성됨, 나머지는 best-effort
+      console.warn(`[createPurchase] HACCP 통합 실패 (매입전표는 생성됨, materialId=${resolvedMaterialId}):`, haccpErr?.message || haccpErr);
     }
-    } // close else block for material found check
   }
 
   // === 원료수불부 입고 연동 ===
