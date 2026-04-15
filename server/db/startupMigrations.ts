@@ -703,7 +703,7 @@ async function ensureWorkflowTables(conn: any) {
         request_type VARCHAR(50) NOT NULL,
         reference_type VARCHAR(50) NULL,
         reference_id BIGINT NULL,
-        title VARCHAR(500) NOT NULL,
+        title VARCHAR(200) NOT NULL,
         description TEXT,
         status ENUM('pending_review','pending_approval','pending','approved','rejected','cancelled') DEFAULT 'pending_review',
         priority ENUM('low','medium','high','urgent') DEFAULT 'medium',
