@@ -173,9 +173,19 @@ export default function AccountingAccounts() {
   // P6: 성능 개선 — 공유 데이터를 부모에서 한 번만 조회하고 자식 탭에 전달
   // 이전: AccountStructureTab + AccountListTab 각각 3개 API 호출 (list, getAll, getStats) = 6개 중복 호출
   // 이후: 부모에서 3개 API 호출 → props로 전달
-  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery();
-  const { data: allAccounts = [], isLoading: accLoading } = trpc.accountingAccounts.list.useQuery({});
-  const { data: stats } = trpc.accountingAccounts.getStats.useQuery();
+  // ★ 2026-04-15: staleTime 60s 추가 — 페이지 재진입 / 탭 전환 시 캐시 사용 (즉시 렌더)
+  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
+  const { data: allAccounts = [], isLoading: accLoading } = trpc.accountingAccounts.list.useQuery(
+    {},
+    { staleTime: 60_000 }
+  );
+  const { data: stats } = trpc.accountingAccounts.getStats.useQuery(
+    undefined,
+    { staleTime: 60_000 }
+  );
 
   return (
     <DashboardLayout>
