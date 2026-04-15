@@ -77,7 +77,28 @@ function validateEnvVars(): void {
 async function startServer() {
   // ★ ESM 번들에서 dotenv/config import가 lazy init될 수 있으므로
   //    startServer 진입 시 명시적으로 .env 로드 (override=true 로 빈값 덮어쓰기)
-  dotenvConfig({ path: path.resolve(process.cwd(), ".env"), override: true });
+  // ★ 2026-04-15: PM2 CWD 불일치 대비 — 여러 경로 순회하여 첫 번째 발견 파일 로드
+  const fs = await import("fs");
+  const candidatePaths = [
+    path.resolve(process.cwd(), ".env"),
+    "/root/haccp_v3/.env",
+    "/root/haccp_v3/webapp/.env",
+    "/root/haccpone-v2/.env",
+    "/home/user/haccp_v3/.env",
+    "/var/www/haccp_v3/.env",
+  ];
+  let loadedFrom: string | null = null;
+  for (const p of candidatePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        dotenvConfig({ path: p, override: true });
+        loadedFrom = p;
+        break;
+      }
+    } catch { /* ignore per-path */ }
+  }
+  console.log(`[startServer] dotenv loaded from: ${loadedFrom ?? "(none — process env only)"}`);
+
   validateEnvVars();
 
   // AI/LLM 진단 출력 (서버 로그에서 확인 가능)

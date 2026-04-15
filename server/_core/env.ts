@@ -36,19 +36,38 @@ function parseEnvFile(content: string): Record<string, string> {
 }
 
 function findApiKey(): string {
+  return findApiKeyWithDiagnostics().key;
+}
+
+/**
+ * findApiKey + 진단 정보를 함께 반환
+ * - 에러 응답에 포함시켜 사용자가 root cause 를 즉시 확인할 수 있도록
+ */
+export function findApiKeyWithDiagnostics(): {
+  key: string;
+  source: string;
+  checked: Array<{ path: string; exists: boolean; hasKey: boolean }>;
+  processEnv: { OPENAI: boolean; BUILT_IN_FORGE: boolean; FORGE: boolean };
+} {
+  const processEnv = {
+    OPENAI: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0),
+    BUILT_IN_FORGE: !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim().length > 0),
+    FORGE: !!(process.env.FORGE_API_KEY && process.env.FORGE_API_KEY.trim().length > 0),
+  };
+
   // 1. process.env 에서 먼저 확인 (빈 문자열은 무시)
-  const envCandidates = [
-    process.env.BUILT_IN_FORGE_API_KEY,
-    process.env.OPENAI_API_KEY,
-    process.env.FORGE_API_KEY,
-  ];
-  for (const v of envCandidates) {
-    if (v && v.trim().length > 0) {
-      return v.trim();
-    }
+  if (processEnv.BUILT_IN_FORGE) {
+    return { key: process.env.BUILT_IN_FORGE_API_KEY!.trim(), source: "process.env.BUILT_IN_FORGE_API_KEY", checked: [], processEnv };
+  }
+  if (processEnv.OPENAI) {
+    return { key: process.env.OPENAI_API_KEY!.trim(), source: "process.env.OPENAI_API_KEY", checked: [], processEnv };
+  }
+  if (processEnv.FORGE) {
+    return { key: process.env.FORGE_API_KEY!.trim(), source: "process.env.FORGE_API_KEY", checked: [], processEnv };
   }
 
   // 2. .env 파일 직접 파싱 (여러 경로 시도)
+  const checked: Array<{ path: string; exists: boolean; hasKey: boolean }> = [];
   try {
     const fs = require("fs");
     const path = require("path");
@@ -61,20 +80,25 @@ function findApiKey(): string {
       "/var/www/haccp_v3/.env",
     ];
     for (const envPath of searchPaths) {
+      const entry: { path: string; exists: boolean; hasKey: boolean } = { path: envPath, exists: false, hasKey: false };
       try {
         if (fs.existsSync(envPath)) {
+          entry.exists = true;
           const content = fs.readFileSync(envPath, "utf-8");
           const parsed = parseEnvFile(content);
           const key = parsed.BUILT_IN_FORGE_API_KEY || parsed.OPENAI_API_KEY || parsed.FORGE_API_KEY;
           if (key && key.length > 0) {
-            return key;
+            entry.hasKey = true;
+            checked.push(entry);
+            return { key, source: envPath, checked, processEnv };
           }
         }
       } catch { /* ignore per-path */ }
+      checked.push(entry);
     }
   } catch { /* ignore fs/path errors */ }
 
-  return "";
+  return { key: "", source: "none", checked, processEnv };
 }
 
 /** 진단용 — 서버 시작 시 1회 호출하여 상태 출력 */
