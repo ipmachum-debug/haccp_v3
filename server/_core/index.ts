@@ -108,9 +108,27 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   
-  // Rate Limiting - 기본 IP당 분당 200회 제한
+  // Rate Limiting
+  // ★ 2026-04-15 조정: SPA tRPC 부하를 고려하여 한계 대폭 상향
+  //   이전: 200 req/min → CCP 모니터링 같은 다중 쿼리 페이지에서 정상 사용자도 429
+  //   현재: 인증된 /trpc/* 는 제외, 그 외는 1200 req/min (DoS 방어용)
   const rateMap = new Map<string, { count: number; resetAt: number }>();
+  const RATE_LIMIT_MAX = 1200; // req per minute per IP
   app.use((req, res, next) => {
+    // 인증된 API 경로는 rate limit 스킵 (세션 기반 인증이 이미 보호)
+    // 정적 에셋(assets, @vite, node_modules)도 스킵
+    const p = req.path || "";
+    if (
+      p.startsWith("/trpc/") ||
+      p.startsWith("/api/") ||
+      p.startsWith("/assets/") ||
+      p.startsWith("/@") ||
+      p.startsWith("/node_modules/") ||
+      p.startsWith("/src/") ||
+      p === "/favicon.ico"
+    ) {
+      return next();
+    }
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const entry = rateMap.get(ip);
@@ -118,7 +136,7 @@ async function startServer() {
       rateMap.set(ip, { count: 1, resetAt: now + 60000 });
     } else {
       entry.count++;
-      if (entry.count > 200) {
+      if (entry.count > RATE_LIMIT_MAX) {
         res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
         return;
       }
