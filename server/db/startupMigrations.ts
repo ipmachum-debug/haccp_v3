@@ -267,6 +267,36 @@ async function ensureAITables(conn: any) {
 }
 
 /**
+ * 계정 카테고리(상위계정 그룹) 테이블 자동 생성
+ * ★ 2026-04-15: account_categories 테이블 미존재 시 계정 과목 관리 페이지가
+ *   매 요청마다 에러 → 폴백 → 10초 로딩 문제 발생
+ */
+async function ensureAccountCategoriesTable(conn: any) {
+  try {
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS account_categories (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(20) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        major_category VARCHAR(50) NOT NULL,
+        minor_category VARCHAR(50) DEFAULT NULL,
+        description TEXT DEFAULT NULL,
+        is_active TINYINT NOT NULL DEFAULT 1,
+        tenant_id INT DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tenant_active (tenant_id, is_active),
+        INDEX idx_major_category (major_category),
+        INDEX idx_code (code)
+      )
+    `);
+    console.log("[Migration] account_categories table verified");
+  } catch (err: any) {
+    console.warn("[Migration] account_categories table creation failed:", err.message);
+  }
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -276,6 +306,7 @@ export async function runStartupMigrations() {
     
     await migratePartnersTable(conn);
     await ensureAITables(conn);
+    await ensureAccountCategoriesTable(conn);
     
     console.log("[Migration] Startup migrations completed");
   } catch (err) {
