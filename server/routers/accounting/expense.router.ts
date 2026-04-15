@@ -369,7 +369,9 @@ export const expenseRouter = router({
         postedBy: ctx.user.id,
       });
 
-      // 4. ERP AI: 대형 비용 트리거 (비동기, 실패해도 무시)
+      // 4. ERP AI: 대형 비용 트리거 (비동기)
+      // ★ 2026-04-15: 이전에는 .catch(() => {}) + 바깥 catch 까지 이중 무시 →
+      //   트리거 실패 시 관리자가 알 길 없음. 최소한 warn 로그 남기도록 수정.
       try {
         const { onLargeExpenseCreated } = await import("../../db/accounting/accountingEventTriggers");
         onLargeExpenseCreated({
@@ -379,8 +381,12 @@ export const expenseRouter = router({
           partnerName: voucher.partner_name,
           description: voucher.description,
           userId: ctx.user.id,
-        }).catch(() => {});
-      } catch { /* 무시 */ }
+        }).catch((err: any) => {
+          console.warn(`[expense.post] ERP AI 대형 비용 트리거 실패 (voucherId=${input.id}):`, err?.message || err);
+        });
+      } catch (triggerErr: any) {
+        console.warn(`[expense.post] ERP AI 트리거 import/invoke 실패 (voucherId=${input.id}):`, triggerErr?.message || triggerErr);
+      }
 
       return { success: true, journalEntryId: result.journalEntryId };
     }),

@@ -46,6 +46,9 @@ export async function fetchCompletedBatchesForMonth(
 
   const items: any[] = [];
   const seenKeys = new Set<string>();
+  // ★ 2026-04-15: 실패한 소스를 기록하여 호출자에게 부분 결과임을 알림
+  //   이전: 실패 시 조용히 empty 배열 반환 → 사용자는 "데이터 없음" 으로 오인
+  const failedSources: string[] = [];
 
   // 제품별 최신 LOT 번호 맵 조회 (매출 데이터에 LOT 없으므로 보충용)
   const lotMap = new Map<string, string>();
@@ -63,7 +66,10 @@ export async function fetchCompletedBatchesForMonth(
       const name = r.product_name;
       if (name && !lotMap.has(name)) lotMap.set(name, r.lot_number);
     }
-  } catch (e) { /* LOT 매핑 실패 시 빈 값 유지 */ }
+  } catch (e: any) {
+    // LOT 매핑 실패는 치명적이지 않음 (매출/출고 데이터의 LOT 란이 빈 값으로 표시될 뿐)
+    console.warn('[fetchCompletedBatches] LOT 매핑 실패:', e?.message || e);
+  }
 
   // 1차: 매출(accounting_sales) 데이터
   try {
@@ -100,7 +106,10 @@ export async function fetchCompletedBatchesForMonth(
         note: r.partner_name ? `거래처: ${r.partner_name}` : '',
       });
     }
-  } catch (e) { console.error('[fetchCompletedBatches] sales query error:', e); }
+  } catch (e: any) {
+    console.error('[fetchCompletedBatches] sales query error:', e);
+    failedSources.push(`매출(accounting_sales): ${e?.message || e}`);
+  }
 
   // 2차: 제품출고(h_product_outbound) 데이터 (매출에 없는 건 보충)
   try {
@@ -134,7 +143,18 @@ export async function fetchCompletedBatchesForMonth(
         note: r.partner_name ? `거래처: ${r.partner_name}` : '',
       });
     }
-  } catch (e) { console.error('[fetchCompletedBatches] outbound query error:', e); }
+  } catch (e: any) {
+    console.error('[fetchCompletedBatches] outbound query error:', e);
+    failedSources.push(`출고(h_product_outbound): ${e?.message || e}`);
+  }
+
+  // 부분 결과 플래그를 items 에 메타로 첨부 (기존 호출부는 그대로 배열 순회)
+  // 호출부가 Array.isArray 로 items 받아 사용 → 메타는 (items as any).partial 로 접근
+  if (failedSources.length > 0) {
+    console.warn(`[fetchCompletedBatches] ${failedSources.length}개 소스 실패 → 부분 결과 반환:`, failedSources.join(' | '));
+    (items as any).partial = true;
+    (items as any).failedSources = failedSources;
+  }
 
   return items;
 }
