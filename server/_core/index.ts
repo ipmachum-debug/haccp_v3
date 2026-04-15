@@ -429,12 +429,16 @@ async function startServer() {
       }
 
       // 4. 생산일지(h_daily_reports) 해당 날짜 삭제
+      // ★ 2026-04-15: 이전에는 catch (_e) {} 로 완전 무시 → 테이블 미존재/FK 제약 실패가
+      //   조용히 넘어가 데이터 중복/불일치 생김. warn 로그 남기도록 변경.
       try {
         await pool.execute(
           `DELETE FROM h_daily_reports WHERE report_date = ? AND report_type = 'production_daily' AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_daily_reports 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 5. production_sku_output 해당 날짜 삭제
       try {
@@ -442,7 +446,9 @@ async function startServer() {
           `DELETE FROM production_sku_output WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] production_sku_output 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 6. h_production_performance 해당 날짜 삭제
       try {
@@ -450,7 +456,9 @@ async function startServer() {
           `DELETE FROM h_production_performance WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_production_performance 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 7. h_production_start 해당 날짜 삭제
       try {
@@ -458,7 +466,9 @@ async function startServer() {
           `DELETE FROM h_production_start WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_production_start 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       res.json({
         success: true,

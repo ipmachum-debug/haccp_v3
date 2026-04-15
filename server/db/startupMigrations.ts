@@ -594,6 +594,39 @@ async function ensureAuthTables(conn: any) {
 }
 
 /**
+ * account_categories 테이블 확보
+ * ★ 2026-04-15: Genspark 커밋 6e808ab 에서 genspark_ai_developer 브랜치로
+ *   먼저 반영된 ensure 로직을 우리 브랜치에도 포함 (PR #23 머지 대기)
+ *   계정 구조 페이지 10초 로딩의 근본 원인이었던 테이블.
+ *
+ *   tenant_id NULL 허용 (글로벌 카테고리 지원)
+ */
+async function ensureAccountCategoriesTable(conn: any) {
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS account_categories (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(20) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        major_category VARCHAR(50) NOT NULL,
+        minor_category VARCHAR(50) DEFAULT NULL,
+        description TEXT DEFAULT NULL,
+        is_active TINYINT NOT NULL DEFAULT 1,
+        tenant_id INT DEFAULT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tenant_active (tenant_id, is_active),
+        INDEX idx_major_category (major_category),
+        INDEX idx_code (code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log("[Migration] account_categories table verified");
+  } catch (err: any) {
+    console.warn("[Migration] account_categories table creation failed:", err.message);
+  }
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -603,6 +636,7 @@ export async function runStartupMigrations() {
 
     await migratePartnersTable(conn);
     await ensureAITables(conn);
+    await ensureAccountCategoriesTable(conn);
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
 
