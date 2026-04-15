@@ -3,8 +3,8 @@ import { getPurchaseById, getSaleById } from "../haccp/haccpIntegration";
 import { getCompanyInfo } from "../system/companyInfo";
 import { getPrimaryBankAccount } from "../../bankTransactions";
 import { generateTransactionStatementPDF } from "../../transactionStatementPDF";
-import { partners } from "../../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { partners, accountingPurchases, accountingSales } from "../../../drizzle/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 // placeholder for missing partner info
 const EMPTY_PARTNER = {
@@ -14,6 +14,26 @@ const EMPTY_PARTNER = {
   ceoName: null,
   phone: null,
 } as const;
+
+/**
+ * 자동생성된 안내 문구 필터 — 거래명세표에 표시하지 않음
+ * ★ 2026-04-15: 사용자 요청으로 '제품출고 자동생성' / '(B2C 임포트)' 등
+ *   자동 생성된 불필요한 메모를 PDF 렌더링 시 제거
+ */
+function sanitizeNote(notes: string | null | undefined): string | undefined {
+  if (!notes) return undefined;
+  const trimmed = String(notes).trim();
+  if (!trimmed) return undefined;
+  // 자동 생성 안내 문구 패턴
+  const autoGenPatterns = [
+    /^제품출고\s*자동생성/,
+    /^매입\s*자동생성/,
+    /^매출\s*자동생성/,
+    /\(B2[BC]\s*임포트\)/,
+  ];
+  if (autoGenPatterns.some((re) => re.test(trimmed))) return undefined;
+  return trimmed;
+}
 
 /**
  * 매입 거래명세표 PDF 생성
@@ -86,7 +106,7 @@ export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?
           unit: purchase.unit || "EA",
           unitPrice: purchase.unitPrice,
           amount: purchase.totalAmount,
-          note: purchase.notes || undefined,
+          note: sanitizeNote(purchase.notes),
         },
       ],
 
@@ -95,7 +115,7 @@ export async function generatePurchaseStatementPDF(purchaseId: number, tenantId?
       taxAmount: purchase.taxAmount || "0",
       grandTotal: parseFloat(String(purchase.totalAmount || "0")) + parseFloat(String(purchase.taxAmount || "0")),
 
-      memo: purchase.notes || undefined,
+      memo: sanitizeNote(purchase.notes),
     };
 
     return await generateTransactionStatementPDF(pdfData);
@@ -184,7 +204,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
           unit: sale.unit || "EA",
           unitPrice: sale.unitPrice,
           amount: sale.totalAmount,
-          note: sale.notes || undefined,
+          note: sanitizeNote(sale.notes),
         },
       ],
 
@@ -193,7 +213,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
       taxAmount: sale.taxAmount || "0",
       grandTotal: parseFloat(String(sale.totalAmount || "0")) + parseFloat(String(sale.taxAmount || "0")),
 
-      memo: sale.notes || undefined,
+      memo: sanitizeNote(sale.notes),
 
       // 입금 계좌 정보 (대표 계좌, 있을 때만)
       bankAccount: primaryAccount ? {
@@ -230,7 +250,8 @@ export async function generatePurchaseStatementPDFByIds(
     //    ★ 2026-04-15: 이전에는 for 루프로 getPurchaseById 를 호출했으나,
     //    개별 호출이 throw 하면 그 id 가 누락되어 items 배열에 첫 품목만 남는 증상 발견
     //    → 단일 IN 쿼리로 교체하여 모든 id 를 한 번에 가져옴
-    const { inArray } = await import("drizzle-orm");
+    //    ★ 2026-04-15 버그픽스: accountingPurchases import 누락으로
+    //    매입 그룹 PDF 전체 실패 — 상단 static import 로 해결
     const conditions: any[] = [inArray(accountingPurchases.id, purchaseIds)];
     if (tenantId) {
       conditions.push(eq(accountingPurchases.tenantId, tenantId));
@@ -296,7 +317,7 @@ export async function generatePurchaseStatementPDFByIds(
       unit: p.unit || "EA",
       unitPrice: p.unitPrice,
       amount: p.totalAmount,
-      note: p.notes || undefined,
+      note: sanitizeNote(p.notes),
     }));
 
     // 5. 합계 재계산
@@ -308,10 +329,11 @@ export async function generatePurchaseStatementPDFByIds(
     );
     const grandTotal = totalAmount + taxAmount;
 
-    // 6. 메모 (품목 개수 안내 + 첫 메모 있으면 추가)
+    // 6. 메모 (품목 개수 안내 + 첫 메모 있으면 추가 — 자동생성 문구는 필터링)
     const memoParts: string[] = [];
     if (purchases.length > 1) memoParts.push(`총 ${purchases.length}개 품목`);
-    if (first.notes) memoParts.push(first.notes);
+    const firstNoteClean = sanitizeNote(first.notes);
+    if (firstNoteClean) memoParts.push(firstNoteClean);
     const memo = memoParts.join(" · ") || undefined;
 
     const pdfData = {
@@ -359,8 +381,7 @@ export async function generateSaleStatementPDFByIds(
 
     // 1. 모든 매출 한 번에 조회 — SQL IN 쿼리
     //    ★ 2026-04-15: 개별 getSaleById 루프 제거 → 단일 IN 쿼리
-    const { inArray } = await import("drizzle-orm");
-    const { accountingSales } = await import("../../../drizzle/schema");
+    // inArray, accountingSales 는 상단 static import 사용
     const conditions: any[] = [inArray(accountingSales.id, saleIds)];
     if (tenantId) {
       conditions.push(eq(accountingSales.tenantId, tenantId));
@@ -434,7 +455,7 @@ export async function generateSaleStatementPDFByIds(
       unit: s.unit || "EA",
       unitPrice: s.unitPrice,
       amount: s.totalAmount,
-      note: s.notes || undefined,
+      note: sanitizeNote(s.notes),
     }));
 
     // 6. 합계 재계산
@@ -446,10 +467,11 @@ export async function generateSaleStatementPDFByIds(
     );
     const grandTotal = totalAmount + taxAmount;
 
-    // 7. 메모
+    // 7. 메모 (품목 개수 + 첫 메모 — 자동생성 문구는 필터링)
     const memoParts: string[] = [];
     if (sales.length > 1) memoParts.push(`총 ${sales.length}개 품목`);
-    if (first.notes) memoParts.push(first.notes);
+    const firstNoteClean = sanitizeNote(first.notes);
+    if (firstNoteClean) memoParts.push(firstNoteClean);
     const memo = memoParts.join(" · ") || undefined;
 
     const pdfData = {
