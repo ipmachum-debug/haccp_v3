@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { ENV } from "./_core/env";
+import { ENV, findApiKeyWithDiagnostics } from "./_core/env";
 import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/ai/rulesEngine";
 import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/ai/standardChecklist";
 import { getRawConnection } from "./db";
@@ -318,6 +318,25 @@ async function saveConversationMessage(tenantId: number, convId: string, userId:
 
 export const aiRouter = router({
   // ============================================================================
+  // AI 환경 진단 (forgeApiKey 로드 상태 확인)
+  // ★ 2026-04-15: 프로덕션 디버깅용 — 클라이언트에서 호출하여 즉시 상태 확인
+  // ============================================================================
+  diagnostics: tenantRequiredProcedure.query(async () => {
+    const diag = findApiKeyWithDiagnostics();
+    return {
+      cwd: process.cwd(),
+      nodeEnv: process.env.NODE_ENV || "(unset)",
+      forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL || "(OpenAI 기본)",
+      hasKey: diag.key.length > 0,
+      keyLength: diag.key.length,
+      keyPrefix: diag.key ? diag.key.slice(0, 7) + "***" : "",
+      source: diag.source,
+      processEnv: diag.processEnv,
+      checkedPaths: diag.checked,
+    };
+  }),
+
+  // ============================================================================
   // AI 채팅 (스마트 챗봇 - Action Engine 기반)
   // ============================================================================
   chat: tenantRequiredProcedure
@@ -349,7 +368,27 @@ export const aiRouter = router({
         if (intent === "general") {
           // 일반 질문: 기존 시스템 매뉴얼 기반 응답 (SYSTEM_PROMPT 사용)
           if (!ENV.forgeApiKey) {
-            return { success: false, response: "AI 서비스가 아직 설정되지 않았습니다.", conversationId: convId };
+            // ★ 2026-04-15: 진단 정보를 응답에 포함 (root cause 즉시 확인 가능)
+            const diag = findApiKeyWithDiagnostics();
+            const checkedLines = diag.checked
+              .map((c) => `  - ${c.path} (exists=${c.exists}, hasKey=${c.hasKey})`)
+              .join("\n");
+            const diagMsg =
+              `⚠️ AI 서비스가 설정되지 않았습니다.\n\n` +
+              `**진단 정보 (서버 관리자용):**\n` +
+              `\`\`\`\n` +
+              `cwd: ${process.cwd()}\n` +
+              `process.env.OPENAI_API_KEY: ${diag.processEnv.OPENAI ? "설정됨" : "❌ 빈값"}\n` +
+              `process.env.BUILT_IN_FORGE_API_KEY: ${diag.processEnv.BUILT_IN_FORGE ? "설정됨" : "❌ 빈값"}\n` +
+              `process.env.FORGE_API_KEY: ${diag.processEnv.FORGE ? "설정됨" : "❌ 빈값"}\n` +
+              `\n.env 파일 검색:\n${checkedLines || "  (없음)"}\n` +
+              `\`\`\`\n\n` +
+              `**해결 방법:**\n` +
+              `1. .env 파일에 \`OPENAI_API_KEY=sk-...\` 설정\n` +
+              `2. \`pm2 restart haccpone --update-env\` 실행\n` +
+              `3. 또는 환경변수 직접 설정 후 재시작`;
+            console.error("[AI Chat] forgeApiKey 미설정:", JSON.stringify(diag, null, 2));
+            return { success: false, response: diagMsg, conversationId: convId };
           }
 
           const recentHistory = history.slice(-20);
