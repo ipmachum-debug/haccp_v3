@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -223,22 +223,52 @@ function SalesManagementContent() {
     );
   };
 
-  const handleItemMasterSelect = (selectedMasterItem: any) => {
+  const handleItemMasterSelect = async (selectedMasterItem: any) => {
     if (!materialSearchItemId) return;
 
-    setItems(
-      items.map((item) => {
-        if (item.id !== materialSearchItemId) return item;
+    // Phase B: 거래처(고객)별 단가 조회 (매출)
+    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    if (selectedPartnerId && selectedMasterItem.id) {
+      try {
+        // itemType 이 'own_product' 이면 product, 아니면 material
+        const targetType = selectedMasterItem.itemType === "own_product" ? "product" : "material";
+        const price = await utils.partnerPrice.resolvePrice.fetch({
+          partnerId: Number(selectedPartnerId),
+          targetType,
+          ...(targetType === "product"
+            ? { productId: selectedMasterItem.id }
+            : { materialId: selectedMasterItem.id }),
+        });
+        if (price && price.unitPrice > 0) {
+          resolvedUnitPrice = price.unitPrice;
+          toast({
+            title: "거래처 단가 자동 적용",
+            description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
+          });
+        }
+      } catch {
+        // 단가 없음 → defaultUnitPrice 사용
+      }
+    }
 
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== materialSearchItemId) return item;
+        const quantity = item.quantity;
+        const amount = quantity * resolvedUnitPrice;
+        const taxAmount = item.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
         return {
           ...item,
           itemMasterId: selectedMasterItem.id,
           itemType: selectedMasterItem.itemType,
           itemName: selectedMasterItem.itemName || "",
-          unitPrice: selectedMasterItem.defaultUnitPrice || 0,
+          unitPrice: resolvedUnitPrice,
           packagingUnit: selectedMasterItem.baseUnit || "kg",
+          amount,
+          taxAmount,
+          totalAmount: amount + taxAmount,
         };
-      })
+      }),
     );
 
     setMaterialSearchItemId(null);

@@ -16,7 +16,7 @@ export const batchApprovalRouter = router({
     .mutation(async ({ input, ctx }) => {
       const { getBatchById, updateBatchStatus, createAuditLog, getUsersByRole, createNotification } = await import("../../db");
 
-      const batch = await getBatchById(input.batchId, ctx.tenantId ?? undefined);
+      const batch = await getBatchById(input.batchId, ctx.tenantId);
       if (!batch) {
         throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
       }
@@ -41,7 +41,7 @@ export const batchApprovalRouter = router({
 
       for (const recipient of recipients) {
         await createNotification({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           userId: recipient.id,
           notificationType: "batch_approval_request",
           title: "배치 승인 요청",
@@ -62,7 +62,7 @@ export const batchApprovalRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { approveBatch } = await import("../../db/batchApprovals");
+      const { approveBatch } = await import("../../db/production/batchApprovals");
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
       const tenantId = ctx.tenantId;
@@ -91,7 +91,7 @@ export const batchApprovalRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { rejectBatch } = await import("../../db/batchApprovals");
+      const { rejectBatch } = await import("../../db/production/batchApprovals");
       const { updateBatchStatus, createAuditLog } = await import("../../db");
 
       const tenantId = ctx.tenantId;
@@ -116,15 +116,15 @@ export const batchApprovalRouter = router({
   getApprovals: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
-      const { getBatchApprovals } = await import("../../db/batchApprovals");
-      return await getBatchApprovals(input.batchId, ctx.tenantId ?? undefined);
+      const { getBatchApprovals } = await import("../../db/production/batchApprovals");
+      return await getBatchApprovals(input.batchId, ctx.tenantId);
     }),
 
   // 배치 승인 상태 확인
   getApprovalStatus: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
-      const { getBatchApprovalStatus } = await import("../../db/batchApprovals");
-      return await getBatchApprovalStatus(input.batchId, ctx.tenantId ?? undefined);
+      const { getBatchApprovalStatus } = await import("../../db/production/batchApprovals");
+      return await getBatchApprovalStatus(input.batchId, ctx.tenantId);
     }),
 });

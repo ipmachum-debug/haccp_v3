@@ -24,7 +24,7 @@ export const financialReportsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateTrialBalance } = await import("../../db/financialReports");
+      const { generateTrialBalance } = await import("../../db/accounting/financialReports");
       return await generateTrialBalance(tenantId, input.startDate, input.endDate);
     }),
 
@@ -37,7 +37,7 @@ export const financialReportsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateBalanceSheet } = await import("../../db/financialReports");
+      const { generateBalanceSheet } = await import("../../db/accounting/financialReports");
       return await generateBalanceSheet(tenantId, input.asOfDate);
     }),
 
@@ -51,7 +51,7 @@ export const financialReportsRouter = router({
     )
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateIncomeStatement } = await import("../../db/financialReports");
+      const { generateIncomeStatement } = await import("../../db/accounting/financialReports");
       return await generateIncomeStatement(tenantId, input.startDate, input.endDate);
     }),
 
@@ -68,7 +68,7 @@ export const financialReportsRouter = router({
     const endDate = `${year}-${month}-${String(lastDay).padStart(2, "0")}`;
 
     try {
-      const { generateIncomeStatement } = await import("../../db/financialReports");
+      const { generateIncomeStatement } = await import("../../db/accounting/financialReports");
       const income = await generateIncomeStatement(tenantId, startDate, endDate);
       
       return {
@@ -110,8 +110,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateTrialBalance } = await import("../../db/financialReports");
-      const { exportTrialBalanceToExcel } = await import("../../db/financialReportsExcel");
+      const { generateTrialBalance } = await import("../../db/accounting/financialReports");
+      const { exportTrialBalanceToExcel } = await import("../../db/accounting/financialReportsExcel");
       const data = await generateTrialBalance(tenantId, input.startDate, input.endDate);
       const buffer = await exportTrialBalanceToExcel(data);
       return {
@@ -130,8 +130,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateBalanceSheet } = await import("../../db/financialReports");
-      const { exportBalanceSheetToExcel } = await import("../../db/financialReportsExcel");
+      const { generateBalanceSheet } = await import("../../db/accounting/financialReports");
+      const { exportBalanceSheetToExcel } = await import("../../db/accounting/financialReportsExcel");
       const data = await generateBalanceSheet(tenantId, input.asOfDate);
       const buffer = await exportBalanceSheetToExcel(data);
       return {
@@ -151,8 +151,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateIncomeStatement } = await import("../../db/financialReports");
-      const { exportIncomeStatementToExcel } = await import("../../db/financialReportsExcel");
+      const { generateIncomeStatement } = await import("../../db/accounting/financialReports");
+      const { exportIncomeStatementToExcel } = await import("../../db/accounting/financialReportsExcel");
       const data = await generateIncomeStatement(tenantId, input.startDate, input.endDate);
       const buffer = await exportIncomeStatementToExcel(data);
       return {
@@ -176,8 +176,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateTrialBalance } = await import("../../db/financialReports");
-      const { exportTrialBalanceToPdf } = await import("../../db/financialReportsPdf");
+      const { generateTrialBalance } = await import("../../db/accounting/financialReports");
+      const { exportTrialBalanceToPdf } = await import("../../db/accounting/financialReportsPdf");
       const data = await generateTrialBalance(tenantId, input.startDate, input.endDate);
       const buffer = await exportTrialBalanceToPdf(data);
       return {
@@ -196,8 +196,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateBalanceSheet } = await import("../../db/financialReports");
-      const { exportBalanceSheetToPdf } = await import("../../db/financialReportsPdf");
+      const { generateBalanceSheet } = await import("../../db/accounting/financialReports");
+      const { exportBalanceSheetToPdf } = await import("../../db/accounting/financialReportsPdf");
       const data = await generateBalanceSheet(tenantId, input.asOfDate);
       const buffer = await exportBalanceSheetToPdf(data);
       return {
@@ -217,8 +217,8 @@ export const financialReportsRouter = router({
     )
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateIncomeStatement } = await import("../../db/financialReports");
-      const { exportIncomeStatementToPdf } = await import("../../db/financialReportsPdf");
+      const { generateIncomeStatement } = await import("../../db/accounting/financialReports");
+      const { exportIncomeStatementToPdf } = await import("../../db/accounting/financialReportsPdf");
       const data = await generateIncomeStatement(tenantId, input.startDate, input.endDate);
       const buffer = await exportIncomeStatementToPdf(data);
       return {
@@ -237,7 +237,7 @@ export const financialReportsRouter = router({
     .input(z.object({ fiscalYear: z.number().min(2020).max(2100) }))
     .query(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { getOpeningBalances } = await import("../../db/openingBalances");
+      const { getOpeningBalances } = await import("../../db/accounting/openingBalances");
       return await getOpeningBalances(tenantId, input.fiscalYear);
     }),
 
@@ -260,7 +260,7 @@ export const financialReportsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
       const userId = ctx.user?.id || 0;
-      const { saveOpeningBalances } = await import("../../db/openingBalances");
+      const { saveOpeningBalances } = await import("../../db/accounting/openingBalances");
       return await saveOpeningBalances(tenantId, input.fiscalYear, input.items, userId);
     }),
 
@@ -269,7 +269,7 @@ export const financialReportsRouter = router({
     .input(z.object({ fiscalYear: z.number().min(2020).max(2100) }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { deleteOpeningBalances } = await import("../../db/openingBalances");
+      const { deleteOpeningBalances } = await import("../../db/accounting/openingBalances");
       await deleteOpeningBalances(tenantId, input.fiscalYear);
       return { success: true, message: `${input.fiscalYear}년 기초 잔액이 삭제되었습니다.` };
     }),
@@ -287,7 +287,7 @@ export const financialReportsRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generateFinancialNarrative } = await import("../../db/aiReportNarrative");
+      const { generateFinancialNarrative } = await import("../../db/ai/aiReportNarrative");
       return await generateFinancialNarrative(
         tenantId,
         { startDate: input.startDate, endDate: input.endDate },
@@ -299,7 +299,7 @@ export const financialReportsRouter = router({
   aiFinancialPredictions: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const tenantId = getEffectiveTenantId(ctx);
-      const { generatePredictions } = await import("../../db/aiPrediction");
+      const { generatePredictions } = await import("../../db/ai/aiPrediction");
       const result = await generatePredictions(tenantId);
       // 재무 관련 예측만 필터링
       return {
@@ -357,7 +357,7 @@ export const financialReportsRouter = router({
       // 공급업체 리스크 스코어 (있으면)
       let supplierRisk: any[] = [];
       try {
-        const { analyzeSupplierRisk } = await import("../../db/aiSupplierRisk");
+        const { analyzeSupplierRisk } = await import("../../db/ai/aiSupplierRisk");
         const risk = await analyzeSupplierRisk(tenantId);
         supplierRisk = (risk as any)?.suppliers || [];
       } catch { /* 무시 */ }

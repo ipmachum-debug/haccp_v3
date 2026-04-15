@@ -16,7 +16,7 @@ export const accountingMonthlyRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
 
         // 1. 월간 집계 계산
         const calculated = await summaryDb.calculateMonthlySummary(input.year, input.month, tenantId);
@@ -83,7 +83,7 @@ export const accountingMonthlyRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
 
         const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
@@ -117,7 +117,7 @@ export const accountingMonthlyRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
 
         const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
@@ -150,7 +150,7 @@ export const accountingMonthlyRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
         return await summaryDb.listMonthlySummaries(input.limit, tenantId);
       }),
 
@@ -164,7 +164,7 @@ export const accountingMonthlyRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
 
         const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);
         if (!summary) {
@@ -194,7 +194,7 @@ export const accountingMonthlyRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const summaryDb = await import("../../db/accountingMonthlySummary");
+        const summaryDb = await import("../../db/accounting/accountingMonthlySummary");
         const { generatePDF, generateMonthlyReportHTML } = await import("../../_core/pdfGenerator");
 
         const summary = await summaryDb.getMonthlySummary(input.year, input.month, tenantId);

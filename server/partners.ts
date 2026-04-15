@@ -12,7 +12,7 @@ import {
   type InsertPartner,
   type InsertApLedgerEntry,
   type InsertArLedgerEntry
-} from "../drizzle/schema_main";
+} from "../drizzle/schema/schema_main";
 import { eq, and, desc, sql, or, like, asc, type SQL } from "drizzle-orm";
 
 // ============================================
@@ -40,7 +40,7 @@ export async function createPartner(data: InsertPartner & { tenantId?: number })
       }
     }
     
-    const [result] = await db.insert(partners).values(cleanData);
+    const [result] = await db.insert(partners).values(cleanData as any);
     return result.insertId;
   } catch (error: unknown) {
     console.error("[createPartner] Error:", error);
@@ -108,6 +108,39 @@ export async function updatePartner(id: number, data: Partial<InsertPartner>, te
   const conditions: SQL[] = [eq(partners.id, id)];
   if (tenantId) conditions.push(eq(partners.tenantId, tenantId as any));
   await db.update(partners).set(data).where(and(...conditions));
+}
+
+/**
+ * Phase B (2026-04-14): 결제 만기일 자동 계산
+ * - partner.paymentTermsDays 를 occurredAt 에 더해서 dueDate 반환
+ * - 기본값(30일) 은 partner.paymentTermsDays 가 null 일 때 사용
+ * - explicitDueDate 가 있으면 그대로 사용 (수동 지정 우선)
+ */
+export async function resolveDueDate(
+  tenantId: number,
+  partnerId: number,
+  occurredAt: Date | string,
+  explicitDueDate?: Date | string | null,
+): Promise<Date | null> {
+  if (explicitDueDate) {
+    return typeof explicitDueDate === "string" ? new Date(explicitDueDate) : explicitDueDate;
+  }
+  const db = await getDb();
+  if (!db) return null;
+
+  const [partner] = await db
+    .select({ paymentTermsDays: partners.paymentTermsDays })
+    .from(partners)
+    .where(and(eq(partners.id, partnerId), eq(partners.tenantId, tenantId)))
+    .limit(1);
+
+  const days = partner?.paymentTermsDays ?? 30; // 기본 30일
+  const base = typeof occurredAt === "string" ? new Date(occurredAt) : occurredAt;
+  if (!base || isNaN(base.getTime())) return null;
+
+  const due = new Date(base);
+  due.setDate(due.getDate() + days);
+  return due;
 }
 
 /**

@@ -36,7 +36,7 @@ describe("HACCP 핵심 기능 테스트", () => {
     });
 
     // 3. 매입 등록 (원재료 입고)
-    const { createPurchase } = await import("./db/haccpIntegration");
+    const { createPurchase } = await import("./db/haccp/haccpIntegration");
     const quantity = 10;
     const packagingSize = 5;
     const unitPrice = 8000;
@@ -92,7 +92,7 @@ describe("HACCP 핵심 기능 테스트", () => {
     });
 
     // 3. 매입 등록 (원재료 입고)
-    const { createPurchase } = await import("./db/haccpIntegration");
+    const { createPurchase } = await import("./db/haccp/haccpIntegration");
     const quantity = 5;
     const packagingSize = 10;
     const unitPrice = 12000;

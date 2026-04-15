@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { getDb } from "../db";
 import { hCcpInspectionAlerts } from "../../drizzle/schema/part2";
-import { tenants } from "../../drizzle/schema_main";
+import { tenants } from "../../drizzle/schema/schema_main";
 import { and, eq, lte, gte, isNull } from "drizzle-orm";
 
 /**
@@ -59,7 +59,7 @@ export function initCcpAdvanceNotificationScheduler() {
           try {
             // 1. 알림 생성 (notifyOwner 호출)
             const { notifyOwner } = await import("../_core/notification");
-            const { hCcpInstances } = await import("../../drizzle/schema_main");
+            const { hCcpInstances } = await import("../../drizzle/schema/schema_main");
             
             // CCP 인스턴스 정보 조회 (테넌트별)
             const instance = await db

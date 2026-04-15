@@ -28,8 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Upload, FileSpreadsheet, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
-import SupplierBulkUploadModal from "@/components/SupplierBulkUploadModal";
-import TemplateCustomizer from "@/components/TemplateCustomizer";
+import SupplierBulkUploadModal from "@/components/masterData/SupplierBulkUploadModal";
+import TemplateCustomizer from "@/components/checklist/TemplateCustomizer";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 

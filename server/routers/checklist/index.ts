@@ -20,3 +20,13 @@ export { packagingStorageRecordRouter } from "./packagingStorageRecord.router";
 export { qualityIssueRecordRouter } from "./qualityIssueRecord.router";
 export { capaRecordRouter } from "./capaRecord.router";
 export { genericChecklistRouter } from "./genericChecklist.router";
+
+// v2-rebuild: 개별 파일에서 이동
+export { calibrationRouter } from "./calibration.router";
+export { checklistInstanceRouter } from "./checklistInstance.router";
+export { checklistScheduleRouter } from "./checklistSchedule.router";
+export { healthCertificateRouter } from "./healthCertificate.router";
+export { hygieneRouter } from "./hygiene.router";
+export { pestControlRouter } from "./pestControl.router";
+export { qualityChecklistRouter } from "./qualityChecklist.router";
+export { scanChecklistRouter } from "./scanChecklist.router";

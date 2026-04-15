@@ -22,7 +22,7 @@ export const workflowRouter = router({
       SELECT w.*, COUNT(s.id) as step_count
       FROM h_approval_workflows w
       LEFT JOIN h_approval_workflow_steps s ON w.id = s.workflow_id
-      WHERE w.tenant_id = ${ctx.tenantId!}
+      WHERE w.tenant_id = ${ctx.tenantId}
       GROUP BY w.id
       ORDER BY w.created_at DESC
     `);
@@ -49,7 +49,7 @@ export const workflowRouter = router({
 
       const [workflows] = await db.execute(sql`
         SELECT * FROM h_approval_workflows
-        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId!}
+        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
       `);
       const workflow = (workflows as any[])[0];
       if (!workflow) throw new TRPCError({ code: "NOT_FOUND", message: "워크플로우를 찾을 수 없습니다" });
@@ -57,7 +57,7 @@ export const workflowRouter = router({
       const [steps] = await db.execute(sql`
         SELECT s.*, e.name as approver_name
         FROM h_approval_workflow_steps s
-        LEFT JOIN h_employees e ON s.approver_user_id = e.id AND e.tenant_id = ${ctx.tenantId!}
+        LEFT JOIN h_employees e ON s.approver_user_id = e.id AND e.tenant_id = ${ctx.tenantId}
         WHERE s.workflow_id = ${input.id}
         ORDER BY s.step_order ASC
       `);
@@ -107,7 +107,7 @@ export const workflowRouter = router({
         INSERT INTO h_approval_workflows
           (tenant_id, workflow_name, workflow_type, description, is_active)
         VALUES
-          (${ctx.tenantId!}, ${input.workflowName}, ${input.workflowType},
+          (${ctx.tenantId}, ${input.workflowName}, ${input.workflowType},
            ${input.description || null}, 1)
       `);
       const workflowId = (result as any).insertId;
@@ -139,7 +139,7 @@ export const workflowRouter = router({
 
       await db.execute(sql`
         UPDATE h_approval_workflows SET is_active = ${input.isActive ? 1 : 0}
-        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId!}
+        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
       `);
 
       return { success: true, message: input.isActive ? "활성화되었습니다." : "비활성화되었습니다." };
@@ -159,7 +159,7 @@ export const workflowRouter = router({
       `);
       await db.execute(sql`
         DELETE FROM h_approval_workflows
-        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId!}
+        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
       `);
 
       return { success: true, message: "결재선이 삭제되었습니다." };

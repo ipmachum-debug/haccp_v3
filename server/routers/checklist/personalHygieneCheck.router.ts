@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
-import { hPersonalHygieneChecks } from "../../../drizzle/schema_main";
+import { hPersonalHygieneChecks } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getEffectiveSiteId } from "./_helpers";
 
@@ -28,7 +28,7 @@ export const personalHygieneCheckRouter = router({
       if (input.employeeId) conditions.push(eq(hPersonalHygieneChecks.employeeId, input.employeeId));
       if (input.startDate) conditions.push(sql`${hPersonalHygieneChecks.checkDate} >= ${input.startDate}`);
       if (input.endDate) conditions.push(sql`${hPersonalHygieneChecks.checkDate} <= ${input.endDate}`);
-      if (input.checkResult) conditions.push(eq(hPersonalHygieneChecks.checkResult, input.checkResult));
+      if (input.checkResult) conditions.push(eq((hPersonalHygieneChecks as any).checkResult, input.checkResult));
 
       const records = await db
         .select()

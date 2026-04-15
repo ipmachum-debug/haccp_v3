@@ -7,7 +7,7 @@
  */
 import { Router } from "express";
 import { getDb } from "./db";
-import { users, tenants } from "../drizzle/schema_main";
+import { users, tenants } from "../drizzle/schema/schema_main";
 import { auditLogs } from "../drizzle/schema/audit";
 import { eq, desc, count, sql } from "drizzle-orm";
 import { verifyToken } from "./_core/jwtAuth";

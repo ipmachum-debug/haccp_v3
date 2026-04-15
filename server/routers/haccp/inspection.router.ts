@@ -12,7 +12,7 @@ export const inspectionRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        const { getInspectionDashboardStatistics } = await import("../../db");
+        const { getInspectionDashboardStatistics } = await import("../../db/system/inspectionStatistics");
         return await getInspectionDashboardStatistics(input, ctx.tenantId);
       }),
     

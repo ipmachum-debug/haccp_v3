@@ -3,21 +3,21 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { requireTenantId } from "../../helpers/tenantGuards";
 import { z } from "zod";
 import { lt, or } from "drizzle-orm";
-import { getDashboardStats } from "../../db/dashboard";
+import { getDashboardStats } from "../../db/system/dashboard";
 
 export const dashboardRouter = router({
     // 대시보드 통계 조회
     getStats: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getDashboardStats } = await import("../../db");
-        return await getDashboardStats(ctx.tenantId ?? undefined);
+        return await getDashboardStats(ctx.tenantId);
       }),
     
     // 회계 요약 데이터 조회
     getAccountingSummary: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const tenantId = ctx.tenantId;
-        const { getMonthlyAccountingSummary } = await import("../../db/accountingSummary");
+        const { getMonthlyAccountingSummary } = await import("../../db/accounting/accountingSummary");
         return await getMonthlyAccountingSummary(tenantId);
       }),
     
@@ -25,7 +25,7 @@ export const dashboardRouter = router({
     getExpensesByCategory: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const tenantId = ctx.tenantId;
-        const { getExpensesByCategory } = await import("../../db/accountingSummary");
+        const { getExpensesByCategory } = await import("../../db/accounting/accountingSummary");
         return await getExpensesByCategory(tenantId);
       }),
     
@@ -65,7 +65,7 @@ export const dashboardRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const { getInspectionDashboardStatistics } = await import("../../db");
+        const { getInspectionDashboardStatistics } = await import("../../db/system/inspectionStatistics");
         return await getInspectionDashboardStatistics(input, tenantId);
       })
   }),
@@ -155,8 +155,8 @@ export const dashboardRouter = router({
     // 위젯 설정 조회
     getWidgetSettings: tenantRequiredProcedure
       .query(async ({ ctx }) => {
-        const { getUserWidgetSettings } = await import("../../db/widgetSettings");
-        return await getUserWidgetSettings(ctx.user.id, ctx.tenantId!);
+        const { getUserWidgetSettings } = await import("../../db/system/widgetSettings");
+        return await getUserWidgetSettings(ctx.user.id, ctx.tenantId);
       }),
     
     // 위젯 표시/숨김 업데이트
@@ -166,7 +166,7 @@ export const dashboardRouter = router({
         isVisible: z.number()
       }))
       .mutation(async ({ input, ctx }) => {
-        const { updateWidgetVisibility } = await import("../../db/widgetSettings");
+        const { updateWidgetVisibility } = await import("../../db/system/widgetSettings");
         return await updateWidgetVisibility({
           userId: ctx.user.id,
           widgetId: input.widgetId,
@@ -193,7 +193,7 @@ export const dashboardRouter = router({
         const { getProductionEfficiencyData } = await import("../../db");
         const siteId = input.siteId || ctx.user.siteId;
         if (!siteId) throw new Error("사이트 ID가 필요합니다");
-        return await getProductionEfficiencyData({ ...input, siteId, tenantId: ctx.tenantId! });
+        return await getProductionEfficiencyData({ ...input, siteId, tenantId: ctx.tenantId });
       }),
 
     // 재고 추이 탭 통합 데이터 조회
@@ -210,6 +210,6 @@ export const dashboardRouter = router({
         const { getInventoryTrendData } = await import("../../db");
         const siteId = input.siteId || ctx.user.siteId;
         if (!siteId) throw new Error("사이트 ID가 필요합니다");
-        return await getInventoryTrendData({ ...input, siteId, tenantId: ctx.tenantId! });
+        return await getInventoryTrendData({ ...input, siteId, tenantId: ctx.tenantId });
       })
 });

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
-import { hValidityEvaluations } from "../../../drizzle/schema_main";
+import { hValidityEvaluations } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getEffectiveSiteId } from "./_helpers";
 

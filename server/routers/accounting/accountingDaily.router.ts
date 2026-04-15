@@ -15,7 +15,7 @@ export const accountingDailyRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { executeDailyClose } = await import("../../db/accountingDailyClose");
+        const { executeDailyClose } = await import("../../db/accounting/accountingDailyClose");
         const dailyCloseResult = await executeDailyClose({
           closeDate: input.closeDate,
           largeAmountChecked: input.largeAmountChecked,
@@ -24,7 +24,7 @@ export const accountingDailyRouter = router({
         
         // === 원료수불부 일일 마감 연동 ===
         try {
-          const { autoUpdateFromDailyClose } = await import("../../db/materialLedger");
+          const { autoUpdateFromDailyClose } = await import("../../db/accounting/materialLedger");
           await autoUpdateFromDailyClose(formatLocalDate(input.closeDate), ctx.tenantId as any);
           console.log("[원료수불부] 일일 마감 자동 업데이트 완료:", input.closeDate);
         } catch (ledgerError) {
@@ -38,23 +38,23 @@ export const accountingDailyRouter = router({
     getStats: tenantRequiredProcedure
       .input(z.object({ targetDate: z.date() }))
       .query(async ({ input, ctx }) => {
-        const { getDailyCloseStats } = await import("../../db/accountingDailyClose");
-        return await getDailyCloseStats(input.targetDate, ctx.tenantId ?? undefined);
+        const { getDailyCloseStats } = await import("../../db/accounting/accountingDailyClose");
+        return await getDailyCloseStats(input.targetDate, ctx.tenantId);
       }),
 
     // 마감 이력 조회
     getHistory: tenantRequiredProcedure
       .input(z.object({ limit: z.number().optional() }))
       .query(async ({ input, ctx }) => {
-        const { getDailyCloseHistory } = await import("../../db/accountingDailyClose");
-        return await getDailyCloseHistory(input.limit, ctx.tenantId ?? undefined);
+        const { getDailyCloseHistory } = await import("../../db/accounting/accountingDailyClose");
+        return await getDailyCloseHistory(input.limit, ctx.tenantId);
       }),
 
     // 특정 날짜 마감 여부 확인
     isClosed: tenantRequiredProcedure
       .input(z.object({ targetDate: z.date() }))
       .query(async ({ input, ctx }) => {
-        const { isDayClosed } = await import("../../db/accountingDailyClose");
-        return await isDayClosed(input.targetDate, ctx.tenantId ?? undefined);
+        const { isDayClosed } = await import("../../db/accounting/accountingDailyClose");
+        return await isDayClosed(input.targetDate, ctx.tenantId);
       })
 });

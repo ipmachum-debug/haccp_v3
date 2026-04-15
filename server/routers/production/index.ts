@@ -18,3 +18,9 @@ export { recipeApprovalRouter } from "./recipeApproval.router";
 export { recipeManagementRouter } from "./recipeManagement.router";
 export { scheduleOptimizationRouter } from "./scheduleOptimization.router";
 export { aiProductionParserRouter } from "./aiProductionParser.router";
+
+// v2-rebuild: 개별 파일에서 이동
+export { dailyLogRouter } from "./dailyLog.router";
+export { weeklyLogsRouter } from "./weeklyLogs.router";
+export { monthlyLogsRouter } from "./monthlyLogs.router";
+export { yearlyLogsRouter } from "./yearlyLogs.router";

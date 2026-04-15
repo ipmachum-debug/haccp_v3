@@ -61,7 +61,7 @@ export const reportRouter = router({
         }
         
         const pdfBuffer = await generatePdfReport({
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           title,
           period,
           startDate,

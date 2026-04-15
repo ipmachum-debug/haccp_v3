@@ -3,9 +3,9 @@ import { postPurchase } from "../purchasePost";
 import { cancelPurchase } from "../purchaseCancel";
 import { allocateLotsFEFO } from "../fefoLotAllocation";
 import { db } from "../../db";
-import { accountingPurchases } from "../../../drizzle/schema_accounting_extended";
+import { accountingPurchases } from "../../../drizzle/schema/schema_accounting_extended";
 import { hInventoryTransactions, hInventoryLots, hInventory } from "../../../drizzle/schema/part2";
-import { accountingTransactions } from "../../../drizzle/schema_inventory_accounting";
+import { accountingTransactions } from "../../../drizzle/schema/schema_inventory_accounting";
 import { eq } from "drizzle-orm";
 
 import { todayKST, toKSTDate, formatLocalDate } from "../../utils/timezone";

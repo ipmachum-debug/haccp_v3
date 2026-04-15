@@ -81,7 +81,7 @@ export function ProductStockView() {
       };
     });
     // 최근 생산일 기준 내림차순 정렬
-    result.sort((a, b) => {
+    result.sort((a: any, b: any) => {
       const toTs = (v: any): number => {
         if (!v) return 0;
         if (v instanceof Date) return v.getTime();
@@ -130,7 +130,7 @@ export function ProductStockView() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard icon={BoxIcon} label="제품 종류" value={productInventory.length} color="blue" />
         <StatCard icon={Factory} label="총 생산량" value={`${totalProduced.toFixed(1)} kg`} color="emerald" />
-        <StatCard icon={Truck} label="총 출고량" value={`${totalOutbound.toFixed(1)} kg`} color="orange" />
+        <StatCard icon={Truck} label="총 출고량" value={`${totalOutbound.toFixed(1)} kg`} color="amber" />
         <StatCard icon={Package} label="현재 재고" value={`${totalStock.toFixed(1)} kg`} color="slate" sub="생산 - 출고" />
         <StatCard icon={Hash} label="생산 배치" value={totalBatches} color="purple" />
       </div>
@@ -354,7 +354,7 @@ export function ProductReleaseTab() {
       list = list.filter(r => r.productName?.toLowerCase().includes(q) || r.partnerName?.toLowerCase().includes(q) || r.lotNumber?.toLowerCase().includes(q));
     }
     // 최근일순 정렬
-    list.sort((a, b) => {
+    list.sort((a: any, b: any) => {
       const da = String(a.releaseDate || "").replace(/\./g, "-");
       const db = String(b.releaseDate || "").replace(/\./g, "-");
       return db.localeCompare(da);

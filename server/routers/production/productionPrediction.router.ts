@@ -6,7 +6,7 @@ export const productionPredictionRouter = router({
     getPredictionData: tenantRequiredProcedure
       .input(z.object({ productId: z.number().optional() }).optional())
       .query(async ({ input, ctx }) => {
-        const { getProductionPredictionData } = await import("../../db/productionPrediction");
-        return await getProductionPredictionData(input?.productId, ctx.tenantId ?? undefined);
+        const { getProductionPredictionData } = await import("../../db/production/productionPrediction");
+        return await getProductionPredictionData(input?.productId, ctx.tenantId);
       })
 });
