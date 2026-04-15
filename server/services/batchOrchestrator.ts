@@ -148,19 +148,26 @@ export async function createSingleBatch(
       plannedQuantity: input.plannedQuantityKg,
       bomBatchKg: bomBatchKg ?? undefined, // 선행 조회된 값 전달
     });
-    ccpCreated = result.instanceIds.length > 0;
-    ccpCount = result.instanceIds.length;
+    // ★ 2026-04-15: ccpCreated 판정 기준을 "그룹 존재 여부" 로 변경
+    //   이전 버그: instanceIds.length > 0 로만 판정하면, 이미 인스턴스가 존재하는
+    //   배치(복구/재시도)는 instanceIds=[] 반환 → form_record 생성 스킵
+    //   수정: result.groups 에 신규 + 기존 그룹 전부 포함되므로 groups 기준 판정
+    ccpCreated = (result.groups || []).length > 0;
+    ccpCount = result.groups?.length || 0;
     ccpGroups = (result.groups || []).map((g: any) => ({
       id: g.id, name: g.name, ccp_type: g.ccp_type,
     }));
     ccpGroupNames = ccpGroups.map(g => g.name);
-    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, instanceIds=${result.instanceIds}, groups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
+    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, newInstanceIds=${result.instanceIds}, totalGroups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
 
     // 3.1. CCP form records 자동 생성 (인쇄용 양식)
+    //   ★ 기존 + 신규 그룹 모두 대상 → 누락 없이 form_record 보장
     if (ccpCreated && result.groups.length > 0) {
-      try {
-        const { getOrCreateCcpFormRecord } = await import("../db/haccp/ccpFormRecords");
-        for (const group of result.groups) {
+      const { getOrCreateCcpFormRecord } = await import("../db/haccp/ccpFormRecords");
+      let formSuccessCount = 0;
+      let formFailCount = 0;
+      for (const group of result.groups) {
+        try {
           await getOrCreateCcpFormRecord({
             tenantId: input.tenantId,
             siteId: input.siteId,
@@ -180,11 +187,19 @@ export async function createSingleBatch(
             clPressureMpaLo: group.pressure_min ?? undefined,
             clProductTempLo: group.temperature_min ?? undefined,
           });
+          formSuccessCount++;
+        } catch (formErr: any) {
+          formFailCount++;
+          console.error(
+            `[batchOrchestrator] CCP form_record 생성 실패 (${group.ccp_type}/${group.name}):`,
+            formErr?.message || formErr,
+          );
         }
-        console.log(`[batchOrchestrator] CCP form records 생성 완료: ${result.groups.length}건 (bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`);
-      } catch (formErr) {
-        console.error("[batchOrchestrator] CCP form records 생성 실패:", formErr);
       }
+      console.log(
+        `[batchOrchestrator] CCP form records 생성: ${formSuccessCount}/${result.groups.length} 성공, ${formFailCount}건 실패 ` +
+        `(bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`,
+      );
 
       // 3.2. h_ccp_rows → h_ccp_form_rows 동기화 (설비 기준값 → 인쇄용 기록지)
       try {

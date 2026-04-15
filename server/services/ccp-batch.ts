@@ -504,11 +504,13 @@ export async function autoCreateCcpInstancesForBatch(args: {
 
   const instanceIds: number[] = [];
   const createdGroups: ProcessGroupInfo[] = [];
+  const skippedGroups: ProcessGroupInfo[] = [];  // ★ 2026-04-15: 이미 존재하는 그룹도 별도 추적
 
   for (const group of groups) {
     // ── 3. dedup: 이미 이 공정그룹 인스턴스가 있으면 skip
     if (existingGroupIds.has(group.id)) {
       console.log(`[ccp-batch] 건너뜀(중복): group="${group.name}" batchId=${batchId}`);
+      skippedGroups.push(group);
       continue;
     }
 
@@ -561,5 +563,10 @@ export async function autoCreateCcpInstancesForBatch(args: {
     }
   }
 
-  return { instanceIds, groups: createdGroups };
+  // ★ 2026-04-15: 모든 그룹 반환 (신규 + 기존)
+  //   form_records 생성 로직이 existingGroups 를 포함해야 form_record 가 누락되지 않음
+  //   이전 버그: 배치 재생성 / recovery 후 instance 만 존재하면 groups=[] 반환 → form_record 생성 스킵
+  const allGroups = [...createdGroups, ...skippedGroups];
+  console.log(`[ccp-batch] 리턴: new instances=${instanceIds.length}, all groups=${allGroups.length} (created=${createdGroups.length}, existing=${skippedGroups.length})`);
+  return { instanceIds, groups: allGroups };
 }
