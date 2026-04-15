@@ -4,7 +4,7 @@
  * 상태 필터 + 검색 + 액션 (승인/취소/삭제/입고 처리)
  * ═══════════════════════════════════════════════════════════════
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -108,6 +108,7 @@ function PurchaseOrderListContent() {
   const [receivePoId, setReceivePoId] = useState<number | null>(null);
   const [receiveLines, setReceiveLines] = useState<Record<number, number>>({});
   const [receiptDate, setReceiptDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [receiveAutoFilled, setReceiveAutoFilled] = useState<boolean>(false);
 
   const utils = trpc.useUtils();
 
@@ -124,6 +125,28 @@ function PurchaseOrderListContent() {
     { id: receivePoId! },
     { enabled: !!receivePoId },
   );
+
+  // ★ 2026-04-15: 다이얼로그가 열리고 PO 상세 로드 완료 시 잔량으로 자동 채우기
+  //   이전: placeholder 만 표시되고 receiveLines 는 {} 상태 → 사용자가 타이핑 안 하면
+  //   handleReceive 에서 빈 배열로 "입고할 라인을 선택하세요" 토스트 → 원인 모름
+  useEffect(() => {
+    if (receiveDialogOpen && receivingPo && !receiveAutoFilled) {
+      const initialLines: Record<number, number> = {};
+      for (const line of (receivingPo as any)?.lines || []) {
+        const ordered = Number(line.orderedQty);
+        const already = Number(line.receivedQty);
+        const remaining = ordered - already;
+        if (remaining > 0) {
+          initialLines[line.id] = remaining;
+        }
+      }
+      setReceiveLines(initialLines);
+      setReceiveAutoFilled(true);
+    }
+    if (!receiveDialogOpen && receiveAutoFilled) {
+      setReceiveAutoFilled(false);
+    }
+  }, [receiveDialogOpen, receivingPo, receiveAutoFilled]);
 
   const approveMutation = trpc.purchaseOrder.approve.useMutation({
     onSuccess: (r: any) => {
