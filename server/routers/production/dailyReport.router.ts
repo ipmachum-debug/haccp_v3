@@ -71,6 +71,40 @@ export const dailyReportRouter = router({
         }
       }),
 
+    // 생산일보 ID로 조회 (인쇄 미리보기용)
+    getReportById: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getDb } = await import("../../db");
+        const { sql } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return null;
+        try {
+          const result = await db.execute(sql`
+            SELECT id, report_date, summary, generated_at
+            FROM h_daily_reports
+            WHERE tenant_id = ${ctx.tenantId}
+              AND id = ${input.id}
+              AND report_type = 'production_daily'
+            LIMIT 1
+          `);
+          const rows = (result as any)[0] || [];
+          if (!(rows as any[]).length) return null;
+          const row = (rows as any[])[0];
+          let summary: any = {};
+          try { summary = typeof row.summary === 'string' ? JSON.parse(row.summary) : (row.summary || {}); } catch {}
+          return {
+            id: row.id,
+            reportDate: row.report_date instanceof Date ? row.report_date.toISOString().split('T')[0] : String(row.report_date),
+            summary,
+            generatedAt: row.generated_at,
+          };
+        } catch (err) {
+          console.error('[dailyReport.getReportById]', err);
+          return null;
+        }
+      }),
+
     // 수동으로 생산일보 생성/재생성 (관리자용)
     regenerateReport: tenantRequiredProcedure
       .input(z.object({ date: z.string() }))

@@ -170,6 +170,13 @@ const categoryToMajor: Record<AccountCategory, string> = {
 export default function AccountingAccounts() {
   const [activeTab, setActiveTab] = useState("structure");
 
+  // P6: 성능 개선 — 공유 데이터를 부모에서 한 번만 조회하고 자식 탭에 전달
+  // 이전: AccountStructureTab + AccountListTab 각각 3개 API 호출 (list, getAll, getStats) = 6개 중복 호출
+  // 이후: 부모에서 3개 API 호출 → props로 전달
+  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery();
+  const { data: allAccounts = [], isLoading: accLoading } = trpc.accountingAccounts.list.useQuery({});
+  const { data: stats } = trpc.accountingAccounts.getStats.useQuery();
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -195,10 +202,21 @@ export default function AccountingAccounts() {
           </TabsList>
 
           <TabsContent value="structure" className="mt-6">
-            <AccountStructureTab />
+            <AccountStructureTab
+              categories={categories}
+              catLoading={catLoading}
+              refetchCategories={refetchCategories}
+              allAccounts={allAccounts}
+              stats={stats}
+            />
           </TabsContent>
           <TabsContent value="list" className="mt-6">
-            <AccountListTab />
+            <AccountListTab
+              categories={categories}
+              allAccounts={allAccounts}
+              accLoading={accLoading}
+              stats={stats}
+            />
           </TabsContent>
         </Tabs>
       </div>
@@ -210,7 +228,19 @@ export default function AccountingAccounts() {
 // 탭 A: 계정 구조 (5분류) - 카드 뷰
 // 고정된 5대 분류 + 그 아래 상위계정(그룹) 관리
 // ===================================================================
-function AccountStructureTab() {
+function AccountStructureTab({
+  categories,
+  catLoading,
+  refetchCategories,
+  allAccounts,
+  stats,
+}: {
+  categories: any[];
+  catLoading: boolean;
+  refetchCategories: () => void;
+  allAccounts: any[];
+  stats: any;
+}) {
   const [expandedCategories, setExpandedCategories] = useState<Set<AccountCategory>>(
     () => new Set<AccountCategory>(["assets", "liabilities", "equity", "revenue", "expenses"])
   );
@@ -229,22 +259,6 @@ function AccountStructureTab() {
     description: "",
   });
 
-  // 상위계정(그룹) = account_categories
-  // ★ 2026-04-14: staleTime 60s 추가 — 탭 전환/재진입 시 불필요한 재요청 방지
-  const { data: categories = [], isLoading: catLoading, refetch: refetchCategories } = trpc.accountCategories.getAll.useQuery(
-    undefined,
-    { staleTime: 60_000 }
-  );
-
-  // 세부 계정 = accounting_accounts
-  const { data: allAccounts = [] } = trpc.accountingAccounts.list.useQuery(
-    {},
-    { staleTime: 60_000 }
-  );
-  const { data: stats } = trpc.accountingAccounts.getStats.useQuery(
-    undefined,
-    { staleTime: 60_000 }
-  );
 
   // 상위계정 그룹별 분류
   const groupedCategories = useMemo(() => {
@@ -856,7 +870,17 @@ function SideSheetAccountList({
 // 탭 B: 계정 과목 목록 - 테이블 뷰
 // 전체 계정 목록, CRUD, 필터, 상위계정(부모 그룹) 컬럼
 // ===================================================================
-function AccountListTab() {
+function AccountListTab({
+  categories,
+  allAccounts,
+  accLoading,
+  stats,
+}: {
+  categories: any[];
+  allAccounts: any[];
+  accLoading: boolean;
+  stats: any;
+}) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<any>(null);
   const [filterCategory, setFilterCategory] = useState<AccountCategory | "ALL">("ALL");
@@ -874,27 +898,16 @@ function AccountListTab() {
 
   const utils = trpc.useUtils();
 
-  // 계정 과목 목록
-  // ★ 2026-04-14: staleTime 60s 추가 — 탭 전환/재진입 시 재요청 방지
-  const { data: accounts = [], isLoading } = trpc.accountingAccounts.list.useQuery(
-    {
-      category: filterCategory === "ALL" ? undefined : filterCategory,
-      isActive: filterActive === "ALL" ? undefined : filterActive,
-    },
-    { staleTime: 60_000 }
-  );
+  // P6: 필터된 계정 목록 — 부모에서 전달받은 allAccounts를 클라이언트 필터링
+  const accounts = useMemo(() => {
+    return allAccounts.filter((acc: any) => {
+      if (filterCategory !== "ALL" && acc.category !== filterCategory) return false;
+      if (filterActive !== "ALL" && acc.isActive !== filterActive) return false;
+      return true;
+    });
+  }, [allAccounts, filterCategory, filterActive]);
 
-  // 상위계정(그룹) 목록
-  const { data: categories = [] } = trpc.accountCategories.getAll.useQuery(
-    undefined,
-    { staleTime: 60_000 }
-  );
-
-  // 통계
-  const { data: stats } = trpc.accountingAccounts.getStats.useQuery(
-    undefined,
-    { staleTime: 60_000 }
-  );
+  const isLoading = accLoading;
 
   // 상위계정 ID → 이름 매핑
   const groupNameMap = useMemo(() => {

@@ -179,13 +179,17 @@ export async function getVisualInspectionLog(db: any, tenantId: number, logId: n
   const log = (logRows as any[])[0];
 
   // 승인 설정 조회
+  // ★ 2026-04-15: employee JOIN 시 tenant_id 제한 제거
+  //   h_employees.id 는 글로벌 auto_increment 이므로 tenant_id 필터 불필요.
+  //   삭제된 employee_id 참조 시 cfg_*_name = NULL → creator_name 폴백 작동.
+  //   + 깨진 employee_id(존재하지 않는) 는 DB 정리 완료 (NULL 처리).
   const settingResult = await db.execute(sql`
     SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
       e_a.name as cfg_author_name, e_r.name as cfg_reviewer_name, e_p.name as cfg_approver_name
     FROM h_document_approval_settings das
-    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${tenantId}
+    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id
+    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id
+    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id
     WHERE das.tenant_id = ${tenantId}
       AND das.document_type = 'material_inspection'
       AND das.is_active = 1

@@ -1,8 +1,15 @@
-import "dotenv/config";
+// dotenv v17: override=true 필수 — 시스템 환경에 OPENAI_API_KEY="" (빈값)이 있으면
+// dotenv가 "이미 정의됨"으로 판단하여 .env 값을 주입하지 않는 문제 방지
+import { config as dotenvConfig } from "dotenv";
+import path from "path";
+dotenvConfig({
+  path: path.resolve(process.cwd(), ".env"),
+  override: true,
+});
+
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import session from "express-session";
@@ -68,6 +75,9 @@ function validateEnvVars(): void {
 }
 
 async function startServer() {
+  // ★ ESM 번들에서 dotenv/config import가 lazy init될 수 있으므로
+  //    startServer 진입 시 명시적으로 .env 로드
+  dotenvConfig({ path: path.resolve(process.cwd(), ".env") });
   validateEnvVars();
 
   const app = express();

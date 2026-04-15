@@ -693,11 +693,15 @@ export default function ApprovalManagement() {
     const category = REQUEST_CATEGORIES[request.requestType] || "기타";
     const categoryColor = CATEGORY_COLORS[category] || "bg-gray-100 text-gray-800";
     const isSelected = selectedIds.includes(request.id);
-    const dateStr = request.requestedAt
-      ? format(new Date(request.requestedAt), "MM.dd HH:mm")
-      : request.createdAt
-        ? format(new Date(request.createdAt), "MM.dd HH:mm")
-        : "-";
+    // ★ 작업일(work_date) 우선 표시: title에서 YYYY-MM-DD 추출 → 시간 제거
+    const titleDateMatch = request.title?.match(/(\d{4}-\d{2}-\d{2})/);
+    const dateStr = titleDateMatch
+      ? format(new Date(titleDateMatch[1] + "T12:00:00"), "MM.dd")
+      : request.requestedAt
+        ? format(new Date(request.requestedAt), "MM.dd")
+        : request.createdAt
+          ? format(new Date(request.createdAt), "MM.dd")
+          : "-";
 
     return (
       <div

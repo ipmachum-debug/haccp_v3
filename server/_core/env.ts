@@ -1,4 +1,6 @@
 // .env 파일에서 OPENAI_API_KEY를 직접 읽기 (시스템 환경변수 빈값 문제 우회)
+// 원인: PM2가 시스템 환경의 OPENAI_API_KEY="" (빈값)을 상속 →
+//       dotenv v17이 "이미 정의됨" 으로 판단하여 .env 값 미주입
 let _cachedOpenAIKey: string | undefined = undefined;
 function getOpenAIKeyFromDotenv(): string {
   if (_cachedOpenAIKey !== undefined) return _cachedOpenAIKey;
@@ -8,6 +10,7 @@ function getOpenAIKeyFromDotenv(): string {
     // PM2 cwd와 여러 경로에서 .env 파일 찾기
     const searchPaths = [
       path.resolve(process.cwd(), ".env"),
+      "/root/haccpone-v2/.env",     // 실제 운영 서버 경로
       "/root/haccp_v3/.env",
       "/root/haccp_v3/webapp/.env",
     ];
@@ -17,8 +20,11 @@ function getOpenAIKeyFromDotenv(): string {
         const match = content.match(/^OPENAI_API_KEY=(.+)$/m);
         if (match) {
           const key = match[1].trim();
-          _cachedOpenAIKey = key;
-          return key;
+          if (key.length > 0) {
+            _cachedOpenAIKey = key;
+            console.log(`[env] OPENAI_API_KEY loaded from ${envPath} (length=${key.length})`);
+            return key;
+          }
         }
       }
     }

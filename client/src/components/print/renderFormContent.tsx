@@ -119,11 +119,125 @@ export function renderGenericData(data: any, formType: string, doc?: any) {
 }
 
 // ============================================================================
+// 생산일지 전용 렌더러
+// ============================================================================
+function renderProductionDaily(data: any, doc?: any) {
+  const production = data?.production || {};
+  const ccp = data?.ccp || {};
+  const issues = data?.issues || [];
+  const batches = production?.batches || [];
+  const dateStr = data?.date || doc?.title?.replace("생산일지 - ", "") || "";
+
+  return (
+    <div className="space-y-4">
+      <TitleWithApproval title={`생산일지 - ${dateStr}`} doc={doc} />
+
+      {/* 생산 요약 */}
+      <div>
+        <h3 className="text-sm font-bold mb-1 border-b border-gray-300 pb-1">생산 요약</h3>
+        <table className="w-full border-collapse border border-gray-400 text-xs">
+          <tbody>
+            <tr>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium w-1/4">생산일자</td>
+              <td className="border border-gray-400 px-2 py-1">{dateStr}</td>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium w-1/4">총 배치 수</td>
+              <td className="border border-gray-400 px-2 py-1">{production.totalBatches || 0}건 (완료: {production.completedBatches || 0}건)</td>
+            </tr>
+            <tr>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium">계획 생산량</td>
+              <td className="border border-gray-400 px-2 py-1">{(production.totalPlannedQty || 0).toFixed(1)} kg</td>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium">실 생산량</td>
+              <td className="border border-gray-400 px-2 py-1">{(production.totalActualQty || 0).toFixed(1)} kg</td>
+            </tr>
+            <tr>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium">달성률</td>
+              <td className="border border-gray-400 px-2 py-1">{production.achievementRate || 0}%</td>
+              <td className="border border-gray-400 px-2 py-1 bg-gray-50 font-medium">CCP 적합률</td>
+              <td className="border border-gray-400 px-2 py-1">{ccp.complianceRate || "100.0"}% ({ccp.totalRecords || 0}건 중 이탈 {ccp.deviationCount || 0}건)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* 배치별 상세 */}
+      {batches.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold mb-1 border-b border-gray-300 pb-1">배치별 생산 실적</h3>
+          <table className="w-full border-collapse border border-gray-400 text-xs">
+            <thead>
+              <tr className="bg-blue-50">
+                <th className="border border-gray-400 px-1 py-1">No</th>
+                <th className="border border-gray-400 px-1 py-1">배치코드</th>
+                <th className="border border-gray-400 px-1 py-1">제품명</th>
+                <th className="border border-gray-400 px-1 py-1">계획량(kg)</th>
+                <th className="border border-gray-400 px-1 py-1">실생산량(kg)</th>
+                <th className="border border-gray-400 px-1 py-1">상태</th>
+                <th className="border border-gray-400 px-1 py-1">시작</th>
+                <th className="border border-gray-400 px-1 py-1">종료</th>
+              </tr>
+            </thead>
+            <tbody>
+              {batches.map((b: any, idx: number) => (
+                <tr key={idx}>
+                  <td className="border border-gray-400 px-1 py-1 text-center">{idx + 1}</td>
+                  <td className="border border-gray-400 px-1 py-1">{b.batchCode || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1">{b.productName || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1 text-right">{(b.plannedQuantity || 0).toFixed(1)}</td>
+                  <td className="border border-gray-400 px-1 py-1 text-right">{(b.actualQuantity || 0).toFixed(1)}</td>
+                  <td className="border border-gray-400 px-1 py-1 text-center">
+                    {b.status === "completed" ? "완료" : b.status === "in_progress" ? "진행중" : b.status || "-"}
+                  </td>
+                  <td className="border border-gray-400 px-1 py-1 text-center">{b.startTime ? b.startTime.split(" ").pop()?.substring(0, 5) : "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1 text-center">{b.endTime ? b.endTime.split(" ").pop()?.substring(0, 5) : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* CCP 이탈 이슈 */}
+      {issues.length > 0 && (
+        <div>
+          <h3 className="text-sm font-bold mb-1 border-b border-gray-300 pb-1">CCP 이탈 사항</h3>
+          <table className="w-full border-collapse border border-gray-400 text-xs">
+            <thead>
+              <tr className="bg-red-50">
+                <th className="border border-gray-400 px-1 py-1">배치코드</th>
+                <th className="border border-gray-400 px-1 py-1">제품명</th>
+                <th className="border border-gray-400 px-1 py-1">CCP유형</th>
+                <th className="border border-gray-400 px-1 py-1">결과</th>
+                <th className="border border-gray-400 px-1 py-1">비고</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map((i: any, idx: number) => (
+                <tr key={idx}>
+                  <td className="border border-gray-400 px-1 py-1">{i.batchCode || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1">{i.productName || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1">{i.ccpType || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1 text-center font-bold text-red-600">{i.result || "-"}</td>
+                  <td className="border border-gray-400 px-1 py-1">{i.note || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {issues.length === 0 && (
+        <p className="text-xs text-green-700">CCP 이탈 사항 없음</p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // 폼 타입별 렌더링 디스패처 (daily_log / batch_production 제외 - 별도 처리)
 // ============================================================================
 export function renderFormContent(data: any, formType: string, doc?: any) {
   if (!data) return <p className="text-gray-500">데이터 없음</p>;
   switch (formType) {
+    case "production_daily": return renderProductionDaily(data, doc);
     case "employee_health_check": return renderEmployeeHealthCheck(data);
     case "air_compressor_maintenance": return renderAirCompressorMaintenance(data);
     case "equipment_inspection": return renderEquipmentInspection(data);

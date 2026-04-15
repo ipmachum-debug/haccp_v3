@@ -12,6 +12,8 @@ export const FORM_TYPE_LABELS: Record<string, string> = {
   consumer_complaint: "소비자 불만 처리 기록",
   daily_disposal_record: "일일 폐기물 처리 기록",
   daily_log: "일반위생관리 및 공정점검표",
+  production_daily: "생산일지",
+  batch_completion: "생산일지",
   employee_health_check: "종사자 건강상태 확인 일지",
   equipment_history: "설비 이력 관리",
   equipment_inspection: "설비 점검 기록",

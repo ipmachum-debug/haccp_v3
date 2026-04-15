@@ -337,21 +337,30 @@ export async function createSingleBatch(
       }
     }
 
-    // === 6.2. CCP-1B / CCP-2B h_ccp_form_records.status 만 'approved' 로 전환 ===
-    // ★ 2026-04-13 변경: 개별 ccp_form 승인요청 INSERT 제거 →
-    //   대신 batch_production 승인요청 1건(배치 단위)만 생성되도록 단순화.
-    //   PrintPreviewPage 가 batch_production 을 열 때 해당 배치의 모든 CCP 기록지를
-    //   렌더링하므로 개별 승인요청이 불필요 → 출력대기 리스트에 중복 표시 방지.
-    //   form_record 상태만 approved 로 전환하여 잠금 효과 유지.
+  }
+
+  // === 6.2. CCP-1B / CCP-2B h_ccp_form_records.status 만 'approved' 로 전환 ===
+  // ★ 2026-04-15 수정: skipGroupActions 블록 밖으로 이동 — 일괄배치(bulk)에서도 실행
+  //   기존에는 skipGroupActions=true 일 때 이 블록이 스킵되어
+  //   CCP-1B form_record 가 draft 상태로 남아 승인관리에 넘어가지 않는 버그 존재
+  //   batch_production 승인요청 1건(배치 단위)만 생성되도록 단순화.
+  //   PrintPreviewPage 가 batch_production 을 열 때 해당 배치의 모든 CCP 기록지를
+  //   렌더링하므로 개별 승인요청이 불필요 → 출력대기 리스트에 중복 표시 방지.
+  //   form_record 상태만 approved 로 전환하여 잠금 효과 유지.
+  if (ccpCreated) {
     try {
       const ccp1b2bConn = await getRawConnection();
-      await ccp1b2bConn.execute(
+      const [updateResult] = await ccp1b2bConn.execute(
         `UPDATE h_ccp_form_records
          SET status = 'approved', submitted_at = NOW(), writer_id = ?
          WHERE batch_id = ? AND tenant_id = ? AND ccp_type IN ('CCP-1B','CCP-2B')
            AND status != 'approved'`,
         [input.userId, batchId, input.tenantId],
       );
+      const affected = (updateResult as any).affectedRows || 0;
+      if (affected > 0) {
+        console.log(`[batchOrchestrator] CCP-1B/2B form_record ${affected}건 → approved (batchId=${batchId})`);
+      }
     } catch (ccp1b2bErr) {
       console.error("[batchOrchestrator] CCP-1B/2B form_record status 전환 실패:", ccp1b2bErr);
     }

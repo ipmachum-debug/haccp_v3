@@ -208,7 +208,7 @@ export async function getMaterialUsageReport(
        b.status,
        COALESCE(p.unit, 'kg') AS unit
      FROM h_batches b
-     LEFT JOIN h_products p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.tenant_id = ?
        AND b.planned_date BETWEEN ? AND ?
        AND b.status IN ('completed','approved','shipped','archived')
@@ -497,7 +497,7 @@ export async function getMaterialUsageReport(
          COALESCE(bi.unit, m.unit, 'kg') AS material_unit,
          COALESCE(bi.actual_quantity, bi.planned_quantity, 0) AS mat_qty
        FROM h_batches b
-       LEFT JOIN h_products p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
        LEFT JOIN h_batch_inputs bi ON bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
        LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
        WHERE b.tenant_id = ?

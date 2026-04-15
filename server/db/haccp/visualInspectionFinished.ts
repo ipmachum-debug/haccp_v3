@@ -324,13 +324,14 @@ export async function getFinishedProductLog(db: any, tenantId: number, logId: nu
   const log = (logRows as any[])[0];
 
   // 승인 설정
+  // ★ 2026-04-15: employee JOIN 시 tenant_id 제한 제거 (글로벌 auto_increment)
   const settingResult = await db.execute(sql`
     SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
       e_a.name as cfg_author_name, e_r.name as cfg_reviewer_name, e_p.name as cfg_approver_name
     FROM h_document_approval_settings das
-    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${tenantId}
+    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id
+    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id
+    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id
     WHERE das.tenant_id = ${tenantId}
       AND das.document_type = 'finished_product_check'
       AND das.is_active = 1
@@ -433,9 +434,10 @@ export async function submitFinishedProductApproval(
   `);
   const itemCount = Number((countResult as any)[0]?.[0]?.cnt || 0);
 
+  // ★ 2026-04-15: employee JOIN 시 tenant_id 제한 제거
   const settingResult = await db.execute(sql`
     SELECT e_a.user_id as author_user_id FROM h_document_approval_settings das
-    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${tenantId}
+    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id
     WHERE das.tenant_id = ${tenantId}
       AND das.document_type = 'finished_product_check'
       AND das.is_active = 1 LIMIT 1
@@ -494,13 +496,14 @@ export async function submitVisualInspectionApproval(
   const itemCount = Number((countResult as any)[0]?.[0]?.cnt || 0);
 
   // 승인 설정 조회
+  // ★ 2026-04-15: employee JOIN 시 tenant_id 제한 제거
   const settingResult = await db.execute(sql`
     SELECT das.author_employee_id, das.reviewer_employee_id, das.approver_employee_id,
       e_a.user_id as author_user_id, e_r.user_id as reviewer_user_id, e_p.user_id as approver_user_id
     FROM h_document_approval_settings das
-    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id AND e_a.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id AND e_r.tenant_id = ${tenantId}
-    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id AND e_p.tenant_id = ${tenantId}
+    LEFT JOIN h_employees e_a ON e_a.id = das.author_employee_id
+    LEFT JOIN h_employees e_r ON e_r.id = das.reviewer_employee_id
+    LEFT JOIN h_employees e_p ON e_p.id = das.approver_employee_id
     WHERE das.tenant_id = ${tenantId}
       AND das.document_type = 'material_inspection'
       AND das.is_active = 1

@@ -125,6 +125,14 @@ export default function PrintPreviewPage() {
             formType = "finished_product_inspection";
           } catch (e) { console.error("완제품 출고검사일지 조회 오류:", e); }
         }
+        // ── production_daily: 생산일지 (referenceId = h_daily_reports.id)
+        else if (request.requestType === "production_daily" && request.referenceId) {
+          try {
+            const report = await (trpcUtils as any).dailyReport.getReportById.fetch({ id: Number(request.referenceId) });
+            formData = report?.summary || report;
+            formType = "production_daily";
+          } catch (e) { console.error("생산일지 조회 오류:", e); }
+        }
         // ── material_usage_report: 원료수불 보고서 (referenceId = material_usage_reports.id)
         else if (request.requestType === "material_usage_report" && request.referenceId) {
           try {
