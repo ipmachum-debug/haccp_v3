@@ -449,6 +449,151 @@ async function ensureDocumentApprovalTables(conn: any) {
 }
 
 /**
+ * 인증/권한/즐겨찾기 관련 테이블 확보
+ * ★ 2026-04-15: DB 손실 복구 이후 drizzle 스키마에 정의된 auth 테이블 중
+ *   일부가 DB 에 없을 가능성 → 로그인/권한/즐겨찾기 기능이 조용히 실패하는 것 방지
+ *
+ * drizzle/schema/auth.ts 정의 기반:
+ *   - h_employees, h_user_roles, h_rbac_roles, h_rbac_permissions,
+ *     h_rbac_role_permissions, h_organization, h_user_widget_settings,
+ *     h_user_favorites
+ */
+async function ensureAuthTables(conn: any) {
+  const tables: Array<{ name: string; sql: string }> = [
+    {
+      name: "h_employees",
+      sql: `CREATE TABLE IF NOT EXISTS h_employees (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        employee_code VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(100) NOT NULL,
+        department VARCHAR(100),
+        position VARCHAR(100),
+        email VARCHAR(320),
+        phone VARCHAR(20),
+        hire_date TIMESTAMP NULL,
+        is_active INT DEFAULT 1 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_employee_code (employee_code),
+        INDEX idx_emp_tenant (tenant_id),
+        INDEX idx_emp_site (site_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_roles",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_roles (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        role_id BIGINT NOT NULL,
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        assigned_by BIGINT NULL,
+        INDEX idx_ur_tenant (tenant_id),
+        INDEX idx_ur_user (user_id),
+        INDEX idx_ur_role (role_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_roles",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_roles (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        role_name VARCHAR(100) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_rbac_role_name (role_name),
+        INDEX idx_rbac_role_tenant (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_permissions",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_permissions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        permission_name VARCHAR(100) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_rbac_perm_name (permission_name),
+        INDEX idx_rbac_perm_tenant (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_role_permissions",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_role_permissions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        role_id BIGINT NOT NULL,
+        permission_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_rrp_tenant (tenant_id),
+        INDEX idx_rrp_role (role_id),
+        INDEX idx_rrp_perm (permission_id),
+        UNIQUE KEY uk_rrp_role_perm (role_id, permission_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_organization",
+      sql: `CREATE TABLE IF NOT EXISTS h_organization (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        parent_id BIGINT NULL,
+        organization_name VARCHAR(100) NOT NULL,
+        level INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_org_tenant (tenant_id),
+        INDEX idx_org_parent (parent_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_widget_settings",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_widget_settings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        widget_id VARCHAR(100) NOT NULL,
+        is_visible INT DEFAULT 1 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_uws_tenant_user (tenant_id, user_id),
+        UNIQUE KEY uk_uws_user_widget (user_id, widget_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_favorites",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_favorites (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        menu_path VARCHAR(255) NOT NULL,
+        menu_label VARCHAR(100) NOT NULL,
+        menu_icon VARCHAR(50),
+        sort_order INT DEFAULT 0 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_fav_tenant_user (tenant_id, user_id),
+        UNIQUE KEY uk_fav_user_path (user_id, menu_path)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  let created = 0;
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+      const [rows] = await conn.query(
+        `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+        [t.name],
+      );
+      if ((rows as any[])[0]?.cnt > 0) created++;
+    } catch (err: any) {
+      console.warn(`[Migration] auth table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log(`[Migration] Auth/RBAC tables verified: ${created}/${tables.length} exist`);
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -459,6 +604,7 @@ export async function runStartupMigrations() {
     await migratePartnersTable(conn);
     await ensureAITables(conn);
     await ensureDocumentApprovalTables(conn);
+    await ensureAuthTables(conn);
 
     console.log("[Migration] Startup migrations completed");
   } catch (err) {
