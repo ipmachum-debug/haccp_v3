@@ -136,30 +136,40 @@ function PurchasesListContent() {
     },
   });
 
-  // ─── 그룹 PDF (2026-04-14 추가) ───────────────────────────
+  // ─── 그룹 PDF (2026-04-14 추가, 2026-04-15 디버그 강화) ───────
   // 같은 거래의 여러 품목을 한 PDF 로 묶어서 출력
-  // 실패 시: 단일 PDF 로 자동 폴백 (첫 품목 기준)
+  // ★ 2026-04-15: fallback 제거 — 에러를 명확하게 표시하여 디버깅 가능하도록
+  //   이전: 실패 시 단일 PDF 로 조용히 폴백 → 사용자는 "첫번째만 나온다" 로 착각
+  //   현재: 실패 시 명확한 에러 토스트 (자세한 원인) + console.error
   const previewGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
-    onSuccess: (data: any) => {
+    onMutate: (variables: any) => {
+      console.log("[generatePurchaseGroupPDF] 호출:", variables);
+    },
+    onSuccess: (data: any, variables: any) => {
+      console.log("[generatePurchaseGroupPDF] 성공:", { ids: variables?.purchaseIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
-      toast({ title: "거래명세표 미리보기", description: "새 탭에서 열렸습니다." });
+      toast({
+        title: "거래명세표 미리보기",
+        description: `${variables?.purchaseIds?.length || 0}개 품목 묶음 PDF 가 새 탭에서 열렸습니다.`,
+      });
     },
     onError: (error: any, variables: any) => {
-      console.error("[generatePurchaseGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백 시도:", error.message, variables);
-      // 폴백: 첫 품목으로 단일 PDF 호출
-      const firstId = variables?.purchaseIds?.[0];
-      if (firstId) {
-        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
-        previewPDFMutation.mutate({ purchaseId: firstId });
-      } else {
-        toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
-      }
+      console.error("[generatePurchaseGroupPDF] 실패:", error.message, variables);
+      toast({
+        title: "거래명세표 그룹 PDF 실패",
+        description: `ids=${JSON.stringify(variables?.purchaseIds)} · ${error.message}`,
+        variant: "destructive",
+      });
     },
   });
   const printGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
-    onSuccess: (data: any) => {
+    onMutate: (variables: any) => {
+      console.log("[printGroupPDF] 호출:", variables);
+    },
+    onSuccess: (data: any, variables: any) => {
+      console.log("[printGroupPDF] 성공:", { ids: variables?.purchaseIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
       const iframe = document.createElement("iframe");
@@ -171,17 +181,18 @@ function PurchasesListContent() {
       };
       document.body.appendChild(iframe);
       setTimeout(() => { try { document.body.removeChild(iframe); URL.revokeObjectURL(url); } catch (_) { /* ignore */ } }, 120_000);
-      toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
+      toast({
+        title: "인쇄",
+        description: `${variables?.purchaseIds?.length || 0}개 품목 묶음 PDF 프린트 대화상자를 엽니다.`,
+      });
     },
     onError: (error: any, variables: any) => {
-      console.error("[printGroupPDF] 그룹 PDF 실패 — 단일 PDF 폴백 시도:", error.message, variables);
-      const firstId = variables?.purchaseIds?.[0];
-      if (firstId) {
-        toast({ title: "그룹 PDF 실패 — 첫 품목 단일 PDF 로 재시도", description: error.message });
-        generatePDFMutation.mutate({ purchaseId: firstId });
-      } else {
-        toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
-      }
+      console.error("[printGroupPDF] 실패:", error.message, variables);
+      toast({
+        title: "거래명세표 그룹 PDF 인쇄 실패",
+        description: `ids=${JSON.stringify(variables?.purchaseIds)} · ${error.message}`,
+        variant: "destructive",
+      });
     },
   });
 

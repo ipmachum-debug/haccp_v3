@@ -76,9 +76,13 @@ function validateEnvVars(): void {
 
 async function startServer() {
   // ★ ESM 번들에서 dotenv/config import가 lazy init될 수 있으므로
-  //    startServer 진입 시 명시적으로 .env 로드
-  dotenvConfig({ path: path.resolve(process.cwd(), ".env") });
+  //    startServer 진입 시 명시적으로 .env 로드 (override=true 로 빈값 덮어쓰기)
+  dotenvConfig({ path: path.resolve(process.cwd(), ".env"), override: true });
   validateEnvVars();
+
+  // AI/LLM 진단 출력 (서버 로그에서 확인 가능)
+  const { printEnvDiagnostics } = await import("./env.js").catch(() => ({ printEnvDiagnostics: undefined }));
+  if (printEnvDiagnostics) printEnvDiagnostics();
 
   const app = express();
   const server = createServer(app);

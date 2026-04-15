@@ -226,25 +226,49 @@ export async function generatePurchaseStatementPDFByIds(
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
 
-    // 1. 모든 매입 조회 — 개별 실패는 스킵 (한 건만 깨져도 전체 실패 방지)
-    const purchases: any[] = [];
-    const failedIds: number[] = [];
-    for (const id of purchaseIds) {
-      try {
-        const p = await getPurchaseById(id, tenantId);
-        if (p) purchases.push(p);
-        else failedIds.push(id);
-      } catch (itemErr: any) {
-        console.warn(`[generatePurchaseStatementPDFByIds] id=${id} 조회 실패: ${itemErr?.message || itemErr}`);
-        failedIds.push(id);
+    // 1. 모든 매입 한 번에 조회 — SQL IN 쿼리 (getPurchaseById 루프 금지)
+    //    ★ 2026-04-15: 이전에는 for 루프로 getPurchaseById 를 호출했으나,
+    //    개별 호출이 throw 하면 그 id 가 누락되어 items 배열에 첫 품목만 남는 증상 발견
+    //    → 단일 IN 쿼리로 교체하여 모든 id 를 한 번에 가져옴
+    const { inArray } = await import("drizzle-orm");
+    const conditions: any[] = [inArray(accountingPurchases.id, purchaseIds)];
+    if (tenantId) {
+      conditions.push(eq(accountingPurchases.tenantId, tenantId));
+    }
+    const rawPurchases = await db
+      .select()
+      .from(accountingPurchases)
+      .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id))
+      .where(and(...conditions) as any);
+
+    console.log(`[generatePurchaseStatementPDFByIds] DB 조회 결과: requested=${purchaseIds.length}, fetched=${rawPurchases.length}`);
+
+    if (!rawPurchases.length) {
+      throw new Error(`유효한 매입이 없습니다. ids=${purchaseIds.join(',')}`);
+    }
+
+    // 원본 순서 유지 (사용자가 클릭한 그룹 순서와 동일하게)
+    const purchasesMap = new Map<number, any>();
+    for (const row of rawPurchases as any[]) {
+      const p = row.accounting_purchases;
+      if (p && p.id != null) {
+        purchasesMap.set(Number(p.id), {
+          ...p,
+          partnerName: row.partners?.companyName || null,
+        });
       }
     }
+    const purchases: any[] = [];
+    for (const id of purchaseIds) {
+      const p = purchasesMap.get(Number(id));
+      if (p) purchases.push(p);
+    }
+
     if (!purchases.length) {
-      throw new Error(`유효한 매입이 없습니다. ids=${purchaseIds.join(',')}, failed=${failedIds.join(',')}`);
+      throw new Error(`매핑된 매입이 없습니다. ids=${purchaseIds.join(',')}`);
     }
-    if (failedIds.length) {
-      console.warn(`[generatePurchaseStatementPDFByIds] 일부 실패 계속 진행: failed=${failedIds.join(',')}`);
-    }
+
+    console.log(`[generatePurchaseStatementPDFByIds] 집계: ${purchases.length}개 품목, 첫 품목=${purchases[0]?.itemName}`);
 
     const first = purchases[0];
 
@@ -333,25 +357,48 @@ export async function generateSaleStatementPDFByIds(
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
 
-    // 1. 모든 매출 조회 — 개별 실패는 스킵
-    const sales: any[] = [];
-    const failedIds: number[] = [];
-    for (const id of saleIds) {
-      try {
-        const s = await getSaleById(id, tenantId);
-        if (s) sales.push(s);
-        else failedIds.push(id);
-      } catch (itemErr: any) {
-        console.warn(`[generateSaleStatementPDFByIds] id=${id} 조회 실패: ${itemErr?.message || itemErr}`);
-        failedIds.push(id);
+    // 1. 모든 매출 한 번에 조회 — SQL IN 쿼리
+    //    ★ 2026-04-15: 개별 getSaleById 루프 제거 → 단일 IN 쿼리
+    const { inArray } = await import("drizzle-orm");
+    const { accountingSales } = await import("../../../drizzle/schema");
+    const conditions: any[] = [inArray(accountingSales.id, saleIds)];
+    if (tenantId) {
+      conditions.push(eq(accountingSales.tenantId, tenantId));
+    }
+    const rawSales = await db
+      .select()
+      .from(accountingSales)
+      .leftJoin(partners, eq(accountingSales.partnerId, partners.id))
+      .where(and(...conditions) as any);
+
+    console.log(`[generateSaleStatementPDFByIds] DB 조회 결과: requested=${saleIds.length}, fetched=${rawSales.length}`);
+
+    if (!rawSales.length) {
+      throw new Error(`유효한 매출이 없습니다. ids=${saleIds.join(',')}`);
+    }
+
+    // 원본 순서 유지
+    const salesMap = new Map<number, any>();
+    for (const row of rawSales as any[]) {
+      const s = row.accounting_sales;
+      if (s && s.id != null) {
+        salesMap.set(Number(s.id), {
+          ...s,
+          partnerName: row.partners?.companyName || null,
+        });
       }
     }
+    const sales: any[] = [];
+    for (const id of saleIds) {
+      const s = salesMap.get(Number(id));
+      if (s) sales.push(s);
+    }
+
     if (!sales.length) {
-      throw new Error(`유효한 매출이 없습니다. ids=${saleIds.join(',')}, failed=${failedIds.join(',')}`);
+      throw new Error(`매핑된 매출이 없습니다. ids=${saleIds.join(',')}`);
     }
-    if (failedIds.length) {
-      console.warn(`[generateSaleStatementPDFByIds] 일부 실패 계속 진행: failed=${failedIds.join(',')}`);
-    }
+
+    console.log(`[generateSaleStatementPDFByIds] 집계: ${sales.length}개 품목, 첫 품목=${sales[0]?.itemName}`);
 
     const first = sales[0];
 
