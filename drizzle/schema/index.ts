@@ -34,6 +34,7 @@ export * from "./schema_tax_invoices";
 export * from "./accountingMonthlyReport";
 export * from "./schema_categories";
 export * from "./accountingAccounts";
+export * from "./accountCategories";
 export * from "./verification";
 export * from "./nonconformingProduct";
 export * from "./recall";

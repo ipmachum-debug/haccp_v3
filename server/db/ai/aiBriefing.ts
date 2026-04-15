@@ -56,6 +56,11 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
   const items: BriefingItem[] = [];
   const today = getKSTToday();
 
+  // ★ 2026-04-15: 섹션별 실패를 수집 → 사용자와 서버 로그 양쪽에 노출
+  //   이전: catch 에서 console.error 만 하고 조용히 continue → "오늘은 이상 없음"
+  //   으로 오인되는 치명적 UX 결함. 이제는 실패 사실을 briefing 에 표시.
+  const sectionErrors: Array<{ section: string; message: string }> = [];
+
   try {
     // ══════════════════════════════════════════════
     // 1. 🚨 재고 위험 - 안전재고 미달 + 생산 영향 분석
@@ -109,7 +114,11 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
           actionUrl: '/inventory-management',
         });
       }
-    } catch (e) { console.error('[briefing] 재고 위험 조회 실패:', e); }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[briefing] 재고 위험 조회 실패:', e);
+      sectionErrors.push({ section: '재고 위험', message: msg });
+    }
 
     // ══════════════════════════════════════════════
     // 2. 💰 원가 변화 - 최근 단가 상승/하락
@@ -165,7 +174,11 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
           actionUrl: '/dashboard/accounting/material-ledger',
         });
       }
-    } catch (e) { console.error('[briefing] 원가 변화 조회 실패:', e); }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[briefing] 원가 변화 조회 실패:', e);
+      sectionErrors.push({ section: '원가 변화', message: msg });
+    }
 
     // ══════════════════════════════════════════════
     // 3. ⚠️ 품질/HACCP 이상 - CCP 이탈, 미승인 CCP 기록
@@ -248,7 +261,11 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
           }
         }
       }
-    } catch (e) { console.error('[briefing] 품질/HACCP 조회 실패:', e); }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[briefing] 품질/HACCP 조회 실패:', e);
+      sectionErrors.push({ section: '품질/HACCP', message: msg });
+    }
 
     // ══════════════════════════════════════════════
     // 4. 📉 생산 이상 - 오늘 생산량 vs 30일 평균
@@ -295,7 +312,11 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
           actionUrl: '/dashboard/production-management',
         });
       }
-    } catch (e) { console.error('[briefing] 생산 이상 조회 실패:', e); }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[briefing] 생산 이상 조회 실패:', e);
+      sectionErrors.push({ section: '생산 이상', message: msg });
+    }
 
     // ══════════════════════════════════════════════
     // 5. 📦 발주 필요 - 3일 내 소진 예상 원재료
@@ -343,10 +364,33 @@ export async function generateAIBriefing(tenantId: number, userName: string): Pr
           });
         }
       }
-    } catch (e) { console.error('[briefing] 발주 필요 조회 실패:', e); }
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[briefing] 발주 필요 조회 실패:', e);
+      sectionErrors.push({ section: '발주 필요', message: msg });
+    }
 
-  } catch (error) {
+  } catch (error: any) {
+    const msg = error?.message || String(error);
     console.error('[briefing] 전체 오류:', error);
+    sectionErrors.push({ section: '브리핑 전체', message: msg });
+  }
+
+  // ★ 2026-04-15: 섹션별 실패가 있으면 브리핑에 경고 아이템 추가 (사용자 가시화)
+  //   이전: 조용히 빈 브리핑 반환 → "오늘은 이상 없음" 오인
+  if (sectionErrors.length > 0) {
+    const failedSections = sectionErrors.map(e => e.section).join(', ');
+    items.push({
+      type: 'quality_issue',
+      icon: '🛠️',
+      label: '브리핑 오류',
+      message: `AI 브리핑 ${sectionErrors.length}개 섹션 조회 실패: ${failedSections} — 데이터가 불완전할 수 있습니다.`,
+      severity: 'warning',
+      actionLabel: '관리자 문의 >',
+      actionUrl: '/dashboard/ai',
+    });
+    console.warn(`[briefing] 섹션 ${sectionErrors.length}개 실패:`,
+      sectionErrors.map(e => `${e.section}: ${e.message}`).join(' | '));
   }
 
   // 최대 3개만 (severity 순: critical > warning > info)

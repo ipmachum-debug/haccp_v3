@@ -140,17 +140,22 @@ export async function generateHaccpPlan(
   let existingContext = "";
 
   try {
+    // ★ 2026-04-15: 레거시 `products`/`materials` → `h_products_v2`/`h_materials` 교체
+    //   이전: 존재하지 않는 테이블 참조 → catch 로 조용히 실패 → 빈 컨텍스트
     const [products] = await conn.execute(
-      `SELECT product_name as name, unit FROM h_products_v2 WHERE tenant_id = ? LIMIT 20`,
+      `SELECT product_name AS name, unit FROM h_products_v2 WHERE tenant_id = ? LIMIT 20`,
       [tenantId]
     );
     const [materials] = await conn.execute(
-      `SELECT material_name as name, unit FROM h_materials WHERE tenant_id = ? LIMIT 30`,
+      `SELECT material_name AS name, unit FROM h_materials WHERE tenant_id = ? LIMIT 30`,
       [tenantId]
     );
     existingContext = `\n기존 등록 제품: ${(products as any[]).map((p) => p.name).join(", ")}
 기존 등록 원재료: ${(materials as any[]).map((m) => m.name).join(", ")}`;
-  } catch { /* 기존 데이터 없어도 무방 */ }
+  } catch (ctxErr: any) {
+    // 테이블/컬럼 미일치 등은 로그로 노출 (이전: 조용히 무시)
+    console.warn("[aiHaccpPlan] 기존 컨텍스트 수집 실패:", ctxErr?.message);
+  }
 
   const result = await invokeLLM({
     messages: [
@@ -218,11 +223,12 @@ export async function generateHaccpPlanFromExistingData(tenantId: number): Promi
   const conn = await getRawConnection();
 
   // 시스템에 등록된 데이터로 자동 구성
+  // ★ 2026-04-15: 레거시 products/materials → h_products_v2/h_materials 교체
   const [products] = await conn.execute(
-    `SELECT product_name as name FROM h_products_v2 WHERE tenant_id = ?`, [tenantId]
+    `SELECT product_name AS name FROM h_products_v2 WHERE tenant_id = ?`, [tenantId]
   );
   const [materials] = await conn.execute(
-    `SELECT material_name as name FROM h_materials WHERE tenant_id = ?`, [tenantId]
+    `SELECT material_name AS name FROM h_materials WHERE tenant_id = ?`, [tenantId]
   );
   const [ccpTypes] = await conn.execute(
     `SELECT DISTINCT ccp_type FROM h_ccp_instances WHERE tenant_id = ?`, [tenantId]

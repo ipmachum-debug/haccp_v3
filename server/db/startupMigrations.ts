@@ -267,13 +267,343 @@ async function ensureAITables(conn: any) {
 }
 
 /**
- * 계정 카테고리(상위계정 그룹) 테이블 자동 생성
- * ★ 2026-04-15: account_categories 테이블 미존재 시 계정 과목 관리 페이지가
- *   매 요청마다 에러 → 폴백 → 10초 로딩 문제 발생
+ * 문서 승인 파이프라인 테이블 확보
+ * ★ 2026-04-15: DB 손실 복구 후 document_instances 누락 이슈 해결
+ *   document_types / document_instances / document_approval_history /
+ *   document_batch_print_groups / document_batch_print_items /
+ *   document_auto_approval_settings
+ *
+ * 배치 출하 / 승인 / 문서출력 전체 파이프라인의 핵심 테이블들.
+ * 40+ 파일에서 직접 SQL 로 참조하지만 Drizzle schema 정식 정의가 없어
+ * startup ensure 로만 스키마 보장 가능.
+ */
+async function ensureDocumentApprovalTables(conn: any) {
+  const tables: Array<{ name: string; sql: string }> = [
+    {
+      name: "document_types",
+      sql: `CREATE TABLE IF NOT EXISTS document_types (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(50) NOT NULL UNIQUE,
+        name VARCHAR(200) NOT NULL,
+        category ENUM('production','ccp','inspection','training','hygiene','prerequisite','other') NOT NULL,
+        description TEXT,
+        template_path VARCHAR(500),
+        is_active TINYINT DEFAULT 1 NOT NULL,
+        auto_generate_on_batch TINYINT DEFAULT 0 NOT NULL,
+        requires_approval TINYINT DEFAULT 1 NOT NULL,
+        approval_levels INT DEFAULT 3 NOT NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        updated_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_document_type_code (code),
+        INDEX idx_document_type_category (category)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "document_instances",
+      sql: `CREATE TABLE IF NOT EXISTS document_instances (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        document_type_id BIGINT NOT NULL,
+        batch_id BIGINT NULL,
+        product_id BIGINT NULL,
+        work_date DATE NOT NULL,
+        status ENUM('draft','pending_review','pending_approval','approved','rejected','cancelled') DEFAULT 'draft' NOT NULL,
+        created_by BIGINT NOT NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        reviewer_id BIGINT NULL,
+        reviewed_at TIMESTAMP(3) NULL,
+        review_comments TEXT,
+        approver_id BIGINT NULL,
+        approved_at TIMESTAMP(3) NULL,
+        approval_comments TEXT,
+        rejected_by BIGINT NULL,
+        rejected_at TIMESTAMP(3) NULL,
+        rejection_reason TEXT,
+        is_auto_generated TINYINT DEFAULT 0 NOT NULL,
+        auto_approval_enabled TINYINT DEFAULT 0 NOT NULL,
+        document_data JSON,
+        pdf_url VARCHAR(500),
+        pdf_generated_at TIMESTAMP(3) NULL,
+        updated_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_di_tenant (tenant_id),
+        INDEX idx_di_site (site_id),
+        INDEX idx_di_type (document_type_id),
+        INDEX idx_di_batch (batch_id),
+        INDEX idx_di_work_date (work_date),
+        INDEX idx_di_status (status),
+        INDEX idx_di_tenant_batch (tenant_id, batch_id),
+        INDEX idx_di_tenant_status (tenant_id, status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "document_approval_history",
+      sql: `CREATE TABLE IF NOT EXISTS document_approval_history (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        document_instance_id BIGINT NOT NULL,
+        action ENUM('created','submitted_for_review','reviewed','submitted_for_approval','approved','rejected','cancelled') NOT NULL,
+        actor_id BIGINT NOT NULL,
+        actor_role ENUM('creator','reviewer','approver','admin') NOT NULL,
+        comments TEXT,
+        previous_status VARCHAR(50),
+        new_status VARCHAR(50),
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_dah_tenant (tenant_id),
+        INDEX idx_dah_document (document_instance_id),
+        INDEX idx_dah_actor (actor_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "document_batch_print_groups",
+      sql: `CREATE TABLE IF NOT EXISTS document_batch_print_groups (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        work_date DATE NOT NULL,
+        group_name VARCHAR(200) NOT NULL,
+        description TEXT,
+        total_documents INT DEFAULT 0 NOT NULL,
+        printed_by BIGINT NULL,
+        printed_at TIMESTAMP(3) NULL,
+        combined_pdf_url VARCHAR(500),
+        pdf_generated_at TIMESTAMP(3) NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        updated_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_dbpg_tenant (tenant_id),
+        INDEX idx_dbpg_site (site_id),
+        INDEX idx_dbpg_work_date (work_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "document_batch_print_items",
+      sql: `CREATE TABLE IF NOT EXISTS document_batch_print_items (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        batch_print_group_id BIGINT NOT NULL,
+        document_instance_id BIGINT NOT NULL,
+        sort_order INT DEFAULT 0 NOT NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_dbpi_tenant (tenant_id),
+        INDEX idx_dbpi_group (batch_print_group_id),
+        INDEX idx_dbpi_document (document_instance_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "document_auto_approval_settings",
+      sql: `CREATE TABLE IF NOT EXISTS document_auto_approval_settings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        document_type_id BIGINT NOT NULL,
+        auto_approval_enabled TINYINT DEFAULT 0 NOT NULL,
+        auto_approval_delay_minutes INT DEFAULT 0,
+        conditions JSON,
+        default_reviewer_id BIGINT NULL,
+        default_approver_id BIGINT NULL,
+        created_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
+        updated_at TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) NOT NULL,
+        INDEX idx_daas_tenant (tenant_id),
+        INDEX idx_daas_site (site_id),
+        INDEX idx_daas_document_type (document_type_id),
+        UNIQUE KEY uk_daas_site_type (tenant_id, site_id, document_type_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  let created = 0;
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+      const [rows] = await conn.query(
+        `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+        [t.name],
+      );
+      if ((rows as any[])[0]?.cnt > 0) created++;
+    } catch (err: any) {
+      console.warn(`[Migration] document table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log(`[Migration] Document approval tables verified: ${created}/${tables.length} exist`);
+
+  // 기본 document_types 시드 (ON DUPLICATE KEY UPDATE 로 멱등성 보장)
+  try {
+    await conn.query(`
+      INSERT INTO document_types (code, name, category, description, auto_generate_on_batch, requires_approval, approval_levels) VALUES
+      ('production_log', '생산일지', 'production', '배치별 생산 기록', 1, 1, 3),
+      ('ccp_log', 'CCP 일지', 'ccp', 'CCP 모니터링 기록', 1, 1, 3),
+      ('visual_inspection_log', '육안검사 일지', 'inspection', '제품 육안 검사 기록', 1, 1, 3),
+      ('training_log', '교육훈련 일지', 'training', '직원 교육 훈련 기록', 0, 1, 3),
+      ('hygiene_log', '위생관리 일지', 'hygiene', '위생 점검 및 관리 기록', 1, 1, 3),
+      ('prerequisite_log', '선행관리 일지', 'prerequisite', '선행 요구사항 관리 기록', 1, 1, 3),
+      ('equipment_cleaning_log', '설비 세척 일지', 'hygiene', '설비 세척 및 소독 기록', 1, 1, 3),
+      ('water_quality_log', '수질 검사 일지', 'prerequisite', '용수 수질 검사 기록', 1, 1, 3),
+      ('personal_hygiene_log', '개인위생 점검 일지', 'hygiene', '작업자 개인위생 점검 기록', 1, 1, 3),
+      ('foreign_material_log', '이물 관리 일지', 'inspection', '이물 발견 및 조치 기록', 1, 1, 3)
+      ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category)
+    `);
+    console.log(`[Migration] document_types seed data ensured`);
+  } catch (err: any) {
+    console.warn(`[Migration] document_types seed failed:`, err.message);
+  }
+}
+
+/**
+ * 인증/권한/즐겨찾기 관련 테이블 확보
+ * ★ 2026-04-15: DB 손실 복구 이후 drizzle 스키마에 정의된 auth 테이블 중
+ *   일부가 DB 에 없을 가능성 → 로그인/권한/즐겨찾기 기능이 조용히 실패하는 것 방지
+ *
+ * drizzle/schema/auth.ts 정의 기반:
+ *   - h_employees, h_user_roles, h_rbac_roles, h_rbac_permissions,
+ *     h_rbac_role_permissions, h_organization, h_user_widget_settings,
+ *     h_user_favorites
+ */
+async function ensureAuthTables(conn: any) {
+  const tables: Array<{ name: string; sql: string }> = [
+    {
+      name: "h_employees",
+      sql: `CREATE TABLE IF NOT EXISTS h_employees (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        site_id BIGINT NOT NULL,
+        employee_code VARCHAR(50) NOT NULL,
+        employee_name VARCHAR(100) NOT NULL,
+        department VARCHAR(100),
+        position VARCHAR(100),
+        email VARCHAR(320),
+        phone VARCHAR(20),
+        hire_date TIMESTAMP NULL,
+        is_active INT DEFAULT 1 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_employee_code (employee_code),
+        INDEX idx_emp_tenant (tenant_id),
+        INDEX idx_emp_site (site_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_roles",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_roles (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        role_id BIGINT NOT NULL,
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        assigned_by BIGINT NULL,
+        INDEX idx_ur_tenant (tenant_id),
+        INDEX idx_ur_user (user_id),
+        INDEX idx_ur_role (role_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_roles",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_roles (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        role_name VARCHAR(100) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_rbac_role_name (role_name),
+        INDEX idx_rbac_role_tenant (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_permissions",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_permissions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        permission_name VARCHAR(100) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UNIQUE KEY uk_rbac_perm_name (permission_name),
+        INDEX idx_rbac_perm_tenant (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_rbac_role_permissions",
+      sql: `CREATE TABLE IF NOT EXISTS h_rbac_role_permissions (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        role_id BIGINT NOT NULL,
+        permission_id BIGINT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_rrp_tenant (tenant_id),
+        INDEX idx_rrp_role (role_id),
+        INDEX idx_rrp_perm (permission_id),
+        UNIQUE KEY uk_rrp_role_perm (role_id, permission_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_organization",
+      sql: `CREATE TABLE IF NOT EXISTS h_organization (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        parent_id BIGINT NULL,
+        organization_name VARCHAR(100) NOT NULL,
+        level INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_org_tenant (tenant_id),
+        INDEX idx_org_parent (parent_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_widget_settings",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_widget_settings (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        widget_id VARCHAR(100) NOT NULL,
+        is_visible INT DEFAULT 1 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_uws_tenant_user (tenant_id, user_id),
+        UNIQUE KEY uk_uws_user_widget (user_id, widget_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "h_user_favorites",
+      sql: `CREATE TABLE IF NOT EXISTS h_user_favorites (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        menu_path VARCHAR(255) NOT NULL,
+        menu_label VARCHAR(100) NOT NULL,
+        menu_icon VARCHAR(50),
+        sort_order INT DEFAULT 0 NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        INDEX idx_fav_tenant_user (tenant_id, user_id),
+        UNIQUE KEY uk_fav_user_path (user_id, menu_path)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  let created = 0;
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+      const [rows] = await conn.query(
+        `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
+        [t.name],
+      );
+      if ((rows as any[])[0]?.cnt > 0) created++;
+    } catch (err: any) {
+      console.warn(`[Migration] auth table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log(`[Migration] Auth/RBAC tables verified: ${created}/${tables.length} exist`);
+}
+
+/**
+ * account_categories 테이블 확보
+ * ★ 2026-04-15: Genspark 커밋 6e808ab 에서 genspark_ai_developer 브랜치로
+ *   먼저 반영된 ensure 로직을 우리 브랜치에도 포함 (PR #23 머지 대기)
+ *   계정 구조 페이지 10초 로딩의 근본 원인이었던 테이블.
+ *
+ *   tenant_id NULL 허용 (글로벌 카테고리 지원)
  */
 async function ensureAccountCategoriesTable(conn: any) {
   try {
-    await conn.execute(`
+    await conn.query(`
       CREATE TABLE IF NOT EXISTS account_categories (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         code VARCHAR(20) NOT NULL,
@@ -288,7 +618,7 @@ async function ensureAccountCategoriesTable(conn: any) {
         INDEX idx_tenant_active (tenant_id, is_active),
         INDEX idx_major_category (major_category),
         INDEX idx_code (code)
-      )
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log("[Migration] account_categories table verified");
   } catch (err: any) {
@@ -303,11 +633,13 @@ export async function runStartupMigrations() {
   try {
     const conn = await getRawConnection();
     console.log("[Migration] Running startup migrations...");
-    
+
     await migratePartnersTable(conn);
     await ensureAITables(conn);
     await ensureAccountCategoriesTable(conn);
-    
+    await ensureDocumentApprovalTables(conn);
+    await ensureAuthTables(conn);
+
     console.log("[Migration] Startup migrations completed");
   } catch (err) {
     console.error("[Migration] Startup migrations failed:", err);
