@@ -627,6 +627,105 @@ async function ensureAccountCategoriesTable(conn: any) {
 }
 
 /**
+ * accounting_accounts 테이블에 account_category_id 컬럼 ALTER ensure
+ * ★ 2026-04-15: scripts/migrate-account-category-fk.ts 수동 실행 대신
+ *   서버 시작 시 자동 보장. 컬럼 부재 시 accountingAccounts.list 가
+ *   매 요청마다 fallback 2회 왕복 → 10초 로딩 재발 방지.
+ */
+async function ensureAccountingAccountsColumns(conn: any) {
+  try {
+    // 1. account_category_id 컬럼 존재 확인
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'accounting_accounts'
+         AND COLUMN_NAME = 'account_category_id'`
+    );
+    if ((cols as any[]).length === 0) {
+      await conn.query(
+        `ALTER TABLE accounting_accounts
+         ADD COLUMN account_category_id BIGINT NULL AFTER parent_id,
+         ADD INDEX idx_account_category_id (account_category_id)`
+      );
+      console.log("[Migration] accounting_accounts: account_category_id column added");
+    } else {
+      // 이미 존재하면 skip
+    }
+  } catch (err: any) {
+    // 테이블 자체가 없는 경우 (신규 배포) → 다른 ensure 에서 처리됨
+    if (err.code !== "ER_NO_SUCH_TABLE") {
+      console.warn("[Migration] accounting_accounts ALTER failed:", err.message);
+    }
+  }
+
+  // 2. system_code 컬럼 확인 (P0 시스템 코드 마이그레이션)
+  try {
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'accounting_accounts'
+         AND COLUMN_NAME = 'system_code'`
+    );
+    if ((cols as any[]).length === 0) {
+      await conn.query(
+        `ALTER TABLE accounting_accounts
+         ADD COLUMN system_code VARCHAR(50) NULL AFTER code,
+         ADD INDEX idx_system_code (tenant_id, system_code)`
+      );
+      console.log("[Migration] accounting_accounts: system_code column added");
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") {
+      console.warn("[Migration] accounting_accounts system_code ALTER failed:", err.message);
+    }
+  }
+}
+
+/**
+ * Startup 스모크 테스트 — ensure 된 테이블에 실제 접근 가능한지 검증
+ * ★ 2026-04-15: ensure 가 성공했다고 보고해도 권한/네트워크 이슈로 실제
+ *   SELECT 가 실패할 수 있음. 서버 로그에 한 줄로 요약 출력하여
+ *   운영 중 누락 감지 가능.
+ */
+async function runSmokeTest(conn: any) {
+  const criticalTables = [
+    // 기본 인프라
+    "tenants", "users", "partners",
+    // 문서 파이프라인
+    "document_types", "document_instances",
+    // 인증/권한
+    "h_employees", "h_user_favorites",
+    // 회계 계정
+    "accounting_accounts", "account_categories",
+    // 배치 파이프라인
+    "h_batches", "h_ccp_instances", "h_ccp_form_records",
+    // AI
+    "ai_chat_history", "ai_alerts",
+  ];
+
+  const results: Array<{ table: string; ok: boolean; error?: string }> = [];
+  for (const table of criticalTables) {
+    try {
+      await conn.query(`SELECT 1 FROM ${table} LIMIT 1`);
+      results.push({ table, ok: true });
+    } catch (err: any) {
+      results.push({ table, ok: false, error: err?.message || String(err) });
+    }
+  }
+
+  const failed = results.filter((r) => !r.ok);
+  const okCount = results.length - failed.length;
+  console.log(`[SmokeTest] ${okCount}/${results.length} critical tables accessible`);
+  if (failed.length > 0) {
+    console.error(
+      `[SmokeTest] 🚨 ${failed.length}개 테이블 접근 실패:`,
+      failed.map((f) => `${f.table}(${f.error?.substring(0, 50) ?? "?"})`).join(" | "),
+    );
+  }
+  return { okCount, total: results.length, failed };
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -637,10 +736,14 @@ export async function runStartupMigrations() {
     await migratePartnersTable(conn);
     await ensureAITables(conn);
     await ensureAccountCategoriesTable(conn);
+    await ensureAccountingAccountsColumns(conn);
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
 
     console.log("[Migration] Startup migrations completed");
+
+    // 스모크 테스트로 ensure 결과 검증
+    await runSmokeTest(conn);
   } catch (err) {
     console.error("[Migration] Startup migrations failed:", err);
     // 마이그레이션 실패해도 서버는 계속 실행

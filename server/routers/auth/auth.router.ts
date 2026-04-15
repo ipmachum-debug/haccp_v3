@@ -19,9 +19,19 @@ export const authRouter = router({
       const user = opts.ctx.user;
 
       // 로그인한 사용자의 경우 기본 즐겨찾기 자동 생성
+      // ★ 2026-04-15: 이전에는 console.error 만 남기고 me 응답은 정상 반환
+      //   → 테이블 부재 시 사용자 초기 UX 저하를 인지 못 함.
+      //   warn 레벨로 명확히 구분하고 userId 포함해 추적 가능하게.
       if (user) {
-        const { createDefaultFavorites } = await import("../../db/system/favorites");
-        try { await createDefaultFavorites(user.id, (user as any).tenantId); } catch (e) { console.error("[auth.me] Failed to create default favorites:", e); }
+        try {
+          const { createDefaultFavorites } = await import("../../db/system/favorites");
+          await createDefaultFavorites(user.id, (user as any).tenantId);
+        } catch (e: any) {
+          console.warn(
+            `[auth.me] 기본 즐겨찾기 생성 실패 (userId=${user.id}):`,
+            e?.message || e,
+          );
+        }
       }
 
       // 데모 계정 식별 플래그 추가
