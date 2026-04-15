@@ -14,6 +14,16 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "client", "src"),
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+      // jspdf references html2canvas via a dynamic import inside .html(),
+      // which we never call. Stub it out so Rollup can resolve the import
+      // without bundling the 100KB+ html2canvas package.
+      "html2canvas": path.resolve(
+        import.meta.dirname,
+        "client",
+        "src",
+        "lib",
+        "html2canvas-stub.ts"
+      ),
     },
   },
   envDir: path.resolve(import.meta.dirname),
