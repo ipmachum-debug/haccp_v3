@@ -813,166 +813,6 @@ async function ensureWorkflowTables(conn: any) {
 }
 
 /**
- * 재고/매입 관련 테이블 확보
- * ★ 2026-04-15: 발주서 입고 확정 실패 원인 방지
- *   createPurchase → h_inventory_lots + h_material_inspections +
- *   h_stock_alerts + material_ledger_daily + categories 중 하나라도
- *   없으면 입고 확정 전체가 실패.
- */
-async function ensureInventoryTables(conn: any) {
-  const tables: Array<{ name: string; sql: string }> = [
-    {
-      name: "h_inventory_lots",
-      sql: `CREATE TABLE IF NOT EXISTS h_inventory_lots (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL,
-        inventory_id BIGINT NULL,
-        lot_number VARCHAR(100) NOT NULL UNIQUE,
-        batch_id BIGINT NULL,
-        material_id BIGINT NULL,
-        product_id BIGINT NULL,
-        sku_id BIGINT NULL,
-        sku_name VARCHAR(200) NULL,
-        quantity DECIMAL(10,3) NOT NULL,
-        current_quantity DECIMAL(10,3) NULL,
-        available_quantity DECIMAL(10,3) NOT NULL,
-        unit VARCHAR(20) NOT NULL,
-        unit_price DECIMAL(10,2) NULL,
-        production_date DATE NULL,
-        receipt_date DATE NULL,
-        expiry_date DATE NULL,
-        supplier_name VARCHAR(200) NULL,
-        manufacturer_name VARCHAR(200) NULL,
-        location VARCHAR(100) NULL,
-        status ENUM('available','reserved','used','expired','disposed') DEFAULT 'available',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
-        INDEX idx_il_tenant_material (tenant_id, material_id),
-        INDEX idx_il_tenant_product (tenant_id, product_id),
-        INDEX idx_il_tenant_batch (tenant_id, batch_id),
-        INDEX idx_il_status (status)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-    {
-      name: "h_inventory_transactions",
-      sql: `CREATE TABLE IF NOT EXISTS h_inventory_transactions (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL,
-        lot_id BIGINT NOT NULL,
-        inventory_id BIGINT NULL,
-        transaction_type ENUM('receipt','usage','adjustment','transfer','disposal','return','inbound','outbound') NOT NULL,
-        quantity DECIMAL(10,3) NOT NULL,
-        unit VARCHAR(20) NOT NULL,
-        unit_cost DECIMAL(10,2) NULL,
-        amount DECIMAL(15,2) NULL,
-        transaction_date DATE NULL,
-        reference_type VARCHAR(50) NULL,
-        reference_id BIGINT NULL,
-        notes TEXT,
-        performed_by BIGINT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        INDEX idx_it_tenant_lot (tenant_id, lot_id),
-        INDEX idx_it_type (transaction_type),
-        INDEX idx_it_date (transaction_date)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-    {
-      name: "h_stock_alerts",
-      sql: `CREATE TABLE IF NOT EXISTS h_stock_alerts (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL,
-        site_id BIGINT NOT NULL,
-        inventory_id BIGINT NULL,
-        lot_id BIGINT NULL,
-        alert_type ENUM('low_stock','expiring_soon','expired','overstock') NOT NULL,
-        message TEXT,
-        severity ENUM('low','medium','high','critical') DEFAULT 'medium',
-        alert_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        resolved TINYINT DEFAULT 0,
-        resolved_at TIMESTAMP NULL,
-        resolved_by BIGINT NULL,
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        INDEX idx_sa_tenant_site (tenant_id, site_id),
-        INDEX idx_sa_resolved (resolved),
-        INDEX idx_sa_type (alert_type)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-    {
-      name: "h_material_inspections",
-      sql: `CREATE TABLE IF NOT EXISTS h_material_inspections (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL,
-        receiving_id BIGINT NULL,
-        material_id BIGINT NULL,
-        inspection_date DATE NULL,
-        inspector_id BIGINT NULL,
-        status ENUM('pending','passed','failed','conditional') DEFAULT 'pending',
-        result ENUM('pass','fail','conditional') DEFAULT 'pass',
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
-        INDEX idx_mi_tenant (tenant_id),
-        INDEX idx_mi_receiving (receiving_id),
-        INDEX idx_mi_material (material_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-    {
-      name: "material_ledger_daily",
-      sql: `CREATE TABLE IF NOT EXISTS material_ledger_daily (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL DEFAULT 2,
-        material_id BIGINT NOT NULL,
-        ledger_date VARCHAR(10) NOT NULL,
-        receiving_qty DECIMAL(12,3) DEFAULT 0,
-        usage_qty DECIMAL(12,3) DEFAULT 0,
-        adjustment_qty DECIMAL(12,3) DEFAULT 0,
-        running_stock DECIMAL(12,3) DEFAULT 0,
-        notes TEXT,
-        source VARCHAR(50) DEFAULT 'auto',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        UNIQUE KEY uq_mld_tenant_material_date (tenant_id, material_id, ledger_date),
-        INDEX idx_mld_tenant_date (tenant_id, ledger_date),
-        INDEX idx_mld_material_date (material_id, ledger_date)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-    {
-      name: "categories",
-      sql: `CREATE TABLE IF NOT EXISTS categories (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        tenant_id INT NOT NULL,
-        category_name VARCHAR(100) NOT NULL,
-        category_type VARCHAR(50) NULL,
-        parent_id BIGINT NULL,
-        alert_days INT DEFAULT 0,
-        description TEXT,
-        is_active TINYINT DEFAULT 1,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP NOT NULL,
-        INDEX idx_cat_tenant (tenant_id),
-        INDEX idx_cat_parent (parent_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    },
-  ];
-
-  let created = 0;
-  for (const t of tables) {
-    try {
-      await conn.query(t.sql);
-      const [rows] = await conn.query(
-        `SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?`,
-        [t.name],
-      );
-      if ((rows as any[])[0]?.cnt > 0) created++;
-    } catch (err: any) {
-      console.warn(`[Migration] inventory table '${t.name}' ensure failed:`, err.message);
-    }
-  }
-  console.log(`[Migration] Inventory tables verified: ${created}/${tables.length} exist`);
-}
-
-/**
  * Startup 스모크 테스트 — ensure 된 테이블에 실제 접근 가능한지 검증
  * ★ 2026-04-15: ensure 가 성공했다고 보고해도 권한/네트워크 이슈로 실제
  *   SELECT 가 실패할 수 있음. 서버 로그에 한 줄로 요약 출력하여
@@ -992,6 +832,11 @@ async function runSmokeTest(conn: any) {
     "h_batches", "h_ccp_instances", "h_ccp_form_records",
     // AI
     "ai_chat_history", "ai_alerts",
+    // 재고/매입 (createPurchase 가 의존 — 없으면 입고 확정 실패)
+    // ★ 2026-04-15: 이 테이블들은 ensure 하지 않음 (Drizzle 스키마와 정확히 일치 안 할 리스크)
+    //   smoke test 로만 감지 → 실패 시 PM2 로그에 노출되어 운영자가 수동 복구
+    "h_inventory_lots", "h_material_inspections", "h_stock_alerts",
+    "material_ledger_daily", "categories",
   ];
 
   const results: Array<{ table: string; ok: boolean; error?: string }> = [];
@@ -1031,7 +876,6 @@ export async function runStartupMigrations() {
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
     await ensureWorkflowTables(conn);
-    await ensureInventoryTables(conn);
 
     console.log("[Migration] Startup migrations completed");
 
