@@ -682,6 +682,110 @@ async function ensureAccountingAccountsColumns(conn: any) {
 }
 
 /**
+ * accounting_purchases / accounting_sales 테이블에 Drizzle schema 추가 컬럼 ensure
+ * ★ 2026-04-15: scripts/migrate-add-material-id-to-purchases.ts 수동 실행 대신
+ *   서버 시작 시 자동 보장. 컬럼 부재 시 createPurchase INSERT 가 실패하여
+ *   입고 확정 전체 실패하는 문제 방지.
+ *
+ * Drizzle 에 정의되어 있지만 실제 DB 에 누락 가능한 컬럼:
+ *   accounting_purchases:
+ *     - material_id BIGINT NULL (2026-04-13 추가)
+ *     - account_category_id INT NULL
+ *     - posted_at/posted_by/canceled_at/canceled_by (확정/취소 메타)
+ *     - evidence_type, evidence_number, source_type, source_id
+ *   accounting_sales:
+ *     - product_id BIGINT NULL (2026-04-14 추가)
+ *     - posted_at/posted_by/canceled_at/canceled_by
+ *     - evidence_type, evidence_number, source_type, source_id
+ */
+async function ensureAccountingTransactionColumns(conn: any) {
+  // 컬럼 존재 여부 확인 헬퍼
+  const columnExists = async (table: string, column: string): Promise<boolean> => {
+    try {
+      const [rows]: any = await conn.query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+        [table, column],
+      );
+      return (rows as any[]).length > 0;
+    } catch {
+      return false;
+    }
+  };
+
+  const addColumn = async (table: string, column: string, ddl: string): Promise<boolean> => {
+    if (await columnExists(table, column)) return false;
+    try {
+      await conn.query(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      console.log(`[Migration] ${table}: added column '${column}'`);
+      return true;
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") {
+        console.warn(`[Migration] ${table} ALTER ADD '${column}' failed:`, err.message);
+      }
+      return false;
+    }
+  };
+
+  // ─── accounting_purchases ───
+  await addColumn("accounting_purchases", "material_id", "material_id BIGINT NULL");
+  await addColumn("accounting_purchases", "account_category_id", "account_category_id INT NULL");
+  await addColumn("accounting_purchases", "evidence_type", "evidence_type ENUM('tax_invoice','receipt','statement','none') DEFAULT 'none'");
+  await addColumn("accounting_purchases", "evidence_number", "evidence_number VARCHAR(100) NULL");
+  await addColumn("accounting_purchases", "source_type", "source_type VARCHAR(50) NULL");
+  await addColumn("accounting_purchases", "source_id", "source_id BIGINT NULL");
+  await addColumn("accounting_purchases", "posted_at", "posted_at TIMESTAMP NULL");
+  await addColumn("accounting_purchases", "posted_by", "posted_by BIGINT NULL");
+  await addColumn("accounting_purchases", "canceled_at", "canceled_at TIMESTAMP NULL");
+  await addColumn("accounting_purchases", "canceled_by", "canceled_by BIGINT NULL");
+
+  // material_id 인덱스
+  try {
+    const [idxRows]: any = await conn.query(
+      `SHOW INDEX FROM accounting_purchases WHERE Key_name = 'idx_purchases_material_id'`,
+    );
+    if ((idxRows as any[]).length === 0) {
+      if (await columnExists("accounting_purchases", "material_id")) {
+        await conn.query(`ALTER TABLE accounting_purchases ADD INDEX idx_purchases_material_id (material_id)`);
+        console.log(`[Migration] accounting_purchases: added index idx_purchases_material_id`);
+      }
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") {
+      console.warn(`[Migration] accounting_purchases index failed:`, err.message);
+    }
+  }
+
+  // ─── accounting_sales ───
+  await addColumn("accounting_sales", "product_id", "product_id BIGINT NULL");
+  await addColumn("accounting_sales", "evidence_type", "evidence_type ENUM('tax_invoice','receipt','statement','none') DEFAULT 'none'");
+  await addColumn("accounting_sales", "evidence_number", "evidence_number VARCHAR(100) NULL");
+  await addColumn("accounting_sales", "source_type", "source_type VARCHAR(50) NULL");
+  await addColumn("accounting_sales", "source_id", "source_id BIGINT NULL");
+  await addColumn("accounting_sales", "posted_at", "posted_at TIMESTAMP NULL");
+  await addColumn("accounting_sales", "posted_by", "posted_by BIGINT NULL");
+  await addColumn("accounting_sales", "canceled_at", "canceled_at TIMESTAMP NULL");
+  await addColumn("accounting_sales", "canceled_by", "canceled_by BIGINT NULL");
+
+  // product_id 인덱스
+  try {
+    const [idxRows]: any = await conn.query(
+      `SHOW INDEX FROM accounting_sales WHERE Key_name = 'idx_sales_product_id'`,
+    );
+    if ((idxRows as any[]).length === 0) {
+      if (await columnExists("accounting_sales", "product_id")) {
+        await conn.query(`ALTER TABLE accounting_sales ADD INDEX idx_sales_product_id (product_id)`);
+        console.log(`[Migration] accounting_sales: added index idx_sales_product_id`);
+      }
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") {
+      console.warn(`[Migration] accounting_sales index failed:`, err.message);
+    }
+  }
+}
+
+/**
  * 승인/보고서/체크리스트 관련 테이블 확보
  * ★ 2026-04-15: CCP-4P + 일일일지 + 주간일지 AR 미생성 문제의 근본 방지
  *
@@ -873,6 +977,7 @@ export async function runStartupMigrations() {
     await ensureAITables(conn);
     await ensureAccountCategoriesTable(conn);
     await ensureAccountingAccountsColumns(conn);
+    await ensureAccountingTransactionColumns(conn);
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
     await ensureWorkflowTables(conn);

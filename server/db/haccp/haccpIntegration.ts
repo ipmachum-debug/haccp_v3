@@ -44,11 +44,13 @@ export async function createPurchase(params: {
     }
   }
 
-  const [purchase] = await db.insert(accountingPurchases).values({
+  // ★ 2026-04-15: material_id / account_category_id 컬럼 부재 시 fallback
+  //   startupMigrations.ensureAccountingTransactionColumns 에서 자동 ADD 되지만
+  //   ensure 실패/타이밍 문제로 여전히 없을 수 있음 → INSERT 실패 시 재시도
+  const baseValues: any = {
     tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
-    materialId: resolvedMaterialId ?? null, // ★ 2026-04-13 추가: h_materials FK (양방향 단일 소스 오브 트루스)
     itemName: params.itemName,
     quantity: params.quantity.toString(),
     unit: params.unit || "개",
@@ -59,9 +61,38 @@ export async function createPurchase(params: {
     sourceType: "manual",
     notes: params.memo ?? null,
     status: "approved",
-    accountCategoryId: params.accountCategoryId ?? null,
-    createdBy: params.createdBy
-  } as any);
+    createdBy: params.createdBy,
+  };
+  // 선택 컬럼 (컬럼 부재 시 fallback 가능)
+  if (resolvedMaterialId !== undefined && resolvedMaterialId !== null) {
+    baseValues.materialId = resolvedMaterialId;
+  }
+  if (params.accountCategoryId !== undefined && params.accountCategoryId !== null) {
+    baseValues.accountCategoryId = params.accountCategoryId;
+  }
+
+  let purchase: any;
+  try {
+    [purchase] = await db.insert(accountingPurchases).values(baseValues);
+  } catch (insertErr: any) {
+    const msg = insertErr?.message || String(insertErr);
+    // Unknown column 에러 시 해당 컬럼 제거 후 재시도
+    if (msg.includes("Unknown column") || insertErr?.code === "ER_BAD_FIELD_ERROR") {
+      console.warn(`[createPurchase] INSERT 실패, fallback 재시도: ${msg}`);
+      // material_id 문제면 제거
+      if (msg.includes("material_id") || msg.includes("materialId")) {
+        delete baseValues.materialId;
+      }
+      // account_category_id 문제면 제거
+      if (msg.includes("account_category_id") || msg.includes("accountCategoryId")) {
+        delete baseValues.accountCategoryId;
+      }
+      [purchase] = await db.insert(accountingPurchases).values(baseValues);
+      console.warn(`[createPurchase] fallback INSERT 성공 — startupMigrations 재실행 권장`);
+    } else {
+      throw insertErr;
+    }
+  }
 
   // 원재료 ID가 있으면 h_inventory_lots 및 h_material_inspections 자동 생성
   // ★ 2026-04-15: HACCP 통합 블록 전체를 try/catch 로 보호
