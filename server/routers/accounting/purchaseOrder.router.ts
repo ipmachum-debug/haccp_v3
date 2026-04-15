@@ -467,6 +467,8 @@ export const purchaseOrderRouter = router({
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
 
+    console.log(`[purchaseOrder.receive] 시작: poId=${input.poId}, lines=${input.lines.length}건, tenant=${ctx.tenantId}`);
+
     // PO 헤더 + 라인 조회
     const [po] = await db
       .select()
@@ -496,53 +498,78 @@ export const purchaseOrderRouter = router({
     const { createPurchase } = await import("../../db/haccp/haccpIntegration");
     const receiptDate = input.receiptDate || new Date().toISOString().slice(0, 10);
     const createdPurchases: number[] = [];
+    // ★ 2026-04-15: 라인별 실패 수집 → 부분 성공 허용 + 상세 에러 메시지
+    const lineFailures: Array<{ lineNumber: number; itemName: string; error: string }> = [];
 
     for (const received of input.lines) {
       const line = existingLines.find((l) => l.id === received.lineId);
-      if (!line) throw new Error(`라인 #${received.lineId} 없음`);
+      if (!line) {
+        lineFailures.push({ lineNumber: 0, itemName: `라인ID=${received.lineId}`, error: "라인 없음" });
+        continue;
+      }
 
       const ordered = Number(line.orderedQty);
       const alreadyReceived = Number(line.receivedQty);
       const remaining = ordered - alreadyReceived;
 
       if (received.receivedQty > remaining + 0.001) {
-        throw new Error(
-          `라인 #${line.lineNumber} (${line.itemName}) 입고량 초과: ` +
-            `발주 ${ordered}, 기존 입고 ${alreadyReceived}, 요청 ${received.receivedQty}, 잔량 ${remaining}`,
-        );
+        lineFailures.push({
+          lineNumber: line.lineNumber,
+          itemName: line.itemName,
+          error: `입고량 초과 (발주 ${ordered}, 기존입고 ${alreadyReceived}, 요청 ${received.receivedQty}, 잔량 ${remaining})`,
+        });
+        continue;
       }
 
-      // 매입전표 자동 생성 (기존 로직 재사용)
-      const purchaseResult: any = await createPurchase(
-        {
-          transactionDate: receiptDate,
-          partnerId: po.partnerId,
-          itemName: line.itemName,
-          materialId: line.materialId ?? undefined,
-          quantity: received.receivedQty,
-          unitPrice: Number(line.unitPrice),
-          amount: received.receivedQty * Number(line.unitPrice),
-          taxAmount: Math.round(received.receivedQty * Number(line.unitPrice) * 0.1),
-          memo: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
-          unit: line.unit,
-          createdBy: ctx.user.id,
-        },
-        ctx.tenantId,
-      );
-      if (purchaseResult?.insertId) createdPurchases.push(Number(purchaseResult.insertId));
-
-      // 라인 received_qty 업데이트
-      await db
-        .update(purchaseOrderLines)
-        .set({
-          receivedQty: (alreadyReceived + received.receivedQty).toFixed(3),
-        })
-        .where(
-          and(
-            eq(purchaseOrderLines.id, received.lineId),
-            eq(purchaseOrderLines.tenantId, ctx.tenantId),
-          ),
+      try {
+        // 매입전표 자동 생성 (기존 로직 재사용)
+        const purchaseResult: any = await createPurchase(
+          {
+            transactionDate: receiptDate,
+            partnerId: po.partnerId,
+            itemName: line.itemName,
+            materialId: line.materialId ?? undefined,
+            quantity: received.receivedQty,
+            unitPrice: Number(line.unitPrice),
+            amount: received.receivedQty * Number(line.unitPrice),
+            taxAmount: Math.round(received.receivedQty * Number(line.unitPrice) * 0.1),
+            memo: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
+            unit: line.unit,
+            createdBy: ctx.user.id,
+          },
+          ctx.tenantId,
         );
+        if (purchaseResult?.insertId) createdPurchases.push(Number(purchaseResult.insertId));
+
+        // 라인 received_qty 업데이트
+        await db
+          .update(purchaseOrderLines)
+          .set({
+            receivedQty: (alreadyReceived + received.receivedQty).toFixed(3),
+          })
+          .where(
+            and(
+              eq(purchaseOrderLines.id, received.lineId),
+              eq(purchaseOrderLines.tenantId, ctx.tenantId),
+            ),
+          );
+
+        console.log(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 입고 완료: qty=${received.receivedQty}`);
+      } catch (lineErr: any) {
+        const errMsg = lineErr?.message || String(lineErr);
+        console.error(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 처리 실패:`, lineErr);
+        lineFailures.push({
+          lineNumber: line.lineNumber,
+          itemName: line.itemName,
+          error: errMsg,
+        });
+      }
+    }
+
+    // 전체 실패 시 명시적 에러 (사용자가 이유를 알 수 있도록)
+    if (createdPurchases.length === 0 && lineFailures.length > 0) {
+      const detail = lineFailures.map(f => `라인 ${f.lineNumber} (${f.itemName}): ${f.error}`).join(" | ");
+      throw new Error(`입고 확정 실패 — 모든 라인 처리 실패: ${detail}`);
     }
 
     // PO 상태 업데이트 (전부 received 인지 확인)
@@ -568,10 +595,19 @@ export const purchaseOrderRouter = router({
         and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId)),
       );
 
+    // 부분 성공 메시지
+    let message = `${createdPurchases.length}건 입고 처리 완료`;
+    if (lineFailures.length > 0) {
+      message += ` (${lineFailures.length}건 실패: ${lineFailures.map(f => f.itemName).join(", ")})`;
+    }
+
+    console.log(`[purchaseOrder.receive] 완료: 성공=${createdPurchases.length}, 실패=${lineFailures.length}, newStatus=${newStatus}`);
+
     return {
-      message: `${input.lines.length}건 입고 처리 완료`,
+      message,
       newStatus,
       createdPurchaseIds: createdPurchases,
+      lineFailures, // ★ 프론트엔드에서 세부 실패 표시 가능
     };
   }),
 
