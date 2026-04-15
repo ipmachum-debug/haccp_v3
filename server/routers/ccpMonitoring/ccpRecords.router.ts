@@ -63,7 +63,16 @@ export const ccpRecordsRouter = router({
         pressureMpa: input.pressureMpa,
         passFail: input.passFail,
         measurementTime: input.measurementTime,
-      }).catch((err) => console.error("[P9-4] CCP temperature alert trigger failed:", err));
+      }).catch((err: any) => {
+        // ★ 2026-04-15: 이전에는 console.error 만 남기고 끝 →
+        //   CCP 이탈 실시간 알림 실패를 사용자/관리자가 알 수 없었음.
+        //   여전히 throw 는 못 하지만 (메인 기록 저장은 성공해야 함),
+        //   최소한 warn 레벨로 명확히 구분하고 recordId 포함.
+        console.warn(
+          `[ccpRecords] CCP 온도 알림 트리거 실패 (recordId=${recordId}, ccpType=${input.ccpType}):`,
+          err?.message || err,
+        );
+      });
 
       return { id: recordId };
     }),
