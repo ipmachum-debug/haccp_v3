@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -30,6 +30,7 @@ export default function InventoryManagement() {
   const [lotModalOpen, setLotModalOpen] = useState(false);
   const [inventoryView, setInventoryView] = useTabWithUrl("view", "material");
   const isMat = inventoryView === "material";
+  const isSub = inventoryView === "subsidiary";
 
   const { data: dashboard, isLoading: isLoadingDashboard } = trpc.inventory.getDashboard.useQuery();
 
@@ -97,8 +98,13 @@ export default function InventoryManagement() {
               </button>
               <button onClick={() => setInventoryView("product")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
-                  !isMat ? "bg-white text-teal-700 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
+                  inventoryView === "product" ? "bg-white text-teal-700 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
                 <Factory className="h-3.5 w-3.5" />제품
+              </button>
+              <button onClick={() => setInventoryView("subsidiary")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
+                  isSub ? "bg-white text-teal-700 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
+                <Package className="h-3.5 w-3.5" />부자재
               </button>
             </div>
             {/* LOT 추적 */}
@@ -113,22 +119,30 @@ export default function InventoryManagement() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
           {/* 탭: 모바일에서 수평 스와이프 가능 */}
           <div className="overflow-x-auto -mx-1 px-1">
-            <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-8 h-9">
-              <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
-              <TabsTrigger value="release" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackageMinus className="h-3.5 w-3.5" />{isMat ? "소모" : "출고"}</TabsTrigger>
-              <TabsTrigger value="receipt" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackagePlus className="h-3.5 w-3.5" />입고</TabsTrigger>
-              <TabsTrigger value="trend" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><TrendingUp className="h-3.5 w-3.5" />추이</TabsTrigger>
-              <TabsTrigger value="turnover" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><RotateCw className="h-3.5 w-3.5" />회전율</TabsTrigger>
-              <TabsTrigger value="prediction" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><AlertCircle className="h-3.5 w-3.5" />예측</TabsTrigger>
-              <TabsTrigger value="purchase" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Calendar className="h-3.5 w-3.5" />발주</TabsTrigger>
-              <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />조정</TabsTrigger>
-            </TabsList>
+            {isSub ? (
+              <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-2 h-9">
+                <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
+                <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />재고 조정</TabsTrigger>
+              </TabsList>
+            ) : (
+              <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-8 h-9">
+                <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
+                <TabsTrigger value="release" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackageMinus className="h-3.5 w-3.5" />{isMat ? "소모" : "출고"}</TabsTrigger>
+                <TabsTrigger value="receipt" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackagePlus className="h-3.5 w-3.5" />입고</TabsTrigger>
+                <TabsTrigger value="trend" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><TrendingUp className="h-3.5 w-3.5" />추이</TabsTrigger>
+                <TabsTrigger value="turnover" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><RotateCw className="h-3.5 w-3.5" />회전율</TabsTrigger>
+                <TabsTrigger value="prediction" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><AlertCircle className="h-3.5 w-3.5" />예측</TabsTrigger>
+                <TabsTrigger value="purchase" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Calendar className="h-3.5 w-3.5" />발주</TabsTrigger>
+                <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />조정</TabsTrigger>
+              </TabsList>
+            )}
           </div>
 
           {/* ━━━ 재고현황 ━━━ */}
           <TabsContent value="current" className="space-y-5 mt-0">
-            {isMat ? <MaterialStockView dashboard={dashboard} isLoading={isLoadingDashboard} />
-                   : <ProductStockView />}
+            {isSub ? <SubsidiaryStockView />
+              : isMat ? <MaterialStockView dashboard={dashboard} isLoading={isLoadingDashboard} />
+              : <ProductStockView />}
           </TabsContent>
 
           {/* ━━━ 출고 ━━━ */}
@@ -1410,5 +1424,106 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   부자재 · 외주제품 재고 현황 (간소화 LOT 뷰)
+   ═══════════════════════════════════════════════════ */
+function SubsidiaryStockView() {
+  const { data: allLots, isLoading } = trpc.inventory.listLots.useQuery();
+
+  const subsidiaryLots = useMemo(() => {
+    if (!allLots) return [];
+    return (allLots as any[]).filter((lot: any) =>
+      lot.itemType === "subsidiary" || lot.itemType === "external_product"
+    );
+  }, [allLots]);
+
+  const activeLots = subsidiaryLots.filter((l: any) => l.status === "available");
+  const totalValue = activeLots.reduce((sum: number, l: any) => {
+    return sum + (parseFloat(l.availableQuantity || "0") * parseFloat(l.unitPrice || "0"));
+  }, 0);
+
+  if (isLoading) return <div className="py-12 text-center text-muted-foreground">로딩 중...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-xs text-muted-foreground">전체 LOT</p>
+          <p className="text-2xl font-bold text-teal-700">{subsidiaryLots.length}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-xs text-muted-foreground">가용 LOT</p>
+          <p className="text-2xl font-bold text-emerald-600">{activeLots.length}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-xs text-muted-foreground">총 재고가치</p>
+          <p className="text-2xl font-bold text-blue-700">₩{totalValue.toLocaleString()}</p>
+        </CardContent></Card>
+      </div>
+
+      <Card>
+        <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Package className="h-4 w-4" /> 부자재 · 외주제품 재고 · {subsidiaryLots.length}건
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {subsidiaryLots.length === 0 ? (
+            <div className="py-16 text-center text-muted-foreground">
+              <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>부자재/외주제품 재고가 없습니다</p>
+              <p className="text-xs mt-1">발주서 입고 확정 시 자동으로 재고가 생성됩니다</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b bg-muted/30">
+                  <th className="text-left p-3 font-medium text-xs">LOT</th>
+                  <th className="text-left p-3 font-medium text-xs">품목</th>
+                  <th className="text-left p-3 font-medium text-xs">유형</th>
+                  <th className="text-right p-3 font-medium text-xs">수량</th>
+                  <th className="text-right p-3 font-medium text-xs">가용</th>
+                  <th className="text-right p-3 font-medium text-xs">단가</th>
+                  <th className="text-left p-3 font-medium text-xs">입고일</th>
+                  <th className="text-center p-3 font-medium text-xs">상태</th>
+                </tr></thead>
+                <tbody>
+                  {subsidiaryLots.map((lot: any) => (
+                    <tr key={lot.id} className="border-b hover:bg-accent/50">
+                      <td className="p-3 font-mono text-xs">{lot.lotNumber}</td>
+                      <td className="p-3">
+                        <div className="font-medium text-xs">{lot.materialName}</div>
+                        <div className="text-[10px] text-muted-foreground">{lot.materialCode}</div>
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          lot.itemType === "subsidiary" ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"
+                        }`}>
+                          {lot.itemType === "subsidiary" ? "부자재" : "외주제품"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right text-xs">{lot.quantity} {lot.unit}</td>
+                      <td className="p-3 text-right text-xs font-bold">{lot.availableQuantity} {lot.unit}</td>
+                      <td className="p-3 text-right text-xs">₩{parseFloat(lot.unitPrice || "0").toLocaleString()}</td>
+                      <td className="p-3 text-xs">{lot.receiptDate ? new Date(lot.receiptDate).toLocaleDateString("ko-KR") : "-"}</td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          lot.status === "available" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {lot.status === "available" ? "사용가능" : lot.status === "disposed" ? "폐기" : lot.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
