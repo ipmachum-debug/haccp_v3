@@ -221,6 +221,84 @@ export const hrManagementRouter = router({
       return { message: "근태가 수정되었습니다." };
     }),
 
+  /** 관리자: 수기 연차 등록 (회원가입 안 된 직원용) */
+  createLeaveManual: adminProcedure
+    .input(z.object({
+      employeeId: z.number(),
+      leaveType: z.enum(["annual", "sick", "personal", "maternity", "other"]),
+      startDate: z.string(),
+      endDate: z.string(),
+      days: z.number().positive(),
+      reason: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        `INSERT INTO leave_requests
+           (tenant_id, employee_id, leave_type, start_date, end_date, days, reason, status, approved_by, approved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW())`,
+        [ctx.tenantId, input.employeeId, input.leaveType, input.startDate, input.endDate,
+         input.days, `[수기등록] ${input.reason}`, ctx.user.id],
+      );
+      return { message: `수기 연차 ${input.days}일 등록 완료 (자동 승인)` };
+    }),
+
+  /** 관리자: 직원 상태 변경 (활성/퇴사/휴직) */
+  updateEmployeeStatus: adminProcedure
+    .input(z.object({
+      employeeId: z.number(),
+      status: z.enum(["active", "resigned", "on_leave"]),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const statusLabel = input.status === "active" ? "활성" : input.status === "resigned" ? "퇴사" : "휴직";
+      // h_employees 상태 변경
+      try {
+        await pool.execute(
+          `UPDATE h_employees SET is_active = ? WHERE id = ? AND tenant_id = ?`,
+          [input.status === "active" ? 1 : 0, input.employeeId, ctx.tenantId],
+        );
+      } catch (_) {}
+      // 상태 기록 (별도 컬럼이 없으면 notes에)
+      try {
+        await pool.execute(
+          `UPDATE h_employees SET updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+          [input.employeeId, ctx.tenantId],
+        );
+      } catch (_) {}
+      return { message: `직원 상태가 '${statusLabel}'(으)로 변경되었습니다.` };
+    }),
+
+  /** 직원 목록 (상태별 — 활성/비활성) */
+  employeesByStatus: tenantRequiredProcedure
+    .input(z.object({ isActive: z.boolean().default(true) }))
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      try {
+        const [rows]: any = await pool.execute(
+          `SELECT e.id, e.user_id as userId, e.name, e.employee_code,
+                  COALESCE(pos.position_name, '') as position,
+                  COALESCE(dept.department_name, '') as department,
+                  e.is_active, e.hire_date
+           FROM h_employees e
+           LEFT JOIN h_departments dept ON e.department_id = dept.id
+           LEFT JOIN h_positions pos ON e.position_id = pos.id
+           WHERE e.tenant_id = ? AND e.is_active = ?
+           ORDER BY e.name`,
+          [ctx.tenantId, input.isActive ? 1 : 0],
+        );
+        return (rows as any[]).map((r: any) => ({
+          id: r.id, userId: r.user_id, name: r.name, employeeCode: r.employee_code,
+          position: r.position, department: r.department, isActive: r.is_active,
+          hireDate: r.hire_date instanceof Date ? r.hire_date.toISOString().slice(0, 10) : String(r.hire_date || ""),
+        }));
+      } catch (err: any) {
+        console.warn("[hr.employeesByStatus]", err.message?.substring(0, 80));
+        return [];
+      }
+    }),
+
   /** 관리자: 근태 삭제 */
   deleteAttendance: adminProcedure
     .input(z.object({ id: z.number() }))

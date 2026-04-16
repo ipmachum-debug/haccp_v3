@@ -90,7 +90,11 @@ export default function HRManagement() {
 
   // 휴가
   const { data: leaves, refetch: refetchLeaves } = trpc.hr.leaveList.useQuery({ year, status: "all" });
-  const { data: leaveBalance } = trpc.hr.leaveBalance.useQuery({ year });
+  const { data: leaveBalance, refetch: refetchBalance } = trpc.hr.leaveBalance.useQuery({ year });
+  const [empStatusTab, setEmpStatusTab] = useState<"active" | "inactive">("active");
+  const { data: inactiveEmployees } = trpc.hr.employeesByStatus.useQuery({ isActive: false });
+  const [manualLeaveOpen, setManualLeaveOpen] = useState(false);
+  const [manualLeaveEmpId, setManualLeaveEmpId] = useState<number | null>(null);
 
   // 근태 수정 (관리자)
   const updateAttMut = trpc.hr.updateAttendance.useMutation({
@@ -100,6 +104,18 @@ export default function HRManagement() {
 
   // 연차 부여 수정 (관리자)
   const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // 수기 연차 등록 (관리자)
+  const manualLeaveMut = trpc.hr.createLeaveManual.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); setManualLeaveOpen(false); refetchLeaves(); refetchBalance(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // 직원 상태 변경 (관리자)
+  const updateStatusMut = trpc.hr.updateEmployeeStatus.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); },
     onError: (e: any) => toast.error(e.message),
   });
@@ -436,77 +452,167 @@ export default function HRManagement() {
           {/* 연차현황 탭 */}
           <TabsContent value="balance">
             <div className="space-y-3">
-              {/* 연차 부여 수정 (관리자) */}
-              <Card>
-                <CardHeader className="py-3 px-4 border-b flex flex-row items-center justify-between">
-                  <CardTitle className="text-sm">{year}년 연차 현황</CardTitle>
+              {/* 상단: 활성/비활성 토글 + 액션 버튼 */}
+              <div className="flex items-center justify-between">
+                <div className="flex gap-1">
+                  <Button variant={empStatusTab === "active" ? "default" : "outline"} size="sm" className="h-7 text-xs"
+                    onClick={() => setEmpStatusTab("active")}>활성 직원</Button>
+                  <Button variant={empStatusTab === "inactive" ? "default" : "outline"} size="sm" className="h-7 text-xs"
+                    onClick={() => setEmpStatusTab("inactive")}>비활성 (퇴사·휴직)</Button>
+                </div>
+                <div className="flex gap-2">
+                  {isAdmin && empStatusTab === "active" && (
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                      onClick={() => { setManualLeaveOpen(true); setManualLeaveEmpId(null); }}>
+                      <Plus className="h-3 w-3" /> 수기 연차등록
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => handlePrintLeaveReport()}>
                     <Printer className="h-3 w-3" /> 연차관리대장 출력
                   </Button>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {!leaveBalance?.length ? (
-                    <div className="py-16 text-center text-muted-foreground">직원 데이터가 없습니다</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead><tr className="border-b bg-muted/30">
-                          <th className="p-2.5 text-left font-medium">성명</th>
-                          <th className="p-2.5 text-left font-medium">직급</th>
-                          <th className="p-2.5 text-center font-medium">부여</th>
-                          <th className="p-2.5 text-center font-medium">사용</th>
-                          <th className="p-2.5 text-center font-medium">잔여</th>
-                          <th className="p-2.5 text-center font-medium">소진율</th>
-                          {isAdmin && <th className="p-2.5 text-center font-medium w-[80px]">수정</th>}
-                        </tr></thead>
-                        <tbody>
-                          {leaveBalance.map((b: any) => {
-                            const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
-                            return (
-                              <tr key={b.employeeId} className="border-b hover:bg-accent/50">
-                                <td className="p-2.5 font-medium">{b.employeeName}</td>
-                                <td className="p-2.5 text-muted-foreground">{b.employeeRole}</td>
-                                <td className="p-2.5 text-center font-bold">{b.annualTotal}일</td>
-                                <td className="p-2.5 text-center text-blue-700">{b.annualUsed}일</td>
-                                <td className={`p-2.5 text-center font-bold ${b.annualRemaining <= 3 ? "text-red-600" : "text-emerald-700"}`}>
-                                  {b.annualRemaining}일
-                                </td>
-                                <td className="p-2.5 text-center">
-                                  <div className="flex items-center gap-1 justify-center">
-                                    <div className="w-12 bg-gray-100 rounded-full h-1.5">
-                                      <div className={`h-1.5 rounded-full ${rate > 80 ? "bg-red-500" : rate > 50 ? "bg-amber-500" : "bg-emerald-500"}`}
-                                        style={{ width: `${Math.min(rate, 100)}%` }} />
+                </div>
+              </div>
+
+              {/* 활성 직원 연차 현황 */}
+              {empStatusTab === "active" && (
+                <Card>
+                  <CardHeader className="py-2.5 px-4 border-b">
+                    <CardTitle className="text-sm">{year}년 활성 직원 연차 현황</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {!leaveBalance?.length ? (
+                      <div className="py-12 text-center text-muted-foreground">직원 데이터가 없습니다</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="border-b bg-muted/30">
+                            <th className="p-2.5 text-left font-medium">성명</th>
+                            <th className="p-2.5 text-left font-medium">직급</th>
+                            <th className="p-2.5 text-center font-medium">부여</th>
+                            <th className="p-2.5 text-center font-medium">사용</th>
+                            <th className="p-2.5 text-center font-medium">잔여</th>
+                            <th className="p-2.5 text-center font-medium">소진율</th>
+                            {isAdmin && <th className="p-2.5 text-center font-medium w-[140px]">관리</th>}
+                          </tr></thead>
+                          <tbody>
+                            {leaveBalance.map((b: any) => {
+                              const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
+                              return (
+                                <tr key={b.employeeId} className="border-b hover:bg-accent/50">
+                                  <td className="p-2.5 font-medium">{b.employeeName}</td>
+                                  <td className="p-2.5 text-muted-foreground">{b.employeeRole}</td>
+                                  <td className="p-2.5 text-center font-bold">{b.annualTotal}일</td>
+                                  <td className="p-2.5 text-center text-blue-700">{b.annualUsed}일</td>
+                                  <td className={`p-2.5 text-center font-bold ${b.annualRemaining <= 3 ? "text-red-600" : "text-emerald-700"}`}>
+                                    {b.annualRemaining}일
+                                  </td>
+                                  <td className="p-2.5 text-center">
+                                    <div className="flex items-center gap-1 justify-center">
+                                      <div className="w-12 bg-gray-100 rounded-full h-1.5">
+                                        <div className={`h-1.5 rounded-full ${rate > 80 ? "bg-red-500" : rate > 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                                          style={{ width: `${Math.min(rate, 100)}%` }} />
+                                      </div>
+                                      <span className="text-[10px] font-bold">{rate}%</span>
                                     </div>
-                                    <span className="text-[10px] font-bold">{rate}%</span>
-                                  </div>
-                                </td>
+                                  </td>
+                                  {isAdmin && (
+                                    <td className="p-2.5 text-center">
+                                      <div className="flex gap-1 justify-center">
+                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5 text-blue-600"
+                                          onClick={() => {
+                                            const val = prompt(`${b.employeeName} 연차 부여일수 (현재: ${b.annualTotal}일)`, String(b.annualTotal));
+                                            if (val !== null) setBalanceMut.mutate({ employeeId: b.employeeId, year, annualTotal: Number(val) || 0 });
+                                          }}>연차수정</Button>
+                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5 text-amber-600"
+                                          onClick={() => { setManualLeaveEmpId(b.employeeId); setManualLeaveOpen(true); }}>수기등록</Button>
+                                        <Button variant="ghost" size="sm" className="h-6 text-[10px] px-1.5 text-red-500"
+                                          onClick={() => {
+                                            const action = prompt(`${b.employeeName} 상태 변경:\n1: 퇴사\n2: 휴직\n번호 입력:`);
+                                            if (action === "1") updateStatusMut.mutate({ employeeId: b.employeeId, status: "resigned" });
+                                            else if (action === "2") updateStatusMut.mutate({ employeeId: b.employeeId, status: "on_leave" });
+                                          }}>상태변경</Button>
+                                      </div>
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot><tr className="bg-muted/30 border-t-2 font-bold">
+                            <td colSpan={2} className="p-2.5 text-right">합계</td>
+                            <td className="p-2.5 text-center">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualTotal, 0)}일</td>
+                            <td className="p-2.5 text-center text-blue-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualUsed, 0)}일</td>
+                            <td className="p-2.5 text-center text-emerald-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualRemaining, 0)}일</td>
+                            <td colSpan={isAdmin ? 2 : 1}></td>
+                          </tr></tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 비활성 직원 (퇴사·휴직) */}
+              {empStatusTab === "inactive" && (
+                <Card>
+                  <CardHeader className="py-2.5 px-4 border-b">
+                    <CardTitle className="text-sm">비활성 직원 (퇴사·휴직) — 기록 보존</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {!inactiveEmployees?.length ? (
+                      <div className="py-12 text-center text-muted-foreground">비활성 직원이 없습니다</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead><tr className="border-b bg-muted/30">
+                            <th className="p-2.5 text-left font-medium">사번</th>
+                            <th className="p-2.5 text-left font-medium">성명</th>
+                            <th className="p-2.5 text-left font-medium">부서</th>
+                            <th className="p-2.5 text-left font-medium">직급</th>
+                            <th className="p-2.5 text-left font-medium">입사일</th>
+                            {isAdmin && <th className="p-2.5 text-center font-medium w-[80px]">복원</th>}
+                          </tr></thead>
+                          <tbody>
+                            {(inactiveEmployees as any[]).map((emp: any) => (
+                              <tr key={emp.id} className="border-b hover:bg-accent/50 opacity-60">
+                                <td className="p-2.5 font-mono">{emp.employeeCode}</td>
+                                <td className="p-2.5 font-medium">{emp.name}</td>
+                                <td className="p-2.5 text-muted-foreground">{emp.department || "-"}</td>
+                                <td className="p-2.5 text-muted-foreground">{emp.position || "-"}</td>
+                                <td className="p-2.5 font-mono">{emp.hireDate || "-"}</td>
                                 {isAdmin && (
                                   <td className="p-2.5 text-center">
-                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-blue-600"
+                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-emerald-600"
                                       onClick={() => {
-                                        const val = prompt(`${b.employeeName} 연차 부여일수 수정 (현재: ${b.annualTotal}일)`, String(b.annualTotal));
-                                        if (val !== null) setBalanceMut.mutate({ employeeId: b.employeeId, year, annualTotal: Number(val) || 0 });
-                                      }}>
-                                      수정
-                                    </Button>
+                                        if (confirm(`${emp.name}을(를) 활성으로 복원하시겠습니까?`))
+                                          updateStatusMut.mutate({ employeeId: emp.id, status: "active" });
+                                      }}>활성화</Button>
                                   </td>
                                 )}
                               </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot><tr className="bg-muted/30 border-t-2 font-bold">
-                          <td colSpan={2} className="p-2.5 text-right">합계</td>
-                          <td className="p-2.5 text-center">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualTotal, 0)}일</td>
-                          <td className="p-2.5 text-center text-blue-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualUsed, 0)}일</td>
-                          <td className="p-2.5 text-center text-emerald-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualRemaining, 0)}일</td>
-                          <td colSpan={isAdmin ? 2 : 1}></td>
-                        </tr></tfoot>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 수기 연차 등록 다이얼로그 */}
+              {manualLeaveOpen && (
+                <Dialog open onOpenChange={() => setManualLeaveOpen(false)}>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>수기 연차 등록</DialogTitle></DialogHeader>
+                    <ManualLeaveForm
+                      employees={employees}
+                      preselectedId={manualLeaveEmpId}
+                      onSubmit={(data) => manualLeaveMut.mutate(data)}
+                      isPending={manualLeaveMut.isPending}
+                    />
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
           </TabsContent>
         </Tabs>
@@ -557,6 +663,70 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
         onClick={() => requestMut.mutate({ leaveType: leaveType as any, startDate, endDate, reason })}>
         {requestMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         휴가 신청
+      </Button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   수기 연차 등록 폼 (관리자 → 미가입 직원용)
+   ═══════════════════════════════════════════ */
+function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
+  employees: any[]; preselectedId: number | null;
+  onSubmit: (data: any) => void; isPending: boolean;
+}) {
+  const [empId, setEmpId] = useState<number | null>(preselectedId);
+  const [leaveType, setLeaveType] = useState("annual");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [reason, setReason] = useState("");
+
+  const days = startDate && endDate
+    ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000*60*60*24)) + 1)
+    : 0;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">회원가입 안 된 직원 등 수기로 연차를 등록합니다. 자동 승인 처리됩니다.</p>
+      <div>
+        <Label className="text-xs">직원 선택 *</Label>
+        <select className="w-full h-9 border rounded-lg px-2 text-sm"
+          value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
+          <option value="">직원 선택</option>
+          {employees.map((emp: any) => (
+            <option key={emp.id} value={emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label className="text-xs">유형</Label>
+        <select className="w-full h-9 border rounded-lg px-2 text-sm" value={leaveType}
+          onChange={(e) => setLeaveType(e.target.value)}>
+          <option value="annual">연차</option>
+          <option value="sick">병가</option>
+          <option value="personal">경조</option>
+          <option value="other">기타</option>
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">시작일 *</Label>
+          <Input type="date" value={startDate} onChange={(e: any) => setStartDate(e.target.value)} className="h-9 text-sm" />
+        </div>
+        <div>
+          <Label className="text-xs">종료일 *</Label>
+          <Input type="date" value={endDate} onChange={(e: any) => setEndDate(e.target.value)} className="h-9 text-sm" />
+        </div>
+      </div>
+      {days > 0 && <p className="text-xs text-blue-600 font-bold">→ {days}일</p>}
+      <div>
+        <Label className="text-xs">사유 *</Label>
+        <Input value={reason} onChange={(e: any) => setReason(e.target.value)} placeholder="연차 사유" className="h-9 text-sm" />
+      </div>
+      <Button className="w-full" disabled={isPending || !empId || !startDate || !endDate || !reason.trim()}
+        onClick={() => onSubmit({ employeeId: empId!, leaveType, startDate, endDate, days, reason })}>
+        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        수기 등록 (자동 승인)
       </Button>
     </div>
   );
