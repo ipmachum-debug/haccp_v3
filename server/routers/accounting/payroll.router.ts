@@ -36,9 +36,13 @@ export const payrollRouter = router({
 
       try {
         const [rows]: any = await pool.execute(
-          `SELECT p.*, e.name as employee_name, e.position, e.department
+          `SELECT p.*, e.name as employee_name,
+                  COALESCE(pos.position_name, '') as position,
+                  COALESCE(dept.department_name, '') as department
            FROM payroll_records p
            LEFT JOIN h_employees e ON p.employee_id = e.id
+           LEFT JOIN h_departments dept ON e.department_id = dept.id
+           LEFT JOIN h_positions pos ON e.position_id = pos.id
            WHERE p.tenant_id = ? AND p.year_month = ?
            ORDER BY e.name ASC`,
           [ctx.tenantId, yearMonth],
@@ -102,15 +106,32 @@ export const payrollRouter = router({
     }),
 
   /**
-   * 급여 대상 직원 목록 (h_employees → users 폴백)
+   * 급여 대상 직원 목록 (h_employees 기준, 부서·직급 JOIN)
    */
   employees: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
-    // users 테이블에서 직접 조회 (가장 확실한 소스)
+    // 1차: h_employees (조직·책임 탭의 구성원 관리) — 부서/직급 JOIN
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT e.id, e.name,
+                COALESCE(pos.position_name, '') as position,
+                COALESCE(dept.department_name, '') as department
+         FROM h_employees e
+         LEFT JOIN h_departments dept ON e.department_id = dept.id
+         LEFT JOIN h_positions pos ON e.position_id = pos.id
+         WHERE e.tenant_id = ? AND e.is_active = 1
+         ORDER BY e.name`,
+        [ctx.tenantId],
+      );
+      if ((rows as any[]).length > 0) return rows;
+    } catch (e: any) {
+      console.warn("[payroll.employees] h_employees 조회 실패:", e.message?.substring(0, 80));
+    }
+    // 2차 폴백: users 테이블 (승인된 사용자)
     try {
       const [rows]: any = await pool.execute(
         `SELECT id, name, role as position, '' as department
-         FROM users WHERE tenant_id = ? AND status = 'approved'
+         FROM users WHERE tenant_id = ? AND approval_status = 'approved'
          ORDER BY name`,
         [ctx.tenantId],
       );
@@ -118,15 +139,7 @@ export const payrollRouter = router({
     } catch (e: any) {
       console.warn("[payroll.employees] users 조회 실패:", e.message?.substring(0, 80));
     }
-    // h_employees 폴백
-    try {
-      const [rows]: any = await pool.execute(
-        `SELECT id, name, COALESCE(position, '') as position, COALESCE(department, '') as department
-         FROM h_employees WHERE tenant_id = ? ORDER BY name`,
-        [ctx.tenantId],
-      );
-      return rows;
-    } catch (_) { return []; }
+    return [];
   }),
 
   /**
