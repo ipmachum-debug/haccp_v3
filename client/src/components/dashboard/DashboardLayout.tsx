@@ -609,7 +609,7 @@ function DashboardLayoutContent({
 
     // 👥 인사·급여
     { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "인사·급여" },
-    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin", "employee"], group: "인사·급여" },
+    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin"], group: "인사·급여" },
 
     // ── 가끔 쓰는 메뉴 (하단 배치) ──
 

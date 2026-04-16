@@ -58,6 +58,11 @@ export default function HRManagement() {
   const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
   const endDate = `${year}-${String(month).padStart(2, "0")}-31`;
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<number | null>(null);
+
+  // 직원 목록 (필터용)
+  const { data: employeeList } = trpc.payroll.employees.useQuery();
+  const employees: any[] = (employeeList as any[]) || [];
 
   // 출퇴근
   const { data: myToday, refetch: refetchToday } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000 });
@@ -70,8 +75,11 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // 근태 목록
-  const { data: attendance, refetch: refetchAtt } = trpc.hr.attendanceList.useQuery({ startDate, endDate });
+  // 근태 목록 (직원 필터 적용)
+  const { data: attendance, refetch: refetchAtt } = trpc.hr.attendanceList.useQuery({
+    startDate, endDate,
+    employeeId: selectedEmployee || undefined,
+  });
 
   // 휴가
   const { data: leaves, refetch: refetchLeaves } = trpc.hr.leaveList.useQuery({ year, status: "all" });
@@ -127,6 +135,13 @@ export default function HRManagement() {
               )}
             </div>
 
+            <select value={selectedEmployee || ""} onChange={(e) => setSelectedEmployee(e.target.value ? Number(e.target.value) : null)}
+              className="h-8 text-xs border rounded px-2">
+              <option value="">전체 직원</option>
+              {employees.map((emp: any) => (
+                <option key={emp.id} value={emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
+              ))}
+            </select>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-8 text-xs border rounded px-2">
               {[2024, 2025, 2026, 2027].map((y) => <option key={y}>{y}</option>)}
             </select>
@@ -145,9 +160,42 @@ export default function HRManagement() {
 
           {/* 근태 탭 */}
           <TabsContent value="attendance">
+            {/* 월간 요약 */}
+            {attendance && (attendance as any[]).length > 0 && (() => {
+              const att = attendance as any[];
+              const totalDays = att.length;
+              const totalHours = att.reduce((s: number, a: any) => s + (a.workHours || 0), 0);
+              const overtimeHours = att.reduce((s: number, a: any) => s + Math.max(0, (a.workHours || 0) - 8), 0);
+              const lateDays = att.filter((a: any) => a.status === "late").length;
+              return (
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  <Card><CardContent className="p-2.5 text-center">
+                    <p className="text-[10px] text-muted-foreground">출근일</p>
+                    <p className="text-lg font-bold text-sky-700">{totalDays}<span className="text-xs">일</span></p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-2.5 text-center">
+                    <p className="text-[10px] text-muted-foreground">총 근무</p>
+                    <p className="text-lg font-bold text-blue-700">{totalHours.toFixed(1)}<span className="text-xs">h</span></p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-2.5 text-center">
+                    <p className="text-[10px] text-muted-foreground">연장근로</p>
+                    <p className="text-lg font-bold text-amber-700">{overtimeHours.toFixed(1)}<span className="text-xs">h</span></p>
+                  </CardContent></Card>
+                  <Card><CardContent className="p-2.5 text-center">
+                    <p className="text-[10px] text-muted-foreground">지각</p>
+                    <p className="text-lg font-bold text-red-600">{lateDays}<span className="text-xs">일</span></p>
+                  </CardContent></Card>
+                </div>
+              );
+            })()}
             <Card>
               <CardHeader className="py-3 px-4 border-b">
-                <CardTitle className="text-sm">{year}년 {month}월 근태 현황</CardTitle>
+                <CardTitle className="text-sm">
+                  {year}년 {month}월 근태 현황
+                  {selectedEmployee && employees.find((e: any) => e.id === selectedEmployee)
+                    ? ` — ${employees.find((e: any) => e.id === selectedEmployee)?.name}`
+                    : " — 전체"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 {!attendance?.length ? (
