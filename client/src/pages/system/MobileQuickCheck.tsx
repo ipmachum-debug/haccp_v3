@@ -104,7 +104,7 @@ export default function MobileQuickCheck() {
   const { data: ccpDeviations } = trpc.dashboard.ccpDeviations.useQuery({}, { retry: 1 });
   const { data: lowStockWarnings } = trpc.dashboard.getLowStockWarnings.useQuery(undefined, { retry: 1 });
   const { data: checklistStats } = trpc.checklists.getStats.useQuery(undefined, { retry: 1 });
-  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 }, { retry: 1 });
+  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] }, { retry: 1 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
 
   // 파생 데이터

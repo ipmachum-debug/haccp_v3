@@ -1075,7 +1075,7 @@ function ReceiptTab() {
   const [rcptDate, setRcptDate] = useState(today); const [notes, setNotes] = useState(""); const [showForm, setShowForm] = useState(false);
   const [matCode, setMatCode] = useState("");
 
-  const { data: _raw } = trpc.material.list.useQuery({ limit: 9999 });
+  const { data: _raw } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const mats: any[] = (_raw as any)?.items ?? (Array.isArray(_raw) ? _raw : []);
   const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 9999 });
 

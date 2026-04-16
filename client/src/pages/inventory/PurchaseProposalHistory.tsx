@@ -32,7 +32,7 @@ export default function PurchaseProposalHistory() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | undefined>(undefined);
 
   // API 호출
-  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
+  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: history, isLoading } = trpc.inventory.getPurchaseProposalHistory.useQuery({
     startDate,

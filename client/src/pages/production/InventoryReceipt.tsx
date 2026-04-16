@@ -27,8 +27,8 @@ export default function InventoryReceipt() {
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [supplierName, setSupplierName] = useState("");
 
-  // 원재료 목록 조회
-  const { data: _rawMaterials, isLoading: materialsLoading } = trpc.material.list.useQuery({ limit: 9999 });
+  // 품목 목록 조회 (원재료 + 부재료 + 외주제품)
+  const { data: _rawMaterials, isLoading: materialsLoading } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
 
   // 재고 LOT 목록 조회
