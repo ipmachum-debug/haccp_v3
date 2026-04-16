@@ -56,26 +56,59 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     : formatLocalDate(purchase.transactionDate as Date);
 
   // ★ 2026-04-13 수정:
-  //   1순위: accounting_purchases.material_id FK (신규 데이터)
-  //   2순위: item_name 으로 h_materials 매칭 (레거시 데이터 호환)
-  //   - 재고관리 입고내역 / 육안검사일지 연동 복구를 위해 필수
+  //   1순위: accounting_purchases.material_id FK (신규 데이터 — item_master.id)
+  //   2순위: item_name 으로 item_master 매칭 (통합 품목 마스터)
+  //   3순위: item_name 으로 h_materials 매칭 (레거시 데이터 호환)
   let resolvedMaterialId: number | null = (purchase as any).materialId
     ? Number((purchase as any).materialId)
     : null;
+
+  // 품목 유형 조회 (회계 계정 분기용)
+  let resolvedItemType: string = "raw_material";
+  if (resolvedMaterialId) {
+    try {
+      const itemTypeResult: any = await db.execute(sql`
+        SELECT item_type FROM item_master
+        WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
+        LIMIT 1
+      `);
+      const itemTypeRows: any[] = (itemTypeResult as any)?.[0] || [];
+      if (itemTypeRows[0]?.item_type) {
+        resolvedItemType = String(itemTypeRows[0].item_type);
+      }
+    } catch (_) { /* item_master 테이블 없으면 기본값 유지 */ }
+  }
+
   if (!resolvedMaterialId && purchase.itemName) {
     try {
       const itemName = purchase.itemName;
       const likePattern = `%${itemName}%`;
-      const matResult: any = await db.execute(sql`
-        SELECT id FROM h_materials
+      // 2순위: item_master 통합 품목 마스터 매칭
+      const imResult: any = await db.execute(sql`
+        SELECT id, item_type FROM item_master
         WHERE tenant_id = ${tenantId} AND is_active = 1
-          AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
-        ORDER BY (material_name = ${itemName}) DESC, id ASC
+          AND (item_name = ${itemName} OR item_name LIKE ${likePattern})
+        ORDER BY (item_name = ${itemName}) DESC, id ASC
         LIMIT 1
       `);
-      const matRowsArr: any[] = (matResult as any)?.[0] || [];
-      if (matRowsArr[0]?.id) {
-        resolvedMaterialId = Number(matRowsArr[0].id);
+      const imRows: any[] = (imResult as any)?.[0] || [];
+      if (imRows[0]?.id) {
+        resolvedMaterialId = Number(imRows[0].id);
+        resolvedItemType = String(imRows[0].item_type || "raw_material");
+      } else {
+        // 3순위: h_materials 레거시 매칭
+        const matResult: any = await db.execute(sql`
+          SELECT id FROM h_materials
+          WHERE tenant_id = ${tenantId} AND is_active = 1
+            AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
+          ORDER BY (material_name = ${itemName}) DESC, id ASC
+          LIMIT 1
+        `);
+        const matRowsArr: any[] = (matResult as any)?.[0] || [];
+        if (matRowsArr[0]?.id) {
+          resolvedMaterialId = Number(matRowsArr[0].id);
+          resolvedItemType = "raw_material";
+        }
       }
     } catch (matErr) {
       console.error(`[purchasePost] material_id 조회 실패 (계속):`, matErr);
@@ -99,7 +132,12 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   }
 
   // 시스템 계정 조회 (트랜잭션 밖 - 읽기 전용)
-  const inventoryAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
+  // ★ 품목 유형에 따라 적절한 재고 계정 사용
+  //   - raw_material, subsidiary → 원재료(INVENTORY_RAW, 1410)
+  //   - external_product → 상품(INVENTORY_GOODS, 1420)
+  const inventoryAcc = resolvedItemType === "external_product"
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품")
+    : await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
   const vatAcc = taxAmount > 0
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")

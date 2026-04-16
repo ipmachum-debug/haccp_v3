@@ -1,6 +1,6 @@
 import { getDb, withTransaction } from "../../db";
 import { accountingPurchases } from "../../../drizzle/schema/schema_accounting_extended";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { todayKST } from "../../utils/timezone";
@@ -59,10 +59,30 @@ export async function cancelPurchase(
   const inboundNumber = `INB-PURCHASE-${purchaseId}`;
   const materialId = (purchase as any).materialId as number | null;
 
+  // ── 2b. 품목 유형 조회 (회계 계정 분기용) ────────────
+  let resolvedItemType = "raw_material";
+  if (materialId) {
+    try {
+      const db2 = await getDb();
+      if (db2) {
+        const itemTypeResult: any = await db2.execute(sql`
+          SELECT item_type FROM item_master
+          WHERE id = ${materialId} AND tenant_id = ${tenantId}
+          LIMIT 1
+        `);
+        const itemTypeRows: any[] = (itemTypeResult as any)?.[0] || [];
+        if (itemTypeRows[0]?.item_type) {
+          resolvedItemType = String(itemTypeRows[0].item_type);
+        }
+      }
+    } catch (_) { /* item_master 없으면 기본값 유지 */ }
+  }
+
   // ── 3. 시스템 계정 사전 조회 (트랜잭션 밖) ────────────
-  const inventoryAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료",
-  );
+  // ★ 품목 유형에 따라 적절한 재고 계정 사용
+  const inventoryAcc = resolvedItemType === "external_product"
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품")
+    : await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
   const payableAcc = await resolveSystemAccount(
     tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금",
   );
