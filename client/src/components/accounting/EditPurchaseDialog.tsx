@@ -189,10 +189,12 @@ export function EditPurchaseDialog({
 
             {/* 원재료 (MaterialCombobox - 검색/자동완성) */}
             <div className="space-y-2 col-span-2">
-              <Label htmlFor="itemName">원재료 *</Label>
+              <Label htmlFor="itemName">품목 *</Label>
               <MaterialCombobox
                 selectedId={formData.materialId}
                 selectedName={formData.itemName}
+                itemTypes={["raw_material", "subsidiary", "external_product"]}
+                placeholder="품목 검색... (원재료/부재료/외주제품)"
                 partnerId={formData.partnerId !== "none" ? parseInt(formData.partnerId) : null}
                 onSelect={(m) =>
                   setFormData({
@@ -210,7 +212,6 @@ export function EditPurchaseDialog({
                   })
                 }
                 required
-                placeholder="원재료 검색... (이름/코드)"
               />
             </div>
 

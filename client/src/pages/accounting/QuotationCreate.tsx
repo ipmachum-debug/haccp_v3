@@ -555,6 +555,8 @@ function QuotationCreateContent() {
                   <MaterialCombobox
                     selectedId={line.materialId}
                     selectedName={line.itemName}
+                    itemTypes={["raw_material", "subsidiary", "external_product"]}
+                    placeholder="품목 검색..."
                     onSelect={async (m) => {
                       updateLine(line.id, {
                         materialId: m.id,

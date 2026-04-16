@@ -702,6 +702,8 @@ function PurchaseOrderListContent() {
                         <MaterialCombobox
                           selectedId={line.materialId}
                           selectedName={line.itemName}
+                          itemTypes={["raw_material", "subsidiary", "external_product"]}
+                          placeholder="품목 검색..."
                           onSelect={(m) => {
                             updateEditLine(line.id, {
                               materialId: m.id,
@@ -711,7 +713,6 @@ function PurchaseOrderListContent() {
                             });
                           }}
                           onClear={() => updateEditLine(line.id, { materialId: null, itemName: "", itemCode: "" })}
-                          placeholder="원재료 검색..."
                         />
                       </TableCell>
                       <TableCell>
