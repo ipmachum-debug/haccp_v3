@@ -424,7 +424,13 @@ export const purchaseOrderRouter = router({
     }),
 
   /**
-   * 발주 삭제 (draft 만 가능)
+   * 발주 삭제 — 모든 상태 지원 (양방향 역수행)
+   *
+   * - draft: 단순 삭제
+   * - approved/cancelled: 단순 삭제
+   * - partial_received/received: 연결된 매입전표 전체 취소 (cancelPurchase)
+   *   → LOT 역차감, 재고원장, 입고전표, 원료수불, 회계분개 모두 역수행
+   *   → 이후 PO 삭제
    */
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
@@ -436,9 +442,110 @@ export const purchaseOrderRouter = router({
         );
         const current = (rows as any[])[0];
         if (!current) throw new Error(`발주서 #${input.id} 없음`);
-        if (current.status !== "draft") {
-          throw new Error(`작성 중 발주서만 삭제 가능. 현재: ${current.status}. 취소(cancel)를 사용하세요.`);
+
+        // 입고된 PO → 연결된 매입전표 역수행
+        if (["partial_received", "received"].includes(current.status)) {
+          // source_type='purchase_order' AND source_id=poId 인 매입전표 조회
+          const [purchaseRows]: any = await conn.execute(
+            `SELECT id, status FROM accounting_purchases
+             WHERE tenant_id = ? AND source_type = 'purchase_order' AND source_id = ?
+             AND status != 'cancelled'`,
+            [ctx.tenantId, input.id],
+          );
+          const linkedPurchases = purchaseRows as any[];
+
+          if (linkedPurchases.length > 0) {
+            // cancelPurchase 는 트랜잭션 내부에서 호출 불가 (자체 트랜잭션)
+            // → 직접 역수행 로직 인라인
+            for (const p of linkedPurchases) {
+              const purchaseId = p.id;
+
+              // (1) 원본 receipt 거래 → LOT 역차감
+              const [txRows]: any = await conn.execute(
+                `SELECT id, lot_id, quantity FROM h_inventory_transactions
+                 WHERE tenant_id = ? AND UPPER(reference_type) = 'PURCHASE'
+                   AND source_id = ? AND transaction_type = 'receipt'
+                 LIMIT 1`,
+                [ctx.tenantId, purchaseId],
+              );
+              const origTx = (txRows as any[])[0];
+              if (origTx) {
+                const lotId = Number(origTx.lot_id);
+                const cancelQty = Number(origTx.quantity);
+
+                // LOT 수량 감소
+                await conn.execute(
+                  `UPDATE h_inventory_lots
+                   SET available_quantity = GREATEST(0, available_quantity - ?),
+                       current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
+                       status = CASE WHEN GREATEST(0, available_quantity - ?) <= 0.001 THEN 'disposed' ELSE status END,
+                       updated_at = NOW()
+                   WHERE id = ? AND tenant_id = ?`,
+                  [cancelQty, cancelQty, cancelQty, lotId, ctx.tenantId],
+                );
+
+                // 역거래 기록
+                await conn.execute(
+                  `INSERT INTO h_inventory_transactions
+                     (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+                      reference_type, source_type, source_id, notes, created_by)
+                   VALUES (?, ?, 'usage', ?, 'EA', CURDATE(), 'PO_DELETE', 'PO_DELETE', ?, ?, ?)`,
+                  [ctx.tenantId, lotId, cancelQty, purchaseId,
+                   `[발주삭제] PO-${input.id}`, ctx.user.id],
+                );
+              }
+
+              // (2) 입고전표 취소
+              await conn.execute(
+                `UPDATE h_inbound_headers SET status = 'cancelled', updated_at = NOW()
+                 WHERE tenant_id = ? AND inbound_number = ?`,
+                [ctx.tenantId, `INB-PURCHASE-${purchaseId}`],
+              );
+
+              // (3) 원료수불 역차감
+              const [apRows]: any = await conn.execute(
+                `SELECT material_id, quantity, transaction_date FROM accounting_purchases WHERE id = ? AND tenant_id = ?`,
+                [purchaseId, ctx.tenantId],
+              );
+              const ap = (apRows as any[])[0];
+              if (ap?.material_id) {
+                await conn.execute(
+                  `UPDATE material_ledger_daily
+                   SET receiving_qty = GREATEST(0, receiving_qty - ?), updated_at = NOW()
+                   WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
+                  [Number(ap.quantity || 0), ctx.tenantId, ap.material_id, ap.transaction_date],
+                );
+              }
+
+              // (4) 회계 분개 삭제 (역분개 대신 직접 삭제 — PO 전체 삭제이므로)
+              const [jeRows]: any = await conn.execute(
+                `SELECT id FROM expense_journal_entries
+                 WHERE tenant_id = ? AND voucher_id = ? AND description LIKE ?`,
+                [ctx.tenantId, purchaseId, `%PURCHASE-${purchaseId}%`],
+              );
+              for (const je of (jeRows as any[])) {
+                await conn.execute(
+                  `DELETE FROM expense_journal_lines WHERE journal_entry_id = ?`,
+                  [je.id],
+                );
+                await conn.execute(
+                  `DELETE FROM expense_journal_entries WHERE id = ? AND tenant_id = ?`,
+                  [je.id, ctx.tenantId],
+                );
+              }
+
+              // (5) 매입전표 삭제
+              await conn.execute(
+                `DELETE FROM accounting_purchases WHERE id = ? AND tenant_id = ?`,
+                [purchaseId, ctx.tenantId],
+              );
+            }
+
+            console.log(`[PO.delete] PO#${input.id}: ${linkedPurchases.length}건 매입전표 역수행 완료`);
+          }
         }
+
+        // PO 라인 + 헤더 삭제
         await conn.execute(
           `DELETE FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`,
           [input.id, ctx.tenantId],
@@ -447,7 +554,8 @@ export const purchaseOrderRouter = router({
           `DELETE FROM purchase_orders WHERE id = ? AND tenant_id = ?`,
           [input.id, ctx.tenantId],
         );
-        return { message: "발주서가 삭제되었습니다." };
+
+        return { message: "발주서가 삭제되었습니다. (연관 재고/회계 역수행 완료)" };
       }, `purchaseOrder.delete:${input.id}`);
     }),
 

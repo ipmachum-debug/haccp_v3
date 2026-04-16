@@ -364,8 +364,12 @@ function PurchaseOrderListContent() {
     }
   };
 
-  const handleDelete = (id: number, poNumber: string) => {
-    if (confirm(`${poNumber} 를 삭제하시겠습니까? (작성 중 상태만 가능)`)) {
+  const handleDelete = (id: number, poNumber: string, status: string) => {
+    const isReceived = ["partial_received", "received"].includes(status);
+    const msg = isReceived
+      ? `${poNumber} 를 삭제하시겠습니까?\n\n⚠️ 입고된 발주서입니다. 연관된 재고·회계·입고전표·원료수불이 모두 역수행됩니다.`
+      : `${poNumber} 를 삭제하시겠습니까?`;
+    if (confirm(msg)) {
       deleteMutation.mutate({ id });
     }
   };
@@ -601,12 +605,12 @@ function PurchaseOrderListContent() {
                               <XCircle className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {po.status === "draft" && (
+                          {po.status !== "cancelled" && (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handleDelete(po.id, po.poNumber)}
-                              title="삭제"
+                              onClick={() => handleDelete(po.id, po.poNumber, po.status)}
+                              title={["partial_received", "received"].includes(po.status) ? "삭제 (재고/회계 역수행)" : "삭제"}
                               className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
