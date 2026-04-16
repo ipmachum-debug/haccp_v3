@@ -34,14 +34,15 @@ export const payrollRouter = router({
       const pool = getPool();
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
 
-      const [rows]: any = await pool.execute(
-        `SELECT p.*, e.name as employee_name, e.position, e.department
-         FROM payroll_records p
-         LEFT JOIN h_employees e ON p.employee_id = e.id
-         WHERE p.tenant_id = ? AND p.year_month = ?
-         ORDER BY e.name ASC`,
-        [ctx.tenantId, yearMonth],
-      );
+      try {
+        const [rows]: any = await pool.execute(
+          `SELECT p.*, e.name as employee_name, e.position, e.department
+           FROM payroll_records p
+           LEFT JOIN h_employees e ON p.employee_id = e.id
+           WHERE p.tenant_id = ? AND p.year_month = ?
+           ORDER BY e.name ASC`,
+          [ctx.tenantId, yearMonth],
+        );
 
       return (rows as any[]).map((r: any) => ({
         id: r.id,
@@ -66,6 +67,10 @@ export const payrollRouter = router({
         status: r.status,
         paidAt: r.paid_at,
       }));
+      } catch (err: any) {
+        console.warn("[payroll.list] 쿼리 실패:", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /**
@@ -74,28 +79,26 @@ export const payrollRouter = router({
   summary: tenantRequiredProcedure
     .input(z.object({ year: z.number(), month: z.number() }))
     .query(async ({ ctx, input }) => {
-      const pool = getPool();
-      const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
-
-      const [rows]: any = await pool.execute(
-        `SELECT
-           COUNT(*) as cnt,
-           COALESCE(SUM(CAST(gross_pay AS DECIMAL(15,2))), 0) as totalGross,
-           COALESCE(SUM(CAST(total_deductions AS DECIMAL(15,2))), 0) as totalDeductions,
-           COALESCE(SUM(CAST(net_pay AS DECIMAL(15,2))), 0) as totalNet,
-           SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paidCount
-         FROM payroll_records
-         WHERE tenant_id = ? AND year_month = ?`,
-        [ctx.tenantId, yearMonth],
-      );
-      const r = rows[0];
-      return {
-        count: Number(r.cnt || 0),
-        totalGross: Number(r.totalGross || 0),
-        totalDeductions: Number(r.totalDeductions || 0),
-        totalNet: Number(r.totalNet || 0),
-        paidCount: Number(r.paidCount || 0),
-      };
+      try {
+        const pool = getPool();
+        const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
+        const [rows]: any = await pool.execute(
+          `SELECT COUNT(*) as cnt,
+             COALESCE(SUM(CAST(gross_pay AS DECIMAL(15,2))), 0) as totalGross,
+             COALESCE(SUM(CAST(total_deductions AS DECIMAL(15,2))), 0) as totalDeductions,
+             COALESCE(SUM(CAST(net_pay AS DECIMAL(15,2))), 0) as totalNet,
+             SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) as paidCount
+           FROM payroll_records WHERE tenant_id = ? AND year_month = ?`,
+          [ctx.tenantId, yearMonth],
+        );
+        const r = rows[0];
+        return { count: Number(r.cnt || 0), totalGross: Number(r.totalGross || 0),
+          totalDeductions: Number(r.totalDeductions || 0), totalNet: Number(r.totalNet || 0),
+          paidCount: Number(r.paidCount || 0) };
+      } catch (err: any) {
+        console.warn("[payroll.summary] 쿼리 실패:", err.message?.substring(0, 100));
+        return { count: 0, totalGross: 0, totalDeductions: 0, totalNet: 0, paidCount: 0 };
+      }
     }),
 
   /**

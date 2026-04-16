@@ -20,6 +20,7 @@ export const vatManagementRouter = router({
     .query(async ({ ctx, input }) => {
       const pool = getPool();
       const tenantId = ctx.tenantId;
+      try {
 
       // 매입세액 (accounting_purchases)
       const [inputRows]: any = await pool.execute(
@@ -62,6 +63,10 @@ export const vatManagementRouter = router({
         netPayable: outputTax - inputTax,
         isRefund: outputTax < inputTax,
       };
+      } catch (err: any) {
+        console.warn("[vat.summary]", err.message?.substring(0, 100));
+        return { input: { taxAmount: 0, supplyAmount: 0, count: 0 }, output: { taxAmount: 0, supplyAmount: 0, count: 0 }, netPayable: 0, isRefund: false };
+      }
     }),
 
   /**
@@ -70,6 +75,7 @@ export const vatManagementRouter = router({
   monthlyTrend: tenantRequiredProcedure
     .input(z.object({ year: z.number() }))
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const year = input.year;
@@ -120,12 +126,12 @@ export const vatManagementRouter = router({
           netPayable: outputTax - inputTax,
         };
       });
+      } catch (err: any) {
+        console.warn("[vat.monthlyTrend]", err.message?.substring(0, 100));
+        return Array.from({ length: 12 }, (_, i) => ({ month: i+1, inputTax: 0, inputSupply: 0, outputTax: 0, outputSupply: 0, netPayable: 0 }));
+      }
     }),
 
-  /**
-   * 부가세 신고서 미리보기 (반기별)
-   * 1기: 1~6월, 2기: 7~12월
-   */
   reportPreview: tenantRequiredProcedure
     .input(z.object({
       year: z.number(),
