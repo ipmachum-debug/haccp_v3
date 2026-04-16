@@ -1323,6 +1323,8 @@ function PartnerPricesContent() {
                             <MaterialCombobox
                               selectedId={line.materialId}
                               selectedName={line.itemName}
+                              itemTypes={["raw_material", "subsidiary", "external_product"]}
+                              placeholder="품목 검색..."
                               onSelect={(m) =>
                                 updateBatchLine(line.id, {
                                   materialId: m.id,
