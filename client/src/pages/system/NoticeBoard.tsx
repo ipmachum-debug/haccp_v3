@@ -239,6 +239,32 @@ export default function NoticeBoard() {
   });
   const { data: myLevel, refetch: refetchLevel } = trpc.dailyTraining.getMyLevel.useQuery();
 
+  // ── 출퇴근 ──
+  const { data: myAttendance, refetch: refetchAtt } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000, retry: 1 });
+  const clockInMut = trpc.hr.clockIn.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const clockOutMut = trpc.hr.clockOut.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // ── 연차 ──
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveType, setLeaveType] = useState("annual");
+  const [leaveStart, setLeaveStart] = useState("");
+  const [leaveEnd, setLeaveEnd] = useState("");
+  const [leaveReason, setLeaveReason] = useState("");
+  const { data: myLeaveBalance } = trpc.hr.leaveBalance.useQuery(undefined, { retry: 1 });
+  const { data: myLeaves } = trpc.hr.leaveList.useQuery({ status: "all" }, { retry: 1 });
+  const requestLeaveMut = trpc.hr.requestLeave.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); setLeaveOpen(false); setLeaveReason(""); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const myBalance = (myLeaveBalance as any[])?.[0];
+
   // 놓친 교육 (소급 확인용)
   const { data: missedTrainings, refetch: refetchMissed } = trpc.dailyTraining.getMissedTrainings.useQuery({ limit: 5 });
   const completeMissedMutation = trpc.dailyTraining.completeMissed.useMutation({
@@ -599,6 +625,118 @@ export default function NoticeBoard() {
             </div>
           </div>
         )}
+
+        {/* ═══ 출퇴근 + 연차 카드 ═══ */}
+        <div className="bg-white rounded-2xl border border-teal-200 shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-5">
+            {/* 출퇴근 */}
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[13px] font-bold text-teal-800 flex items-center gap-1.5">
+                🕐 출퇴근
+              </span>
+              <div className="flex items-center gap-2">
+                {myAttendance ? (
+                  <>
+                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                      출근 {myAttendance.clockIn}
+                    </span>
+                    {myAttendance.clockOut ? (
+                      <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">
+                        퇴근 {myAttendance.clockOut} ({myAttendance.workHours.toFixed(1)}h)
+                      </span>
+                    ) : (
+                      <Button size="sm" onClick={() => clockOutMut.mutate()} disabled={clockOutMut.isPending}
+                        className="h-8 text-xs rounded-xl bg-red-500 hover:bg-red-600 text-white">
+                        퇴근하기
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Button size="sm" onClick={() => clockInMut.mutate()} disabled={clockInMut.isPending}
+                    className="h-8 text-xs rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white gap-1">
+                    출근하기
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* 연차 현황 + 신청 */}
+            <div className="border-t border-teal-100 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[13px] font-bold text-teal-800 flex items-center gap-1.5">
+                  📅 연차 현황
+                </span>
+                <Button size="sm" variant="outline" onClick={() => { setLeaveOpen(!leaveOpen); setLeaveStart(""); setLeaveEnd(""); }}
+                  className="h-7 text-[11px] rounded-xl border-teal-300 text-teal-700">
+                  {leaveOpen ? "닫기" : "연차 신청"}
+                </Button>
+              </div>
+
+              {myBalance && (
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="flex-1 bg-teal-50 rounded-xl p-2 text-center">
+                    <p className="text-[10px] text-teal-500">부여</p>
+                    <p className="text-lg font-black text-teal-700">{myBalance.annualTotal}<span className="text-xs">일</span></p>
+                  </div>
+                  <div className="flex-1 bg-blue-50 rounded-xl p-2 text-center">
+                    <p className="text-[10px] text-blue-500">사용</p>
+                    <p className="text-lg font-black text-blue-700">{myBalance.annualUsed}<span className="text-xs">일</span></p>
+                  </div>
+                  <div className="flex-1 bg-emerald-50 rounded-xl p-2 text-center">
+                    <p className="text-[10px] text-emerald-500">잔여</p>
+                    <p className={`text-lg font-black ${myBalance.annualRemaining <= 3 ? "text-red-600" : "text-emerald-700"}`}>{myBalance.annualRemaining}<span className="text-xs">일</span></p>
+                  </div>
+                </div>
+              )}
+
+              {/* 연차 신청 폼 */}
+              {leaveOpen && (
+                <div className="bg-teal-50 rounded-xl p-3 space-y-2 mt-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-teal-600">시작일</label>
+                      <input type="date" value={leaveStart} onChange={(e) => setLeaveStart(e.target.value)}
+                        className="w-full h-9 px-2 border rounded-lg text-sm bg-white" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-teal-600">종료일</label>
+                      <input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)}
+                        className="w-full h-9 px-2 border rounded-lg text-sm bg-white" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-teal-600">사유</label>
+                    <input type="text" value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)}
+                      placeholder="연차 사유" className="w-full h-9 px-2 border rounded-lg text-sm bg-white" />
+                  </div>
+                  <Button size="sm" className="w-full h-9 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs"
+                    disabled={requestLeaveMut.isPending || !leaveStart || !leaveEnd || !leaveReason.trim()}
+                    onClick={() => requestLeaveMut.mutate({
+                      leaveType: leaveType as any, startDate: leaveStart, endDate: leaveEnd, reason: leaveReason,
+                    })}>
+                    {requestLeaveMut.isPending ? "신청 중..." : "연차 신청"}
+                  </Button>
+                </div>
+              )}
+
+              {/* 최근 신청 내역 */}
+              {myLeaves && (myLeaves as any[]).length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {(myLeaves as any[]).slice(0, 3).map((l: any) => (
+                    <div key={l.id} className="flex items-center justify-between text-[11px] bg-gray-50 rounded-lg px-2 py-1.5">
+                      <span className="text-gray-600">
+                        {typeof l.startDate === "string" ? l.startDate.slice(5) : ""} ~ {typeof l.endDate === "string" ? l.endDate.slice(5) : ""} ({l.days}일)
+                      </span>
+                      <span className={`font-bold ${l.status === "approved" ? "text-emerald-600" : l.status === "rejected" ? "text-red-500" : "text-amber-600"}`}>
+                        {l.status === "approved" ? "승인" : l.status === "rejected" ? "반려" : "대기"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* ═══ 놓친 교육 소급 확인 ═══ */}
         {missedTrainings && missedTrainings.length > 0 && (
