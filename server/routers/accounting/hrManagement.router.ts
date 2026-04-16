@@ -33,59 +33,70 @@ export const hrManagementRouter = router({
 
   /** 출근 체크 */
   clockIn: tenantRequiredProcedure.mutation(async ({ ctx }) => {
-    const pool = getPool();
-    const today = kstToday();
-    const now = kstTime();
-
-    // 이미 출근했는지 확인
-    const [existing]: any = await pool.execute(
-      `SELECT id FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
-      [ctx.tenantId, ctx.user.id, today],
-    );
-    if (existing.length > 0) {
-      return { alreadyClockedIn: true, message: "이미 출근 처리되었습니다." };
+    try {
+      const pool = getPool();
+      const today = kstToday();
+      const now = kstTime();
+      const [existing]: any = await pool.execute(
+        `SELECT id FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
+        [ctx.tenantId, ctx.user.id, today],
+      );
+      if (existing.length > 0) {
+        return { alreadyClockedIn: true, message: "이미 출근 처리되었습니다." };
+      }
+      await pool.execute(
+        `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, status)
+         VALUES (?, ?, ?, ?, 'present')`,
+        [ctx.tenantId, ctx.user.id, today, now],
+      );
+      return { alreadyClockedIn: false, message: `출근 완료 (${now})` };
+    } catch (err: any) {
+      console.warn("[hr.clockIn]", err.message?.substring(0, 100));
+      return { alreadyClockedIn: false, message: "출근 처리 실패 (테이블 미생성 가능)" };
     }
-
-    await pool.execute(
-      `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, status)
-       VALUES (?, ?, ?, ?, 'present')`,
-      [ctx.tenantId, ctx.user.id, today, now],
-    );
-    return { alreadyClockedIn: false, message: `출근 완료 (${now})` };
   }),
 
   /** 퇴근 체크 */
   clockOut: tenantRequiredProcedure.mutation(async ({ ctx }) => {
-    const pool = getPool();
-    const today = kstToday();
-    const now = kstTime();
-
-    const [result]: any = await pool.execute(
-      `UPDATE attendance_records SET clock_out = ?,
-         work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0
-       WHERE tenant_id = ? AND employee_id = ? AND work_date = ? AND clock_out IS NULL`,
-      [now, now, ctx.tenantId, ctx.user.id, today],
-    );
-    if (result.affectedRows === 0) {
-      return { message: "출근 기록이 없거나 이미 퇴근했습니다." };
+    try {
+      const pool = getPool();
+      const today = kstToday();
+      const now = kstTime();
+      const [result]: any = await pool.execute(
+        `UPDATE attendance_records SET clock_out = ?,
+           work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0
+         WHERE tenant_id = ? AND employee_id = ? AND work_date = ? AND clock_out IS NULL`,
+        [now, now, ctx.tenantId, ctx.user.id, today],
+      );
+      if (result.affectedRows === 0) {
+        return { message: "출근 기록이 없거나 이미 퇴근했습니다." };
+      }
+      return { message: `퇴근 완료 (${now})` };
+    } catch (err: any) {
+      console.warn("[hr.clockOut]", err.message?.substring(0, 100));
+      return { message: "퇴근 처리 실패" };
     }
-    return { message: `퇴근 완료 (${now})` };
   }),
 
   /** 오늘 내 근태 */
   myToday: tenantRequiredProcedure.query(async ({ ctx }) => {
-    const pool = getPool();
-    const today = kstToday();
-    const [rows]: any = await pool.execute(
-      `SELECT * FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
-      [ctx.tenantId, ctx.user.id, today],
-    );
-    return rows[0] ? {
-      clockIn: rows[0].clock_in,
-      clockOut: rows[0].clock_out,
-      workHours: Number(rows[0].work_hours || 0),
-      status: rows[0].status,
-    } : null;
+    try {
+      const pool = getPool();
+      const today = kstToday();
+      const [rows]: any = await pool.execute(
+        `SELECT * FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
+        [ctx.tenantId, ctx.user.id, today],
+      );
+      return rows[0] ? {
+        clockIn: rows[0].clock_in,
+        clockOut: rows[0].clock_out,
+        workHours: Number(rows[0].work_hours || 0),
+        status: rows[0].status,
+      } : null;
+    } catch (err: any) {
+      console.warn("[hr.myToday]", err.message?.substring(0, 100));
+      return null;
+    }
   }),
 
   /** 근태 목록 (관리자: 전체, 직원: 본인) */
