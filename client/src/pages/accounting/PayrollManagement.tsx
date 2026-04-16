@@ -252,80 +252,133 @@ export default function PayrollManagement() {
    급여 생성 폼
    ═══════════════════════════════════════════ */
 function GeneratePayrollForm({ year, month, onSuccess }: { year: number; month: number; onSuccess: () => void }) {
-  const { data: employeeList } = trpc.payroll.employees.useQuery();
+  const { data: employeeList, isLoading: empLoading } = trpc.payroll.employees.useQuery();
+  const employees: any[] = (employeeList as any[]) || [];
 
   const [entries, setEntries] = useState<Array<{
-    employeeId: number; name: string; baseSalary: number; overtime: number; bonus: number; allowances: number;
+    key: string; employeeId: number | null; name: string;
+    baseSalary: number; overtime: number; bonus: number; allowances: number;
   }>>([]);
 
-  // 직원 목록 로드되면 자동 초기화
-  useEffect(() => {
-    if (employeeList && (employeeList as any[]).length > 0 && entries.length === 0) {
-      setEntries((employeeList as any[]).map((e: any) => ({
+  const addEntry = (empId?: number, empName?: string) => {
+    setEntries([...entries, {
+      key: `${Date.now()}-${Math.random()}`,
+      employeeId: empId || null,
+      name: empName || "",
+      baseSalary: 0, overtime: 0, bonus: 0, allowances: 0,
+    }]);
+  };
+
+  const addAllEmployees = () => {
+    const existing = new Set(entries.map(e => e.employeeId));
+    const newEntries = employees
+      .filter((e: any) => !existing.has(e.id))
+      .map((e: any) => ({
+        key: `${Date.now()}-${e.id}`,
         employeeId: e.id,
-        name: e.name || e.employee_name || `직원#${e.id}`,
-        baseSalary: 0,
-        overtime: 0,
-        bonus: 0,
-        allowances: 0,
-      })));
-    }
-  }, [employeeList]);
+        name: e.name || `직원#${e.id}`,
+        baseSalary: 0, overtime: 0, bonus: 0, allowances: 0,
+      }));
+    setEntries([...entries, ...newEntries]);
+  };
+
+  const removeEntry = (key: string) => setEntries(entries.filter(e => e.key !== key));
+
+  const updateEntry = (key: string, field: string, value: any) => {
+    setEntries(entries.map(e => e.key === key ? { ...e, [field]: value } : e));
+  };
+
+  const selectEmployee = (key: string, empId: string) => {
+    const emp = employees.find((e: any) => e.id === Number(empId));
+    if (emp) updateEntry(key, "employeeId", emp.id);
+    if (emp) updateEntry(key, "name", emp.name);
+  };
 
   const generateMut = trpc.payroll.generate.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
     onError: (e: any) => toast.error(e.message),
   });
 
-  const updateEntry = (idx: number, field: string, value: number) => {
-    const next = [...entries];
-    (next[idx] as any)[field] = value;
-    setEntries(next);
-  };
-
-  const validEntries = entries.filter((e) => e.baseSalary > 0);
+  const validEntries = entries.filter(e => e.employeeId && e.baseSalary > 0);
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">직원별 기본급과 수당을 입력하면 4대보험·소득세가 자동 계산됩니다.</p>
+      <p className="text-xs text-muted-foreground">직원을 추가하고 기본급·수당을 입력하면 4대보험·소득세가 자동 계산됩니다.</p>
 
-      <div className="border rounded-lg overflow-hidden">
-        <table className="w-full text-xs">
-          <thead><tr className="bg-muted/50 border-b">
-            <th className="p-2 text-left">성명</th>
-            <th className="p-2 text-right">기본급 *</th>
-            <th className="p-2 text-right">연장근로</th>
-            <th className="p-2 text-right">상여금</th>
-            <th className="p-2 text-right">수당</th>
-          </tr></thead>
-          <tbody>
-            {entries.map((e, idx) => (
-              <tr key={e.employeeId} className="border-b">
-                <td className="p-2 font-medium">{e.name}</td>
-                <td className="p-1.5"><Input type="number" value={e.baseSalary || ""} className="h-7 text-xs text-right"
-                  onChange={(ev: any) => updateEntry(idx, "baseSalary", Number(ev.target.value) || 0)} /></td>
-                <td className="p-1.5"><Input type="number" value={e.overtime || ""} className="h-7 text-xs text-right"
-                  onChange={(ev: any) => updateEntry(idx, "overtime", Number(ev.target.value) || 0)} /></td>
-                <td className="p-1.5"><Input type="number" value={e.bonus || ""} className="h-7 text-xs text-right"
-                  onChange={(ev: any) => updateEntry(idx, "bonus", Number(ev.target.value) || 0)} /></td>
-                <td className="p-1.5"><Input type="number" value={e.allowances || ""} className="h-7 text-xs text-right"
-                  onChange={(ev: any) => updateEntry(idx, "allowances", Number(ev.target.value) || 0)} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* 직원 추가 버튼 */}
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => addEntry()}>
+          <Plus className="h-3 w-3" /> 직원 추가
+        </Button>
+        {employees.length > 0 && (
+          <Button variant="outline" size="sm" className="text-xs gap-1" onClick={addAllEmployees}>
+            <Users className="h-3 w-3" /> 전체 직원 추가 ({employees.length}명)
+          </Button>
+        )}
+        {empLoading && <span className="text-xs text-muted-foreground self-center"><Loader2 className="h-3 w-3 animate-spin inline mr-1" />직원 로딩중...</span>}
       </div>
 
+      {entries.length === 0 ? (
+        <div className="border rounded-lg p-8 text-center text-muted-foreground text-sm">
+          <DollarSign className="h-10 w-10 mx-auto mb-2 opacity-30" />
+          <p>"직원 추가" 또는 "전체 직원 추가" 버튼을 눌러주세요</p>
+        </div>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-xs">
+            <thead><tr className="bg-muted/50 border-b">
+              <th className="p-2 text-left w-[160px]">직원</th>
+              <th className="p-2 text-right">기본급 *</th>
+              <th className="p-2 text-right">연장근로</th>
+              <th className="p-2 text-right">상여금</th>
+              <th className="p-2 text-right">수당</th>
+              <th className="p-2 w-8"></th>
+            </tr></thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.key} className="border-b">
+                  <td className="p-1.5">
+                    {e.employeeId && e.name ? (
+                      <span className="font-medium text-xs">{e.name}</span>
+                    ) : (
+                      <select className="h-7 w-full text-xs border rounded px-1"
+                        value={e.employeeId?.toString() || ""}
+                        onChange={(ev) => selectEmployee(e.key, ev.target.value)}>
+                        <option value="">직원 선택</option>
+                        {employees.map((emp: any) => (
+                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td className="p-1.5"><Input type="number" value={e.baseSalary || ""} className="h-7 text-xs text-right"
+                    onChange={(ev: any) => updateEntry(e.key, "baseSalary", Number(ev.target.value) || 0)} /></td>
+                  <td className="p-1.5"><Input type="number" value={e.overtime || ""} className="h-7 text-xs text-right"
+                    onChange={(ev: any) => updateEntry(e.key, "overtime", Number(ev.target.value) || 0)} /></td>
+                  <td className="p-1.5"><Input type="number" value={e.bonus || ""} className="h-7 text-xs text-right"
+                    onChange={(ev: any) => updateEntry(e.key, "bonus", Number(ev.target.value) || 0)} /></td>
+                  <td className="p-1.5"><Input type="number" value={e.allowances || ""} className="h-7 text-xs text-right"
+                    onChange={(ev: any) => updateEntry(e.key, "allowances", Number(ev.target.value) || 0)} /></td>
+                  <td className="p-1">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-400 hover:text-red-600"
+                      onClick={() => removeEntry(e.key)}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">기본급 입력된 직원: {validEntries.length}명</span>
+        <span className="text-xs text-muted-foreground">입력 완료: {validEntries.length}명</span>
         <Button onClick={() => generateMut.mutate({
           year, month,
-          employees: validEntries.map((e) => ({
-            employeeId: e.employeeId,
-            baseSalary: e.baseSalary,
-            overtime: e.overtime,
-            bonus: e.bonus,
-            allowances: e.allowances,
+          employees: validEntries.map(e => ({
+            employeeId: e.employeeId!, baseSalary: e.baseSalary,
+            overtime: e.overtime, bonus: e.bonus, allowances: e.allowances,
           })),
         })} disabled={generateMut.isPending || validEntries.length === 0}>
           {generateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Calculator className="h-4 w-4 mr-2" />}
