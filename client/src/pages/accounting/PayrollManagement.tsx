@@ -2,7 +2,7 @@
  * 급여 관리 — ERP 강화 Phase 3-1
  * 급여대장 + 4대보험 자동계산 + 급여 지급
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -259,11 +259,11 @@ function GeneratePayrollForm({ year, month, onSuccess }: { year: number; month: 
   }>>([]);
 
   // 직원 목록 로드되면 자동 초기화
-  useMemo(() => {
-    if (employeeList && entries.length === 0) {
+  useEffect(() => {
+    if (employeeList && (employeeList as any[]).length > 0 && entries.length === 0) {
       setEntries((employeeList as any[]).map((e: any) => ({
         employeeId: e.id,
-        name: e.name,
+        name: e.name || e.employee_name || `직원#${e.id}`,
         baseSalary: 0,
         overtime: 0,
         bonus: 0,
