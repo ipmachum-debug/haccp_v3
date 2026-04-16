@@ -1267,6 +1267,43 @@ async function ensureFixedAssetTables(conn: any) {
 }
 
 /**
+ * 급여 관리 테이블 ensure (ERP 강화 Phase 3-1)
+ */
+async function ensurePayrollTable(conn: any) {
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS payroll_records (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      employee_id BIGINT NOT NULL,
+      year_month VARCHAR(7) NOT NULL,
+      base_salary DECIMAL(15,2) NOT NULL DEFAULT 0,
+      overtime DECIMAL(15,2) NOT NULL DEFAULT 0,
+      bonus DECIMAL(15,2) NOT NULL DEFAULT 0,
+      allowances DECIMAL(15,2) NOT NULL DEFAULT 0,
+      gross_pay DECIMAL(15,2) NOT NULL DEFAULT 0,
+      national_pension DECIMAL(15,2) NOT NULL DEFAULT 0,
+      health_insurance DECIMAL(15,2) NOT NULL DEFAULT 0,
+      long_term_care DECIMAL(15,2) NOT NULL DEFAULT 0,
+      employment_insurance DECIMAL(15,2) NOT NULL DEFAULT 0,
+      income_tax DECIMAL(15,2) NOT NULL DEFAULT 0,
+      local_income_tax DECIMAL(15,2) NOT NULL DEFAULT 0,
+      total_deductions DECIMAL(15,2) NOT NULL DEFAULT 0,
+      net_pay DECIMAL(15,2) NOT NULL DEFAULT 0,
+      status ENUM('draft','paid','cancelled') NOT NULL DEFAULT 'draft',
+      paid_at TIMESTAMP NULL,
+      created_by BIGINT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_payroll (tenant_id, employee_id, year_month),
+      INDEX idx_payroll_tenant_month (tenant_id, year_month)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    console.log("[Migration] Payroll table verified");
+  } catch (err: any) {
+    console.warn("[Migration] Payroll table ensure failed:", err.message);
+  }
+}
+
+/**
  * 예산 관리 테이블 ensure (ERP 강화 Phase 2-2)
  */
 async function ensureBudgetTable(conn: any) {
@@ -1318,6 +1355,7 @@ export async function runStartupMigrations() {
     await ensureDailyTrainingTables(conn);
     await ensureFixedAssetTables(conn);
     await ensureBudgetTable(conn);
+    await ensurePayrollTable(conn);
 
     console.log("[Migration] Startup migrations completed");
 
