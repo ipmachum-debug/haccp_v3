@@ -106,18 +106,23 @@ export const payrollRouter = router({
    */
   employees: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
+    // users 테이블에서 직접 조회 (가장 확실한 소스)
     try {
-      // 1순위: h_employees
       const [rows]: any = await pool.execute(
-        `SELECT id, name, position, department FROM h_employees WHERE tenant_id = ? AND status = 'active' ORDER BY name`,
+        `SELECT id, name, role as position, '' as department
+         FROM users WHERE tenant_id = ? AND status = 'approved'
+         ORDER BY name`,
         [ctx.tenantId],
       );
       if ((rows as any[]).length > 0) return rows;
-    } catch (_) {}
-    // 2순위: users 테이블 폴백
+    } catch (e: any) {
+      console.warn("[payroll.employees] users 조회 실패:", e.message?.substring(0, 80));
+    }
+    // h_employees 폴백
     try {
       const [rows]: any = await pool.execute(
-        `SELECT id, name, role as position, '' as department FROM users WHERE tenant_id = ? AND status = 'approved' ORDER BY name`,
+        `SELECT id, name, COALESCE(position, '') as position, COALESCE(department, '') as department
+         FROM h_employees WHERE tenant_id = ? ORDER BY name`,
         [ctx.tenantId],
       );
       return rows;

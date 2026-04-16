@@ -1125,27 +1125,40 @@ function ClockInOutWidget({ isCollapsed }: { isCollapsed: boolean }) {
   }
 
   return (
-    <div className="px-2 py-1.5 border-t border-sidebar-border">
-      {myToday ? (
+    <div className="px-2 py-1.5 border-t border-sidebar-border space-y-1">
+      {/* 출근 버튼/상태 */}
+      <div className="flex items-center gap-1.5">
+        {myToday ? (
+          <div className="flex items-center gap-1 flex-1 min-w-0">
+            <LogIn className="h-3 w-3 text-emerald-600 shrink-0" />
+            <span className="text-[10px] font-bold text-emerald-700">출근</span>
+            <span className="text-[10px] font-mono text-emerald-600">{myToday.clockIn?.slice(0, 5)}</span>
+          </div>
+        ) : (
+          <button onClick={() => clockInMut.mutate()} disabled={clockInMut.isPending}
+            className="w-full text-[10px] py-1.5 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+            <LogIn className="h-3.5 w-3.5" /> 출근
+          </button>
+        )}
+      </div>
+
+      {/* 퇴근 버튼/상태 (출근 후에만) */}
+      {myToday && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-emerald-600 font-medium">출근 {myToday.clockIn}</span>
           {myToday.clockOut ? (
-            <span className="text-[9px] text-blue-600 font-medium">퇴근 {myToday.clockOut}</span>
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <LogOut className="h-3 w-3 text-blue-600 shrink-0" />
+              <span className="text-[10px] font-bold text-blue-700">퇴근</span>
+              <span className="text-[10px] font-mono text-blue-600">{myToday.clockOut?.slice(0, 5)}</span>
+              <span className="text-[9px] text-muted-foreground ml-auto">{myToday.workHours.toFixed(1)}h</span>
+            </div>
           ) : (
             <button onClick={() => clockOutMut.mutate()} disabled={clockOutMut.isPending}
-              className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-medium transition">
-              퇴근
+              className="w-full text-[10px] py-1.5 rounded-md bg-rose-500 text-white hover:bg-rose-600 font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+              <LogOut className="h-3.5 w-3.5" /> 퇴근
             </button>
           )}
-          {myToday.workHours > 0 && (
-            <span className="text-[9px] text-muted-foreground ml-auto">{myToday.workHours.toFixed(1)}h</span>
-          )}
         </div>
-      ) : (
-        <button onClick={() => clockInMut.mutate()} disabled={clockInMut.isPending}
-          className="w-full text-[10px] py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-medium transition flex items-center justify-center gap-1">
-          <LogIn className="h-3 w-3" /> 출근하기
-        </button>
       )}
     </div>
   );
