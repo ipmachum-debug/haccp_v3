@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload, Scan, DollarSign, Receipt } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload, Scan, DollarSign, Receipt } from "lucide-react";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -992,6 +992,11 @@ function DashboardLayoutContent({
               <SubscriptionInfo isCollapsed={isCollapsed} />
             )}
 
+            {/* 출퇴근 위젯 (작업자 이상) */}
+            {user && ["worker", "admin", "super_admin", "inspector"].includes(user.role) && (
+              <ClockInOutWidget isCollapsed={isCollapsed} />
+            )}
+
             {/* 유저 프로필 - 컴팩트 */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1076,5 +1081,72 @@ function DashboardLayoutContent({
         <main className="flex-1 px-3 py-4 md:px-5 md:py-5">{children}</main>
       </SidebarInset>
     </>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   출퇴근 위젯 (사이드바 프로필 위)
+   ═══════════════════════════════════════════ */
+function ClockInOutWidget({ isCollapsed }: { isCollapsed: boolean }) {
+  const { data: myToday, refetch } = trpc.hr.myToday.useQuery(undefined, {
+    refetchInterval: 30000,
+    retry: 1,
+  });
+  const clockInMut = trpc.hr.clockIn.useMutation({
+    onSuccess: () => refetch(),
+  });
+  const clockOutMut = trpc.hr.clockOut.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  if (isCollapsed) {
+    // 접힌 상태: 아이콘만
+    return (
+      <div className="flex justify-center py-1.5">
+        {myToday ? (
+          myToday.clockOut ? (
+            <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center" title={`퇴근 ${myToday.clockOut}`}>
+              <CheckCircle className="h-3 w-3 text-blue-600" />
+            </div>
+          ) : (
+            <button onClick={() => clockOutMut.mutate()}
+              className="h-6 w-6 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition" title="퇴근하기">
+              <LogOut className="h-3 w-3 text-red-600" />
+            </button>
+          )
+        ) : (
+          <button onClick={() => clockInMut.mutate()}
+            className="h-6 w-6 rounded-full bg-emerald-100 hover:bg-emerald-200 flex items-center justify-center transition" title="출근하기">
+            <LogIn className="h-3 w-3 text-emerald-600" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 py-1.5 border-t border-sidebar-border">
+      {myToday ? (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-emerald-600 font-medium">출근 {myToday.clockIn}</span>
+          {myToday.clockOut ? (
+            <span className="text-[9px] text-blue-600 font-medium">퇴근 {myToday.clockOut}</span>
+          ) : (
+            <button onClick={() => clockOutMut.mutate()} disabled={clockOutMut.isPending}
+              className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 font-medium transition">
+              퇴근
+            </button>
+          )}
+          {myToday.workHours > 0 && (
+            <span className="text-[9px] text-muted-foreground ml-auto">{myToday.workHours.toFixed(1)}h</span>
+          )}
+        </div>
+      ) : (
+        <button onClick={() => clockInMut.mutate()} disabled={clockInMut.isPending}
+          className="w-full text-[10px] py-1 rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200 font-medium transition flex items-center justify-center gap-1">
+          <LogIn className="h-3 w-3" /> 출근하기
+        </button>
+      )}
+    </div>
   );
 }
