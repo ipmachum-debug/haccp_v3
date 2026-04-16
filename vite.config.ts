@@ -34,6 +34,8 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // Cache-busting: 변경 시 모든 청크 해시가 갱신됨
+        banner: "/* haccp-build-20260416 */",
         manualChunks(id) {
           if (id.includes("node_modules")) {
             // React 코어 (가장 기본)
