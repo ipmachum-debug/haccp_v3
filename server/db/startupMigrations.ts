@@ -1208,6 +1208,98 @@ async function ensureDailyTrainingTables(conn: any) {
 }
 
 /**
+ * 고정자산 관리 테이블 ensure (ERP 강화 Phase 2-1)
+ */
+async function ensureFixedAssetTables(conn: any) {
+  const tables = [
+    {
+      name: "fixed_assets",
+      sql: `CREATE TABLE IF NOT EXISTS fixed_assets (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        asset_code VARCHAR(50) NOT NULL,
+        asset_name VARCHAR(200) NOT NULL,
+        category ENUM('building','machinery','vehicle','furniture','computer','other') NOT NULL DEFAULT 'other',
+        acquisition_date DATE NOT NULL,
+        acquisition_cost DECIMAL(15,2) NOT NULL,
+        useful_life_months INT NOT NULL DEFAULT 60,
+        depreciation_method ENUM('straight_line','declining_balance') NOT NULL DEFAULT 'straight_line',
+        salvage_value DECIMAL(15,2) NOT NULL DEFAULT 0,
+        accumulated_depreciation DECIMAL(15,2) NOT NULL DEFAULT 0,
+        accounting_account_id BIGINT NULL,
+        location VARCHAR(200),
+        notes TEXT,
+        status ENUM('active','disposed') NOT NULL DEFAULT 'active',
+        disposal_date DATE NULL,
+        disposal_amount DECIMAL(15,2) NULL,
+        registered_by BIGINT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_fa_tenant (tenant_id),
+        INDEX idx_fa_status (tenant_id, status),
+        UNIQUE KEY uq_fa_code (tenant_id, asset_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "fixed_asset_depreciation",
+      sql: `CREATE TABLE IF NOT EXISTS fixed_asset_depreciation (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        year_month VARCHAR(7) NOT NULL,
+        amount DECIMAL(15,2) NOT NULL,
+        accumulated_after DECIMAL(15,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_fad_tenant (tenant_id),
+        UNIQUE KEY uq_fad_asset_month (tenant_id, asset_id, year_month)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+    } catch (err: any) {
+      console.warn(`[Migration] fixed asset table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log("[Migration] Fixed asset tables verified");
+}
+
+/**
+ * 예산 관리 테이블 ensure (ERP 강화 Phase 2-2)
+ */
+async function ensureBudgetTable(conn: any) {
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS budgets (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      account_id BIGINT NOT NULL,
+      year INT NOT NULL,
+      m1 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m2 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m3 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m4 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m5 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m6 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m7 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m8 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m9 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m10 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m11 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      m12 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_budget (tenant_id, account_id, year),
+      INDEX idx_budget_tenant_year (tenant_id, year)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    console.log("[Migration] Budget table verified");
+  } catch (err: any) {
+    console.warn("[Migration] Budget table ensure failed:", err.message);
+  }
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -1224,6 +1316,8 @@ export async function runStartupMigrations() {
     await ensureAuthTables(conn);
     await ensureWorkflowTables(conn);
     await ensureDailyTrainingTables(conn);
+    await ensureFixedAssetTables(conn);
+    await ensureBudgetTable(conn);
 
     console.log("[Migration] Startup migrations completed");
 

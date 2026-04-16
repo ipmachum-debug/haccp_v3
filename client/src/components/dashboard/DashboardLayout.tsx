@@ -587,6 +587,8 @@ function DashboardLayoutContent({
     { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "개요" },
     { icon: Receipt, label: "부가세 관리", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "개요" },
     { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: Building2, label: "고정자산", path: "/dashboard/accounting/fixed-assets", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "개요" },
 
     // 📥 매입·구매 (공급 흐름)
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
@@ -605,6 +607,7 @@ function DashboardLayoutContent({
 
     // 📇 기준정보 (마스터)
     { icon: Building2, label: "거래처", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: Shield, label: "신용관리", path: "/dashboard/accounting/partner-credit", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"], group: "기준정보" },

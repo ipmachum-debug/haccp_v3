@@ -36,6 +36,9 @@ import {
   journalEntryRouter,
   vatManagementRouter,
   cashFlowRouter,
+  fixedAssetRouter,
+  budgetRouter,
+  partnerCreditRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -283,6 +286,9 @@ export const appRouter = router({
   journalEntry: journalEntryRouter,
   vatManagement: vatManagementRouter,
   cashFlow: cashFlowRouter,
+  fixedAsset: fixedAssetRouter,
+  budget: budgetRouter,
+  partnerCredit: partnerCreditRouter,
   popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──
