@@ -313,29 +313,37 @@ export const hrManagementRouter = router({
       const year = input?.year || kstNow().getFullYear();
       const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
 
-      let empFilter = isAdmin ? "" : ` AND u.id = ${ctx.user.id}`;
+      // 파라미터 바인딩 사용 (SQL injection 방지)
+      const empFilter = isAdmin ? "" : ` AND u.id = ?`;
+      const params: any[] = [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId];
+      if (!isAdmin) params.push(ctx.user.id);
 
-      const [rows]: any = await pool.execute(
-        `SELECT u.id, u.name, u.role,
-                COALESCE(lb.annual_total, 15) as annual_total,
-                COALESCE((SELECT SUM(days) FROM leave_requests
-                  WHERE employee_id = u.id AND tenant_id = ? AND leave_type = 'annual'
-                  AND status = 'approved' AND YEAR(start_date) = ?), 0) as annual_used
-         FROM users u
-         LEFT JOIN leave_balances lb ON u.id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
-         WHERE u.tenant_id = ? AND u.status = 'approved' ${empFilter}
-         ORDER BY u.name`,
-        [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId],
-      );
+      try {
+        const [rows]: any = await pool.execute(
+          `SELECT u.id, u.name, u.role,
+                  COALESCE(lb.annual_total, 15) as annual_total,
+                  COALESCE((SELECT SUM(days) FROM leave_requests
+                    WHERE employee_id = u.id AND tenant_id = ? AND leave_type = 'annual'
+                    AND status = 'approved' AND YEAR(start_date) = ?), 0) as annual_used
+           FROM users u
+           LEFT JOIN leave_balances lb ON u.id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
+           WHERE u.tenant_id = ? AND u.approval_status = 'approved' ${empFilter}
+           ORDER BY u.name`,
+          params,
+        );
 
-      return (rows as any[]).map((r: any) => ({
-        employeeId: r.id,
-        employeeName: r.name,
-        employeeRole: r.role,
-        annualTotal: Number(r.annual_total),
-        annualUsed: Number(r.annual_used),
-        annualRemaining: Number(r.annual_total) - Number(r.annual_used),
-      }));
+        return (rows as any[]).map((r: any) => ({
+          employeeId: r.id,
+          employeeName: r.name,
+          employeeRole: r.role,
+          annualTotal: Number(r.annual_total),
+          annualUsed: Number(r.annual_used),
+          annualRemaining: Number(r.annual_total) - Number(r.annual_used),
+        }));
+      } catch (err: any) {
+        console.warn("[hr.leaveBalance]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /** 연차 부여 (관리자) */

@@ -25,12 +25,12 @@ export const cashFlowRouter = router({
 
     // 1. 은행 계좌별 잔액
     const bankRows = await safeQuery(pool,
-      `SELECT id, bank_name, account_number, account_name, balance, currency
-       FROM bank_accounts WHERE tenant_id = ? AND is_active = 1 ORDER BY balance DESC`,
+      `SELECT id, bank_name, account_no, account_name, balance, currency
+       FROM bank_accounts WHERE tenant_id = ? AND is_active = 'Y' ORDER BY balance DESC`,
       [tenantId],
     );
     const bankAccounts = bankRows.map((b: any) => ({
-      id: b.id, bankName: b.bank_name, accountNumber: b.account_number,
+      id: b.id, bankName: b.bank_name, accountNumber: b.account_no,
       accountName: b.account_name, balance: Number(b.balance || 0), currency: b.currency || "KRW",
     }));
     const totalBankBalance = bankAccounts.reduce((s, b) => s + b.balance, 0);
