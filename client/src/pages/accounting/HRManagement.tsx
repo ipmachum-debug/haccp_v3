@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Clock, Calendar, Users, LogIn, LogOut, CheckCircle, XCircle,
-  Loader2, Plus, AlertTriangle, Timer, Pencil,
+  Loader2, Plus, AlertTriangle, Timer, Pencil, Printer,
 } from "lucide-react";
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -97,6 +97,102 @@ export default function HRManagement() {
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
     onError: (e: any) => toast.error(e.message),
   });
+
+  // 연차 부여 수정 (관리자)
+  const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // 연차관리대장 출력
+  const handlePrintLeaveReport = () => {
+    if (!leaveBalance || !(leaveBalance as any[]).length) {
+      toast.error("출력할 연차 데이터가 없습니다.");
+      return;
+    }
+    const pw = window.open("", "_blank");
+    if (!pw) return;
+
+    const balanceRows = (leaveBalance as any[]).map((b: any) => {
+      const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
+      return `<tr>
+        <td class="b">${b.employeeName}</td>
+        <td class="b tc">${b.employeeRole || "-"}</td>
+        <td class="b tc fw">${b.annualTotal}</td>
+        <td class="b tc" style="color:#2563eb">${b.annualUsed}</td>
+        <td class="b tc fw" style="color:${b.annualRemaining <= 3 ? "#dc2626" : "#059669"}">${b.annualRemaining}</td>
+        <td class="b tc">${rate}%</td>
+        <td class="b"></td>
+      </tr>`;
+    }).join("");
+
+    const leaveDetailRows = (leaves as any[] || [])
+      .filter((l: any) => l.status === "approved")
+      .map((l: any) => `<tr>
+        <td class="b">${l.employeeName}</td>
+        <td class="b tc">${l.leaveType === "annual" ? "연차" : l.leaveType === "sick" ? "병가" : l.leaveType === "personal" ? "경조" : l.leaveType}</td>
+        <td class="b tc">${safeDate(l.startDate)}</td>
+        <td class="b tc">${safeDate(l.endDate)}</td>
+        <td class="b tc fw">${l.days}일</td>
+        <td class="b">${l.reason || ""}</td>
+        <td class="b tc">${l.approvedByName || ""}</td>
+      </tr>`).join("");
+
+    const totalBalance = (leaveBalance as any[]);
+    const totalGranted = totalBalance.reduce((s: number, b: any) => s + b.annualTotal, 0);
+    const totalUsed = totalBalance.reduce((s: number, b: any) => s + b.annualUsed, 0);
+    const totalRemaining = totalBalance.reduce((s: number, b: any) => s + b.annualRemaining, 0);
+
+    pw.document.write(`<html><head><title>연차관리대장 ${year}년</title>
+    <style>
+      body{font-family:'Malgun Gothic',sans-serif;font-size:11px;padding:20px;max-width:210mm}
+      h1{text-align:center;font-size:18px;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:4px}
+      .sub{text-align:center;font-size:11px;color:#666;margin-bottom:16px}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px}
+      .b{border:1px solid #999;padding:4px 6px}
+      .tc{text-align:center}
+      .fw{font-weight:bold}
+      .bg{background:#f3f4f6}
+      .sig td{height:40px}
+      h3{font-size:13px;margin:16px 0 8px;border-left:4px solid #2563eb;padding-left:8px}
+      @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;margin:0;padding:10px}}
+    </style></head><body>
+    <h1>연차관리대장</h1>
+    <p class="sub">${year}년 | HACCP-ONE</p>
+
+    <table><tr>
+      <td class="b bg fw" width="20%">대상기간</td><td class="b">${year}년 1월 ~ 12월</td>
+      <td class="b bg fw" width="20%">대상인원</td><td class="b">${totalBalance.length}명</td>
+    </tr><tr>
+      <td class="b bg fw">총 부여</td><td class="b">${totalGranted}일</td>
+      <td class="b bg fw">총 사용 / 잔여</td><td class="b">${totalUsed}일 / ${totalRemaining}일</td>
+    </tr></table>
+
+    <h3>1. 직원별 연차 현황</h3>
+    <table>
+      <tr class="bg"><th class="b">성명</th><th class="b">직급</th><th class="b">부여(일)</th><th class="b">사용(일)</th><th class="b">잔여(일)</th><th class="b">소진율</th><th class="b" width="80">비고</th></tr>
+      ${balanceRows}
+      <tr class="bg fw"><td class="b" colspan="2" style="text-align:right">합계</td><td class="b tc">${totalGranted}</td><td class="b tc">${totalUsed}</td><td class="b tc">${totalRemaining}</td><td class="b" colspan="2"></td></tr>
+    </table>
+
+    <h3>2. 승인된 휴가 상세 내역</h3>
+    <table>
+      <tr class="bg"><th class="b">신청자</th><th class="b">유형</th><th class="b">시작일</th><th class="b">종료일</th><th class="b">일수</th><th class="b">사유</th><th class="b">승인자</th></tr>
+      ${leaveDetailRows || '<tr><td class="b" colspan="7" style="text-align:center;color:#999">승인된 휴가가 없습니다</td></tr>'}
+    </table>
+
+    <h3>3. 확인</h3>
+    <table><tr class="bg"><th class="b" width="25%">구분</th><th class="b" width="25%">작성자</th><th class="b" width="25%">검토자</th><th class="b" width="25%">승인자</th></tr>
+    <tr class="sig"><td class="b bg fw">서명</td><td class="b"></td><td class="b"></td><td class="b"></td></tr>
+    <tr><td class="b bg fw">일자</td><td class="b"></td><td class="b"></td><td class="b"></td></tr></table>
+
+    <p style="text-align:center;font-size:9px;color:#999;margin-top:16px">
+      본 기록은 근로기준법에 따라 3년간 보관합니다. | HACCP-ONE 자동생성
+    </p>
+    <script>window.onload=function(){setTimeout(function(){window.print()},800)}</script>
+    </body></html>`);
+    pw.document.close();
+  };
 
   // 휴가 승인/반려
   const approveMut = trpc.hr.approveLeave.useMutation({
@@ -339,54 +435,79 @@ export default function HRManagement() {
 
           {/* 연차현황 탭 */}
           <TabsContent value="balance">
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
-                <CardTitle className="text-sm">{year}년 연차 현황</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {!leaveBalance?.length ? (
-                  <div className="py-16 text-center text-muted-foreground">직원 데이터가 없습니다</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead><tr className="border-b bg-muted/30">
-                        <th className="p-2.5 text-left font-medium">성명</th>
-                        <th className="p-2.5 text-left font-medium">직급</th>
-                        <th className="p-2.5 text-center font-medium">부여</th>
-                        <th className="p-2.5 text-center font-medium">사용</th>
-                        <th className="p-2.5 text-center font-medium">잔여</th>
-                        <th className="p-2.5 text-center font-medium">소진율</th>
-                      </tr></thead>
-                      <tbody>
-                        {leaveBalance.map((b: any) => {
-                          const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
-                          return (
-                            <tr key={b.employeeId} className="border-b hover:bg-accent/50">
-                              <td className="p-2.5 font-medium">{b.employeeName}</td>
-                              <td className="p-2.5 text-muted-foreground">{b.employeeRole}</td>
-                              <td className="p-2.5 text-center font-bold">{b.annualTotal}일</td>
-                              <td className="p-2.5 text-center text-blue-700">{b.annualUsed}일</td>
-                              <td className={`p-2.5 text-center font-bold ${b.annualRemaining <= 3 ? "text-red-600" : "text-emerald-700"}`}>
-                                {b.annualRemaining}일
-                              </td>
-                              <td className="p-2.5 text-center">
-                                <div className="flex items-center gap-1 justify-center">
-                                  <div className="w-12 bg-gray-100 rounded-full h-1.5">
-                                    <div className={`h-1.5 rounded-full ${rate > 80 ? "bg-red-500" : rate > 50 ? "bg-amber-500" : "bg-emerald-500"}`}
-                                      style={{ width: `${Math.min(rate, 100)}%` }} />
+            <div className="space-y-3">
+              {/* 연차 부여 수정 (관리자) */}
+              <Card>
+                <CardHeader className="py-3 px-4 border-b flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm">{year}년 연차 현황</CardTitle>
+                  <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => handlePrintLeaveReport()}>
+                    <Printer className="h-3 w-3" /> 연차관리대장 출력
+                  </Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {!leaveBalance?.length ? (
+                    <div className="py-16 text-center text-muted-foreground">직원 데이터가 없습니다</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b bg-muted/30">
+                          <th className="p-2.5 text-left font-medium">성명</th>
+                          <th className="p-2.5 text-left font-medium">직급</th>
+                          <th className="p-2.5 text-center font-medium">부여</th>
+                          <th className="p-2.5 text-center font-medium">사용</th>
+                          <th className="p-2.5 text-center font-medium">잔여</th>
+                          <th className="p-2.5 text-center font-medium">소진율</th>
+                          {isAdmin && <th className="p-2.5 text-center font-medium w-[80px]">수정</th>}
+                        </tr></thead>
+                        <tbody>
+                          {leaveBalance.map((b: any) => {
+                            const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
+                            return (
+                              <tr key={b.employeeId} className="border-b hover:bg-accent/50">
+                                <td className="p-2.5 font-medium">{b.employeeName}</td>
+                                <td className="p-2.5 text-muted-foreground">{b.employeeRole}</td>
+                                <td className="p-2.5 text-center font-bold">{b.annualTotal}일</td>
+                                <td className="p-2.5 text-center text-blue-700">{b.annualUsed}일</td>
+                                <td className={`p-2.5 text-center font-bold ${b.annualRemaining <= 3 ? "text-red-600" : "text-emerald-700"}`}>
+                                  {b.annualRemaining}일
+                                </td>
+                                <td className="p-2.5 text-center">
+                                  <div className="flex items-center gap-1 justify-center">
+                                    <div className="w-12 bg-gray-100 rounded-full h-1.5">
+                                      <div className={`h-1.5 rounded-full ${rate > 80 ? "bg-red-500" : rate > 50 ? "bg-amber-500" : "bg-emerald-500"}`}
+                                        style={{ width: `${Math.min(rate, 100)}%` }} />
+                                    </div>
+                                    <span className="text-[10px] font-bold">{rate}%</span>
                                   </div>
-                                  <span className="text-[10px] font-bold">{rate}%</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                                </td>
+                                {isAdmin && (
+                                  <td className="p-2.5 text-center">
+                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-blue-600"
+                                      onClick={() => {
+                                        const val = prompt(`${b.employeeName} 연차 부여일수 수정 (현재: ${b.annualTotal}일)`, String(b.annualTotal));
+                                        if (val !== null) setBalanceMut.mutate({ employeeId: b.employeeId, year, annualTotal: Number(val) || 0 });
+                                      }}>
+                                      수정
+                                    </Button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot><tr className="bg-muted/30 border-t-2 font-bold">
+                          <td colSpan={2} className="p-2.5 text-right">합계</td>
+                          <td className="p-2.5 text-center">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualTotal, 0)}일</td>
+                          <td className="p-2.5 text-center text-blue-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualUsed, 0)}일</td>
+                          <td className="p-2.5 text-center text-emerald-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualRemaining, 0)}일</td>
+                          <td colSpan={isAdmin ? 2 : 1}></td>
+                        </tr></tfoot>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
