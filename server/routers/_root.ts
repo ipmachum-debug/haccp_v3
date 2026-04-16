@@ -34,6 +34,8 @@ import {
   taxInvoiceRouter,
   popbillSettingsRouter,
   journalEntryRouter,
+  vatManagementRouter,
+  cashFlowRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -279,6 +281,8 @@ export const appRouter = router({
   // Phase C (2026-04-14): 세금계산서 + 팝빌
   taxInvoice: taxInvoiceRouter,
   journalEntry: journalEntryRouter,
+  vatManagement: vatManagementRouter,
+  cashFlow: cashFlowRouter,
   popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──

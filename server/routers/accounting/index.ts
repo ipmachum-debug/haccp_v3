@@ -29,3 +29,5 @@ export { taxInvoiceRouter } from "./taxInvoice.router";
 export { popbillSettingsRouter } from "./popbillSettings.router";
 // ERP 강화 (2026-04-16): 전표 직접 입력
 export { journalEntryRouter } from "./journalEntry.router";
+export { vatManagementRouter } from "./vatManagement.router";
+export { cashFlowRouter } from "./cashFlow.router";
