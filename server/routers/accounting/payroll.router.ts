@@ -106,14 +106,14 @@ export const payrollRouter = router({
     }),
 
   /**
-   * 급여 대상 직원 목록 (h_employees 기준, 부서·직급 JOIN)
+   * 급여 대상 직원 목록 (h_employees 1순위 → users 폴백)
    */
   employees: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
-    // 1차: h_employees (조직·책임 탭의 구성원 관리) — 부서/직급 JOIN
+    // 1순위: h_employees (조직·책임 탭의 구성원 관리) + 부서/직급 JOIN
     try {
       const [rows]: any = await pool.execute(
-        `SELECT e.id, e.name,
+        `SELECT e.id, e.name, e.employee_code,
                 COALESCE(pos.position_name, '') as position,
                 COALESCE(dept.department_name, '') as department
          FROM h_employees e
@@ -127,7 +127,7 @@ export const payrollRouter = router({
     } catch (e: any) {
       console.warn("[payroll.employees] h_employees 조회 실패:", e.message?.substring(0, 80));
     }
-    // 2차 폴백: users 테이블 (승인된 사용자)
+    // 2순위: users 테이블 폴백 (approval_status 컬럼 사용)
     try {
       const [rows]: any = await pool.execute(
         `SELECT id, name, role as position, '' as department
