@@ -29,7 +29,7 @@ export default function Inventory() {
   const [receiptDate, setReceiptDate] = useState(todayLocal());
 
   const { data: lots, isLoading, refetch } = trpc.inventory.list.useQuery();
-  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
+  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const exportInventory = trpc.excel.exportInventory.useMutation();
 

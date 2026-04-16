@@ -13,7 +13,7 @@ export default function InventoryPredictionDashboard() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [safetyStockLevel, setSafetyStockLevel] = useState<number>(0);
 
-  const { data: _rawMaterials, refetch } = trpc.material.list.useQuery({ limit: 9999 });
+  const { data: _rawMaterials, refetch } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   // ERP 모듈 구현 후 재추가
   const consumptionHistory = null;

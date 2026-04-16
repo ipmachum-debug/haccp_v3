@@ -12,7 +12,7 @@ export function MaterialSearchInput({ selectedId, selectedName, onSelect, onClea
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const { data: _raw } = trpc.material.list.useQuery({ limit: 200, search: search || undefined });
+  const { data: _raw } = trpc.material.list.useQuery({ limit: 200, search: search || undefined, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const mats: any[] = (_raw as any)?.items ?? (Array.isArray(_raw) ? _raw : []);
 
   return (

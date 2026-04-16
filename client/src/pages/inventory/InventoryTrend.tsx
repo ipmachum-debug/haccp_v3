@@ -44,7 +44,7 @@ export default function InventoryTrend() {
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | undefined>(undefined);
 
   // 통합 API 호출
-  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
+  const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: inventoryData, isLoading } = trpc.dashboard.getInventoryTrendData.useQuery({
     startDate,
