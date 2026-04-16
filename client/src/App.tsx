@@ -433,6 +433,7 @@ function Router() {
       <Route path="/dashboard/accounting/cash-flow" component={lazy(() => import("@/pages/accounting/CashFlowDashboard"))} />
       <Route path="/dashboard/accounting/fixed-assets" component={lazy(() => import("@/pages/accounting/FixedAssetManagement"))} />
       <Route path="/dashboard/accounting/budget" component={lazy(() => import("@/pages/accounting/BudgetManagement"))} />
+      <Route path="/dashboard/accounting/partner-credit" component={lazy(() => import("@/pages/accounting/PartnerCreditManagement"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />
       <Route path="/accounting-close" component={AccountingCloseManagement} />
       <Route path="/accounting/monthly-summary" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummary"))} />
