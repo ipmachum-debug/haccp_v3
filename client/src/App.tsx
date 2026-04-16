@@ -428,6 +428,7 @@ function Router() {
       <Route path="/dashboard/accounting/material-usage-reports" component={lazy(() => import("@/pages/accounting/MaterialUsageReportList"))} />
       <Route path="/material-usage-report-print" component={lazy(() => import("@/pages/accounting/MaterialUsageReportPrint"))} />
       <Route path="/dashboard/accounting/financial-reports" component={lazy(() => import("@/pages/accounting/FinancialReports"))} />
+      <Route path="/dashboard/accounting/journal-entries" component={lazy(() => import("@/pages/accounting/JournalEntries"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />
       <Route path="/accounting-close" component={AccountingCloseManagement} />
       <Route path="/accounting/monthly-summary" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummary"))} />
