@@ -1246,12 +1246,12 @@ async function ensureFixedAssetTables(conn: any) {
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         tenant_id INT NOT NULL,
         asset_id BIGINT NOT NULL,
-        year_month VARCHAR(7) NOT NULL,
+        \`year_month\` VARCHAR(7) NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         accumulated_after DECIMAL(15,2) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_fad_tenant (tenant_id),
-        UNIQUE KEY uq_fad_asset_month (tenant_id, asset_id, year_month)
+        UNIQUE KEY uq_fad_asset_month (tenant_id, asset_id, \`year_month\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     },
   ];
@@ -1339,7 +1339,7 @@ async function ensurePayrollTable(conn: any) {
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
       tenant_id INT NOT NULL,
       employee_id BIGINT NOT NULL,
-      year_month VARCHAR(7) NOT NULL,
+      \`year_month\` VARCHAR(7) NOT NULL,
       base_salary DECIMAL(15,2) NOT NULL DEFAULT 0,
       overtime DECIMAL(15,2) NOT NULL DEFAULT 0,
       bonus DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -1358,8 +1358,8 @@ async function ensurePayrollTable(conn: any) {
       created_by BIGINT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_payroll (tenant_id, employee_id, year_month),
-      INDEX idx_payroll_tenant_month (tenant_id, year_month)
+      UNIQUE KEY uq_payroll (tenant_id, employee_id, \`year_month\`),
+      INDEX idx_payroll_tenant_month (tenant_id, \`year_month\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
     console.log("[Migration] Payroll table verified");
   } catch (err: any) {
