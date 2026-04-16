@@ -344,15 +344,17 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
 // ============================================================================
 
 /**
- * 모든 원재료 조회
+ * 모든 구매 가능 품목 조회 (원재료 + 부재료 + 외주제품)
  */
 export async function getAllMaterials(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { itemMaster } = await import("../../../drizzle/schema.js");
-  const { eq, and, desc } = await import("drizzle-orm");
-  // ✅ FIX: hMaterials(빈 테이블) 대신 itemMaster에서 raw_material 타입 조회
-  const conditions: any[] = [eq(itemMaster.itemType, "raw_material")];
+  const { eq, and, desc, inArray } = await import("drizzle-orm");
+  // ✅ FIX: raw_material 뿐 아니라 subsidiary, external_product 도 포함
+  const conditions: any[] = [
+    inArray(itemMaster.itemType, ["raw_material", "subsidiary", "external_product"]),
+  ];
   if (tenantId) conditions.push(eq(itemMaster.tenantId, tenantId as number));
   return await db.select({
     id: itemMaster.id,

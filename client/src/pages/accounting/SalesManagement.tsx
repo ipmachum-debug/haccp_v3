@@ -115,7 +115,11 @@ function SalesManagementContent() {
     isActive: 1,
     limit: 500,
   });
-  // subsidiary_material은 DB 스키마에 없으므로 제거
+  const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({
+    itemType: "subsidiary" as any,
+    isActive: 1,
+    limit: 500,
+  });
 
   // 모든 판매 가능 품목 통합
   const allSaleItems = [
@@ -131,7 +135,10 @@ function SalesManagementContent() {
       ...item,
       _displayType: "외부제품",
     })),
-
+    ...(subsidiaryItems?.items ?? []).map((item: any) => ({
+      ...item,
+      _displayType: "부자재",
+    })),
   ];
 
   const utils = trpc.useUtils();
