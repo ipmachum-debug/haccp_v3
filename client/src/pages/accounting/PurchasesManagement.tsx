@@ -114,6 +114,11 @@ function PurchasesManagementContent() {
     isActive: 1,
     limit: 500,
   });
+  const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({
+    itemType: "subsidiary" as any,
+    isActive: 1,
+    limit: 500,
+  });
 
   // 모든 매입 가능 품목 통합
   const allPurchaseItems = [
@@ -128,6 +133,10 @@ function PurchasesManagementContent() {
     ...(externalItems?.items ?? []).map((item: any) => ({
       ...item,
       _displayType: "외부제품",
+    })),
+    ...(subsidiaryItems?.items ?? []).map((item: any) => ({
+      ...item,
+      _displayType: "부자재",
     })),
   ];
 
