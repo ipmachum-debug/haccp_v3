@@ -1025,6 +1025,70 @@ async function ensureFixedAssetTables(conn: any) {
 }
 
 /**
+ * 인사관리 테이블 ensure (ERP 강화 Phase 3-2)
+ */
+async function ensureHRTables(conn: any) {
+  const tables = [
+    {
+      name: "attendance_records",
+      sql: `CREATE TABLE IF NOT EXISTS attendance_records (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        employee_id BIGINT NOT NULL,
+        work_date DATE NOT NULL,
+        clock_in VARCHAR(8),
+        clock_out VARCHAR(8),
+        work_hours DECIMAL(5,2) DEFAULT 0,
+        status ENUM('present','late','absent','half_day','holiday') DEFAULT 'present',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_att (tenant_id, employee_id, work_date),
+        INDEX idx_att_date (tenant_id, work_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "leave_requests",
+      sql: `CREATE TABLE IF NOT EXISTS leave_requests (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        employee_id BIGINT NOT NULL,
+        leave_type ENUM('annual','sick','personal','maternity','other') NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        days INT NOT NULL DEFAULT 1,
+        reason TEXT,
+        status ENUM('pending','approved','rejected','cancelled') DEFAULT 'pending',
+        approved_by BIGINT NULL,
+        approved_at TIMESTAMP NULL,
+        approval_comment TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_leave_tenant (tenant_id, employee_id),
+        INDEX idx_leave_date (tenant_id, start_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "leave_balances",
+      sql: `CREATE TABLE IF NOT EXISTS leave_balances (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        employee_id BIGINT NOT NULL,
+        year INT NOT NULL,
+        annual_total INT NOT NULL DEFAULT 15,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_lb (tenant_id, employee_id, year)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+  for (const t of tables) {
+    try { await conn.query(t.sql); } catch (err: any) {
+      console.warn(`[Migration] HR table '${t.name}' failed:`, err.message);
+    }
+  }
+  console.log("[Migration] HR tables verified");
+}
+
+/**
  * 급여 관리 테이블 ensure (ERP 강화 Phase 3-1)
  */
 async function ensurePayrollTable(conn: any) {
@@ -1113,6 +1177,7 @@ export async function runStartupMigrations() {
     await ensureFixedAssetTables(conn);
     await ensureBudgetTable(conn);
     await ensurePayrollTable(conn);
+    await ensureHRTables(conn);
 
     console.log("[Migration] Startup migrations completed");
 

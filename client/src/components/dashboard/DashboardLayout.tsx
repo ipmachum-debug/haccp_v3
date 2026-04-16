@@ -611,6 +611,7 @@ function DashboardLayoutContent({
 
     // 💰 급여 (인사/급여)
     { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "급여" },
+    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin", "employee"], group: "급여" },
     { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"], group: "기준정보" },

@@ -40,6 +40,7 @@ import {
   budgetRouter,
   partnerCreditRouter,
   payrollRouter,
+  hrManagementRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -291,6 +292,7 @@ export const appRouter = router({
   budget: budgetRouter,
   partnerCredit: partnerCreditRouter,
   payroll: payrollRouter,
+  hr: hrManagementRouter,
   popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──
