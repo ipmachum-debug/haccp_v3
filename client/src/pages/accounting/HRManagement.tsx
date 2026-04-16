@@ -75,10 +75,17 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // 근태 목록 (직원 필터 적용)
+  // 근태 목록 (직원 필터 적용 — attendance_records.employee_id는 users.id 기준)
+  const selectedUserId = useMemo(() => {
+    if (!selectedEmployee) return undefined;
+    const emp = employees.find((e: any) => e.id === selectedEmployee);
+    // h_employees.userId가 있으면 사용, 없으면 id 그대로 (users 폴백 경우)
+    return emp?.userId || emp?.id || selectedEmployee;
+  }, [selectedEmployee, employees]);
+
   const { data: attendance, refetch: refetchAtt } = trpc.hr.attendanceList.useQuery({
     startDate, endDate,
-    employeeId: selectedEmployee || undefined,
+    employeeId: selectedUserId || undefined,
   });
 
   // 휴가
@@ -139,7 +146,7 @@ export default function HRManagement() {
               className="h-8 text-xs border rounded px-2">
               <option value="">전체 직원</option>
               {employees.map((emp: any) => (
-                <option key={emp.id} value={emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
+                <option key={emp.id} value={emp.id}>{emp.name}{emp.department ? ` (${emp.department})` : ""}{emp.position ? ` · ${emp.position}` : ""}</option>
               ))}
             </select>
             <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="h-8 text-xs border rounded px-2">

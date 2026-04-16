@@ -113,7 +113,7 @@ export const payrollRouter = router({
     // 1순위: h_employees (조직·책임 탭의 구성원 관리) + 부서/직급 JOIN
     try {
       const [rows]: any = await pool.execute(
-        `SELECT e.id, e.name, e.employee_code,
+        `SELECT e.id, e.user_id as userId, e.name, e.employee_code,
                 COALESCE(pos.position_name, '') as position,
                 COALESCE(dept.department_name, '') as department
          FROM h_employees e
