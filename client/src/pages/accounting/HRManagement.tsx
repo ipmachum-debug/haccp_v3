@@ -26,6 +26,14 @@ import {
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 
+// Date 객체를 안전하게 문자열로 변환
+const safeDate = (v: any): string => {
+  if (!v) return "-";
+  if (typeof v === "string") return v.slice(0, 10);
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+};
+
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
 const leaveTypeLabels: Record<string, { label: string; color: string }> = {
@@ -153,7 +161,7 @@ export default function HRManagement() {
                       <tbody>
                         {attendance.map((a: any) => (
                           <tr key={a.id} className="border-b hover:bg-accent/50">
-                            <td className="p-2.5 font-mono">{a.workDate}</td>
+                            <td className="p-2.5 font-mono">{safeDate(a.workDate)}</td>
                             <td className="p-2.5 font-medium">{a.employeeName}</td>
                             <td className="p-2.5 text-center font-mono text-emerald-700">{a.clockIn || "-"}</td>
                             <td className="p-2.5 text-center font-mono text-blue-700">{a.clockOut || "-"}</td>
@@ -218,7 +226,7 @@ export default function HRManagement() {
                               <tr key={l.id} className="border-b hover:bg-accent/50">
                                 <td className="p-2.5 font-medium">{l.employeeName}</td>
                                 <td className="p-2.5 text-center"><Badge className={`${lt.color} text-[10px]`}>{lt.label}</Badge></td>
-                                <td className="p-2.5 font-mono">{l.startDate} ~ {l.endDate}</td>
+                                <td className="p-2.5 font-mono">{safeDate(l.startDate)} ~ {safeDate(l.endDate)}</td>
                                 <td className="p-2.5 text-center font-bold">{l.days}일</td>
                                 <td className="p-2.5 text-muted-foreground truncate max-w-[200px]">{l.reason}</td>
                                 <td className="p-2.5 text-center"><Badge className={`${st.color} text-[10px]`}>{st.label}</Badge></td>
