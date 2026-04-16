@@ -436,10 +436,12 @@ function PurchaseOrderCreateContent() {
               </div>
 
               <div className="col-span-12 md:col-span-5">
-                <Label className="text-[10px] text-muted-foreground">원재료 *</Label>
+                <Label className="text-[10px] text-muted-foreground">품목 *</Label>
                 <MaterialCombobox
                   selectedId={line.materialId}
                   selectedName={line.itemName}
+                  itemTypes={["raw_material", "subsidiary", "external_product"]}
+                  placeholder="품목 검색... (원재료/부재료/외주제품)"
                   onSelect={async (m) => {
                     updateLine(line.id, {
                       materialId: m.id,
@@ -470,7 +472,6 @@ function PurchaseOrderCreateContent() {
                   onClear={() =>
                     updateLine(line.id, { materialId: null, itemName: "", itemCode: "" })
                   }
-                  placeholder="원재료 검색..."
                 />
               </div>
 

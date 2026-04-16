@@ -1,7 +1,7 @@
 // material 라우터 - routers.ts에서 분리됨
 import { tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
-import { and, asc, count, desc, eq, like, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
 import { hMaterials } from "../../../drizzle/schema/schema_main";
 import { getDb } from "../../db";
 
@@ -15,6 +15,7 @@ export const materialRouter = router({
           search: z.string().optional(),
           category: z.string().optional(),
           kind: z.enum(["RAW", "PACKAGING", "SUBSIDIARY"]).optional(),
+          itemTypes: z.array(z.string()).optional(),
           isActive: z.number().optional(),
           sortBy: z.enum(["materialCode", "materialName", "category", "createdAt"]).optional(),
           sortOrder: z.enum(["asc", "desc"]).optional()
@@ -30,9 +31,14 @@ export const materialRouter = router({
         const offset = (page - 1) * limit;
         
         // WHERE 조건 구성 - itemMaster 기반
+        const types = input?.itemTypes && input.itemTypes.length > 0
+          ? input.itemTypes
+          : ["raw_material"];
         const conditions: any[] = [
           eq(itemMaster.tenantId, ctx.tenantId),
-          eq(itemMaster.itemType, "raw_material")
+          types.length === 1
+            ? eq(itemMaster.itemType, types[0] as any)
+            : inArray(itemMaster.itemType, types as any[])
         ];
         
         if (input?.search) {

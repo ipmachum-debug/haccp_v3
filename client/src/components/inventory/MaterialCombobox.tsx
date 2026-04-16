@@ -39,6 +39,8 @@ interface MaterialComboboxProps {
   label?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** 조회할 품목 유형 배열 (기본: ["raw_material"]) */
+  itemTypes?: string[];
 }
 
 function loadRecentMaterialIds(): number[] {
@@ -73,6 +75,7 @@ export function MaterialCombobox({
   label,
   placeholder = "원재료 검색... (이름/코드)",
   disabled = false,
+  itemTypes,
 }: MaterialComboboxProps) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -84,6 +87,7 @@ export function MaterialCombobox({
   const { data: rawList, isLoading } = trpc.material.list.useQuery({
     limit: 200,
     search: search || undefined,
+    itemTypes: itemTypes || undefined,
   });
   const materials: MaterialItem[] = useMemo(() => {
     const items: any[] = (rawList as any)?.items ?? (Array.isArray(rawList) ? rawList : []);
