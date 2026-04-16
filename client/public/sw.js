@@ -1,6 +1,6 @@
 // Service Worker for HACCP PWA
-// v7: 2026-04-11 — 강제 캐시 전체 삭제 + 클라이언트 자동 리로드
-const CACHE_NAME = 'haccp-v7';
+// v8: 2026-04-16 — 강제 캐시 전체 삭제 (vendor-pdf 캐시 오염 해결)
+const CACHE_NAME = 'haccp-v8';
 
 // 설치 이벤트 - 즉시 활성화
 self.addEventListener('install', (event) => {
