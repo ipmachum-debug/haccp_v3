@@ -581,21 +581,14 @@ function DashboardLayoutContent({
   // 회계 탭 메뉴 정의 — Option A 대칭 구조 (2026-04-14 재구성)
   // 6개 그룹: 개요 / 매입·구매 / 매출·판매 / 자금·비용 / 기준정보 / 마감·문서
   const accountingMenuItems = [
-    // 📊 개요
-    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: Receipt, label: "부가세 관리", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: Building2, label: "고정자산", path: "/dashboard/accounting/fixed-assets", roles: ["super_admin", "admin"], group: "개요" },
-    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "개요" },
+    // ── 매일 쓰는 메뉴 (상단 배치) ──
 
-    // 📥 매입·구매 (공급 흐름)
+    // 📥 매입·구매 (가장 빈번)
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
     { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
     { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
 
-    // 📤 매출·판매 (판매 흐름)
+    // 📤 매출·판매
     { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
     { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
     { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
@@ -605,20 +598,31 @@ function DashboardLayoutContent({
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
     { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용" },
 
-    // 📇 기준정보 (마스터)
+    // ── 주기적으로 쓰는 메뉴 (중단 배치) ──
+
+    // 📒 회계·세무
+    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "회계·세무" },
+    { icon: Receipt, label: "부가세", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "회계·세무" },
+    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "회계·세무" },
+    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "회계·세무" },
+    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "회계·세무" },
+
+    // 👥 인사·급여
+    { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "인사·급여" },
+    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin", "employee"], group: "인사·급여" },
+
+    // ── 가끔 쓰는 메뉴 (하단 배치) ──
+
+    // 📇 기준정보
     { icon: Building2, label: "거래처", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: Shield, label: "신용관리", path: "/dashboard/accounting/partner-credit", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: DollarSign, label: "단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: BookOpen, label: "계정 과목", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: Building2, label: "고정자산", path: "/dashboard/accounting/fixed-assets", roles: ["super_admin", "admin"], group: "기준정보" },
 
-    // 💰 급여 (인사/급여)
-    { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "급여" },
-    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin", "employee"], group: "급여" },
-    { icon: DollarSign, label: "거래처 단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: BookOpen, label: "계정 과목 관리", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"], group: "기준정보" },
-
-    // 🔒 마감·문서
-    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감·문서" },
-    { icon: FolderOpen, label: "외부회계 문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감·문서" },
+    // 🔒 마감
+    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
+    { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
