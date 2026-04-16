@@ -7,6 +7,25 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
 
+// 한국시간 헬퍼
+function kstNow(): Date {
+  const d = new Date();
+  d.setHours(d.getHours() + 9); // UTC → KST
+  return d;
+}
+function kstToday(): string {
+  return kstNow().toISOString().slice(0, 10);
+}
+function kstTime(): string {
+  return kstNow().toISOString().slice(11, 19);
+}
+function safeDateStr(v: any): string {
+  if (!v) return "";
+  if (typeof v === "string") return v.slice(0, 10);
+  if (v instanceof Date) { const d = new Date(v); d.setHours(d.getHours() + 9); return d.toISOString().slice(0, 10); }
+  return String(v).slice(0, 10);
+}
+
 export const hrManagementRouter = router({
   // ═══════════════════════════════════════
   //  근태 관리
@@ -15,8 +34,8 @@ export const hrManagementRouter = router({
   /** 출근 체크 */
   clockIn: tenantRequiredProcedure.mutation(async ({ ctx }) => {
     const pool = getPool();
-    const today = new Date().toISOString().slice(0, 10);
-    const now = new Date().toISOString().slice(11, 19);
+    const today = kstToday();
+    const now = kstTime();
 
     // 이미 출근했는지 확인
     const [existing]: any = await pool.execute(
@@ -38,8 +57,8 @@ export const hrManagementRouter = router({
   /** 퇴근 체크 */
   clockOut: tenantRequiredProcedure.mutation(async ({ ctx }) => {
     const pool = getPool();
-    const today = new Date().toISOString().slice(0, 10);
-    const now = new Date().toISOString().slice(11, 19);
+    const today = kstToday();
+    const now = kstTime();
 
     const [result]: any = await pool.execute(
       `UPDATE attendance_records SET clock_out = ?,
@@ -56,7 +75,7 @@ export const hrManagementRouter = router({
   /** 오늘 내 근태 */
   myToday: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = kstToday();
     const [rows]: any = await pool.execute(
       `SELECT * FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
       [ctx.tenantId, ctx.user.id, today],
@@ -105,7 +124,7 @@ export const hrManagementRouter = router({
         employeeId: r.employee_id,
         employeeName: r.employee_name,
         employeeRole: r.employee_role,
-        workDate: r.work_date instanceof Date ? r.work_date.toISOString().slice(0, 10) : String(r.work_date || ""),
+        workDate: safeDateStr(r.work_date),
         clockIn: r.clock_in ? String(r.clock_in) : null,
         clockOut: r.clock_out ? String(r.clock_out) : null,
         workHours: Number(r.work_hours || 0),
@@ -229,8 +248,8 @@ export const hrManagementRouter = router({
         employeeId: r.employee_id,
         employeeName: r.employee_name,
         leaveType: r.leave_type,
-        startDate: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : String(r.start_date || ""),
-        endDate: r.end_date instanceof Date ? r.end_date.toISOString().slice(0, 10) : String(r.end_date || ""),
+        startDate: safeDateStr(r.start_date),
+        endDate: safeDateStr(r.end_date),
         days: Number(r.days),
         reason: r.reason,
         status: r.status,
@@ -244,7 +263,7 @@ export const hrManagementRouter = router({
     .input(z.object({ year: z.number() }).optional())
     .query(async ({ ctx, input }) => {
       const pool = getPool();
-      const year = input?.year || new Date().getFullYear();
+      const year = input?.year || kstNow().getFullYear();
       const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
 
       let empFilter = isAdmin ? "" : ` AND u.id = ${ctx.user.id}`;
