@@ -5,17 +5,7 @@ import path from "path";
 import { defineConfig } from "vite";
 
 
-// Cache-bust version: 변경하면 모든 청크 해시가 갱신됨 (브라우저 캐시 오염 해결용)
-const CACHE_BUST = "v20260416";
-
-const cacheBustPlugin = {
-  name: "cache-bust",
-  renderChunk(code: string) {
-    return `/* ${CACHE_BUST} */\n${code}`;
-  },
-};
-
-const plugins = [react(), tailwindcss(), cacheBustPlugin];
+const plugins = [react(), tailwindcss()];
 
 export default defineConfig({
   plugins,
@@ -44,6 +34,10 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
+        // Cache-bust: 빌드 버전을 파일명에 포함시켜 캐시 오염 방지
+        chunkFileNames: "assets/[name]-[hash]-b2.js",
+        assetFileNames: "assets/[name]-[hash]-b2[extname]",
+        entryFileNames: "assets/[name]-[hash]-b2.js",
         manualChunks(id) {
           if (id.includes("node_modules")) {
             // React 코어 (가장 기본)
