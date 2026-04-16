@@ -31,6 +31,7 @@ export default function InventoryManagement() {
   const [inventoryView, setInventoryView] = useTabWithUrl("view", "material");
   const isMat = inventoryView === "material";
   const isSub = inventoryView === "subsidiary";
+  const isExt = inventoryView === "external";
 
   const { data: dashboard, isLoading: isLoadingDashboard } = trpc.inventory.getDashboard.useQuery();
 
@@ -106,6 +107,11 @@ export default function InventoryManagement() {
                   isSub ? "bg-white text-teal-700 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
                 <Package className="h-3.5 w-3.5" />부자재
               </button>
+              <button onClick={() => setInventoryView("external")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap ${
+                  isExt ? "bg-white text-teal-700 shadow-sm" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
+                <Truck className="h-3.5 w-3.5" />외주제품
+              </button>
             </div>
             {/* LOT 추적 */}
             <button onClick={() => setLotModalOpen(true)}
@@ -119,7 +125,7 @@ export default function InventoryManagement() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
           {/* 탭: 모바일에서 수평 스와이프 가능 */}
           <div className="overflow-x-auto -mx-1 px-1">
-            {isSub ? (
+            {(isSub || isExt) ? (
               <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-2 h-9">
                 <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
                 <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />재고 조정</TabsTrigger>
@@ -140,7 +146,8 @@ export default function InventoryManagement() {
 
           {/* ━━━ 재고현황 ━━━ */}
           <TabsContent value="current" className="space-y-5 mt-0">
-            {isSub ? <SubsidiaryStockView />
+            {isSub ? <SubsidiaryStockView filterType="subsidiary" />
+              : isExt ? <SubsidiaryStockView filterType="external_product" />
               : isMat ? <MaterialStockView dashboard={dashboard} isLoading={isLoadingDashboard} />
               : <ProductStockView />}
           </TabsContent>
@@ -1430,15 +1437,14 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
 /* ═══════════════════════════════════════════════════
    부자재 · 외주제품 재고 현황 (간소화 LOT 뷰)
    ═══════════════════════════════════════════════════ */
-function SubsidiaryStockView() {
+function SubsidiaryStockView({ filterType }: { filterType: "subsidiary" | "external_product" }) {
   const { data: allLots, isLoading } = trpc.inventory.listLots.useQuery();
+  const label = filterType === "subsidiary" ? "부자재" : "외주제품";
 
   const subsidiaryLots = useMemo(() => {
     if (!allLots) return [];
-    return (allLots as any[]).filter((lot: any) =>
-      lot.itemType === "subsidiary" || lot.itemType === "external_product"
-    );
-  }, [allLots]);
+    return (allLots as any[]).filter((lot: any) => lot.itemType === filterType);
+  }, [allLots, filterType]);
 
   const activeLots = subsidiaryLots.filter((l: any) => l.status === "available");
   const totalValue = activeLots.reduce((sum: number, l: any) => {
@@ -1467,14 +1473,14 @@ function SubsidiaryStockView() {
       <Card>
         <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
           <CardTitle className="text-sm flex items-center gap-2">
-            <Package className="h-4 w-4" /> 부자재 · 외주제품 재고 · {subsidiaryLots.length}건
+            <Package className="h-4 w-4" /> {label} 재고 현황 · {subsidiaryLots.length}건
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {subsidiaryLots.length === 0 ? (
             <div className="py-16 text-center text-muted-foreground">
               <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>부자재/외주제품 재고가 없습니다</p>
+              <p>{label} 재고가 없습니다</p>
               <p className="text-xs mt-1">발주서 입고 확정 시 자동으로 재고가 생성됩니다</p>
             </div>
           ) : (
@@ -1500,9 +1506,9 @@ function SubsidiaryStockView() {
                       </td>
                       <td className="p-3">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                          lot.itemType === "subsidiary" ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"
+                          filterType === "subsidiary" ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700"
                         }`}>
-                          {lot.itemType === "subsidiary" ? "부자재" : "외주제품"}
+                          {label}
                         </span>
                       </td>
                       <td className="p-3 text-right text-xs">{lot.quantity} {lot.unit}</td>
