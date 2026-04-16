@@ -966,6 +966,65 @@ async function runSmokeTest(conn: any) {
 }
 
 /**
+ * 고정자산 관리 테이블 ensure (ERP 강화 Phase 2-1)
+ */
+async function ensureFixedAssetTables(conn: any) {
+  const tables = [
+    {
+      name: "fixed_assets",
+      sql: `CREATE TABLE IF NOT EXISTS fixed_assets (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        asset_code VARCHAR(50) NOT NULL,
+        asset_name VARCHAR(200) NOT NULL,
+        category ENUM('building','machinery','vehicle','furniture','computer','other') NOT NULL DEFAULT 'other',
+        acquisition_date DATE NOT NULL,
+        acquisition_cost DECIMAL(15,2) NOT NULL,
+        useful_life_months INT NOT NULL DEFAULT 60,
+        depreciation_method ENUM('straight_line','declining_balance') NOT NULL DEFAULT 'straight_line',
+        salvage_value DECIMAL(15,2) NOT NULL DEFAULT 0,
+        accumulated_depreciation DECIMAL(15,2) NOT NULL DEFAULT 0,
+        accounting_account_id BIGINT NULL,
+        location VARCHAR(200),
+        notes TEXT,
+        status ENUM('active','disposed') NOT NULL DEFAULT 'active',
+        disposal_date DATE NULL,
+        disposal_amount DECIMAL(15,2) NULL,
+        registered_by BIGINT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_fa_tenant (tenant_id),
+        INDEX idx_fa_status (tenant_id, status),
+        UNIQUE KEY uq_fa_code (tenant_id, asset_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "fixed_asset_depreciation",
+      sql: `CREATE TABLE IF NOT EXISTS fixed_asset_depreciation (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        asset_id BIGINT NOT NULL,
+        year_month VARCHAR(7) NOT NULL,
+        amount DECIMAL(15,2) NOT NULL,
+        accumulated_after DECIMAL(15,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_fad_tenant (tenant_id),
+        UNIQUE KEY uq_fad_asset_month (tenant_id, asset_id, year_month)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  for (const t of tables) {
+    try {
+      await conn.query(t.sql);
+    } catch (err: any) {
+      console.warn(`[Migration] fixed asset table '${t.name}' ensure failed:`, err.message);
+    }
+  }
+  console.log("[Migration] Fixed asset tables verified");
+}
+
+/**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
 export async function runStartupMigrations() {
@@ -981,6 +1040,7 @@ export async function runStartupMigrations() {
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
     await ensureWorkflowTables(conn);
+    await ensureFixedAssetTables(conn);
 
     console.log("[Migration] Startup migrations completed");
 
