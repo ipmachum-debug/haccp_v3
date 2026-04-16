@@ -5,7 +5,17 @@ import path from "path";
 import { defineConfig } from "vite";
 
 
-const plugins = [react(), tailwindcss()];
+// Cache-bust version: 변경하면 모든 청크 해시가 갱신됨 (브라우저 캐시 오염 해결용)
+const CACHE_BUST = "v20260416";
+
+const cacheBustPlugin = {
+  name: "cache-bust",
+  renderChunk(code: string) {
+    return `/* ${CACHE_BUST} */\n${code}`;
+  },
+};
+
+const plugins = [react(), tailwindcss(), cacheBustPlugin];
 
 export default defineConfig({
   plugins,
@@ -34,8 +44,6 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        // Cache-busting: 변경 시 모든 청크 해시가 갱신됨
-        banner: "/* haccp-build-20260416 */",
         manualChunks(id) {
           if (id.includes("node_modules")) {
             // React 코어 (가장 기본)
