@@ -102,6 +102,29 @@ export const payrollRouter = router({
     }),
 
   /**
+   * 급여 대상 직원 목록 (h_employees → users 폴백)
+   */
+  employees: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    try {
+      // 1순위: h_employees
+      const [rows]: any = await pool.execute(
+        `SELECT id, name, position, department FROM h_employees WHERE tenant_id = ? AND status = 'active' ORDER BY name`,
+        [ctx.tenantId],
+      );
+      if ((rows as any[]).length > 0) return rows;
+    } catch (_) {}
+    // 2순위: users 테이블 폴백
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT id, name, role as position, '' as department FROM users WHERE tenant_id = ? AND status = 'approved' ORDER BY name`,
+        [ctx.tenantId],
+      );
+      return rows;
+    } catch (_) { return []; }
+  }),
+
+  /**
    * 급여 일괄 생성 (직원 목록 기반)
    */
   generate: adminProcedure
@@ -179,5 +202,57 @@ export const payrollRouter = router({
       );
 
       return { updated: result.affectedRows, message: `${yearMonth} 급여 ${result.affectedRows}건 지급 확정` };
+    }),
+
+  /**
+   * 개별 급여 수정 (4대보험 재계산)
+   */
+  update: adminProcedure
+    .input(z.object({
+      id: z.number(),
+      baseSalary: z.number().nonnegative(),
+      overtime: z.number().nonnegative().default(0),
+      bonus: z.number().nonnegative().default(0),
+      allowances: z.number().nonnegative().default(0),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const grossPay = input.baseSalary + input.overtime + input.bonus + input.allowances;
+      const nationalPension = Math.round(grossPay * INSURANCE_RATES.nationalPension);
+      const healthInsurance = Math.round(grossPay * INSURANCE_RATES.healthInsurance);
+      const longTermCare = Math.round(healthInsurance * INSURANCE_RATES.longTermCare);
+      const employmentIns = Math.round(grossPay * INSURANCE_RATES.employment);
+      const taxableIncome = grossPay - nationalPension - healthInsurance - longTermCare - employmentIns;
+      const incomeTax = calcIncomeTax(taxableIncome);
+      const localIncomeTax = Math.round(incomeTax * 0.1);
+      const totalDeductions = nationalPension + healthInsurance + longTermCare + employmentIns + incomeTax + localIncomeTax;
+      const netPay = grossPay - totalDeductions;
+
+      await pool.execute(
+        `UPDATE payroll_records SET
+           base_salary=?, overtime=?, bonus=?, allowances=?, gross_pay=?,
+           national_pension=?, health_insurance=?, long_term_care=?, employment_insurance=?,
+           income_tax=?, local_income_tax=?, total_deductions=?, net_pay=?
+         WHERE id=? AND tenant_id=?`,
+        [input.baseSalary, input.overtime, input.bonus, input.allowances, grossPay,
+         nationalPension, healthInsurance, longTermCare, employmentIns,
+         incomeTax, localIncomeTax, totalDeductions, netPay,
+         input.id, ctx.tenantId],
+      );
+      return { message: "급여가 수정되었습니다." };
+    }),
+
+  /**
+   * 개별 급여 삭제
+   */
+  delete: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        `DELETE FROM payroll_records WHERE id=? AND tenant_id=? AND status='draft'`,
+        [input.id, ctx.tenantId],
+      );
+      return { message: "급여가 삭제되었습니다." };
     }),
 });

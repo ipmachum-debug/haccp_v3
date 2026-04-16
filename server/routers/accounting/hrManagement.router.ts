@@ -175,6 +175,53 @@ export const hrManagementRouter = router({
   // ═══════════════════════════════════════
 
   /** 휴가 신청 */
+  /** 관리자: 근태 수정 (잘못 찍은 출퇴근 보정) */
+  updateAttendance: adminProcedure
+    .input(z.object({
+      id: z.number(),
+      clockIn: z.string().optional(),
+      clockOut: z.string().optional(),
+      status: z.enum(["present", "late", "absent", "half_day"]).optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const sets: string[] = [];
+      const params: any[] = [];
+
+      if (input.clockIn) { sets.push("clock_in = ?"); params.push(input.clockIn); }
+      if (input.clockOut) { sets.push("clock_out = ?"); params.push(input.clockOut); }
+      if (input.status) { sets.push("status = ?"); params.push(input.status); }
+      if (input.notes !== undefined) { sets.push("notes = ?"); params.push(input.notes); }
+
+      // 근무시간 재계산
+      if (input.clockIn && input.clockOut) {
+        sets.push("work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', ?), CONCAT(work_date, ' ', ?)) / 60.0");
+        params.push(input.clockIn, input.clockOut);
+      }
+
+      if (sets.length === 0) return { message: "변경사항 없음" };
+      params.push(input.id, ctx.tenantId);
+
+      await pool.execute(
+        `UPDATE attendance_records SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`,
+        params,
+      );
+      return { message: "근태가 수정되었습니다." };
+    }),
+
+  /** 관리자: 근태 삭제 */
+  deleteAttendance: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        `DELETE FROM attendance_records WHERE id = ? AND tenant_id = ?`,
+        [input.id, ctx.tenantId],
+      );
+      return { message: "근태 기록이 삭제되었습니다." };
+    }),
+
   requestLeave: tenantRequiredProcedure
     .input(z.object({
       leaveType: z.enum(["annual", "sick", "personal", "maternity", "other"]),

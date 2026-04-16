@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-  DollarSign, Users, Calculator, CheckCircle, Loader2, Plus, CreditCard,
+  DollarSign, Users, Calculator, CheckCircle, Loader2, Plus, CreditCard, Pencil, Trash2,
 } from "lucide-react";
 
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
@@ -25,9 +25,23 @@ export default function PayrollManagement() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [editItem, setEditItem] = useState<any>(null);
 
   const { data: payroll, isLoading, refetch } = trpc.payroll.list.useQuery({ year, month });
   const { data: summary } = trpc.payroll.summary.useQuery({ year, month });
+
+  const deleteMut = trpc.payroll.delete.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetch(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const updateMut = trpc.payroll.update.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); setEditItem(null); refetch(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const handleEditPayroll = (p: any) => {
+    setEditItem({ id: p.id, name: p.employeeName, baseSalary: p.baseSalary, overtime: p.overtime, bonus: p.bonus, allowances: p.allowances });
+  };
 
   const confirmMut = trpc.payroll.confirmPayment.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
@@ -131,6 +145,7 @@ export default function PayrollManagement() {
                     <th className="p-2 text-right font-medium bg-amber-50">총공제</th>
                     <th className="p-2 text-right font-medium bg-emerald-50 font-bold">실지급</th>
                     <th className="p-2 text-center font-medium">상태</th>
+                    <th className="p-2 text-center font-medium w-[70px]">액션</th>
                   </tr></thead>
                   <tbody>
                     {payroll.map((p: any) => (
@@ -154,6 +169,20 @@ export default function PayrollManagement() {
                             {p.status === "paid" ? "지급" : "대기"}
                           </Badge>
                         </td>
+                        <td className="p-2 text-center">
+                          {p.status === "draft" && (
+                            <div className="flex gap-0.5 justify-center">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600"
+                                onClick={() => handleEditPayroll(p)} title="수정">
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500"
+                                onClick={() => { if (confirm(`${p.employeeName} 급여 삭제?`)) deleteMut.mutate({ id: p.id }); }} title="삭제">
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -172,6 +201,48 @@ export default function PayrollManagement() {
             )}
           </CardContent>
         </Card>
+
+        {/* 수정 다이얼로그 */}
+        {editItem && (
+          <Dialog open onOpenChange={() => setEditItem(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>{editItem.name} 급여 수정</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">기본급</Label>
+                  <Input type="number" value={editItem.baseSalary} className="h-9 text-sm"
+                    onChange={(e: any) => setEditItem({ ...editItem, baseSalary: Number(e.target.value) || 0 })} />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">연장근로</Label>
+                    <Input type="number" value={editItem.overtime} className="h-9 text-sm"
+                      onChange={(e: any) => setEditItem({ ...editItem, overtime: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">상여금</Label>
+                    <Input type="number" value={editItem.bonus} className="h-9 text-sm"
+                      onChange={(e: any) => setEditItem({ ...editItem, bonus: Number(e.target.value) || 0 })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">수당</Label>
+                    <Input type="number" value={editItem.allowances} className="h-9 text-sm"
+                      onChange={(e: any) => setEditItem({ ...editItem, allowances: Number(e.target.value) || 0 })} />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">저장 시 4대보험·소득세가 자동 재계산됩니다.</p>
+                <Button className="w-full" disabled={updateMut.isPending}
+                  onClick={() => updateMut.mutate({
+                    id: editItem.id, baseSalary: editItem.baseSalary,
+                    overtime: editItem.overtime, bonus: editItem.bonus, allowances: editItem.allowances,
+                  })}>
+                  {updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  수정 (자동 재계산)
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </DashboardLayout>
   );
@@ -181,7 +252,7 @@ export default function PayrollManagement() {
    급여 생성 폼
    ═══════════════════════════════════════════ */
 function GeneratePayrollForm({ year, month, onSuccess }: { year: number; month: number; onSuccess: () => void }) {
-  const { data: employeeList } = trpc.employee.list.useQuery({ status: "active" });
+  const { data: employeeList } = trpc.payroll.employees.useQuery();
 
   const [entries, setEntries] = useState<Array<{
     employeeId: number; name: string; baseSalary: number; overtime: number; bonus: number; allowances: number;

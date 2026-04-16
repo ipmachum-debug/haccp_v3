@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Clock, Calendar, Users, LogIn, LogOut, CheckCircle, XCircle,
-  Loader2, Plus, AlertTriangle, Timer,
+  Loader2, Plus, AlertTriangle, Timer, Pencil,
 } from "lucide-react";
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -76,6 +76,12 @@ export default function HRManagement() {
   // 휴가
   const { data: leaves, refetch: refetchLeaves } = trpc.hr.leaveList.useQuery({ year, status: "all" });
   const { data: leaveBalance } = trpc.hr.leaveBalance.useQuery({ year });
+
+  // 근태 수정 (관리자)
+  const updateAttMut = trpc.hr.updateAttendance.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   // 휴가 승인/반려
   const approveMut = trpc.hr.approveLeave.useMutation({
@@ -157,6 +163,7 @@ export default function HRManagement() {
                         <th className="p-2.5 text-right font-medium">근무시간</th>
                         <th className="p-2.5 text-right font-medium">연장</th>
                         <th className="p-2.5 text-center font-medium">상태</th>
+                        {isAdmin && <th className="p-2.5 text-center font-medium w-[60px]">수정</th>}
                       </tr></thead>
                       <tbody>
                         {attendance.map((a: any) => (
@@ -177,6 +184,20 @@ export default function HRManagement() {
                                 {a.status === "present" ? "출근" : a.status === "late" ? "지각" : "결근"}
                               </Badge>
                             </td>
+                            {isAdmin && (
+                              <td className="p-2.5 text-center">
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-600"
+                                  onClick={() => {
+                                    const newIn = prompt(`출근 시간 수정 (현재: ${a.clockIn || "없음"})`, a.clockIn || "09:00:00");
+                                    if (newIn === null) return;
+                                    const newOut = prompt(`퇴근 시간 수정 (현재: ${a.clockOut || "없음"})`, a.clockOut || "18:00:00");
+                                    const notes = prompt("수정 사유:");
+                                    updateAttMut.mutate({ id: a.id, clockIn: newIn || undefined, clockOut: newOut || undefined, notes: notes ? `[관리자수정] ${notes}` : undefined });
+                                  }} title="수정">
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
