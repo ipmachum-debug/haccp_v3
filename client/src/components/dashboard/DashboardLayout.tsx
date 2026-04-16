@@ -584,6 +584,7 @@ function DashboardLayoutContent({
     // 📊 개요
     { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
     { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "개요" },
 
     // 📥 매입·구매 (공급 흐름)
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
