@@ -12,7 +12,7 @@ export async function getAllInventoryLotsWithDetails(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hInventoryLots, hMaterials } = await import("../../../drizzle/schema.js");
-  const { desc, eq } = await import("drizzle-orm");
+  const { desc, eq, sql } = await import("drizzle-orm");
 
   // 원재료 정보 조회 (tenantId 필터)
   const materials = tenantId
@@ -20,18 +20,38 @@ export async function getAllInventoryLotsWithDetails(tenantId?: number) {
     : await db.select().from(hMaterials);
   const materialMap = new Map(materials.map(m => [m.id, m]));
 
+  // item_master 품목 정보 조회 (부자재/외주제품 이름 해소용)
+  let itemMasterMap = new Map<number, { itemName: string; itemCode: string; itemType: string }>();
+  try {
+    const imResult: any = await db.execute(sql`
+      SELECT id, item_name, item_code, item_type FROM item_master
+      WHERE ${tenantId ? sql`tenant_id = ${tenantId}` : sql`1=1`}
+    `);
+    const imRows: any[] = (imResult as any)?.[0] || [];
+    for (const row of imRows) {
+      itemMasterMap.set(Number(row.id), {
+        itemName: row.item_name,
+        itemCode: row.item_code,
+        itemType: row.item_type,
+      });
+    }
+  } catch (_) { /* item_master 없으면 무시 */ }
+
   // LOT 목록 조회 (tenantId 직접 필터)
   const lots = tenantId
     ? await db.select().from(hInventoryLots).where(eq(hInventoryLots.tenantId, tenantId as number)).orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryLots.id))
     : await db.select().from(hInventoryLots).orderBy(desc(hInventoryLots.receiptDate), desc(hInventoryLots.id));
 
-  const filteredLots = lots;
-
-  return filteredLots.map(lot => ({
-    ...lot,
-    materialName: lot.materialId ? (materialMap.get(lot.materialId)?.materialName || "Unknown") : "Unknown",
-    materialCode: lot.materialId ? (materialMap.get(lot.materialId)?.materialCode || "") : ""
-  }));
+  return lots.map(lot => {
+    const mat = lot.materialId ? materialMap.get(lot.materialId) : null;
+    const im = lot.materialId ? itemMasterMap.get(lot.materialId) : null;
+    return {
+      ...lot,
+      materialName: mat?.materialName || im?.itemName || "Unknown",
+      materialCode: mat?.materialCode || im?.itemCode || "",
+      itemType: im?.itemType || (mat ? "raw_material" : "unknown"),
+    };
+  });
 }
 
 /**
