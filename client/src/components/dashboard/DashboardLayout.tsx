@@ -586,6 +586,7 @@ function DashboardLayoutContent({
     { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "개요" },
     { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "개요" },
     { icon: Receipt, label: "부가세 관리", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "개요" },
 
     // 📥 매입·구매 (공급 흐름)
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },

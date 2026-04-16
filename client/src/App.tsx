@@ -430,6 +430,7 @@ function Router() {
       <Route path="/dashboard/accounting/financial-reports" component={lazy(() => import("@/pages/accounting/FinancialReports"))} />
       <Route path="/dashboard/accounting/journal-entries" component={lazy(() => import("@/pages/accounting/JournalEntries"))} />
       <Route path="/dashboard/accounting/vat-management" component={lazy(() => import("@/pages/accounting/VatManagement"))} />
+      <Route path="/dashboard/accounting/cash-flow" component={lazy(() => import("@/pages/accounting/CashFlowDashboard"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />
       <Route path="/accounting-close" component={AccountingCloseManagement} />
       <Route path="/accounting/monthly-summary" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummary"))} />
