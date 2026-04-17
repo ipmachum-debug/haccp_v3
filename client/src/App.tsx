@@ -434,6 +434,8 @@ function Router() {
       <Route path="/dashboard/accounting/fixed-assets" component={lazy(() => import("@/pages/accounting/FixedAssetManagement"))} />
       <Route path="/dashboard/accounting/budget" component={lazy(() => import("@/pages/accounting/BudgetManagement"))} />
       <Route path="/dashboard/accounting/partner-credit" component={lazy(() => import("@/pages/accounting/PartnerCreditManagement"))} />
+      <Route path="/dashboard/accounting/recurring" component={lazy(() => import("@/pages/accounting/RecurringTransactions"))} />
+      <Route path="/dashboard/accounting/change-log" component={lazy(() => import("@/pages/accounting/ChangeLogViewer"))} />
       <Route path="/dashboard/accounting/payroll" component={lazy(() => import("@/pages/accounting/PayrollManagement"))} />
       <Route path="/dashboard/accounting/hr" component={lazy(() => import("@/pages/accounting/HRManagement"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />

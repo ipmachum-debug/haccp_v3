@@ -633,8 +633,10 @@ function DashboardLayoutContent({
     { icon: BookOpen, label: "계정 과목", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: Building2, label: "고정자산", path: "/dashboard/accounting/fixed-assets", roles: ["super_admin", "admin"], group: "기준정보" },
 
-    // 🔒 마감
+    // 🔄 반복·이력
+    { icon: RotateCcw, label: "반복 거래", path: "/dashboard/accounting/recurring", roles: ["super_admin", "admin"], group: "마감" },
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
+    { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감" },
     { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
   ];
   
