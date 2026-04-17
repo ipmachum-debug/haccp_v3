@@ -42,7 +42,7 @@ export function AccountCombobox({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: accountsData } = trpc.accountingAccounts.list.useQuery();
+  const { data: accountsData } = trpc.accountingAccounts.list.useQuery({});
   const accounts: AccountItem[] = useMemo(() => {
     const items = (accountsData as any)?.items ?? (Array.isArray(accountsData) ? accountsData : []);
     return items

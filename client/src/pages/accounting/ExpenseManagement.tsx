@@ -25,6 +25,7 @@ import {
   Paperclip, Upload, X, File, Image, FileSpreadsheet,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { AccountCombobox } from "@/components/accounting/AccountCombobox";
 import * as XLSX from "xlsx";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
@@ -867,26 +868,20 @@ function ExpenseFormDialog({
                   <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
                     <div className="md:col-span-2">
                       <Label className="text-xs text-muted-foreground">계정과목 *</Label>
-                      <Select
-                        value={String(item.accountId || "")}
-                        onValueChange={(v) => {
-                          const acc = accounts.find((a: any) => String(a.id) === v);
-                          updateItem(idx, "accountId", Number(v));
-                          if (acc) {
+                      <div className="mt-1">
+                        <AccountCombobox
+                          selectedId={item.accountId || null}
+                          selectedCode={item.accountCode}
+                          selectedName={item.accountName}
+                          onSelect={(acc) => {
+                            updateItem(idx, "accountId", acc.id);
                             updateItem(idx, "accountCode", acc.code);
                             updateItem(idx, "accountName", acc.name);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="h-9 text-xs mt-1"><SelectValue placeholder="계정과목 선택" /></SelectTrigger>
-                        <SelectContent>
-                          {accounts.map((acc: any) => (
-                            <SelectItem key={acc.id} value={String(acc.id)}>
-                              [{acc.code}] {acc.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                          }}
+                          onClear={() => { updateItem(idx, "accountId", null); updateItem(idx, "accountCode", ""); updateItem(idx, "accountName", ""); }}
+                          placeholder="계정 검색..."
+                        />
+                      </div>
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground">공급가액</Label>
