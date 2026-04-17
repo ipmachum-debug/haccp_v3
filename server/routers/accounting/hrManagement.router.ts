@@ -253,20 +253,19 @@ export const hrManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
       const statusLabel = input.status === "active" ? "활성" : input.status === "resigned" ? "퇴사" : "휴직";
-      // h_employees 상태 변경
+      // h_employees 상태 변경 (id 또는 user_id로 매칭 — 프론트에서 users.id가 올 수 있음)
       try {
-        await pool.execute(
-          `UPDATE h_employees SET is_active = ? WHERE id = ? AND tenant_id = ?`,
-          [input.status === "active" ? 1 : 0, input.employeeId, ctx.tenantId],
+        const [result]: any = await pool.execute(
+          `UPDATE h_employees SET is_active = ?, updated_at = NOW()
+           WHERE (id = ? OR user_id = ?) AND tenant_id = ?`,
+          [input.status === "active" ? 1 : 0, input.employeeId, input.employeeId, ctx.tenantId],
         );
-      } catch (_) {}
-      // 상태 기록 (별도 컬럼이 없으면 notes에)
-      try {
-        await pool.execute(
-          `UPDATE h_employees SET updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
-          [input.employeeId, ctx.tenantId],
-        );
-      } catch (_) {}
+        if (result.affectedRows === 0) {
+          console.warn(`[hr.updateEmployeeStatus] 매칭 실패: employeeId=${input.employeeId}, tenantId=${ctx.tenantId}`);
+        }
+      } catch (err: any) {
+        console.warn("[hr.updateEmployeeStatus]", err.message?.substring(0, 80));
+      }
       return { message: `직원 상태가 '${statusLabel}'(으)로 변경되었습니다.` };
     }),
 
@@ -289,7 +288,7 @@ export const hrManagementRouter = router({
           [ctx.tenantId, input.isActive ? 1 : 0],
         );
         return (rows as any[]).map((r: any) => ({
-          id: r.id, userId: r.user_id, name: r.name, employeeCode: r.employee_code,
+          id: r.id, userId: r.userId, name: r.name, employeeCode: r.employee_code,
           position: r.position, department: r.department, isActive: r.is_active,
           hireDate: r.hire_date instanceof Date ? r.hire_date.toISOString().slice(0, 10) : String(r.hire_date || ""),
         }));
