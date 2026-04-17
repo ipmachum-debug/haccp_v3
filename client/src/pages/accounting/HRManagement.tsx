@@ -21,7 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   Clock, Calendar, Users, LogIn, LogOut, CheckCircle, XCircle,
-  Loader2, Plus, AlertTriangle, Timer, Pencil, Printer,
+  Loader2, Plus, AlertTriangle, Timer, Pencil, Printer, Trash2,
 } from "lucide-react";
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -98,6 +98,10 @@ export default function HRManagement() {
 
   // 근태 수정 (관리자)
   const updateAttMut = trpc.hr.updateAttendance.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const deleteAttMut = trpc.hr.deleteAttendance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
     onError: (e: any) => toast.error(e.message),
   });
@@ -421,6 +425,13 @@ export default function HRManagement() {
                                     updateAttMut.mutate({ id: a.id, clockIn: newIn || undefined, clockOut: newOut || undefined, notes: notes ? `[관리자수정] ${notes}` : undefined });
                                   }} title="수정">
                                   <Pencil className="h-3 w-3" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500"
+                                  onClick={() => {
+                                    if (confirm(`${a.employeeName} ${safeDate(a.workDate)} 근태 삭제?`))
+                                      deleteAttMut.mutate({ id: a.id });
+                                  }} title="삭제">
+                                  <Trash2 className="h-3 w-3" />
                                 </Button>
                               </td>
                             )}
