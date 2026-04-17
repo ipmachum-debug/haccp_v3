@@ -310,6 +310,7 @@ export default function HRManagement() {
             <TabsTrigger value="attendance" className="text-xs gap-1.5"><Clock className="h-3.5 w-3.5" /> 근태관리</TabsTrigger>
             <TabsTrigger value="leave" className="text-xs gap-1.5"><Calendar className="h-3.5 w-3.5" /> 휴가관리</TabsTrigger>
             <TabsTrigger value="balance" className="text-xs gap-1.5"><Timer className="h-3.5 w-3.5" /> 연차현황</TabsTrigger>
+            {isAdmin && <TabsTrigger value="matching" className="text-xs gap-1.5"><Users className="h-3.5 w-3.5" /> 구성원 매칭</TabsTrigger>}
           </TabsList>
 
           {/* 근태 탭 */}
@@ -548,12 +549,6 @@ export default function HRManagement() {
                 <div className="flex gap-2">
                   {isAdmin && empStatusTab === "active" && (
                     <>
-                      {unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-blue-300 text-blue-700"
-                          onClick={() => setMatchOpen(!matchOpen)}>
-                          <Users className="h-3 w-3" /> 유저 매칭 ({(unmatchedUsers as any[]).length})
-                        </Button>
-                      )}
                       <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700"
                         onClick={() => setNewEmpOpen(true)}>
                         <Plus className="h-3 w-3" /> 비회원 직원등록
@@ -649,89 +644,6 @@ export default function HRManagement() {
                 </Card>
               )}
 
-              {/* 유저-구성원 매칭 패널 */}
-              {matchOpen && unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
-                <Card className="border-blue-200">
-                  <CardHeader className="py-2.5 px-4 border-b bg-blue-50">
-                    <CardTitle className="text-xs text-blue-800">회원가입 유저 ↔ 구성원 매칭</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-3 space-y-2">
-                    <p className="text-[10px] text-muted-foreground">회원가입했지만 구성원에 연결되지 않은 유저입니다. 해당 직원을 선택해 매칭하세요.</p>
-                    {(unmatchedUsers as any[]).map((u: any) => (
-                      <div key={u.id} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2">
-                        <div>
-                          <span className="text-xs font-medium">{u.name}</span>
-                          <span className="text-[10px] text-muted-foreground ml-2">{u.email}</span>
-                        </div>
-                        <select className="h-7 text-[10px] border rounded px-1"
-                          defaultValue=""
-                          onChange={(e) => {
-                            if (e.target.value) linkUserMut.mutate({ employeeId: Number(e.target.value), userId: u.id });
-                          }}>
-                          <option value="">구성원 선택</option>
-                          {(leaveBalance as any[] || []).map((b: any) => (
-                            <option key={b.employeeId} value={b.employeeId}>{b.employeeName}</option>
-                          ))}
-                        </select>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* 전체 매칭 현황 */}
-              {matchOpen && matchingStatus && (matchingStatus as any[]).length > 0 && (
-                <Card>
-                  <CardHeader className="py-2.5 px-4 border-b">
-                    <CardTitle className="text-xs">전체 구성원 ↔ 회원 매칭 현황</CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-[11px]">
-                        <thead><tr className="border-b bg-muted/30">
-                          <th className="p-2 text-left font-medium">사번</th>
-                          <th className="p-2 text-left font-medium">구성원명</th>
-                          <th className="p-2 text-left font-medium">부서</th>
-                          <th className="p-2 text-left font-medium">직급</th>
-                          <th className="p-2 text-center font-medium">매칭상태</th>
-                          <th className="p-2 text-left font-medium">연결 계정</th>
-                          <th className="p-2 text-left font-medium">이메일</th>
-                        </tr></thead>
-                        <tbody>
-                          {(matchingStatus as any[]).map((m: any) => (
-                            <tr key={m.empId} className={`border-b ${m.isLinked ? "" : "bg-amber-50/50"}`}>
-                              <td className="p-2 font-mono">{m.employeeCode}</td>
-                              <td className="p-2 font-medium">{m.empName}</td>
-                              <td className="p-2 text-muted-foreground">{m.department || "-"}</td>
-                              <td className="p-2 text-muted-foreground">{m.position || "-"}</td>
-                              <td className="p-2 text-center">
-                                {m.isLinked ? (
-                                  <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">연결됨</Badge>
-                                ) : (
-                                  <Badge className="bg-amber-100 text-amber-700 text-[9px]">미연결</Badge>
-                                )}
-                              </td>
-                              <td className="p-2">{m.userName || <span className="text-gray-300">-</span>}</td>
-                              <td className="p-2 text-muted-foreground text-[10px]">{m.userEmail || "-"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot><tr className="bg-muted/30 border-t font-bold text-[10px]">
-                          <td colSpan={4} className="p-2 text-right">
-                            총 {(matchingStatus as any[]).length}명
-                          </td>
-                          <td className="p-2 text-center">
-                            연결 {(matchingStatus as any[]).filter((m: any) => m.isLinked).length} /
-                            미연결 {(matchingStatus as any[]).filter((m: any) => !m.isLinked).length}
-                          </td>
-                          <td colSpan={2}></td>
-                        </tr></tfoot>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
               {/* 비활성 직원 (퇴사·휴직) */}
               {empStatusTab === "inactive" && (
                 <Card>
@@ -810,6 +722,97 @@ export default function HRManagement() {
               )}
             </div>
           </TabsContent>
+
+          {/* 구성원 매칭 탭 */}
+          {isAdmin && (
+            <TabsContent value="matching">
+              <div className="space-y-3">
+                {/* 미연결 유저 매칭 */}
+                {unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
+                  <Card className="border-blue-200">
+                    <CardHeader className="py-2.5 px-4 border-b bg-blue-50">
+                      <CardTitle className="text-xs text-blue-800">미연결 회원 → 구성원 매칭</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 space-y-2">
+                      <p className="text-[10px] text-muted-foreground">회원가입했지만 구성원에 연결되지 않은 유저입니다. 해당 직원을 선택해 매칭하세요.</p>
+                      {(unmatchedUsers as any[]).map((u: any) => (
+                        <div key={u.id} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2">
+                          <div>
+                            <span className="text-xs font-medium">{u.name}</span>
+                            <span className="text-[10px] text-muted-foreground ml-2">{u.email}</span>
+                            <Badge variant="outline" className="ml-2 text-[9px]">{u.role}</Badge>
+                          </div>
+                          <select className="h-7 text-[10px] border rounded px-1 min-w-[120px]"
+                            defaultValue=""
+                            onChange={(e) => {
+                              if (e.target.value) linkUserMut.mutate({ employeeId: Number(e.target.value), userId: u.id });
+                            }}>
+                            <option value="">구성원 선택</option>
+                            {(matchingStatus as any[] || []).filter((m: any) => !m.isLinked).map((m: any) => (
+                              <option key={m.empId} value={m.empId}>{m.empName} ({m.employeeCode})</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* 전체 매칭 현황 */}
+                <Card>
+                  <CardHeader className="py-2.5 px-4 border-b">
+                    <CardTitle className="text-sm">전체 구성원 ↔ 회원 매칭 현황</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {!matchingStatus || !(matchingStatus as any[]).length ? (
+                      <div className="py-12 text-center text-muted-foreground text-sm">구성원 데이터가 없습니다</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-[11px]">
+                          <thead><tr className="border-b bg-muted/30">
+                            <th className="p-2.5 text-left font-medium">사번</th>
+                            <th className="p-2.5 text-left font-medium">구성원명</th>
+                            <th className="p-2.5 text-left font-medium">부서</th>
+                            <th className="p-2.5 text-left font-medium">직급</th>
+                            <th className="p-2.5 text-center font-medium">매칭</th>
+                            <th className="p-2.5 text-left font-medium">연결 계정</th>
+                            <th className="p-2.5 text-left font-medium">이메일</th>
+                          </tr></thead>
+                          <tbody>
+                            {(matchingStatus as any[]).map((m: any) => (
+                              <tr key={m.empId} className={`border-b hover:bg-accent/50 ${m.isLinked ? "" : "bg-amber-50/30"}`}>
+                                <td className="p-2.5 font-mono text-muted-foreground">{m.employeeCode}</td>
+                                <td className="p-2.5 font-medium">{m.empName}</td>
+                                <td className="p-2.5 text-muted-foreground">{m.department || "-"}</td>
+                                <td className="p-2.5 text-muted-foreground">{m.position || "-"}</td>
+                                <td className="p-2.5 text-center">
+                                  {m.isLinked ? (
+                                    <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">연결됨</Badge>
+                                  ) : (
+                                    <Badge className="bg-amber-100 text-amber-700 text-[9px]">미연결</Badge>
+                                  )}
+                                </td>
+                                <td className="p-2.5">{m.userName || <span className="text-gray-300">-</span>}</td>
+                                <td className="p-2.5 text-muted-foreground text-[10px]">{m.userEmail || "-"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot><tr className="bg-muted/30 border-t-2 font-bold text-[10px]">
+                            <td colSpan={4} className="p-2.5 text-right">총 {(matchingStatus as any[]).length}명</td>
+                            <td className="p-2.5 text-center">
+                              연결 {(matchingStatus as any[]).filter((m: any) => m.isLinked).length} /
+                              미연결 {(matchingStatus as any[]).filter((m: any) => !m.isLinked).length}
+                            </td>
+                            <td colSpan={2}></td>
+                          </tr></tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </DashboardLayout>
