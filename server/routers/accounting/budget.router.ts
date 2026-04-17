@@ -67,7 +67,7 @@ export const budgetRouter = router({
                 SUM(l.debit_amount) as debit,
                 SUM(l.credit_amount) as credit
          FROM expense_journal_lines l
-         JOIN expense_journal_entries e ON l.journal_entry_id = e.id
+         JOIN expense_journal_entries e ON l.journal_entry_id = e.id AND e.tenant_id = l.tenant_id
          WHERE l.tenant_id = ? AND YEAR(e.entry_date) = ?
          GROUP BY l.account_id, MONTH(e.entry_date)`,
         [tenantId, year],

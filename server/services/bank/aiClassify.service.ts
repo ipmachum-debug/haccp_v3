@@ -55,7 +55,7 @@ export async function classifyBankTransaction(
         `SELECT bt.description, bt.transaction_type, bt.amount,
                 aa.code as account_code, aa.name as account_name
          FROM bank_transactions bt
-         LEFT JOIN accounting_accounts aa ON bt.matched_account_id = aa.id
+         LEFT JOIN accounting_accounts aa ON bt.matched_account_id = aa.id AND aa.tenant_id = bt.tenant_id
          WHERE bt.tenant_id = ? AND bt.matching_status = 'matched'
            AND aa.code IS NOT NULL
          ORDER BY bt.transaction_date DESC LIMIT 20`,

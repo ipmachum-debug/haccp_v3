@@ -82,7 +82,7 @@ export async function generateExecutiveReport(
     const [expRows]: any = await pool.execute(
       `SELECT COALESCE(SUM(CAST(l.debit_amount AS DECIMAL(15,2))), 0) as total
        FROM expense_journal_lines l
-       JOIN expense_journal_entries e ON l.journal_entry_id = e.id
+       JOIN expense_journal_entries e ON l.journal_entry_id = e.id AND e.tenant_id = l.tenant_id
        WHERE l.tenant_id = ? AND l.account_code LIKE '8%'
        AND e.entry_date >= ? AND e.entry_date <= ?`,
       [tenantId, startDate, endDate]);
