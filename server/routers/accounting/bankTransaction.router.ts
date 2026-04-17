@@ -154,4 +154,59 @@ export const bankTransactionRouter = router({
       const affected = await txService.deleteAllByAccount(ctx.tenantId, input.bankAccountId);
       return { message: `모든 거래가 삭제되었습니다. (${affected}건)`, deleted: affected };
     }),
+
+  /**
+   * AI 자동분류 — 미매칭 거래에 계정과목 추천
+   */
+  aiClassify: tenantRequiredProcedure
+    .input(z.object({
+      transactionId: z.number().optional(),
+      limit: z.number().default(10),
+    }).optional())
+    .mutation(async ({ ctx, input }) => {
+      try {
+        if (input?.transactionId) {
+          // 개별 거래 분류
+          const { getPool } = await import("../../db/pool");
+          const pool = getPool();
+          const [rows]: any = await pool.execute(
+            `SELECT description, amount, transaction_type FROM bank_transactions WHERE id = ? AND tenant_id = ?`,
+            [input.transactionId, ctx.tenantId],
+          );
+          if (!rows[0]) throw new Error("거래를 찾을 수 없습니다.");
+
+          const { classifyBankTransaction } = await import("../../services/bank/aiClassify.service");
+          const result = await classifyBankTransaction(
+            ctx.tenantId, rows[0].description, Number(rows[0].amount), rows[0].transaction_type,
+          );
+          return { results: [{ transactionId: input.transactionId, description: rows[0].description, result }] };
+        } else {
+          // 미매칭 일괄 분류
+          const { classifyUnmatchedTransactions } = await import("../../services/bank/aiClassify.service");
+          const results = await classifyUnmatchedTransactions(ctx.tenantId, input?.limit || 10);
+          return { results };
+        }
+      } catch (err: any) {
+        return { results: [], error: err.message };
+      }
+    }),
+
+  /**
+   * AI 추천 적용 — 분류 결과를 실제 매칭으로 확정
+   */
+  applyAiClassification: tenantRequiredProcedure
+    .input(z.object({
+      transactionId: z.number(),
+      accountId: z.number(),
+      learnRule: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return await txService.matchTransaction(
+        ctx.tenantId,
+        input.transactionId,
+        input.accountId,
+        ctx.user.id,
+        { learnRule: input.learnRule },
+      );
+    }),
 });

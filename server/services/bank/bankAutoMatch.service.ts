@@ -27,6 +27,42 @@ export interface MatchResult {
 
 const NO_MATCH: MatchResult = { accountingAccountId: null, ruleId: null, ruleName: null, partnerId: null, memo: null };
 
+/**
+ * AI 폴백 포함 매칭 — 규칙 미매칭 시 LLM 분류 시도
+ */
+export async function findMatchingRuleWithAI(
+  db: any,
+  tenantId: number,
+  description: string,
+  amount: number,
+  transactionType?: "deposit" | "withdrawal",
+): Promise<MatchResult & { aiSuggestion?: any }> {
+  // 1순위: 기존 규칙 매칭
+  const ruleResult = await findMatchingRule(db, tenantId, description, amount, transactionType);
+  if (ruleResult.accountingAccountId) return ruleResult;
+
+  // 2순위: AI 분류 (규칙 미매칭 시만)
+  try {
+    const { classifyBankTransaction } = await import("./aiClassify.service");
+    const aiResult = await classifyBankTransaction(
+      tenantId, description, amount, transactionType || "withdrawal",
+    );
+    if (aiResult.accountId && aiResult.confidence >= 85) {
+      return {
+        accountingAccountId: aiResult.accountId,
+        ruleId: null,
+        ruleName: `AI 추천 (${aiResult.confidence}%)`,
+        partnerId: null,
+        memo: `[AI] ${aiResult.reason}`,
+        aiSuggestion: aiResult,
+      };
+    }
+    return { ...NO_MATCH, aiSuggestion: aiResult };
+  } catch (_) {
+    return NO_MATCH;
+  }
+}
+
 export async function findMatchingRule(
   db: any,
   tenantId: number,
