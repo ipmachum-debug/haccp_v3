@@ -334,6 +334,32 @@ export const hrManagementRouter = router({
     } catch (_) { return []; }
   }),
 
+  /** 전체 직원 매칭 현황 (구성원 ↔ 회원가입 유저) */
+  matchingStatus: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT e.id as emp_id, e.employee_code, e.name as emp_name, e.user_id,
+                u.name as user_name, u.email as user_email, u.role as user_role,
+                COALESCE(dept.department_name, '') as department,
+                COALESCE(pos.position_name, '') as position
+         FROM h_employees e
+         LEFT JOIN users u ON e.user_id = u.id
+         LEFT JOIN h_departments dept ON e.department_id = dept.id
+         LEFT JOIN h_positions pos ON e.position_id = pos.id
+         WHERE e.tenant_id = ? AND e.is_active = 1
+         ORDER BY e.name`,
+        [ctx.tenantId],
+      );
+      return (rows as any[]).map((r: any) => ({
+        empId: r.emp_id, employeeCode: r.employee_code, empName: r.emp_name,
+        userId: r.user_id, userName: r.user_name, userEmail: r.user_email,
+        userRole: r.user_role, department: r.department, position: r.position,
+        isLinked: !!r.user_id,
+      }));
+    } catch (_) { return []; }
+  }),
+
   /** 관리자: 비회원 직원 등록 (h_employees에 직접 추가) */
   createEmployee: adminProcedure
     .input(z.object({

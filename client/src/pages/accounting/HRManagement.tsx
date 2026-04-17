@@ -131,8 +131,9 @@ export default function HRManagement() {
   // 유저-구성원 매칭
   const [matchOpen, setMatchOpen] = useState(false);
   const { data: unmatchedUsers } = trpc.hr.unmatchedUsers.useQuery();
+  const { data: matchingStatus, refetch: refetchMatching } = trpc.hr.matchingStatus.useQuery();
   const linkUserMut = trpc.hr.linkUserToEmployee.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
+    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchMatching(); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -674,6 +675,59 @@ export default function HRManagement() {
                         </select>
                       </div>
                     ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 전체 매칭 현황 */}
+              {matchOpen && matchingStatus && (matchingStatus as any[]).length > 0 && (
+                <Card>
+                  <CardHeader className="py-2.5 px-4 border-b">
+                    <CardTitle className="text-xs">전체 구성원 ↔ 회원 매칭 현황</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-[11px]">
+                        <thead><tr className="border-b bg-muted/30">
+                          <th className="p-2 text-left font-medium">사번</th>
+                          <th className="p-2 text-left font-medium">구성원명</th>
+                          <th className="p-2 text-left font-medium">부서</th>
+                          <th className="p-2 text-left font-medium">직급</th>
+                          <th className="p-2 text-center font-medium">매칭상태</th>
+                          <th className="p-2 text-left font-medium">연결 계정</th>
+                          <th className="p-2 text-left font-medium">이메일</th>
+                        </tr></thead>
+                        <tbody>
+                          {(matchingStatus as any[]).map((m: any) => (
+                            <tr key={m.empId} className={`border-b ${m.isLinked ? "" : "bg-amber-50/50"}`}>
+                              <td className="p-2 font-mono">{m.employeeCode}</td>
+                              <td className="p-2 font-medium">{m.empName}</td>
+                              <td className="p-2 text-muted-foreground">{m.department || "-"}</td>
+                              <td className="p-2 text-muted-foreground">{m.position || "-"}</td>
+                              <td className="p-2 text-center">
+                                {m.isLinked ? (
+                                  <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">연결됨</Badge>
+                                ) : (
+                                  <Badge className="bg-amber-100 text-amber-700 text-[9px]">미연결</Badge>
+                                )}
+                              </td>
+                              <td className="p-2">{m.userName || <span className="text-gray-300">-</span>}</td>
+                              <td className="p-2 text-muted-foreground text-[10px]">{m.userEmail || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot><tr className="bg-muted/30 border-t font-bold text-[10px]">
+                          <td colSpan={4} className="p-2 text-right">
+                            총 {(matchingStatus as any[]).length}명
+                          </td>
+                          <td className="p-2 text-center">
+                            연결 {(matchingStatus as any[]).filter((m: any) => m.isLinked).length} /
+                            미연결 {(matchingStatus as any[]).filter((m: any) => !m.isLinked).length}
+                          </td>
+                          <td colSpan={2}></td>
+                        </tr></tfoot>
+                      </table>
+                    </div>
                   </CardContent>
                 </Card>
               )}
