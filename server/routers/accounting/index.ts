@@ -39,3 +39,4 @@ export { hrManagementRouter } from "./hrManagement.router";
 export { purchaseReturnRouter } from "./purchaseReturn.router";
 export { recurringTransactionRouter } from "./recurringTransaction.router";
 export { changeLogRouter } from "./changeLog.router";
+export { aiErpRouter } from "./aiErp.router";

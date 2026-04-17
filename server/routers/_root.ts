@@ -44,6 +44,7 @@ import {
   purchaseReturnRouter,
   recurringTransactionRouter,
   changeLogRouter,
+  aiErpRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -299,6 +300,7 @@ export const appRouter = router({
   purchaseReturn: purchaseReturnRouter,
   recurring: recurringTransactionRouter,
   changeLog: changeLogRouter,
+  aiErp: aiErpRouter,
   popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──
