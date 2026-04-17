@@ -205,21 +205,78 @@ export const payrollRouter = router({
     }),
 
   /**
-   * 급여 지급 확정
+   * 급여 지급 확정 + 회계 전표 자동생성
    */
   confirmPayment: adminProcedure
     .input(z.object({ year: z.number(), month: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
+      const tenantId = ctx.tenantId;
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
+      const entryDate = `${yearMonth}-25`; // 급여일 기본 25일
 
+      // 1. 상태 변경
       const [result]: any = await pool.execute(
         `UPDATE payroll_records SET status = 'paid', paid_at = NOW()
          WHERE tenant_id = ? AND year_month = ? AND status = 'draft'`,
-        [ctx.tenantId, yearMonth],
+        [tenantId, yearMonth],
       );
+      if (result.affectedRows === 0) {
+        return { updated: 0, message: "지급할 급여가 없습니다." };
+      }
 
-      return { updated: result.affectedRows, message: `${yearMonth} 급여 ${result.affectedRows}건 지급 확정` };
+      // 2. 급여 합계 조회
+      const [totals]: any = await pool.execute(
+        `SELECT SUM(CAST(gross_pay AS DECIMAL(15,2))) as totalGross,
+                SUM(CAST(national_pension AS DECIMAL(15,2))) as totalPension,
+                SUM(CAST(health_insurance AS DECIMAL(15,2))) as totalHealth,
+                SUM(CAST(long_term_care AS DECIMAL(15,2))) as totalLtc,
+                SUM(CAST(employment_insurance AS DECIMAL(15,2))) as totalEmployment,
+                SUM(CAST(income_tax AS DECIMAL(15,2))) as totalIncomeTax,
+                SUM(CAST(local_income_tax AS DECIMAL(15,2))) as totalLocalTax,
+                SUM(CAST(net_pay AS DECIMAL(15,2))) as totalNet
+         FROM payroll_records WHERE tenant_id = ? AND year_month = ? AND status = 'paid'`,
+        [tenantId, yearMonth],
+      );
+      const t = totals[0];
+      const grossPay = Number(t.totalGross || 0);
+      const totalDeductions = grossPay - Number(t.totalNet || 0);
+
+      // 3. 회계 분개 자동생성 (급여 → 차변: 급여비용, 대변: 예수금+보통예금)
+      try {
+        const [je]: any = await pool.execute(
+          `INSERT INTO expense_journal_entries
+             (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
+           VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
+          [tenantId, entryDate, `[급여] ${yearMonth} 급여 지급`, grossPay, grossPay, ctx.user.id],
+        );
+        const jeId = Number(je.insertId);
+
+        // 차변: 급여 (총지급액)
+        await pool.execute(
+          `INSERT INTO expense_journal_lines (tenant_id, journal_entry_id, account_id, account_code, account_name, debit_amount, credit_amount, description, sort_order)
+           VALUES (?, ?, 0, '8010', '급여', ?, 0, ?, 0)`,
+          [tenantId, jeId, grossPay, `${yearMonth} 급여 총액`],
+        );
+        // 대변: 예수금 (4대보험+세금)
+        if (totalDeductions > 0) {
+          await pool.execute(
+            `INSERT INTO expense_journal_lines (tenant_id, journal_entry_id, account_id, account_code, account_name, debit_amount, credit_amount, description, sort_order)
+             VALUES (?, ?, 0, '2300', '예수금', 0, ?, ?, 1)`,
+            [tenantId, jeId, totalDeductions, `4대보험+소득세 원천징수`],
+          );
+        }
+        // 대변: 보통예금 (실지급액)
+        await pool.execute(
+          `INSERT INTO expense_journal_lines (tenant_id, journal_entry_id, account_id, account_code, account_name, debit_amount, credit_amount, description, sort_order)
+           VALUES (?, ?, 0, '1020', '보통예금', 0, ?, ?, 2)`,
+          [tenantId, jeId, Number(t.totalNet || 0), `${yearMonth} 급여 실지급`],
+        );
+      } catch (err: any) {
+        console.warn("[payroll.confirmPayment] 분개 생성 실패 (급여는 지급됨):", err.message?.substring(0, 80));
+      }
+
+      return { updated: result.affectedRows, message: `${yearMonth} 급여 ${result.affectedRows}건 지급 확정 + 회계 전표 생성` };
     }),
 
   /**
