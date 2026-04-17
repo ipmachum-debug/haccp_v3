@@ -79,6 +79,7 @@ function SalesManagementContent() {
   
   const [isPartnerSearchOpen, setIsPartnerSearchOpen] = useState(false);
   const [materialSearchItemId, setMaterialSearchItemId] = useState<string | null>(null);
+  const [isNewPartner, setIsNewPartner] = useState(false);
   
   const [items, setItems] = useState<SaleItem[]>([
     {
@@ -286,8 +287,8 @@ function SalesManagementContent() {
   const grandTotal = items.reduce((sum, item) => sum + item.totalAmount, 0);
 
   const handleSave = () => {
-    if (!selectedPartnerId) {
-      toast({ title: "거래처를 선택해주세요.", variant: "destructive" });
+    if (!selectedPartnerId && !selectedPartnerName.trim()) {
+      toast({ title: "거래처를 선택하거나 입력해주세요.", variant: "destructive" });
       return;
     }
 
@@ -372,7 +373,17 @@ function SalesManagementContent() {
       <div className="bg-muted/30 rounded-md p-3 mb-3 border">
         <div className="grid grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs font-medium">거래처 *</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">거래처 *</Label>
+              <button type="button" className="text-[9px] text-blue-600 hover:underline"
+                onClick={() => { setIsNewPartner(!isNewPartner); setSelectedPartnerId(""); setSelectedPartnerName(""); }}>
+                {isNewPartner ? "기존 거래처" : "신규 직접입력"}
+              </button>
+            </div>
+            {isNewPartner ? (
+              <Input value={selectedPartnerName} onChange={(e: any) => setSelectedPartnerName(e.target.value)}
+                placeholder="거래처명 직접 입력" className="h-8 text-sm bg-amber-50 border-amber-300" />
+            ) : (
             <div className="flex gap-1">
               <Input
                 value={selectedPartnerName}
@@ -385,6 +396,7 @@ function SalesManagementContent() {
                 <Search className="h-3.5 w-3.5" />
               </Button>
             </div>
+            )}
           </div>
 
           <div className="space-y-1">
