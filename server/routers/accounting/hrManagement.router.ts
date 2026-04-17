@@ -408,23 +408,36 @@ export const hrManagementRouter = router({
       if (!isAdmin) params.push(ctx.user.id);
 
       try {
+        // h_employees 기준으로 활성 직원만 조회 (user_id로 leave 연동)
+        const empParams: any[] = [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId];
+        let hEmpFilter = "";
+        if (!isAdmin) {
+          hEmpFilter = ` AND e.user_id = ?`;
+          empParams.push(ctx.user.id);
+        }
+
         const [rows]: any = await pool.execute(
-          `SELECT u.id, u.name, u.role,
+          `SELECT e.id as emp_id, e.user_id, e.name,
+                  COALESCE(pos.position_name, '') as role,
+                  COALESCE(dept.department_name, '') as department,
                   COALESCE(lb.annual_total, 15) as annual_total,
                   COALESCE((SELECT SUM(days) FROM leave_requests
-                    WHERE employee_id = u.id AND tenant_id = ? AND leave_type = 'annual'
+                    WHERE employee_id = e.user_id AND tenant_id = ? AND leave_type = 'annual'
                     AND status = 'approved' AND YEAR(start_date) = ?), 0) as annual_used
-           FROM users u
-           LEFT JOIN leave_balances lb ON u.id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
-           WHERE u.tenant_id = ? AND u.approval_status = 'approved' ${empFilter}
-           ORDER BY u.name`,
-          params,
+           FROM h_employees e
+           LEFT JOIN h_departments dept ON e.department_id = dept.id
+           LEFT JOIN h_positions pos ON e.position_id = pos.id
+           LEFT JOIN leave_balances lb ON e.user_id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
+           WHERE e.tenant_id = ? AND e.is_active = 1 ${hEmpFilter}
+           ORDER BY e.name`,
+          empParams,
         );
 
         return (rows as any[]).map((r: any) => ({
-          employeeId: r.id,
+          employeeId: r.user_id || r.emp_id,
           employeeName: r.name,
           employeeRole: r.role,
+          department: r.department,
           annualTotal: Number(r.annual_total),
           annualUsed: Number(r.annual_used),
           annualRemaining: Number(r.annual_total) - Number(r.annual_used),

@@ -92,7 +92,7 @@ export default function HRManagement() {
   const { data: leaves, refetch: refetchLeaves } = trpc.hr.leaveList.useQuery({ year, status: "all" });
   const { data: leaveBalance, refetch: refetchBalance } = trpc.hr.leaveBalance.useQuery({ year });
   const [empStatusTab, setEmpStatusTab] = useState<"active" | "inactive">("active");
-  const { data: inactiveEmployees } = trpc.hr.employeesByStatus.useQuery({ isActive: false });
+  const { data: inactiveEmployees, refetch: refetchInactive } = trpc.hr.employeesByStatus.useQuery({ isActive: false });
   const [manualLeaveOpen, setManualLeaveOpen] = useState(false);
   const [manualLeaveEmpId, setManualLeaveEmpId] = useState<number | null>(null);
 
@@ -116,7 +116,7 @@ export default function HRManagement() {
 
   // 직원 상태 변경 (관리자)
   const updateStatusMut = trpc.hr.updateEmployeeStatus.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); },
+    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchInactive(); },
     onError: (e: any) => toast.error(e.message),
   });
 
