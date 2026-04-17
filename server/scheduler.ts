@@ -479,4 +479,32 @@ export function initScheduler() {
   });
   console.log("[Scheduler] 운영 모니터링 알림 스케줄러 초기화 완료 (매 5분 체크)");
 
+  // ===== 근태 자동마감 (매일 00:05 — 전날 퇴근 미기록자 자동 처리) =====
+  cron.schedule("5 0 * * *", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[HR Auto-Close] ${timestamp} - 전날 근태 자동마감 시작`);
+    try {
+      const { getPool } = await import("./db/pool");
+      const pool = getPool();
+      // 어제 날짜
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,"0")}-${String(yesterday.getDate()).padStart(2,"0")}`;
+
+      // 모든 테넌트의 퇴근 미기록자 자동 마감
+      const [result]: any = await pool.execute(
+        `UPDATE attendance_records
+         SET clock_out = TIME_FORMAT(ADDTIME(clock_in, '09:00:00'), '%H:%i:%s'),
+             work_hours = 8.0,
+             notes = CONCAT(COALESCE(notes, ''), ' [시스템자동마감: 24시초과]')
+         WHERE work_date = ? AND clock_out IS NULL`,
+        [yesterdayStr],
+      );
+      console.log(`[HR Auto-Close] ${yesterdayStr} 자동마감 완료: ${result.affectedRows}명`);
+    } catch (err: any) {
+      console.error("[HR Auto-Close] 자동마감 실패:", err.message?.substring(0, 100));
+    }
+  });
+  console.log("[Scheduler] 근태 자동마감 스케줄러 초기화 완료 (매일 00:05 전날 미퇴근자 처리)");
+
 }

@@ -86,9 +86,10 @@ export const hrManagementRouter = router({
       const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       const [result]: any = await pool.execute(
         `UPDATE attendance_records SET clock_out = ?,
-           work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0
+           work_hours = GREATEST(0, TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0
+             - CASE WHEN TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) >= 540 THEN 1 ELSE 0 END)
          WHERE tenant_id = ? AND employee_id = ? AND work_date = ? AND clock_out IS NULL`,
-        [now, now, ctx.tenantId, empId, today],
+        [now, now, now, ctx.tenantId, empId, today],
       );
       if (result.affectedRows === 0) {
         return { message: "출근 기록이 없거나 이미 퇴근했습니다." };
@@ -225,13 +226,10 @@ export const hrManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
       try {
-        const workHours = input.clockOut
-          ? (() => {
-              const [ih, im] = input.clockIn.split(":").map(Number);
-              const [oh, om] = (input.clockOut || "").split(":").map(Number);
-              return Math.max(0, ((oh * 60 + om) - (ih * 60 + im)) / 60);
-            })()
+        const rawMins = input.clockOut
+          ? (() => { const [ih,im]=input.clockIn.split(":").map(Number); const [oh,om]=input.clockOut.split(":").map(Number); return (oh*60+om)-(ih*60+im); })()
           : 0;
+        const workHours = Math.max(0, rawMins / 60 - (rawMins >= 540 ? 1 : 0));
 
         await pool.execute(
           `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, clock_out, work_hours, status, notes)
@@ -294,9 +292,10 @@ export const hrManagementRouter = router({
         const existingSet = new Set((existingRows as any[]).map((r: any) => Number(r.employee_id)));
 
         let created = 0;
-        const workHours = input.clockOut
-          ? (() => { const [ih,im] = input.clockIn.split(":").map(Number); const [oh,om] = input.clockOut.split(":").map(Number); return Math.max(0, ((oh*60+om) - (ih*60+im)) / 60); })()
+        const bulkRawMins = input.clockOut
+          ? (() => { const [ih,im]=input.clockIn.split(":").map(Number); const [oh,om]=input.clockOut.split(":").map(Number); return (oh*60+om)-(ih*60+im); })()
           : 0;
+        const workHours = Math.max(0, bulkRawMins / 60 - (bulkRawMins >= 540 ? 1 : 0));
 
         for (const emp of empRows as any[]) {
           if (existingSet.has(emp.id)) continue; // ★ 이미 출근한 직원 제외
@@ -337,8 +336,8 @@ export const hrManagementRouter = router({
 
       // 근무시간 재계산
       if (input.clockIn && input.clockOut) {
-        sets.push("work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', ?), CONCAT(work_date, ' ', ?)) / 60.0");
-        params.push(input.clockIn, input.clockOut);
+        sets.push("work_hours = GREATEST(0, TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', ?), CONCAT(work_date, ' ', ?)) / 60.0 - CASE WHEN TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', ?), CONCAT(work_date, ' ', ?)) >= 540 THEN 1 ELSE 0 END)");
+        params.push(input.clockIn, input.clockOut, input.clockIn, input.clockOut);
       }
 
       if (sets.length === 0) return { message: "변경사항 없음" };
