@@ -542,6 +542,18 @@ export const hrManagementRouter = router({
       return { message: input.action === "approved" ? "승인 완료" : "반려 완료" };
     }),
 
+  /** 관리자: 휴가 삭제 (승인/반려 포함 모든 상태) */
+  deleteLeave: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        `DELETE FROM leave_requests WHERE id = ? AND tenant_id = ?`,
+        [input.id, ctx.tenantId],
+      );
+      return { message: "휴가 기록이 삭제되었습니다." };
+    }),
+
   /** 휴가 목록 */
   leaveList: tenantRequiredProcedure
     .input(z.object({
@@ -564,15 +576,22 @@ export const hrManagementRouter = router({
 
       const [rows]: any = await pool.execute(
         `SELECT lr.*,
-                COALESCE(e.name, u.name) as employee_name,
-                COALESCE(u.role, '') as employee_role,
+                COALESCE(
+                  e1.name,
+                  e2.name,
+                  u_direct.name,
+                  CONCAT('ID:', lr.employee_id)
+                ) as employee_name,
+                COALESCE(u_direct.role, '') as employee_role,
                 a.name as approved_by_name
          FROM leave_requests lr
-         LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
-         LEFT JOIN users u ON e.user_id = u.id
+         LEFT JOIN h_employees e1 ON lr.employee_id = e1.id AND e1.tenant_id = lr.tenant_id
+         LEFT JOIN h_employees e2 ON e2.user_id = lr.employee_id AND e2.tenant_id = lr.tenant_id
+         LEFT JOIN users u_direct ON lr.employee_id = u_direct.id
          LEFT JOIN users a ON lr.approved_by = a.id
          ${where}
-         ORDER BY lr.start_date DESC`,
+         GROUP BY lr.id
+         ORDER BY lr.created_at DESC`,
         params,
       );
 

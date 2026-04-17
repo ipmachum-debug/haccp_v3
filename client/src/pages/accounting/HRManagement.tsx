@@ -245,9 +245,13 @@ export default function HRManagement() {
     pw.document.close();
   };
 
-  // 휴가 승인/반려
+  // 휴가 승인/반려/삭제
   const approveMut = trpc.hr.approveLeave.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); },
+    onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const deleteLeaveMut = trpc.hr.deleteLeave.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
     onError: (e: any) => toast.error(e.message),
   });
 
@@ -506,21 +510,30 @@ export default function HRManagement() {
                                 <td className="p-2.5 text-center"><Badge className={`${st.color} text-[10px]`}>{st.label}</Badge></td>
                                 {isAdmin && (
                                   <td className="p-2.5 text-center">
-                                    {l.status === "pending" && (
-                                      <div className="flex gap-1 justify-center">
-                                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 text-emerald-600"
-                                          onClick={() => approveMut.mutate({ id: l.id, action: "approved" })}>
-                                          <CheckCircle className="h-3 w-3 mr-0.5" />승인
-                                        </Button>
-                                        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 text-red-600"
-                                          onClick={() => {
-                                            const comment = prompt("반려 사유:");
-                                            if (comment !== null) approveMut.mutate({ id: l.id, action: "rejected", comment });
-                                          }}>
-                                          <XCircle className="h-3 w-3 mr-0.5" />반려
-                                        </Button>
-                                      </div>
-                                    )}
+                                    <div className="flex gap-1 justify-center">
+                                      {l.status === "pending" && (
+                                        <>
+                                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 text-emerald-600"
+                                            onClick={() => approveMut.mutate({ id: l.id, action: "approved" })}>
+                                            <CheckCircle className="h-3 w-3 mr-0.5" />승인
+                                          </Button>
+                                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 text-red-600"
+                                            onClick={() => {
+                                              const comment = prompt("반려 사유:");
+                                              if (comment !== null) approveMut.mutate({ id: l.id, action: "rejected", comment });
+                                            }}>
+                                            <XCircle className="h-3 w-3 mr-0.5" />반려
+                                          </Button>
+                                        </>
+                                      )}
+                                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400"
+                                        onClick={() => {
+                                          if (confirm(`${l.employeeName} ${safeDate(l.startDate)} 휴가 삭제?`))
+                                            deleteLeaveMut.mutate({ id: l.id });
+                                        }} title="삭제">
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </div>
                                   </td>
                                 )}
                               </tr>
