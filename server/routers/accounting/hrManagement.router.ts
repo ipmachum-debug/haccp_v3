@@ -624,20 +624,19 @@ export const hrManagementRouter = router({
       const [rows]: any = await pool.execute(
         `SELECT lr.*,
                 COALESCE(
-                  e1.name,
-                  e2.name,
-                  u_direct.name,
+                  e.name,
+                  (SELECT u2.name FROM users u2 WHERE u2.id = lr.employee_id LIMIT 1),
                   CONCAT('ID:', lr.employee_id)
                 ) as employee_name,
-                COALESCE(u_direct.role, '') as employee_role,
+                COALESCE(
+                  (SELECT u3.role FROM users u3 WHERE u3.id = COALESCE(e.user_id, lr.employee_id) LIMIT 1),
+                  ''
+                ) as employee_role,
                 a.name as approved_by_name
          FROM leave_requests lr
-         LEFT JOIN h_employees e1 ON lr.employee_id = e1.id AND e1.tenant_id = lr.tenant_id
-         LEFT JOIN h_employees e2 ON e2.user_id = lr.employee_id AND e2.tenant_id = lr.tenant_id
-         LEFT JOIN users u_direct ON lr.employee_id = u_direct.id
+         LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
          LEFT JOIN users a ON lr.approved_by = a.id
          ${where}
-         GROUP BY lr.id
          ORDER BY lr.created_at DESC`,
         params,
       );
