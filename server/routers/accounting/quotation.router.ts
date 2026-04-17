@@ -50,7 +50,8 @@ const lineInput = z.object({
 });
 
 const createInput = z.object({
-  partnerId: z.number(),
+  partnerId: z.number().optional(), // 기존 거래처 (없으면 신규)
+  partnerName: z.string().optional(), // 신규 거래처 직접 입력
   quoteDate: z.string(),
   validUntil: z.string().optional(),
   title: z.string().optional(),
@@ -177,16 +178,27 @@ export const quotationRouter = router({
 
     return await withTransaction(async (conn) => {
       // 1. 헤더 insert
+      // 거래처 이름 해소
+      let resolvedPartnerName = input.partnerName || "";
+      if (input.partnerId && !resolvedPartnerName) {
+        try {
+          const [pRows]: any = await conn.execute(
+            `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`, [input.partnerId, ctx.tenantId]);
+          if (pRows[0]) resolvedPartnerName = pRows[0].company_name;
+        } catch (_) {}
+      }
+
       const [headerResult] = await conn.execute(
         `INSERT INTO quotations
-           (tenant_id, quotation_number, partner_id, quote_date, valid_until, title,
+           (tenant_id, quotation_number, partner_id, partner_name, quote_date, valid_until, title,
             total_amount, tax_amount, grand_total, status,
             payment_terms, delivery_terms, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
         [
           ctx.tenantId,
           quotationNumber,
-          input.partnerId,
+          input.partnerId || null,
+          resolvedPartnerName,
           input.quoteDate,
           input.validUntil ?? null,
           input.title ?? null,
