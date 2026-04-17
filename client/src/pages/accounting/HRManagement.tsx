@@ -102,6 +102,15 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // 비회원 직원 등록
+  const [newEmpOpen, setNewEmpOpen] = useState(false);
+  const { data: deptList } = trpc.hr.departments.useQuery();
+  const { data: posList } = trpc.hr.positions.useQuery();
+  const createEmpMut = trpc.hr.createEmployee.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); setNewEmpOpen(false); refetchBalance(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // 연차 부여 수정 (관리자)
   const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
@@ -462,10 +471,16 @@ export default function HRManagement() {
                 </div>
                 <div className="flex gap-2">
                   {isAdmin && empStatusTab === "active" && (
-                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
-                      onClick={() => { setManualLeaveOpen(true); setManualLeaveEmpId(null); }}>
-                      <Plus className="h-3 w-3" /> 수기 연차등록
-                    </Button>
+                    <>
+                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700"
+                        onClick={() => setNewEmpOpen(true)}>
+                        <Plus className="h-3 w-3" /> 비회원 직원등록
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                        onClick={() => { setManualLeaveOpen(true); setManualLeaveEmpId(null); }}>
+                        <Plus className="h-3 w-3" /> 수기 연차등록
+                      </Button>
+                    </>
                   )}
                   <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => handlePrintLeaveReport()}>
                     <Printer className="h-3 w-3" /> 연차관리대장 출력
@@ -613,6 +628,21 @@ export default function HRManagement() {
                   </DialogContent>
                 </Dialog>
               )}
+
+              {/* 비회원 직원 등록 다이얼로그 */}
+              {newEmpOpen && (
+                <Dialog open onOpenChange={() => setNewEmpOpen(false)}>
+                  <DialogContent>
+                    <DialogHeader><DialogTitle>비회원 직원 등록</DialogTitle></DialogHeader>
+                    <NewEmployeeForm
+                      departments={(deptList as any[]) || []}
+                      positions={(posList as any[]) || []}
+                      onSubmit={(data) => createEmpMut.mutate(data)}
+                      isPending={createEmpMut.isPending}
+                    />
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
           </TabsContent>
         </Tabs>
@@ -671,6 +701,56 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
 /* ═══════════════════════════════════════════
    수기 연차 등록 폼 (관리자 → 미가입 직원용)
    ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   비회원 직원 등록 폼
+   ═══════════════════════════════════════════ */
+function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
+  departments: any[]; positions: any[];
+  onSubmit: (data: any) => void; isPending: boolean;
+}) {
+  const [name, setName] = useState("");
+  const [deptId, setDeptId] = useState<number | undefined>();
+  const [posId, setPosId] = useState<number | undefined>();
+  const [hireDate, setHireDate] = useState("");
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">회원가입 없이 직원을 등록합니다. 사번이 자동 생성됩니다.</p>
+      <div>
+        <Label className="text-xs">이름 *</Label>
+        <Input value={name} onChange={(e: any) => setName(e.target.value)} placeholder="홍길동" className="h-9 text-sm" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">부서</Label>
+          <select className="w-full h-9 border rounded-lg px-2 text-sm"
+            value={deptId || ""} onChange={(e) => setDeptId(Number(e.target.value) || undefined)}>
+            <option value="">선택 안함</option>
+            {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <Label className="text-xs">직급</Label>
+          <select className="w-full h-9 border rounded-lg px-2 text-sm"
+            value={posId || ""} onChange={(e) => setPosId(Number(e.target.value) || undefined)}>
+            <option value="">선택 안함</option>
+            {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">입사일</Label>
+        <Input type="date" value={hireDate} onChange={(e: any) => setHireDate(e.target.value)} className="h-9 text-sm" />
+      </div>
+      <Button className="w-full" disabled={isPending || !name.trim()}
+        onClick={() => onSubmit({ name: name.trim(), departmentId: deptId, positionId: posId, hireDate: hireDate || undefined })}>
+        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        직원 등록
+      </Button>
+    </div>
+  );
+}
+
 function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
   employees: any[]; preselectedId: number | null;
   onSubmit: (data: any) => void; isPending: boolean;
