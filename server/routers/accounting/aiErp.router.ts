@@ -30,6 +30,18 @@ export const aiErpRouter = router({
       }
     }),
 
+  /** 대표용 AI 월간 리포트 */
+  executiveReport: tenantRequiredProcedure
+    .input(z.object({ year: z.number(), month: z.number() }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const { generateExecutiveReport } = await import("../../services/ai/aiExecutiveReport.service");
+        return await generateExecutiveReport(ctx.tenantId, input.year, input.month);
+      } catch (err: any) {
+        return { period: `${input.year}년 ${input.month}월`, summary: "리포트 생성 실패", metrics: { revenue: 0, cost: 0, grossProfit: 0, grossMargin: 0, expenses: 0, netProfit: 0, prevRevenue: 0, prevNetProfit: 0, revenueGrowth: 0, profitGrowth: 0 }, highlights: [], risks: [], actions: [], aiNarrative: "" };
+      }
+    }),
+
   /** 원가 이상 탐지 */
   costAnomalies: tenantRequiredProcedure.query(async ({ ctx }) => {
     try {
