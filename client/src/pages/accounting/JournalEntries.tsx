@@ -10,9 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { AccountCombobox } from "@/components/accounting/AccountCombobox";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -346,25 +344,16 @@ function CreateJournalForm({ accounts, onSuccess }: { accounts: any[]; onSuccess
               {lines.map((line) => (
                 <tr key={line.id} className="border-b last:border-0">
                   <td className="p-1.5">
-                    <Select value={line.accountId?.toString() || ""} onValueChange={(v) => handleAccountSelect(line.id, v)}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="계정 선택" /></SelectTrigger>
-                      <SelectContent className="max-h-[300px]">
-                        {Object.entries(categoryLabels).map(([cat, label]) => {
-                          const catAccounts = accounts.filter((a: any) => a.category === cat);
-                          if (!catAccounts.length) return null;
-                          return (
-                            <div key={cat}>
-                              <div className="px-2 py-1 text-[10px] font-bold text-muted-foreground bg-muted/30">{label}</div>
-                              {catAccounts.map((a: any) => (
-                                <SelectItem key={a.id} value={a.id.toString()}>
-                                  <span className="font-mono text-[10px] mr-1">{a.code}</span> {a.name}
-                                </SelectItem>
-                              ))}
-                            </div>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
+                    <AccountCombobox
+                      selectedId={line.accountId}
+                      selectedCode={line.accountCode}
+                      selectedName={line.accountName}
+                      onSelect={(acc) => updateLine(line.id, {
+                        accountId: acc.id, accountCode: acc.code, accountName: acc.name,
+                      })}
+                      onClear={() => updateLine(line.id, { accountId: null, accountCode: "", accountName: "" })}
+                      placeholder="계정 검색..."
+                    />
                   </td>
                   <td className="p-1.5">
                     <Input value={line.description} onChange={(e: any) => updateLine(line.id, { description: e.target.value })}

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { AccountCombobox } from "@/components/accounting/AccountCombobox";
 import {
   Plus, PieChart, TrendingUp, Loader2, Calculator, AlertTriangle, CheckCircle,
 } from "lucide-react";
@@ -243,16 +244,12 @@ function BudgetForm({ year, onSuccess }: { year: number; onSuccess: () => void }
     <div className="space-y-4">
       <div>
         <Label className="text-xs">계정과목 *</Label>
-        <Select value={accountId?.toString() || ""} onValueChange={(v) => setAccountId(Number(v))}>
-          <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="계정 선택" /></SelectTrigger>
-          <SelectContent className="max-h-[300px]">
-            {accounts.map((a: any) => (
-              <SelectItem key={a.id} value={a.id.toString()}>
-                <span className="font-mono text-[10px] mr-1">{a.code}</span> {a.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <AccountCombobox
+          selectedId={accountId}
+          onSelect={(acc) => setAccountId(acc.id)}
+          onClear={() => setAccountId(null)}
+          placeholder="계정 검색..."
+        />
       </div>
 
       <div className="flex gap-2 items-end">
