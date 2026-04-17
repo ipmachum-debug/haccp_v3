@@ -102,6 +102,19 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // 근태 수기 등록
+  const [manualAttOpen, setManualAttOpen] = useState(false);
+  const createAttMut = trpc.hr.createAttendanceManual.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); setManualAttOpen(false); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // 일일 마감 (퇴근 미기록 자동처리)
+  const closeDayMut = trpc.hr.closeDay.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // 비회원 직원 등록
   const [newEmpOpen, setNewEmpOpen] = useState(false);
   const { data: deptList } = trpc.hr.departments.useQuery();
@@ -317,13 +330,42 @@ export default function HRManagement() {
               );
             })()}
             <Card>
-              <CardHeader className="py-3 px-4 border-b">
+              <CardHeader className="py-3 px-4 border-b flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">
                   {year}년 {month}월 근태 현황
                   {selectedEmployee && employees.find((e: any) => e.id === selectedEmployee)
                     ? ` — ${employees.find((e: any) => e.id === selectedEmployee)?.name}`
                     : " — 전체"}
                 </CardTitle>
+                {isAdmin && (
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
+                      onClick={() => setManualAttOpen(true)}>
+                      <Plus className="h-3 w-3" /> 수기 등록
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-amber-300 text-amber-700"
+                      onClick={() => {
+                        if (confirm(`오늘 퇴근 미기록 직원을 18:00 퇴근 자동 처리하시겠습니까?`))
+                          closeDayMut.mutate({});
+                      }}>
+                      <Clock className="h-3 w-3" /> 일일 마감
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700"
+                      onClick={() => {
+                        const date = prompt("일괄 출근 처리할 날짜 (YYYY-MM-DD):", todayLocal());
+                        if (!date) return;
+                        const clockIn = prompt("출근 시간:", "09:00:00") || "09:00:00";
+                        const clockOut = prompt("퇴근 시간 (빈칸=미퇴근):", "18:00:00");
+                        if (!confirm(`${date} 전체 직원 일괄 출근 처리?\n출근: ${clockIn}\n퇴근: ${clockOut || "미처리"}`)) return;
+                        employees.forEach((emp: any) => {
+                          const userId = emp.userId || emp.id;
+                          createAttMut.mutate({ employeeId: userId, workDate: date, clockIn, clockOut: clockOut || undefined, notes: "일괄등록" });
+                        });
+                      }}>
+                      <Users className="h-3 w-3" /> 일괄 출근
+                    </Button>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="p-0">
                 {!attendance?.length ? (
@@ -382,6 +424,20 @@ export default function HRManagement() {
                 )}
               </CardContent>
             </Card>
+
+            {/* 수기 출퇴근 등록 다이얼로그 */}
+            {manualAttOpen && (
+              <Dialog open onOpenChange={() => setManualAttOpen(false)}>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>출퇴근 수기 등록</DialogTitle></DialogHeader>
+                  <ManualAttendanceForm
+                    employees={employees}
+                    onSubmit={(data) => createAttMut.mutate(data)}
+                    isPending={createAttMut.isPending}
+                  />
+                </DialogContent>
+              </Dialog>
+            )}
           </TabsContent>
 
           {/* 휴가 탭 */}
@@ -704,6 +760,58 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
 /* ═══════════════════════════════════════════
    비회원 직원 등록 폼
    ═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════
+   출퇴근 수기 등록 폼 (관리자)
+   ═══════════════════════════════════════════ */
+function ManualAttendanceForm({ employees, onSubmit, isPending }: {
+  employees: any[]; onSubmit: (data: any) => void; isPending: boolean;
+}) {
+  const [empId, setEmpId] = useState<number | null>(null);
+  const [workDate, setWorkDate] = useState(todayLocal());
+  const [clockIn, setClockIn] = useState("09:00:00");
+  const [clockOut, setClockOut] = useState("18:00:00");
+  const [notes, setNotes] = useState("");
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">인터넷 미사용/누락 직원의 출퇴근을 수기 등록합니다.</p>
+      <div>
+        <Label className="text-xs">직원 *</Label>
+        <select className="w-full h-9 border rounded-lg px-2 text-sm"
+          value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
+          <option value="">직원 선택</option>
+          {employees.map((emp: any) => (
+            <option key={emp.id} value={emp.userId || emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <Label className="text-xs">날짜 *</Label>
+        <Input type="date" value={workDate} onChange={(e: any) => setWorkDate(e.target.value)} className="h-9 text-sm" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label className="text-xs">출근 시간 *</Label>
+          <Input type="time" step="1" value={clockIn} onChange={(e: any) => setClockIn(e.target.value)} className="h-9 text-sm" />
+        </div>
+        <div>
+          <Label className="text-xs">퇴근 시간</Label>
+          <Input type="time" step="1" value={clockOut} onChange={(e: any) => setClockOut(e.target.value)} className="h-9 text-sm" />
+        </div>
+      </div>
+      <div>
+        <Label className="text-xs">비고</Label>
+        <Input value={notes} onChange={(e: any) => setNotes(e.target.value)} placeholder="수기 등록 사유" className="h-9 text-sm" />
+      </div>
+      <Button className="w-full" disabled={isPending || !empId || !workDate || !clockIn}
+        onClick={() => onSubmit({ employeeId: empId!, workDate, clockIn, clockOut: clockOut || undefined, notes: notes || undefined })}>
+        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        출퇴근 등록
+      </Button>
+    </div>
+  );
+}
+
 function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
   departments: any[]; positions: any[];
   onSubmit: (data: any) => void; isPending: boolean;

@@ -186,6 +186,62 @@ export const hrManagementRouter = router({
   // ═══════════════════════════════════════
 
   /** 휴가 신청 */
+  /** 관리자: 출퇴근 수기 등록 (누락/인터넷 불가 직원용) */
+  createAttendanceManual: adminProcedure
+    .input(z.object({
+      employeeId: z.number(),
+      workDate: z.string(),
+      clockIn: z.string(),
+      clockOut: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      try {
+        const workHours = input.clockOut
+          ? (() => {
+              const [ih, im] = input.clockIn.split(":").map(Number);
+              const [oh, om] = (input.clockOut || "").split(":").map(Number);
+              return Math.max(0, ((oh * 60 + om) - (ih * 60 + im)) / 60);
+            })()
+          : 0;
+
+        await pool.execute(
+          `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, clock_out, work_hours, status, notes)
+           VALUES (?, ?, ?, ?, ?, ?, 'present', ?)
+           ON DUPLICATE KEY UPDATE clock_in=VALUES(clock_in), clock_out=VALUES(clock_out), work_hours=VALUES(work_hours), notes=VALUES(notes)`,
+          [ctx.tenantId, input.employeeId, input.workDate, input.clockIn,
+           input.clockOut || null, workHours, input.notes ? `[관리자등록] ${input.notes}` : "[관리자등록]"],
+        );
+        return { message: `${input.workDate} 출퇴근 등록 완료` };
+      } catch (err: any) {
+        throw new Error(`등록 실패: ${err.message}`);
+      }
+    }),
+
+  /** 관리자: 일일 마감 — 퇴근 미기록자 정규시간 자동 처리 */
+  closeDay: adminProcedure
+    .input(z.object({ date: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const targetDate = input?.date || kstToday();
+      const defaultClockOut = "18:00:00";
+
+      try {
+        const [result]: any = await pool.execute(
+          `UPDATE attendance_records
+           SET clock_out = ?,
+               work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0,
+               notes = CONCAT(COALESCE(notes, ''), ' [자동마감]')
+           WHERE tenant_id = ? AND work_date = ? AND clock_out IS NULL`,
+          [defaultClockOut, defaultClockOut, ctx.tenantId, targetDate],
+        );
+        return { updated: result.affectedRows, message: `${targetDate} 마감: ${result.affectedRows}명 퇴근 자동 처리 (18:00)` };
+      } catch (err: any) {
+        return { updated: 0, message: "마감 처리 실패" };
+      }
+    }),
+
   /** 관리자: 근태 수정 (잘못 찍은 출퇴근 보정) */
   updateAttendance: adminProcedure
     .input(z.object({
