@@ -35,9 +35,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Cache-bust: 빌드 버전을 파일명에 포함시켜 캐시 오염 방지
-        chunkFileNames: "assets/[name]-[hash]-b2.js",
-        assetFileNames: "assets/[name]-[hash]-b2[extname]",
-        entryFileNames: "assets/[name]-[hash]-b2.js",
+        chunkFileNames: "assets/[name]-[hash]-b3.js",
+        assetFileNames: "assets/[name]-[hash]-b3[extname]",
+        entryFileNames: "assets/[name]-[hash]-b3.js",
         manualChunks(id) {
           if (id.includes("node_modules")) {
             // React 코어 (가장 기본)
