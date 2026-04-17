@@ -430,7 +430,7 @@ export default function NoticeBoard() {
 
           {/* 통계 카드 4개 */}
           <div className="px-4 pb-4">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {[
                 { emoji: "📢", label: "공지", count: stats.notice, bg: "bg-blue-50", border: "border-blue-100", text: "text-blue-700", labelColor: "text-blue-400" },
                 { emoji: "📋", label: "작업", count: stats.work, bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-700", labelColor: "text-amber-500" },

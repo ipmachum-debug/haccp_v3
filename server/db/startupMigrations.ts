@@ -1403,6 +1403,29 @@ async function ensureBudgetTable(conn: any) {
 /**
  * 서버 시작 시 모든 자동 마이그레이션 실행
  */
+/**
+ * 성능 인덱스 ensure — 대형 테이블 쿼리 최적화
+ */
+async function ensurePerformanceIndexes(conn: any) {
+  const indexes = [
+    "CREATE INDEX IF NOT EXISTS idx_ap_tenant_status ON accounting_purchases(tenant_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_ap_tenant_date ON accounting_purchases(tenant_id, transaction_date)",
+    "CREATE INDEX IF NOT EXISTS idx_as_tenant_status ON accounting_sales(tenant_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_as_tenant_date ON accounting_sales(tenant_id, transaction_date)",
+    "CREATE INDEX IF NOT EXISTS idx_ejl_tenant_entry ON expense_journal_lines(tenant_id, journal_entry_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eje_tenant_date ON expense_journal_entries(tenant_id, entry_date)",
+    "CREATE INDEX IF NOT EXISTS idx_bt_tenant_date ON bank_transactions(tenant_id, transaction_date)",
+    "CREATE INDEX IF NOT EXISTS idx_bt_tenant_match ON bank_transactions(tenant_id, matching_status)",
+    "CREATE INDEX IF NOT EXISTS idx_att_tenant_date ON attendance_records(tenant_id, work_date)",
+    "CREATE INDEX IF NOT EXISTS idx_lr_tenant_date ON leave_requests(tenant_id, start_date)",
+  ];
+  let created = 0;
+  for (const sql of indexes) {
+    try { await conn.query(sql); created++; } catch (_) {}
+  }
+  console.log(`[Migration] Performance indexes: ${created}/${indexes.length} verified`);
+}
+
 export async function runStartupMigrations() {
   try {
     const conn = await getRawConnection();
@@ -1421,6 +1444,7 @@ export async function runStartupMigrations() {
     await ensureBudgetTable(conn);
     await ensurePayrollTable(conn);
     await ensureHRTables(conn);
+    await ensurePerformanceIndexes(conn);
 
     console.log("[Migration] Startup migrations completed");
 
