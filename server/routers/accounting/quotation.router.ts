@@ -832,4 +832,88 @@ export const quotationRouter = router({
       scored.sort((a, b) => b.score - a.score);
       return scored.slice(0, input.limit);
     }),
+
+  /** 견적서 복사 */
+  duplicate: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = (await import("../../db/pool")).getPool();
+      const tenantId = ctx.tenantId;
+
+      // 원본 조회
+      const [headers]: any = await pool.execute(
+        `SELECT * FROM quotations WHERE id = ? AND tenant_id = ?`, [input.id, tenantId]);
+      if (!headers[0]) throw new Error("원본 견적서를 찾을 수 없습니다.");
+      const orig = headers[0];
+
+      // 새 견적번호
+      const [lastQ]: any = await pool.execute(
+        `SELECT quotation_number FROM quotations WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`, [tenantId]);
+      const lastNum = lastQ[0]?.quotation_number ? Number(lastQ[0].quotation_number.replace(/\D/g, "")) + 1 : 1;
+      const newNumber = `QT-${String(lastNum).padStart(5, "0")}`;
+      const today = new Date().toISOString().slice(0, 10);
+
+      const [result]: any = await pool.execute(
+        `INSERT INTO quotations (tenant_id, quotation_number, partner_id, partner_name, quotation_date,
+          valid_until, title, payment_terms, delivery_terms, notes, subtotal, tax_amount, grand_total,
+          status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+        [tenantId, newNumber, orig.partner_id, orig.partner_name, today,
+         orig.valid_until, `[복사] ${orig.title || ""}`, orig.payment_terms, orig.delivery_terms,
+         orig.notes, orig.subtotal, orig.tax_amount, orig.grand_total, ctx.user.id],
+      );
+      const newId = result.insertId;
+
+      // 라인 복사
+      const [lines]: any = await pool.execute(
+        `SELECT * FROM quotation_lines WHERE quotation_id = ? AND tenant_id = ?`, [input.id, tenantId]);
+      for (const line of lines as any[]) {
+        await pool.execute(
+          `INSERT INTO quotation_lines (tenant_id, quotation_id, line_number, target_type,
+            material_id, product_id, item_name, item_code, description, quantity, unit,
+            unit_price, discount_rate, amount, tax_amount)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [tenantId, newId, line.line_number, line.target_type,
+           line.material_id, line.product_id, line.item_name, line.item_code, line.description,
+           line.quantity, line.unit, line.unit_price, line.discount_rate, line.amount, line.tax_amount],
+        );
+      }
+
+      return { id: newId, quotationNumber: newNumber, message: "견적서가 복사되었습니다." };
+    }),
+
+  /** 거래처별 견적 이력 */
+  partnerHistory: tenantRequiredProcedure
+    .input(z.object({ partnerId: z.number().optional(), partnerName: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      const pool = (await import("../../db/pool")).getPool();
+      const tenantId = ctx.tenantId;
+
+      let where = `WHERE q.tenant_id = ?`;
+      const params: any[] = [tenantId];
+      if (input.partnerId) { where += ` AND q.partner_id = ?`; params.push(input.partnerId); }
+      else if (input.partnerName) { where += ` AND q.partner_name LIKE ?`; params.push(`%${input.partnerName}%`); }
+      else { return { history: [], summary: null }; }
+
+      const [rows]: any = await pool.execute(
+        `SELECT q.id, q.quotation_number, q.quotation_date, q.title, q.grand_total, q.status,
+                q.partner_name, q.created_at
+         FROM quotations q ${where}
+         ORDER BY q.quotation_date DESC LIMIT 50`, params);
+
+      const history = rows as any[];
+      const totalCount = history.length;
+      const totalAmount = history.reduce((s: number, h: any) => s + Number(h.grand_total || 0), 0);
+      const convertedCount = history.filter((h: any) => h.status === "converted").length;
+      const conversionRate = totalCount > 0 ? Math.round((convertedCount / totalCount) * 100) : 0;
+
+      return {
+        history: history.map((h: any) => ({
+          id: h.id, number: h.quotation_number,
+          date: h.quotation_date instanceof Date ? h.quotation_date.toISOString().slice(0, 10) : String(h.quotation_date || ""),
+          title: h.title, amount: Number(h.grand_total || 0), status: h.status,
+        })),
+        summary: { totalCount, totalAmount, convertedCount, conversionRate },
+      };
+    }),
 });

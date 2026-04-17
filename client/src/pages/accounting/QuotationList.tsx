@@ -49,6 +49,8 @@ import {
   Eye,
   Printer,
   ClipboardCopy,
+  Copy,
+  History,
   Edit,
   Save,
 } from "lucide-react";
@@ -182,6 +184,21 @@ function QuotationListContent() {
     },
     onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
+  // 견적서 복사
+  const duplicateMutation = trpc.quotation.duplicate.useMutation({
+    onSuccess: (r: any) => {
+      toast({ title: "복사 완료", description: `${r.quotationNumber} 생성` });
+      utils.quotation.list.invalidate();
+    },
+    onError: (e: any) => toast({ title: "복사 실패", description: e.message, variant: "destructive" }),
+  });
+  // 거래처 이력
+  const [historyPartnerId, setHistoryPartnerId] = useState<number | null>(null);
+  const [historyPartnerName, setHistoryPartnerName] = useState("");
+  const { data: partnerHistory } = trpc.quotation.partnerHistory.useQuery(
+    { partnerId: historyPartnerId || undefined, partnerName: historyPartnerName || undefined },
+    { enabled: !!historyPartnerId || !!historyPartnerName },
+  );
 
   // PDF 공통 헬퍼
   const base64ToPdfBlob = (b64: string): Blob => {
@@ -257,7 +274,67 @@ function QuotationListContent() {
       previewPdfMutation.mutate({ id: q.id });
     } else if (action === "print") {
       printPdfMutation.mutate({ id: q.id });
+    } else if (action === "duplicate") {
+      if (confirm(`견적서 ${q.quotationNumber} 를 복사하시겠습니까?`)) {
+        duplicateMutation.mutate({ id: q.id });
+      }
+    } else if (action === "history") {
+      setHistoryPartnerId(q.partnerId);
+      setHistoryPartnerName(q.partnerName || "");
+    } else if (action === "printDoc") {
+      printQuotationDoc(q);
     }
+  };
+
+  // 견적서 규격 문서 인쇄
+  const printQuotationDoc = async (q: any) => {
+    // 상세 조회
+    let lines: any[] = [];
+    try {
+      const detail = await utils.quotation.getById.fetch({ id: q.id });
+      lines = (detail as any)?.lines || [];
+    } catch (_) {}
+
+    const pw = window.open("", "_blank");
+    if (!pw) return;
+    const lineRows = lines.map((l: any, i: number) =>
+      `<tr><td class="b tc">${i+1}</td><td class="b">${l.itemName || ""}</td><td class="b tc">${l.description || ""}</td>
+       <td class="b tc">${l.quantity || 0}</td><td class="b tc">${l.unit || "EA"}</td>
+       <td class="b r">₩${Number(l.unitPrice || 0).toLocaleString()}</td>
+       <td class="b r">₩${Number(l.amount || 0).toLocaleString()}</td></tr>`
+    ).join("");
+
+    pw.document.write(`<html><head><title>견적서 ${q.quotationNumber}</title>
+    <style>body{font-family:'Malgun Gothic',sans-serif;font-size:11px;padding:20px;max-width:210mm;margin:0 auto}
+    h1{text-align:center;font-size:20px;border-bottom:3px double #000;padding-bottom:8px}
+    table{width:100%;border-collapse:collapse;margin-bottom:12px}
+    .b{border:1px solid #999;padding:4px 6px} .tc{text-align:center} .r{text-align:right} .bg{background:#f3f4f6;font-weight:bold}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;margin:0;padding:10px}}</style></head><body>
+    <h1>견 적 서</h1>
+    <table><tr><td class="b bg" width="15%">견적번호</td><td class="b" width="35%">${q.quotationNumber}</td>
+      <td class="b bg" width="15%">견적일</td><td class="b">${q.quoteDate || ""}</td></tr>
+    <tr><td class="b bg">거래처</td><td class="b">${q.partnerName || ""}</td>
+      <td class="b bg">유효기간</td><td class="b">${q.validUntil || "-"}</td></tr>
+    <tr><td class="b bg">제목</td><td class="b" colspan="3">${q.title || ""}</td></tr></table>
+
+    <table><tr class="bg"><th class="b" width="30">No</th><th class="b">품목</th><th class="b">규격</th>
+      <th class="b" width="50">수량</th><th class="b" width="40">단위</th><th class="b" width="80">단가</th><th class="b" width="90">금액</th></tr>
+    ${lineRows || '<tr><td class="b tc" colspan="7">품목 없음</td></tr>'}
+    </table>
+
+    <table><tr><td class="b bg" width="50%">공급가액</td><td class="b r">₩${Number(q.subtotal || 0).toLocaleString()}</td></tr>
+    <tr><td class="b bg">부가세</td><td class="b r">₩${Number(q.taxAmount || 0).toLocaleString()}</td></tr>
+    <tr><td class="b bg" style="font-size:14px">합계금액</td><td class="b r" style="font-size:14px;font-weight:bold">₩${Number(q.grandTotal || 0).toLocaleString()}</td></tr></table>
+
+    <table><tr><td class="b bg">결제조건</td><td class="b">${q.paymentTerms || "-"}</td></tr>
+    <tr><td class="b bg">비고</td><td class="b">${q.notes || "-"}</td></tr></table>
+
+    <div style="margin-top:30px;text-align:right">
+      <p style="font-size:9px;color:#999">본 견적서의 유효기간은 ${q.validUntil || "별도 협의"} 까지입니다.</p>
+      <p style="font-size:9px;color:#999">HACCP-ONE 자동생성</p>
+    </div>
+    <script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body></html>`);
+    pw.document.close();
   };
 
   // 수정 Dialog
@@ -646,6 +723,19 @@ function QuotationListContent() {
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          {/* 복사/인쇄/이력 */}
+                          <Button size="sm" variant="outline" onClick={() => handleAction("duplicate", q)}
+                            title="복사" className="h-7 w-7 p-0 text-indigo-500 hover:bg-indigo-50">
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleAction("printDoc", q)}
+                            title="인쇄" className="h-7 w-7 p-0 text-gray-500 hover:bg-gray-50">
+                            <Printer className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => handleAction("history", q)}
+                            title="거래처 이력" className="h-7 w-7 p-0 text-teal-500 hover:bg-teal-50">
+                            <History className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -868,6 +958,71 @@ function QuotationListContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 거래처 견적 이력 다이얼로그 */}
+      {(historyPartnerId || historyPartnerName) && (
+        <Dialog open onOpenChange={() => { setHistoryPartnerId(null); setHistoryPartnerName(""); }}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>거래처 견적 이력 — {historyPartnerName}</DialogTitle>
+            </DialogHeader>
+            {partnerHistory?.summary && (
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                <div className="bg-blue-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-muted-foreground">총 견적</p>
+                  <p className="text-lg font-bold text-blue-700">{partnerHistory.summary.totalCount}건</p>
+                </div>
+                <div className="bg-emerald-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-muted-foreground">총 금액</p>
+                  <p className="text-sm font-bold text-emerald-700">₩{partnerHistory.summary.totalAmount.toLocaleString()}</p>
+                </div>
+                <div className="bg-violet-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-muted-foreground">매출 전환</p>
+                  <p className="text-lg font-bold text-violet-700">{partnerHistory.summary.convertedCount}건</p>
+                </div>
+                <div className="bg-amber-50 rounded-lg p-2 text-center">
+                  <p className="text-[10px] text-muted-foreground">전환율</p>
+                  <p className="text-lg font-bold text-amber-700">{partnerHistory.summary.conversionRate}%</p>
+                </div>
+              </div>
+            )}
+            <div className="max-h-[300px] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="border-b bg-muted/30 sticky top-0">
+                  <th className="p-2 text-left">견적번호</th>
+                  <th className="p-2 text-left">날짜</th>
+                  <th className="p-2 text-left">제목</th>
+                  <th className="p-2 text-right">금액</th>
+                  <th className="p-2 text-center">상태</th>
+                </tr></thead>
+                <tbody>
+                  {partnerHistory?.history?.map((h: any) => (
+                    <tr key={h.id} className="border-b hover:bg-accent/50">
+                      <td className="p-2 font-mono">{h.number}</td>
+                      <td className="p-2">{h.date}</td>
+                      <td className="p-2 truncate max-w-[200px]">{h.title}</td>
+                      <td className="p-2 text-right font-mono">₩{h.amount.toLocaleString()}</td>
+                      <td className="p-2 text-center">
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                          h.status === "converted" ? "bg-emerald-100 text-emerald-700" :
+                          h.status === "accepted" ? "bg-blue-100 text-blue-700" :
+                          h.status === "rejected" ? "bg-red-100 text-red-700" :
+                          h.status === "expired" ? "bg-gray-100 text-gray-500" :
+                          "bg-amber-100 text-amber-700"
+                        }`}>
+                          {h.status === "converted" ? "매출전환" : h.status === "accepted" ? "수락" :
+                           h.status === "rejected" ? "거절" : h.status === "expired" ? "만료" :
+                           h.status === "sent" ? "발송" : "작성"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
