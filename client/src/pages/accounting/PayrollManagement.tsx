@@ -15,10 +15,69 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-  DollarSign, Users, Calculator, CheckCircle, Loader2, Plus, CreditCard, Pencil, Trash2,
+  DollarSign, Users, Calculator, CheckCircle, Loader2, Plus, CreditCard, Pencil, Trash2, Printer,
 } from "lucide-react";
 
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
+
+function payslipHtml(p: any, year: number, month: number): string {
+  return `
+    <div style="page-break-after:always;max-width:210mm;margin:0 auto;padding:20px;font-family:'Malgun Gothic',sans-serif;font-size:11px">
+      <h1 style="text-align:center;font-size:18px;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:4px">급 여 명 세 서</h1>
+      <p style="text-align:center;font-size:11px;color:#666;margin-bottom:16px">${year}년 ${month}월</p>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+        <tr><td class="b bg" width="15%">성 명</td><td class="b" width="35%"><b>${p.employeeName || ""}</b></td>
+            <td class="b bg" width="15%">직 급</td><td class="b" width="35%">${p.position || "-"}</td></tr>
+        <tr><td class="b bg">부 서</td><td class="b">${p.department || "-"}</td>
+            <td class="b bg">귀속월</td><td class="b">${year}년 ${month}월</td></tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+        <tr class="bg"><th class="b" colspan="2" style="text-align:center">지 급 항 목</th><th class="b" colspan="2" style="text-align:center">공 제 항 목</th></tr>
+        <tr><td class="b" width="25%">기본급</td><td class="b r" width="25%">${fmt(p.baseSalary)}</td>
+            <td class="b" width="25%">국민연금</td><td class="b r" width="25%">${fmt(p.nationalPension)}</td></tr>
+        <tr><td class="b">연장근로수당</td><td class="b r">${fmt(p.overtime)}</td>
+            <td class="b">건강보험</td><td class="b r">${fmt(p.healthInsurance)}</td></tr>
+        <tr><td class="b">상여금</td><td class="b r">${fmt(p.bonus)}</td>
+            <td class="b">장기요양</td><td class="b r">${fmt(p.longTermCare)}</td></tr>
+        <tr><td class="b">기타수당</td><td class="b r">${fmt(p.allowances)}</td>
+            <td class="b">고용보험</td><td class="b r">${fmt(p.employment)}</td></tr>
+        <tr><td class="b"></td><td class="b"></td>
+            <td class="b">소득세</td><td class="b r">${fmt(p.incomeTax)}</td></tr>
+        <tr><td class="b"></td><td class="b"></td>
+            <td class="b">지방소득세</td><td class="b r">${fmt(p.localIncomeTax)}</td></tr>
+        <tr style="background:#f0f9ff"><td class="b"><b>지급 합계</b></td><td class="b r"><b>${fmt(p.grossPay)}</b></td>
+            <td class="b"><b>공제 합계</b></td><td class="b r"><b>${fmt(p.totalDeductions)}</b></td></tr>
+      </table>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+        <tr style="background:#ecfdf5"><td class="b" style="text-align:center;font-size:14px;padding:12px" colspan="4">
+          <b>실 수 령 액 : ${fmt(p.netPay)}</b></td></tr>
+      </table>
+      <p style="text-align:center;font-size:9px;color:#999">본 명세서는 근로기준법 제48조에 따라 발급합니다. | HACCP-ONE</p>
+    </div>`;
+}
+
+function printPayslip(p: any, year: number, month: number) {
+  const pw = window.open("", "_blank");
+  if (!pw) return;
+  pw.document.write(`<html><head><title>급여명세서 - ${p.employeeName}</title>
+    <style>body{margin:0;padding:0} .b{border:1px solid #999;padding:4px 6px} .bg{background:#f3f4f6;font-weight:bold} .r{text-align:right}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+    </head><body>${payslipHtml(p, year, month)}
+    <script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body></html>`);
+  pw.document.close();
+}
+
+function printAllPayslips(payroll: any[], year: number, month: number) {
+  const pw = window.open("", "_blank");
+  if (!pw) return;
+  const all = payroll.map(p => payslipHtml(p, year, month)).join("");
+  pw.document.write(`<html><head><title>급여명세서 전체 - ${year}년 ${month}월</title>
+    <style>body{margin:0;padding:0} .b{border:1px solid #999;padding:4px 6px} .bg{background:#f3f4f6;font-weight:bold} .r{text-align:right}
+    @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style>
+    </head><body>${all}
+    <script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body></html>`);
+  pw.document.close();
+}
 
 export default function PayrollManagement() {
   const now = new Date();
@@ -80,6 +139,12 @@ export default function PayrollManagement() {
               </DialogContent>
             </Dialog>
 
+            {payroll && payroll.length > 0 && (
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs"
+                onClick={() => printAllPayslips(payroll, year, month)}>
+                <Printer className="h-4 w-4" /> 전체 명세서
+              </Button>
+            )}
             {summary && summary.count > 0 && summary.paidCount < summary.count && (
               <Button size="sm" variant="outline" className="gap-1.5 text-green-700 border-green-300"
                 onClick={() => { if (confirm(`${year}년 ${month}월 급여 전체 지급 확정?`)) confirmMut.mutate({ year, month }); }}
@@ -182,6 +247,10 @@ export default function PayrollManagement() {
                               </Button>
                             </div>
                           )}
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-gray-500"
+                            onClick={() => printPayslip(p, year, month)} title="명세서 출력">
+                            <Printer className="h-3 w-3" />
+                          </Button>
                         </td>
                       </tr>
                     ))}
