@@ -168,4 +168,27 @@ export const journalEntryRouter = router({
         return { message: "전표가 삭제되었습니다." };
       }, `journalEntry.delete:${input.id}`);
     }),
+
+  /**
+   * AI 전표 추천 — 거래 정보 기반 차변/대변 자동 추천
+   */
+  aiRecommend: tenantRequiredProcedure
+    .input(z.object({
+      type: z.enum(["purchase", "sale", "expense", "manual"]),
+      itemName: z.string().optional(),
+      partnerName: z.string().optional(),
+      amount: z.number(),
+      description: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      try {
+        const { recommendJournalEntry } = await import("../../services/ai/aiJournalRecommend.service");
+        return await recommendJournalEntry(ctx.tenantId, input);
+      } catch (err: any) {
+        return {
+          debitCode: "", debitName: "", creditCode: "", creditName: "",
+          confidence: 0, reason: `추천 실패: ${err.message?.substring(0, 50)}`, source: "pattern" as const,
+        };
+      }
+    }),
 });
