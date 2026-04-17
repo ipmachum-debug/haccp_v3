@@ -628,6 +628,9 @@ function AccountingManagementContent() {
 
         {/* 대시보드 탭 */}
         <TabsContent value="dashboard" className="space-y-4">
+          {/* AI 인사이트 위젯 */}
+          <AIInsightsWidget />
+
           <Card>
             <CardHeader>
               <CardTitle>최근 거래 내역</CardTitle>
@@ -732,6 +735,109 @@ function AccountingManagementContent() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   AI 인사이트 위젯
+   ═══════════════════════════════════════════ */
+function AIInsightsWidget() {
+  const [showPurchase, setShowPurchase] = useState(false);
+  const [showCost, setShowCost] = useState(false);
+
+  const { data: purchaseRecs } = trpc.aiErp.purchaseRecommendations.useQuery(undefined, {
+    enabled: showPurchase, staleTime: 300000, retry: 1,
+  });
+  const { data: costAnomalies } = trpc.aiErp.costAnomalies.useQuery(undefined, {
+    enabled: showCost, staleTime: 300000, retry: 1,
+  });
+  const { data: shortages } = trpc.aiErp.shortagePredicitions.useQuery(undefined, {
+    staleTime: 300000, retry: 1,
+  });
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* 재고 부족 경고 */}
+      <Card className="border-l-4 border-l-red-400">
+        <CardHeader className="py-2.5 px-4">
+          <CardTitle className="text-xs flex items-center gap-1.5">⚠️ 재고 부족 예측</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          {!shortages || shortages.length === 0 ? (
+            <p className="text-xs text-muted-foreground">30일 내 부족 예상 없음</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(shortages as any[]).slice(0, 3).map((s: any) => (
+                <div key={s.materialId} className="flex items-center justify-between text-xs">
+                  <span className="truncate flex-1">{s.materialName}</span>
+                  <span className={`font-bold ${s.daysRemaining <= 7 ? "text-red-600" : "text-amber-600"}`}>
+                    {s.daysRemaining}일
+                  </span>
+                </div>
+              ))}
+              {(shortages as any[]).length > 3 && (
+                <p className="text-[10px] text-muted-foreground">+{(shortages as any[]).length - 3}건 더</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 발주 추천 */}
+      <Card className="border-l-4 border-l-blue-400">
+        <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
+          <CardTitle className="text-xs flex items-center gap-1.5">📦 AI 발주 추천</CardTitle>
+          {!showPurchase && (
+            <button onClick={() => setShowPurchase(true)} className="text-[10px] text-blue-600 hover:underline">조회</button>
+          )}
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          {!showPurchase ? (
+            <p className="text-xs text-muted-foreground">클릭하여 발주 추천 조회</p>
+          ) : !purchaseRecs || purchaseRecs.length === 0 ? (
+            <p className="text-xs text-muted-foreground">추천 발주 없음</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(purchaseRecs as any[]).slice(0, 3).map((r: any) => (
+                <div key={r.materialId} className="flex items-center justify-between text-xs">
+                  <span className="truncate flex-1">{r.materialName}</span>
+                  <Badge variant="outline" className={`text-[9px] ${r.urgency === "urgent" ? "text-red-600" : r.urgency === "soon" ? "text-amber-600" : "text-gray-500"}`}>
+                    {r.recommendedQty}{r.urgency === "urgent" ? " 긴급" : ""}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 원가 이상 */}
+      <Card className="border-l-4 border-l-amber-400">
+        <CardHeader className="py-2.5 px-4 flex flex-row items-center justify-between">
+          <CardTitle className="text-xs flex items-center gap-1.5">📊 원가 이상 탐지</CardTitle>
+          {!showCost && (
+            <button onClick={() => setShowCost(true)} className="text-[10px] text-amber-600 hover:underline">분석</button>
+          )}
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          {!showCost ? (
+            <p className="text-xs text-muted-foreground">클릭하여 원가 분석</p>
+          ) : !costAnomalies || costAnomalies.length === 0 ? (
+            <p className="text-xs text-emerald-600">✓ 이상 없음</p>
+          ) : (
+            <div className="space-y-1.5">
+              {(costAnomalies as any[]).slice(0, 3).map((a: any, i: number) => (
+                <div key={i} className="text-xs">
+                  <span className={`font-bold ${a.severity === "high" ? "text-red-600" : "text-amber-600"}`}>
+                    {a.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
