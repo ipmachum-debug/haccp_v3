@@ -596,6 +596,9 @@ function DashboardLayoutContent({
   const accountingMenuItems = [
     // ── 매일 쓰는 메뉴 (상단 배치) ──
 
+    // 📊 대시보드
+    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
+
     // 📥 매입·구매 (가장 빈번)
     { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
     { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
