@@ -24,6 +24,7 @@ export default function CashFlowDashboard() {
 
   const { data, isLoading } = trpc.cashFlow.dashboard.useQuery(undefined, { refetchInterval: 60000 });
   const { data: dailyData } = trpc.cashFlow.dailyReport.useQuery({ startDate: dailyStart, endDate: dailyEnd });
+  const { data: briefing } = trpc.cashFlow.aiBriefing.useQuery(undefined, { staleTime: 300000 });
 
   if (isLoading) {
     return (
@@ -97,6 +98,41 @@ export default function CashFlowDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* AI 브리핑 */}
+        {briefing && briefing.summary && (
+          <Card className="border-l-4 border-l-violet-500 bg-violet-50/30">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="h-8 w-8 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
+                  <span className="text-sm">🤖</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-violet-800 mb-1">AI 자금 브리핑 — {briefing.date}</p>
+                  <p className="text-sm text-gray-700 mb-2">{briefing.summary}</p>
+                  {briefing.warnings.length > 0 && (
+                    <div className="space-y-1 mb-2">
+                      {briefing.warnings.map((w: string, i: number) => (
+                        <p key={i} className="text-xs text-red-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3 shrink-0" />{w}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {briefing.recommendations.length > 0 && (
+                    <div className="space-y-1">
+                      {briefing.recommendations.map((r: string, i: number) => (
+                        <p key={i} className="text-xs text-violet-700 flex items-center gap-1">
+                          <CheckCircle className="h-3 w-3 shrink-0" />{r}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs defaultValue="overview">
           <TabsList>

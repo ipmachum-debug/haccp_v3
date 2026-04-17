@@ -159,4 +159,21 @@ export const cashFlowRouter = router({
         })),
       };
     }),
+
+  /**
+   * AI 자금 브리핑 — 오늘의 자금 현황 AI 요약
+   */
+  aiBriefing: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
+      const { generateCashBriefing } = await import("../../services/ai/aiCashBriefing.service");
+      return await generateCashBriefing(ctx.tenantId);
+    } catch (err: any) {
+      return {
+        date: new Date().toISOString().slice(0, 10),
+        summary: "브리핑 생성 실패",
+        highlights: [], warnings: [], recommendations: [],
+        data: { bankBalance: 0, apTotal: 0, arTotal: 0, todayDeposit: 0, todayWithdrawal: 0, overdueAR: 0, overdueAP: 0 },
+      };
+    }
+  }),
 });
