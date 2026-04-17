@@ -249,6 +249,16 @@ export const subscriptionPublicRouter = router({
       ? Math.ceil((endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
       : 0;
 
+    // 패키지별 모듈 매핑
+    const packageModules: Record<string, { erp: boolean; haccp: boolean }> = {
+      starter: { erp: false, haccp: true },       // HACCP만
+      standard: { erp: true, haccp: false },       // ERP만
+      enterprise: { erp: true, haccp: true },      // 통합
+      pro: { erp: true, haccp: true },             // 레거시 통합
+      basic: { erp: false, haccp: true },          // 레거시 HACCP
+    };
+    const modules = packageModules[tenant.subscriptionPackage as string] || { erp: true, haccp: true };
+
     return {
       status: tenant.status,
       subscriptionEndDate: tenant.subscriptionEndDate,
@@ -256,6 +266,7 @@ export const subscriptionPublicRouter = router({
       daysRemaining: daysRemaining > 0 ? daysRemaining : 0,
       isReadOnly: tenant.isReadOnly,
       subscriptionPackage: tenant.subscriptionPackage,
+      modules,
     };
   }),
 

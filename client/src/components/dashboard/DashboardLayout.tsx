@@ -418,6 +418,19 @@ function DashboardLayoutContent({
   
   // WORK/회계/HACCP 탭 상태 관리 (기본값: work)
   const [activeTab, setActiveTab] = useState<"work" | "finance" | "haccp">("work");
+
+  // 구독 기반 모듈 활성화 (DB 동적 + 환경변수 폴백)
+  const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>({
+    erp: MODULES.ERP, haccp: MODULES.HACCP,
+  });
+  const checkSubMut = trpc.subscriptionPublic.checkSubscriptionStatus.useMutation();
+  useEffect(() => {
+    checkSubMut.mutateAsync().then((info: any) => {
+      if (info?.modules) setDynamicModules(info.modules);
+    }).catch(() => {});
+  }, []);
+  const moduleERP = dynamicModules.erp;
+  const moduleHACCP = dynamicModules.haccp;
   
   // location 변경 시 탭 자동 전환
   useEffect(() => {
@@ -429,9 +442,9 @@ function DashboardLayoutContent({
     const isAccountingRoute = accountingMenuItems.some(item => 
       item.path === location || location.startsWith(item.path + "/")
     );
-    if (isAccountingRoute && MODULES.ERP) {
+    if (isAccountingRoute && moduleERP) {
       setActiveTab("finance");
-    } else if (isHaccpRoute && activeTab !== "haccp" && MODULES.HACCP) {
+    } else if (isHaccpRoute && activeTab !== "haccp" && moduleHACCP) {
       const isWorkRoute = workMenuItems.some(item => item.path === location) || 
                           superAdminMenuItems.some(item => item.path === location);
       if (!isWorkRoute) {
@@ -770,14 +783,14 @@ function DashboardLayoutContent({
             {!isCollapsed && (
               <div className="px-3 mb-2">
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
-                  <TabsList className={`grid w-full grid-cols-${1 + (MODULES.ERP && !isDemo ? 1 : 0) + (MODULES.HACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
+                  <TabsList className={`grid w-full grid-cols-${1 + (moduleERP && !isDemo ? 1 : 0) + (moduleHACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
                       WORK
                     </TabsTrigger>
-                    {MODULES.ERP && !isDemo && (
+                    {moduleERP && !isDemo && (
                       <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
                     )}
-                    {MODULES.HACCP && (
+                    {moduleHACCP && (
                       <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
                     )}
                   </TabsList>
