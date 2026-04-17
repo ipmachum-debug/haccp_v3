@@ -124,6 +124,14 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // 유저-구성원 매칭
+  const [matchOpen, setMatchOpen] = useState(false);
+  const { data: unmatchedUsers } = trpc.hr.unmatchedUsers.useQuery();
+  const linkUserMut = trpc.hr.linkUserToEmployee.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // 연차 부여 수정 (관리자)
   const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
@@ -528,6 +536,12 @@ export default function HRManagement() {
                 <div className="flex gap-2">
                   {isAdmin && empStatusTab === "active" && (
                     <>
+                      {unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
+                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-blue-300 text-blue-700"
+                          onClick={() => setMatchOpen(!matchOpen)}>
+                          <Users className="h-3 w-3" /> 유저 매칭 ({(unmatchedUsers as any[]).length})
+                        </Button>
+                      )}
                       <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700"
                         onClick={() => setNewEmpOpen(true)}>
                         <Plus className="h-3 w-3" /> 비회원 직원등록
@@ -619,6 +633,36 @@ export default function HRManagement() {
                         </table>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 유저-구성원 매칭 패널 */}
+              {matchOpen && unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
+                <Card className="border-blue-200">
+                  <CardHeader className="py-2.5 px-4 border-b bg-blue-50">
+                    <CardTitle className="text-xs text-blue-800">회원가입 유저 ↔ 구성원 매칭</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 space-y-2">
+                    <p className="text-[10px] text-muted-foreground">회원가입했지만 구성원에 연결되지 않은 유저입니다. 해당 직원을 선택해 매칭하세요.</p>
+                    {(unmatchedUsers as any[]).map((u: any) => (
+                      <div key={u.id} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2">
+                        <div>
+                          <span className="text-xs font-medium">{u.name}</span>
+                          <span className="text-[10px] text-muted-foreground ml-2">{u.email}</span>
+                        </div>
+                        <select className="h-7 text-[10px] border rounded px-1"
+                          defaultValue=""
+                          onChange={(e) => {
+                            if (e.target.value) linkUserMut.mutate({ employeeId: Number(e.target.value), userId: u.id });
+                          }}>
+                          <option value="">구성원 선택</option>
+                          {(leaveBalance as any[] || []).map((b: any) => (
+                            <option key={b.employeeId} value={b.employeeId}>{b.employeeName}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
                   </CardContent>
                 </Card>
               )}

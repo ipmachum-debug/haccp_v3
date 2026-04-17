@@ -7,22 +7,25 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
 
-// 한국시간 헬퍼
+// 한국시간 헬퍼 — 서버 TZ 무관하게 항상 KST
 function kstNow(): Date {
-  const d = new Date();
-  d.setHours(d.getHours() + 9); // UTC → KST
-  return d;
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
 }
 function kstToday(): string {
-  return kstNow().toISOString().slice(0, 10);
+  const d = kstNow();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 function kstTime(): string {
-  return kstNow().toISOString().slice(11, 19);
+  const d = kstNow();
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
 }
 function safeDateStr(v: any): string {
   if (!v) return "";
   if (typeof v === "string") return v.slice(0, 10);
-  if (v instanceof Date) { const d = new Date(v); d.setHours(d.getHours() + 9); return d.toISOString().slice(0, 10); }
+  if (v instanceof Date) {
+    const d = new Date(v.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
   return String(v).slice(0, 10);
 }
 
@@ -300,6 +303,37 @@ export const hrManagementRouter = router({
       return { message: "근태가 수정되었습니다." };
     }),
 
+  /** 관리자: 유저-구성원 매칭 (회원가입 유저 ↔ h_employees 연결) */
+  linkUserToEmployee: adminProcedure
+    .input(z.object({
+      employeeId: z.number(),
+      userId: z.number(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      await pool.execute(
+        `UPDATE h_employees SET user_id = ? WHERE id = ? AND tenant_id = ?`,
+        [input.userId, input.employeeId, ctx.tenantId],
+      );
+      return { message: "유저-구성원 매칭 완료" };
+    }),
+
+  /** 매칭 안 된 회원가입 유저 목록 */
+  unmatchedUsers: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT u.id, u.name, u.email, u.role
+         FROM users u
+         WHERE u.tenant_id = ? AND u.approval_status = 'approved'
+           AND u.id NOT IN (SELECT COALESCE(user_id, 0) FROM h_employees WHERE tenant_id = ?)
+         ORDER BY u.name`,
+        [ctx.tenantId, ctx.tenantId],
+      );
+      return rows as any[];
+    } catch (_) { return []; }
+  }),
+
   /** 관리자: 비회원 직원 등록 (h_employees에 직접 추가) */
   createEmployee: adminProcedure
     .input(z.object({
@@ -545,33 +579,35 @@ export const hrManagementRouter = router({
       if (!isAdmin) params.push(ctx.user.id);
 
       try {
-        // h_employees 기준으로 활성 직원만 조회 (user_id로 leave 연동)
         const empParams: any[] = [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId];
         let hEmpFilter = "";
         if (!isAdmin) {
-          hEmpFilter = ` AND e.user_id = ?`;
-          empParams.push(ctx.user.id);
+          // 로그인 유저 → h_employees.id 변환
+          const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
+          hEmpFilter = ` AND e.id = ?`;
+          empParams.push(empId);
         }
 
+        // ★ 핵심: leave_requests.employee_id = h_employees.id 기준으로 통일
         const [rows]: any = await pool.execute(
           `SELECT e.id as emp_id, e.user_id, e.name,
                   COALESCE(pos.position_name, '') as role,
                   COALESCE(dept.department_name, '') as department,
                   COALESCE(lb.annual_total, 15) as annual_total,
                   COALESCE((SELECT SUM(days) FROM leave_requests
-                    WHERE employee_id = e.user_id AND tenant_id = ? AND leave_type = 'annual'
+                    WHERE employee_id = e.id AND tenant_id = ? AND leave_type = 'annual'
                     AND status = 'approved' AND YEAR(start_date) = ?), 0) as annual_used
            FROM h_employees e
            LEFT JOIN h_departments dept ON e.department_id = dept.id
            LEFT JOIN h_positions pos ON e.position_id = pos.id
-           LEFT JOIN leave_balances lb ON e.user_id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
+           LEFT JOIN leave_balances lb ON e.id = lb.employee_id AND lb.tenant_id = ? AND lb.year = ?
            WHERE e.tenant_id = ? AND e.is_active = 1 ${hEmpFilter}
            ORDER BY e.name`,
           empParams,
         );
 
         return (rows as any[]).map((r: any) => ({
-          employeeId: r.user_id || r.emp_id,
+          employeeId: r.emp_id,
           employeeName: r.name,
           employeeRole: r.role,
           department: r.department,
