@@ -251,20 +251,67 @@ export const hrManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
       const targetDate = input?.date || kstToday();
-      const defaultClockOut = "18:00:00";
 
       try {
+        // 출근시간 + 9시간(8시간 근무 + 1시간 점심)으로 퇴근 자동 계산
         const [result]: any = await pool.execute(
           `UPDATE attendance_records
-           SET clock_out = ?,
-               work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0,
-               notes = CONCAT(COALESCE(notes, ''), ' [자동마감]')
+           SET clock_out = TIME_FORMAT(ADDTIME(clock_in, '09:00:00'), '%H:%i:%s'),
+               work_hours = 8.0,
+               notes = CONCAT(COALESCE(notes, ''), ' [자동마감: 출근+9h]')
            WHERE tenant_id = ? AND work_date = ? AND clock_out IS NULL`,
-          [defaultClockOut, defaultClockOut, ctx.tenantId, targetDate],
+          [ctx.tenantId, targetDate],
         );
-        return { updated: result.affectedRows, message: `${targetDate} 마감: ${result.affectedRows}명 퇴근 자동 처리 (18:00)` };
+        return { updated: result.affectedRows, message: `${targetDate} 마감: ${result.affectedRows}명 (출근시간+9시간 기준)` };
       } catch (err: any) {
         return { updated: 0, message: "마감 처리 실패" };
+      }
+    }),
+
+  /** 관리자: 일괄 출근 처리 (이미 출근한 직원 자동 제외) */
+  bulkClockIn: adminProcedure
+    .input(z.object({
+      date: z.string(),
+      clockIn: z.string().default("08:00:00"),
+      clockOut: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const tenantId = ctx.tenantId;
+
+      try {
+        // 활성 직원 목록
+        const [empRows]: any = await pool.execute(
+          `SELECT id FROM h_employees WHERE tenant_id = ? AND is_active = 1`,
+          [tenantId],
+        );
+        // 이미 출근한 직원 조회
+        const [existingRows]: any = await pool.execute(
+          `SELECT employee_id FROM attendance_records WHERE tenant_id = ? AND work_date = ?`,
+          [tenantId, input.date],
+        );
+        const existingSet = new Set((existingRows as any[]).map((r: any) => Number(r.employee_id)));
+
+        let created = 0;
+        const workHours = input.clockOut
+          ? (() => { const [ih,im] = input.clockIn.split(":").map(Number); const [oh,om] = input.clockOut.split(":").map(Number); return Math.max(0, ((oh*60+om) - (ih*60+im)) / 60); })()
+          : 0;
+
+        for (const emp of empRows as any[]) {
+          if (existingSet.has(emp.id)) continue; // ★ 이미 출근한 직원 제외
+
+          await pool.execute(
+            `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, clock_out, work_hours, status, notes)
+             VALUES (?, ?, ?, ?, ?, ?, 'present', '[일괄출근]')`,
+            [tenantId, emp.id, input.date, input.clockIn, input.clockOut || null, workHours],
+          );
+          created++;
+        }
+
+        const skipped = existingSet.size;
+        return { created, skipped, message: `${input.date} 일괄출근: ${created}명 등록 (${skipped}명 기출근 제외)` };
+      } catch (err: any) {
+        return { created: 0, skipped: 0, message: `일괄출근 실패: ${err.message?.substring(0, 80)}` };
       }
     }),
 

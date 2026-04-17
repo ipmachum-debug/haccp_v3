@@ -113,6 +113,12 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // 일괄 출근 (기출근자 자동 제외)
+  const bulkClockInMut = trpc.hr.bulkClockIn.useMutation({
+    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // 일일 마감 (퇴근 미기록 자동처리)
   const closeDayMut = trpc.hr.closeDay.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
@@ -363,7 +369,7 @@ export default function HRManagement() {
                     </Button>
                     <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-amber-300 text-amber-700"
                       onClick={() => {
-                        if (confirm(`오늘 퇴근 미기록 직원을 18:00 퇴근 자동 처리하시겠습니까?`))
+                        if (confirm(`퇴근 미기록 직원 → 출근시간+9시간(8h근무+1h점심) 자동 마감\n24시 기준 미처리 건도 포함됩니다.`))
                           closeDayMut.mutate({});
                       }}>
                       <Clock className="h-3 w-3" /> 일일 마감
@@ -372,13 +378,10 @@ export default function HRManagement() {
                       onClick={() => {
                         const date = prompt("일괄 출근 처리할 날짜 (YYYY-MM-DD):", todayLocal());
                         if (!date) return;
-                        const clockIn = prompt("출근 시간:", "09:00:00") || "09:00:00";
-                        const clockOut = prompt("퇴근 시간 (빈칸=미퇴근):", "18:00:00");
-                        if (!confirm(`${date} 전체 직원 일괄 출근 처리?\n출근: ${clockIn}\n퇴근: ${clockOut || "미처리"}`)) return;
-                        employees.forEach((emp: any) => {
-                          const userId = emp.userId || emp.id;
-                          createAttMut.mutate({ employeeId: userId, workDate: date, clockIn, clockOut: clockOut || undefined, notes: "일괄등록" });
-                        });
+                        const clockIn = prompt("출근 시간:", "08:00:00") || "08:00:00";
+                        const clockOut = prompt("퇴근 시간 (빈칸=미퇴근):", "17:00:00");
+                        if (!confirm(`${date} 일괄 출근 처리\n출근: ${clockIn} / 퇴근: ${clockOut || "미처리"}\n※ 이미 출근한 직원은 자동 제외됩니다`)) return;
+                        bulkClockInMut.mutate({ date, clockIn, clockOut: clockOut || undefined });
                       }}>
                       <Users className="h-3 w-3" /> 일괄 출근
                     </Button>
