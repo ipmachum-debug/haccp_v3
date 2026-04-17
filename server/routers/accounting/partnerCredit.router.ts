@@ -145,6 +145,49 @@ export const partnerCreditRouter = router({
   /**
    * 신용 요약 통계
    */
+  /**
+   * 미수금/미지급금 연령분석 (30/60/90/90+ 구간)
+   */
+  agingAnalysis: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    const tenantId = ctx.tenantId;
+
+    const aging = (rows: any[]) => {
+      const buckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+      const now = Date.now();
+      for (const r of rows) {
+        const amt = Number(r.total_amount || 0);
+        const txDate = new Date(r.transaction_date);
+        const days = Math.floor((now - txDate.getTime()) / (1000 * 60 * 60 * 24));
+        buckets.total += amt;
+        if (days <= 30) buckets.current += amt;
+        else if (days <= 60) buckets.d30 += amt;
+        else if (days <= 90) buckets.d60 += amt;
+        else buckets.d90plus += amt;
+      }
+      return buckets;
+    };
+
+    let apBuckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+    let arBuckets = { current: 0, d30: 0, d60: 0, d90: 0, d90plus: 0, total: 0 };
+
+    try {
+      const [apRows]: any = await pool.execute(
+        `SELECT total_amount, transaction_date FROM accounting_purchases
+         WHERE tenant_id = ? AND status IN ('pending', 'approved')`, [tenantId]);
+      apBuckets = aging(apRows as any[]);
+    } catch (_) {}
+
+    try {
+      const [arRows]: any = await pool.execute(
+        `SELECT total_amount, transaction_date FROM accounting_sales
+         WHERE tenant_id = ? AND status IN ('pending', 'approved')`, [tenantId]);
+      arBuckets = aging(arRows as any[]);
+    } catch (_) {}
+
+    return { ap: apBuckets, ar: arBuckets };
+  }),
+
   summary: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
     const tenantId = ctx.tenantId;

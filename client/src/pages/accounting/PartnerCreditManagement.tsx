@@ -32,6 +32,7 @@ export default function PartnerCreditManagement() {
     type: typeFilter, search: search || undefined,
   });
   const { data: summary } = trpc.partnerCredit.summary.useQuery();
+  const { data: aging } = trpc.partnerCredit.agingAnalysis.useQuery();
 
   const setLimitMut = trpc.partnerCredit.setCreditLimit.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
@@ -99,6 +100,40 @@ export default function PartnerCreditManagement() {
             </Button>
           ))}
         </div>
+
+        {/* 연령분석 */}
+        {aging && (
+          <div className="grid md:grid-cols-2 gap-3">
+            {[
+              { label: "미지급금 (AP) 연령분석", data: aging.ap, color: "red" },
+              { label: "미수금 (AR) 연령분석", data: aging.ar, color: "blue" },
+            ].map(({ label, data: d, color }) => (
+              <Card key={label}>
+                <CardHeader className="py-2.5 px-4 border-b">
+                  <CardTitle className="text-xs">{label}</CardTitle>
+                </CardHeader>
+                <CardContent className="p-3">
+                  <div className="grid grid-cols-5 gap-1 text-center text-[10px]">
+                    {[
+                      { label: "30일 이내", value: d.current, bg: "bg-emerald-50" },
+                      { label: "31~60일", value: d.d30, bg: "bg-amber-50" },
+                      { label: "61~90일", value: d.d60, bg: "bg-orange-50" },
+                      { label: "90일 초과", value: d.d90plus, bg: "bg-red-50" },
+                      { label: "합계", value: d.total, bg: "bg-gray-50" },
+                    ].map((b) => (
+                      <div key={b.label} className={`${b.bg} rounded-lg p-2`}>
+                        <p className="text-muted-foreground">{b.label}</p>
+                        <p className={`text-sm font-bold ${b.value > 0 ? `text-${color}-700` : "text-gray-300"}`}>
+                          {b.value > 0 ? fmt(b.value) : "-"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {/* 테이블 */}
         <Card>
