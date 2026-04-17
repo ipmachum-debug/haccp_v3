@@ -186,6 +186,62 @@ export const hrManagementRouter = router({
   // ═══════════════════════════════════════
 
   /** 휴가 신청 */
+  /** 관리자: 출퇴근 수기 등록 (누락/인터넷 불가 직원용) */
+  createAttendanceManual: adminProcedure
+    .input(z.object({
+      employeeId: z.number(),
+      workDate: z.string(),
+      clockIn: z.string(),
+      clockOut: z.string().optional(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      try {
+        const workHours = input.clockOut
+          ? (() => {
+              const [ih, im] = input.clockIn.split(":").map(Number);
+              const [oh, om] = (input.clockOut || "").split(":").map(Number);
+              return Math.max(0, ((oh * 60 + om) - (ih * 60 + im)) / 60);
+            })()
+          : 0;
+
+        await pool.execute(
+          `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, clock_out, work_hours, status, notes)
+           VALUES (?, ?, ?, ?, ?, ?, 'present', ?)
+           ON DUPLICATE KEY UPDATE clock_in=VALUES(clock_in), clock_out=VALUES(clock_out), work_hours=VALUES(work_hours), notes=VALUES(notes)`,
+          [ctx.tenantId, input.employeeId, input.workDate, input.clockIn,
+           input.clockOut || null, workHours, input.notes ? `[관리자등록] ${input.notes}` : "[관리자등록]"],
+        );
+        return { message: `${input.workDate} 출퇴근 등록 완료` };
+      } catch (err: any) {
+        throw new Error(`등록 실패: ${err.message}`);
+      }
+    }),
+
+  /** 관리자: 일일 마감 — 퇴근 미기록자 정규시간 자동 처리 */
+  closeDay: adminProcedure
+    .input(z.object({ date: z.string().optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      const targetDate = input?.date || kstToday();
+      const defaultClockOut = "18:00:00";
+
+      try {
+        const [result]: any = await pool.execute(
+          `UPDATE attendance_records
+           SET clock_out = ?,
+               work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0,
+               notes = CONCAT(COALESCE(notes, ''), ' [자동마감]')
+           WHERE tenant_id = ? AND work_date = ? AND clock_out IS NULL`,
+          [defaultClockOut, defaultClockOut, ctx.tenantId, targetDate],
+        );
+        return { updated: result.affectedRows, message: `${targetDate} 마감: ${result.affectedRows}명 퇴근 자동 처리 (18:00)` };
+      } catch (err: any) {
+        return { updated: 0, message: "마감 처리 실패" };
+      }
+    }),
+
   /** 관리자: 근태 수정 (잘못 찍은 출퇴근 보정) */
   updateAttendance: adminProcedure
     .input(z.object({
@@ -220,6 +276,58 @@ export const hrManagementRouter = router({
       );
       return { message: "근태가 수정되었습니다." };
     }),
+
+  /** 관리자: 비회원 직원 등록 (h_employees에 직접 추가) */
+  createEmployee: adminProcedure
+    .input(z.object({
+      name: z.string().min(1, "이름 필수"),
+      departmentId: z.number().optional(),
+      positionId: z.number().optional(),
+      hireDate: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const pool = getPool();
+      // 사번 자동생성
+      const [lastCode]: any = await pool.execute(
+        `SELECT employee_code FROM h_employees WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`,
+        [ctx.tenantId],
+      );
+      const lastNum = lastCode[0]?.employee_code
+        ? Number(lastCode[0].employee_code.replace(/\D/g, "")) + 1
+        : 1;
+      const empCode = `EMP-${String(lastNum).padStart(3, "0")}`;
+
+      const [result]: any = await pool.execute(
+        `INSERT INTO h_employees (tenant_id, user_id, employee_code, name, department_id, position_id, hire_date, is_active)
+         VALUES (?, NULL, ?, ?, ?, ?, ?, 1)`,
+        [ctx.tenantId, empCode, input.name, input.departmentId || null, input.positionId || null, input.hireDate || null],
+      );
+      return { id: result.insertId, employeeCode: empCode, message: `${input.name} 직원 등록 완료 (${empCode})` };
+    }),
+
+  /** 부서 목록 (드롭다운용) */
+  departments: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT id, department_name as name FROM h_departments WHERE tenant_id = ? ORDER BY department_name`,
+        [ctx.tenantId],
+      );
+      return rows as any[];
+    } catch (_) { return []; }
+  }),
+
+  /** 직급 목록 (드롭다운용) */
+  positions: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const pool = getPool();
+    try {
+      const [rows]: any = await pool.execute(
+        `SELECT id, position_name as name FROM h_positions WHERE tenant_id = ? ORDER BY position_name`,
+        [ctx.tenantId],
+      );
+      return rows as any[];
+    } catch (_) { return []; }
+  }),
 
   /** 관리자: 수기 연차 등록 (회원가입 안 된 직원용) */
   createLeaveManual: adminProcedure
