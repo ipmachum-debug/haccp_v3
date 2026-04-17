@@ -569,7 +569,7 @@ export const hrManagementRouter = router({
                 a.name as approved_by_name
          FROM leave_requests lr
          LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
-         LEFT JOIN users u ON (e.user_id = u.id OR lr.employee_id = u.id)
+         LEFT JOIN users u ON e.user_id = u.id
          LEFT JOIN users a ON lr.approved_by = a.id
          ${where}
          ORDER BY lr.start_date DESC`,
