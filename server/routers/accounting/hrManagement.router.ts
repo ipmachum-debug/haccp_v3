@@ -140,8 +140,9 @@ export const hrManagementRouter = router({
         where += ` AND a.employee_id = ?`;
         params.push(input.employeeId);
       } else if (!isAdmin) {
+        const myEmpId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
         where += ` AND a.employee_id = ?`;
-        params.push(ctx.user.id);
+        params.push(myEmpId);
       }
 
       const [rows]: any = await pool.execute(
@@ -663,11 +664,6 @@ export const hrManagementRouter = router({
       const pool = getPool();
       const year = input?.year || kstNow().getFullYear();
       const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
-
-      // 파라미터 바인딩 사용 (SQL injection 방지)
-      const empFilter = isAdmin ? "" : ` AND u.id = ?`;
-      const params: any[] = [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId];
-      if (!isAdmin) params.push(ctx.user.id);
 
       try {
         const empParams: any[] = [ctx.tenantId, year, ctx.tenantId, year, ctx.tenantId];
