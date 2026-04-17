@@ -26,6 +26,23 @@ function safeDateStr(v: any): string {
   return String(v).slice(0, 10);
 }
 
+/**
+ * users.id → h_employees.id 변환
+ * 출퇴근/연차는 h_employees.id 기준으로 통일
+ * 회원가입 유저: h_employees.user_id = users.id 매핑
+ */
+async function resolveEmployeeId(pool: any, tenantId: number, userId: number): Promise<number> {
+  try {
+    const [rows]: any = await pool.execute(
+      `SELECT id FROM h_employees WHERE tenant_id = ? AND user_id = ? AND is_active = 1 LIMIT 1`,
+      [tenantId, userId],
+    );
+    if (rows[0]?.id) return Number(rows[0].id);
+  } catch (_) {}
+  // h_employees에 매핑 안 되어있으면 users.id 그대로 사용 (폴백)
+  return userId;
+}
+
 export const hrManagementRouter = router({
   // ═══════════════════════════════════════
   //  근태 관리
@@ -37,9 +54,10 @@ export const hrManagementRouter = router({
       const pool = getPool();
       const today = kstToday();
       const now = kstTime();
+      const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       const [existing]: any = await pool.execute(
         `SELECT id FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
-        [ctx.tenantId, ctx.user.id, today],
+        [ctx.tenantId, empId, today],
       );
       if (existing.length > 0) {
         return { alreadyClockedIn: true, message: "이미 출근 처리되었습니다." };
@@ -47,7 +65,7 @@ export const hrManagementRouter = router({
       await pool.execute(
         `INSERT INTO attendance_records (tenant_id, employee_id, work_date, clock_in, status)
          VALUES (?, ?, ?, ?, 'present')`,
-        [ctx.tenantId, ctx.user.id, today, now],
+        [ctx.tenantId, empId, today, now],
       );
       return { alreadyClockedIn: false, message: `출근 완료 (${now})` };
     } catch (err: any) {
@@ -62,11 +80,12 @@ export const hrManagementRouter = router({
       const pool = getPool();
       const today = kstToday();
       const now = kstTime();
+      const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       const [result]: any = await pool.execute(
         `UPDATE attendance_records SET clock_out = ?,
            work_hours = TIMESTAMPDIFF(MINUTE, CONCAT(work_date, ' ', clock_in), CONCAT(work_date, ' ', ?)) / 60.0
          WHERE tenant_id = ? AND employee_id = ? AND work_date = ? AND clock_out IS NULL`,
-        [now, now, ctx.tenantId, ctx.user.id, today],
+        [now, now, ctx.tenantId, empId, today],
       );
       if (result.affectedRows === 0) {
         return { message: "출근 기록이 없거나 이미 퇴근했습니다." };
@@ -83,9 +102,10 @@ export const hrManagementRouter = router({
     try {
       const pool = getPool();
       const today = kstToday();
+      const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       const [rows]: any = await pool.execute(
         `SELECT * FROM attendance_records WHERE tenant_id = ? AND employee_id = ? AND work_date = ?`,
-        [ctx.tenantId, ctx.user.id, today],
+        [ctx.tenantId, empId, today],
       );
       return rows[0] ? {
         clockIn: rows[0].clock_in,
@@ -122,11 +142,14 @@ export const hrManagementRouter = router({
       }
 
       const [rows]: any = await pool.execute(
-        `SELECT a.*, u.name as employee_name, u.role as employee_role
+        `SELECT a.*,
+                COALESCE(e.name, u.name) as employee_name,
+                COALESCE(u.role, '') as employee_role
          FROM attendance_records a
-         LEFT JOIN users u ON a.employee_id = u.id
+         LEFT JOIN h_employees e ON a.employee_id = e.id AND e.tenant_id = a.tenant_id
+         LEFT JOIN users u ON (e.user_id = u.id OR a.employee_id = u.id)
          ${where}
-         ORDER BY a.work_date DESC, u.name ASC`,
+         ORDER BY a.work_date DESC, COALESCE(e.name, u.name) ASC`,
         params,
       );
 
@@ -427,6 +450,7 @@ export const hrManagementRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
+      const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       // 일수 계산
       const start = new Date(input.startDate);
       const end = new Date(input.endDate);
@@ -436,7 +460,7 @@ export const hrManagementRouter = router({
         `INSERT INTO leave_requests
            (tenant_id, employee_id, leave_type, start_date, end_date, days, reason, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-        [ctx.tenantId, ctx.user.id, input.leaveType, input.startDate, input.endDate, days, input.reason],
+        [ctx.tenantId, empId, input.leaveType, input.startDate, input.endDate, days, input.reason],
       );
       return { message: `휴가 신청 완료 (${days}일)` };
     }),
@@ -471,15 +495,21 @@ export const hrManagementRouter = router({
       let where = `WHERE lr.tenant_id = ?`;
       const params: any[] = [ctx.tenantId];
 
-      if (!isAdmin) { where += ` AND lr.employee_id = ?`; params.push(ctx.user.id); }
+      if (!isAdmin) {
+        const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
+        where += ` AND lr.employee_id = ?`; params.push(empId);
+      }
       if (input?.year) { where += ` AND YEAR(lr.start_date) = ?`; params.push(input.year); }
       if (input?.status && input.status !== "all") { where += ` AND lr.status = ?`; params.push(input.status); }
 
       const [rows]: any = await pool.execute(
-        `SELECT lr.*, u.name as employee_name, u.role as employee_role,
+        `SELECT lr.*,
+                COALESCE(e.name, u.name) as employee_name,
+                COALESCE(u.role, '') as employee_role,
                 a.name as approved_by_name
          FROM leave_requests lr
-         LEFT JOIN users u ON lr.employee_id = u.id
+         LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
+         LEFT JOIN users u ON (e.user_id = u.id OR lr.employee_id = u.id)
          LEFT JOIN users a ON lr.approved_by = a.id
          ${where}
          ORDER BY lr.start_date DESC`,
