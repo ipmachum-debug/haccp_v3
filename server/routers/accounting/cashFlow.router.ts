@@ -94,4 +94,69 @@ export const cashFlowRouter = router({
       projectedCash,
     };
   }),
+
+  /**
+   * 자금일보 (일별 입출금 내역)
+   */
+  dailyReport: tenantRequiredProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      const tenantId = ctx.tenantId;
+
+      // 일별 입출금 집계
+      const rows = await safeQuery(pool,
+        `SELECT DATE(transaction_date) as txDate,
+                SUM(CASE WHEN transaction_type = 'deposit' THEN CAST(amount AS DECIMAL(15,2)) ELSE 0 END) as deposit,
+                SUM(CASE WHEN transaction_type = 'withdrawal' THEN CAST(amount AS DECIMAL(15,2)) ELSE 0 END) as withdrawal,
+                COUNT(*) as cnt
+         FROM bank_transactions
+         WHERE tenant_id = ? AND transaction_date >= ? AND transaction_date <= ?
+         GROUP BY DATE(transaction_date)
+         ORDER BY txDate DESC`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      // 지급 예정 (미지급 매입)
+      const payables = await safeQuery(pool,
+        `SELECT transaction_date as dueDate,
+                SUM(CAST(total_amount AS DECIMAL(15,2))) as amount,
+                COUNT(*) as cnt
+         FROM accounting_purchases
+         WHERE tenant_id = ? AND status IN ('pending', 'approved')
+           AND transaction_date >= ? AND transaction_date <= ?
+         GROUP BY transaction_date ORDER BY dueDate`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      // 수금 예정 (미수 매출)
+      const receivables = await safeQuery(pool,
+        `SELECT transaction_date as dueDate,
+                SUM(CAST(total_amount AS DECIMAL(15,2))) as amount,
+                COUNT(*) as cnt
+         FROM accounting_sales
+         WHERE tenant_id = ? AND status IN ('pending', 'approved')
+           AND transaction_date >= ? AND transaction_date <= ?
+         GROUP BY transaction_date ORDER BY dueDate`,
+        [tenantId, input.startDate, input.endDate],
+      );
+
+      return {
+        daily: rows.map((r: any) => ({
+          date: r.txDate instanceof Date ? r.txDate.toISOString().slice(0, 10) : String(r.txDate || ""),
+          deposit: Number(r.deposit || 0),
+          withdrawal: Number(r.withdrawal || 0),
+          net: Number(r.deposit || 0) - Number(r.withdrawal || 0),
+          count: Number(r.cnt || 0),
+        })),
+        payables: payables.map((r: any) => ({
+          date: r.dueDate instanceof Date ? r.dueDate.toISOString().slice(0, 10) : String(r.dueDate || ""),
+          amount: Number(r.amount || 0), count: Number(r.cnt || 0),
+        })),
+        receivables: receivables.map((r: any) => ({
+          date: r.dueDate instanceof Date ? r.dueDate.toISOString().slice(0, 10) : String(r.dueDate || ""),
+          amount: Number(r.amount || 0), count: Number(r.cnt || 0),
+        })),
+      };
+    }),
 });

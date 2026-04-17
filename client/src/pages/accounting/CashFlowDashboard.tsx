@@ -1,20 +1,29 @@
 /**
- * 자금현황 대시보드 — ERP 강화 Phase 1-3
- * 은행잔액 + AP/AR + 예상 현금흐름
+ * 자금현황 대시보드 — ERP 강화
+ * 은행잔액 + AP/AR + 예상 현금흐름 + 자금일보
  */
+import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Wallet, Landmark, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown,
-  FileText, Package, Loader2, AlertTriangle, CheckCircle,
+  FileText, Package, Loader2, AlertTriangle, CheckCircle, Calendar,
 } from "lucide-react";
 
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
 export default function CashFlowDashboard() {
+  const now = new Date();
+  const [dailyStart, setDailyStart] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`);
+  const [dailyEnd, setDailyEnd] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`);
+
   const { data, isLoading } = trpc.cashFlow.dashboard.useQuery(undefined, { refetchInterval: 60000 });
+  const { data: dailyData } = trpc.cashFlow.dailyReport.useQuery({ startDate: dailyStart, endDate: dailyEnd });
 
   if (isLoading) {
     return (
@@ -89,6 +98,13 @@ export default function CashFlowDashboard() {
           </Card>
         </div>
 
+        <Tabs defaultValue="overview">
+          <TabsList>
+            <TabsTrigger value="overview" className="text-xs gap-1.5"><Wallet className="h-3.5 w-3.5" /> 자금현황</TabsTrigger>
+            <TabsTrigger value="daily" className="text-xs gap-1.5"><Calendar className="h-3.5 w-3.5" /> 자금일보</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview">
         <div className="grid md:grid-cols-2 gap-4">
           {/* 은행 계좌별 잔액 */}
           <Card>
@@ -192,6 +208,99 @@ export default function CashFlowDashboard() {
             </CardContent>
           </Card>
         </div>
+          </TabsContent>
+
+          {/* 자금일보 탭 */}
+          <TabsContent value="daily">
+            <div className="space-y-3">
+              <div className="flex gap-2 items-end">
+                <div>
+                  <Label className="text-[10px]">시작일</Label>
+                  <Input type="date" value={dailyStart} onChange={(e: any) => setDailyStart(e.target.value)} className="h-8 text-xs w-[130px]" />
+                </div>
+                <div>
+                  <Label className="text-[10px]">종료일</Label>
+                  <Input type="date" value={dailyEnd} onChange={(e: any) => setDailyEnd(e.target.value)} className="h-8 text-xs w-[130px]" />
+                </div>
+              </div>
+
+              <Card>
+                <CardHeader className="py-2.5 px-4 border-b">
+                  <CardTitle className="text-sm">일별 입출금 내역</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {!dailyData?.daily?.length ? (
+                    <div className="py-12 text-center text-muted-foreground text-sm">해당 기간 거래가 없습니다</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead><tr className="border-b bg-muted/30">
+                          <th className="p-2.5 text-left font-medium">날짜</th>
+                          <th className="p-2.5 text-right font-medium">입금</th>
+                          <th className="p-2.5 text-right font-medium">출금</th>
+                          <th className="p-2.5 text-right font-medium">순액</th>
+                          <th className="p-2.5 text-center font-medium">건수</th>
+                        </tr></thead>
+                        <tbody>
+                          {dailyData.daily.map((d: any) => (
+                            <tr key={d.date} className="border-b hover:bg-accent/50">
+                              <td className="p-2.5 font-mono">{d.date}</td>
+                              <td className="p-2.5 text-right font-mono text-emerald-700">{d.deposit > 0 ? `+${fmt(d.deposit)}` : "-"}</td>
+                              <td className="p-2.5 text-right font-mono text-red-600">{d.withdrawal > 0 ? `-${fmt(d.withdrawal)}` : "-"}</td>
+                              <td className={`p-2.5 text-right font-mono font-bold ${d.net >= 0 ? "text-emerald-700" : "text-red-600"}`}>{fmt(d.net)}</td>
+                              <td className="p-2.5 text-center">{d.count}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot><tr className="bg-muted/30 border-t-2 font-bold">
+                          <td className="p-2.5">합계</td>
+                          <td className="p-2.5 text-right font-mono text-emerald-700">+{fmt(dailyData.daily.reduce((s: number, d: any) => s + d.deposit, 0))}</td>
+                          <td className="p-2.5 text-right font-mono text-red-600">-{fmt(dailyData.daily.reduce((s: number, d: any) => s + d.withdrawal, 0))}</td>
+                          <td className="p-2.5 text-right font-mono">{fmt(dailyData.daily.reduce((s: number, d: any) => s + d.net, 0))}</td>
+                          <td className="p-2.5 text-center">{dailyData.daily.reduce((s: number, d: any) => s + d.count, 0)}</td>
+                        </tr></tfoot>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 지급/수금 예정 */}
+              <div className="grid md:grid-cols-2 gap-3">
+                <Card>
+                  <CardHeader className="py-2 px-4 border-b">
+                    <CardTitle className="text-xs text-red-700 flex items-center gap-1"><ArrowUpRight className="h-3 w-3" /> 지급 예정</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {!dailyData?.payables?.length ? <div className="p-4 text-center text-muted-foreground text-xs">없음</div> : (
+                      <div className="divide-y">{dailyData.payables.map((p: any, i: number) => (
+                        <div key={i} className="flex justify-between px-4 py-2 text-xs">
+                          <span className="font-mono">{p.date}</span>
+                          <span className="font-mono text-red-600">{fmt(p.amount)} ({p.count}건)</span>
+                        </div>
+                      ))}</div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="py-2 px-4 border-b">
+                    <CardTitle className="text-xs text-emerald-700 flex items-center gap-1"><ArrowDownLeft className="h-3 w-3" /> 수금 예정</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {!dailyData?.receivables?.length ? <div className="p-4 text-center text-muted-foreground text-xs">없음</div> : (
+                      <div className="divide-y">{dailyData.receivables.map((r: any, i: number) => (
+                        <div key={i} className="flex justify-between px-4 py-2 text-xs">
+                          <span className="font-mono">{r.date}</span>
+                          <span className="font-mono text-emerald-700">{fmt(r.amount)} ({r.count}건)</span>
+                        </div>
+                      ))}</div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   );
