@@ -24,7 +24,13 @@ export default function CashFlowDashboard() {
 
   const { data, isLoading } = trpc.cashFlow.dashboard.useQuery(undefined, { refetchInterval: 60000 });
   const { data: dailyData } = trpc.cashFlow.dailyReport.useQuery({ startDate: dailyStart, endDate: dailyEnd });
-  const { data: briefing } = trpc.cashFlow.aiBriefing.useQuery(undefined, { staleTime: 300000 });
+  const [briefingEnabled, setBriefingEnabled] = useState(false);
+  const { data: briefing, isLoading: briefingLoading } = trpc.cashFlow.aiBriefing.useQuery(undefined, {
+    enabled: briefingEnabled,
+    staleTime: 600000, // 10분 캐시
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
 
   if (isLoading) {
     return (
@@ -100,9 +106,25 @@ export default function CashFlowDashboard() {
         </div>
 
         {/* AI 브리핑 */}
-        {briefing && briefing.summary && (
-          <Card className="border-l-4 border-l-violet-500 bg-violet-50/30">
-            <CardContent className="p-4">
+        <Card className="border-l-4 border-l-violet-500 bg-violet-50/30">
+          <CardContent className="p-4">
+            {!briefingEnabled ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">🤖</span>
+                  <span className="text-xs text-violet-700">AI 자금 브리핑</span>
+                </div>
+                <button onClick={() => setBriefingEnabled(true)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 transition">
+                  브리핑 생성
+                </button>
+              </div>
+            ) : briefingLoading || !briefing ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
+                <span className="text-xs text-violet-700">AI가 자금 현황을 분석하고 있습니다...</span>
+              </div>
+            ) : briefing.summary ? (
               <div className="flex items-start gap-3">
                 <div className="h-8 w-8 rounded-full bg-violet-100 flex items-center justify-center shrink-0">
                   <span className="text-sm">🤖</span>
@@ -130,9 +152,9 @@ export default function CashFlowDashboard() {
                   )}
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : null}
+          </CardContent>
+        </Card>
 
         <Tabs defaultValue="overview">
           <TabsList>
