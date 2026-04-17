@@ -31,7 +31,7 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
-import { FEATURES } from "@/lib/featureFlags";
+import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -429,9 +429,9 @@ function DashboardLayoutContent({
     const isAccountingRoute = accountingMenuItems.some(item => 
       item.path === location || location.startsWith(item.path + "/")
     );
-    if (isAccountingRoute) {
+    if (isAccountingRoute && MODULES.ERP) {
       setActiveTab("finance");
-    } else if (isHaccpRoute && activeTab !== "haccp") {
+    } else if (isHaccpRoute && activeTab !== "haccp" && MODULES.HACCP) {
       const isWorkRoute = workMenuItems.some(item => item.path === location) || 
                           superAdminMenuItems.some(item => item.path === location);
       if (!isWorkRoute) {
@@ -770,14 +770,16 @@ function DashboardLayoutContent({
             {!isCollapsed && (
               <div className="px-3 mb-2">
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
-                  <TabsList className={`grid w-full ${isDemo ? "grid-cols-2" : "grid-cols-3"} text-[11px] h-8 bg-sidebar-accent/60`}>
+                  <TabsList className={`grid w-full grid-cols-${1 + (MODULES.ERP && !isDemo ? 1 : 0) + (MODULES.HACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
                       WORK
                     </TabsTrigger>
-                    {!isDemo && (
+                    {MODULES.ERP && !isDemo && (
                       <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
                     )}
-                    <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
+                    {MODULES.HACCP && (
+                      <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
+                    )}
                   </TabsList>
                 </Tabs>
               </div>

@@ -24,6 +24,26 @@ const envFlag = (key: string, defaultValue: boolean): boolean => {
   return String(v).toLowerCase() === "true" || v === "1";
 };
 
+/**
+ * 모듈 활성화 플래그 — 구독 패키지별 기능 제어
+ *
+ * 사용법:
+ *   import { MODULES } from "@/lib/featureFlags";
+ *   {MODULES.ERP && <TabsTrigger>회계</TabsTrigger>}
+ *
+ * 환경변수:
+ *   VITE_MODULE_ERP=true/false
+ *   VITE_MODULE_HACCP=true/false
+ *
+ * 기본값: 둘 다 true (통합 패키지)
+ */
+export const MODULES = {
+  ERP: envFlag("VITE_MODULE_ERP", true),
+  HACCP: envFlag("VITE_MODULE_HACCP", true),
+} as const;
+
+export type ModuleKey = keyof typeof MODULES;
+
 export const FEATURES = {
   /**
    * GOGOGOPICK 연동 기능 (Opscore 통합)
