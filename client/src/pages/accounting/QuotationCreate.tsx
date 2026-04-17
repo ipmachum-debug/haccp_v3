@@ -85,6 +85,7 @@ function QuotationCreateContent() {
   const [notes, setNotes] = useState<string>("");
   const [lines, setLines] = useState<QuoLine[]>([emptyLine()]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(true);
+  const [isNewPartner, setIsNewPartner] = useState(false); // 신규 거래처 임시 입력
 
   // Phase B: 반복 판매 품목 추천 (고객 선택 시)
   const { data: suggestions = [] } = trpc.quotation.suggestRepeatItems.useQuery(
@@ -254,8 +255,8 @@ function QuotationCreateContent() {
   };
 
   const handleSave = () => {
-    if (!partnerId) {
-      toast({ title: "거래처를 선택하세요", variant: "destructive" });
+    if (!partnerId && !partnerName.trim()) {
+      toast({ title: "거래처를 선택하거나 이름을 입력하세요", variant: "destructive" });
       return;
     }
     if (lines.some((l) => !l.itemName || l.quantity <= 0 || l.unitPrice < 0)) {
@@ -264,7 +265,8 @@ function QuotationCreateContent() {
     }
 
     createMutation.mutate({
-      partnerId,
+      partnerId: partnerId || undefined,
+      partnerName: partnerName || undefined,
       quoteDate,
       validUntil: validUntil || undefined,
       title: title || undefined,
@@ -318,21 +320,28 @@ function QuotationCreateContent() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <div className="space-y-1.5 md:col-span-2">
-              <Label className="text-xs">고객 *</Label>
-              <PartnerSearchInput
-                partnerType="customer"
-                selectedId={partnerId}
-                selectedName={partnerName}
-                onSelect={(id, name) => {
-                  setPartnerId(id);
-                  setPartnerName(name);
-                }}
-                onClear={() => {
-                  setPartnerId(null);
-                  setPartnerName("");
-                }}
-                placeholder="고객 검색"
-              />
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">고객 *</Label>
+                <button type="button" className="text-[10px] text-blue-600 hover:underline"
+                  onClick={() => { setIsNewPartner(!isNewPartner); setPartnerId(null); setPartnerName(""); }}>
+                  {isNewPartner ? "기존 거래처 선택" : "신규 거래처 직접 입력"}
+                </button>
+              </div>
+              {isNewPartner ? (
+                <input type="text" value={partnerName}
+                  onChange={(e) => setPartnerName(e.target.value)}
+                  placeholder="거래처명 직접 입력 (미등록 업체)"
+                  className="w-full h-10 px-3 border rounded-lg text-sm bg-amber-50 border-amber-300 focus:ring-2 focus:ring-amber-500/20" />
+              ) : (
+                <PartnerSearchInput
+                  partnerType="customer"
+                  selectedId={partnerId}
+                  selectedName={partnerName}
+                  onSelect={(id, name) => { setPartnerId(id); setPartnerName(name); }}
+                  onClear={() => { setPartnerId(null); setPartnerName(""); }}
+                  placeholder="고객 검색"
+                />
+              )}
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">견적일 *</Label>
