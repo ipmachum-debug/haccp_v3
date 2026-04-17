@@ -65,6 +65,9 @@ export type UserIntent =
   | "expense_query"
   | "cashflow_query"
   | "payment_risk_query"
+  | "purchase_recommend"
+  | "shortage_predict"
+  | "cost_anomaly"
   | "journal_query"
   | "financial_summary"
   | "training_query"
@@ -93,6 +96,9 @@ export function classifyIntentKeyword(message: string): UserIntent {
   if (/연체|미수|미지급|ap.*ar|외상|결제.*기한|수금/.test(msg)) return "payment_risk_query";
   if (/분개|journal|회계.*오류|대차|차변|대변|전기/.test(msg)) return "journal_query";
   if (/매출|수익|손익|재무|이익|margin|profit|매출.*현황/.test(msg)) return "financial_summary";
+  if (/발주.*추천|뭐.*주문|부족.*원재료|재고.*발주|order.*recommend/.test(msg)) return "purchase_recommend";
+  if (/재고.*부족|재고.*예측|소진.*예상|shortage|언제.*떨어/.test(msg)) return "shortage_predict";
+  if (/원가.*이상|단가.*상승|원가율|cost.*anomal|왜.*비싸/.test(msg)) return "cost_anomaly";
 
   // Training intent
   if (/교육|훈련|이수|5분.*haccp|오늘.*교육|교육.*완료|교육.*현황|training/.test(msg)) return "training_query";
@@ -467,6 +473,30 @@ async function gatherContext(
         const payRisk = await analyzePaymentRisk(tenantId);
         context = { paymentRisk: { apSummary: payRisk.apSummary, arSummary: payRisk.arSummary, topApPartners: payRisk.apProfiles.slice(0, 5), topArPartners: payRisk.arProfiles.slice(0, 5), recommendations: payRisk.recommendations } };
         dataSources.push("ap_ledger", "ar_ledger", "partners");
+        break;
+      }
+
+      case "purchase_recommend": {
+        const { generatePurchaseRecommendations } = await import("../../services/ai/aiErpAdvanced.service");
+        const recs = await generatePurchaseRecommendations(tenantId);
+        context = { purchaseRecommendations: recs.slice(0, 10) };
+        dataSources.push("inventory", "item_master");
+        break;
+      }
+
+      case "shortage_predict": {
+        const { predictInventoryShortages } = await import("../../services/ai/aiErpAdvanced.service");
+        const shortages = await predictInventoryShortages(tenantId, 30);
+        context = { shortagePredicitions: shortages.slice(0, 10) };
+        dataSources.push("inventory", "transactions");
+        break;
+      }
+
+      case "cost_anomaly": {
+        const { detectCostAnomalies } = await import("../../services/ai/aiErpAdvanced.service");
+        const anomalies = await detectCostAnomalies(tenantId);
+        context = { costAnomalies: anomalies };
+        dataSources.push("purchases", "journal_lines");
         break;
       }
 
