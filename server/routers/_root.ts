@@ -42,6 +42,8 @@ import {
   payrollRouter,
   hrManagementRouter,
   purchaseReturnRouter,
+  recurringTransactionRouter,
+  changeLogRouter,
 } from "./accounting";
 
 // ── auth ──
@@ -295,6 +297,8 @@ export const appRouter = router({
   payroll: payrollRouter,
   hr: hrManagementRouter,
   purchaseReturn: purchaseReturnRouter,
+  recurring: recurringTransactionRouter,
+  changeLog: changeLogRouter,
   popbillSettings: popbillSettingsRouter,
 
   // ── dashboard ──

@@ -37,3 +37,5 @@ export { partnerCreditRouter } from "./partnerCredit.router";
 export { payrollRouter } from "./payroll.router";
 export { hrManagementRouter } from "./hrManagement.router";
 export { purchaseReturnRouter } from "./purchaseReturn.router";
+export { recurringTransactionRouter } from "./recurringTransaction.router";
+export { changeLogRouter } from "./changeLog.router";
