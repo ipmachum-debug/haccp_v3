@@ -471,12 +471,13 @@ export const hrManagementRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
+      const approverEmpId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       await pool.execute(
         `INSERT INTO leave_requests
            (tenant_id, employee_id, leave_type, start_date, end_date, days, reason, status, approved_by, approved_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW())`,
         [ctx.tenantId, input.employeeId, input.leaveType, input.startDate, input.endDate,
-         input.days, `[수기등록] ${input.reason}`, ctx.user.id],
+         input.days, `[수기등록] ${input.reason}`, approverEmpId],
       );
       return { message: `수기 연차 ${input.days}일 등록 완료 (자동 승인)` };
     }),
@@ -581,10 +582,11 @@ export const hrManagementRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
+      const approverEmpId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       await pool.execute(
         `UPDATE leave_requests SET status = ?, approved_by = ?, approved_at = NOW(), approval_comment = ?
          WHERE id = ? AND tenant_id = ?`,
-        [input.action, ctx.user.id, input.comment || null, input.id, ctx.tenantId],
+        [input.action, approverEmpId, input.comment || null, input.id, ctx.tenantId],
       );
       return { message: input.action === "approved" ? "승인 완료" : "반려 완료" };
     }),

@@ -627,34 +627,35 @@ async function ensureAccountCategoriesTable(conn: any) {
 }
 
 /**
- * accounting_accounts 테이블에 account_category_id 컬럼 ALTER ensure
+ * accounting_accounts / accounting_accounts_v2 테이블에 account_category_id 컬럼 ALTER ensure
  * ★ 2026-04-15: scripts/migrate-account-category-fk.ts 수동 실행 대신
  *   서버 시작 시 자동 보장. 컬럼 부재 시 accountingAccounts.list 가
  *   매 요청마다 fallback 2회 왕복 → 10초 로딩 재발 방지.
  */
 async function ensureAccountingAccountsColumns(conn: any) {
-  try {
-    // 1. account_category_id 컬럼 존재 확인
-    const [cols]: any = await conn.query(
-      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = 'accounting_accounts'
-         AND COLUMN_NAME = 'account_category_id'`
-    );
-    if ((cols as any[]).length === 0) {
-      await conn.query(
-        `ALTER TABLE accounting_accounts
-         ADD COLUMN account_category_id BIGINT NULL AFTER parent_id,
-         ADD INDEX idx_account_category_id (account_category_id)`
+  // 두 테이블 모두 account_category_id 보장
+  const tables = ['accounting_accounts', 'accounting_accounts_v2'];
+  for (const tableName of tables) {
+    try {
+      const [cols]: any = await conn.query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = 'account_category_id'`,
+        [tableName]
       );
-      console.log("[Migration] accounting_accounts: account_category_id column added");
-    } else {
-      // 이미 존재하면 skip
-    }
-  } catch (err: any) {
-    // 테이블 자체가 없는 경우 (신규 배포) → 다른 ensure 에서 처리됨
-    if (err.code !== "ER_NO_SUCH_TABLE") {
-      console.warn("[Migration] accounting_accounts ALTER failed:", err.message);
+      if ((cols as any[]).length === 0) {
+        await conn.query(
+          `ALTER TABLE \`${tableName}\`
+           ADD COLUMN account_category_id BIGINT NULL AFTER parent_id,
+           ADD INDEX idx_${tableName}_cat_id (account_category_id)`
+        );
+        console.log(`[Migration] ${tableName}: account_category_id column added`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") {
+        console.warn(`[Migration] ${tableName} ALTER failed:`, err.message);
+      }
     }
   }
 
