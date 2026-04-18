@@ -199,60 +199,61 @@ export async function getBatchCostAnalysisInventory(params: {
     .where(and(...conditions))
     .orderBy(hBatches.startTime);
 
-  // 2. 각 배치별 원재료 비용 계산
-  const batchCosts = await Promise.all(
-    batches.map(async (batch: any) => {
-      // 배치에 사용된 원재료 거래 내역 조회 (referenceType = 'batch', referenceId = batchId)
-      const transactions = await db
-        .select({
-          quantity: hInventoryTransactions.quantity,
-          materialId: hInventoryLots.materialId
-        })
-        .from(hInventoryTransactions)
-        .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
-        .where(
-          and(
-            eq(hInventoryTransactions.referenceType, "batch"),
-            eq(hInventoryTransactions.referenceId, batch.id),
-            eq(hInventoryTransactions.transactionType, "usage")
-          )
-        );
+  // 2. 배치 전체에 대한 원재료 사용 거래를 단일 쿼리로 로드 (N+1 제거)
+  const batchIds = batches.map((b: any) => b.id);
+  const quantityByBatch = new Map<number, number>();
 
-      // 원가 계산 (간소화: 수량만 합산)
-      const totalQuantity = transactions.reduce(
-        (sum: number, t: any) => sum + Math.abs(Number(t.quantity) || 0),
-        0
+  if (batchIds.length > 0) {
+    const transactions = await db
+      .select({
+        referenceId: hInventoryTransactions.referenceId,
+        quantity: hInventoryTransactions.quantity,
+      })
+      .from(hInventoryTransactions)
+      .where(
+        and(
+          eq(hInventoryTransactions.referenceType, "batch"),
+          inArray(hInventoryTransactions.referenceId, batchIds),
+          eq(hInventoryTransactions.transactionType, "usage")
+        )
       );
 
-      // TODO: 실제 원가 계산은 원재료 단가 정보가 필요함
-      const materialCost = totalQuantity * 100; // 임시 단가 100원 사용
+    for (const t of transactions as any[]) {
+      const bid = Number(t.referenceId);
+      const qty = Math.abs(Number(t.quantity) || 0);
+      quantityByBatch.set(bid, (quantityByBatch.get(bid) || 0) + qty);
+    }
+  }
 
-      // 생산 시간 계산 (시간 단위)
-      const productionTime = batch.startTime && batch.endTime
-        ? (new Date(batch.endTime).getTime() - new Date(batch.startTime).getTime()) / (1000 * 60 * 60)
-        : 0;
+  const batchCosts = batches.map((batch: any) => {
+    const totalQuantity = quantityByBatch.get(Number(batch.id)) || 0;
 
-      // 단위당 원가 계산
-      const unitCost = batch.actualQuantity > 0
-        ? materialCost / batch.actualQuantity
-        : 0;
+    // TODO: 실제 원가 계산은 원재료 단가 정보가 필요함
+    const materialCost = totalQuantity * 100; // 임시 단가 100원 사용
 
-      return {
-        batchId: batch.id,
-        batchCode: batch.batchCode,
-    dayBatchGroup: batch.dayBatchGroup || null,
-    batchOrder: batch.batchOrder ?? null,
-        productName: batch.productName,
-        plannedQuantity: batch.plannedQuantity,
-        actualQuantity: batch.actualQuantity,
-        plannedCost: Number(batch.plannedCost || 0),
-        actualCost: Number(batch.actualCost || 0),
-        materialCost: Number(materialCost.toFixed(2)),
-        unitCost: Number(unitCost.toFixed(2)),
-        productionTime: Number(productionTime.toFixed(2))
-      };
-    })
-  );
+    const productionTime = batch.startTime && batch.endTime
+      ? (new Date(batch.endTime).getTime() - new Date(batch.startTime).getTime()) / (1000 * 60 * 60)
+      : 0;
+
+    const unitCost = batch.actualQuantity > 0
+      ? materialCost / batch.actualQuantity
+      : 0;
+
+    return {
+      batchId: batch.id,
+      batchCode: batch.batchCode,
+      dayBatchGroup: batch.dayBatchGroup || null,
+      batchOrder: batch.batchOrder ?? null,
+      productName: batch.productName,
+      plannedQuantity: batch.plannedQuantity,
+      actualQuantity: batch.actualQuantity,
+      plannedCost: Number(batch.plannedCost || 0),
+      actualCost: Number(batch.actualCost || 0),
+      materialCost: Number(materialCost.toFixed(2)),
+      unitCost: Number(unitCost.toFixed(2)),
+      productionTime: Number(productionTime.toFixed(2))
+    };
+  });
 
   return batchCosts;
 }

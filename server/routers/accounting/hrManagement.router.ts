@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
+import { logWarn } from "../../utils/logger";
 
 // 한국시간 헬퍼 — 서버 TZ 무관하게 항상 KST
 function kstNow(): Date {
@@ -41,7 +42,9 @@ async function resolveEmployeeId(pool: any, tenantId: number, userId: number): P
       [tenantId, userId],
     );
     if (rows[0]?.id) return Number(rows[0].id);
-  } catch (_) {}
+  } catch (err) {
+    logWarn("HR: h_employees 매핑 조회 실패 — users.id 폴백 사용", { tenantId, userId, operation: "resolveEmployeeId", error: String(err) });
+  }
   // h_employees에 매핑 안 되어있으면 users.id 그대로 사용 (폴백)
   return userId;
 }

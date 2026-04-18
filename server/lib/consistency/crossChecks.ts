@@ -463,13 +463,14 @@ export async function checkPurchaseTotalVsJournal(
     params,
   );
 
+  // system_code 기반 INVENTORY_RAW 식별. code LIKE fallback은 system_code 미마이그레이션 테넌트를 커버하기 위해 유지.
   const [journalRows]: any = await conn.execute(
     `SELECT l.tenant_id,
             SUM(l.debit_amount) AS journal_debit
      FROM expense_journal_lines l
      INNER JOIN accounting_accounts a ON a.id = l.account_id
      INNER JOIN expense_journal_entries e ON e.id = l.journal_entry_id
-     WHERE (a.system_code = 'INVENTORY_RAW' OR a.code = '1410' OR a.code LIKE '1410%')
+     WHERE (a.system_code = 'INVENTORY_RAW' OR (a.system_code IS NULL AND a.code LIKE '1410%'))
        AND e.description LIKE '%PURCHASE-%'
        ${tenantFilter ? "AND l.tenant_id = ?" : ""}
      GROUP BY l.tenant_id`,

@@ -11,6 +11,7 @@ import { quotations, quotationLines } from "../../../drizzle/schema/schema_quota
 import { partners } from "../../../drizzle/schema/schema_main_accounting";
 import { and, eq, desc, sql, like, gte, lte } from "drizzle-orm";
 import { todayKST } from "../../utils/timezone";
+import { logWarn } from "../../utils/logger";
 
 // ─── 견적서 번호 자동 생성 (QUO-YYYY-NNNN) ────────────────────
 async function generateQuotationNumber(tenantId: number): Promise<string> {
@@ -185,7 +186,9 @@ export const quotationRouter = router({
           const [pRows]: any = await conn.execute(
             `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`, [input.partnerId, ctx.tenantId]);
           if (pRows[0]) resolvedPartnerName = pRows[0].company_name;
-        } catch (_) {}
+        } catch (err) {
+          logWarn("견적서: 거래처명 조회 실패", { tenantId: ctx.tenantId, partnerId: input.partnerId, operation: "quotation.create", error: String(err) });
+        }
       }
 
       const [headerResult] = await conn.execute(
