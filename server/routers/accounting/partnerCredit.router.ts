@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
+import { logWarn } from "../../utils/logger";
 
 export const partnerCreditRouter = router({
   /**
@@ -185,14 +186,18 @@ export const partnerCreditRouter = router({
         `SELECT total_amount, transaction_date FROM accounting_purchases
          WHERE tenant_id = ? AND status IN ('pending', 'approved')`, [tenantId]);
       apBuckets = aging(apRows as any[]);
-    } catch (_) {}
+    } catch (err) {
+      logWarn("연령분석: 미지급금 조회 실패", { tenantId, operation: "partnerCredit.agingAnalysis", error: String(err) });
+    }
 
     try {
       const [arRows]: any = await pool.execute(
         `SELECT total_amount, transaction_date FROM accounting_sales
          WHERE tenant_id = ? AND status IN ('pending', 'approved')`, [tenantId]);
       arBuckets = aging(arRows as any[]);
-    } catch (_) {}
+    } catch (err) {
+      logWarn("연령분석: 미수금 조회 실패", { tenantId, operation: "partnerCredit.agingAnalysis", error: String(err) });
+    }
 
     return { ap: apBuckets, ar: arBuckets };
   }),

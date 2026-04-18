@@ -3,6 +3,7 @@
  */
 import { invokeLLM } from "../../_core/llm";
 import { getPool } from "../../db/pool";
+import { logWarn } from "../../utils/logger";
 
 // ═══════════════════════════════════════
 // 1. 발주 추천 (사용량 + 안전재고 기반)
@@ -201,7 +202,9 @@ export async function detectCostAnomalies(tenantId: number): Promise<CostAnomaly
         });
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    logWarn("이상탐지: 단가 급등 분석 실패", { tenantId, operation: "detectCostAnomalies", error: String(err) });
+  }
 
   try {
     // 매출원가율 변동 탐지
@@ -239,7 +242,9 @@ export async function detectCostAnomalies(tenantId: number): Promise<CostAnomaly
         });
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    logWarn("이상탐지: 매출원가율 분석 실패", { tenantId, operation: "detectCostAnomalies", error: String(err) });
+  }
 
   return anomalies.sort((a, b) => (a.severity === "high" ? -1 : b.severity === "high" ? 1 : 0));
 }

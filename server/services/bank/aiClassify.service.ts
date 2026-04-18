@@ -9,6 +9,7 @@
  */
 import { invokeLLM } from "../../_core/llm";
 import { getPool } from "../../db/pool";
+import { logWarn } from "../../utils/logger";
 
 export interface AIClassifyResult {
   accountCode: string | null;
@@ -67,7 +68,9 @@ export async function classifyBankTransaction(
             `- "${r.description}" (${r.transaction_type}, ₩${Number(r.amount).toLocaleString()}) → ${r.account_code} ${r.account_name}`
           ).join("\n");
       }
-    } catch (_) {}
+    } catch (err) {
+      logWarn("은행분류: 최근 매칭 이력 조회 실패 — 이력 없이 진행", { tenantId, operation: "classifyBankTransaction", error: String(err) });
+    }
 
     // 3. LLM 호출
     const result = await invokeLLM({

@@ -6,6 +6,7 @@
  */
 import { invokeLLM } from "../../_core/llm";
 import { getPool } from "../../db/pool";
+import { logWarn } from "../../utils/logger";
 
 export interface JournalRecommendation {
   debitCode: string;
@@ -70,7 +71,9 @@ export async function recommendJournalEntry(
         };
       }
     }
-  } catch (_) {}
+  } catch (err) {
+    logWarn("전표추천: 과거 패턴 조회 실패 — LLM 폴백으로 진행", { tenantId, operation: "recommendJournalEntry", error: String(err) });
+  }
 
   // 2. LLM 폴백
   try {

@@ -12,6 +12,7 @@ import { getRawConnection } from "../connection";
 import { resolveSystemAccount, insertJournalLine } from "./journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { getRows, getFirstRow, getInsertId } from "../../utils/dbHelpers";
+import { logWarn } from "../../utils/logger";
 
 import { todayKST } from "../../utils/timezone";
 
@@ -575,7 +576,9 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
     const r = getRows<{ qty: number; amt: number }>(inbResult);
     totalReceiving = Number(r?.[0]?.qty || 0);
     totalReceivingAmount = Number(r?.[0]?.amt || 0);
-  } catch {}
+  } catch (err) {
+    logWarn("원료수불: h_inbound_lines 집계 실패 — 폴백 경로 사용", { tenantId, operation: "materialLedger.receiving", error: String(err) });
+  }
 
   // 1-b. 폴백: material_ledger_daily (h_inbound_lines 에 없는 과거 데이터)
   if (totalReceiving === 0) {
@@ -593,7 +596,9 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
       const r = getRows<{ qty: number; amt: number }>(monthResult);
       totalReceiving = Number(r?.[0]?.qty || 0);
       totalReceivingAmount = Number(r?.[0]?.amt || 0);
-    } catch {}
+    } catch (err) {
+      logWarn("원료수불: material_ledger_daily 폴백 집계 실패", { tenantId, operation: "materialLedger.receiving.fallback", error: String(err) });
+    }
   }
 
   // ───── 2. 사용 (usage) ─────
@@ -618,7 +623,9 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
     const r = getRows<{ qty: number; amt: number }>(usageResult);
     totalUsage = Number(r?.[0]?.qty || 0);
     totalUsageAmount = Number(r?.[0]?.amt || 0);
-  } catch {}
+  } catch (err) {
+    logWarn("원료수불: h_batch_inputs 집계 실패 — 폴백 경로 사용", { tenantId, operation: "materialLedger.usage", error: String(err) });
+  }
 
   // 2-b. 폴백: h_production_material_usage (h_batch_inputs 가 비어있는 경우)
   if (totalUsage === 0) {
@@ -638,7 +645,9 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
       const r = getRows<{ qty: number; amt: number }>(pmuResult);
       totalUsage = Number(r?.[0]?.qty || 0);
       totalUsageAmount = Number(r?.[0]?.amt || 0);
-    } catch {}
+    } catch (err) {
+      logWarn("원료수불: h_production_material_usage 폴백 집계 실패", { tenantId, operation: "materialLedger.usage.pmuFallback", error: String(err) });
+    }
   }
 
   // 2-c. 폴백: material_ledger_daily.usage_qty
@@ -657,7 +666,9 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
       const r = getRows<{ qty: number; amt: number }>(mldResult);
       totalUsage = Number(r?.[0]?.qty || 0);
       totalUsageAmount = Number(r?.[0]?.amt || 0);
-    } catch {}
+    } catch (err) {
+      logWarn("원료수불: material_ledger_daily 폴백 집계 실패", { tenantId, operation: "materialLedger.usage.mldFallback", error: String(err) });
+    }
   }
 
   // 이번 달 승인 상태
