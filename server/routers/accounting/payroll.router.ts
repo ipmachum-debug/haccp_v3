@@ -158,6 +158,7 @@ export const payrollRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
@@ -211,6 +212,7 @@ export const payrollRouter = router({
   confirmPayment: adminProcedure
     .input(z.object({ year: z.number(), month: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
@@ -293,6 +295,7 @@ export const payrollRouter = router({
       allowances: z.number().nonnegative().default(0),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const grossPay = input.baseSalary + input.overtime + input.bonus + input.allowances;
       const nationalPension = Math.round(grossPay * INSURANCE_RATES.nationalPension);
