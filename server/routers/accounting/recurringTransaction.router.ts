@@ -12,6 +12,7 @@ export const recurringTransactionRouter = router({
   duplicatePurchase: adminProcedure
     .input(z.object({ purchaseId: z.number(), newDate: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const [rows]: any = await pool.execute(
         `SELECT * FROM accounting_purchases WHERE id = ? AND tenant_id = ?`,
@@ -30,6 +31,9 @@ export const recurringTransactionRouter = router({
          `[복사] 원본 #${input.purchaseId}`, ctx.user.id],
       );
       return { id: result.insertId, message: "매입이 복사되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -38,6 +42,7 @@ export const recurringTransactionRouter = router({
   duplicateSale: adminProcedure
     .input(z.object({ saleId: z.number(), newDate: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const [rows]: any = await pool.execute(
         `SELECT * FROM accounting_sales WHERE id = ? AND tenant_id = ?`,
@@ -56,6 +61,9 @@ export const recurringTransactionRouter = router({
          `[복사] 원본 #${input.saleId}`, ctx.user.id],
       );
       return { id: result.insertId, message: "매출이 복사되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -94,6 +102,7 @@ export const recurringTransactionRouter = router({
       nextDate: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       try {
         await pool.execute(
@@ -126,6 +135,9 @@ export const recurringTransactionRouter = router({
          input.frequency, input.nextDate, ctx.user.id],
       );
       return { id: result.insertId, message: "반복 거래 템플릿이 생성되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -134,6 +146,7 @@ export const recurringTransactionRouter = router({
   generateFromTemplate: adminProcedure
     .input(z.object({ templateId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const [rows]: any = await pool.execute(
         `SELECT * FROM recurring_templates WHERE id = ? AND tenant_id = ?`,
@@ -166,5 +179,8 @@ export const recurringTransactionRouter = router({
       );
 
       return { id: result.insertId, message: `반복 거래 생성 완료 (${t.name})` };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 });
