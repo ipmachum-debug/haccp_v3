@@ -428,21 +428,19 @@ export default function NoticeBoard() {
             </div>
           </div>
 
-          {/* 통계 카드 4개 */}
-          <div className="px-4 pb-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {/* 통계 카드 4개 — 컴팩트 */}
+          <div className="px-4 pb-3">
+            <div className="grid grid-cols-4 gap-1.5">
               {[
-                { emoji: "📢", label: "공지", count: stats.notice, bg: "bg-blue-50", border: "border-blue-100", text: "text-blue-700", labelColor: "text-blue-400" },
-                { emoji: "📋", label: "작업", count: stats.work, bg: "bg-amber-50", border: "border-amber-100", text: "text-amber-700", labelColor: "text-amber-500" },
-                { emoji: "📌", label: "전달", count: stats.handover, bg: "bg-emerald-50", border: "border-emerald-100", text: "text-emerald-700", labelColor: "text-emerald-500" },
-                { emoji: "📖", label: "교육", count: trainingData?.assigned ? (trainingData.completed ? 0 : 1) : 0, bg: "bg-violet-50", border: "border-violet-100", text: "text-violet-700", labelColor: "text-violet-400" },
+                { emoji: "📢", label: "공지", count: stats.notice, bg: "bg-blue-50", text: "text-blue-700" },
+                { emoji: "📋", label: "작업", count: stats.work, bg: "bg-amber-50", text: "text-amber-700" },
+                { emoji: "📌", label: "전달", count: stats.handover, bg: "bg-emerald-50", text: "text-emerald-700" },
+                { emoji: "📖", label: "교육", count: trainingData?.assigned ? (trainingData.completed ? 0 : 1) : 0, bg: "bg-violet-50", text: "text-violet-700" },
               ].map((card) => (
-                <div key={card.label} className={`${card.bg} rounded-2xl border ${card.border} overflow-hidden`}>
-                  <div className="flex flex-col items-center justify-center px-2 py-3 text-center">
-                    <span className="text-lg leading-none">{card.emoji}</span>
-                    <p className={`text-[10px] ${card.labelColor} font-bold leading-none mt-1.5 truncate w-full`}>{card.label}</p>
-                    <p className={`text-2xl font-black ${card.text} leading-none mt-1`}>{card.count}</p>
-                  </div>
+                <div key={card.label} className={`${card.bg} rounded-xl px-1 py-2 text-center`}>
+                  <span className="text-sm">{card.emoji}</span>
+                  <p className={`text-lg font-black ${card.text} leading-none mt-0.5`}>{card.count}</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">{card.label}</p>
                 </div>
               ))}
             </div>
