@@ -19,6 +19,7 @@ export const fixedAssetRouter = router({
       search: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
 
@@ -67,12 +68,17 @@ export const fixedAssetRouter = router({
         registeredByName: r.registered_by_name,
         createdAt: r.created_at,
       }));
+      } catch (err: any) {
+        console.warn("[fixedAsset.list]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /**
    * 고정자산 요약 통계
    */
   summary: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
     const pool = getPool();
     const [rows]: any = await pool.execute(
       `SELECT
@@ -94,6 +100,10 @@ export const fixedAssetRouter = router({
       totalDepreciation: Number(r.totalDepreciation || 0),
       totalBookValue: Number(r.totalBookValue || 0),
     };
+    } catch (err: any) {
+      console.warn("[fixedAsset.summary]", err.message?.substring(0, 100));
+      return { totalCount: 0, activeCount: 0, disposedCount: 0, totalCost: 0, totalDepreciation: 0, totalBookValue: 0 };
+    }
   }),
 
   /**
@@ -113,6 +123,7 @@ export const fixedAssetRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
 
@@ -139,6 +150,9 @@ export const fixedAssetRouter = router({
       );
 
       return { id: result.insertId, assetCode, message: "고정자산이 등록되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -147,6 +161,7 @@ export const fixedAssetRouter = router({
   runDepreciation: adminProcedure
     .input(z.object({ yearMonth: z.string() })) // "2026-04"
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
 
@@ -209,6 +224,9 @@ export const fixedAssetRouter = router({
         totalAmount,
         message: `${input.yearMonth} 감가상각 완료: ${processedCount}건, ₩${totalAmount.toLocaleString()}`,
       };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -222,6 +240,7 @@ export const fixedAssetRouter = router({
       reason: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       await pool.execute(
         `UPDATE fixed_assets
@@ -233,6 +252,9 @@ export const fixedAssetRouter = router({
          input.id, ctx.tenantId],
       );
       return { message: "고정자산이 처분되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -241,6 +263,7 @@ export const fixedAssetRouter = router({
   depreciationHistory: tenantRequiredProcedure
     .input(z.object({ assetId: z.number() }))
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const [rows]: any = await pool.execute(
         `SELECT year_month, amount, accumulated_after, created_at
@@ -255,5 +278,9 @@ export const fixedAssetRouter = router({
         accumulatedAfter: Number(r.accumulated_after || 0),
         createdAt: r.created_at,
       }));
+      } catch (err: any) {
+        console.warn("[fixedAsset.depreciationHistory]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 });

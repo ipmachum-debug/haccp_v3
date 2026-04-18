@@ -14,6 +14,7 @@ export const budgetRouter = router({
   list: tenantRequiredProcedure
     .input(z.object({ year: z.number() }))
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const [rows]: any = await pool.execute(
         `SELECT b.*, aa.name as account_name, aa.code as account_code, aa.category as account_category
@@ -36,6 +37,10 @@ export const budgetRouter = router({
         m10: Number(r.m10 || 0), m11: Number(r.m11 || 0), m12: Number(r.m12 || 0),
         annual: [1,2,3,4,5,6,7,8,9,10,11,12].reduce((s, i) => s + Number(r[`m${i}`] || 0), 0),
       }));
+      } catch (err: any) {
+        console.warn("[budget.list]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /**
@@ -44,6 +49,7 @@ export const budgetRouter = router({
   comparison: tenantRequiredProcedure
     .input(z.object({ year: z.number() }))
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const year = input.year;
@@ -104,6 +110,10 @@ export const budgetRouter = router({
           annualRate: annualBudget > 0 ? Math.round((annualActual / annualBudget) * 100) : 0,
         };
       });
+      } catch (err: any) {
+        console.warn("[budget.comparison]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /**
@@ -120,6 +130,7 @@ export const budgetRouter = router({
       }),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const a = input.amounts;
       await pool.execute(
@@ -134,6 +145,9 @@ export const budgetRouter = router({
          a.m1,a.m2,a.m3,a.m4,a.m5,a.m6,a.m7,a.m8,a.m9,a.m10,a.m11,a.m12],
       );
       return { message: "예산이 저장되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -142,11 +156,15 @@ export const budgetRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       await pool.execute(
         `DELETE FROM budgets WHERE id = ? AND tenant_id = ?`,
         [input.id, ctx.tenantId],
       );
       return { message: "예산이 삭제되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 });

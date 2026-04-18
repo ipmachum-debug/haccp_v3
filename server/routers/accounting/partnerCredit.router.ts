@@ -17,6 +17,7 @@ export const partnerCreditRouter = router({
       search: z.string().optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
 
@@ -111,6 +112,10 @@ export const partnerCreditRouter = router({
           isOverdue: overdueDays > 0,
         };
       });
+      } catch (err: any) {
+        console.warn("[partnerCredit.list]", err.message?.substring(0, 100));
+        return [];
+      }
     }),
 
   /**
@@ -123,6 +128,7 @@ export const partnerCreditRouter = router({
       paymentTermsDays: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
 
       // credit_limit, payment_terms_days 컬럼 ensure
@@ -140,6 +146,9 @@ export const partnerCreditRouter = router({
 
       await pool.execute(sql, params);
       return { message: "신용한도가 설정되었습니다." };
+      } catch (err: any) {
+        throw new Error(`처리 실패: ${err.message?.substring(0, 50)}`);
+      }
     }),
 
   /**
@@ -189,6 +198,7 @@ export const partnerCreditRouter = router({
   }),
 
   summary: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
     const pool = getPool();
     const tenantId = ctx.tenantId;
 
@@ -214,5 +224,9 @@ export const partnerCreditRouter = router({
       arCount: Number(arTotal[0]?.cnt || 0),
       partnerCount: Number(partnerCount[0]?.cnt || 0),
     };
+    } catch (err: any) {
+      console.warn("[partnerCredit.summary]", err.message?.substring(0, 100));
+      return { totalAP: 0, apCount: 0, totalAR: 0, arCount: 0, partnerCount: 0 };
+    }
   }),
 });

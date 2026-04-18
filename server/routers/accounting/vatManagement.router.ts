@@ -138,6 +138,7 @@ export const vatManagementRouter = router({
       period: z.enum(["H1", "H2"]), // H1: 1기(1~6월), H2: 2기(7~12월)
     }))
     .query(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const startMonth = input.period === "H1" ? 1 : 7;
@@ -218,5 +219,16 @@ export const vatManagementRouter = router({
         netPayable,
         isRefund: netPayable < 0,
       };
+      } catch (err: any) {
+        console.warn("[vat.reportPreview]", err.message?.substring(0, 100));
+        const z = { supply: 0, tax: 0, count: 0 };
+        return {
+          period: `${input.year}년 ${input.period === "H1" ? "1기" : "2기"}`,
+          year: input.year, halfYear: input.period,
+          sales: { taxInvoice: z, total: z },
+          purchases: { taxInvoice: z, total: z },
+          outputTax: 0, inputTax: 0, netPayable: 0, isRefund: false,
+        };
+      }
     }),
 });
