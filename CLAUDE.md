@@ -1,6 +1,6 @@
 # CLAUDE.md - HACCP-ONE 프로젝트 AI 개발 가이드
 
-> 최종 업데이트: 2026-03-16
+> 최종 업데이트: 2026-04-18
 
 ---
 
@@ -299,6 +299,86 @@ COST_OF_GOODS → 매출원가 (5010)
   - 시스템 규칙은 활성화/비활성화만 허용
 - [x] 배치 리스크 요약 API (`batchRiskSummary` 엔드포인트)
 - [ ] 감사 자료 PDF 패키지 자동 생성 (향후)
+
+### 📋 Phase 8 — ERP 고도화 + AI 연동 ✅ 완료 (2026-04-18)
+
+#### Phase 8-1: ERP 핵심 기능 (8개 신규)
+- [x] 전표 관리 — 수기 분개 입력 + 전체 조회 (`journalEntry.router.ts`, `JournalEntries.tsx`)
+- [x] 부가세 관리 — 매입/매출 세액 집계 + 신고서 미리보기 (`vatManagement.router.ts`)
+- [x] 자금현황 대시보드 — 은행잔액/AP/AR/현금흐름 + 자금일보 (`cashFlow.router.ts`)
+- [x] 고정자산 관리 — 취득/감가상각(정액법/정률법)/처분 (`fixedAsset.router.ts`)
+- [x] 예산 관리 — 계정별 월간 예산 + 실적 비교 (`budget.router.ts`)
+- [x] 거래처 신용관리 — 한도/연체/등급(A~D) + 연령분석 (`partnerCredit.router.ts`)
+- [x] 급여관리 — 4대보험 자동계산 + 급여명세서 출력 + 회계전표 자동 (`payroll.router.ts`)
+- [x] 인사관리 — 근태/휴가/연차 + 비회원직원등록 + 구성원매칭 (`hrManagement.router.ts`)
+
+#### Phase 8-2: AI 연동 (9건)
+- [x] **Financial AI**: 은행 자동분류 / 전표 추천 / 자금 브리핑 / 대표 리포트
+  - `aiClassify.service.ts`, `aiJournalRecommend.service.ts`, `aiCashBriefing.service.ts`, `aiExecutiveReport.service.ts`
+- [x] **Operational AI**: 발주 추천 / 재고 예측 / 원가 이상탐지
+  - `aiErpAdvanced.service.ts` → `aiErp.router.ts`
+- [x] **OCR AI**: 사업자등록증 / 견적서 / 영수증 OCR 확장 (`scanOcr.ts`)
+- [x] **Conversational AI**: 챗봇 "하나" ERP 인텐트 3개 추가 (purchase_recommend/shortage_predict/cost_anomaly)
+
+#### Phase 8-3: 모듈 분리
+- [x] Phase 1: 환경변수 기반 ERP/HACCP 탭 ON/OFF (`featureFlags.ts` → `MODULES`)
+- [x] Phase 2: 구독 DB 기반 동적 모듈 제어 (패키지별 매핑: starter→HACCP, standard→ERP, enterprise→통합)
+
+#### Phase 8-4: ERP 보강
+- [x] 급여명세서 출력 (개인별 + 전체 일괄)
+- [x] 자금일보 (일별 입출금 + 지급/수금 예정)
+- [x] 미수금/미지급금 연령분석 (30/60/90/90+ 구간)
+- [x] 급여 → 회계 전표 자동생성 (차변: 급여 / 대변: 예수금+보통예금)
+- [x] 매입 반품/차감 처리 (재고 역차감 + 역분개) (`purchaseReturn.router.ts`)
+- [x] 반복 거래 (매입/매출 복사 + 템플릿) (`recurringTransaction.router.ts`)
+- [x] 변경이력 로그 (`changeLog.router.ts`, `ChangeLogViewer.tsx`)
+- [x] 발주서 삭제 양방향 역수행 (재고/회계 전체 복원)
+
+#### Phase 8-5: 견적서 고도화
+- [x] 견적서 복사 / 인쇄(규격 문서) / 거래처별 견적 이력
+- [x] 신규 거래처 임시 입력 (미등록 업체 견적 → 거래 시 정식 등록)
+
+#### Phase 8-6: UX 개선
+- [x] AccountCombobox — 계정과목 검색/자동완성 (전표/비용/예산에 적용)
+- [x] 대시보드 AI 위젯 (재고부족/발주추천/원가이상)
+- [x] 탭 새로고침 유지 (useTabWithUrl 적용 — HR/VAT/CashFlow/Closing)
+- [x] 사이드바 스크롤 유지 (sessionStorage)
+- [x] 직원 대시보드 모바일 반응형 (grid-cols-2)
+- [x] 출퇴근 위젯 사이드바 (작업자 이상)
+- [x] 근무시간 점심 1시간 자동 제외 (540분+ 근무 시)
+- [x] 24시 자동 마감 스케줄러 (매일 00:05)
+
+#### Phase 8-7: 보안/안정성
+- [x] 테넌트 격리 JOIN 보강 (3건)
+- [x] h_employees ↔ users 양방향 연동 (resolveEmployeeId)
+- [x] KST 시간 이중적용 수정 (toLocaleString Asia/Seoul)
+- [x] 35개 프로시저 try/catch 일괄 추가
+- [x] 휴가 중복 신청 방지
+- [x] 성능 인덱스 10개 (accounting_purchases/sales/journal/bank/attendance/leave)
+
+### 📋 주요 파일 위치 (Phase 8 추가분)
+
+| 기능 | 파일 |
+|------|------|
+| 전표 관리 | `server/routers/accounting/journalEntry.router.ts` |
+| 부가세 관리 | `server/routers/accounting/vatManagement.router.ts` |
+| 자금현황 | `server/routers/accounting/cashFlow.router.ts` |
+| 고정자산 | `server/routers/accounting/fixedAsset.router.ts` |
+| 예산 관리 | `server/routers/accounting/budget.router.ts` |
+| 신용관리 | `server/routers/accounting/partnerCredit.router.ts` |
+| 급여관리 | `server/routers/accounting/payroll.router.ts` |
+| 인사관리 | `server/routers/accounting/hrManagement.router.ts` |
+| 매입 반품 | `server/routers/accounting/purchaseReturn.router.ts` |
+| 반복 거래 | `server/routers/accounting/recurringTransaction.router.ts` |
+| 변경이력 | `server/routers/accounting/changeLog.router.ts` |
+| AI ERP | `server/routers/accounting/aiErp.router.ts` |
+| AI 은행분류 | `server/services/bank/aiClassify.service.ts` |
+| AI 전표추천 | `server/services/ai/aiJournalRecommend.service.ts` |
+| AI 자금브리핑 | `server/services/ai/aiCashBriefing.service.ts` |
+| AI 대표리포트 | `server/services/ai/aiExecutiveReport.service.ts` |
+| AI ERP고급 | `server/services/ai/aiErpAdvanced.service.ts` |
+| 계정 콤보박스 | `client/src/components/accounting/AccountCombobox.tsx` |
+| 모듈 플래그 | `client/src/lib/featureFlags.ts` → `MODULES` |
 
 ---
 
