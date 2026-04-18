@@ -158,6 +158,7 @@ export const payrollRouter = router({
       })),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
@@ -202,6 +203,7 @@ export const payrollRouter = router({
       }
 
       return { created, message: `${yearMonth} 급여대장 ${created}건 생성 완료` };
+      } catch (err: any) { throw new Error(`급여 생성 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -210,6 +212,7 @@ export const payrollRouter = router({
   confirmPayment: adminProcedure
     .input(z.object({ year: z.number(), month: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const tenantId = ctx.tenantId;
       const yearMonth = `${input.year}-${String(input.month).padStart(2, "0")}`;
@@ -277,6 +280,7 @@ export const payrollRouter = router({
       }
 
       return { updated: result.affectedRows, message: `${yearMonth} 급여 ${result.affectedRows}건 지급 확정 + 회계 전표 생성` };
+      } catch (err: any) { throw new Error(`급여 지급 확정 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -291,6 +295,7 @@ export const payrollRouter = router({
       allowances: z.number().nonnegative().default(0),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
       const pool = getPool();
       const grossPay = input.baseSalary + input.overtime + input.bonus + input.allowances;
       const nationalPension = Math.round(grossPay * INSURANCE_RATES.nationalPension);
@@ -315,6 +320,7 @@ export const payrollRouter = router({
          input.id, ctx.tenantId],
       );
       return { message: "급여가 수정되었습니다." };
+      } catch (err: any) { throw new Error(`급여 수정 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -323,11 +329,13 @@ export const payrollRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const pool = getPool();
-      await pool.execute(
-        `DELETE FROM payroll_records WHERE id=? AND tenant_id=? AND status='draft'`,
-        [input.id, ctx.tenantId],
-      );
-      return { message: "급여가 삭제되었습니다." };
+      try {
+        const pool = getPool();
+        await pool.execute(
+          `DELETE FROM payroll_records WHERE id=? AND tenant_id=? AND status='draft'`,
+          [input.id, ctx.tenantId],
+        );
+        return { message: "급여가 삭제되었습니다." };
+      } catch (err: any) { throw new Error(`급여 삭제 실패: ${err.message?.substring(0, 50)}`); }
     }),
 });

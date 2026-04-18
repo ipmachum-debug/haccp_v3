@@ -471,6 +471,12 @@ export const hrManagementRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
+      // 중복 방지
+      const [dup]: any = await pool.execute(
+        `SELECT id FROM leave_requests WHERE tenant_id = ? AND employee_id = ? AND start_date = ? AND end_date = ? AND status != 'cancelled'`,
+        [ctx.tenantId, input.employeeId, input.startDate, input.endDate],
+      );
+      if (dup.length > 0) return { message: "이미 동일 기간 휴가가 존재합니다." };
       const approverEmpId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
       await pool.execute(
         `INSERT INTO leave_requests
@@ -559,6 +565,12 @@ export const hrManagementRouter = router({
     .mutation(async ({ ctx, input }) => {
       const pool = getPool();
       const empId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
+      // 중복 신청 방지
+      const [existing]: any = await pool.execute(
+        `SELECT id FROM leave_requests WHERE tenant_id = ? AND employee_id = ? AND start_date = ? AND end_date = ? AND status != 'cancelled'`,
+        [ctx.tenantId, empId, input.startDate, input.endDate],
+      );
+      if (existing.length > 0) return { message: "이미 동일 기간 휴가가 신청되어 있습니다." };
       // 일수 계산
       const start = new Date(input.startDate);
       const end = new Date(input.endDate);
