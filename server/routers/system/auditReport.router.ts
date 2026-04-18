@@ -19,6 +19,7 @@ export const auditReportRouter = router({
         throw new TRPCError({ code: "FORBIDDEN" });
       }
 
+      try {
       const { getRawConnection } = await import("../../db");
       const conn = await getRawConnection();
       const tenantId = ctx.tenantId;
@@ -123,5 +124,16 @@ export const auditReportRouter = router({
         },
         overallScore: Math.round((trainingRate + checklistRate + ccpComplianceRate + capaRate + hygieneRate) / 5),
       };
+      } catch (err: any) {
+        console.warn("[auditReport.getAuditSummary]", err.message?.substring(0, 100));
+        return {
+          training: { total: 0, done: 0, rate: 0 },
+          checklist: { total: 0, completed: 0, rate: 0 },
+          ccp: { total: 0, deviations: 0, complianceRate: 100 },
+          capa: { total: 0, resolved: 0, rate: 0 },
+          hygiene: { total: 0, passed: 0, rate: 0 },
+          overallScore: 0,
+        };
+      }
     }),
 });
