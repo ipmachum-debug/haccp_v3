@@ -3,6 +3,7 @@
  * 매입세액/매출세액 집계 + 월별 추이 + 신고서 미리보기
  */
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import {
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
 export default function VatManagement() {
+  const [activeVatTab, setActiveVatTab] = useTabWithUrl("tab", "monthly");
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const currentHalf = now.getMonth() < 6 ? "H1" : "H2";
@@ -102,7 +104,7 @@ export default function VatManagement() {
           </div>
         )}
 
-        <Tabs defaultValue="monthly">
+        <Tabs value={activeVatTab} onValueChange={setActiveVatTab}>
           <TabsList>
             <TabsTrigger value="monthly" className="gap-1.5 text-xs"><TrendingUp className="h-3.5 w-3.5" /> 월별 추이</TabsTrigger>
             <TabsTrigger value="report" className="gap-1.5 text-xs"><FileText className="h-3.5 w-3.5" /> 신고서 미리보기</TabsTrigger>
