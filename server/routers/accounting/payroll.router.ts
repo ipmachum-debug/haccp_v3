@@ -202,6 +202,7 @@ export const payrollRouter = router({
       }
 
       return { created, message: `${yearMonth} 급여대장 ${created}건 생성 완료` };
+      } catch (err: any) { throw new Error(`급여 생성 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -277,6 +278,7 @@ export const payrollRouter = router({
       }
 
       return { updated: result.affectedRows, message: `${yearMonth} 급여 ${result.affectedRows}건 지급 확정 + 회계 전표 생성` };
+      } catch (err: any) { throw new Error(`급여 지급 확정 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -315,6 +317,7 @@ export const payrollRouter = router({
          input.id, ctx.tenantId],
       );
       return { message: "급여가 수정되었습니다." };
+      } catch (err: any) { throw new Error(`급여 수정 실패: ${err.message?.substring(0, 50)}`); }
     }),
 
   /**
@@ -329,5 +332,6 @@ export const payrollRouter = router({
         [input.id, ctx.tenantId],
       );
       return { message: "급여가 삭제되었습니다." };
+      } catch (err: any) { throw new Error(`급여 삭제 실패: ${err.message?.substring(0, 50)}`); }
     }),
 });
