@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 
 // Date 객체를 안전하게 문자열로 변환
 const safeDate = (v: any): string => {
@@ -261,6 +262,8 @@ export default function HRManagement() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const [activeHrTab, setActiveHrTab] = useTabWithUrl("tab", "attendance");
+
   return (
     <DashboardLayout>
       <div className="space-y-4">
@@ -315,7 +318,7 @@ export default function HRManagement() {
           </div>
         </div>
 
-        <Tabs defaultValue="attendance">
+        <Tabs value={activeHrTab} onValueChange={setActiveHrTab}>
           <TabsList>
             <TabsTrigger value="attendance" className="text-xs gap-1.5"><Clock className="h-3.5 w-3.5" /> 근태관리</TabsTrigger>
             <TabsTrigger value="leave" className="text-xs gap-1.5"><Calendar className="h-3.5 w-3.5" /> 휴가관리</TabsTrigger>

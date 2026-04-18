@@ -804,7 +804,16 @@ function DashboardLayoutContent({
             )}
           </SidebarHeader>
 
-          <SidebarContent className="gap-0">
+          <SidebarContent className="gap-0" ref={(el: HTMLDivElement | null) => {
+            if (!el) return;
+            // 스크롤 위치 복원
+            const saved = sessionStorage.getItem("sidebar-scroll");
+            if (saved && el.scrollTop === 0) el.scrollTop = Number(saved);
+            // 스크롤 위치 저장
+            const handler = () => sessionStorage.setItem("sidebar-scroll", String(el.scrollTop));
+            el.addEventListener("scroll", handler, { passive: true });
+            return () => el.removeEventListener("scroll", handler);
+          }}>
             <SidebarMenu className="px-3 py-1">
               {(() => {
                 const visibleItems = displayedMenuItems.filter((item: any) => user && item.roles?.includes(user.role));

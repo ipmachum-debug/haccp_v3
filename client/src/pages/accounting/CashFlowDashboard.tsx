@@ -3,6 +3,7 @@
  * 은행잔액 + AP/AR + 예상 현금흐름 + 자금일보
  */
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ import {
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
 export default function CashFlowDashboard() {
+  const [activeCfTab, setActiveCfTab] = useTabWithUrl("tab", "overview");
   const now = new Date();
   const [dailyStart, setDailyStart] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`);
   const [dailyEnd, setDailyEnd] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`);
@@ -156,7 +158,7 @@ export default function CashFlowDashboard() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="overview">
+        <Tabs value={activeCfTab} onValueChange={setActiveCfTab}>
           <TabsList>
             <TabsTrigger value="overview" className="text-xs gap-1.5"><Wallet className="h-3.5 w-3.5" /> 자금현황</TabsTrigger>
             <TabsTrigger value="daily" className="text-xs gap-1.5"><Calendar className="h-3.5 w-3.5" /> 자금일보</TabsTrigger>

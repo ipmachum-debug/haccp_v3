@@ -4,8 +4,10 @@ import DailyCloseTab from "@/components/closing/DailyCloseTab";
 import MonthlyCloseTab from "@/components/closing/MonthlyCloseTab";
 import MonthlySummaryTab from "@/components/closing/MonthlySummaryTab";
 import { CalendarCheck, CalendarRange, BarChart3, ClipboardCheck } from "lucide-react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 
 export default function ClosingManagement() {
+  const [activeCloseTab, setActiveCloseTab] = useTabWithUrl("tab", "daily");
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -20,7 +22,7 @@ export default function ClosingManagement() {
           </div>
         </div>
 
-        <Tabs defaultValue="daily" className="w-full">
+        <Tabs value={activeCloseTab} onValueChange={setActiveCloseTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 h-11">
             <TabsTrigger value="daily" className="gap-2 data-[state=active]:bg-background">
               <CalendarCheck className="h-4 w-4" />
