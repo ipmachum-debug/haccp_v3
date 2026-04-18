@@ -326,12 +326,13 @@ export const payrollRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      const pool = getPool();
-      await pool.execute(
-        `DELETE FROM payroll_records WHERE id=? AND tenant_id=? AND status='draft'`,
-        [input.id, ctx.tenantId],
-      );
-      return { message: "급여가 삭제되었습니다." };
+      try {
+        const pool = getPool();
+        await pool.execute(
+          `DELETE FROM payroll_records WHERE id=? AND tenant_id=? AND status='draft'`,
+          [input.id, ctx.tenantId],
+        );
+        return { message: "급여가 삭제되었습니다." };
       } catch (err: any) { throw new Error(`급여 삭제 실패: ${err.message?.substring(0, 50)}`); }
     }),
 });
