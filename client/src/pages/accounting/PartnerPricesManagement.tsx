@@ -61,7 +61,13 @@ import {
   PriceEditDialog,
   AiPreviewDialog,
   PriceDetailDialog,
+  type PriceDetailRow,
+  type AiPreviewResult,
 } from "./_partnerPrices/PartnerPricesDialogs";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 서버 list 의 단일 row 타입 — 상세 다이얼로그/테이블/통계에서 공통 사용
+type PartnerPriceRow = RouterOutput["partnerPrice"]["list"][number];
 
 const TARGET_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   material: { label: "원재료", color: "bg-blue-100 text-blue-700" },
@@ -127,7 +133,7 @@ function PartnerPricesContent() {
 
   // 단건 수정 Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingRow, setEditingRow] = useState<any>(null);
+  const [editingRow, setEditingRow] = useState<PartnerPriceRow | null>(null);
   const [editForm, setEditForm] = useState({
     unitPrice: 0,
     discountRate: 0,
@@ -164,17 +170,18 @@ function PartnerPricesContent() {
   const [bulkEditSearch, setBulkEditSearch] = useState<string>("");
   const [aiCommand, setAiCommand] = useState<string>("");
   const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
-  const [aiPreview, setAiPreview] = useState<any>(null);
+  const [aiPreview, setAiPreview] = useState<AiPreviewResult | null>(null);
   const [aiSmartLoading, setAiSmartLoading] = useState(false);
 
   const utils = trpc.useUtils();
 
   // 데이터 조회
-  const { data: prices = [], isLoading } = trpc.partnerPrice.list.useQuery({
+  const { data: pricesRaw = [], isLoading } = trpc.partnerPrice.list.useQuery({
     partnerId: partnerFilterId ?? undefined,
-    targetType: targetFilter !== "all" ? (targetFilter as any) : undefined,
+    targetType: targetFilter !== "all" ? (targetFilter as "material" | "product") : undefined,
     activeOnly,
   });
+  const prices = pricesRaw as PartnerPriceRow[];
 
   // Phase B: 엑셀 업로드 매칭은 서버 matchItems 엔드포인트로 위임
   //   (client 에서 전체 master 를 들고 오지 않음 — 대용량 대응)
@@ -216,9 +223,9 @@ function PartnerPricesContent() {
 
   // ─── 상세보기 / PDF 출력 (Phase B Part 2 UI) ────────────
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detailRow, setDetailRow] = useState<any>(null);
+  const [detailRow, setDetailRow] = useState<PriceDetailRow | null>(null);
 
-  const openDetailDialog = (row: any) => {
+  const openDetailDialog = (row: PartnerPriceRow) => {
     setDetailRow(row);
     setDetailOpen(true);
   };
@@ -277,9 +284,9 @@ function PartnerPricesContent() {
   // 통계
   const stats = useMemo(() => {
     const total = prices.length;
-    const materials = prices.filter((p: any) => p.targetType === "material").length;
-    const products = prices.filter((p: any) => p.targetType === "product").length;
-    const uniquePartners = new Set(prices.map((p: any) => p.partnerId)).size;
+    const materials = prices.filter((p) => p.targetType === "material").length;
+    const products = prices.filter((p) => p.targetType === "product").length;
+    const uniquePartners = new Set(prices.map((p) => p.partnerId)).size;
     return { total, materials, products, uniquePartners };
   }, [prices]);
 
@@ -526,10 +533,10 @@ function PartnerPricesContent() {
             ? "  (낮은 신뢰도 / 실패 건은 품목을 직접 선택하세요)"
             : ""),
       });
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: "엑셀 파싱 실패",
-        description: err.message || "파일 형식을 확인하세요",
+        description: (err instanceof Error ? err.message : String(err)) || "파일 형식을 확인하세요",
         variant: "destructive",
       });
     } finally {
@@ -590,10 +597,10 @@ function PartnerPricesContent() {
         title: `✨ AI 매칭 완료`,
         description: `${successCount}건 추가 매칭 / ${failCount}건 여전히 매칭 실패`,
       });
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: "AI 매칭 실패",
-        description: err.message || "OPENAI_API_KEY 설정을 확인하세요",
+        description: (err instanceof Error ? err.message : String(err)) || "OPENAI_API_KEY 설정을 확인하세요",
         variant: "destructive",
       });
     } finally {
@@ -645,10 +652,10 @@ function PartnerPricesContent() {
         title: `${mapped.length}건 로드 완료`,
         description: `${partnerName} 의 단가표를 수정할 수 있습니다`,
       });
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: "불러오기 실패",
-        description: err.message,
+        description: err instanceof Error ? err.message : String(err),
         variant: "destructive",
       });
     }
@@ -747,10 +754,10 @@ function PartnerPricesContent() {
       });
       setAiPreview(result);
       setAiPreviewOpen(true);
-    } catch (err: any) {
+    } catch (err) {
       toast({
         title: "AI 가격 조정 실패",
-        description: err.message || "OPENAI_API_KEY 설정을 확인하세요",
+        description: (err instanceof Error ? err.message : String(err)) || "OPENAI_API_KEY 설정을 확인하세요",
         variant: "destructive",
       });
     } finally {
@@ -770,7 +777,10 @@ function PartnerPricesContent() {
         return {
           ...r,
           unitPrice: p.newUnitPrice,
-          discountRate: p.newDiscountRate !== null ? p.newDiscountRate : r.discountRate,
+          discountRate:
+            p.newDiscountRate !== null && p.newDiscountRate !== undefined
+              ? p.newDiscountRate
+              : r.discountRate,
           dirty: true,
           aiApplied: true,
           aiReason: p.reason,
@@ -802,13 +812,19 @@ function PartnerPricesContent() {
   };
 
   // ─── 단건 수정 ─────────────────────────────────────
-  const openEditDialog = (row: any) => {
+  const openEditDialog = (row: PartnerPriceRow) => {
     setEditingRow(row);
+    const effFrom = row.effectiveFrom instanceof Date
+      ? row.effectiveFrom.toISOString().slice(0, 10)
+      : String(row.effectiveFrom ?? "");
+    const effTo = row.effectiveTo instanceof Date
+      ? row.effectiveTo.toISOString().slice(0, 10)
+      : String(row.effectiveTo ?? "");
     setEditForm({
       unitPrice: Number(row.unitPrice),
       discountRate: Number(row.discountRate || 0),
-      effectiveFrom: row.effectiveFrom,
-      effectiveTo: row.effectiveTo || "",
+      effectiveFrom: effFrom,
+      effectiveTo: effTo,
       notes: row.notes || "",
     });
     setEditDialogOpen(true);
@@ -830,7 +846,7 @@ function PartnerPricesContent() {
     });
   };
 
-  const handleDelete = (row: any) => {
+  const handleDelete = (row: PartnerPriceRow) => {
     if (confirm(`${row.partnerName || row.partnerId} · ${row.itemName} 단가를 삭제하시겠습니까?`)) {
       deleteMutation.mutate({ id: row.id });
     }
@@ -983,7 +999,7 @@ function PartnerPricesContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                prices.map((row: any) => {
+                prices.map((row) => {
                   const tt = TARGET_TYPE_LABELS[row.targetType] || { label: row.targetType, color: "" };
                   return (
                     <TableRow key={row.id} className="group">
@@ -1006,9 +1022,17 @@ function PartnerPricesContent() {
                       <TableCell className="text-right text-xs">
                         {Number(row.discountRate) > 0 ? `${row.discountRate}%` : "-"}
                       </TableCell>
-                      <TableCell className="text-xs">{row.effectiveFrom}</TableCell>
+                      <TableCell className="text-xs">
+                        {row.effectiveFrom instanceof Date
+                          ? row.effectiveFrom.toISOString().slice(0, 10)
+                          : row.effectiveFrom}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {row.effectiveTo || "무제한"}
+                        {row.effectiveTo
+                          ? row.effectiveTo instanceof Date
+                            ? row.effectiveTo.toISOString().slice(0, 10)
+                            : row.effectiveTo
+                          : "무제한"}
                       </TableCell>
                       <TableCell>
                         {row.isActive === 1 ? (
@@ -1735,7 +1759,10 @@ function PartnerPricesContent() {
           })
         }
         pdfPending={previewPdfMutation.isPending}
-        onEdit={(row) => openEditDialog(row)}
+        onEdit={(row) => {
+          // detail 에서 수정 이동 — detail row 가 PartnerPriceRow 와 동일 shape 이라 캐스팅
+          openEditDialog(row as PartnerPriceRow);
+        }}
       />
     </div>
   );

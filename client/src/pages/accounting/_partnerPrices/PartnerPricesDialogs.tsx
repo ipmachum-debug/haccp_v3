@@ -41,16 +41,20 @@ export interface PriceEditForm {
 }
 
 export interface PriceDetailRow {
+  id?: number;
   partnerId: number;
   partnerName?: string | null;
   targetType: string;
+  materialId?: number | null;
+  productId?: number | null;
   itemName: string;
   itemCode?: string | null;
-  unitPrice: number;
+  // Drizzle DECIMAL → string on the wire, but callers may pass number too
+  unitPrice: number | string;
   currency?: string | null;
-  discountRate?: number | null;
-  effectiveFrom: string;
-  effectiveTo?: string | null;
+  discountRate?: number | string | null;
+  effectiveFrom: string | Date;
+  effectiveTo?: string | Date | null;
   notes?: string | null;
   isActive: number;
   createdAt?: string | Date | null;
@@ -63,6 +67,7 @@ export interface AiPreviewItem {
   itemCode?: string | null;
   currentPrice: number;
   newUnitPrice: number | null;
+  newDiscountRate?: number | null;
   priceDiff: number;
   priceDiffPct: number;
   reason?: string;
@@ -88,7 +93,7 @@ const TARGET_TYPE_COLORS: Record<string, { label: string; color: string }> = {
 export interface PriceEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  editingRow: { partnerName?: string; itemName?: string } | null;
+  editingRow: { partnerName?: string | null; itemName?: string | null } | null;
   editForm: PriceEditForm;
   setEditForm: (form: PriceEditForm) => void;
   onSave: () => void;
@@ -389,12 +394,20 @@ export function PriceDetailDialog({
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">유효 시작</div>
-                <div className="font-mono text-xs">{detailRow.effectiveFrom}</div>
+                <div className="font-mono text-xs">
+                  {detailRow.effectiveFrom instanceof Date
+                    ? detailRow.effectiveFrom.toISOString().slice(0, 10)
+                    : detailRow.effectiveFrom}
+                </div>
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">유효 종료</div>
                 <div className="font-mono text-xs">
-                  {detailRow.effectiveTo || "무제한"}
+                  {detailRow.effectiveTo
+                    ? detailRow.effectiveTo instanceof Date
+                      ? detailRow.effectiveTo.toISOString().slice(0, 10)
+                      : detailRow.effectiveTo
+                    : "무제한"}
                 </div>
               </div>
               <div className="col-span-2">
