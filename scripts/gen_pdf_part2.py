@@ -13,13 +13,13 @@ def write_sales_sections(pdf):
     pdf.section_title("1", "제품 개요")
     pdf.sub_title("1.1 Millio AI이란?")
     pdf.body_text(
-        "Millio AI은 식품 제조업체를 위한 클라우드 기반 통합 관리 플랫폼입니다. "
+        "Millio AI는 식품 제조업체를 위한 클라우드 기반 통합 관리 플랫폼입니다. "
         "HACCP(식품안전관리인증), ERP(전사적자원관리), 회계, 그리고 AI 분석을 "
         "하나의 시스템으로 통합하여, 식품 안전과 경영 효율을 동시에 달성할 수 있습니다."
     )
     pdf.body_text(
         "기존에는 HACCP 문서관리, 생산관리, 재고관리, 회계처리를 각각 별도 시스템으로 "
-        "운영해야 했습니다. Millio AI은 이 모든 것을 하나로 통합하여 "
+        "운영해야 했습니다. Millio AI는 이 모든 것을 하나로 통합하여 "
         "데이터 이중입력 제거, 실시간 현황 파악, 자동 보고서 생성을 실현합니다."
     )
 
@@ -152,7 +152,7 @@ def write_sales_sections(pdf):
     # ─── 5. 가격 정책 ───
     pdf.section_title("5", "서비스 요금 안내")
     pdf.body_text(
-        "Millio AI은 SaaS(클라우드) 방식으로 제공되며, 별도 서버 구축이 필요 없습니다. "
+        "Millio AI는 SaaS(클라우드) 방식으로 제공되며, 별도 서버 구축이 필요 없습니다. "
         "월 구독료에 시스템 이용, 업데이트, 기술지원이 모두 포함됩니다."
     )
     pdf.simple_table(

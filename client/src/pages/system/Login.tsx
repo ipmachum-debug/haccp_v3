@@ -286,13 +286,13 @@ export default function Login() {
             </div>
 
             <h1 className="text-[2.75rem] xl:text-5xl font-bold leading-[1.15] tracking-tight" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-              <span className="text-[#1a1a2e]">통합 관리 시스템</span>
+              <span className="text-[#1a1a2e]">제조기반 올인원 ERP</span>
               <br />
-              <span className="text-[#1a1a2e]">HACCP</span>
-              <span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent">ONE</span>
+              <span className="text-[#1a1a2e]">Millio</span>
+              <span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span>
             </h1>
             <p className="mt-4 text-lg text-stone-500" style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
-              식품 안전부터 회계까지, 하나의 플랫폼으로
+              공장의 모든 데이터를 AI가 하나로 연결합니다
             </p>
           </motion.div>
 

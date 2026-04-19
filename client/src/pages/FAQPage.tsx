@@ -18,7 +18,7 @@ const faqData = {
   ],
   items: [
     { category: "getting-started", q: "도입까지 얼마나 걸리나요?", a: "초기 설정은 30분 내로 완료됩니다. 기존 엑셀 데이터가 있다면 마이그레이션도 지원해 드립니다. 대부분의 고객님이 당일 바로 사용을 시작하십니다." },
-    { category: "getting-started", q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
+    { category: "getting-started", q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI는 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
     { category: "getting-started", q: "기존에 사용하던 엑셀 데이터는 어떻게 하나요?", a: "품목 마스터, 거래처 정보, 재고 데이터 등 기존 엑셀 데이터를 시스템으로 마이그레이션하는 것을 도와드립니다. 전담 담당자가 배정됩니다." },
     { category: "getting-started", q: "사용 교육을 제공하나요?", a: "Professional 이상 요금제에서는 1:1 온보딩 교육을 제공합니다. Starter 요금제에서도 온라인 가이드와 영상 튜토리얼을 제공합니다." },
     { category: "pricing", q: "무료 체험 기간에 제한되는 기능이 있나요?", a: "없습니다. 30일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다." },
@@ -65,7 +65,7 @@ export default function FAQPage() {
                 <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
                   <ShieldCheck className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-lg font-bold text-[#1a1a2e]">HACCP<span className="text-orange-500">ONE</span></span>
+                <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300">|</span>

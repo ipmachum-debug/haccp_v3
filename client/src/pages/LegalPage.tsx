@@ -598,7 +598,7 @@ const policySections: PolicySection[] = [
         <p className="text-stone-500 mb-8">본 문서는 Millio AI 서비스의 보안 구조 및 데이터 보호 정책을 설명합니다.</p>
 
         <h3>1. 보안 설계 원칙</h3>
-        <p>Millio AI은 다음 보안 원칙을 기반으로 설계되었습니다.</p>
+        <p>Millio AI는 다음 보안 원칙을 기반으로 설계되었습니다.</p>
         <ul>
           <li><strong>Confidentiality (기밀성)</strong></li>
           <li><strong>Integrity (무결성)</strong></li>
@@ -606,7 +606,7 @@ const policySections: PolicySection[] = [
         </ul>
 
         <h3>2. 시스템 아키텍처</h3>
-        <p>Millio AI은 클라우드 기반 SaaS 아키텍처로 구성됩니다.</p>
+        <p>Millio AI는 클라우드 기반 SaaS 아키텍처로 구성됩니다.</p>
         <h4>주요 구성</h4>
         <ul>
           <li>Web Application</li>
@@ -617,7 +617,7 @@ const policySections: PolicySection[] = [
         </ul>
 
         <h3>3. 멀티 테넌트 보안</h3>
-        <p>Millio AI은 멀티 테넌트 구조로 운영됩니다. 각 고객 데이터는 논리적으로 분리됩니다.</p>
+        <p>Millio AI는 멀티 테넌트 구조로 운영됩니다. 각 고객 데이터는 논리적으로 분리됩니다.</p>
         <h4>보안 방식</h4>
         <ul>
           <li>Tenant ID 기반 접근</li>
@@ -831,7 +831,7 @@ export default function LegalPage() {
                 <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
                   <ShieldCheck className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-lg font-bold text-[#1a1a2e]">HACCP<span className="text-orange-500">ONE</span></span>
+                <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300 hidden sm:inline">|</span>

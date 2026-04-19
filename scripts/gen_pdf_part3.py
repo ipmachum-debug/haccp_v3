@@ -249,7 +249,7 @@ def write_manual_sections(pdf):
     pdf.section_title("13", "자주 묻는 질문 (FAQ)")
 
     faqs = [
-        ("Q1. Millio AI은 어떤 업종에 적합한가요?",
+        ("Q1. Millio AI는 어떤 업종에 적합한가요?",
          "식품 제조업체(가공식품, 건강기능식품, 음료 등)를 위해 설계되었습니다. "
          "HACCP 인증이 필요한 모든 식품 제조 사업장에서 사용 가능합니다."),
         ("Q2. 기존 데이터를 옮길 수 있나요?",

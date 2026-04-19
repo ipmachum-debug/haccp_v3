@@ -106,7 +106,7 @@ VITE_FRONTEND_FORGE_API_KEY=your_frontend_api_key
 VITE_FRONTEND_FORGE_API_URL=https://api.manus.im
 
 # 앱 정보
-VITE_APP_TITLE=HACCP 식품 안전 관리 시스템
+VITE_APP_TITLE=Millio AI | 제조기반 올인원 AI ERP
 VITE_APP_LOGO=/logo.png
 
 # 애널리틱스

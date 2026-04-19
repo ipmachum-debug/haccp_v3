@@ -25,7 +25,7 @@ const quickQuestionCategories = [
     icon: "📖",
     color: "#6366f1",
     questions: [
-      "Millio AI은 어떤 시스템인가요?",
+      "Millio AI는 어떤 시스템인가요?",
       "처음 사용하는데 어디서부터 시작하나요?",
       "전체 메뉴 구조를 알려주세요",
       "Today 페이지는 뭔가요?",

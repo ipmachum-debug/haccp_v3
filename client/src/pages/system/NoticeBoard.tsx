@@ -358,10 +358,10 @@ export default function NoticeBoard() {
               {/* 텍스트 로고 */}
               <div>
                 <div className="flex items-baseline gap-0.5">
-                  <h1 className="text-[20px] font-black tracking-tight text-gray-800">HACCP</h1>
-                  <span className="text-[20px] font-bold text-amber-500">-One</span>
+                  <h1 className="text-[20px] font-black tracking-tight text-gray-800">Millio</h1>
+                  <span className="text-[20px] font-bold text-amber-500"> AI</span>
                 </div>
-                <p className="text-[11px] text-gray-400 font-semibold -mt-0.5 tracking-wide">식품안전관리 통합 플랫폼</p>
+                <p className="text-[11px] text-gray-400 font-semibold -mt-0.5 tracking-wide">제조기반 올인원 AI ERP</p>
               </div>
 
               {/* 유저 + 로그아웃 */}
