@@ -1,6 +1,18 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 비용전표 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type ExpenseListRow = RouterOutput["expense"]["list"]["items"][number];
+type ExpenseDetail = NonNullable<RouterOutput["expense"]["getById"]>;
+type ExpenseItem = ExpenseDetail["items"][number];
+type ExpenseJournalLine = ExpenseDetail["journalLines"][number];
+type ExpenseAttachment = ExpenseDetail["attachments"][number];
+type ExpenseAccount = RouterOutput["expense"]["getExpenseAccounts"][number];
+type ExpensePartnerRow = RouterOutput["expense"]["searchPartners"][number];
+type RecurringTemplate = RouterOutput["expense"]["recurringList"][number];
+type UnpaidRow = RouterOutput["expense"]["list"]["items"][number];
 import { skipToken } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,8 +56,9 @@ const STATUS_MAP: Record<string, { label: string; variant: "default" | "secondar
   canceled: { label: "취소", variant: "destructive" },
 };
 
-function fmt(n: any) {
-  return Number(n || 0).toLocaleString("ko-KR");
+function fmt(n: unknown) {
+  const num = typeof n === "number" ? n : Number(n ?? 0);
+  return (isNaN(num) ? 0 : num).toLocaleString("ko-KR");
 }
 
 function formatFileSize(bytes: number) {
@@ -120,8 +133,8 @@ function ExpenseListTab() {
     limit: 30,
     startDate: startDate || undefined,
     endDate: endDate || undefined,
-    status: statusFilter !== "all" ? statusFilter as any : undefined,
-    paymentMethod: paymentFilter !== "all" ? paymentFilter as any : undefined,
+    status: statusFilter !== "all" ? statusFilter as "draft" | "posted" | "canceled" : undefined,
+    paymentMethod: paymentFilter !== "all" ? paymentFilter as "cash" | "bank" | "card" | "unpaid" : undefined,
     search: searchText || undefined,
   });
 
@@ -175,7 +188,7 @@ function ExpenseListTab() {
     const items = listQuery.data?.items || [];
     if (items.length === 0) return;
     const ws = XLSX.utils.json_to_sheet(
-      items.map((v: any) => ({
+      items.map((v: ExpenseListRow) => ({
         전표번호: v.voucher_no,
         비용일자: v.expense_date,
         거래처: v.partner_name || "",
@@ -340,7 +353,7 @@ function ExpenseListTab() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  (list?.items || []).map((v: any) => (
+                  (list?.items || []).map((v: ExpenseListRow) => (
                     <TableRow key={v.id} className={v.status === "canceled" ? "opacity-50" : ""}>
                       <TableCell className="font-mono text-xs">{v.voucher_no}</TableCell>
                       <TableCell className="text-xs">{v.expense_date}</TableCell>
@@ -449,7 +462,7 @@ function ExpenseListTab() {
 // ════════════════════════════════════
 // 상세 보기 컴포넌트
 // ════════════════════════════════════
-function ExpenseDetailView({ data }: { data: any }) {
+function ExpenseDetailView({ data }: { data: ExpenseDetail }) {
   return (
     <div className="space-y-4 text-sm">
       <div className="grid grid-cols-2 gap-3">
@@ -482,7 +495,7 @@ function ExpenseDetailView({ data }: { data: any }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.items.map((item: any, i: number) => (
+              {data.items.map((item: ExpenseItem, i: number) => (
                 <TableRow key={i}>
                   <TableCell>{item.account_name || item.account_code}</TableCell>
                   <TableCell className="text-right">{fmt(item.supply_amount)}</TableCell>
@@ -510,7 +523,7 @@ function ExpenseDetailView({ data }: { data: any }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.journalLines.map((line: any, i: number) => (
+              {data.journalLines.map((line: ExpenseJournalLine, i: number) => (
                 <TableRow key={i}>
                   <TableCell>{line.account_name || line.account_code}</TableCell>
                   <TableCell className="text-right text-blue-600">{Number(line.debit_amount) > 0 ? fmt(line.debit_amount) : ""}</TableCell>
@@ -530,7 +543,7 @@ function ExpenseDetailView({ data }: { data: any }) {
             <Paperclip className="w-4 h-4" /> 첨부파일 ({data.attachments.length})
           </h4>
           <div className="space-y-1">
-            {data.attachments.map((att: any) => (
+            {data.attachments.map((att: ExpenseAttachment) => (
               <div key={att.id} className="flex items-center gap-2 p-2 bg-muted/30 rounded text-xs">
                 {getFileIcon(att.mime_type)}
                 <a
@@ -564,7 +577,7 @@ function ExpenseFormDialog({
   open: boolean;
   onClose: () => void;
   editingId: number | null;
-  accounts: any[];
+  accounts: ExpenseAccount[];
 }) {
   const { toast } = useToast();
   const utils = trpc.useUtils();
@@ -587,7 +600,7 @@ function ExpenseFormDialog({
   const [proofType, setProofType] = useState(existing?.proof_type || "none");
   const [memo, setMemo] = useState(existing?.memo || "");
   const [items, setItems] = useState<any[]>(
-    existing?.items?.map((it: any) => ({
+    existing?.items?.map((it: ExpenseItem) => ({
       accountId: it.account_id,
       accountCode: it.account_code,
       accountName: it.account_name,
@@ -608,7 +621,7 @@ function ExpenseFormDialog({
       setProofType(existing.proof_type || "none");
       setMemo(existing.memo || "");
       if (existing.items?.length > 0) {
-        setItems(existing.items.map((it: any) => ({
+        setItems(existing.items.map((it: ExpenseItem) => ({
           accountId: Number(it.account_id),
           accountCode: it.account_code || "",
           accountName: it.account_name || "",
@@ -653,8 +666,9 @@ function ExpenseFormDialog({
         throw new Error(errData.error || "업로드 실패");
       }
       setPendingFiles([]);
-    } catch (err: any) {
-      toast({ title: "첨부파일 업로드 실패", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const error = err as Error;
+      toast({ title: "첨부파일 업로드 실패", description: error.message, variant: "destructive" });
     } finally {
       setUploadingFiles(false);
     }
@@ -670,8 +684,9 @@ function ExpenseFormDialog({
       if (!resp.ok) throw new Error("삭제 실패");
       setExistingAttachments((prev) => prev.filter((a) => a.id !== attId));
       toast({ title: "첨부파일 삭제 완료" });
-    } catch (err: any) {
-      toast({ title: "삭제 실패", description: err.message, variant: "destructive" });
+    } catch (err) {
+      const error = err as Error;
+      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     }
   };
 
@@ -707,7 +722,7 @@ function ExpenseFormDialog({
     return { supply, vat, total: supply + vat };
   }, [items]);
 
-  const updateItem = (idx: number, field: string, val: any) => {
+  const updateItem = (idx: number, field: string, val: string | number | null) => {
     setItems((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: val };
@@ -741,8 +756,8 @@ function ExpenseFormDialog({
       supplyAmount: totals.supply,
       vatAmount: totals.vat,
       totalAmount: totals.total,
-      paymentMethod: paymentMethod as any,
-      proofType: proofType as any,
+      paymentMethod: paymentMethod as "cash" | "bank" | "card" | "unpaid",
+      proofType: proofType as "tax_invoice" | "card" | "cash_receipt" | "simple" | "none",
       memo: memo || undefined,
       items: validItems,
     };
@@ -800,7 +815,7 @@ function ExpenseFormDialog({
                     {!partnersQuery.isFetching && partnerResults.length === 0 && (
                       <div className="px-3 py-2 text-sm text-muted-foreground text-center">검색 결과 없음</div>
                     )}
-                    {partnerResults.map((p: any) => (
+                    {partnerResults.map((p: ExpensePartnerRow) => (
                       <button
                         key={p.id}
                         type="button"
@@ -977,7 +992,7 @@ function ExpenseFormDialog({
               {/* 기존 첨부파일 (수정 시) */}
               {existingAttachments.length > 0 && (
                 <div className="space-y-1">
-                  {existingAttachments.map((att: any) => (
+                  {existingAttachments.map((att: ExpenseAttachment) => (
                     <div key={att.id} className="flex items-center gap-2 p-1.5 bg-muted/30 rounded text-xs">
                       {getFileIcon(att.mime_type)}
                       <a href={att.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex-1 truncate">
@@ -1092,7 +1107,7 @@ function RecurringTab() {
             <TableBody>
               {(listQuery.data || []).length === 0 ? (
                 <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">등록된 정기비용 템플릿이 없습니다.</TableCell></TableRow>
-              ) : (listQuery.data || []).map((tpl: any) => (
+              ) : (listQuery.data || []).map((tpl: RecurringTemplate) => (
                 <TableRow key={tpl.id} className={!tpl.is_active ? "opacity-50" : ""}>
                   <TableCell className="font-medium">{tpl.template_name}</TableCell>
                   <TableCell className="text-xs">{tpl.account_name || tpl.account_code}</TableCell>
@@ -1158,7 +1173,16 @@ function RecurringTab() {
   );
 }
 
-function RecurringFormDialog({ open, onClose, editing, accounts, onSubmit, isPending }: any) {
+function RecurringFormDialog({
+  open, onClose, editing, accounts, onSubmit, isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  editing: RecurringTemplate | null;
+  accounts: ExpenseAccount[];
+  onSubmit: (data: Record<string, unknown>) => void;
+  isPending: boolean;
+}) {
   const [name, setName] = useState(editing?.template_name || "");
   const [accountId, setAccountId] = useState(editing?.account_id?.toString() || "");
   const [partnerName, setPartnerName] = useState(editing?.partner_name || "");
@@ -1172,7 +1196,7 @@ function RecurringFormDialog({ open, onClose, editing, accounts, onSubmit, isPen
   const [isActive, setIsActive] = useState(editing ? !!editing.is_active : true);
 
   const total = supply + vat;
-  const selectedAcc = accounts.find((a: any) => a.id?.toString() === accountId);
+  const selectedAcc = accounts.find((a: ExpenseAccount) => a.id?.toString() === accountId);
 
   const handleSubmit = () => {
     if (!name.trim() || !accountId) return;
@@ -1195,7 +1219,7 @@ function RecurringFormDialog({ open, onClose, editing, accounts, onSubmit, isPen
           <div><Label>비용계정 *</Label>
             <Select value={accountId} onValueChange={setAccountId}>
               <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-              <SelectContent>{accounts.map((a: any) => <SelectItem key={a.id} value={a.id.toString()}>{a.code} {a.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{accounts.map((a: ExpenseAccount) => <SelectItem key={a.id} value={a.id.toString()}>{a.code} {a.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div><Label>거래처</Label><Input value={partnerName} onChange={(e) => setPartnerName(e.target.value)} placeholder="(선택)" /></div>
@@ -1285,7 +1309,7 @@ function UnpaidTab() {
   });
 
   // 미지급 합계
-  const totalUnpaid = (unpaidQuery.data?.items || []).reduce((s: number, v: any) => s + Number(v.unpaid_balance || v.total_amount), 0);
+  const totalUnpaid = (unpaidQuery.data?.items || []).reduce((s: number, v: UnpaidRow) => s + Number((v as { unpaid_balance?: number | string }).unpaid_balance ?? v.total_amount ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -1312,7 +1336,7 @@ function UnpaidTab() {
           <TableBody>
             {(unpaidQuery.data?.items || []).length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">미지급 전표가 없습니다.</TableCell></TableRow>
-            ) : (unpaidQuery.data?.items || []).map((v: any) => (
+            ) : (unpaidQuery.data?.items || []).map((v: UnpaidRow) => (
               <TableRow key={v.id}>
                 <TableCell className="font-mono text-xs">{v.voucher_no}</TableCell>
                 <TableCell className="text-xs">{v.expense_date}</TableCell>
@@ -1348,7 +1372,7 @@ function UnpaidTab() {
             <div><Label>지급 날짜</Label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} /></div>
             <div><Label>지급 금액</Label><Input type="number" value={payAmount} onChange={(e) => setPayAmount(Number(e.target.value))} /></div>
             <div><Label>지급 수단</Label>
-              <Select value={payMethod} onValueChange={(v) => setPayMethod(v as any)}>
+              <Select value={payMethod} onValueChange={(v) => setPayMethod(v as typeof payMethod)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">현금</SelectItem><SelectItem value="bank">계좌이체</SelectItem><SelectItem value="card">카드</SelectItem>
@@ -1380,11 +1404,11 @@ function UnpaidTab() {
             <TableBody>
               {(historyQuery.data || []).length === 0 ? (
                 <TableRow><TableCell colSpan={4} className="text-center py-4 text-muted-foreground">지급 이력이 없습니다.</TableCell></TableRow>
-              ) : (historyQuery.data || []).map((h: any) => (
+              ) : (historyQuery.data || []).map((h: { id: number; payment_date?: string; payment_amount?: number | string; payment_method?: string; paid_by_name?: string }) => (
                 <TableRow key={h.id}>
-                  <TableCell className="text-xs">{h.payment_date}</TableCell>
+                  <TableCell className="text-xs">{h.payment_date ?? ""}</TableCell>
                   <TableCell className="text-right font-semibold">{fmt(h.payment_amount)}원</TableCell>
-                  <TableCell className="text-xs">{PAYMENT_METHODS[h.payment_method]}</TableCell>
+                  <TableCell className="text-xs">{(h.payment_method && PAYMENT_METHODS[h.payment_method]) || h.payment_method || ""}</TableCell>
                   <TableCell className="text-xs">{h.paid_by_name || "-"}</TableCell>
                 </TableRow>
               ))}
@@ -1459,9 +1483,9 @@ function VatSummaryTab() {
                   <TableHead className="text-right">합계</TableHead><TableHead>공제</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {(data.byProofType || []).map((r: any) => (
+                  {(data.byProofType || []).map((r: { proof_type?: string; cnt?: number; supply_sum?: number | string; vat_sum?: number | string; total_sum?: number | string }) => (
                     <TableRow key={r.proof_type}>
-                      <TableCell>{PROOF_LABEL[r.proof_type] || r.proof_type}</TableCell>
+                      <TableCell>{(r.proof_type && PROOF_LABEL[r.proof_type]) || r.proof_type || "-"}</TableCell>
                       <TableCell className="text-right">{fmt(r.cnt)}건</TableCell>
                       <TableCell className="text-right">{fmt(r.supply_sum)}원</TableCell>
                       <TableCell className="text-right font-semibold">{fmt(r.vat_sum)}원</TableCell>
@@ -1490,7 +1514,7 @@ function VatSummaryTab() {
                     <TableHead className="text-right">합계</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
-                    {(data.monthly || []).map((m: any) => (
+                    {(data.monthly || []).map((m: { month?: string; cnt?: number; supply_sum?: number | string; vat_sum?: number | string; total_sum?: number | string }) => (
                       <TableRow key={m.month}>
                         <TableCell className="font-medium">{m.month}</TableCell>
                         <TableCell className="text-right">{fmt(m.cnt)}건</TableCell>

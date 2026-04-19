@@ -1,6 +1,83 @@
 import { useState, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 일일 보고서 도메인 타입 — 서버는 summary JSON 을 any 로 반환하므로 프론트에서 실사용 shape 정의
+type ReportListRow = RouterOutput["dailyReport"]["listReports"][number];
+
+type ReportCcpDetail = {
+  ccpType?: string;
+  ccpName?: string;
+  status?: string;
+  passCount?: number;
+  failCount?: number;
+  rowCount?: number;
+  deviationCount?: number;
+  recordCount?: number;
+};
+
+type ReportBatch = {
+  id: number;
+  batchCode?: string;
+  productName?: string;
+  status?: string;
+  plannedQuantity?: number | string;
+  actualQuantity?: number | string;
+  startTime?: string | Date | null;
+  endTime?: string | Date | null;
+  approvedAt?: string | Date | null;
+  ccpDetails?: ReportCcpDetail[];
+  [key: string]: unknown;
+};
+
+type ReportIssue = {
+  type?: string;
+  severity?: string;
+  title?: string;
+  description?: string;
+  batchCode?: string;
+  productName?: string;
+  ccpType?: string;
+  measuredAt?: string | Date;
+  note?: string;
+  detectedAt?: string | Date;
+  [key: string]: unknown;
+};
+
+type ReportCcpSummary = {
+  totalRecords?: number;
+  normalCount?: number;
+  deviationCount?: number;
+  complianceRate?: number;
+  [key: string]: unknown;
+};
+
+type ReportSummary = {
+  totalBatches?: number;
+  completedBatches?: number;
+  totalPlanned?: number;
+  totalActual?: number;
+  completionRate?: number;
+  batches?: ReportBatch[];
+  issues?: ReportIssue[];
+  ccp?: ReportCcpSummary;
+  [key: string]: unknown;
+};
+
+type ReportApprovalInfo = {
+  authorName?: string;
+  approverName?: string;
+  reviewerName?: string;
+  requesterName?: string;
+  requestedAt?: string | Date;
+  reviewedAt?: string | Date;
+  approvedAt?: string | Date;
+  authorSealDate?: string | Date;
+  approverSealDate?: string | Date;
+  reviewerSealDate?: string | Date;
+  [key: string]: unknown;
+};
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -126,15 +203,15 @@ td, th { border: 1px solid #4b5563; padding: 3px 6px; font-size: 10px; }
 // ===========================================================================
 // Generate full print HTML for document-style printing
 // ===========================================================================
-function generatePrintHTML(batches: any[], summary: any, dateString: string, issues: any[], approvalInfo: any) {
-  const totalPlanned = batches.reduce((s: number, b: any) => s + (parseFloat(b.plannedQuantity) || 0), 0);
-  const totalActual = batches.reduce((s: number, b: any) => s + (parseFloat(b.actualQuantity) || 0), 0);
-  const completedCount = batches.filter((b: any) => b.status === "completed").length;
+function generatePrintHTML(batches: ReportBatch[], summary: ReportSummary, dateString: string, issues: ReportIssue[], approvalInfo: ReportApprovalInfo | null | undefined) {
+  const totalPlanned = batches.reduce((s, b) => s + (parseFloat(String(b.plannedQuantity ?? "")) || 0), 0);
+  const totalActual = batches.reduce((s, b) => s + (parseFloat(String(b.actualQuantity ?? "")) || 0), 0);
+  const completedCount = batches.filter((b) => b.status === "completed").length;
   const achievementRate = totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0;
   const ai = approvalInfo || {};
 
   // SVG 직인(도장) 생성 함수 - 인쇄 시 빨간 직인 표시 (승인도장 3단 분할 스타일)
-  const sealSVG = (name: string, date: string, type: string) => {
+  const sealSVG = (name: string, date: string | Date, type: string) => {
     let dateStr = "";
     try {
       const d = safeDate(date);
@@ -151,9 +228,9 @@ function generatePrintHTML(batches: any[], summary: any, dateString: string, iss
     </svg>`;
   };
 
-  const sealCell = (name?: string, date?: string, type?: string) => {
+  const sealCell = (name?: string, date?: string | Date, type?: string) => {
     if (name && date) {
-      return sealSVG(name, date, type || "");
+      return sealSVG(name, String(date), type || "");
     }
     if (name) return `<div style="font-size:9px;font-weight:700;color:#D42020;">${name}</div>`;
     return `<span style="color:#d1d5db;font-size:8px;">미${type === "작성" ? "작성" : type === "검토" ? "검토" : "승인"}</span>`;
@@ -164,9 +241,9 @@ function generatePrintHTML(batches: any[], summary: any, dateString: string, iss
     return m[status] || status || "-";
   };
 
-  const batchRows = batches.map((b: any, idx: number) => {
-    const ccpBadges = (b.ccpDetails || []).map((c: any) => {
-      const cls = c.failCount > 0 ? "ccp-fail" : c.status === "draft" ? "ccp-draft" : "ccp-pass";
+  const batchRows = batches.map((b, idx) => {
+    const ccpBadges = (b.ccpDetails || []).map((c) => {
+      const cls = (c.failCount ?? 0) > 0 ? "ccp-fail" : c.status === "draft" ? "ccp-draft" : "ccp-pass";
       return `<span class="ccp-badge ${cls}">${c.ccpType}(${c.passCount}/${c.rowCount})</span>`;
     }).join(" ");
     return `<tr>
@@ -175,17 +252,17 @@ function generatePrintHTML(batches: any[], summary: any, dateString: string, iss
       <td>${b.productName || "-"}</td>
       <td class="text-center">${safeNum(b.plannedQuantity)}</td>
       <td class="text-center font-bold">${b.actualQuantity ? safeNum(b.actualQuantity) : "-"}</td>
-      <td class="text-center">${statusLabel(b.status)}</td>
+      <td class="text-center">${statusLabel(b.status ?? "")}</td>
       <td class="text-center">${fmtTime(b.startTime)}</td>
       <td class="text-center">${fmtTime(b.endTime)}</td>
       <td style="font-size:8px;">${ccpBadges || "-"}</td>
     </tr>`;
   }).join("");
 
-  const issueRows = issues.length > 0 ? issues.map((i: any, idx: number) => `<tr>
-    <td>${i.batchCode || "-"}</td><td>${i.productName || "-"}</td>
-    <td class="text-center">${i.ccpType || "-"}</td><td class="text-center text-red font-bold">부적합</td>
-    <td class="text-center">${fmtDateTime(i.measuredAt)}</td><td>${i.note || "-"}</td>
+  const issueRows = issues.length > 0 ? issues.map((i) => `<tr>
+    <td>${i.batchCode || "-"}</td><td>${(i as { productName?: string }).productName || "-"}</td>
+    <td class="text-center">${(i as { ccpType?: string }).ccpType || "-"}</td><td class="text-center text-red font-bold">부적합</td>
+    <td class="text-center">${fmtDateTime((i as { measuredAt?: string | Date }).measuredAt)}</td><td>${(i as { note?: string }).note || "-"}</td>
   </tr>`).join("") : "";
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>생산일지 - ${dateString}</title>
@@ -278,15 +355,15 @@ function generatePrintHTML(batches: any[], summary: any, dateString: string, iss
 function ProductionDailyDocument({
   batches, summary, dateString, issues, approvalInfo,
 }: {
-  batches: any[]; summary: any; dateString: string; issues: any[];
+  batches: ReportBatch[]; summary: ReportSummary; dateString: string; issues: ReportIssue[];
   approvalInfo?: { requesterName?: string; reviewerName?: string; approverName?: string; approvedAt?: string; reviewedAt?: string; requestedAt?: string };
 }) {
   const bCls = "border border-gray-600";
   const thCls = `${bCls} px-2 py-1.5 text-xs font-medium bg-gray-50`;
   const tdCls = `${bCls} px-2 py-1.5 text-xs`;
-  const totalPlanned = batches.reduce((s: number, b: any) => s + (parseFloat(b.plannedQuantity) || 0), 0);
-  const totalActual = batches.reduce((s: number, b: any) => s + (parseFloat(b.actualQuantity) || 0), 0);
-  const completedCount = batches.filter((b: any) => b.status === "completed").length;
+  const totalPlanned = batches.reduce((s, b) => s + (parseFloat(String(b.plannedQuantity ?? "")) || 0), 0);
+  const totalActual = batches.reduce((s, b) => s + (parseFloat(String(b.actualQuantity ?? "")) || 0), 0);
+  const completedCount = batches.filter((b) => b.status === "completed").length;
   const ai = approvalInfo || {};
   const sealSize = 30;
 
@@ -368,11 +445,11 @@ function ProductionDailyDocument({
           </tr>
         </thead>
         <tbody>
-          {batches.length > 0 ? batches.map((b: any, idx: number) => {
-            const statusLabel = BATCH_STATUS_MAP[b.status]?.label || b.status || "-";
+          {batches.length > 0 ? batches.map((b: ReportBatch, idx: number) => {
+            const statusLabel = (b.status && BATCH_STATUS_MAP[b.status]?.label) || b.status || "-";
             const ccpDetails = b.ccpDetails || [];
             return (
-              <tr key={b.batchId || idx}>
+              <tr key={(b as { batchId?: number }).batchId || b.id || idx}>
                 <td className={`${tdCls} text-center text-gray-500`}>{idx + 1}</td>
                 <td className={`${tdCls} font-medium font-mono text-[10px]`}>{b.batchCode}</td>
                 <td className={tdCls}>{b.productName || "-"}</td>
@@ -382,10 +459,10 @@ function ProductionDailyDocument({
                 <td className={`${tdCls} text-center`}>{fmtTime(b.startTime)}</td>
                 <td className={`${tdCls} text-center`}>{fmtTime(b.endTime)}</td>
                 <td className={`${tdCls} text-[9px]`}>
-                  {ccpDetails.length > 0 ? ccpDetails.map((c: any, ci: number) => (
+                  {ccpDetails.length > 0 ? ccpDetails.map((c: ReportCcpDetail, ci: number) => (
                     <span key={ci} className={cn(
                       "inline-block px-1 py-0 rounded text-[8px] font-medium mr-0.5",
-                      c.failCount > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
+                      (c.failCount ?? 0) > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
                     )}>
                       {c.ccpType}({c.passCount}/{c.rowCount})
                     </span>
@@ -433,7 +510,7 @@ function ProductionDailyDocument({
               <th className={`${bCls} px-1.5 py-1 text-center`}>발생시간</th><th className={`${bCls} px-1.5 py-1`}>비고</th>
             </tr></thead>
             <tbody>
-              {issues.map((i: any, idx: number) => (
+              {issues.map((i: ReportIssue, idx: number) => (
                 <tr key={idx}><td className={tdCls}>{i.batchCode||"-"}</td><td className={tdCls}>{i.productName||"-"}</td>
                   <td className={`${tdCls} text-center`}>{i.ccpType||"-"}</td><td className={`${tdCls} text-center text-red-600 font-bold`}>부적합</td>
                   <td className={`${tdCls} text-center`}>{fmtDateTime(i.measuredAt)}</td><td className={tdCls}>{i.note||"-"}</td></tr>
@@ -463,7 +540,7 @@ function ProductionDailyDocument({
 // ===========================================================================
 // 배치 상세 다이얼로그
 // ===========================================================================
-function BatchDetailDialog({ batch, open, onClose }: { batch: any; open: boolean; onClose: () => void }) {
+function BatchDetailDialog({ batch, open, onClose }: { batch: ReportBatch; open: boolean; onClose: () => void }) {
   if (!batch) return null;
   const th = "text-xs font-medium text-gray-500 py-1.5 pr-4 whitespace-nowrap align-top";
   const td = "text-sm py-1.5";
@@ -477,10 +554,10 @@ function BatchDetailDialog({ batch, open, onClose }: { batch: any; open: boolean
         <table className="w-full"><tbody>
           <tr><td className={th}>배치코드</td><td className={td}><span className="font-mono font-bold">{batch.batchCode}</span></td></tr>
           <tr><td className={th}>제품명</td><td className={td}>{batch.productName || "-"}</td></tr>
-          <tr><td className={th}>상태</td><td className={td}><BatchStatusBadge status={batch.status} /></td></tr>
+          <tr><td className={th}>상태</td><td className={td}><BatchStatusBadge status={batch.status ?? ""} /></td></tr>
           <tr><td className={th}>계획 수량</td><td className={td}><span className="font-bold">{safeNum(batch.plannedQuantity)}</span> kg</td></tr>
           <tr><td className={th}>실제 수량</td><td className={td}>{batch.actualQuantity ? <><span className="font-bold">{safeNum(batch.actualQuantity)}</span> kg</> : <span className="text-gray-400">-</span>}</td></tr>
-          <tr><td className={th}>달성률</td><td className={td}>{batch.plannedQuantity && batch.actualQuantity ? <span className="font-bold text-blue-600">{Math.round((parseFloat(batch.actualQuantity)/parseFloat(batch.plannedQuantity))*100)}%</span> : "-"}</td></tr>
+          <tr><td className={th}>달성률</td><td className={td}>{batch.plannedQuantity && batch.actualQuantity ? <span className="font-bold text-blue-600">{Math.round((parseFloat(String(batch.actualQuantity))/parseFloat(String(batch.plannedQuantity)))*100)}%</span> : "-"}</td></tr>
           <tr><td className={th}>시작 시간</td><td className={td}>{safeDate(batch.startTime) ? format(safeDate(batch.startTime)!, "yyyy-MM-dd HH:mm:ss") : "-"}</td></tr>
           <tr><td className={th}>종료 시간</td><td className={td}>{safeDate(batch.endTime) ? format(safeDate(batch.endTime)!, "yyyy-MM-dd HH:mm:ss") : "-"}</td></tr>
           {safeDate(batch.startTime) && safeDate(batch.endTime) && (
@@ -492,12 +569,12 @@ function BatchDetailDialog({ batch, open, onClose }: { batch: any; open: boolean
           {(batch.ccpDetails || []).length > 0 && (
             <tr><td className={th}>CCP 점검</td><td className={td}>
               <div className="flex flex-wrap gap-1">
-                {(batch.ccpDetails || []).map((c: any, i: number) => (
+                {(batch.ccpDetails || []).map((c: ReportCcpDetail, i: number) => (
                   <span key={i} className={cn(
                     "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium",
-                    c.failCount > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
+                    (c.failCount ?? 0) > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
                   )}>
-                    {c.ccpType}: {c.passCount}/{c.rowCount} {c.failCount > 0 ? `(부적합 ${c.failCount})` : "정상"}
+                    {c.ccpType}: {c.passCount}/{c.rowCount} {(c.failCount ?? 0) > 0 ? `(부적합 ${c.failCount})` : "정상"}
                   </span>
                 ))}
               </div>
@@ -520,15 +597,15 @@ export function ProductionDailyReportContent() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   // ---- API ----
-  const { data: reportList = [], isLoading: loadingList, refetch: refetchList } = (trpc as any).dailyReport.listReports.useQuery(
+  const { data: reportList = [], isLoading: loadingList, refetch: refetchList } = trpc.dailyReport.listReports.useQuery(
     { year: currentYear, month: currentMonth },
     { keepPreviousData: true, refetchOnWindowFocus: true, refetchInterval: 15000 }
   );
-  const { data: generatedReport, isLoading: loadingDetail, refetch: refetchDetail } = (trpc as any).dailyReport.getGeneratedReport.useQuery(
-    { date: selectedReportId ? (reportList as any[]).find((r: any) => r.id === selectedReportId)?.reportDate : "" },
+  const { data: generatedReport, isLoading: loadingDetail, refetch: refetchDetail } = trpc.dailyReport.getGeneratedReport.useQuery(
+    { date: selectedReportId ? (reportList as ReportListRow[]).find((r: ReportListRow) => r.id === selectedReportId)?.reportDate : "" },
     { enabled: !!selectedReportId, refetchOnWindowFocus: true, refetchInterval: selectedReportId ? 20000 : false }
   );
-  const regenerateMutation = (trpc as any).dailyReport.regenerateReport.useMutation({
+  const regenerateMutation = trpc.dailyReport.regenerateReport.useMutation({
     onSuccess: (r: any) => {
       toast.success(r.message);
       // 즉시 refetch + 500ms 후 한번 더 (DB 반영 시간 고려)
@@ -538,7 +615,7 @@ export function ProductionDailyReportContent() {
     },
     onError: (e: { message: string }) => toast.error("생성 실패: " + e.message),
   });
-  const submitMutation = (trpc as any).dailyReport.submitForApproval.useMutation({
+  const submitMutation = trpc.dailyReport.submitForApproval.useMutation({
     onSuccess: (r: any) => {
       toast.success(r.message);
       refetchList();
@@ -547,7 +624,7 @@ export function ProductionDailyReportContent() {
     },
     onError: (e: { message: string }) => toast.error("승인 요청 실패: " + e.message),
   });
-  const deleteMutation = (trpc as any).dailyReport.deleteReports.useMutation({
+  const deleteMutation = trpc.dailyReport.deleteReports.useMutation({
     onSuccess: (r: any) => {
       toast.success(r.message);
       setSelectedIds(new Set());
@@ -558,7 +635,7 @@ export function ProductionDailyReportContent() {
   });
 
   // ---- Detail data ----
-  const selectedReport = (reportList as any[]).find((r: any) => r.id === selectedReportId);
+  const selectedReport = (reportList as ReportListRow[]).find((r: ReportListRow) => r.id === selectedReportId);
   const rpt = generatedReport?.summary;
   const allBatches = rpt?.production?.batches || [];
   const allIssues = rpt?.issues || [];
@@ -576,7 +653,7 @@ export function ProductionDailyReportContent() {
   // ---- Selection ----
   const toggleSelect = (id: number) => setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSelectAll = () => {
-    const ids = (reportList as any[]).map((r: any) => r.id);
+    const ids = (reportList as ReportListRow[]).map((r) => r.id);
     setSelectedIds(prev => prev.size === ids.length ? new Set() : new Set(ids));
   };
 
@@ -714,21 +791,21 @@ export function ProductionDailyReportContent() {
                   <TableHead className="text-center w-16">상세</TableHead>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {allBatches.map((b: any, idx: number) => (
-                    <TableRow key={b.batchId || idx} className="hover:bg-muted/50">
+                  {allBatches.map((b: ReportBatch, idx: number) => (
+                    <TableRow key={(b as { batchId?: number }).batchId || b.id || idx} className="hover:bg-muted/50">
                       <TableCell className="text-xs text-muted-foreground">{idx+1}</TableCell>
                       <TableCell className="font-mono font-medium text-sm">{b.batchCode}</TableCell>
                       <TableCell>{b.productName||"-"}</TableCell>
                       <TableCell className="text-right">{safeNum(b.plannedQuantity)}</TableCell>
                       <TableCell className="text-right font-medium">{b.actualQuantity ? safeNum(b.actualQuantity) : "-"}</TableCell>
-                      <TableCell><BatchStatusBadge status={b.status} /></TableCell>
+                      <TableCell><BatchStatusBadge status={b.status ?? ""} /></TableCell>
                       <TableCell className="text-sm">{fmtTime(b.startTime)}</TableCell>
                       <TableCell className="text-sm">{fmtTime(b.endTime)}</TableCell>
                       <TableCell>
-                        {(b.ccpDetails || []).length > 0 ? (b.ccpDetails || []).map((c: any, ci: number) => (
+                        {(b.ccpDetails || []).length > 0 ? (b.ccpDetails || []).map((c: ReportCcpDetail, ci: number) => (
                           <span key={ci} className={cn(
                             "inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium mr-1",
-                            c.failCount > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
+                            (c.failCount ?? 0) > 0 ? "bg-red-100 text-red-700" : c.status === "draft" ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"
                           )}>
                             {c.ccpType}
                           </span>
@@ -769,15 +846,15 @@ export function ProductionDailyReportContent() {
             {regenerateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
             오늘 생성/갱신
           </Button>
-          {(reportList as any[]).some((r: any) => r.needsGeneration) && (
+          {(reportList as ReportListRow[]).some((r: ReportListRow) => r.needsGeneration) && (
             <Button variant="default" size="sm" onClick={async () => {
-              const pendingDates = (reportList as any[]).filter((r: any) => r.needsGeneration).map((r: any) => r.reportDate);
+              const pendingDates = (reportList as ReportListRow[]).filter((r: ReportListRow) => r.needsGeneration).map((r: ReportListRow) => r.reportDate);
               for (const d of pendingDates) {
                 try { regenerateMutation.mutate({ date: d }); } catch {}
               }
             }} disabled={regenerateMutation.isPending}>
               {regenerateMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              미생성 일괄 생성 ({(reportList as any[]).filter((r: any) => r.needsGeneration).length}건)
+              미생성 일괄 생성 ({(reportList as ReportListRow[]).filter((r: ReportListRow) => r.needsGeneration).length}건)
             </Button>
           )}
           {selectedIds.size > 0 && (
@@ -807,7 +884,7 @@ export function ProductionDailyReportContent() {
         <CardContent className="p-0">
           {loadingList ? (
             <div className="text-center py-12"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />로딩 중...</div>
-          ) : (reportList as any[]).length === 0 ? (
+          ) : (reportList as ReportListRow[]).length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <FileText className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
               <p className="font-medium">{currentYear}년 {currentMonth}월 생산일지가 없습니다.</p>
@@ -818,7 +895,7 @@ export function ProductionDailyReportContent() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
-                    <Checkbox checked={selectedIds.size === (reportList as any[]).length && (reportList as any[]).length > 0} onCheckedChange={toggleSelectAll} />
+                    <Checkbox checked={selectedIds.size === (reportList as ReportListRow[]).length && (reportList as ReportListRow[]).length > 0} onCheckedChange={toggleSelectAll} />
                   </TableHead>
                   <TableHead className="w-10">#</TableHead>
                   <TableHead>작업일</TableHead>
@@ -834,7 +911,7 @@ export function ProductionDailyReportContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(reportList as any[]).map((r: any, idx: number) => (
+                {(reportList as ReportListRow[]).map((r: ReportListRow, idx: number) => (
                   <TableRow key={r.id || `pending-${r.reportDate}`} className={cn(
                     "hover:bg-muted/50 cursor-pointer transition-colors",
                     r.needsGeneration && "bg-amber-50/50 border-l-2 border-l-amber-400",

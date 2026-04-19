@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { trpc } from "../../lib/trpc";
+import type { RouterOutput } from "../../lib/trpcTypes";
+
+// 계정과목 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type AccountCategoryRow = RouterOutput["accountCategories"]["getAll"][number];
+type AccountingAccountRow = RouterOutput["accountingAccounts"]["list"][number];
+type AccountingStats = RouterOutput["accountingAccounts"]["getStats"];
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "../../components/ui/button";
 import {
@@ -254,11 +260,11 @@ function AccountStructureTab({
   allAccounts,
   stats,
 }: {
-  categories: any[];
+  categories: AccountCategoryRow[];
   catLoading: boolean;
   refetchCategories: () => void;
-  allAccounts: any[];
-  stats: any;
+  allAccounts: AccountingAccountRow[];
+  stats: AccountingStats | undefined;
 }) {
   const [expandedCategories, setExpandedCategories] = useState<Set<AccountCategory>>(
     () => new Set<AccountCategory>(["assets", "liabilities", "equity", "revenue", "expenses"])
@@ -288,7 +294,7 @@ function AccountStructureTab({
       revenue: [],
       expenses: [],
     };
-    (categories || []).forEach((cat: any) => {
+    (categories || []).forEach((cat: AccountCategoryRow) => {
       const major = cat.majorCategory || "기타";
       const categoryKey = majorToCategory[major];
       if (categoryKey && grouped[categoryKey]) {
@@ -305,10 +311,10 @@ function AccountStructureTab({
     const map: Record<string, any[]> = {};
     
     // FK로 매핑된 계정과 미매핑 계정 분리
-    const fkMapped: any[] = [];
+    const fkMapped: AccountingAccountRow[] = [];
     const unmappedByCategory: Record<string, any[]> = {};
     
-    (allAccounts || []).forEach((acc: any) => {
+    (allAccounts || []).forEach((acc: AccountingAccountRow) => {
       if (acc.accountCategoryId) {
         fkMapped.push(acc);
       } else {
@@ -319,7 +325,7 @@ function AccountStructureTab({
     });
     
     // 1단계: FK 매핑된 계정 직접 할당
-    fkMapped.forEach((acc: any) => {
+    fkMapped.forEach((acc: AccountingAccountRow) => {
       const key = String(acc.accountCategoryId);
       if (!map[key]) map[key] = [];
       map[key].push(acc);
@@ -327,7 +333,7 @@ function AccountStructureTab({
     
     // 2단계: FK 미매핑 계정 → 같은 카테고리의 모든 그룹에 공유
     // (그룹 코드와 계정 코드 간에 수학적 관계가 없으므로, 모든 미매핑 계정을 카테고리 내 모든 그룹에 표시)
-    (categories || []).forEach((cat: any) => {
+    (categories || []).forEach((cat: AccountCategoryRow) => {
       const catKey = majorToCategory[cat.majorCategory || ""];
       if (!catKey) return;
       const key = String(cat.id);
@@ -344,7 +350,7 @@ function AccountStructureTab({
 
   // 그룹에 FK 매핑된 계정이 있는지 여부 (미매핑 공유 vs 직접 매핑 구분용)
   const hasFkMapping = useMemo(() => {
-    return (allAccounts || []).some((acc: any) => acc.accountCategoryId != null);
+    return (allAccounts || []).some((acc: AccountingAccountRow) => acc.accountCategoryId != null);
   }, [allAccounts]);
 
   // 카테고리별 계정 수
@@ -352,7 +358,7 @@ function AccountStructureTab({
     const counts: Record<AccountCategory, number> = {
       assets: 0, liabilities: 0, equity: 0, revenue: 0, expenses: 0,
     };
-    (allAccounts || []).forEach((acc: any) => {
+    (allAccounts || []).forEach((acc: AccountingAccountRow) => {
       if (counts[acc.category as AccountCategory] !== undefined) {
         counts[acc.category as AccountCategory]++;
       }
@@ -403,11 +409,11 @@ function AccountStructureTab({
     
     // 같은 대분류에 속하는 기존 그룹 코드 중 숫자 코드만 추출
     const existingNumCodes = (categories || [])
-      .filter((c: any) => {
+      .filter((c: AccountCategoryRow) => {
         const cCatKey = majorToCategory[c.majorCategory || ""];
         return cCatKey === categoryKey && /^\d+$/.test(c.code || "");
       })
-      .map((c: any) => parseInt(c.code, 10))
+      .map((c: AccountCategoryRow) => parseInt(c.code, 10))
       .filter((n: number) => !isNaN(n))
       .sort((a: number, b: number) => a - b);
     
@@ -444,7 +450,7 @@ function AccountStructureTab({
     setIsGroupDialogOpen(true);
   };
 
-  const openEditGroupDialog = (group: any) => {
+  const openEditGroupDialog = (group: AccountCategoryRow) => {
     setEditingGroup(group);
     setGroupFormData({
       code: group.code,
@@ -488,7 +494,7 @@ function AccountStructureTab({
   };
 
   // 그룹 클릭 → 사이드 패널에 하위 계정 표시
-  const openGroupSidePanel = (categoryKey: AccountCategory, group: any) => {
+  const openGroupSidePanel = (categoryKey: AccountCategory, group: AccountCategoryRow) => {
     setSideSheetCategory(categoryKey);
     setSideSheetGroup(group);
     setSideSheetOpen(true);
@@ -614,9 +620,9 @@ function AccountStructureTab({
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {groups.map((group: any) => {
+                      {groups.map((group: AccountCategoryRow) => {
                         const childAccounts = accountsByGroup[String(group.id)] || [];
-                        const isFkMapped = childAccounts.some((acc: any) => acc.accountCategoryId === group.id);
+                        const isFkMapped = childAccounts.some((acc: AccountingAccountRow) => acc.accountCategoryId === group.id);
                         const isShared = !isFkMapped && childAccounts.length > 0;
                         return (
                           <div
@@ -811,9 +817,9 @@ function SideSheetAccountList({
   accountsByGroupMap,
 }: {
   categoryKey: AccountCategory;
-  group: any;
-  accounts: any[];
-  allCategories: any[];
+  group: AccountCategoryRow;
+  accounts: AccountingAccountRow[];
+  allCategories: AccountCategoryRow[];
   accountsByGroupMap: Record<string, any[]>;
 }) {
   const childAccounts = useMemo(() => {
@@ -824,7 +830,7 @@ function SideSheetAccountList({
 
   const isFkMapped = useMemo(() => {
     if (!group) return false;
-    return childAccounts.some((acc: any) => acc.accountCategoryId === group.id);
+    return childAccounts.some((acc: AccountingAccountRow) => acc.accountCategoryId === group.id);
   }, [childAccounts, group]);
 
   if (!group) return null;
@@ -855,7 +861,7 @@ function SideSheetAccountList({
         </div>
       ) : (
         <div className="space-y-2">
-          {childAccounts.map((acc: any) => (
+          {childAccounts.map((acc: AccountingAccountRow) => (
             <div
               key={acc.id}
               className="flex items-center justify-between p-2 rounded-md border hover:bg-accent/50"
@@ -895,10 +901,10 @@ function AccountListTab({
   accLoading,
   stats,
 }: {
-  categories: any[];
-  allAccounts: any[];
+  categories: AccountCategoryRow[];
+  allAccounts: AccountingAccountRow[];
   accLoading: boolean;
-  stats: any;
+  stats: AccountingStats | undefined;
 }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<any>(null);
@@ -919,7 +925,7 @@ function AccountListTab({
 
   // P6: 필터된 계정 목록 — 부모에서 전달받은 allAccounts를 클라이언트 필터링
   const accounts = useMemo(() => {
-    return allAccounts.filter((acc: any) => {
+    return allAccounts.filter((acc: AccountingAccountRow) => {
       if (filterCategory !== "ALL" && acc.category !== filterCategory) return false;
       if (filterActive !== "ALL" && acc.isActive !== filterActive) return false;
       return true;
@@ -931,7 +937,7 @@ function AccountListTab({
   // 상위계정 ID → 이름 매핑
   const groupNameMap = useMemo(() => {
     const map: Record<number, string> = {};
-    (categories || []).forEach((cat: any) => {
+    (categories || []).forEach((cat: AccountCategoryRow) => {
       map[cat.id] = cat.name;
     });
     return map;
@@ -941,7 +947,7 @@ function AccountListTab({
   const filteredGroups = useMemo(() => {
     const cat = formData.category;
     const majorLabel = categoryToMajor[cat];
-    return (categories || []).filter((c: any) => c.majorCategory === majorLabel);
+    return (categories || []).filter((c: AccountCategoryRow) => c.majorCategory === majorLabel);
   }, [categories, formData.category]);
 
   // 검색 필터
@@ -949,7 +955,7 @@ function AccountListTab({
     if (!searchText.trim()) return accounts;
     const lower = searchText.toLowerCase();
     return accounts.filter(
-      (acc: any) =>
+      (acc: AccountingAccountRow) =>
         acc.code?.toLowerCase().includes(lower) ||
         acc.name?.toLowerCase().includes(lower) ||
         acc.description?.toLowerCase().includes(lower)
@@ -1023,7 +1029,7 @@ function AccountListTab({
     }
   };
 
-  const handleEdit = (account: any) => {
+  const handleEdit = (account: AccountingAccountRow) => {
     setEditingAccount(account);
     setFormData({
       code: account.code,
@@ -1185,7 +1191,7 @@ function AccountListTab({
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredAccounts.map((account: any) => (
+                filteredAccounts.map((account: AccountingAccountRow) => (
                   <TableRow key={account.id}>
                     <TableCell className="font-mono text-xs">{account.code}</TableCell>
                     <TableCell className="font-medium">{account.name}</TableCell>
@@ -1285,7 +1291,7 @@ function AccountListTab({
                     <SelectItem value="none">
                       <span className="text-muted-foreground">(상위계정 없음)</span>
                     </SelectItem>
-                    {filteredGroups.map((g: any) => (
+                    {filteredGroups.map((g: AccountCategoryRow) => (
                       <SelectItem key={g.id} value={String(g.id)}>
                         <span className="font-mono text-xs mr-1">[{g.code}]</span>
                         {g.name}

@@ -34,7 +34,21 @@ import NotificationDropdown from "./NotificationDropdown";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
+
+// 사이드바 favorite 메뉴 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type FavoriteItem = RouterOutput["favorites"]["list"][number];
+// 사이드바 MenuItem 타입 (FIXED: 사이드바 렌더링용)
+type MenuItem = {
+  label: string;
+  path: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles?: string[];
+  highlight?: boolean;
+  badge?: string;
+  group?: string;
+};
 import {
   DndContext,
   closestCenter,
@@ -151,7 +165,7 @@ function SortableFavoriteItem({
   onRemove,
 }: {
   id: number;
-  item: any;
+  item: MenuItem;
   isActive: boolean;
   onNavigate: () => void;
   onRemove: () => void;
@@ -425,8 +439,11 @@ function DashboardLayoutContent({
   });
   const checkSubMut = trpc.subscriptionPublic.checkSubscriptionStatus.useMutation();
   useEffect(() => {
-    checkSubMut.mutateAsync().then((info: any) => {
-      if (info?.modules) setDynamicModules(info.modules);
+    checkSubMut.mutateAsync().then((info: { expired?: boolean; package?: string; modules?: { erp?: boolean; haccp?: boolean } }) => {
+      if (info?.modules) setDynamicModules({
+        erp: !!info.modules.erp,
+        haccp: !!info.modules.haccp,
+      });
     }).catch(() => {});
   }, []);
   const moduleERP = dynamicModules.erp;
@@ -470,14 +487,14 @@ function DashboardLayoutContent({
   const { data: favorites = [] } = trpc.favorites.list.useQuery();
   const utils = trpc.useUtils();
   const addFavoriteMutation = trpc.favorites.add.useMutation({
-    onMutate: async (newFavorite: any) => {
+    onMutate: async (newFavorite: { menuPath: string; menuLabel: string; menuIcon: string }) => {
       // 낙관적 업데이트: 즉시 UI에 반영
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
       
       // 임시 ID로 새 즐겨찾기 추가
       const tempId = Date.now();
-      utils.favorites.list.setData(undefined, (old: any) => [
+      utils.favorites.list.setData(undefined, (old: FavoriteItem[] | undefined) => [
         ...(old || []),
         {
           id: tempId,
@@ -490,7 +507,7 @@ function DashboardLayoutContent({
       
       return { previousFavorites };
     },
-    onError: (err: any, newFavorite: any, context: any) => {
+    onError: (err: Error, _newFavorite: unknown, context: { previousFavorites?: FavoriteItem[] } | undefined) => {
       // 에러 발생 시 롤백
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
@@ -502,18 +519,18 @@ function DashboardLayoutContent({
     },
   });
   const removeFavoriteMutation = trpc.favorites.remove.useMutation({
-    onMutate: async (variables: any) => {
+    onMutate: async (variables: { favoriteId?: number; updates?: Array<{ favoriteId: number; displayOrder: number }> }) => {
       // 낙관적 업데이트: 즉시 UI에서 제거
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
       
-      utils.favorites.list.setData(undefined, (old: any) =>
-        (old || []).filter((fav: any) => fav.id !== variables.favoriteId)
+      utils.favorites.list.setData(undefined, (old: FavoriteItem[] | undefined) =>
+        (old || []).filter((fav: FavoriteItem) => fav.id !== variables.favoriteId)
       );
       
       return { previousFavorites };
     },
-    onError: (err: any, variables: any, context: any) => {
+    onError: (err: Error, _variables: unknown, context: { previousFavorites?: FavoriteItem[] } | undefined) => {
       // 에러 발생 시 롤백
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
@@ -524,24 +541,24 @@ function DashboardLayoutContent({
     },
   });
   const updateFavoriteOrderMutation = trpc.favorites.updateOrder.useMutation({
-    onMutate: async (variables: any) => {
+    onMutate: async (variables: { favoriteId?: number; updates?: Array<{ favoriteId: number; displayOrder: number }> }) => {
       // 낙관적 업데이트: 드래그 순서 즉시 반영
       await utils.favorites.list.cancel();
       const previousFavorites = utils.favorites.list.getData();
       
-      utils.favorites.list.setData(undefined, (old: any) => {
+      utils.favorites.list.setData(undefined, (old: FavoriteItem[] | undefined) => {
         if (!old) return old;
         const updated = [...old];
-        variables.updates.forEach(({ favoriteId, displayOrder }: { favoriteId: any; displayOrder: any }) => {
-          const fav = updated.find((f: any) => f.id === favoriteId);
+        (variables.updates ?? []).forEach(({ favoriteId, displayOrder }: { favoriteId: number; displayOrder: number }) => {
+          const fav = updated.find((f: FavoriteItem) => f.id === favoriteId);
           if (fav) fav.sortOrder = displayOrder;
         });
-        return updated.sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+        return updated.sort((a: FavoriteItem, b: FavoriteItem) => a.sortOrder - b.sortOrder);
       });
       
       return { previousFavorites };
     },
-    onError: (err: any, variables: any, context: any) => {
+    onError: (err: Error, _variables: unknown, context: { previousFavorites?: FavoriteItem[] } | undefined) => {
       if (context?.previousFavorites) {
         utils.favorites.list.setData(undefined, context.previousFavorites);
       }
@@ -567,12 +584,12 @@ function DashboardLayoutContent({
       return;
     }
     
-    const oldIndex = favorites.findIndex((fav: any) => fav.id === active.id);
-    const newIndex = favorites.findIndex((fav: any) => fav.id === over.id);
+    const oldIndex = favorites.findIndex((fav: FavoriteItem) => fav.id === active.id);
+    const newIndex = favorites.findIndex((fav: FavoriteItem) => fav.id === over.id);
     
     if (oldIndex !== -1 && newIndex !== -1) {
-      const reorderedFavorites = arrayMove(favorites, oldIndex, newIndex);
-      const updates = reorderedFavorites.map((fav: any, index: number) => ({
+      const reorderedFavorites = arrayMove(favorites, oldIndex, newIndex) as FavoriteItem[];
+      const updates = reorderedFavorites.map((fav, index) => ({
         favoriteId: fav.id,
         displayOrder: index,
       }));
@@ -670,7 +687,7 @@ function DashboardLayoutContent({
   })();
   
   // 즐겨찾기 메뉴 항목 생성
-  const favoriteMenuItems = favorites.map((fav: any) => {
+  const favoriteMenuItems = favorites.map((fav: FavoriteItem) => {
     const menuItem = allMenuItems.find(item => item.path === fav.menuPath);
     return menuItem ? { ...menuItem, favoriteId: fav.id } : null;
    }).filter(Boolean);
@@ -816,15 +833,15 @@ function DashboardLayoutContent({
           }}>
             <SidebarMenu className="px-3 py-1">
               {(() => {
-                const visibleItems = displayedMenuItems.filter((item: any) => user && item.roles?.includes(user.role));
+                const visibleItems = displayedMenuItems.filter((item: MenuItem) => user && item.roles?.includes(user.role));
                 let prevGroup: string | undefined;
 
-                return visibleItems.map((item: any, idx: number) => {
+                return visibleItems.map((item: MenuItem, idx: number) => {
                   const exactMatch = location === item.path;
                   const childMatch = isChildRoute(item.path);
                   // startsWith 매칭: 다른 메뉴에 정확한 매칭이 있으면 사용하지 않음
                   const hasOtherExactMatch = displayedMenuItems.some(
-                    (other: any) => other.path !== item.path && (location === other.path || isChildRoute(other.path))
+                    (other: MenuItem) => other.path !== item.path && (location === other.path || isChildRoute(other.path))
                   );
                   const prefixMatch = !hasOtherExactMatch && location.startsWith(item.path + "/");
                   const isActive = exactMatch || childMatch || prefixMatch;
@@ -859,9 +876,9 @@ function DashboardLayoutContent({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                const isFavorited = favorites.some((fav: any) => fav.menuPath === item.path);
+                                const isFavorited = favorites.some((fav: FavoriteItem) => fav.menuPath === item.path);
                                 if (isFavorited) {
-                                  const fav = favorites.find((f: any) => f.menuPath === item.path);
+                                  const fav = favorites.find((f: FavoriteItem) => f.menuPath === item.path);
                                   if (fav) removeFavoriteMutation.mutate({ favoriteId: fav.id });
                                 } else {
                                   addFavoriteMutation.mutate({
@@ -880,12 +897,12 @@ function DashboardLayoutContent({
                                 }
                               }}
                               className="p-1 hover:bg-accent rounded mr-2"
-                              title={favorites.some((fav: any) => fav.menuPath === item.path) ? "즐겨찾기 제거" : "즐겨찾기 추가 (WORK 탭에서 확인)"}
+                              title={favorites.some((fav: FavoriteItem) => fav.menuPath === item.path) ? "즐겨찾기 제거" : "즐겨찾기 추가 (WORK 탭에서 확인)"}
                             >
                               <Star
                                 className={cn(
                                   "h-4 w-4",
-                                  favorites.some((fav: any) => fav.menuPath === item.path)
+                                  favorites.some((fav: FavoriteItem) => fav.menuPath === item.path)
                                     ? "fill-amber-400/80 text-amber-400/80"
                                     : "text-muted-foreground/40"
                                 )}
@@ -945,13 +962,13 @@ function DashboardLayoutContent({
                     onDragEnd={handleDragEnd}
                   >
                     <SortableContext
-                      items={favorites.map((fav: any) => fav.id)}
+                      items={favorites.map((fav: FavoriteItem) => fav.id)}
                       strategy={verticalListSortingStrategy}
                     >
                       {favoriteMenuItems
-                        .filter((item: any) => user && item.roles?.includes(user.role))
-                        .map((item: any) => {
-                          const fav = favorites.find((f: any) => f.menuPath === item.path);
+                        .filter((item: MenuItem) => user && item.roles?.includes(user.role))
+                        .map((item: MenuItem) => {
+                          const fav = favorites.find((f: FavoriteItem) => f.menuPath === item.path);
                           if (!fav) return null;
                           return (
                             <SortableFavoriteItem
