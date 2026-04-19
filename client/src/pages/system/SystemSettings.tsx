@@ -3,13 +3,68 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { Settings, Package, Tag } from "lucide-react";
+import { Settings, Package, Tag, Factory, ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe, Info, Shield, Award } from "lucide-react";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
 
 export default function SystemSettings() {
   const [erpEnabled, setErpEnabled] = useState(false);
+
+  // 업종 정보
+  const {
+    industryCode,
+    category: industryCategory,
+    hasHACCP,
+    hasGMP,
+    hasISO,
+    activeModules,
+    certifications,
+    profile: industryProfile,
+    isLoading: industryLoading,
+  } = useIndustryFeatures();
+
+  const updateIndustryMut = trpc.industry.updateIndustry.useMutation({
+    onSuccess: (data) => {
+      toast.success(`업종이 ${data.profile.nameKo}(으)로 변경되었습니다. 페이지를 새로고침하면 메뉴가 업데이트됩니다.`);
+      // Invalidate the industry query to force a refresh
+      setTimeout(() => window.location.reload(), 1500);
+    },
+    onError: (error: { message: string }) => {
+      toast.error(`오류: ${error.message}`);
+    },
+  });
+
+  // 업종 코드 변경 핸들러
+  const [pendingIndustryCode, setPendingIndustryCode] = useState<string | null>(null);
+
+  const INDUSTRY_OPTIONS = [
+    { code: "C10", label: "식품 제조업", category: "food", icon: ChefHat },
+    { code: "C10_SUP", label: "건강기능식품 제조업", category: "supplement", icon: Pill },
+    { code: "C20", label: "화장품 제조업", category: "cosmetics", icon: Sparkles },
+    { code: "C21", label: "의약품 제조업", category: "pharma", icon: Syringe },
+    { code: "C26", label: "전자부품·장비 제조업", category: "electronics", icon: Cpu },
+    { code: "C13", label: "섬유·의복 제조업", category: "textile", icon: Scissors },
+    { code: "C_GENERAL", label: "일반 제조업", category: "general", icon: Factory },
+  ];
+
+  const handleIndustryChange = (code: string) => {
+    if (code === industryCode) return;
+    const opt = INDUSTRY_OPTIONS.find(o => o.code === code);
+    if (confirm(`업종을 '${opt?.label}'으로 변경하면 사이드바 메뉴와 기능이 변경됩니다. 계속하시겠습니까?`)) {
+      setPendingIndustryCode(code);
+      updateIndustryMut.mutate({ industryCode: code });
+    }
+  };
 
   const { data: settings, refetch } = trpc.system.getSettings.useQuery();
   const updateSetting = trpc.system.updateSetting.useMutation({
@@ -53,6 +108,102 @@ export default function SystemSettings() {
           </p>
         </div>
       </div>
+
+      {/* 업종 설정 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Factory className="h-5 w-5" />
+            업종 설정
+          </CardTitle>
+          <CardDescription>
+            업종에 따라 활성화되는 모듈과 기능이 달라집니다 (예: HACCP, GMP, ISO 등)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* 현재 업종 표시 */}
+          {industryLoading ? (
+            <p className="text-sm text-muted-foreground">업종 정보 로딩 중...</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="space-y-1 flex-1">
+                  <Label className="text-sm font-medium">현재 업종</Label>
+                  <Select
+                    value={pendingIndustryCode || industryCode || "C10"}
+                    onValueChange={handleIndustryChange}
+                    disabled={updateIndustryMut.isPending}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="업종 선택" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INDUSTRY_OPTIONS.map(opt => {
+                        const Icon = opt.icon;
+                        return (
+                          <SelectItem key={opt.code} value={opt.code}>
+                            <span className="flex items-center gap-2">
+                              <Icon className="h-3.5 w-3.5" />
+                              {opt.label}
+                              <span className="text-xs text-muted-foreground">({opt.code})</span>
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* 활성 모듈 표시 */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5" />
+                  활성 모듈
+                </Label>
+                <div className="flex gap-2 flex-wrap">
+                  {hasHACCP && <Badge className="bg-orange-100 text-orange-700 border-orange-200"><Shield className="h-3 w-3 mr-1" />HACCP</Badge>}
+                  {hasGMP && <Badge className="bg-pink-100 text-pink-700 border-pink-200"><Award className="h-3 w-3 mr-1" />GMP</Badge>}
+                  {hasISO && <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200"><Shield className="h-3 w-3 mr-1" />ISO</Badge>}
+                  {activeModules.filter(m => !["haccp","gmp","iso"].includes(m)).map(mod => (
+                    <Badge key={mod} variant="secondary" className="text-xs capitalize">{mod}</Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* 필수 인증 */}
+              {certifications.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium flex items-center gap-1.5">
+                    <Award className="h-3.5 w-3.5" />
+                    필수/권장 인증
+                  </Label>
+                  <div className="flex gap-2 flex-wrap">
+                    {certifications.map((cert: any) => (
+                      <Badge
+                        key={cert.code}
+                        variant={cert.requirement === "mandatory" ? "default" : cert.requirement === "recommended" ? "secondary" : "outline"}
+                        className="text-xs"
+                      >
+                        {cert.nameKo}
+                        {cert.requirement === "mandatory" && <span className="ml-1 text-[9px]">(필수)</span>}
+                        {cert.requirement === "recommended" && <span className="ml-1 text-[9px]">(권장)</span>}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-muted rounded-lg p-3">
+                <p className="text-xs text-muted-foreground">
+                  업종을 변경하면 사이드바 메뉴, 체크리스트 템플릿, UI 라벨(배치/LOT, 원재료/원료 등)이
+                  자동으로 적용됩니다. 변경 시 페이지가 새로고침됩니다.
+                </p>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* 카테고리 관리 */}
       <Card>

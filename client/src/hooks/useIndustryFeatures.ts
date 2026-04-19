@@ -17,7 +17,7 @@
  */
 
 import { useMemo } from "react";
-import trpc from "@/lib/trpc";
+import { trpc } from "@/lib/trpc";
 
 // ── 타입 (서버 industryConfig.ts와 동일) ──
 
@@ -132,4 +132,16 @@ export function useIndustryProfile(code: string | null) {
       staleTime: 30 * 60 * 1000,
     }
   );
+}
+
+/**
+ * useIndustryLabel — 간편 라벨 훅
+ * 
+ * 사용법:
+ *   const L = useIndustryLabel();
+ *   <h1>{L("batch")} 관리</h1>  // → "배치 관리" or "제조번호 관리" or "LOT 관리"
+ */
+export function useIndustryLabel() {
+  const { getLabel } = useIndustryFeatures();
+  return getLabel;
 }

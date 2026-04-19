@@ -62,6 +62,28 @@ import { useToast } from "@/hooks/use-toast";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { FEATURES } from "@/lib/featureFlags";
+import { Factory, ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe } from "lucide-react";
+
+// 업종 카테고리 표시용
+const INDUSTRY_CATEGORIES: Record<string, { label: string; color: string; icon: any }> = {
+  food: { label: "식품제조", color: "bg-orange-100 text-orange-700 border-orange-200", icon: ChefHat },
+  cosmetics: { label: "화장품", color: "bg-pink-100 text-pink-700 border-pink-200", icon: Sparkles },
+  supplement: { label: "건기식", color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: Pill },
+  pharma: { label: "의약품", color: "bg-blue-100 text-blue-700 border-blue-200", icon: Syringe },
+  electronics: { label: "전자", color: "bg-indigo-100 text-indigo-700 border-indigo-200", icon: Cpu },
+  textile: { label: "섬유", color: "bg-purple-100 text-purple-700 border-purple-200", icon: Scissors },
+  general: { label: "일반제조", color: "bg-stone-100 text-stone-700 border-stone-200", icon: Factory },
+};
+
+const INDUSTRY_OPTIONS = [
+  { code: "C10", label: "식품 제조업", category: "food" },
+  { code: "C10_SUP", label: "건강기능식품 제조업", category: "supplement" },
+  { code: "C20", label: "화장품 제조업", category: "cosmetics" },
+  { code: "C21", label: "의약품 제조업", category: "pharma" },
+  { code: "C26", label: "전자부품·장비 제조업", category: "electronics" },
+  { code: "C13", label: "섬유·의복 제조업", category: "textile" },
+  { code: "C_GENERAL", label: "일반 제조업", category: "general" },
+];
 
 export default function TenantManagement() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -78,6 +100,7 @@ export default function TenantManagement() {
     name: "",
     slug: "",
     status: "trial" as "active" | "suspended" | "trial" | "expired",
+    industryCode: "C10" as string,
   });
 
   // 구독 폼 상태
@@ -130,7 +153,7 @@ export default function TenantManagement() {
         description: "테넌트가 생성되었습니다.",
       });
       setCreateDialogOpen(false);
-      setFormData({ name: "", slug: "", status: "trial" });
+      setFormData({ name: "", slug: "", status: "trial", industryCode: "C10" });
       refetch();
     },
     onError: (error: { message: string }) => {
@@ -251,9 +274,12 @@ export default function TenantManagement() {
       }
       // slug는 생성 시에만 설정되고 수정 시에는 변경 불가
       const { slug, ...updateData } = formData;
+      // 업종코드로부터 카테고리 자동 설정
+      const opt = INDUSTRY_OPTIONS.find(o => o.code === updateData.industryCode);
       updateMutation.mutate({
         tenantId: selectedTenant.id,
         ...updateData,
+        industryCategory: opt?.category || "general",
       });
     }
   };
@@ -286,6 +312,7 @@ export default function TenantManagement() {
       name: tenant.name,
       slug: tenant.slug,
       status: tenant.status,
+      industryCode: tenant.industryCode || "C10",
     });
     setEditDialogOpen(true);
   };
@@ -555,6 +582,19 @@ export default function TenantManagement() {
                     </Badge>
                     {renderSubscriptionBadge(tenant)}
                   </div>
+
+                  {/* 업종 */}
+                  {(() => {
+                    const cat = INDUSTRY_CATEGORIES[tenant.industryCategory || "food"] || INDUSTRY_CATEGORIES.general;
+                    const CatIcon = cat.icon;
+                    return (
+                      <div className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-md border ${cat.color}`}>
+                        <CatIcon className="h-3 w-3" />
+                        {cat.label}
+                        <span className="text-[10px] opacity-60">({tenant.industryCode || "C10"})</span>
+                      </div>
+                    );
+                  })()}
 
                   {/* 구독 정보 */}
                   {tenant.subscriptionPackage && (
@@ -895,6 +935,31 @@ export default function TenantManagement() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-industry">업종</Label>
+              <Select
+                value={formData.industryCode}
+                onValueChange={(value: string) => setFormData({ ...formData, industryCode: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="업종 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INDUSTRY_OPTIONS.map(opt => {
+                    const cat = INDUSTRY_CATEGORIES[opt.category];
+                    const CatIcon = cat?.icon || Factory;
+                    return (
+                      <SelectItem key={opt.code} value={opt.code}>
+                        <span className="flex items-center gap-2">
+                          <CatIcon className="h-3.5 w-3.5" />
+                          {opt.label}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
@@ -947,6 +1012,35 @@ export default function TenantManagement() {
                   <SelectItem value="active">활성</SelectItem>
                   <SelectItem value="suspended">정지</SelectItem>
                   <SelectItem value="expired">만료</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-industry">업종</Label>
+              <Select
+                value={formData.industryCode}
+                onValueChange={(value: string) => {
+                  const opt = INDUSTRY_OPTIONS.find(o => o.code === value);
+                  setFormData({ ...formData, industryCode: value });
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="업종 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  {INDUSTRY_OPTIONS.map(opt => {
+                    const cat = INDUSTRY_CATEGORIES[opt.category];
+                    const CatIcon = cat?.icon || Factory;
+                    return (
+                      <SelectItem key={opt.code} value={opt.code}>
+                        <span className="flex items-center gap-2">
+                          <CatIcon className="h-3.5 w-3.5" />
+                          {opt.label}
+                          <span className="text-xs text-muted-foreground">({opt.code})</span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>
