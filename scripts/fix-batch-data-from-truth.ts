@@ -20,7 +20,7 @@ import mysql from 'mysql2/promise';
 
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const TENANT_ID = parseInt(process.env.TENANT_ID || '2');
-const DB_URL = process.env.DATABASE_URL || 'mysql://root:G0ld3n%21T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4';
+const DB_URL = process.env.DATABASE_URL || (() => { throw new Error('DATABASE_URL 환경변수 미설정'); })();
 
 // 정답 데이터의 제품명 → DB 제품명 별칭 매핑
 const NAME_ALIASES: Record<string, string> = {

@@ -16,6 +16,7 @@
 
 import pymysql
 import sys
+import os
 from decimal import Decimal, ROUND_HALF_UP
 import calendar
 
@@ -28,9 +29,16 @@ NEW_VERSION_ID = 426
 BOM_BATCH_KG = Decimal('100')
 
 def get_conn():
+    pw = os.environ.get('DB_PASSWORD', '')
+    if not pw:
+        sys.stderr.write("DB_PASSWORD 환경변수 미설정\n")
+        sys.exit(1)
     return pymysql.connect(
-        host='localhost', user='root', password='G0ld3n!T1004#Sec',
-        database='haccp_tenant_db', charset='utf8mb4', autocommit=False
+        host=os.environ.get('DB_HOST', 'localhost'),
+        user=os.environ.get('DB_USER', 'root'),
+        password=pw,
+        database=os.environ.get('DB_NAME', 'haccp_tenant_db'),
+        charset='utf8mb4', autocommit=False,
     )
 
 def main():

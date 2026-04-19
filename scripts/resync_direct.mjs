@@ -2,7 +2,7 @@
  * Direct resync of broken CCP form rows
  * Sets up DATABASE_URL and calls syncCcpRowsToFormRows directly
  */
-process.env.DATABASE_URL = 'mysql://root:G0ld3n!T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4';
+process.env.DATABASE_URL = 'process.env.DATABASE_URL or set DB_URL env';
 
 const TENANT_ID = 2;
 

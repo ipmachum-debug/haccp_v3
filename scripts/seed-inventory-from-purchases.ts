@@ -63,7 +63,7 @@ async function main() {
   const conn = await mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "G0ld3n!T1004#Sec",
+    password: process.env.DB_PASSWORD || "",
     database: "haccp_tenant_db",
   });
 

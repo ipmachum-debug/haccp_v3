@@ -4,12 +4,18 @@ running_stock 재계산 스크립트
 material_ledger_daily의 running_stock을 날짜순 누적으로 재계산
 """
 import pymysql
+import os
+import sys
 
 TENANT_ID = 2
+pw = os.environ.get('DB_PASSWORD', '')
+if not pw:
+    sys.stderr.write("DB_PASSWORD 환경변수 미설정\n")
+    sys.exit(1)
 conn = pymysql.connect(
-    host='127.0.0.1', port=3306,
-    user='root', password='G0ld3n!T1004#Sec',
-    db='haccp_tenant_db', charset='utf8mb4'
+    host=os.environ.get('DB_HOST', '127.0.0.1'), port=int(os.environ.get('DB_PORT', 3306)),
+    user=os.environ.get('DB_USER', 'root'), password=pw,
+    db=os.environ.get('DB_NAME', 'haccp_tenant_db'), charset='utf8mb4',
 )
 cur = conn.cursor()
 

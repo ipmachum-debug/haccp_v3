@@ -1,4 +1,4 @@
-process.env.DATABASE_URL = 'mysql://root:G0ld3n!T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4';
+process.env.DATABASE_URL = 'process.env.DATABASE_URL or set DB_URL env';
 async function main() {
   const { syncCcpRowsToFormRows } = await import('../server/db/ccpFormRecords.ts');
   const { getRawConnection } = await import('../server/db/connection.ts');

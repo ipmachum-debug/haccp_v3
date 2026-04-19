@@ -12,13 +12,14 @@ import ExcelJS from "exceljs";
 // getEffectiveTenantId 제거 → tenantRequiredProcedure가 ctx.tenantId 보장
 
 // ─── DB 연결 ───
+// DATABASE_URL env 사용 — 하드코딩 자격정보 제거 (보안 정리 2026-04-19)
+// TODO: 장기적으로 앱 공통 pool (server/db/pool.ts) 을 재사용하도록 전환 필요
 async function getDbConnection() {
-  const conn = await mysql.createConnection({
-    host: "localhost",
-    user: "root",
-    password: "G0ld3n!T1004#Sec",
-    database: "haccp_tenant_db",
-  });
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error("[excelImport] DATABASE_URL 환경변수 미설정");
+  }
+  const conn = await mysql.createConnection(url);
   // KST 타임존 설정
   await conn.query("SET time_zone = '+09:00'");
   return conn;

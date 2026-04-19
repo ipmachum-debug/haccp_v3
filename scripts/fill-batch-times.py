@@ -20,7 +20,7 @@ from collections import defaultdict
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'G0ld3n!T1004#Sec',
+    'password': os.environ.get('DB_PASSWORD', ''),
     'database': 'haccp_tenant_db',
     'charset': 'utf8mb4',
 }
