@@ -6,6 +6,35 @@ import { TableHeader, TableRow, TableBody } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 제품 재고 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type ProductItem = RouterOutput["itemMaster"]["list"]["items"][number];
+type ProductSkuRow = RouterOutput["productSku"]["listAll"][number];
+type BatchRow = RouterOutput["batch"]["list"]["items"][number];
+// getProductOutboundByProduct 는 현재 router 에 직접 노출되지 않아 local shape 사용
+type OutboundByProduct = {
+  productId?: number;
+  productName?: string;
+  totalOutbound?: number | string;
+  outboundCount?: number;
+  lastReleaseDate?: string | null;
+};
+type AvailableStock = RouterOutput["inventory"]["getProductAvailableForRelease"][number];
+type OutboundHistoryRow = RouterOutput["inventory"]["getProductOutboundHistory"][number];
+type ProductInventoryRow = {
+  productName: string;
+  productCode: string;
+  totalProduced: number;
+  totalOutbound: number;
+  currentStock: number;
+  outboundCount: number;
+  lotCount: number;
+  latestBatch: string;
+  lastReleaseDate: string | null;
+  skuCount: number;
+  isOem: boolean;
+};
 import { StatCard, StyledTable, TH, TD, SectionTitle, Loading, Empty, fmt, fmtDate, won } from "./InventoryHelpers";
 import { PartnerSearchInput } from "./PartnerSearchInput";
 import { usePaginatedSort, PaginationBar } from "@/components/PaginatedTable";
@@ -24,33 +53,34 @@ export function ProductStockView() {
 
   const productInventory = useMemo(() => {
     // 품목마스터(own_product) 기준으로 시작 → 재고 0인 제품도 표시
-    const items = Array.isArray(itemList) ? itemList : (itemList as any)?.items || [];
+    const items = Array.isArray(itemList) ? itemList : (itemList as { items?: ProductItem[] } | undefined)?.items || [];
     if (!items.length) return [];
 
     // batch.list 응답: { items, total, page, limit } 구조
-    const batchList: any[] = batches
-      ? (Array.isArray(batches) ? batches : (batches as any)?.items || [])
+    const batchList: BatchRow[] = batches
+      ? (Array.isArray(batches) ? (batches as BatchRow[]) : ((batches as { items?: BatchRow[] } | undefined)?.items || []))
       : [];
     const skus = Array.isArray(skuList) ? skuList : [];
 
     // 배치 데이터를 productId 기준으로 집계 (hBatches에는 productName이 없으므로 productId 사용)
     const batchMap = new Map<number, { totalProduced: number; lotCount: number; latestBatch: string }>();
-    batchList.filter((b: any) => b.status === "completed").forEach((batch: any) => {
+    batchList.filter((b: BatchRow) => b.status === "completed").forEach((batch: BatchRow) => {
       const key = Number(batch.productId);
       if (!key) return;
       const existing = batchMap.get(key) || { totalProduced: 0, lotCount: 0, latestBatch: "" };
-      existing.totalProduced += parseFloat(batch.actualQuantity || batch.plannedQuantity || "0");
+      existing.totalProduced += parseFloat(String(batch.actualQuantity ?? batch.plannedQuantity ?? "0"));
       existing.lotCount += 1;
-      existing.latestBatch = batch.endTime || batch.startTime || existing.latestBatch;
+      existing.latestBatch = String(batch.endTime || batch.startTime || existing.latestBatch || "");
       batchMap.set(key, existing);
     });
 
     // 출고 데이터를 제품명 기준으로 맵 생성
     const outboundMap = new Map<string, { totalOutbound: number; outboundCount: number; lastReleaseDate: string | null }>();
     if (outboundByProduct && Array.isArray(outboundByProduct)) {
-      (outboundByProduct as any[]).forEach((o: any) => {
+      (outboundByProduct as OutboundByProduct[]).forEach((o: OutboundByProduct) => {
+        if (!o.productName) return;
         outboundMap.set(o.productName, {
-          totalOutbound: o.totalOutbound || 0,
+          totalOutbound: Number(o.totalOutbound || 0),
           outboundCount: o.outboundCount || 0,
           lastReleaseDate: o.lastReleaseDate || null,
         });
@@ -59,8 +89,8 @@ export function ProductStockView() {
 
     // 품목마스터 기준으로 결합 (배치 없어도 0으로 표시)
     // itemMaster.legacyProductId === hBatches.productId 로 매칭
-    const result = items.map((item: any) => {
-      const matchedSkus = skus.filter((s: any) => s.itemId === item.id);
+    const result = items.map((item: ProductItem) => {
+      const matchedSkus = skus.filter((s: ProductSkuRow) => s.itemId === item.id);
       const legacyId = Number(item.legacyProductId);
       const batchData = legacyId ? (batchMap.get(legacyId) || { totalProduced: 0, lotCount: 0, latestBatch: "" })
                                  : { totalProduced: 0, lotCount: 0, latestBatch: "" };
@@ -81,7 +111,7 @@ export function ProductStockView() {
       };
     });
     // 최근 생산일 기준 내림차순 정렬
-    result.sort((a: any, b: any) => {
+    result.sort((a: ProductInventoryRow, b: ProductInventoryRow) => {
       const toTs = (v: any): number => {
         if (!v) return 0;
         if (v instanceof Date) return v.getTime();
@@ -93,11 +123,11 @@ export function ProductStockView() {
     return result;
   }, [batches, skuList, itemList, outboundByProduct]);
 
-  const totalProduced = productInventory.reduce((s: any, p: any) => s + p.totalProduced, 0);
-  const totalOutbound = productInventory.reduce((s: any, p: any) => s + p.totalOutbound, 0);
-  const totalStock = productInventory.reduce((s: any, p: any) => s + p.currentStock, 0);
-  const totalBatches = productInventory.reduce((s: any, p: any) => s + p.lotCount, 0);
-  const oemCount = productInventory.filter((p: any) => p.isOem).length;
+  const totalProduced = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalProduced, 0);
+  const totalOutbound = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalOutbound, 0);
+  const totalStock = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.currentStock, 0);
+  const totalBatches = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.lotCount, 0);
+  const oemCount = productInventory.filter((p: ProductInventoryRow) => p.isOem).length;
 
   const {
     pagination, setPage, setPageSize,
@@ -152,7 +182,7 @@ export function ProductStockView() {
                   <TH className="text-center">유형</TH><TH>최근생산</TH>
                 </TableRow></TableHeader>
                 <TableBody>
-                  {pageData.map((p: any, i: any) => (
+                  {pageData.map((p: ProductInventoryRow, i: number) => (
                     <TableRow key={i} className="hover:bg-muted/30">
                       <TD className="font-medium">{p.productName}</TD>
                       <TD className="text-muted-foreground font-mono text-xs">{p.productCode}</TD>
@@ -193,8 +223,8 @@ export function ProductStockView() {
 export function ProductReceiptInfo() {
   const { data: batches, isLoading } = trpc.batch.list.useQuery({ limit: 500 });
   const completedBatches = useMemo(() => {
-    const list: any[] = Array.isArray(batches) ? batches : (batches as any)?.items || [];
-    return list.filter((b: any) => b.status === "completed").sort((a: any, b: any) => {
+    const list: BatchRow[] = Array.isArray(batches) ? batches : (batches as any)?.items || [];
+    return list.filter((b: BatchRow) => b.status === "completed").sort((a: BatchRow, b: BatchRow) => {
       const toTs = (v: any): number => {
         if (!v) return 0;
         if (v instanceof Date) return v.getTime();
@@ -231,9 +261,9 @@ export function ProductReceiptInfo() {
                 <TH>완료일</TH><TH className="text-center">상태</TH>
               </TableRow></TableHeader>
               <TableBody>
-                {pageData.map((b: any) => (
+                {pageData.map((b: BatchRow) => (
                   <TableRow key={b.id} className="hover:bg-muted/30">
-                    <TD className="font-mono text-xs">{b.batchCode || b.batchNumber}</TD>
+                    <TD className="font-mono text-xs">{b.batchCode || (b as { batchNumber?: string }).batchNumber || ""}</TD>
                     <TD className="font-medium">{b.productName || "-"}</TD>
                     <TD className="text-right font-mono">{fmt(b.actualQuantity || b.plannedQuantity)}</TD>
                     <TD className="text-muted-foreground">{fmtDate(b.endTime)}</TD>
@@ -306,7 +336,7 @@ export function ProductReleaseTab() {
   const getAvailableStockForItem = (currentItemId: number) => {
     if (!availableStock) return [];
     const selectedKeys = new Set(items.filter(i => i.id !== currentItemId && (i.lotId || i.batchId)).map(i => i.lotId ? `lot:${i.lotId}` : `batch:${i.batchId}`));
-    return availableStock.filter((s: any) => {
+    return availableStock.filter((s: AvailableStock) => {
       const key = s.lotId ? `lot:${s.lotId}` : `batch:${s.batchId}`;
       return !selectedKeys.has(key);
     });
@@ -315,7 +345,7 @@ export function ProductReleaseTab() {
   const handleStockChange = (itemId: number, stockKey: string) => {
     // stockKey format: "lot:123" or "batch:456"
     const [type, id] = stockKey.split(":");
-    const stock = availableStock?.find((s: any) =>
+    const stock = availableStock?.find((s: AvailableStock) =>
       type === "lot" ? s.lotId?.toString() === id : s.batchId?.toString() === id
     );
     setItems(p => p.map(i => i.id === itemId ? {
@@ -347,14 +377,14 @@ export function ProductReleaseTab() {
   // 이력 필터
   const filteredHistory = useMemo(() => {
     if (!history) return [];
-    let list = history as any[];
+    let list = history as OutboundHistoryRow[];
     if (historyType !== "all") list = list.filter(r => r.releaseType === historyType);
     if (historySearch.trim()) {
       const q = historySearch.toLowerCase();
       list = list.filter(r => r.productName?.toLowerCase().includes(q) || r.partnerName?.toLowerCase().includes(q) || r.lotNumber?.toLowerCase().includes(q));
     }
     // 최근일순 정렬
-    list.sort((a: any, b: any) => {
+    list.sort((a: OutboundHistoryRow, b: OutboundHistoryRow) => {
       const da = String(a.releaseDate || "").replace(/\./g, "-");
       const db = String(b.releaseDate || "").replace(/\./g, "-");
       return db.localeCompare(da);
@@ -525,14 +555,14 @@ export function ProductReleaseTab() {
                           <TD className="py-1.5">
                             <Select value={stockKey} onValueChange={v => handleStockChange(item.id, v)}>
                               <SelectTrigger className={`h-9 text-xs ${!stockKey ? "border-dashed" : ""}`}><SelectValue placeholder="제품 재고를 선택하세요" /></SelectTrigger>
-                              <SelectContent>{stockOptions.map((s: any) => {
+                              <SelectContent>{stockOptions.map((s: AvailableStock) => {
                                 const key = s.lotId ? `lot:${s.lotId}` : `batch:${s.batchId}`;
                                 return (
                                   <SelectItem key={key} value={key}>
                                     <div className="flex items-center gap-2 text-xs">
                                       <span className="font-mono font-medium">{s.lotNumber}</span>
                                       <span className="text-muted-foreground">- {s.productName}</span>
-                                      <span className="text-emerald-600 font-medium">(잔량 {parseFloat(s.availableQuantity).toFixed(1)})</span>
+                                      <span className="text-emerald-600 font-medium">(잔량 {parseFloat(String(s.availableQuantity ?? "0")).toFixed(1)})</span>
                                       {s.expiryDate && isExpiringSoon(s.expiryDate) && <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">임박</Badge>}
                                       {s.expiryDate && isExpired(s.expiryDate) && <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">만료</Badge>}
                                     </div>
@@ -639,8 +669,8 @@ export function ProductReleaseTab() {
    출고 이력 테이블 (페이지네이션 + 정렬)
    ═══════════════════════════════════════════════════ */
 function OutboundHistoryTable({ data, cancelMut, releaseTypeLabel, releaseTypeColor }: {
-  data: any[];
-  cancelMut: any;
+  data: OutboundHistoryRow[];
+  cancelMut: { mutate: (input: { outboundId: number }) => void; isPending?: boolean };
   releaseTypeLabel: (t: string) => string;
   releaseTypeColor: (t: string) => string;
 }) {
@@ -662,13 +692,13 @@ function OutboundHistoryTable({ data, cancelMut, releaseTypeLabel, releaseTypeCo
           <TH>거래처</TH><TH>유형</TH><TH className="text-center">상태</TH><TH className="w-16 text-center">작업</TH>
         </TableRow></TableHeader>
         <TableBody>
-          {pageData.map((r: any, i: number) => (
+          {pageData.map((r: OutboundHistoryRow, i: number) => (
             <TableRow key={r.id} className={`hover:bg-muted/30 transition-colors ${r.status === "cancelled" ? "opacity-40" : ""}`}>
               <TD className="text-center text-muted-foreground">{startIdx + i}</TD>
               <TD className="text-muted-foreground whitespace-nowrap">{fmtDate(r.releaseDate)}</TD>
               <TD className={`font-medium ${r.status === "cancelled" ? "line-through" : ""}`}>{r.productName}</TD>
               <TD className="font-mono text-xs">{r.lotNumber || "-"}</TD>
-              <TD className="text-right font-mono whitespace-nowrap">{parseFloat(r.quantity).toFixed(1)} {r.unit}</TD>
+              <TD className="text-right font-mono whitespace-nowrap">{parseFloat(String(r.quantity ?? "0")).toFixed(1)} {r.unit}</TD>
               <TD className="text-right text-xs whitespace-nowrap">{won(r.totalAmount)}</TD>
               <TD className="text-muted-foreground truncate max-w-[120px]">{r.partnerName || "-"}</TD>
               <TD>
@@ -683,7 +713,7 @@ function OutboundHistoryTable({ data, cancelMut, releaseTypeLabel, releaseTypeCo
               </TD>
               <TD className="text-center">
                 {r.status !== "cancelled" && (
-                  <button onClick={() => { if(confirm(`"${r.productName}" 출고를 취소하시겠습니까?\n\n출고일: ${fmtDate(r.releaseDate)}\n수량: ${parseFloat(r.quantity).toFixed(1)} ${r.unit}\n금액: ${won(r.totalAmount)}\n거래처: ${r.partnerName || "-"}`)) cancelMut.mutate({ outboundId: r.id }); }}
+                  <button onClick={() => { if(confirm(`"${r.productName}" 출고를 취소하시겠습니까?\n\n출고일: ${fmtDate(r.releaseDate)}\n수량: ${parseFloat(String(r.quantity ?? "0")).toFixed(1)} ${r.unit}\n금액: ${won(r.totalAmount)}\n거래처: ${r.partnerName || "-"}`)) cancelMut.mutate({ outboundId: r.id }); }}
                     className="text-red-400 hover:text-red-600 text-xs underline transition-colors" disabled={cancelMut.isPending}>취소</button>
                 )}
               </TD>
