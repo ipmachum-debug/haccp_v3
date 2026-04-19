@@ -60,6 +60,12 @@ import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 견적서 목록 / 상세 도메인 타입
+type QuoRow = RouterOutput["quotation"]["list"][number];
+type QuoDetail = RouterOutput["quotation"]["getById"];
+type QuoLine = NonNullable<QuoDetail>["lines"][number];
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   draft: { label: "작성 중", className: "bg-slate-200 text-slate-700 border-transparent" },
   sent: { label: "발송됨", className: "bg-blue-600 text-white border-transparent" },
@@ -88,7 +94,7 @@ function QuotationListContent() {
 
   // 수정 Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingQuo, setEditingQuo] = useState<any>(null);
+  const [editingQuo, setEditingQuo] = useState<QuoRow | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<number | null>(null);
   const [editPartnerName, setEditPartnerName] = useState("");
   const [editQuoteDate, setEditQuoteDate] = useState("");
@@ -117,7 +123,7 @@ function QuotationListContent() {
 
   // 견적 목록
   const { data: quotations = [], isLoading } = trpc.quotation.list.useQuery({
-    status: statusFilter !== "all" ? (statusFilter as any) : undefined,
+    status: statusFilter !== "all" ? (statusFilter as "draft" | "sent" | "accepted" | "rejected" | "expired") : undefined,
     startDate: startDate || undefined,
     endDate: endDate || undefined,
     search: searchText || undefined,
@@ -166,7 +172,7 @@ function QuotationListContent() {
     onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const convertMutation = trpc.quotation.convertToSale.useMutation({
-    onSuccess: (res: any) => {
+    onSuccess: (res: { message: string; createdSaleIds?: number[]; quotationNumber?: string; pdf: string }) => {
       toast({
         title: "매출 변환 완료",
         description: `매출 전표 ${res.createdSaleIds?.length || 0}건 생성`,
@@ -177,7 +183,7 @@ function QuotationListContent() {
     onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const updateMutation = trpc.quotation.update.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string; quotationNumber?: string }) => {
       toast({ title: "수정 완료", description: r.message });
       utils.quotation.list.invalidate();
       utils.quotation.stats.invalidate();
@@ -188,7 +194,7 @@ function QuotationListContent() {
   });
   // 견적서 복사
   const duplicateMutation = trpc.quotation.duplicate.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string; quotationNumber?: string }) => {
       toast({ title: "복사 완료", description: `${r.quotationNumber} 생성` });
       utils.quotation.list.invalidate();
     },
@@ -214,7 +220,7 @@ function QuotationListContent() {
 
   // 미리보기 (Eye) - 새 탭
   const previewPdfMutation = trpc.quotation.generatePdf.useMutation({
-    onSuccess: (res: any) => {
+    onSuccess: (res: { message: string; createdSaleIds?: number[]; quotationNumber?: string; pdf: string }) => {
       const blob = base64ToPdfBlob(res.pdf);
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
@@ -225,7 +231,7 @@ function QuotationListContent() {
 
   // 인쇄 (Printer) - iframe 자동 프린트
   const printPdfMutation = trpc.quotation.generatePdf.useMutation({
-    onSuccess: (res: any) => {
+    onSuccess: (res: { message: string; createdSaleIds?: number[]; quotationNumber?: string; pdf: string }) => {
       const blob = base64ToPdfBlob(res.pdf);
       const url = URL.createObjectURL(blob);
       const iframe = document.createElement("iframe");
@@ -288,8 +294,8 @@ function QuotationListContent() {
     }
   };
 
-  // 견적서 규격 문서 인쇄
-  const printQuotationDoc = async (q: any) => {
+  // 견적서 규격 문서 인쇄 — list row 에 detail 필드가 섞여 있어 느슨한 타입 유지
+  const printQuotationDoc = async (q: QuoRow & Partial<NonNullable<QuoDetail>>) => {
     // 상세 조회
     let lines: any[] = [];
     try {
@@ -340,7 +346,7 @@ function QuotationListContent() {
   };
 
   // 수정 Dialog
-  const handleOpenEdit = async (q: any) => {
+  const handleOpenEdit = async (q: QuoRow) => {
     setEditingQuo(q);
     setEditPartnerId(q.partnerId);
     setEditPartnerName(q.partnerName || `#${q.partnerId}`);
@@ -603,7 +609,7 @@ function QuotationListContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                quotations.map((q: any) => {
+                quotations.map((q: QuoRow) => {
                   const status = STATUS_LABELS[q.status] || { label: q.status, className: "" };
                   return (
                     <TableRow key={q.id} className="group">
@@ -998,7 +1004,7 @@ function QuotationListContent() {
                   <th className="p-2 text-center">상태</th>
                 </tr></thead>
                 <tbody>
-                  {partnerHistory?.history?.map((h: any) => (
+                  {partnerHistory?.history?.map((h: { id: number; number: string; date: string; title: string; amount: number; status: string }) => (
                     <tr key={h.id} className="border-b hover:bg-accent/50">
                       <td className="p-2 font-mono">{h.number}</td>
                       <td className="p-2">{h.date}</td>

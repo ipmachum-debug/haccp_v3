@@ -42,6 +42,7 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
   productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: string | Date;
 }) {
+  const L = useIndustryLabel();
   const { data: bomData } = trpc.ccpForm.getBomBatchKg.useQuery(
     { productId: productId! },
     { enabled: !!productId }

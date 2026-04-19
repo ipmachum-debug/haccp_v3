@@ -46,10 +46,24 @@ import {
   ChevronRight,
 } from "lucide-react";
 import MobileBottomNav from "@/components/dashboard/MobileBottomNav";
-import { BookOpen, Sparkles } from "lucide-react";
+import { BookOpen, Sparkles, type LucideIcon } from "lucide-react";
+
+// 공지보드 항목 도메인 타입 (서버 board.router → list 와 동일)
+interface BoardItem {
+  id: number;
+  logType?: string;
+  title?: string | null;
+  content: string;
+  status?: string;
+  createdAt?: string | Date;
+  authorName?: string | null;
+  ackCount?: number;
+  totalUsers?: number;
+  myAck?: number;
+}
 
 // 타입별 아이콘/색상 설정
-const typeConfig: Record<string, { icon: any; label: string; emoji: string; bgColor: string; textColor: string; borderColor: string; gradientFrom: string; gradientTo: string }> = {
+const typeConfig: Record<string, { icon: LucideIcon; label: string; emoji: string; bgColor: string; textColor: string; borderColor: string; gradientFrom: string; gradientTo: string }> = {
   notice: { icon: Megaphone, label: "공지", emoji: "📢", bgColor: "bg-blue-50", textColor: "text-blue-700", borderColor: "border-l-blue-500", gradientFrom: "from-blue-500", gradientTo: "to-blue-600" },
   work: { icon: ClipboardList, label: "작업", emoji: "📋", bgColor: "bg-amber-50", textColor: "text-amber-700", borderColor: "border-l-amber-500", gradientFrom: "from-amber-500", gradientTo: "to-amber-600" },
   handover: { icon: Pin, label: "전달사항", emoji: "📌", bgColor: "bg-emerald-50", textColor: "text-emerald-700", borderColor: "border-l-emerald-500", gradientFrom: "from-emerald-500", gradientTo: "to-emerald-600" },
@@ -75,13 +89,13 @@ function getBoardGreeting(): string {
   return "늦은 시간까지 정말 수고 많으세요";
 }
 
-function BoardItem({ item, onAck, onEdit, onDelete }: { 
-  item: any; 
+function BoardItem({ item, onAck, onEdit, onDelete }: {
+  item: BoardItem;
   onAck: (id: number) => void;
-  onEdit?: (item: any) => void;
+  onEdit?: (item: BoardItem) => void;
   onDelete?: (id: number) => void;
 }) {
-  const config = typeConfig[item.logType] || typeConfig.notice;
+  const config = typeConfig[item.logType ?? "notice"] || typeConfig.notice;
   const isAcked = Number(item.myAck) > 0;
   const ackCount = Number(item.ackCount) || 0;
   const totalUsers = Number(item.totalUsers) || 0;
@@ -106,7 +120,7 @@ function BoardItem({ item, onAck, onEdit, onDelete }: {
           </div>
           <div className="flex items-center gap-1">
             <span className="text-[11px] text-gray-400 mr-1">
-              {new Date(item.createdAt).toLocaleString("ko-KR", {
+              {item.createdAt && new Date(item.createdAt).toLocaleString("ko-KR", {
                 month: "short", day: "numeric",
                 hour: "2-digit", minute: "2-digit"
               })}
@@ -242,11 +256,11 @@ export default function NoticeBoard() {
   // ── 출퇴근 ──
   const { data: myAttendance, refetch: refetchAtt } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000, retry: 1 });
   const clockInMut = trpc.hr.clockIn.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const clockOutMut = trpc.hr.clockOut.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -259,7 +273,7 @@ export default function NoticeBoard() {
   const { data: myLeaveBalance } = trpc.hr.leaveBalance.useQuery(undefined, { retry: 1 });
   const { data: myLeaves } = trpc.hr.leaveList.useQuery({ status: "all" }, { retry: 1 });
   const requestLeaveMut = trpc.hr.requestLeave.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); setLeaveOpen(false); setLeaveReason(""); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); setLeaveOpen(false); setLeaveReason(""); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -322,7 +336,7 @@ export default function NoticeBoard() {
     ackMutation.mutate({ logId });
   };
 
-  const startEdit = (item: any) => {
+  const startEdit = (item: BoardItem) => {
     setEditingId(item.id);
     setEditType(item.logType || "notice");
     setEditTitle(item.title || "");
@@ -789,7 +803,7 @@ export default function NoticeBoard() {
             <p className="text-sm text-gray-300 mt-2">새로운 공지가 등록되면 여기에 표시됩니다</p>
           </div>
         ) : (
-          filteredItems.map((item: any) => {
+          filteredItems.map((item: BoardItem) => {
             const isEditMode = editingId === item.id;
             return isEditMode ? (
               /* 수정 모드 인라인 폼 */

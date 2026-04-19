@@ -65,9 +65,38 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
   both: "거래처 + 계정과목",
 };
 
+// 로컬 도메인 타입 — 서버 쿼리 프록시 타입이 전파 안 되는 곳에 명시 주입
+// conditions / actions 는 DB 에 string(JSON) 으로 저장돼서 런타임 parse 필요 → string 타입 유지
+interface MatchingRule {
+  id: number;
+  name?: string;
+  priority: number;
+  ruleType: "keyword" | "amount" | "pattern";
+  targetType?: "partner" | "account" | "both";
+  isActive: number | boolean;
+  weight?: number | string;
+  partnerId?: number | null;
+  accountingAccountId?: number | null;
+  conditions?: string;
+  actions?: string;
+}
+interface PartnerLite {
+  id: number;
+  name?: string;
+  companyName?: string;
+  bizNo?: string | null;
+}
+interface AccountLite {
+  id: number;
+  code: string;
+  name: string;
+  type?: string;
+  category?: string;
+}
+
 export default function MatchingRuleTab() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingRule, setEditingRule] = useState<any>(null);
+  const [editingRule, setEditingRule] = useState<MatchingRule | null>(null);
   const [formData, setFormData] = useState({
     ruleType: "keyword" as "keyword" | "amount" | "pattern",
     priority: 500,
@@ -162,7 +191,7 @@ export default function MatchingRuleTab() {
   });
 
   // 규칙 활성/비활성 토글
-  const handleToggleActive = (rule: any) => {
+  const handleToggleActive = (rule: MatchingRule) => {
     updateMutation.mutate({
       id: rule.id,
       isActive: !rule.isActive,
@@ -172,12 +201,12 @@ export default function MatchingRuleTab() {
   // 통계 계산
   const stats = {
     total: (rules || []).length,
-    active: (rules || []).filter((r: any) => r.isActive === 1 || r.isActive === true).length,
-    inactive: (rules || []).filter((r: any) => r.isActive === 0 || r.isActive === false).length,
+    active: (rules || []).filter((r: MatchingRule) => r.isActive === 1 || r.isActive === true).length,
+    inactive: (rules || []).filter((r: MatchingRule) => r.isActive === 0 || r.isActive === false).length,
     byType: {
-      keyword: (rules || []).filter((r: any) => r.ruleType === "keyword").length,
-      amount: (rules || []).filter((r: any) => r.ruleType === "amount").length,
-      pattern: (rules || []).filter((r: any) => r.ruleType === "pattern").length,
+      keyword: (rules || []).filter((r: MatchingRule) => r.ruleType === "keyword").length,
+      amount: (rules || []).filter((r: MatchingRule) => r.ruleType === "amount").length,
+      pattern: (rules || []).filter((r: MatchingRule) => r.ruleType === "pattern").length,
     },
   };
 
@@ -198,15 +227,15 @@ export default function MatchingRuleTab() {
     }
   };
 
-  const handleOpenDialog = (rule?: any) => {
+  const handleOpenDialog = (rule?: MatchingRule) => {
     if (rule) {
-      const conditions = parseConditions(rule.conditions);
-      const actions = parseActions(rule.actions);
+      const conditions = parseConditions(rule.conditions ?? "");
+      const actions = parseActions(rule.actions ?? "");
       setEditingRule(rule);
       setFormData({
         ruleType: rule.ruleType || "keyword",
         priority: rule.priority || 500,
-        weight: parseFloat(rule.weight) || 5,
+        weight: parseFloat(String(rule.weight ?? "")) || 5,
         isActive: rule.isActive === 1 || rule.isActive === true,
         keyword: conditions.keyword || "",
         minAmount: conditions.minAmount?.toString() || "",
@@ -395,9 +424,9 @@ export default function MatchingRuleTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(rules || []).map((rule: any) => {
-                const conditions = parseConditions(rule.conditions);
-                const actions = parseActions(rule.actions);
+              {(rules || []).map((rule: MatchingRule) => {
+                const conditions = parseConditions(rule.conditions ?? "");
+                const actions = parseActions(rule.actions ?? "");
                 const isActive = rule.isActive === 1 || rule.isActive === true;
                 const ruleName = conditions.name || actions.name || `규칙 #${rule.id}`;
 
@@ -438,7 +467,7 @@ export default function MatchingRuleTab() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center font-mono">{rule.priority}</TableCell>
-                    <TableCell className="text-center font-mono">{parseFloat(rule.weight).toFixed(1)}</TableCell>
+                    <TableCell className="text-center font-mono">{parseFloat(String(rule.weight ?? "")).toFixed(1)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         <Button
@@ -611,7 +640,7 @@ export default function MatchingRuleTab() {
                       <SelectValue placeholder="거래처를 선택하세요" />
                     </SelectTrigger>
                     <SelectContent className="max-h-[400px]">
-                      {partnersArr.map((p: any) => (
+                      {partnersArr.map((p: PartnerLite) => (
                         <SelectItem key={p.id} value={String(p.id)}>
                           {p.companyName || p.name || `Partner#${p.id}`}
                           {p.bizNo ? ` (${p.bizNo})` : ""}
@@ -637,7 +666,7 @@ export default function MatchingRuleTab() {
                         groupedAccounts[k].length > 0 ? (
                           <SelectGroup key={k}>
                             <SelectLabel>{CATEGORY_LABELS[k]}</SelectLabel>
-                            {groupedAccounts[k].map((acc: any) => (
+                            {groupedAccounts[k].map((acc: AccountLite) => (
                               <SelectItem key={acc.id} value={String(acc.id)}>
                                 {acc.code} · {acc.name}
                               </SelectItem>

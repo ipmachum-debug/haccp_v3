@@ -35,6 +35,7 @@ type ProcessingMode = "auto" | "manual";
 export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boolean; [key: string]: any }) {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
+  const L = useIndustryLabel();
 
   // ── 처리 모드 (자동 / 수동) ──
   const [processingMode, setProcessingMode] = useState<ProcessingMode>("auto");
