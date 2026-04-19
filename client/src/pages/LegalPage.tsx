@@ -456,8 +456,8 @@ const policySections: PolicySection[] = [
         <h3>2. 허용된 사용</h3>
         <p>이용자는 다음 목적 범위 내에서 서비스를 사용할 수 있습니다.</p>
         <ul>
-          <li>식품 제조 관리</li>
-          <li>HACCP 관리</li>
+          <li>제조업 공통 ERP (생산·재고·회계·품질)</li>
+          <li>식품 HACCP 관리 / 화장품 GMP (업종별 특화)</li>
           <li>생산 관리</li>
           <li>재고 관리</li>
           <li>품질 관리</li>

@@ -905,9 +905,7 @@ export default function LandingPage() {
                   {/* Sidebar */}
                   <div className="w-52 bg-[#1a1a2e] p-4 hidden md:block">
                     <div className="flex items-center gap-2 mb-8">
-                      <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-amber-500 rounded-lg flex items-center justify-center">
-                        <ShieldCheck className="w-4 h-4 text-white" />
-                      </div>
+                      <MillioMark className="w-7 h-7" />
                       <span className="text-sm font-bold text-white">Millio AI</span>
                     </div>
                     {[

@@ -78,7 +78,7 @@ export async function generateLotTracePdf(data: LotTraceData): Promise<Buffer> {
 
       // 푸터
       doc.moveDown(2);
-      doc.fontSize(10).text("본 보고서는 HACCP 식품 안전 관리 시스템에서 자동 생성되었습니다.", { align: "center" });
+      doc.fontSize(10).text("본 보고서는 Millio AI (AI 기반 제조 ERP) 에서 자동 생성되었습니다.", { align: "center" });
 
       doc.end();
     } catch (error) {

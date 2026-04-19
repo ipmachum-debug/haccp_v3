@@ -21,7 +21,7 @@ function getPageMeta(pathname: string): PageMeta {
   // Landing page
   if (pathname === "/" || pathname === "") {
     return {
-      title: "Millio AI | 식품 제조 관리 통합 플랫폼",
+      title: "Millio AI | AI 기반 제조 ERP",
       description: "엑셀·수기 관리에서 벗어나세요. 생산관리, HACCP 기록, 재고관리, LOT 추적, 회계까지 하나의 클라우드 플랫폼으로 통합합니다. 30일 무료 체험.",
     };
   }
@@ -62,7 +62,7 @@ function getPageMeta(pathname: string): PageMeta {
   if (pathname === "/login") {
     return {
       title: "로그인 | Millio AI",
-      description: "Millio AI 로그인 페이지입니다. 식품 제조 관리 통합 플랫폼에 접속하세요.",
+      description: "Millio AI 로그인 페이지입니다. AI 기반 제조 ERP에 접속하세요.",
       url: `${BASE_URL}/login`,
     };
   }
@@ -70,13 +70,13 @@ function getPageMeta(pathname: string): PageMeta {
   if (pathname === "/register") {
     return {
       title: "회원가입 | Millio AI",
-      description: "Millio AI에 가입하세요. 30일 무료 체험으로 식품 제조 관리의 새로운 기준을 경험하세요.",
+      description: "Millio AI에 가입하세요. 30일 무료 체험으로 제조업 AI ERP의 새로운 기준을 경험하세요.",
       url: `${BASE_URL}/register`,
     };
   }
   // Default
   return {
-    title: "Millio AI | 식품 제조 관리 통합 플랫폼",
+    title: "Millio AI | AI 기반 제조 ERP",
     description: "엑셀·수기 관리에서 벗어나세요. 생산관리, HACCP 기록, 재고관리, LOT 추적, 회계까지 하나의 클라우드 플랫폼으로 통합합니다.",
   };
 }
