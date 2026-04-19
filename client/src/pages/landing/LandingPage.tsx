@@ -552,11 +552,23 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <div className="flex items-center justify-between h-16 lg:h-20">
             {/* Logo - links to home */}
-            <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
-              <MillioMark className="w-9 h-9" />
-              <span className="text-xl font-bold tracking-tight text-[#1a1a2e]">
-                Millio<span className="text-orange-500"> AI</span>
-              </span>
+            <a
+              href="/"
+              onClick={(e) => { e.preventDefault(); scrollToTop(); }}
+              className="group flex items-center gap-2.5 cursor-pointer"
+            >
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-200/30 rounded-2xl blur-md group-hover:blur-lg transition-all" />
+                <MillioMark className="relative w-11 h-11 group-hover:scale-105 transition-transform" />
+              </div>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[22px] font-bold tracking-tight text-[#1a1a2e] font-serif">
+                  Millio<span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span>
+                </span>
+                <span className="text-[10px] text-stone-400 font-semibold tracking-[0.2em] uppercase -mt-0.5">
+                  Manufacturing · AI
+                </span>
+              </div>
             </a>
 
             {/* Desktop nav */}
@@ -1177,11 +1189,19 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-10">
             {/* Brand + Company Info */}
             <div className="md:col-span-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <MillioMark className="w-9 h-9" />
-                <span className="text-lg font-bold text-white">
-                  Millio<span className="text-orange-400"> AI</span>
-                </span>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-400/30 to-blue-400/20 rounded-2xl blur-md" />
+                  <MillioMark className="relative w-11 h-11" />
+                </div>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-xl font-bold text-white font-serif tracking-tight">
+                    Millio<span className="text-orange-400"> AI</span>
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-semibold tracking-[0.2em] uppercase -mt-0.5">
+                    Manufacturing · AI
+                  </span>
+                </div>
               </div>
               <p className="text-sm leading-relaxed mb-6">{t.footer.desc}</p>
               

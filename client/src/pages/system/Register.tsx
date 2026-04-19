@@ -181,7 +181,10 @@ export default function Register() {
         <div className="max-w-xl">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="mb-10">
             <div className="flex items-center gap-3.5 mb-8">
-              <MillioMark className="w-12 h-12" />
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-300/30 rounded-2xl blur-lg" />
+                <MillioMark className="relative w-14 h-14" />
+              </div>
               <div>
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
                 <div className="flex items-center gap-3 text-stone-400 text-xs mt-0.5">
@@ -274,9 +277,10 @@ export default function Register() {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-                className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 mb-4 shadow-lg shadow-orange-200/50"
+                className="relative inline-flex items-center justify-center mb-4"
               >
-                <ShieldCheck className="w-7 h-7 text-white" />
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-300/30 rounded-2xl blur-lg" />
+                <MillioMark className="relative w-16 h-16" />
               </motion.div>
               <h2 className="text-2xl font-bold text-[#1a1a2e]" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>회원가입</h2>
               <p className="text-stone-400 text-sm mt-1">
