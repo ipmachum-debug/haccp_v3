@@ -178,7 +178,7 @@ export default function PopbillSettingsContent() {
             </div>
             <div>
               전자세금계산서 발행료·문자·알림톡 등 모든 팝빌 사용료는{" "}
-              <strong>귀사가 팝빌에 직접 결제</strong>하며, HACCP-ONE은 발행
+              <strong>귀사가 팝빌에 직접 결제</strong>하며, Millio AI은 발행
               인프라(API 연동)만 제공합니다. 포인트 충전은 아래{" "}
               <strong>[포인트 충전]</strong> 버튼으로 팝빌 결제 페이지에 바로
               이동할 수 있습니다.

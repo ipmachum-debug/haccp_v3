@@ -204,7 +204,7 @@ export default function HRManagement() {
       @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;margin:0;padding:10px}}
     </style></head><body>
     <h1>연차관리대장</h1>
-    <p class="sub">${year}년 | HACCP-ONE</p>
+    <p class="sub">${year}년 | Millio AI</p>
 
     <table><tr>
       <td class="b bg fw" width="20%">대상기간</td><td class="b">${year}년 1월 ~ 12월</td>
@@ -233,7 +233,7 @@ export default function HRManagement() {
     <tr><td class="b bg fw">일자</td><td class="b"></td><td class="b"></td><td class="b"></td></tr></table>
 
     <p style="text-align:center;font-size:9px;color:#999;margin-top:16px">
-      본 기록은 근로기준법에 따라 3년간 보관합니다. | HACCP-ONE 자동생성
+      본 기록은 근로기준법에 따라 3년간 보관합니다. | Millio AI 자동생성
     </p>
     <script>window.onload=function(){setTimeout(function(){window.print()},800)}</script>
     </body></html>`);

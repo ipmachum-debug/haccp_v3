@@ -27,10 +27,10 @@ const translations = {
       badge: "100+ 식품 제조업체가 신뢰하는 플랫폼",
       headline1: "식품 제조 관리,",
       headline2: "이제 진짜 바뀔 시간입니다",
-      sub: "엑셀과 수기 HACCP 관리에서 벗어나세요. HACCPONE은 생산관리, HACCP 기록, 재고관리, LOT 추적, 회계까지 하나의 클라우드 플랫폼으로 통합합니다.",
+      sub: "엑셀과 수기 HACCP 관리에서 벗어나세요. Millio AI은 생산관리, HACCP 기록, 재고관리, LOT 추적, 회계까지 하나의 클라우드 플랫폼으로 통합합니다.",
       cta1: "무료 체험 시작하기",
       cta2: "데모 영상 보기",
-      trust: "100+ 식품 제조업체가 HACCPONE으로 운영 중",
+      trust: "100+ 식품 제조업체가 Millio AI으로 운영 중",
       trustRating: "4.9/5 고객 만족도",
       bullets: [
         "30분 내 초기 설정 완료",
@@ -53,7 +53,7 @@ const translations = {
     },
     solution: {
       badge: "이렇게 해결됩니다",
-      headline: "HACCPONE, 3단계면 충분합니다",
+      headline: "Millio AI, 3단계면 충분합니다",
       sub: "복잡한 도입 과정 없이, 오늘 바로 시작할 수 있습니다.",
       steps: [
         { num: "1", title: "시스템 설정", desc: "30분 내 초기 설정을 완료하세요. 기존 엑셀 데이터도 마이그레이션해 드립니다.", color: "amber" },
@@ -85,11 +85,11 @@ const translations = {
       badge: "고객 후기",
       headline: "실제 사용자의 이야기",
       items: [
-        { text: "엑셀로 하던 생산 기록을 HACCPONE으로 전환한 후, 기록 누락이 거의 사라졌습니다. 감사 때도 자료를 바로 출력할 수 있어 너무 편합니다.", author: "김OO 대표", company: "디저트 제조업체", rating: 5 },
+        { text: "엑셀로 하던 생산 기록을 Millio AI으로 전환한 후, 기록 누락이 거의 사라졌습니다. 감사 때도 자료를 바로 출력할 수 있어 너무 편합니다.", author: "김OO 대표", company: "디저트 제조업체", rating: 5 },
         { text: "가장 좋은 건 생산하면 재고가 자동으로 계산되는 거예요. 예전에는 매번 수기로 원료수불을 맞춰야 했는데 이제 그럴 필요가 없어요.", author: "이OO 공장장", company: "HMR 제조업체", rating: 5 },
         { text: "직원들이 별도 교육 없이도 바로 사용할 수 있었습니다. UI가 정말 직관적이에요. 도입 후 업무 시간이 확실히 줄었습니다.", author: "박OO 대표", company: "식품 가공업체", rating: 5 },
         { text: "HACCP 인증 심사 때 필요한 서류를 시스템에서 바로 출력할 수 있어서 준비 시간이 대폭 줄었습니다. 심사관도 인상적이라고 하더군요.", author: "최OO 품질관리팀장", company: "육가공 업체", rating: 5 },
-        { text: "여러 시스템을 쓰다가 HACCPONE 하나로 통합했는데, 월 비용도 절약되고 데이터가 한곳에 모이니까 관리가 훨씬 수월합니다.", author: "정OO 대표", company: "프랜차이즈 본사", rating: 5 },
+        { text: "여러 시스템을 쓰다가 Millio AI 하나로 통합했는데, 월 비용도 절약되고 데이터가 한곳에 모이니까 관리가 훨씬 수월합니다.", author: "정OO 대표", company: "프랜차이즈 본사", rating: 5 },
       ],
     },
     industries: {
@@ -172,15 +172,15 @@ const translations = {
       headline: "궁금한 점이 있으신가요?",
       items: [
         { q: "도입까지 얼마나 걸리나요?", a: "초기 설정은 30분 내로 완료됩니다. 기존 엑셀 데이터가 있다면 마이그레이션도 지원해 드립니다. 대부분의 고객님이 당일 바로 사용을 시작하십니다." },
-        { q: "직원들이 사용하기 어렵지 않나요?", a: "HACCPONE은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
+        { q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
         { q: "기존에 사용하던 엑셀 데이터는 어떻게 하나요?", a: "품목 마스터, 거래처 정보, 재고 데이터 등 기존 엑셀 데이터를 시스템으로 마이그레이션하는 것을 도와드립니다." },
-        { q: "HACCP 인증 심사에 도움이 되나요?", a: "네, HACCPONE에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다." },
+        { q: "HACCP 인증 심사에 도움이 되나요?", a: "네, Millio AI에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다." },
         { q: "무료 체험 기간에 제한되는 기능이 있나요?", a: "없습니다. 30일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다." },
       ],
     },
     cta: {
       headline: "지금 시작하면, 내일이 달라집니다",
-      sub: "30일 무료 체험으로 HACCPONE을 직접 경험해 보세요. 신용카드 없이 시작할 수 있습니다.",
+      sub: "30일 무료 체험으로 Millio AI을 직접 경험해 보세요. 신용카드 없이 시작할 수 있습니다.",
       btn1: "무료 체험 시작",
       btn2: "상담 요청",
     },
@@ -194,7 +194,7 @@ const translations = {
       supportLinks: ["문서", "가이드", "FAQ", "문의"],
       legal: "법적 고지",
       legalLinks: ["이용약관", "개인정보처리방침", "환불정책", "SLA 정책", "데이터 보안", "서비스 이용 정책", "데이터 처리 계약", "보안 백서", "데이터 소유권"],
-      copyright: "HACCPONE. All rights reserved.",
+      copyright: "Millio AI. All rights reserved.",
     },
   },
   en: {
@@ -211,10 +211,10 @@ const translations = {
       badge: "Trusted by 100+ Food Manufacturers",
       headline1: "Food Manufacturing Management",
       headline2: "That Actually Works",
-      sub: "Move beyond spreadsheets and manual HACCP records. HACCPONE integrates production management, HACCP monitoring, inventory control, lot traceability, and accounting into a single cloud platform.",
+      sub: "Move beyond spreadsheets and manual HACCP records. Millio AI integrates production management, HACCP monitoring, inventory control, lot traceability, and accounting into a single cloud platform.",
       cta1: "Start Free Trial",
       cta2: "Watch Demo",
-      trust: "100+ food manufacturers run on HACCPONE",
+      trust: "100+ food manufacturers run on Millio AI",
       trustRating: "4.9/5 Customer Satisfaction",
       bullets: [
         "Complete setup in 30 minutes",
@@ -269,11 +269,11 @@ const translations = {
       badge: "Testimonials",
       headline: "Hear From Our Customers",
       items: [
-        { text: "After switching from Excel to HACCPONE, record gaps virtually disappeared. During audits, I can print everything instantly. It's incredibly convenient.", author: "CEO Kim", company: "Dessert Manufacturer", rating: 5 },
+        { text: "After switching from Excel to Millio AI, record gaps virtually disappeared. During audits, I can print everything instantly. It's incredibly convenient.", author: "CEO Kim", company: "Dessert Manufacturer", rating: 5 },
         { text: "The best part is automatic inventory calculation when we produce. We used to manually reconcile raw materials every time. Now it's all automated.", author: "Plant Manager Lee", company: "HMR Manufacturer", rating: 5 },
         { text: "Our staff started using it immediately without any training. The UI is truly intuitive. Work hours definitely decreased after adoption.", author: "CEO Park", company: "Food Processor", rating: 5 },
         { text: "During HACCP certification audits, we can print all required documents directly from the system. Preparation time dropped dramatically. Even the auditor was impressed.", author: "QA Manager Choi", company: "Meat Processor", rating: 5 },
-        { text: "We consolidated multiple systems into HACCPONE alone. Monthly costs decreased and having all data in one place makes management much easier.", author: "CEO Jung", company: "Franchise HQ", rating: 5 },
+        { text: "We consolidated multiple systems into Millio AI alone. Monthly costs decreased and having all data in one place makes management much easier.", author: "CEO Jung", company: "Franchise HQ", rating: 5 },
       ],
     },
     industries: {
@@ -325,15 +325,15 @@ const translations = {
       headline: "Got Questions?",
       items: [
         { q: "How long does setup take?", a: "Initial setup completes in 30 minutes. If you have existing Excel data, we'll help migrate it. Most customers start using the system the same day." },
-        { q: "Is it difficult for staff to use?", a: "HACCPONE is designed with an intuitive UI that requires no training. It works the same way on mobile devices too." },
+        { q: "Is it difficult for staff to use?", a: "Millio AI is designed with an intuitive UI that requires no training. It works the same way on mobile devices too." },
         { q: "What about our existing Excel data?", a: "We help migrate your item master, supplier info, inventory data, and other existing Excel data into the system." },
-        { q: "Does it help with HACCP certification audits?", a: "Yes. All HACCP data and checklists recorded in HACCPONE are automatically formatted and printable for certification audits." },
+        { q: "Does it help with HACCP certification audits?", a: "Yes. All HACCP data and checklists recorded in Millio AI are automatically formatted and printable for certification audits." },
         { q: "Are features limited during the free trial?", a: "No. During the 30-day free trial, you have unlimited access to all features in your selected plan." },
       ],
     },
     cta: {
       headline: "Start Today, See Results Tomorrow",
-      sub: "Try HACCPONE free for 30 days. No credit card required.",
+      sub: "Try Millio AI free for 30 days. No credit card required.",
       btn1: "Start Free Trial",
       btn2: "Talk to Sales",
     },
@@ -347,7 +347,7 @@ const translations = {
       supportLinks: ["Docs", "Guides", "FAQ", "Contact"],
       legal: "Legal",
       legalLinks: ["Terms of Service", "Privacy Policy", "Refund Policy", "SLA", "Data Security", "Acceptable Use", "DPA", "Security Whitepaper", "Data Ownership"],
-      copyright: "HACCPONE. All rights reserved.",
+      copyright: "Millio AI. All rights reserved.",
     },
   },
 };
@@ -841,7 +841,7 @@ export default function LandingPage() {
                   <div className="w-3 h-3 rounded-full bg-emerald-400" />
                 </div>
                 <div className="ml-3 flex-1 bg-white/10 rounded-md px-3 py-1 text-xs text-stone-400">
-                  app.haccpone.com/dashboard
+                  app.millioai.com/dashboard
                 </div>
               </div>
               <div className="rounded-xl bg-white overflow-hidden">
@@ -853,7 +853,7 @@ export default function LandingPage() {
                       <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-amber-500 rounded-lg flex items-center justify-center">
                         <ShieldCheck className="w-4 h-4 text-white" />
                       </div>
-                      <span className="text-sm font-bold text-white">HACCPONE</span>
+                      <span className="text-sm font-bold text-white">Millio AI</span>
                     </div>
                     {[
                       { icon: BarChart3, label: lang === "ko" ? "대시보드" : "Dashboard", active: true },

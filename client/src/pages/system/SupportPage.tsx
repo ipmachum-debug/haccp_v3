@@ -173,7 +173,7 @@ function ContactModal({
   };
 
   const handleEmailFallback = () => {
-    const subject = encodeURIComponent(form.subject || "HACCPONE 문의");
+    const subject = encodeURIComponent(form.subject || "Millio AI 문의");
     const body = encodeURIComponent(
       `이름: ${form.authorName}\n회사: ${form.companyName}\n연락처: ${form.authorPhone}\n\n${form.content}`
     );

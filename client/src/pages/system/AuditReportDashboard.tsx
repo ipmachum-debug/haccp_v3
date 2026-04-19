@@ -79,7 +79,7 @@ export default function AuditReportDashboard() {
     <tr><td class="bg fw">서명</td><td style="height:50px"></td><td></td><td></td></tr>
     <tr><td class="bg fw">일자</td><td></td><td></td><td></td></tr></table>
 
-    <p style="text-align:center;font-size:9px;color:#999;margin-top:20px">HACCP-ONE 자동생성 | 식품위생법 시행규칙 기준 3년 보관</p>
+    <p style="text-align:center;font-size:9px;color:#999;margin-top:20px">Millio AI 자동생성 | 식품위생법 시행규칙 기준 3년 보관</p>
     <script>window.onload=function(){setTimeout(function(){window.print()},800)}</script>
     </body></html>`);
     pw.document.close();

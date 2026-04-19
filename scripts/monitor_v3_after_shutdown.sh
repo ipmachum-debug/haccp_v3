@@ -17,7 +17,7 @@ NC='\033[0m'
 
 # ── 설정 ──
 V3_PORT=3001
-V3_URL="https://haccpone.com"
+V3_URL="https://millioai.com"
 V3_LOCAL_URL="http://localhost:${V3_PORT}"
 PM2_APP_NAME="haccpone"
 LOG_DIR="/root/backups/v3_monitoring"

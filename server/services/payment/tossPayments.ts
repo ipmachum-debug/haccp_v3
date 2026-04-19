@@ -227,7 +227,7 @@ export async function processMonthlyBilling(): Promise<{
         customerKey: tenant.customer_key,
         amount,
         orderId,
-        orderName: `HACCP-ONE ${plan.name} 월 이용료`,
+        orderName: `Millio AI ${plan.name} 월 이용료`,
       });
 
       // 결제 이력 저장

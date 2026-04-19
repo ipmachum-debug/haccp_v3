@@ -35,7 +35,7 @@ function addHeader(doc: jsPDF, title: string, subtitle: string) {
 
   doc.setFontSize(8);
   doc.text(
-    `HACCP-ONE | ${new Date().toLocaleDateString("ko-KR")} generated`,
+    `Millio AI | ${new Date().toLocaleDateString("ko-KR")} generated`,
     doc.internal.pageSize.width / 2, 34,
     { align: "center" }
   );

@@ -151,7 +151,7 @@ function generatePrintHTML(items: InspectionItem[], year: number, month: number,
     <div class="page-container${p > 0 ? ' page-break' : ''}">
       <div class="header-row">
         <div class="title-area">
-          <div class="system-label">HACCP-ONE | \uC2DD\uD488\uC548\uC804 + \uD68C\uACC4 + ERP \uD1B5\uD569 \uAD00\uB9AC \uC2DC\uC2A4\uD15C</div>
+          <div class="system-label">Millio AI | \uC2DD\uD488\uC548\uC804 + \uD68C\uACC4 + ERP \uD1B5\uD569 \uAD00\uB9AC \uC2DC\uC2A4\uD15C</div>
           <h1>\uC721 \uC548 \uAC80 \uC0AC \uC77C \uC9C0</h1>
           <div class="subtitle">Visual Inspection Log (\uC6D0\uC7AC\uB8CC)</div>
           <div class="period">\uAC80\uC0AC\uAE30\uAC04: <strong>${year}\uB144 ${month}\uC6D4</strong>${totalPages > 1 ? ` (${p + 1}/${totalPages})` : ''}</div>
@@ -190,7 +190,7 @@ function generatePrintHTML(items: InspectionItem[], year: number, month: number,
         <tbody>${rows || '<tr><td colspan="13" style="text-align:center;color:#9ca3af;padding:20px;">\uAC80\uC0AC \uD56D\uBAA9 \uC5C6\uC74C</td></tr>'}</tbody>
       </table>
       <div class="legend">* \uD310\uC815\uAE30\uD638: \u25CB \uC801\uD569 | \u00D7 \uBD80\uC801\uD569 | \u2014 \uD574\uB2F9\uC5C6\uC74C</div>
-      <div class="footer">HACCP-ONE | ${year}\uB144 ${month}\uC6D4 \uC721\uC548\uAC80\uC0AC\uC77C\uC9C0${totalPages > 1 ? ` (${p + 1}/${totalPages})` : ''}</div>
+      <div class="footer">Millio AI | ${year}\uB144 ${month}\uC6D4 \uC721\uC548\uAC80\uC0AC\uC77C\uC9C0${totalPages > 1 ? ` (${p + 1}/${totalPages})` : ''}</div>
     </div>`;
   }
 
@@ -271,7 +271,7 @@ function VisualInspectionDocument({
       {/* Header + seal */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-[10px] text-gray-400 mb-1">HACCP-ONE | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+          <div className="text-[10px] text-gray-400 mb-1">Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
           <h1 className="text-xl font-bold tracking-tight">육 안 검 사 일 지</h1>
           <p className="text-xs text-gray-500 mt-0.5">Visual Inspection Log (원재료)</p>
           <p className="text-xs text-gray-600 mt-1">검사기간: <span className="font-bold">{year}년 {month}월</span></p>
@@ -361,7 +361,7 @@ function VisualInspectionDocument({
         * 판정기호: <span className="text-green-700 font-bold">&#x25CB;</span> 적합 | <span className="text-red-600 font-bold">&#x00D7;</span> 부적합 | <span className="text-gray-400">&#x2014;</span> 해당없음
       </div>
       <div className="mt-3 text-[9px] text-gray-400 text-center border-t border-gray-200 pt-2">
-        HACCP-ONE | {year}년 {month}월 육안검사일지
+        Millio AI | {year}년 {month}월 육안검사일지
       </div>
     </div>
   );

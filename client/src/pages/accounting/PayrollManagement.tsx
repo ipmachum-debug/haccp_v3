@@ -52,7 +52,7 @@ function payslipHtml(p: any, year: number, month: number): string {
         <tr style="background:#ecfdf5"><td class="b" style="text-align:center;font-size:14px;padding:12px" colspan="4">
           <b>실 수 령 액 : ${fmt(p.netPay)}</b></td></tr>
       </table>
-      <p style="text-align:center;font-size:9px;color:#999">본 명세서는 근로기준법 제48조에 따라 발급합니다. | HACCP-ONE</p>
+      <p style="text-align:center;font-size:9px;color:#999">본 명세서는 근로기준법 제48조에 따라 발급합니다. | Millio AI</p>
     </div>`;
 }
 

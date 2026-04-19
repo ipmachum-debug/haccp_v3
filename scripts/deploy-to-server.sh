@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # HACCP v3 배포 스크립트
-# 외부 서버(haccpone.co.kr)로 배포
+# 외부 서버(millioai.com)로 배포
 
 set -e
 
@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 
 # 서버 정보
 REMOTE_USER="root"
-REMOTE_HOST="haccpone.co.kr"
+REMOTE_HOST="millioai.com"
 REMOTE_PATH="/var/www/haccp_v3"
 APP_NAME="haccp_v3"
 
@@ -104,5 +104,5 @@ rm /tmp/${APP_NAME}.tar.gz
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}✅ 배포 완료!${NC}"
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}서버 URL: https://haccpone.co.kr${NC}"
+echo -e "${GREEN}서버 URL: https://millioai.com${NC}"
 echo -e "${GREEN}========================================${NC}"

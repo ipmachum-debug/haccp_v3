@@ -507,7 +507,7 @@ export default function Login() {
             transition={{ delay: 0.8, duration: 0.5 }}
             className="mt-6 text-center text-stone-300 text-xs"
           >
-            <p>&copy; {new Date().getFullYear()} HACCPONE. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Millio AI. All rights reserved.</p>
           </motion.div>
         </motion.div>
       </motion.div>

@@ -2,14 +2,14 @@
 
 ## 개요
 
-이 문서는 HACCP v3 시스템을 외부 서버(haccpone.co.kr)에 배포하는 방법을 설명합니다.
+이 문서는 HACCP v3 시스템을 외부 서버(millioai.com)에 배포하는 방법을 설명합니다.
 
 ## 사전 요구사항
 
 ### 로컬 환경
 - Node.js 22.x
 - pnpm
-- SSH 접근 권한 (haccpone.co.kr)
+- SSH 접근 권한 (millioai.com)
 
 ### 서버 환경
 - Ubuntu 22.04 이상
@@ -26,13 +26,13 @@
 로컬에서 서버로 SSH 접근이 가능해야 합니다:
 
 ```bash
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 ```
 
 비밀번호 없이 접속하려면 SSH 키를 등록하세요:
 
 ```bash
-ssh-copy-id root@haccpone.co.kr
+ssh-copy-id root@millioai.com
 ```
 
 ### 2. 서버 환경 설정
@@ -132,13 +132,13 @@ sudo nano /etc/nginx/sites-available/haccp_v3
 server {
     listen 80;
     listen [::]:80;
-    server_name haccpone.co.kr www.haccpone.co.kr;
+    server_name millioai.com www.millioai.com;
 
     # SSL 설정 (Let's Encrypt)
     # listen 443 ssl http2;
     # listen [::]:443 ssl http2;
-    # ssl_certificate /etc/letsencrypt/live/haccpone.co.kr/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/haccpone.co.kr/privkey.pem;
+    # ssl_certificate /etc/letsencrypt/live/millioai.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/millioai.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -168,7 +168,7 @@ Let's Encrypt를 사용하여 SSL 인증서를 설정합니다:
 
 ```bash
 sudo apt-get install certbot python3-certbot-nginx
-sudo certbot --nginx -d haccpone.co.kr -d www.haccpone.co.kr
+sudo certbot --nginx -d millioai.com -d www.millioai.com
 ```
 
 ## 배포 실행
@@ -207,10 +207,10 @@ tar -czf haccp_v3.tar.gz \
   dist/ package.json pnpm-lock.yaml drizzle/ drizzle.config.ts server/ shared/ storage/
 
 # 3. 서버로 전송
-scp haccp_v3.tar.gz root@haccpone.co.kr:/tmp/
+scp haccp_v3.tar.gz root@millioai.com:/tmp/
 
 # 4. 서버에 접속
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 
 # 5. 서버에서 배포
 cd /var/www/haccp_v3
@@ -225,25 +225,25 @@ pm2 restart haccp_v3
 ### 1. 서버 상태 확인
 
 ```bash
-ssh root@haccpone.co.kr "pm2 status"
+ssh root@millioai.com "pm2 status"
 ```
 
 ### 2. 로그 확인
 
 ```bash
-ssh root@haccpone.co.kr "pm2 logs haccp_v3"
+ssh root@millioai.com "pm2 logs haccp_v3"
 ```
 
 ### 3. 웹사이트 접속
 
-브라우저에서 https://haccpone.co.kr 접속하여 정상 작동 확인
+브라우저에서 https://millioai.com 접속하여 정상 작동 확인
 
 ## 롤백
 
 배포 중 문제가 발생하면 이전 버전으로 롤백할 수 있습니다:
 
 ```bash
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 
 # 백업 디렉토리 확인
 ls -la /var/www/ | grep haccp_v3_backup
@@ -269,7 +269,7 @@ pm2 restart haccp_v3
 
 ```bash
 # 1. SSH 접속 후 로그 확인
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 cd /var/www/haccp_v3
 pm2 logs haccp_v3 --lines 200 --err
 # → "JWT_SECRET 환경변수 필수" 같은 메시지가 보이면 env 누락
@@ -300,7 +300,7 @@ pm2 status
 ### PM2 프로세스가 시작되지 않음 (일반)
 
 ```bash
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 cd /var/www/haccp_v3
 pm2 logs haccp_v3 --lines 100
 ```

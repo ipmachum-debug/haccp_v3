@@ -331,7 +331,7 @@ function QuotationListContent() {
 
     <div style="margin-top:30px;text-align:right">
       <p style="font-size:9px;color:#999">본 견적서의 유효기간은 ${q.validUntil || "별도 협의"} 까지입니다.</p>
-      <p style="font-size:9px;color:#999">HACCP-ONE 자동생성</p>
+      <p style="font-size:9px;color:#999">Millio AI 자동생성</p>
     </div>
     <script>window.onload=function(){setTimeout(function(){window.print()},600)}</script></body></html>`);
     pw.document.close();

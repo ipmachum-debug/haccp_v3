@@ -25,7 +25,7 @@ const quickQuestionCategories = [
     icon: "📖",
     color: "#6366f1",
     questions: [
-      "HACCP-ONE은 어떤 시스템인가요?",
+      "Millio AI은 어떤 시스템인가요?",
       "처음 사용하는데 어디서부터 시작하나요?",
       "전체 메뉴 구조를 알려주세요",
       "Today 페이지는 뭔가요?",
@@ -387,7 +387,7 @@ export default function FloatingAIChatbot() {
                     AI 하나
                     <span className="text-[10px] font-medium bg-white/20 backdrop-blur-sm px-1.5 py-0.5 rounded-full text-white/90">온라인</span>
                   </h3>
-                  <p className="text-[11px] text-white/70 font-medium">HACCP-ONE 전문 어시스턴트</p>
+                  <p className="text-[11px] text-white/70 font-medium">Millio AI 전문 어시스턴트</p>
                 </div>
               </div>
               <div className="flex items-center gap-0.5">
@@ -444,7 +444,7 @@ export default function FloatingAIChatbot() {
                   안녕하세요! <span className="text-indigo-500">하나</span>입니다
                 </h4>
                 <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed">
-                  HACCP-ONE 사용법, HACCP 관리, 구독 결제 등
+                  Millio AI 사용법, HACCP 관리, 구독 결제 등
                   <br />
                   궁금한 것을 물어보세요!
                 </p>
@@ -616,7 +616,7 @@ export default function FloatingAIChatbot() {
                       }
                     }
                   }}
-                  placeholder="HACCP-ONE에 대해 물어보세요..."
+                  placeholder="Millio AI에 대해 물어보세요..."
                   rows={1}
                   className="w-full rounded-xl bg-gray-50 dark:bg-gray-800 px-4 py-2.5 text-sm placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:bg-white dark:focus:bg-gray-800 border border-gray-200 dark:border-gray-700 resize-none max-h-24 transition-all text-gray-700 dark:text-gray-200"
                 />
@@ -640,7 +640,7 @@ export default function FloatingAIChatbot() {
             </form>
             {/* 브랜딩 */}
             <p className="text-center text-[10px] text-gray-300 dark:text-gray-600 mt-1.5">
-              Powered by HACCP-ONE AI
+              Powered by Millio AI AI
             </p>
           </div>
         </div>

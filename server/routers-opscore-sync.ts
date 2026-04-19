@@ -1,5 +1,5 @@
 /**
- * HACCP-ONE <-> GOGOGOPICK 양방향 동기화 라우터
+ * Millio AI <-> GOGOGOPICK 양방향 동기화 라우터
  * ✅ P0 FIX: tenantId fallback (||0, ||1) 제거, 테넌트 격리 강화
  * 
  * 기능:
@@ -189,7 +189,7 @@ export const opscoreSyncRouter = router({
   getStatus: tenantRequiredProcedure.query(async ({ ctx }) => {
     try {
       const db = await getDb();
-      if (!db) throw new Error("HACCP-ONE DB not initialized");
+      if (!db) throw new Error("Millio AI DB not initialized");
 
       const tenantId = ctx.tenantId;
 
@@ -419,7 +419,7 @@ export const opscoreSyncRouter = router({
 async function syncSuppliers(db: any, direction: string, tenantId: number, opscore_tenant_id: number | null) {
   const results: any[] = [];
 
-  // GOGOGOPICK -> HACCP-ONE
+  // GOGOGOPICK -> Millio AI
   if (direction === "fromOpscore" || direction === "bidirectional") {
     try {
       const opscorePartners = await getOpscorePartners();
@@ -449,7 +449,7 @@ async function syncSuppliers(db: any, direction: string, tenantId: number, opsco
     }
   }
 
-  // HACCP-ONE -> GOGOGOPICK
+  // Millio AI -> GOGOGOPICK
   if (direction === "toOpscore" || direction === "bidirectional") {
     try {
       const { getOpscoreDb } = await import("./opscore-db");
@@ -495,7 +495,7 @@ async function syncSuppliers(db: any, direction: string, tenantId: number, opsco
 async function syncProducts(db: any, direction: string, tenantId: number, opscore_tenant_id: number | null) {
   const results: any[] = [];
 
-  // GOGOGOPICK -> HACCP-ONE
+  // GOGOGOPICK -> Millio AI
   if (direction === "fromOpscore" || direction === "bidirectional") {
     try {
       const opscoreProducts = await getOpscoreProducts();
@@ -525,7 +525,7 @@ async function syncProducts(db: any, direction: string, tenantId: number, opscor
     }
   }
 
-  // HACCP-ONE -> GOGOGOPICK
+  // Millio AI -> GOGOGOPICK
   if (direction === "toOpscore" || direction === "bidirectional") {
     try {
       const { getOpscoreDb } = await import("./opscore-db");

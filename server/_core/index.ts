@@ -159,7 +159,7 @@ async function startServer() {
   // CORS 설정 - 허용 도메인 제한
   const allowedOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-    : ['https://haccpone.com', 'https://www.haccpone.com', 'http://localhost:5173', 'http://localhost:3000'];
+    : ['https://millioai.com', 'https://www.millioai.com', 'http://localhost:5173', 'http://localhost:3000'];
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) callback(null, true);
@@ -249,7 +249,7 @@ async function startServer() {
       secure: process.env.NODE_ENV === 'production', // HTTPS에서만 secure 쿠키
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7일
-      domain: process.env.NODE_ENV === 'production' ? '.haccpone.com' : undefined,
+      domain: process.env.NODE_ENV === 'production' ? '.millioai.com' : undefined,
     },
   }));
   

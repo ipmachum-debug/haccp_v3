@@ -32,7 +32,7 @@ const steps = [
 
 async function main() {
   console.log("╔══════════════════════════════════════════════╗");
-  console.log("║  HACCP-ONE 엑셀 기초데이터 통합 임포트       ║");
+  console.log("║  Millio AI 엑셀 기초데이터 통합 임포트       ║");
   console.log("╠══════════════════════════════════════════════╣");
   console.log(`║  📂 파일: ${path.basename(excelPath).padEnd(35)}║`);
   console.log("╚══════════════════════════════════════════════╝\n");

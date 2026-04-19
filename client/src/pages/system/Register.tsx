@@ -187,7 +187,7 @@ export default function Register() {
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
                 <div className="flex items-center gap-3 text-stone-400 text-xs mt-0.5">
                   <div className="flex items-center gap-1"><Phone className="w-3 h-3" /><span>032-322-9958</span></div>
-                  <div className="flex items-center gap-1"><Globe className="w-3 h-3" /><span>haccpone.com</span></div>
+                  <div className="flex items-center gap-1"><Globe className="w-3 h-3" /><span>millioai.com</span></div>
                 </div>
               </div>
             </div>
@@ -410,7 +410,7 @@ export default function Register() {
           </div>
 
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 0.5 }} className="mt-4 text-center text-stone-300 text-xs">
-            <p>&copy; {new Date().getFullYear()} HACCPONE. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Millio AI. All rights reserved.</p>
           </motion.div>
         </motion.div>
       </motion.div>

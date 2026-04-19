@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HACCP-ONE 통합 가이드 PDF 생성 - Part 2: 영업/제안 섹션"""
+"""Millio AI 통합 가이드 PDF 생성 - Part 2: 영업/제안 섹션"""
 
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -11,15 +11,15 @@ def write_sales_sections(pdf):
 
     # ─── 1. 제품 개요 ───
     pdf.section_title("1", "제품 개요")
-    pdf.sub_title("1.1 HACCP-ONE이란?")
+    pdf.sub_title("1.1 Millio AI이란?")
     pdf.body_text(
-        "HACCP-ONE은 식품 제조업체를 위한 클라우드 기반 통합 관리 플랫폼입니다. "
+        "Millio AI은 식품 제조업체를 위한 클라우드 기반 통합 관리 플랫폼입니다. "
         "HACCP(식품안전관리인증), ERP(전사적자원관리), 회계, 그리고 AI 분석을 "
         "하나의 시스템으로 통합하여, 식품 안전과 경영 효율을 동시에 달성할 수 있습니다."
     )
     pdf.body_text(
         "기존에는 HACCP 문서관리, 생산관리, 재고관리, 회계처리를 각각 별도 시스템으로 "
-        "운영해야 했습니다. HACCP-ONE은 이 모든 것을 하나로 통합하여 "
+        "운영해야 했습니다. Millio AI은 이 모든 것을 하나로 통합하여 "
         "데이터 이중입력 제거, 실시간 현황 파악, 자동 보고서 생성을 실현합니다."
     )
 
@@ -47,7 +47,7 @@ def write_sales_sections(pdf):
     pdf.section_title("2", "경쟁 우위")
     pdf.sub_title("2.1 시장 비교")
     pdf.simple_table(
-        ["기능", "HACCP-ONE", "일반 HACCP SW", "일반 ERP"],
+        ["기능", "Millio AI", "일반 HACCP SW", "일반 ERP"],
         [
             ["HACCP 문서관리", "O (자동화)", "O (수동)", "X"],
             ["CCP 실시간 모니터링", "O", "일부", "X"],
@@ -63,7 +63,7 @@ def write_sales_sections(pdf):
         [40, 38, 38, 38],
     )
 
-    pdf.sub_title("2.2 HACCP-ONE만의 차별점")
+    pdf.sub_title("2.2 Millio AI만의 차별점")
     pdf.numbered_item(1, "HACCP + ERP 완전 통합: 매입 확정 시 재고 입고 + 회계 분개가 자동으로 생성됩니다.")
     pdf.numbered_item(2, "AI 관제 시스템: 22개 기본 규칙 + 커스텀 규칙으로 24시간 자동 모니터링합니다.")
     pdf.numbered_item(3, "LOT 기반 FEFO 추적: 원재료 입고부터 제품 출하까지 완전한 추적성을 보장합니다.")
@@ -130,7 +130,7 @@ def write_sales_sections(pdf):
     # ─── 4. 기대 효과 ───
     pdf.section_title("4", "도입 기대 효과")
     pdf.simple_table(
-        ["영역", "Before (도입 전)", "After (HACCP-ONE 도입 후)", "개선율"],
+        ["영역", "Before (도입 전)", "After (Millio AI 도입 후)", "개선율"],
         [
             ["HACCP 서류작업", "수기/엑셀, 하루 2~3시간", "자동화, 30분 이내", "75% 감소"],
             ["데이터 이중입력", "매입>재고>회계 각각 입력", "1회 입력 > 자동 연동", "90% 감소"],
@@ -152,7 +152,7 @@ def write_sales_sections(pdf):
     # ─── 5. 가격 정책 ───
     pdf.section_title("5", "서비스 요금 안내")
     pdf.body_text(
-        "HACCP-ONE은 SaaS(클라우드) 방식으로 제공되며, 별도 서버 구축이 필요 없습니다. "
+        "Millio AI은 SaaS(클라우드) 방식으로 제공되며, 별도 서버 구축이 필요 없습니다. "
         "월 구독료에 시스템 이용, 업데이트, 기술지원이 모두 포함됩니다."
     )
     pdf.simple_table(
@@ -173,7 +173,7 @@ def write_sales_sections(pdf):
     )
     pdf.info_box(
         "무료 체험",
-        "30일 무료 체험 계정을 제공합니다. 데모 사이트(haccpone.co.kr)에서 "
+        "30일 무료 체험 계정을 제공합니다. 데모 사이트(millioai.com)에서 "
         "주요 기능을 직접 경험해 보실 수 있습니다."
     )
 

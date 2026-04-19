@@ -75,7 +75,7 @@ md5sum /root/haccp_v3/dist/index.js /root/haccpone-v2/dist/index.js
 ```bash
 # HTTP 응답 코드 확인
 curl -o /dev/null -s -w "HTTP: %{http_code}\n" http://localhost:3001/
-curl -o /dev/null -s -w "HTTP: %{http_code}\n" https://haccpone.com/
+curl -o /dev/null -s -w "HTTP: %{http_code}\n" https://millioai.com/
 
 # v3 PM2 상태 확인
 pm2 describe haccp_v3 | grep -E "status|uptime|restarts|memory"
@@ -116,9 +116,9 @@ lsof -i :3002 || echo "✅ 포트 3002 해제 완료"
 
 ### 3-3. Nginx v2 도메인 처리 (선택)
 ```bash
-# 옵션 A: v2.haccpone.com 접속 시 haccpone.com으로 리다이렉트
-# /etc/nginx/sites-available/v2.haccpone.com 수정:
-# return 301 https://haccpone.com$request_uri;
+# 옵션 A: v2.millioai.com 접속 시 millioai.com으로 리다이렉트
+# /etc/nginx/sites-available/v2.millioai.com 수정:
+# return 301 https://millioai.com$request_uri;
 
 # 옵션 B: 유지보수 페이지 표시
 # nginx 설정에서 proxy_pass 대신 정적 HTML 서빙
@@ -138,7 +138,7 @@ pm2 describe haccp_v3 | grep -E "status|uptime|restarts|memory" && \
 echo "--- 최근 에러 ---" && \
 pm2 logs haccp_v3 --nostream --lines 20 2>&1 | grep -i "error\|warn\|fail" | tail -10 && \
 echo "--- HTTP 응답 ---" && \
-curl -o /dev/null -s -w "haccpone.com: %{http_code}, 응답시간: %{time_total}s\n" https://haccpone.com/
+curl -o /dev/null -s -w "millioai.com: %{http_code}, 응답시간: %{time_total}s\n" https://millioai.com/
 ```
 
 ### 이상 징후 기준

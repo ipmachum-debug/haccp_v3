@@ -780,7 +780,7 @@ function DashboardLayoutContent({
                   </div>
                   <div className="flex flex-col">
                     <h1 className="text-[15px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap">
-                      HACCP ONE
+                      Millio AI
                     </h1>
                     <span className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider uppercase">
                       Food Safety Platform

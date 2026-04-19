@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HACCP-ONE 통합 가이드 PDF 생성 - Part 3: 사용자 매뉴얼 섹션"""
+"""Millio AI 통합 가이드 PDF 생성 - Part 3: 사용자 매뉴얼 섹션"""
 
 import os, sys
 sys.path.insert(0, os.path.dirname(__file__))
@@ -13,7 +13,7 @@ def write_manual_sections(pdf):
     pdf.section_title("6", "시작하기 (Getting Started)")
 
     pdf.sub_title("6.1 회원가입 및 로그인")
-    pdf.numbered_item(1, "haccpone.co.kr에 접속합니다.")
+    pdf.numbered_item(1, "millioai.com에 접속합니다.")
     pdf.numbered_item(2, "'회원가입' 버튼을 클릭합니다.")
     pdf.numbered_item(3, "회사명, 사업자번호, 이름, 이메일, 비밀번호(8자 이상)를 입력합니다.")
     pdf.numbered_item(4, "가입 신청 후, 관리자 승인을 기다립니다.")
@@ -249,7 +249,7 @@ def write_manual_sections(pdf):
     pdf.section_title("13", "자주 묻는 질문 (FAQ)")
 
     faqs = [
-        ("Q1. HACCP-ONE은 어떤 업종에 적합한가요?",
+        ("Q1. Millio AI은 어떤 업종에 적합한가요?",
          "식품 제조업체(가공식품, 건강기능식품, 음료 등)를 위해 설계되었습니다. "
          "HACCP 인증이 필요한 모든 식품 제조 사업장에서 사용 가능합니다."),
         ("Q2. 기존 데이터를 옮길 수 있나요?",

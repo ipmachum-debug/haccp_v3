@@ -1,4 +1,4 @@
-# HACCP-ONE API 레퍼런스
+# Millio AI API 레퍼런스
 
 > 자동 생성일: 2026-03-28 | 프로토콜: tRPC v11 | 인증: JWT (세션 기반)
 

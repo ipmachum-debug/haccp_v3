@@ -590,7 +590,7 @@ async function gatherContext(
 // ============================================================================
 
 function buildSystemPrompt(intent: UserIntent, context: Record<string, any>, knowledgeContext?: string): string {
-  let base = `당신은 HACCP-ONE 시스템의 AI 어시스턴트 "하나"입니다.
+  let base = `당신은 Millio AI 시스템의 AI 어시스턴트 "하나"입니다.
 식품공장의 HACCP 관리, 생산, 품질, 안전은 물론 회계/ERP(비용, 현금흐름, AP/AR, 분개)도 담당하는 통합 AI입니다.
 
 ## 중요 규칙

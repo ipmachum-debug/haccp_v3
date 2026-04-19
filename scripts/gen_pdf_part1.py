@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HACCP-ONE 통합 가이드 PDF 생성 스크립트 - Part 1: 클래스 정의"""
+"""Millio AI 통합 가이드 PDF 생성 스크립트 - Part 1: 클래스 정의"""
 
 import os
 import sys
@@ -11,7 +11,7 @@ from fpdf import FPDF, XPos, YPos
 
 FONT_PATH = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 OUTPUT_DIR = "/home/user/haccp_v3/docs"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "HACCPONE_통합가이드.pdf")
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "Millio AI_통합가이드.pdf")
 
 # Colors
 NAVY = (15, 23, 42)
@@ -36,7 +36,7 @@ class HaccpPDF(FPDF):
             return
         self.set_font("CJK", "", 8)
         self.set_text_color(*GRAY)
-        self.cell(0, 8, "HACCP-ONE 통합 가이드  |  골든터틀컴퍼니", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 8, "Millio AI 통합 가이드  |  골든터틀컴퍼니", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.set_draw_color(*BLUE)
         self.set_line_width(0.5)
         self.line(10, self.get_y(), 200, self.get_y())
@@ -59,7 +59,7 @@ class HaccpPDF(FPDF):
         self.set_y(45)
         self.set_font("CJK", "B", 28)
         self.set_text_color(*WHITE)
-        self.cell(0, 15, "HACCP-ONE", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 15, "Millio AI", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.set_font("CJK", "", 16)
         self.cell(0, 10, "HACCP + ERP + AI 통합 솔루션", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.ln(5)
@@ -72,7 +72,7 @@ class HaccpPDF(FPDF):
         self.set_font("CJK", "", 11)
         info_lines = [
             "발행: 골든터틀컴퍼니 (www.goldenturtle.co.kr)",
-            "제품: HACCP-ONE SaaS Platform (haccpone.co.kr)",
+            "제품: Millio AI SaaS Platform (millioai.com)",
             "버전: v3.0  |  2026년 4월",
             "문의: support@goldenturtle.co.kr",
         ]
@@ -82,7 +82,7 @@ class HaccpPDF(FPDF):
         self.set_y(185)
         self.set_font("CJK", "", 9)
         self.set_text_color(*GRAY)
-        self.cell(0, 6, "본 문서는 HACCP-ONE의 기능 안내 및 제품 소개를 위한 통합 가이드입니다.", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        self.cell(0, 6, "본 문서는 Millio AI의 기능 안내 및 제품 소개를 위한 통합 가이드입니다.", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         self.cell(0, 6, "Confidential - For authorized use only", align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     def section_title(self, num, title):

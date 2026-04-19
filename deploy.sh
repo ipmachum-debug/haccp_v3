@@ -1,6 +1,6 @@
 #!/bin/bash
 # ====================================================
-# HACCP-ONE 배포 스크립트
+# Millio AI 배포 스크립트
 # 
 # 사용법: ./deploy.sh
 #
@@ -19,7 +19,7 @@ DEPLOY_DIR="/root/haccp_v3/dist"
 BUILD_DIR="${WEBAPP_DIR}/dist"
 
 echo "============================================"
-echo "  HACCP-ONE 배포 시작"
+echo "  Millio AI 배포 시작"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"
 

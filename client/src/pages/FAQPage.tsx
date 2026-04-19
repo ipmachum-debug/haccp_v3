@@ -18,14 +18,14 @@ const faqData = {
   ],
   items: [
     { category: "getting-started", q: "도입까지 얼마나 걸리나요?", a: "초기 설정은 30분 내로 완료됩니다. 기존 엑셀 데이터가 있다면 마이그레이션도 지원해 드립니다. 대부분의 고객님이 당일 바로 사용을 시작하십니다." },
-    { category: "getting-started", q: "직원들이 사용하기 어렵지 않나요?", a: "HACCPONE은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
+    { category: "getting-started", q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
     { category: "getting-started", q: "기존에 사용하던 엑셀 데이터는 어떻게 하나요?", a: "품목 마스터, 거래처 정보, 재고 데이터 등 기존 엑셀 데이터를 시스템으로 마이그레이션하는 것을 도와드립니다. 전담 담당자가 배정됩니다." },
     { category: "getting-started", q: "사용 교육을 제공하나요?", a: "Professional 이상 요금제에서는 1:1 온보딩 교육을 제공합니다. Starter 요금제에서도 온라인 가이드와 영상 튜토리얼을 제공합니다." },
     { category: "pricing", q: "무료 체험 기간에 제한되는 기능이 있나요?", a: "없습니다. 30일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다." },
     { category: "pricing", q: "요금제를 변경할 수 있나요?", a: "네, 언제든지 업그레이드하거나 다운그레이드할 수 있습니다. 업그레이드는 즉시 적용되며, 다운그레이드는 다음 결제일부터 적용됩니다." },
     { category: "pricing", q: "결제 방법은 무엇인가요?", a: "신용카드, 계좌이체, 무통장입금을 지원합니다. 연간 결제 시 20% 할인이 적용됩니다." },
     { category: "pricing", q: "환불 정책은 어떻게 되나요?", a: "30일 무료 체험 후 유료 전환 시, 전환일로부터 7일 이내에는 전액 환불이 가능합니다." },
-    { category: "features", q: "HACCP 인증 심사에 도움이 되나요?", a: "네, HACCPONE에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다. 심사 준비 시간이 대폭 줄어듭니다." },
+    { category: "features", q: "HACCP 인증 심사에 도움이 되나요?", a: "네, Millio AI에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다. 심사 준비 시간이 대폭 줄어듭니다." },
     { category: "features", q: "LOT 추적은 어떻게 작동하나요?", a: "원료 입고 시 LOT 번호가 자동 부여되며, 생산 과정에서 사용된 원료의 LOT이 자동으로 추적됩니다. 문제 발생 시 원료부터 완제품까지 전체 이력을 즉시 확인할 수 있습니다." },
     { category: "features", q: "회계 연동은 어떻게 되나요?", a: "원료 매입, 제품 매출, 재고 변동이 자동으로 회계 데이터로 변환됩니다. 별도 회계 프로그램 없이도 기본적인 재무관리가 가능합니다." },
     { category: "features", q: "문서 자동 출력이 가능한가요?", a: "네, HACCP 기록지, 생산일지, 점검 체크리스트, CCP 기록 등 필요한 문서를 PDF 형태로 자동 생성하고 출력할 수 있습니다." },
@@ -85,7 +85,7 @@ export default function FAQPage() {
           <h1 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e] tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
             자주 묻는 질문
           </h1>
-          <p className="mt-3 text-stone-500">HACCPONE에 대해 궁금한 점을 찾아보세요</p>
+          <p className="mt-3 text-stone-500">Millio AI에 대해 궁금한 점을 찾아보세요</p>
         </motion.div>
 
         {/* Search */}

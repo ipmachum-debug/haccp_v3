@@ -365,13 +365,13 @@ export const adminRouter = router({
         },
         restoreCommands: [
           `# 1. 서버 접속 후 PM2 중지`,
-          `pm2 stop haccp-one`,
+          `pm2 stop millioai`,
           `# 2. 백업 파일로 복원`,
           b.backupType === "local"
             ? `gunzip < /home/ubuntu/haccp_v3/backups/${b.fileName} | mysql -u root -p haccp_db`
             : `# S3에서 다운로드 후 복원: aws s3 cp s3://bucket/${b.s3Key} backup.sql.gz && gunzip < backup.sql.gz | mysql -u root -p haccp_db`,
           `# 3. PM2 재시작`,
-          `pm2 start haccp-one`,
+          `pm2 start millioai`,
         ],
         warning: "⚠️ 복원 시 현재 데이터가 덮어씌워집니다. 반드시 현재 상태를 먼저 백업하세요.",
       };
