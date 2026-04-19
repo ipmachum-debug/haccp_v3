@@ -91,11 +91,11 @@ export default function PayrollManagement() {
 
   const deleteMut = trpc.payroll.delete.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const updateMut = trpc.payroll.update.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); setEditItem(null); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const handleEditPayroll = (p: any) => {
@@ -104,7 +104,7 @@ export default function PayrollManagement() {
 
   const confirmMut = trpc.payroll.confirmPayment.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   return (
@@ -280,23 +280,23 @@ export default function PayrollManagement() {
                 <div>
                   <Label className="text-xs">기본급</Label>
                   <Input type="number" value={editItem.baseSalary} className="h-9 text-sm"
-                    onChange={(e: any) => setEditItem({ ...editItem, baseSalary: Number(e.target.value) || 0 })} />
+                    onChange={(e) => setEditItem({ ...editItem, baseSalary: Number(e.target.value) || 0 })} />
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
                     <Label className="text-xs">연장근로</Label>
                     <Input type="number" value={editItem.overtime} className="h-9 text-sm"
-                      onChange={(e: any) => setEditItem({ ...editItem, overtime: Number(e.target.value) || 0 })} />
+                      onChange={(e) => setEditItem({ ...editItem, overtime: Number(e.target.value) || 0 })} />
                   </div>
                   <div>
                     <Label className="text-xs">상여금</Label>
                     <Input type="number" value={editItem.bonus} className="h-9 text-sm"
-                      onChange={(e: any) => setEditItem({ ...editItem, bonus: Number(e.target.value) || 0 })} />
+                      onChange={(e) => setEditItem({ ...editItem, bonus: Number(e.target.value) || 0 })} />
                   </div>
                   <div>
                     <Label className="text-xs">수당</Label>
                     <Input type="number" value={editItem.allowances} className="h-9 text-sm"
-                      onChange={(e: any) => setEditItem({ ...editItem, allowances: Number(e.target.value) || 0 })} />
+                      onChange={(e) => setEditItem({ ...editItem, allowances: Number(e.target.value) || 0 })} />
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">저장 시 4대보험·소득세가 자동 재계산됩니다.</p>
@@ -365,7 +365,7 @@ function GeneratePayrollForm({ year, month, onSuccess }: { year: number; month: 
 
   const generateMut = trpc.payroll.generate.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const validEntries = entries.filter(e => e.employeeId && e.baseSalary > 0);

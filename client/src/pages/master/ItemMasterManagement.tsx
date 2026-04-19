@@ -152,7 +152,7 @@ function ItemMasterContent() {
       setIsCreateOpen(false);
       refetchItems();
     },
-    onError: (err: any) => toast({ title: "등록 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "등록 실패", description: err.message, variant: "destructive" }),
   });
 
   const updateMutation = trpc.itemMaster.update.useMutation({
@@ -162,7 +162,7 @@ function ItemMasterContent() {
       setIsEditOpen(false);
       refetchItems();
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       console.error('[ItemMaster] update error:', err);
       toast({ title: "수정 실패", description: err.message, variant: "destructive" });
     },
@@ -181,7 +181,7 @@ function ItemMasterContent() {
       setIsSkuOpen(false);
       refetchSkus();
     },
-    onError: (err: any) => toast({ title: "SKU 등록 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "SKU 등록 실패", description: err.message, variant: "destructive" }),
   });
 
   const updateSkuMutation = trpc.productSku.update.useMutation({
@@ -190,7 +190,7 @@ function ItemMasterContent() {
       setIsSkuEditOpen(false);
       refetchSkus();
     },
-    onError: (err: any) => toast({ title: "SKU 수정 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "SKU 수정 실패", description: err.message, variant: "destructive" }),
   });
 
   const deleteSkuMutation = trpc.productSku.delete.useMutation({
@@ -198,7 +198,7 @@ function ItemMasterContent() {
       toast({ title: "SKU가 삭제되었습니다." });
       refetchSkus();
     },
-    onError: (err: any) => toast({ title: "SKU 삭제 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "SKU 삭제 실패", description: err.message, variant: "destructive" }),
   });
 
   return (

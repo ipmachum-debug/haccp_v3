@@ -57,7 +57,7 @@ export default function ChecklistList() {
       setSelectedInstance(null);
       setSelectedReviewer("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

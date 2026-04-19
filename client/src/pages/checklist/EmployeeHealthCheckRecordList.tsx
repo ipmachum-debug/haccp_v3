@@ -27,7 +27,7 @@ export default function EmployeeHealthCheckList() {
       toast({ title: "삭제 완료", description: "종사자 건강상태 확인 일지가 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -39,7 +39,7 @@ export default function EmployeeHealthCheckList() {
       setSubmittingId(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
       setSubmittingId(null);
     },

@@ -131,7 +131,7 @@ function QuotationListContent() {
       utils.quotation.list.invalidate();
       utils.quotation.stats.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const acceptMutation = trpc.quotation.markAccepted.useMutation({
     onSuccess: () => {
@@ -139,7 +139,7 @@ function QuotationListContent() {
       utils.quotation.list.invalidate();
       utils.quotation.stats.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const rejectMutation = trpc.quotation.markRejected.useMutation({
     onSuccess: () => {
@@ -147,21 +147,21 @@ function QuotationListContent() {
       utils.quotation.list.invalidate();
       utils.quotation.stats.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const cancelMutation = trpc.quotation.cancel.useMutation({
     onSuccess: () => {
       toast({ title: "취소 처리 완료" });
       utils.quotation.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const deleteMutation = trpc.quotation.delete.useMutation({
     onSuccess: () => {
       toast({ title: "삭제 완료" });
       utils.quotation.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const convertMutation = trpc.quotation.convertToSale.useMutation({
     onSuccess: (res: any) => {
@@ -172,7 +172,7 @@ function QuotationListContent() {
       utils.quotation.list.invalidate();
       utils.quotation.stats.invalidate();
     },
-    onError: (e: any) => toast({ title: "실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "실패", description: e.message, variant: "destructive" }),
   });
   const updateMutation = trpc.quotation.update.useMutation({
     onSuccess: (r: any) => {
@@ -182,7 +182,7 @@ function QuotationListContent() {
       setEditDialogOpen(false);
       setEditingQuo(null);
     },
-    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
   // 견적서 복사
   const duplicateMutation = trpc.quotation.duplicate.useMutation({
@@ -190,7 +190,7 @@ function QuotationListContent() {
       toast({ title: "복사 완료", description: `${r.quotationNumber} 생성` });
       utils.quotation.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "복사 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "복사 실패", description: e.message, variant: "destructive" }),
   });
   // 거래처 이력
   const [historyPartnerId, setHistoryPartnerId] = useState<number | null>(null);
@@ -218,7 +218,7 @@ function QuotationListContent() {
       window.open(url, "_blank");
       toast({ title: "미리보기", description: "새 탭에서 열렸습니다." });
     },
-    onError: (e: any) => toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
   });
 
   // 인쇄 (Printer) - iframe 자동 프린트
@@ -243,7 +243,7 @@ function QuotationListContent() {
       }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (e: any) => toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
   });
 
   const handleAction = (action: string, q: any) => {

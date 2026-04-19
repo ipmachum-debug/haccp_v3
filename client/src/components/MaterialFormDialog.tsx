@@ -73,7 +73,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "원재료 등록에 실패했습니다.");
     },
   });
@@ -84,7 +84,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "원재료 수정에 실패했습니다.");
     },
   });

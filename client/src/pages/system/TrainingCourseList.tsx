@@ -52,7 +52,7 @@ export default function TrainingCourseList() {
       toast.success("교육 과정이 삭제되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

@@ -74,7 +74,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`등록 실패: ${error.message}`);
     },
   });
@@ -88,7 +88,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -100,7 +100,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -112,7 +112,7 @@ export default function EmployeeHealthChecklist() {
       toast.success("파일이 업로드되었습니다.");
       setUploading(false);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`업로드 실패: ${error.message}`);
       setUploading(false);
     },
@@ -127,7 +127,7 @@ export default function EmployeeHealthChecklist() {
       refetchUpcoming();
       refetchAll();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`업로드 실패: ${error.message}`);
       setExcelUploading(false);
     },

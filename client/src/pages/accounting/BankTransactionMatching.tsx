@@ -83,7 +83,7 @@ function BankTransactionMatchingContent() {
 
   // 업로드 mutation
   const uploadMutation = trpc.bankTransactions.upload.useMutation({
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "업로드 실패",
         description: error.message,
@@ -101,7 +101,7 @@ function BankTransactionMatchingContent() {
       });
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "자동 매칭 실패",
         description: error.message,
@@ -122,7 +122,7 @@ function BankTransactionMatchingContent() {
       setSelectedTransaction(null);
       setSelectedPartnerId("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "수동 매칭 실패",
         description: error.message,

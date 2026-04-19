@@ -56,7 +56,7 @@ export default function HaccpPlanVerification({ embedded, ..._ }: { embedded?: b
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -68,7 +68,7 @@ export default function HaccpPlanVerification({ embedded, ..._ }: { embedded?: b
       setIsDetailOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

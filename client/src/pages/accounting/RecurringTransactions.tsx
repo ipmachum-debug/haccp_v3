@@ -21,7 +21,7 @@ export default function RecurringTransactions() {
 
   const generateMut = trpc.recurring.generateFromTemplate.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   return (
@@ -109,7 +109,7 @@ function CreateTemplateForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMut = trpc.recurring.createTemplate.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const upd = (k: string, v: string) => {
@@ -138,23 +138,23 @@ function CreateTemplateForm({ onSuccess }: { onSuccess: () => void }) {
       </div>
       <div>
         <Label className="text-xs">템플릿 이름 *</Label>
-        <Input value={form.name} onChange={(e: any) => upd("name", e.target.value)} placeholder="예: 월 임대료" className="h-9 text-sm" />
+        <Input value={form.name} onChange={(e) => upd("name", e.target.value)} placeholder="예: 월 임대료" className="h-9 text-sm" />
       </div>
       <div>
         <Label className="text-xs">품목명</Label>
-        <Input value={form.itemName} onChange={(e: any) => upd("itemName", e.target.value)} placeholder="품목/서비스명" className="h-9 text-sm" />
+        <Input value={form.itemName} onChange={(e) => upd("itemName", e.target.value)} placeholder="품목/서비스명" className="h-9 text-sm" />
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div><Label className="text-xs">수량</Label>
-          <Input type="number" value={form.quantity} onChange={(e: any) => upd("quantity", e.target.value)} className="h-9 text-sm" /></div>
+          <Input type="number" value={form.quantity} onChange={(e) => upd("quantity", e.target.value)} className="h-9 text-sm" /></div>
         <div><Label className="text-xs">단가</Label>
-          <Input type="number" value={form.unitPrice} onChange={(e: any) => upd("unitPrice", e.target.value)} className="h-9 text-sm" /></div>
+          <Input type="number" value={form.unitPrice} onChange={(e) => upd("unitPrice", e.target.value)} className="h-9 text-sm" /></div>
         <div><Label className="text-xs">금액</Label>
-          <Input type="number" value={form.amount} onChange={(e: any) => upd("amount", e.target.value)} className="h-9 text-sm" readOnly /></div>
+          <Input type="number" value={form.amount} onChange={(e) => upd("amount", e.target.value)} className="h-9 text-sm" readOnly /></div>
       </div>
       <div>
         <Label className="text-xs">다음 실행일</Label>
-        <Input type="date" value={form.nextDate} onChange={(e: any) => upd("nextDate", e.target.value)} className="h-9 text-sm" />
+        <Input type="date" value={form.nextDate} onChange={(e) => upd("nextDate", e.target.value)} className="h-9 text-sm" />
       </div>
       <Button className="w-full" disabled={createMut.isPending || !form.name || !form.amount}
         onClick={() => createMut.mutate({

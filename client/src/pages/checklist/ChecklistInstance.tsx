@@ -33,7 +33,7 @@ export default function ChecklistInstance() {
     onSuccess: () => {
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`저장 실패: ${error.message}`);
     },
   });
@@ -43,7 +43,7 @@ export default function ChecklistInstance() {
       alert("체크리스트가 제출되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`제출 실패: ${error.message}`);
     },
   });

@@ -113,7 +113,7 @@ export default function CcpInspection() {
       });
       setDeviationWarning(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });
@@ -131,7 +131,7 @@ export default function CcpInspection() {
       toast.success("CCP 점검이 완료되었습니다!");
       setLocation(`/dashboard/batch`);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`제출 실패: ${error.message}`);
     },
   });
@@ -140,7 +140,7 @@ export default function CcpInspection() {
     onSuccess: () => {
       toast.success("CCP 검토 요청이 전송되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`검토 요청 실패: ${error.message}`);
     },
   });

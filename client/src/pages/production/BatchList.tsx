@@ -122,7 +122,7 @@ export default function BatchList() {
       setDeleteTarget(null);
       refetch();
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast.error(`삭제 실패: ${err.message}`);
       setDeleteTarget(null);
     },

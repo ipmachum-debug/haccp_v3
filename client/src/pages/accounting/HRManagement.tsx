@@ -5,6 +5,18 @@
 import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// HR/급여 도메인 데이터 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
+type Employee = RouterOutput["payroll"]["employees"][number];
+type LeaveBalanceRow = RouterOutput["hr"]["leaveBalance"][number];
+type LeaveRow = RouterOutput["hr"]["leaveList"][number];
+type AttendanceRow = RouterOutput["hr"]["attendanceList"][number];
+type DepartmentOption = RouterOutput["hr"]["departments"][number];
+type PositionOption = RouterOutput["hr"]["positions"][number];
+type UnmatchedUser = RouterOutput["hr"]["unmatchedUsers"][number];
+type InactiveEmployee = RouterOutput["hr"]["employeesByStatus"][number];
+type MatchingStatus = RouterOutput["hr"]["matchingStatus"][number];
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +40,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 
 // Date 객체를 안전하게 문자열로 변환
-const safeDate = (v: any): string => {
+const safeDate = (v: unknown): string => {
   if (!v) return "-";
   if (typeof v === "string") return v.slice(0, 10);
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -63,23 +75,23 @@ export default function HRManagement() {
 
   // 직원 목록 (필터용)
   const { data: employeeList } = trpc.payroll.employees.useQuery();
-  const employees: any[] = (employeeList as any[]) || [];
+  const employees: Employee[] = (employeeList as Employee[] | undefined) ?? [];
 
   // 출퇴근
   const { data: myToday, refetch: refetchToday } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000 });
   const clockInMut = trpc.hr.clockIn.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchToday(); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const clockOutMut = trpc.hr.clockOut.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchToday(); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 근태 목록 (직원 필터 적용 — attendance_records.employee_id는 users.id 기준)
   const selectedUserId = useMemo(() => {
     if (!selectedEmployee) return undefined;
-    const emp = employees.find((e: any) => e.id === selectedEmployee);
+    const emp = employees.find((e) => e.id === selectedEmployee);
     // h_employees.userId가 있으면 사용, 없으면 id 그대로 (users 폴백 경우)
     return emp?.userId || emp?.id || selectedEmployee;
   }, [selectedEmployee, employees]);
@@ -100,30 +112,30 @@ export default function HRManagement() {
   // 근태 수정 (관리자)
   const updateAttMut = trpc.hr.updateAttendance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const deleteAttMut = trpc.hr.deleteAttendance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 근태 수기 등록
   const [manualAttOpen, setManualAttOpen] = useState(false);
   const createAttMut = trpc.hr.createAttendanceManual.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); setManualAttOpen(false); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 일괄 출근 (기출근자 자동 제외)
   const bulkClockInMut = trpc.hr.bulkClockIn.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 일일 마감 (퇴근 미기록 자동처리)
   const closeDayMut = trpc.hr.closeDay.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 비회원 직원 등록
@@ -132,7 +144,7 @@ export default function HRManagement() {
   const { data: posList } = trpc.hr.positions.useQuery();
   const createEmpMut = trpc.hr.createEmployee.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); setNewEmpOpen(false); refetchBalance(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 유저-구성원 매칭
@@ -141,37 +153,38 @@ export default function HRManagement() {
   const { data: matchingStatus, refetch: refetchMatching } = trpc.hr.matchingStatus.useQuery();
   const linkUserMut = trpc.hr.linkUserToEmployee.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchMatching(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 연차 부여 수정 (관리자)
   const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 수기 연차 등록 (관리자)
   const manualLeaveMut = trpc.hr.createLeaveManual.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); setManualLeaveOpen(false); refetchLeaves(); refetchBalance(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 직원 상태 변경 (관리자)
   const updateStatusMut = trpc.hr.updateEmployeeStatus.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchInactive(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 연차관리대장 출력
   const handlePrintLeaveReport = () => {
-    if (!leaveBalance || !(leaveBalance as any[]).length) {
+    const balanceList = (leaveBalance as LeaveBalanceRow[] | undefined) ?? [];
+    if (balanceList.length === 0) {
       toast.error("출력할 연차 데이터가 없습니다.");
       return;
     }
     const pw = window.open("", "_blank");
     if (!pw) return;
 
-    const balanceRows = (leaveBalance as any[]).map((b: any) => {
+    const balanceRows = balanceList.map((b) => {
       const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
       return `<tr>
         <td class="b">${b.employeeName}</td>
@@ -184,9 +197,10 @@ export default function HRManagement() {
       </tr>`;
     }).join("");
 
-    const leaveDetailRows = (leaves as any[] || [])
-      .filter((l: any) => l.status === "approved")
-      .map((l: any) => `<tr>
+    const leavesList = (leaves as LeaveRow[] | undefined) ?? [];
+    const leaveDetailRows = leavesList
+      .filter((l) => l.status === "approved")
+      .map((l) => `<tr>
         <td class="b">${l.employeeName}</td>
         <td class="b tc">${l.leaveType === "annual" ? "연차" : l.leaveType === "sick" ? "병가" : l.leaveType === "personal" ? "경조" : l.leaveType}</td>
         <td class="b tc">${safeDate(l.startDate)}</td>
@@ -196,10 +210,10 @@ export default function HRManagement() {
         <td class="b tc">${l.approvedByName || ""}</td>
       </tr>`).join("");
 
-    const totalBalance = (leaveBalance as any[]);
-    const totalGranted = totalBalance.reduce((s: number, b: any) => s + b.annualTotal, 0);
-    const totalUsed = totalBalance.reduce((s: number, b: any) => s + b.annualUsed, 0);
-    const totalRemaining = totalBalance.reduce((s: number, b: any) => s + b.annualRemaining, 0);
+    const totalGranted = balanceList.reduce((s, b) => s + b.annualTotal, 0);
+    const totalUsed = balanceList.reduce((s, b) => s + b.annualUsed, 0);
+    const totalRemaining = balanceList.reduce((s, b) => s + b.annualRemaining, 0);
+    const totalBalance = balanceList;
 
     pw.document.write(`<html><head><title>연차관리대장 ${year}년</title>
     <style>
@@ -255,11 +269,11 @@ export default function HRManagement() {
   // 휴가 승인/반려/삭제
   const approveMut = trpc.hr.approveLeave.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const deleteLeaveMut = trpc.hr.deleteLeave.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const [activeHrTab, setActiveHrTab] = useTabWithUrl("tab", "attendance");
@@ -305,7 +319,7 @@ export default function HRManagement() {
             <select value={selectedEmployee || ""} onChange={(e) => setSelectedEmployee(e.target.value ? Number(e.target.value) : null)}
               className="h-8 text-xs border rounded px-2">
               <option value="">전체 직원</option>
-              {employees.map((emp: any) => (
+              {employees.map((emp) => (
                 <option key={emp.id} value={emp.id}>{emp.name}{emp.department ? ` (${emp.department})` : ""}{emp.position ? ` · ${emp.position}` : ""}</option>
               ))}
             </select>
@@ -329,12 +343,12 @@ export default function HRManagement() {
           {/* 근태 탭 */}
           <TabsContent value="attendance">
             {/* 월간 요약 */}
-            {attendance && (attendance as any[]).length > 0 && (() => {
-              const att = attendance as any[];
+            {attendance && (attendance as AttendanceRow[]).length > 0 && (() => {
+              const att = attendance as AttendanceRow[];
               const totalDays = att.length;
-              const totalHours = att.reduce((s: number, a: any) => s + (a.workHours || 0), 0);
-              const overtimeHours = att.reduce((s: number, a: any) => s + Math.max(0, (a.workHours || 0) - 8), 0);
-              const lateDays = att.filter((a: any) => a.status === "late").length;
+              const totalHours = att.reduce((s, a) => s + (a.workHours || 0), 0);
+              const overtimeHours = att.reduce((s, a) => s + Math.max(0, (a.workHours || 0) - 8), 0);
+              const lateDays = att.filter((a) => a.status === "late").length;
               return (
                 <div className="grid grid-cols-4 gap-2 mb-3">
                   <Card><CardContent className="p-2.5 text-center">
@@ -360,8 +374,8 @@ export default function HRManagement() {
               <CardHeader className="py-3 px-4 border-b flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">
                   {year}년 {month}월 근태 현황
-                  {selectedEmployee && employees.find((e: any) => e.id === selectedEmployee)
-                    ? ` — ${employees.find((e: any) => e.id === selectedEmployee)?.name}`
+                  {selectedEmployee && employees.find((e) => e.id === selectedEmployee)
+                    ? ` — ${employees.find((e) => e.id === selectedEmployee)?.name}`
                     : " — 전체"}
                 </CardTitle>
                 {isAdmin && (
@@ -408,7 +422,7 @@ export default function HRManagement() {
                         {isAdmin && <th className="p-2.5 text-center font-medium w-[60px]">수정</th>}
                       </tr></thead>
                       <tbody>
-                        {attendance.map((a: any) => (
+                        {(attendance as AttendanceRow[]).map((a) => (
                           <tr key={a.id} className="border-b hover:bg-accent/50">
                             <td className="p-2.5 font-mono">{safeDate(a.workDate)}</td>
                             <td className="p-2.5 font-medium">{a.employeeName}</td>
@@ -503,7 +517,7 @@ export default function HRManagement() {
                           {isAdmin && <th className="p-2.5 text-center font-medium w-[100px]">액션</th>}
                         </tr></thead>
                         <tbody>
-                          {leaves.map((l: any) => {
+                          {(leaves as LeaveRow[]).map((l) => {
                             const lt = leaveTypeLabels[l.leaveType] || leaveTypeLabels.other;
                             const st = statusLabels[l.status] || statusLabels.pending;
                             return (
@@ -606,7 +620,7 @@ export default function HRManagement() {
                             {isAdmin && <th className="p-2.5 text-center font-medium w-[140px]">관리</th>}
                           </tr></thead>
                           <tbody>
-                            {leaveBalance.map((b: any) => {
+                            {(leaveBalance as LeaveBalanceRow[]).map((b) => {
                               const rate = b.annualTotal > 0 ? Math.round((b.annualUsed / b.annualTotal) * 100) : 0;
                               return (
                                 <tr key={b.employeeId} className="border-b hover:bg-accent/50">
@@ -651,9 +665,9 @@ export default function HRManagement() {
                           </tbody>
                           <tfoot><tr className="bg-muted/30 border-t-2 font-bold">
                             <td colSpan={2} className="p-2.5 text-right">합계</td>
-                            <td className="p-2.5 text-center">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualTotal, 0)}일</td>
-                            <td className="p-2.5 text-center text-blue-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualUsed, 0)}일</td>
-                            <td className="p-2.5 text-center text-emerald-700">{(leaveBalance as any[]).reduce((s: number, b: any) => s + b.annualRemaining, 0)}일</td>
+                            <td className="p-2.5 text-center">{(leaveBalance as LeaveBalanceRow[]).reduce((s, b) => s + b.annualTotal, 0)}일</td>
+                            <td className="p-2.5 text-center text-blue-700">{(leaveBalance as LeaveBalanceRow[]).reduce((s, b) => s + b.annualUsed, 0)}일</td>
+                            <td className="p-2.5 text-center text-emerald-700">{(leaveBalance as LeaveBalanceRow[]).reduce((s, b) => s + b.annualRemaining, 0)}일</td>
                             <td colSpan={isAdmin ? 2 : 1}></td>
                           </tr></tfoot>
                         </table>
@@ -684,7 +698,7 @@ export default function HRManagement() {
                             {isAdmin && <th className="p-2.5 text-center font-medium w-[80px]">복원</th>}
                           </tr></thead>
                           <tbody>
-                            {(inactiveEmployees as any[]).map((emp: any) => (
+                            {(inactiveEmployees as InactiveEmployee[]).map((emp) => (
                               <tr key={emp.id} className="border-b hover:bg-accent/50 opacity-60">
                                 <td className="p-2.5 font-mono">{emp.employeeCode}</td>
                                 <td className="p-2.5 font-medium">{emp.name}</td>
@@ -731,8 +745,8 @@ export default function HRManagement() {
                   <DialogContent>
                     <DialogHeader><DialogTitle>비회원 직원 등록</DialogTitle></DialogHeader>
                     <NewEmployeeForm
-                      departments={(deptList as any[]) || []}
-                      positions={(posList as any[]) || []}
+                      departments={(deptList as DepartmentOption[]) || []}
+                      positions={(posList as PositionOption[]) || []}
                       onSubmit={(data) => createEmpMut.mutate(data)}
                       isPending={createEmpMut.isPending}
                     />
@@ -747,14 +761,14 @@ export default function HRManagement() {
             <TabsContent value="matching">
               <div className="space-y-3">
                 {/* 미연결 유저 매칭 */}
-                {unmatchedUsers && (unmatchedUsers as any[]).length > 0 && (
+                {unmatchedUsers && (unmatchedUsers as UnmatchedUser[]).length > 0 && (
                   <Card className="border-blue-200">
                     <CardHeader className="py-2.5 px-4 border-b bg-blue-50">
                       <CardTitle className="text-xs text-blue-800">미연결 회원 → 구성원 매칭</CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 space-y-2">
                       <p className="text-[10px] text-muted-foreground">회원가입했지만 구성원에 연결되지 않은 유저입니다. 해당 직원을 선택해 매칭하세요.</p>
-                      {(unmatchedUsers as any[]).map((u: any) => (
+                      {(unmatchedUsers as UnmatchedUser[]).map((u) => (
                         <div key={u.id} className="flex items-center justify-between bg-white border rounded-lg px-3 py-2">
                           <div>
                             <span className="text-xs font-medium">{u.name}</span>
@@ -767,7 +781,7 @@ export default function HRManagement() {
                               if (e.target.value) linkUserMut.mutate({ employeeId: Number(e.target.value), userId: u.id });
                             }}>
                             <option value="">구성원 선택</option>
-                            {(matchingStatus as any[] || []).filter((m: any) => !m.isLinked).map((m: any) => (
+                            {((matchingStatus as MatchingStatus[]) || []).filter((m) => !m.isLinked).map((m) => (
                               <option key={m.empId} value={m.empId}>{m.empName} ({m.employeeCode})</option>
                             ))}
                           </select>
@@ -783,7 +797,7 @@ export default function HRManagement() {
                     <CardTitle className="text-sm">전체 구성원 ↔ 회원 매칭 현황</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
-                    {!matchingStatus || !(matchingStatus as any[]).length ? (
+                    {!matchingStatus || !(matchingStatus as MatchingStatus[]).length ? (
                       <div className="py-12 text-center text-muted-foreground text-sm">구성원 데이터가 없습니다</div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -798,7 +812,7 @@ export default function HRManagement() {
                             <th className="p-2.5 text-left font-medium">이메일</th>
                           </tr></thead>
                           <tbody>
-                            {(matchingStatus as any[]).map((m: any) => (
+                            {(matchingStatus as MatchingStatus[]).map((m) => (
                               <tr key={m.empId} className={`border-b hover:bg-accent/50 ${m.isLinked ? "" : "bg-amber-50/30"}`}>
                                 <td className="p-2.5 font-mono text-muted-foreground">{m.employeeCode}</td>
                                 <td className="p-2.5 font-medium">{m.empName}</td>
@@ -817,10 +831,10 @@ export default function HRManagement() {
                             ))}
                           </tbody>
                           <tfoot><tr className="bg-muted/30 border-t-2 font-bold text-[10px]">
-                            <td colSpan={4} className="p-2.5 text-right">총 {(matchingStatus as any[]).length}명</td>
+                            <td colSpan={4} className="p-2.5 text-right">총 {(matchingStatus as MatchingStatus[]).length}명</td>
                             <td className="p-2.5 text-center">
-                              연결 {(matchingStatus as any[]).filter((m: any) => m.isLinked).length} /
-                              미연결 {(matchingStatus as any[]).filter((m: any) => !m.isLinked).length}
+                              연결 {(matchingStatus as MatchingStatus[]).filter((m) => m.isLinked).length} /
+                              미연결 {(matchingStatus as MatchingStatus[]).filter((m) => !m.isLinked).length}
                             </td>
                             <td colSpan={2}></td>
                           </tr></tfoot>
@@ -846,7 +860,7 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
 
   const requestMut = trpc.hr.requestLeave.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   return (
@@ -865,16 +879,16 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs">시작일</Label>
-          <Input type="date" value={startDate} onChange={(e: any) => setStartDate(e.target.value)} className="h-9 text-sm" />
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">종료일</Label>
-          <Input type="date" value={endDate} onChange={(e: any) => setEndDate(e.target.value)} className="h-9 text-sm" />
+          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 text-sm" />
         </div>
       </div>
       <div>
         <Label className="text-xs">사유 *</Label>
-        <Textarea value={reason} onChange={(e: any) => setReason(e.target.value)} placeholder="휴가 사유" rows={2} />
+        <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="휴가 사유" rows={2} />
       </div>
       <Button className="w-full" disabled={requestMut.isPending || !reason.trim()}
         onClick={() => requestMut.mutate({ leaveType: leaveType as any, startDate, endDate, reason })}>
@@ -918,21 +932,21 @@ function ManualAttendanceForm({ employees, onSubmit, isPending }: {
       </div>
       <div>
         <Label className="text-xs">날짜 *</Label>
-        <Input type="date" value={workDate} onChange={(e: any) => setWorkDate(e.target.value)} className="h-9 text-sm" />
+        <Input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} className="h-9 text-sm" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label className="text-xs">출근 시간 *</Label>
-          <Input type="time" step="1" value={clockIn} onChange={(e: any) => setClockIn(e.target.value)} className="h-9 text-sm" />
+          <Input type="time" step="1" value={clockIn} onChange={(e) => setClockIn(e.target.value)} className="h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">퇴근 시간</Label>
-          <Input type="time" step="1" value={clockOut} onChange={(e: any) => setClockOut(e.target.value)} className="h-9 text-sm" />
+          <Input type="time" step="1" value={clockOut} onChange={(e) => setClockOut(e.target.value)} className="h-9 text-sm" />
         </div>
       </div>
       <div>
         <Label className="text-xs">비고</Label>
-        <Input value={notes} onChange={(e: any) => setNotes(e.target.value)} placeholder="수기 등록 사유" className="h-9 text-sm" />
+        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="수기 등록 사유" className="h-9 text-sm" />
       </div>
       <Button className="w-full" disabled={isPending || !empId || !workDate || !clockIn}
         onClick={() => onSubmit({ employeeId: empId!, workDate, clockIn, clockOut: clockOut || undefined, notes: notes || undefined })}>
@@ -957,7 +971,7 @@ function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
       <p className="text-xs text-muted-foreground">회원가입 없이 직원을 등록합니다. 사번이 자동 생성됩니다.</p>
       <div>
         <Label className="text-xs">이름 *</Label>
-        <Input value={name} onChange={(e: any) => setName(e.target.value)} placeholder="홍길동" className="h-9 text-sm" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" className="h-9 text-sm" />
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
@@ -979,7 +993,7 @@ function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
       </div>
       <div>
         <Label className="text-xs">입사일</Label>
-        <Input type="date" value={hireDate} onChange={(e: any) => setHireDate(e.target.value)} className="h-9 text-sm" />
+        <Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} className="h-9 text-sm" />
       </div>
       <Button className="w-full" disabled={isPending || !name.trim()}
         onClick={() => onSubmit({ name: name.trim(), departmentId: deptId, positionId: posId, hireDate: hireDate || undefined })}>
@@ -1030,17 +1044,17 @@ function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
       <div className="grid grid-cols-2 gap-2">
         <div>
           <Label className="text-xs">시작일 *</Label>
-          <Input type="date" value={startDate} onChange={(e: any) => setStartDate(e.target.value)} className="h-9 text-sm" />
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">종료일 *</Label>
-          <Input type="date" value={endDate} onChange={(e: any) => setEndDate(e.target.value)} className="h-9 text-sm" />
+          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 text-sm" />
         </div>
       </div>
       {days > 0 && <p className="text-xs text-blue-600 font-bold">→ {days}일</p>}
       <div>
         <Label className="text-xs">사유 *</Label>
-        <Input value={reason} onChange={(e: any) => setReason(e.target.value)} placeholder="연차 사유" className="h-9 text-sm" />
+        <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="연차 사유" className="h-9 text-sm" />
       </div>
       <Button className="w-full" disabled={isPending || !empId || !startDate || !endDate || !reason.trim()}
         onClick={() => onSubmit({ employeeId: empId!, leaveType, startDate, endDate, days, reason })}>

@@ -60,7 +60,7 @@ export default function ShippingInspection() {
       setIsCreateDialogOpen(false);
       utils.inspection.shipping.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -72,7 +72,7 @@ export default function ShippingInspection() {
       utils.inspection.shipping.list.invalidate();
       utils.inspection.shipping.getById.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

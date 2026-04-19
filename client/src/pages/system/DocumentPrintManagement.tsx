@@ -374,7 +374,7 @@ export default function DocumentPrintManagement() {
       refetchAll();
       toast({ title: "삭제 완료", description: "문서가 삭제되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -386,7 +386,7 @@ export default function DocumentPrintManagement() {
       setSelectedIds([]);
       toast({ title: "일괄 삭제 완료", description: data.message });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "일괄 삭제 실패", description: error.message, variant: "destructive" });
     },
   });

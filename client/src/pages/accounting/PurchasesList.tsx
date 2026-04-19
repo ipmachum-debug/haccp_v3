@@ -118,7 +118,7 @@ function PurchasesListContent() {
       }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -131,7 +131,7 @@ function PurchasesListContent() {
       window.open(url, "_blank");
       toast({ title: "미리보기", description: "새 탭에서 인쇄/다운로드가 가능합니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -210,7 +210,7 @@ function PurchasesListContent() {
       toast({ title: "매입 승인 완료", description: "매입이 승인되어 재고 및 회계 원장에 반영되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -221,7 +221,7 @@ function PurchasesListContent() {
       toast({ title: "매입 취소 성공", description: "매입이 취소되어 재고 및 회계 원장이 롤백되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "취소 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -232,7 +232,7 @@ function PurchasesListContent() {
       toast({ title: "지급 완료 처리", description: "매입이 지급 완료 상태로 전환되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "지급 처리 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -243,7 +243,7 @@ function PurchasesListContent() {
       toast({ title: "복구 완료", description: "취소된 매입이 대기 상태로 복구되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "복구 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -300,7 +300,7 @@ function PurchasesListContent() {
       refetch();
       setSelectedIds([]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

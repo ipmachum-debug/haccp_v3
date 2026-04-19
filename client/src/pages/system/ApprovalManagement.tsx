@@ -379,7 +379,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       setActiveTab("approval");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("검토 실패", { description: error.message });
     },
   });
@@ -396,7 +396,7 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
@@ -414,7 +414,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
@@ -431,7 +431,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
@@ -448,7 +448,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("삭제 실패", { description: error.message });
     },
   });
@@ -463,7 +463,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("일괄 삭제 실패", { description: error.message });
     },
   });
@@ -476,7 +476,7 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("승인 실패", { description: error.message });
     },
   });
@@ -489,7 +489,7 @@ export default function ApprovalManagement() {
       setSelectedRecipe(null);
       refetchPendingRecipes();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("반려 실패", { description: error.message });
     },
   });
@@ -504,7 +504,7 @@ export default function ApprovalManagement() {
       refetchPending();
       refetchApproval();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("일괄 검토 실패", { description: error.message });
     },
   });
@@ -519,7 +519,7 @@ export default function ApprovalManagement() {
       refetchHistory();
       setActiveTab("history");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("일괄 승인 실패", { description: error.message });
     },
   });
@@ -537,7 +537,7 @@ export default function ApprovalManagement() {
       refetchApproval();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("처리 실패", { description: error.message });
     },
   });

@@ -100,7 +100,7 @@ function QuotationCreateContent() {
       utils.quotation.list.invalidate();
       navigate("/dashboard/accounting/quotations");
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast({ title: "생성 실패", description: err.message, variant: "destructive" });
     },
   });

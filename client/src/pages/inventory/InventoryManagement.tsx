@@ -511,7 +511,7 @@ function PurchaseOrderTab() {
       utils.inventory.getPurchaseOrderSuggestions.invalidate();
       alert("발주 제안이 승인되었습니다.");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`오류: ${error.message}`);
     },
   });
@@ -521,7 +521,7 @@ function PurchaseOrderTab() {
       utils.inventory.getPurchaseOrderSuggestions.invalidate();
       alert("발주 제안이 거부되었습니다.");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`오류: ${error.message}`);
     },
   });
@@ -652,7 +652,7 @@ function ReleaseTab() {
       setQuantity("");
       setReason("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`출고 실패: ${error.message}`);
     },
   });
@@ -802,7 +802,7 @@ function AdjustmentTab() {
       setQuantity("");
       setReason("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`조정 실패: ${error.message}`);
     },
   });

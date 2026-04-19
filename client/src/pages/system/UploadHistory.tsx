@@ -34,7 +34,7 @@ export default function UploadHistory() {
       toast.success("이력이 삭제되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

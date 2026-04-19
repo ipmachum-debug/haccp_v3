@@ -221,7 +221,7 @@ export default function MfReportEdit() {
       utils.mfReport.getById.invalidate({ id: reportId });
       utils.mfReport.getVersions.invalidate({ mfReportId: reportId });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });

@@ -26,7 +26,7 @@ export default function FailedTasksManagement() {
       toast.success("작업이 성공적으로 재시도되었습니다.");
       utils.system.getFailedBatchCompletionRetries.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`재시도 실패: ${error.message}`);
     },
   });
@@ -37,7 +37,7 @@ export default function FailedTasksManagement() {
       toast.success("재시도 작업이 삭제되었습니다.");
       utils.system.getFailedBatchCompletionRetries.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

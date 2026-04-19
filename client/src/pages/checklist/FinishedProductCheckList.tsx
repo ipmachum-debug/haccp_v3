@@ -27,7 +27,7 @@ export function FinishedProductCheckListContent() {
       toast({ title: "삭제 완료", description: "기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -37,7 +37,7 @@ export function FinishedProductCheckListContent() {
       sonnerToast.success("승인 요청 완료");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       sonnerToast.error("승인 요청 실패: " + error.message);
     },
   });

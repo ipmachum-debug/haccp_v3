@@ -66,7 +66,7 @@ export default function StockAlerts() {
       toast.success("알람이 해제되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

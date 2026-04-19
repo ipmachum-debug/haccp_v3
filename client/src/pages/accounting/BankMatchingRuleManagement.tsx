@@ -44,7 +44,7 @@ export default function BankMatchingRuleManagement() {
       setIsAddDialogOpen(false);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -56,7 +56,7 @@ export default function BankMatchingRuleManagement() {
       setIsEditDialogOpen(false);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -66,7 +66,7 @@ export default function BankMatchingRuleManagement() {
       toast({ title: "매칭 규칙이 삭제되었습니다." });
       refetchRules();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

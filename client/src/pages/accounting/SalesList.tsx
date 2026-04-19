@@ -109,7 +109,7 @@ function SalesListContent() {
       }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "인쇄 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -122,7 +122,7 @@ function SalesListContent() {
       window.open(url, "_blank");
       toast({ title: "미리보기", description: "새 탭에서 인쇄/다운로드가 가능합니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "미리보기 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -141,7 +141,7 @@ function SalesListContent() {
       toast({ title: "매출 승인 완료", description: "매출이 승인되어 재고 및 회계 원장에 반영되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -150,7 +150,7 @@ function SalesListContent() {
       toast({ title: "매출 취소 완료", description: "매출이 취소되어 재고 및 회계 원장이 롤백되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "취소 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -159,7 +159,7 @@ function SalesListContent() {
       toast({ title: "수금 완료 처리", description: "매출이 수금 완료 상태로 전환되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "수금 처리 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -168,7 +168,7 @@ function SalesListContent() {
       toast({ title: "복구 완료", description: "취소된 매출이 대기 상태로 복구되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "복구 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -275,7 +275,7 @@ function SalesListContent() {
       refetch();
       setSelectedIds([]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

@@ -45,7 +45,7 @@ export function MonthlyHygieneLogModal({
       resetForm();
       onClose();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,

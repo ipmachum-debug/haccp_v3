@@ -536,7 +536,7 @@ export function ProductionDailyReportContent() {
       if (selectedReportId) refetchDetail();
       setTimeout(() => { refetchList(); if (selectedReportId) refetchDetail(); }, 500);
     },
-    onError: (e: any) => toast.error("생성 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("생성 실패: " + e.message),
   });
   const submitMutation = (trpc as any).dailyReport.submitForApproval.useMutation({
     onSuccess: (r: any) => {
@@ -545,7 +545,7 @@ export function ProductionDailyReportContent() {
       if (selectedReportId) refetchDetail();
       setTimeout(() => { refetchList(); }, 500);
     },
-    onError: (e: any) => toast.error("승인 요청 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("승인 요청 실패: " + e.message),
   });
   const deleteMutation = (trpc as any).dailyReport.deleteReports.useMutation({
     onSuccess: (r: any) => {
@@ -554,7 +554,7 @@ export function ProductionDailyReportContent() {
       refetchList();
       setTimeout(() => { refetchList(); }, 500);
     },
-    onError: (e: any) => toast.error("삭제 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("삭제 실패: " + e.message),
   });
 
   // ---- Detail data ----

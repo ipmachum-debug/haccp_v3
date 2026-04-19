@@ -60,7 +60,7 @@ export function WeeklyPestLogListModal({
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,
@@ -77,7 +77,7 @@ export function WeeklyPestLogListModal({
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,
@@ -94,7 +94,7 @@ export function WeeklyPestLogListModal({
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,
@@ -111,7 +111,7 @@ export function WeeklyPestLogListModal({
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,

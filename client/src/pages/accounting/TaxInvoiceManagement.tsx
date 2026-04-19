@@ -179,7 +179,7 @@ function TaxInvoiceContent() {
       setCreateOpen(false);
       resetCreateForm();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -188,7 +188,7 @@ function TaxInvoiceContent() {
       toast({ title: "발행 처리 완료" });
       utils.taxInvoice.list.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "발행 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -197,7 +197,7 @@ function TaxInvoiceContent() {
       toast({ title: "취소 처리 완료" });
       utils.taxInvoice.list.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -206,7 +206,7 @@ function TaxInvoiceContent() {
       toast({ title: "삭제 완료" });
       utils.taxInvoice.list.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -215,7 +215,7 @@ function TaxInvoiceContent() {
       toast({ title: "팝빌 전송", description: res.message });
       utils.taxInvoice.list.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "팝빌 전송 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -236,7 +236,7 @@ function TaxInvoiceContent() {
       window.open(url, "_blank");
       toast({ title: "미리보기", description: "새 탭에서 열렸습니다." });
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -264,7 +264,7 @@ function TaxInvoiceContent() {
       }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
   });
 

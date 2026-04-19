@@ -89,7 +89,7 @@ export default function CcpCalendar() {
       setSelectedEvent(null);
       setNote("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -99,7 +99,7 @@ export default function CcpCalendar() {
       toast.success("일정이 변경되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

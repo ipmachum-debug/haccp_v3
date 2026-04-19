@@ -21,7 +21,7 @@ function SuperAdminPanel() {
       toast.success("매핑 설정이 저장되었습니다.");
       refetch();
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: { message: string }) => toast.error(err.message),
   });
   const { data: logsData } = trpc.opscoreSync.getSyncLogs.useQuery({ limit: 30 });
 
@@ -301,7 +301,7 @@ function TenantAdminPanel() {
       toast.success("동기화 설정이 변경되었습니다.");
       refetchMapping();
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: { message: string }) => toast.error(err.message),
   });
   const syncNow = trpc.opscoreSync.syncNow.useMutation({
     onSuccess: (data: any) => {
@@ -309,7 +309,7 @@ function TenantAdminPanel() {
       refetchStatus();
       refetchLogs();
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: { message: string }) => toast.error(err.message),
   });
   const { data: logsData, refetch: refetchLogs } = trpc.opscoreSync.getSyncLogs.useQuery({ limit: 10 });
 

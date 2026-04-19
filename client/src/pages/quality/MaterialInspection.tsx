@@ -60,7 +60,7 @@ export default function MaterialInspection() {
       setIsCreateDialogOpen(false);
       utils.inspection.material.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -72,7 +72,7 @@ export default function MaterialInspection() {
       utils.inspection.material.list.invalidate();
       utils.inspection.material.getById.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

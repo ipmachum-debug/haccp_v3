@@ -34,7 +34,7 @@ export default function PestControlChecklistList() {
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "삭제 실패",
         description: error.message,

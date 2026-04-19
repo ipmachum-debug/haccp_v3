@@ -36,7 +36,7 @@ export default function PurchaseDetail() {
       URL.revokeObjectURL(link.href);
       toast.success("거래명세서 PDF가 다운로드되었습니다.");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`PDF 생성 실패: ${error.message}`);
     },
   });

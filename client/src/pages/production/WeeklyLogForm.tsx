@@ -101,7 +101,7 @@ export default function WeeklyLogForm() {
       setRecordStatus(result.status);
       toast.success(result.status === 'submitted' ? '제출 완료 (승인관리로 이동됩니다)' : '저장 완료');
     },
-    onError: (err: any) => toast.error('저장 실패: ' + err.message),
+    onError: (err: { message: string }) => toast.error('저장 실패: ' + err.message),
   });
 
   const applyFormData = useCallback((fd: any, isPreFill: boolean) => {

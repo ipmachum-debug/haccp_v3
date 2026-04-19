@@ -17,7 +17,7 @@ export default function SystemSettings() {
       toast.success("설정이 저장되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

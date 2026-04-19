@@ -235,11 +235,11 @@ export function DailyLogCreateModal() {
   // 저장/제출
   const createMutation = trpc.genericChecklist.create.useMutation({
     onSuccess: () => toast({ title: "저장 완료", description: "일일일지가 저장되었습니다." }),
-    onError: (err: any) => toast({ title: "저장 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "저장 실패", description: err.message, variant: "destructive" }),
   });
   const submitForReviewMutation = trpc.genericChecklist.submitForReview.useMutation({
     onSuccess: () => toast({ title: "제출 완료", description: "일일일지가 승인 요청되었습니다." }),
-    onError: (err: any) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
   });
 
   const buildFormData = () => ({

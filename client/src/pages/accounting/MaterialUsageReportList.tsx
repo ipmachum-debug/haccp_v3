@@ -143,7 +143,7 @@ function AutoReportCard({
       toast.success(`${title} 검토 요청이 등록되었습니다.`);
       refetchSavedList();
     },
-    onError: (e: any) => toast.error(`검토요청 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`검토요청 실패: ${e.message}`),
   });
 
   const handlePrint = () => {
@@ -393,11 +393,11 @@ export default function MaterialUsageReportList(props: MaterialUsageReportListPr
   // 스냅샷 액션 mutations (graceful)
   const reviewMutation = (trpc as any).materialLedger.reviewReport?.useMutation({
     onSuccess: () => { toast.success("검토 완료"); refetchList(); },
-    onError: (e: any) => toast.error(`검토 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`검토 실패: ${e.message}`),
   });
   const approveMutation = (trpc as any).materialLedger.approveReport?.useMutation({
     onSuccess: () => { toast.success("승인 완료"); refetchList(); },
-    onError: (e: any) => toast.error(`승인 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`승인 실패: ${e.message}`),
   });
   const rejectMutation = (trpc as any).materialLedger.rejectReport?.useMutation({
     onSuccess: () => {
@@ -406,11 +406,11 @@ export default function MaterialUsageReportList(props: MaterialUsageReportListPr
       setRejectReason("");
       refetchList();
     },
-    onError: (e: any) => toast.error(`반려 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`반려 실패: ${e.message}`),
   });
   const deleteMutation = (trpc as any).materialLedger.deleteReport?.useMutation({
     onSuccess: () => { toast.success("삭제 완료"); refetchList(); },
-    onError: (e: any) => toast.error(`삭제 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`삭제 실패: ${e.message}`),
   });
 
   const handlePrint = (id: number) => {

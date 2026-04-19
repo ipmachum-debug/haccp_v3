@@ -43,7 +43,7 @@ export default function BankMatching() {
       setShowAccountDialog(false);
       refetchAccounts();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -57,7 +57,7 @@ export default function BankMatching() {
       setParsedData([]);
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -68,7 +68,7 @@ export default function BankMatching() {
       toast.success(`${result.matched}건 자동 매칭 완료`);
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -79,7 +79,7 @@ export default function BankMatching() {
       toast.success("매칭이 완료되었습니다");
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

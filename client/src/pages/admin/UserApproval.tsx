@@ -51,7 +51,7 @@ export default function UserApproval() {
       utils.superadminApproval.getAllUsers.invalidate();
       closeDialog();
     },
-    onError: (error: any) => toast.error(error.message || "처리 중 오류가 발생했습니다."),
+    onError: (error: { message: string }) => toast.error(error.message || "처리 중 오류가 발생했습니다."),
   });
 
   const handleApprove = () => {

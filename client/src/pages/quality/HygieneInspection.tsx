@@ -60,7 +60,7 @@ export default function HygieneInspection() {
       setIsCreateDialogOpen(false);
       utils.inspection.hygiene.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -72,7 +72,7 @@ export default function HygieneInspection() {
       utils.inspection.hygiene.list.invalidate();
       utils.inspection.hygiene.getById.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

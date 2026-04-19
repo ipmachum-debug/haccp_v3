@@ -235,7 +235,7 @@ export default function NoticeBoard() {
       refetchTraining();
       refetchLevel();
     },
-    onError: (e: any) => toast.error("완료 처리 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("완료 처리 실패: " + e.message),
   });
   const { data: myLevel, refetch: refetchLevel } = trpc.dailyTraining.getMyLevel.useQuery();
 
@@ -243,11 +243,11 @@ export default function NoticeBoard() {
   const { data: myAttendance, refetch: refetchAtt } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000, retry: 1 });
   const clockInMut = trpc.hr.clockIn.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
   const clockOutMut = trpc.hr.clockOut.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // ── 연차 ──
@@ -260,7 +260,7 @@ export default function NoticeBoard() {
   const { data: myLeaves } = trpc.hr.leaveList.useQuery({ status: "all" }, { retry: 1 });
   const requestLeaveMut = trpc.hr.requestLeave.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); setLeaveOpen(false); setLeaveReason(""); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const myBalance = (myLeaveBalance as any[])?.[0];
@@ -273,7 +273,7 @@ export default function NoticeBoard() {
       refetchMissed();
       refetchLevel();
     },
-    onError: (e: any) => toast.error("처리 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("처리 실패: " + e.message),
   });
 
   const ackMutation = trpc.board.ackLog.useMutation({
@@ -285,7 +285,7 @@ export default function NoticeBoard() {
       }
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("확인 처리 실패: " + error.message);
     },
   });
@@ -296,7 +296,7 @@ export default function NoticeBoard() {
       setNewContent(""); setNewTitle(""); setNewType("notice"); setShowCreateForm(false);
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("등록 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("등록 실패: " + error.message),
   });
 
   const updateNoticeMutation = trpc.board.updateNotice.useMutation({
@@ -305,7 +305,7 @@ export default function NoticeBoard() {
       setEditingId(null);
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("수정 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("수정 실패: " + error.message),
   });
 
   const deleteNoticeMutation = trpc.board.deleteNotice.useMutation({
@@ -313,7 +313,7 @@ export default function NoticeBoard() {
       toast.success("삭제 완료!");
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("삭제 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("삭제 실패: " + error.message),
   });
 
   const isCreatePending = "isPending" in createNoticeMutation ? (createNoticeMutation as any).isPending : (createNoticeMutation as any).isLoading;
@@ -522,12 +522,12 @@ export default function NoticeBoard() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[12px] font-bold text-gray-600">제목 (선택)</Label>
-                <Input value={newTitle} onChange={(e: any) => setNewTitle(e.target.value)} placeholder="제목 입력" className="bg-gray-50 border-gray-200 h-11 text-sm rounded-xl" />
+                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="제목 입력" className="bg-gray-50 border-gray-200 h-11 text-sm rounded-xl" />
               </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-[12px] font-bold text-gray-600">내용 *</Label>
-              <Textarea value={newContent} onChange={(e: any) => setNewContent(e.target.value)} placeholder="공지, 작업지시 또는 전달사항 내용을 입력하세요..." rows={4} className="bg-gray-50 border-gray-200 resize-none text-sm rounded-xl leading-relaxed" />
+              <Textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="공지, 작업지시 또는 전달사항 내용을 입력하세요..." rows={4} className="bg-gray-50 border-gray-200 resize-none text-sm rounded-xl leading-relaxed" />
             </div>
             <div className="flex gap-2 justify-end pt-1">
               <Button variant="ghost" size="sm" onClick={() => { setNewContent(""); setNewTitle(""); setNewType("notice"); }} className="h-10 px-5 text-[13px] text-gray-500 rounded-xl font-medium">초기화</Button>
@@ -812,10 +812,10 @@ export default function NoticeBoard() {
                   </div>
                   <div className="space-y-1">
                     <Label className="text-[12px] font-bold text-gray-600">제목</Label>
-                    <Input value={editTitle} onChange={(e: any) => setEditTitle(e.target.value)} placeholder="제목" className="bg-gray-50 border-gray-200 h-10 text-sm rounded-xl" />
+                    <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="제목" className="bg-gray-50 border-gray-200 h-10 text-sm rounded-xl" />
                   </div>
                 </div>
-                <Textarea value={editContent} onChange={(e: any) => setEditContent(e.target.value)} rows={3} className="bg-gray-50 border-gray-200 resize-none text-sm rounded-xl" />
+                <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={3} className="bg-gray-50 border-gray-200 resize-none text-sm rounded-xl" />
                 <div className="flex gap-2 justify-end">
                   <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-9 px-5 text-[13px] text-gray-500 rounded-xl">취소</Button>
                   <Button size="sm" onClick={submitEdit} className="h-9 px-6 text-[13px] font-bold bg-gray-800 text-white rounded-xl shadow-md">저장</Button>

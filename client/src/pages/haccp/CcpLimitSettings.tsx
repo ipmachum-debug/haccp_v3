@@ -33,7 +33,7 @@ export default function CcpLimitSettings() {
       setEditingSpec(null);
       refetch();
     },
-    onError: (err: any) => toast.error(`저장 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`저장 실패: ${err.message}`),
   });
 
   // 삭제 mutation
@@ -42,7 +42,7 @@ export default function CcpLimitSettings() {
       toast.success("한계기준이 삭제되었습니다");
       refetch();
     },
-    onError: (err: any) => toast.error(`삭제 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`삭제 실패: ${err.message}`),
   });
 
   const specList = Array.isArray(specs) ? specs : [];

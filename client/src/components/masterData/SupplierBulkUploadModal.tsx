@@ -33,7 +33,7 @@ export default function SupplierBulkUploadModal({ open, onClose, onSuccess }: Su
         toast.warning(`${result.successCount}개 성공, ${result.failureCount}개 실패`);
       }
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`업로드 실패: ${error.message}`);
     },
   });

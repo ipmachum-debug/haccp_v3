@@ -109,7 +109,7 @@ function EquipmentFormDialog({
       onOpenChange(false);
       onSaved();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`설비 등록 실패: ${error.message}`);
     },
   });
@@ -120,7 +120,7 @@ function EquipmentFormDialog({
       onOpenChange(false);
       onSaved();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`설비 수정 실패: ${error.message}`);
     },
   });
@@ -268,7 +268,7 @@ function EquipmentBasedCcpForm() {
       }
       refetchEquipments();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -540,7 +540,7 @@ function EquipmentCcpSettingsForm({
       setHasChanges(false);
       onSaved(); // 목록 새로고침
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`저장 실패: ${error.message}`);
     },
   });

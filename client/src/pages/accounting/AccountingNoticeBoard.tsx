@@ -99,7 +99,7 @@ export default function AccountingNoticeBoard() {
         toast.info(result.message);
       }
     },
-    onError: (e: any) => toast.error("리포트 생성 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("리포트 생성 실패: " + e.message),
   });
 
   const { data: monthlyReport } = trpc.dailyTraining.getMonthlyReport.useQuery(
@@ -266,10 +266,10 @@ export default function AccountingNoticeBoard() {
               </div>
               <div>
                 <Label className="text-xs font-bold text-gray-600">제목</Label>
-                <Input value={newTitle} onChange={(e: any) => setNewTitle(e.target.value)} placeholder="제목 (선택)" className="mt-1" />
+                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="제목 (선택)" className="mt-1" />
               </div>
             </div>
-            <Textarea value={newContent} onChange={(e: any) => setNewContent(e.target.value)} placeholder="내용을 입력하세요..." rows={3} />
+            <Textarea value={newContent} onChange={(e) => setNewContent(e.target.value)} placeholder="내용을 입력하세요..." rows={3} />
             <div className="flex justify-end">
               <Button onClick={() => {
                 if (!newContent.trim()) { toast.error("내용을 입력하세요"); return; }

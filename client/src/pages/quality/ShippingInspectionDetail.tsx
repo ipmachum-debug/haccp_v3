@@ -28,7 +28,7 @@ export default function ShippingInspectionDetail() {
       toast.success("검사 상태가 변경되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

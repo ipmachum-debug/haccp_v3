@@ -63,7 +63,7 @@ export default function CategoryManagement() {
       setIsAddDialogOpen(false);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "카테고리 추가에 실패했습니다.");
     },
   });
@@ -77,7 +77,7 @@ export default function CategoryManagement() {
       setEditingCategory(null);
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "카테고리 수정에 실패했습니다.");
     },
   });
@@ -88,7 +88,7 @@ export default function CategoryManagement() {
       toast.success("카테고리가 삭제되었습니다.");
       utils.categories.listByType.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "카테고리 삭제에 실패했습니다.");
     },
   });
@@ -99,7 +99,7 @@ export default function CategoryManagement() {
       toast.success("기본 카테고리가 생성되었습니다.");
       utils.categories.listByType.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "기본 카테고리 생성에 실패했습니다.");
     },
   });

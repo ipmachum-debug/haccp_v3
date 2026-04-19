@@ -471,7 +471,7 @@ function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) 
       setStatus("done");
       onComplete();
     },
-    onError: (e: any) => {
+    onError: (e: { message: string }) => {
       setResultMsg(`오류: ${e.message}`);
       setStatus("done");
     }
@@ -494,7 +494,7 @@ function RetroactiveDeductionButton({ onComplete }: { onComplete: () => void }) 
         setStatus("idle");
       }
     },
-    onError: (e: any) => {
+    onError: (e: { message: string }) => {
       setResultMsg(`확인 오류: ${e.message}`);
       setStatus("done");
     }
@@ -553,7 +553,7 @@ function StockSyncButton({ onComplete }: { onComplete: () => void }) {
       setStatus("done");
       onComplete();
     },
-    onError: (e: any) => {
+    onError: (e: { message: string }) => {
       setResultMsg(`오류: ${e.message}`);
       setStatus("done");
     }
@@ -576,7 +576,7 @@ function StockSyncButton({ onComplete }: { onComplete: () => void }) {
         setStatus("idle");
       }
     },
-    onError: (e: any) => {
+    onError: (e: { message: string }) => {
       setResultMsg(`확인 오류: ${e.message}`);
       setStatus("done");
     }
@@ -659,7 +659,7 @@ function ReleaseTab() {
   const { data: summary, isLoading: summaryLoading } = trpc.inventory.getConsumptionSummary.useQuery({ year: viewYear, month: viewMonth });
   const mut = trpc.inventory.releaseStock.useMutation({
     onSuccess: () => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); utils.inventory.getConsumptionSummary.invalidate(); },
-    onError: (e: any) => alert(`소모 처리 실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`소모 처리 실패: ${e.message}`),
   });
 
   // 월 이동
@@ -1112,7 +1112,7 @@ function ReceiptTab() {
       utils.inventory.getTurnoverAnalysis.invalidate();
       const purchaseMsg = r.accountingPurchaseCreated ? "\n(매입전표 자동 생성됨)" : "";
       alert(`입고 완료! LOT: ${r.lotNumber}${purchaseMsg}`); setMatId(null); setMatName(""); setMatCode(""); setQty(""); setPrice(""); setSelectedSupplierId(null); setSelectedSupplierName(""); setExpiry(""); setNotes(""); setShowForm(false); },
-    onError: (e: any) => alert(`실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`실패: ${e.message}`),
   });
   const backfillMut = trpc.lotManagement.backfillLots.useMutation({
     onSuccess: (r: any) => {
@@ -1124,7 +1124,7 @@ function ReceiptTab() {
       utils.inventory.predictAllShortage.invalidate();
       alert(`LOT 일괄 생성: ${r?.created || 0}건`);
     },
-    onError: (e: any) => alert(`실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`실패: ${e.message}`),
   });
 
   const totalAmount = (parseFloat(qty) || 0) * (parseFloat(price) || 0);
@@ -1345,7 +1345,7 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
   const { data: lots } = trpc.inventory.list.useQuery();
   const mut = trpc.inventory.adjustStock.useMutation({
     onSuccess: (r: any) => { utils.inventory.list.invalidate(); utils.inventory.getDashboard.invalidate(); alert(r?.message || "조정 완료"); setLotId(null); setQty(""); setReason(""); },
-    onError: (e: any) => alert(`실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`실패: ${e.message}`),
   });
 
   const selectedLot = lots?.find((l: any) => l.id === lotId) as any;

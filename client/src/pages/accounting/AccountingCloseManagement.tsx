@@ -32,7 +32,7 @@ export default function AccountingCloseManagement() {
       toast.success("일일 마감이 완료되었습니다.");
       refetchDaily();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일일 마감 실패: ${error.message}`);
     },
   });
@@ -43,7 +43,7 @@ export default function AccountingCloseManagement() {
       toast.success("일일 마감이 확정(잠금)되었습니다.");
       refetchDaily();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일일 마감 잠금 실패: ${error.message}`);
     },
   });
@@ -54,7 +54,7 @@ export default function AccountingCloseManagement() {
       toast.success("월간 마감이 완료되었습니다.");
       refetchMonthly();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`월간 마감 실패: ${error.message}`);
     },
   });
@@ -65,7 +65,7 @@ export default function AccountingCloseManagement() {
       toast.success("월간 마감이 확정(잠금)되었습니다.");
       refetchMonthly();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`월간 마감 잠금 실패: ${error.message}`);
     },
   });

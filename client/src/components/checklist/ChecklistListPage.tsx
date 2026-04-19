@@ -52,7 +52,7 @@ export default function ChecklistListPage({ config }: { config: ChecklistListCon
       toast({ title: "삭제 완료", description: `${config.title}가 삭제되었습니다.` });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -63,7 +63,7 @@ export default function ChecklistListPage({ config }: { config: ChecklistListCon
       setSubmittingId(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
       setSubmittingId(null);
     },

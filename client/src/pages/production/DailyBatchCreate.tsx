@@ -116,7 +116,7 @@ export default function DailyBatchCreate() {
       }
       setLocation("/dashboard/batch");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string; data?: { zodError?: { fieldErrors: Record<string, string[]> } } }) => {
       const detail = error.data?.zodError
         ? `검증 오류: ${JSON.stringify(error.data.zodError.fieldErrors)}`
         : error.message;

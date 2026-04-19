@@ -31,7 +31,7 @@ export default function FailedTasks() {
       refetch();
       setSelectedTaskId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`재시도 실패: ${error.message}`);
     },
   });
@@ -43,7 +43,7 @@ export default function FailedTasks() {
       refetch();
       setSelectedTaskId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

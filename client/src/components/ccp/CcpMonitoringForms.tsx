@@ -366,7 +366,7 @@ function RowInputForm({
       toast({ title: "저장 완료", description: `배치 ${batchSeq} CCP 기록이 저장되었습니다.` });
       onSaved();
     },
-    onError: (err: any) => toast({ title: "저장 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "저장 실패", description: err.message, variant: "destructive" }),
   });
 
   const handleSave = () => {
@@ -620,12 +620,12 @@ function CcpFormPanel({
 
   const updateRecordMutation = trpc.ccpForm.updateRecord.useMutation({
     onSuccess: onRefresh,
-    onError: (err: any) => toast({ title: "설정 저장 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "설정 저장 실패", description: err.message, variant: "destructive" }),
   });
 
   const deleteRowMutation = trpc.ccpForm.deleteRow.useMutation({
     onSuccess: () => { toast({ title: "삭제 완료" }); onRefresh(); },
-    onError: (err: any) => toast({ title: "삭제 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "삭제 실패", description: err.message, variant: "destructive" }),
   });
 
   const submitMutation = trpc.ccpForm.submit.useMutation({
@@ -633,7 +633,7 @@ function CcpFormPanel({
       toast({ title: "승인 요청 완료", description: "CCP 기록지가 승인관리로 이동되었습니다." });
       setTimeout(() => setLocation("/dashboard/approval"), 1200);
     },
-    onError: (err: any) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
   });
 
   const ccpGroup = equipmentGroups.find(g => g.ccpType === formRecord.ccpType);
@@ -916,7 +916,7 @@ export function CcpMonitoringForms({
       refetchForms();
       utils.ccpForm.getById.invalidate();
     },
-    onError: (err: any) => toast({ title: "기록지 생성 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "기록지 생성 실패", description: err.message, variant: "destructive" }),
   });
 
   const resyncRowsMutation = trpc.ccpForm.resyncRows.useMutation({
@@ -928,7 +928,7 @@ export function CcpMonitoringForms({
       refetchForms();
       utils.ccpForm.getById.invalidate();
     },
-    onError: (err: any) => toast({ title: "재동기화 실패", description: err.message, variant: "destructive" }),
+    onError: (err: { message: string }) => toast({ title: "재동기화 실패", description: err.message, variant: "destructive" }),
   });
 
   // CCP 기록지 자동 생성 (없으면)

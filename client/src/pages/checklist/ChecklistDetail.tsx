@@ -55,7 +55,7 @@ export default function ChecklistDetail() {
       // 데이터 새로고침
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string; data?: { code?: string } }) => {
       if (error.data?.code === "CONFLICT") {
         toast.error("다른 사용자가 이 항목을 수정했습니다. 페이지를 새로고침합니다.");
         refetch();
@@ -70,7 +70,7 @@ export default function ChecklistDetail() {
       toast.success("체크리스트가 완료되었습니다.");
       setLocation("/quality/checklists/list");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`완료 실패: ${error.message}`);
     },
   });

@@ -89,7 +89,7 @@ export function EditSaleDialog({
       onSuccess();
       onOpenChange(false);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "수정 실패",
         description: error.message,

@@ -55,7 +55,7 @@ export function BatchCompletionDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

@@ -20,7 +20,7 @@ export default function ValidityEvaluationList() {
       toast({ title: "삭제 완료", description: "유효성 평가 기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

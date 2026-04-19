@@ -31,7 +31,7 @@ export default function ProductSpecificationManagement() {
       setIsDialogOpen(false);
       setEditingSpec(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });
@@ -44,7 +44,7 @@ export default function ProductSpecificationManagement() {
       setIsDialogOpen(false);
       setEditingSpec(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -55,7 +55,7 @@ export default function ProductSpecificationManagement() {
       toast.success("제품설명서가 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

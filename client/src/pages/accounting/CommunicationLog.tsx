@@ -132,7 +132,7 @@ function PartnerMemoTab() {
       setShowForm(false);
       refetchLogs();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("메모 추가 실패: " + error.message);
     },
   });
@@ -142,7 +142,7 @@ function PartnerMemoTab() {
       toast.success("메모가 수정되었습니다");
       refetchLogs();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("메모 수정 실패: " + error.message);
     },
   });
@@ -152,7 +152,7 @@ function PartnerMemoTab() {
       toast.success("상태가 변경되었습니다");
       refetchLogs();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("상태 변경 실패: " + error.message);
     },
   });
@@ -162,7 +162,7 @@ function PartnerMemoTab() {
       toast.success("메모가 삭제되었습니다");
       refetchLogs();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("삭제 실패: " + error.message);
     },
   });
@@ -296,7 +296,7 @@ function PartnerMemoTab() {
               <Textarea
                 id="content"
                 value={content}
-                onChange={(e: any) => setContent(e.target.value)}
+                onChange={(e) => setContent(e.target.value)}
                 placeholder="메모 내용을 입력하세요..."
                 rows={2}
                 className="bg-white/80 border-amber-200/60 focus:border-amber-400 resize-none text-sm"
@@ -317,7 +317,7 @@ function PartnerMemoTab() {
       <div className="flex items-center gap-2 bg-white border border-stone-200/80 rounded-lg px-3 py-2 shadow-sm">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-400" />
-          <Input placeholder="메모 내용, 작성자, 거래처명 검색..." value={searchQuery} onChange={(e: any) => setSearchQuery(e.target.value)} className="pl-7 bg-stone-50/50 border-stone-200/60 focus:bg-white h-7 text-xs rounded-md" />
+          <Input placeholder="메모 내용, 작성자, 거래처명 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-7 bg-stone-50/50 border-stone-200/60 focus:bg-white h-7 text-xs rounded-md" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[120px] bg-stone-50/50 border-stone-200/60 h-7 text-xs shrink-0">
@@ -429,7 +429,7 @@ function InternalBoardTab() {
       toast[result.alreadyAcked ? "info" : "success"](result.alreadyAcked ? "이미 확인한 항목입니다" : "확인 완료!");
       refetch();
     },
-    onError: (error: any) => toast.error("확인 처리 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("확인 처리 실패: " + error.message),
   });
 
   const createNoticeMutation = trpc.board.createNotice.useMutation({
@@ -438,7 +438,7 @@ function InternalBoardTab() {
       setNoticeContent(""); setNoticeTitle(""); setNoticeType("notice"); setShowNoticeForm(false);
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("등록 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("등록 실패: " + error.message),
   });
 
   const updateNoticeMutation = trpc.board.updateNotice.useMutation({
@@ -446,7 +446,7 @@ function InternalBoardTab() {
       toast.success("수정 완료!");
       setEditingId(null); refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("수정 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("수정 실패: " + error.message),
   });
 
   const deleteNoticeMutation = trpc.board.deleteNotice.useMutation({
@@ -454,7 +454,7 @@ function InternalBoardTab() {
       toast.success("삭제 완료!");
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("삭제 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("삭제 실패: " + error.message),
   });
 
   const updateStatusMutation = trpc.board.updateBoardStatus.useMutation({
@@ -462,7 +462,7 @@ function InternalBoardTab() {
       toast.success("완료 처리되었습니다");
       refetch(); refetchStats();
     },
-    onError: (error: any) => toast.error("상태 변경 실패: " + error.message),
+    onError: (error: { message: string }) => toast.error("상태 변경 실패: " + error.message),
   });
 
   const isCreatePending = "isPending" in createNoticeMutation ? (createNoticeMutation as any).isPending : (createNoticeMutation as any).isLoading;
@@ -577,12 +577,12 @@ function InternalBoardTab() {
             </div>
             <div className="md:col-span-2 space-y-1">
               <Label className="text-[11px] font-medium text-stone-500">제목 (선택)</Label>
-              <Input value={noticeTitle} onChange={(e: any) => setNoticeTitle(e.target.value)} placeholder="제목을 입력하세요" className="bg-white border-blue-200/60 h-9 text-sm" />
+              <Input value={noticeTitle} onChange={(e) => setNoticeTitle(e.target.value)} placeholder="제목을 입력하세요" className="bg-white border-blue-200/60 h-9 text-sm" />
             </div>
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] font-medium text-stone-500">내용 *</Label>
-            <Textarea value={noticeContent} onChange={(e: any) => setNoticeContent(e.target.value)} placeholder="공지/작업/전달 내용을 입력하세요..." rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
+            <Textarea value={noticeContent} onChange={(e) => setNoticeContent(e.target.value)} placeholder="공지/작업/전달 내용을 입력하세요..." rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" size="sm" onClick={() => { setNoticeContent(""); setNoticeTitle(""); setNoticeType("notice"); }} className="h-8 px-3 text-xs text-stone-500">초기화</Button>
@@ -645,10 +645,10 @@ function InternalBoardTab() {
                       </div>
                       <div className="md:col-span-2 space-y-1">
                         <Label className="text-[11px] font-medium text-stone-500">제목</Label>
-                        <Input value={editTitle} onChange={(e: any) => setEditTitle(e.target.value)} placeholder="제목" className="bg-white border-blue-200/60 h-8 text-xs" />
+                        <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="제목" className="bg-white border-blue-200/60 h-8 text-xs" />
                       </div>
                     </div>
-                    <Textarea value={editContent} onChange={(e: any) => setEditContent(e.target.value)} rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
+                    <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={3} className="bg-white border-blue-200/60 resize-none text-sm" />
                     <div className="flex gap-2 justify-end">
                       <Button variant="ghost" size="sm" onClick={() => setEditingId(null)} className="h-7 px-3 text-xs text-stone-500">취소</Button>
                       <Button size="sm" onClick={submitEdit} className="h-7 px-4 text-xs bg-blue-500 text-white rounded-lg">저장</Button>
@@ -802,12 +802,12 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
 
   const createCommentMutation = trpc.board.createBoardComment.useMutation({
     onSuccess: () => { toast.success("댓글이 추가되었습니다"); setNewComment(""); refetchComments(); },
-    onError: (error: any) => { toast.error("댓글 추가 실패: " + error.message); },
+    onError: (error: { message: string }) => { toast.error("댓글 추가 실패: " + error.message); },
   });
 
   const deleteCommentMutation = trpc.board.deleteBoardComment.useMutation({
     onSuccess: () => { toast.success("댓글이 삭제되었습니다"); refetchComments(); },
-    onError: (error: any) => { toast.error("댓글 삭제 실패: " + error.message); },
+    onError: (error: { message: string }) => { toast.error("댓글 삭제 실패: " + error.message); },
   });
 
   const isPending = "isPending" in createCommentMutation ? (createCommentMutation as any).isPending : (createCommentMutation as any).isLoading;
@@ -840,7 +840,7 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
       )}
       {canWrite ? (
         <div className="flex gap-1.5">
-          <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e: any) => setNewComment(e.target.value)}
+          <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
             onKeyDown={(e: any) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
             className="text-xs h-7 bg-blue-50/30 border-blue-200/60 focus:bg-white focus:border-blue-400 rounded-full px-3" />
           <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-500 hover:bg-blue-600 flex-shrink-0"
@@ -978,12 +978,12 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
 
   const createCommentMutation = trpc.communicationLogs.createComment.useMutation({
     onSuccess: () => { toast.success("댓글이 추가되었습니다"); setNewComment(""); refetchComments(); },
-    onError: (error: any) => { toast.error("댓글 추가 실패: " + error.message); },
+    onError: (error: { message: string }) => { toast.error("댓글 추가 실패: " + error.message); },
   });
 
   const deleteCommentMutation = trpc.communicationLogs.deleteComment.useMutation({
     onSuccess: () => { toast.success("댓글이 삭제되었습니다"); refetchComments(); },
-    onError: (error: any) => { toast.error("댓글 삭제 실패: " + error.message); },
+    onError: (error: { message: string }) => { toast.error("댓글 삭제 실패: " + error.message); },
   });
 
   const isPending = "isPending" in createCommentMutation ? (createCommentMutation as any).isPending : (createCommentMutation as any).isLoading;
@@ -1015,7 +1015,7 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
         </div>
       )}
       <div className="flex gap-1.5">
-        <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e: any) => setNewComment(e.target.value)}
+        <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
           onKeyDown={(e: any) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
           className="text-xs h-7 bg-amber-50/30 border-amber-200/60 focus:bg-white focus:border-amber-400 rounded-full px-3" />
         <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-amber-500 hover:bg-amber-600 flex-shrink-0"
@@ -1113,7 +1113,7 @@ function MemoItem({ log, onStatusChange, onDelete, onUpdate, isStatusLoading, cu
         <span className="text-[10px] text-stone-400">{new Date(log.createdAt).toLocaleString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
       </div>
       {isEditing ? (
-        <Textarea value={editContent} onChange={(e: any) => setEditContent(e.target.value)} rows={3} className="text-sm border-amber-300 focus:border-amber-500 bg-amber-50/30" autoFocus />
+        <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={3} className="text-sm border-amber-300 focus:border-amber-500 bg-amber-50/30" autoFocus />
       ) : (
         <p className={`text-sm leading-relaxed whitespace-pre-wrap ${log.status === "completed" ? "text-stone-400 line-through decoration-stone-300" : "text-stone-700"}`}>{log.content}</p>
       )}

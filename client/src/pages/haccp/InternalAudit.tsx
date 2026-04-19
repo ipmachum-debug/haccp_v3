@@ -58,7 +58,7 @@ export default function InternalAudit({ embedded, ..._ }: { embedded?: boolean; 
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -69,7 +69,7 @@ export default function InternalAudit({ embedded, ..._ }: { embedded?: boolean; 
       alert("내부 감사가 성공적으로 수정되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

@@ -79,7 +79,7 @@ export default function ChecklistCreate() {
       // 전용 폼이 없으면 기본 상세 페이지로 이동
       setLocation(`/quality/checklists/${data.id}`);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

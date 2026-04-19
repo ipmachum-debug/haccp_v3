@@ -58,11 +58,11 @@ export default function ChangeLogViewer() {
               </div>
               <div>
                 <Label className="text-[10px]">시작일</Label>
-                <Input type="date" value={startDate} onChange={(e: any) => { setStartDate(e.target.value); setPage(1); }} className="h-8 text-xs w-[130px]" />
+                <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} className="h-8 text-xs w-[130px]" />
               </div>
               <div>
                 <Label className="text-[10px]">종료일</Label>
-                <Input type="date" value={endDate} onChange={(e: any) => { setEndDate(e.target.value); setPage(1); }} className="h-8 text-xs w-[130px]" />
+                <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} className="h-8 text-xs w-[130px]" />
               </div>
             </div>
           </CardContent>

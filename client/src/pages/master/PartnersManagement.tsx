@@ -48,7 +48,7 @@ export default function PartnersManagement() {
       setIsDialogOpen(false);
       toast({ title: "거래처가 생성되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -60,7 +60,7 @@ export default function PartnersManagement() {
       setEditingPartner(null);
       toast({ title: "거래처가 수정되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -70,7 +70,7 @@ export default function PartnersManagement() {
       utils.partners.list.invalidate();
       toast({ title: "거래처가 삭제되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

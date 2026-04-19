@@ -290,7 +290,7 @@ export function ProductReleaseTab() {
       utils.inventory.getDashboard.invalidate();
       utils.inventory.list.invalidate();
     },
-    onError: (e: any) => alert(`출고 실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`출고 실패: ${e.message}`),
   });
   const cancelMut = trpc.inventory.cancelProductOutbound.useMutation({
     onSuccess: () => {
@@ -299,7 +299,7 @@ export function ProductReleaseTab() {
       utils.inventory.getProductOutboundStats.invalidate();
       utils.inventory.list.invalidate();
     },
-    onError: (e: any) => alert(`취소 실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`취소 실패: ${e.message}`),
   });
 
   // 이미 선택된 재고를 다른 행에서 제외

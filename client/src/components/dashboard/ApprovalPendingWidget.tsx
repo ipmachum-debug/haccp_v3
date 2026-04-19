@@ -38,7 +38,7 @@ export default function ApprovalPendingWidget() {
       setNotes("");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`승인 실패: ${error.message}`);
     },
   });
@@ -51,7 +51,7 @@ export default function ApprovalPendingWidget() {
       setRejectionReason("");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`거부 실패: ${error.message}`);
     },
   });

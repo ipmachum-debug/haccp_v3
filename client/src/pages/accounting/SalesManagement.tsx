@@ -168,7 +168,7 @@ function SalesManagementContent() {
         },
       ]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -381,7 +381,7 @@ function SalesManagementContent() {
               </button>
             </div>
             {isNewPartner ? (
-              <Input value={selectedPartnerName} onChange={(e: any) => setSelectedPartnerName(e.target.value)}
+              <Input value={selectedPartnerName} onChange={(e) => setSelectedPartnerName(e.target.value)}
                 placeholder="거래처명 직접 입력" className="h-8 text-sm bg-amber-50 border-amber-300" />
             ) : (
             <div className="flex gap-1">

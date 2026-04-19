@@ -31,7 +31,7 @@ export default function RecipeList() {
       toast.success("레시피 상태가 변경되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -41,7 +41,7 @@ export default function RecipeList() {
       toast.success("레시피가 복제되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

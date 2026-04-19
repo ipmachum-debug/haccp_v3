@@ -79,7 +79,7 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
       onClose();
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`저장 실패: ${error.message}`);
     },
   });

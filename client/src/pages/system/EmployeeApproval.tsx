@@ -61,7 +61,7 @@ export default function EmployeeApproval() {
       utils.adminEmployee.getActiveEmployees.invalidate();
       closeDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "처리 중 오류가 발생했습니다.");
     },
   });
@@ -73,7 +73,7 @@ export default function EmployeeApproval() {
       utils.adminEmployee.getActiveEmployees.invalidate();
       closeDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "삭제 중 오류가 발생했습니다.");
     },
   });
