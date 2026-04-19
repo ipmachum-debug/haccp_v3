@@ -167,6 +167,8 @@ export const tenantsRouter = router({
           .regex(/^[a-z0-9-]+$/, "슬러그는 소문자, 숫자, 하이픈만 사용 가능합니다")
           .optional(),
         status: z.enum(["active", "suspended", "trial", "expired"]).optional(),
+        industryCode: z.string().max(20).optional(),
+        industryCategory: z.string().max(50).optional(),
       })
     )
     .mutation(async ({ input }) => {

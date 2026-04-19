@@ -35,6 +35,7 @@ import NotificationDropdown from "./NotificationDropdown";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
+import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +50,8 @@ type MenuItem = {
   highlight?: boolean;
   badge?: string;
   group?: string;
+  /** 이 메뉴를 표시하려면 활성이어야 하는 업종 모듈 */
+  requireModule?: ModuleKey;
 };
 import {
   DndContext,
@@ -259,10 +262,10 @@ const menuItems = [
   { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
   { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
 
-  // 품질 (admin, worker, inspector, monitor)
-  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"] },
+  // 품질 (admin, worker, inspector, monitor) — 업종 모듈별 분기
+  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
   { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"] },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"] },
+  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
 
   // 재고 (admin, accountant, worker-읽기)
   { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"] },
@@ -282,10 +285,10 @@ const menuItems = [
 
   // 모바일 (worker, inspector)
   { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"] },
-  // HACCP 검증 & 감사 (admin, inspector, monitor)
+  // HACCP 검증 & 감사 (admin, inspector, monitor) — 업종 모듈별 분기
   { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
-  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
+  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
 
   // 사내공지관리 → WORK 탭으로 이동
@@ -420,6 +423,17 @@ function DashboardLayoutContent({
 
   // ✨ 데모 계정 감지
   const isDemo = !!(user as any)?.isDemo;
+
+  // ★ 업종코드 기반 모듈 활성화
+  const {
+    isModuleActive: isIndustryModuleActive,
+    hasHACCP: industryHasHACCP,
+    hasGMP: industryHasGMP,
+    hasISO: industryHasISO,
+    getLabel: industryLabel,
+    category: industryCategory,
+    isLoading: industryLoading,
+  } = useIndustryFeatures();
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -717,6 +731,28 @@ function DashboardLayoutContent({
     ? accountingMenuItems
     : menuItems;
 
+  // ★ 업종코드 기반 메뉴 필터링 (requireModule이 지정된 메뉴만 체크)
+  // 슈퍼어드민은 필터링 건너뜀 (모든 메뉴 접근 가능)
+  if (user?.role !== "super_admin" && !industryLoading) {
+    displayedMenuItems = displayedMenuItems.filter((item: any) => {
+      if (!item.requireModule) return true; // requireModule 없으면 항상 표시
+      return isIndustryModuleActive(item.requireModule);
+    });
+  }
+
+  // ★ 업종별 동적 라벨 적용
+  if (!industryLoading && user?.role !== "super_admin") {
+    const labelMap: Record<string, string> = {
+      "생산관리": `${industryLabel("product", "제품")} 생산관리`,
+    };
+    displayedMenuItems = displayedMenuItems.map((item: any) => {
+      if (labelMap[item.label]) {
+        return { ...item, label: labelMap[item.label] };
+      }
+      return item;
+    });
+  }
+
   // 데모 계정: 허용된 메뉴만 표시
   if (isDemo) {
     displayedMenuItems = displayedMenuItems.filter(
@@ -787,6 +823,17 @@ function DashboardLayoutContent({
                     <span className="text-[9px] text-sidebar-foreground/50 font-semibold tracking-[0.18em] uppercase -mt-0.5">
                       Manufacturing · AI
                     </span>
+                    {/* 업종 카테고리 배지 */}
+                    {!industryLoading && industryCategory !== "general" && user?.role !== "super_admin" && (
+                      <span className="text-[8px] text-sidebar-foreground/35 font-medium tracking-wide -mt-0.5">
+                        {industryCategory === "food" ? "식품제조" :
+                         industryCategory === "cosmetics" ? "화장품" :
+                         industryCategory === "supplement" ? "건기식" :
+                         industryCategory === "pharma" ? "의약품" :
+                         industryCategory === "electronics" ? "전자" :
+                         industryCategory === "textile" ? "섬유" : "제조"}
+                      </span>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -816,7 +863,12 @@ function DashboardLayoutContent({
                       <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
                     )}
                     {moduleHACCP && (
-                      <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">HACCP</TabsTrigger>
+                      <TabsTrigger value="haccp" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+                        {industryHasHACCP && industryHasGMP ? "HACCP+GMP"
+                          : industryHasHACCP ? "HACCP"
+                          : industryHasGMP ? "GMP"
+                          : "품질인증"}
+                      </TabsTrigger>
                     )}
                   </TabsList>
                 </Tabs>

@@ -13,7 +13,8 @@ import { MillioMark } from "@/components/brand/MillioMark";
 import {
   CheckCircle2, Shield, TrendingUp, Users, Building2,
   ShieldCheck, Factory, Calculator, Package, FileText,
-  Phone, Globe, Mail, Clock, MapPin, ArrowRight
+  Phone, Globe, Mail, Clock, MapPin, ArrowRight,
+  ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe
 } from "lucide-react";
 
 
@@ -28,6 +29,17 @@ export default function Register() {
   const [companyName, setCompanyName] = useState("");
   const [businessNumber, setBusinessNumber] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState<number | undefined>(undefined);
+  const [industryCode, setIndustryCode] = useState("C10");
+
+  const INDUSTRY_OPTIONS = [
+    { code: "C10", label: "식품 제조업", category: "food", icon: ChefHat },
+    { code: "C10_SUP", label: "건강기능식품", category: "supplement", icon: Pill },
+    { code: "C20", label: "화장품 제조업", category: "cosmetics", icon: Sparkles },
+    { code: "C21", label: "의약품 제조업", category: "pharma", icon: Syringe },
+    { code: "C26", label: "전자부품·장비", category: "electronics", icon: Cpu },
+    { code: "C13", label: "섬유·의복", category: "textile", icon: Scissors },
+    { code: "C_GENERAL", label: "일반 제조업", category: "general", icon: Factory },
+  ];
 
   const { data: tenantsData } = trpc.tenantsPublic.getAll.useQuery();
 
@@ -48,9 +60,14 @@ export default function Register() {
     if (userType === "client_admin" && !companyName.trim()) { toast.error("회사명을 입력해주세요."); return; }
     if (userType === "employee" && !selectedTenantId) { toast.error("소속 회사를 선택해주세요."); return; }
 
+    // 업종 정보를 userMemo에 포함 (승인 시 참고용)
+    const memoWithIndustry = userType === "client_admin"
+      ? `[업종: ${INDUSTRY_OPTIONS.find(o => o.code === industryCode)?.label || industryCode}] ${userMemo.trim()}`.trim()
+      : userMemo.trim() || undefined;
+
     registerMutation.mutate({
       email, password, name, userType,
-      userMemo: userMemo.trim() || undefined,
+      userMemo: memoWithIndustry,
       companyName: userType === "client_admin" ? companyName : undefined,
       businessNumber: userType === "client_admin" ? businessNumber : undefined,
       tenantId: userType === "employee" ? selectedTenantId : undefined,
@@ -321,6 +338,28 @@ export default function Register() {
                   <div className="space-y-1.5">
                     <Label className={labelClass}>사업자등록번호 (선택)</Label>
                     <Input type="text" placeholder="예: 123-45-67890" value={businessNumber} onChange={(e) => setBusinessNumber(e.target.value)} className={inputClass} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className={labelClass}>업종 <span className="text-orange-500">*</span></Label>
+                    <Select value={industryCode} onValueChange={setIndustryCode}>
+                      <SelectTrigger className="h-11 px-4 rounded-xl bg-stone-50/80 border-stone-200 focus:border-orange-300 focus:ring-orange-200/50 transition-all">
+                        <SelectValue placeholder="업종을 선택하세요" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INDUSTRY_OPTIONS.map(opt => {
+                          const Icon = opt.icon;
+                          return (
+                            <SelectItem key={opt.code} value={opt.code}>
+                              <div className="flex items-center gap-2">
+                                <Icon className="w-4 h-4 text-orange-500" />
+                                <span>{opt.label}</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-stone-400">업종에 따라 HACCP, GMP, ISO 등 활성화되는 모듈이 달라집니다</p>
                   </div>
                 </>
               )}
