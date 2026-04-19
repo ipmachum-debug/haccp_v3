@@ -1,6 +1,7 @@
 # CLAUDE.md - HACCP-ONE 프로젝트 AI 개발 가이드
 
-> 최종 업데이트: 2026-04-18
+> 최종 업데이트: 2026-04-19
+> 현재 완성도: **78/100** — 실서비스 운영 가능 / 엔터프라이즈 전 단계
 
 ---
 
@@ -528,40 +529,74 @@ git push -f origin genspark_ai_developer
 - **테스트 추가**: dbHelpers, logger, useTabWithUrl, auth, journalHelper, tenantIsolation, paginatedSort
 - **N+1 쿼리**: `dashboardAndAnalytics.ts` 재고부족 대시보드
 
-### 개선 로드맵
-```
-Week 1-2: 보안 (비밀번호 정책, Rate Limiting, 환경변수 검증)
-Week 3-4: 성능 (N+1 쿼리, 페이지네이션, DB 인덱스)
-Week 5-6: 코드 품질 (파일 분할, any 제거, deprecated 정리)
-Week 7-8: 아키텍처 (구조적 로깅, 에러 표준화, 캐시 레이어)
-=======
-- [x] 세션 시크릿 폴백 경고 로그 + 동적 폴백
+### 보안 / 품질 누적 현황 (2026-04-19)
+
+#### 보안 — 완료
+- [x] CORS 허용 도메인 제한 (`process.env.CORS_ORIGINS`)
+- [x] 세션/JWT 시크릿 — **production 에서 env 미설정 시 부팅 실패** (2026-04-19)
+- [x] 하드코딩 DB 자격정보 전면 제거 — `ecosystem.config.js` 삭제, `excelImport`/scripts 25+ env 전환 (2026-04-19)
+- [x] `excelImport` 공통 Pool 재사용 전환 — 자체 createConnection 제거 (2026-04-19)
+- [x] `startupMigrations` production 기본 비활성 — `RUN_STARTUP_MIGRATIONS=true` 필요 (2026-04-19)
 - [x] 비밀번호 정책 강화 (min 8자 이상)
 - [x] Rate Limiting (IP당 분당 200회, 429 응답)
 - [x] 환경변수 유효성 검증 (`validateEnvVars()` 서버 시작 전)
+- [x] 테넌트 격리 JOIN 방어 — `partners` LEFT JOIN 18곳 `eq(partners.tenantId, parent.tenantId)` 추가 (2026-04-19)
+- [x] `tenantsPublic` public 노출 축소 — id/name 만 반환, 카운트/상태 → 슈퍼관리자 전용 (2026-04-19)
+- [x] `banner` 라우터 권한 검증 — 일반 admin 의 input.tenantId 조작 / 타 테넌트 배너 수정 차단 (2026-04-19)
 
-### 에러 처리 현황
-- [x] DB 연결 에러 메시지 한국어 통일 완료 ("DB 연결 실패", 704건)
-- [x] 구조적 로깅 시스템 도입 (`server/utils/logger.ts`: logInfo/logWarn/logError/logSecurity)
+#### 보안 — 사후 작업 필요 (코드 외)
+- [ ] **운영 DB root 비밀번호 즉시 교체** (기존 자격정보 유출 가정)
+- [ ] **SSH_PASS 교체**
+- [ ] git 히스토리에 남은 자격정보 정리 (git-filter-repo / BFG)
+
+#### 에러 처리
+- [x] DB 연결 에러 메시지 한국어 통일 ("DB 연결 실패")
+- [x] 구조적 로깅 시스템 (`server/utils/logger.ts`: logInfo/logWarn/logError/logSecurity)
+- [x] 조용한 catch 블록 주요 13건 정리 (aiCashBriefing, aiExecutiveReport, partnerCredit 등)
 - [ ] 에러 코드 표준화 (TRPCError 코드 통일)
-- [ ] 조용한 catch 블록 ~40곳 → 점진적 개선
 
-### 코드 품질 현황
-- [x] **레거시 파일 제거**: `server_new_files/` (8,663줄 routers.ts 포함) 삭제
-- [x] **중복 디렉토리 제거**: `drizzle/drizzle/`(158파일) + `server/server/`(149파일) 삭제
-- [x] **디버그 console.log 제거**: 72건 (batch.router, ccpFormRecords, batchFunctions 등)
-- [x] **N+1 쿼리 수정**: `getLowStockMaterials()` → 단일 JOIN+GROUP BY
-- [x] **DB 헬퍼 유틸**: `server/utils/dbHelpers.ts` (getRows/getFirstRow/getInsertId)
-- **any 타입**: 클라이언트 2,960+건 (점진적 개선 필요)
+#### 코드 품질
+- [x] 레거시 파일 제거: `server_new_files/` (8,663줄) / `drizzle/drizzle/` / `server/server/`
+- [x] 디버그 console.log 제거 72건
+- [x] N+1 쿼리 수정: `getLowStockMaterials`, `costAnalysisInventory.getBatchCostAnalysisInventory` (inArray 단일 쿼리)
+- [x] DB 헬퍼 유틸: `server/utils/dbHelpers.ts` (getRows/getFirstRow/getInsertId)
+- [x] **any 타입 Day 1~5 정리: 3,389 → 2,208 (−1,181, 34.9%)** (2026-04-19)
+  - `client/src/lib/trpc.ts` `as any` 제거 → `createTRPCReact<AppRouter>()`
+  - `client/src/lib/trpcTypes.ts` 신규: `RouterInput` / `RouterOutput` 헬퍼
+  - 13개 top 파일 심층 타입화 (HR, Expense, Accounting, Dashboard, Production, Purchase, Sales 등)
+  - 완전 제거 0건 파일: AccountingAccounts / CCPLimits(pages) / HRManagement / PipelineDashboard
 - **deprecated 테이블**: `accounting_categories`, `accounting_transactions` (@deprecated 유지)
-- **테스트 커버리지**: 3% → 13 케이스 추가 (logger, tenant격리, tabUrl)
+- **테스트 커버리지**: 3% → 13 + 26 케이스 = 39 (logger, tenant격리, banner isolation, tenantsPublic, partner JOIN)
 
-### 개선 로드맵 (2026-03-28 기준)
+#### 아키텍처 부채 (우선순위 높음 — 아직 미해결)
+- [ ] **AppRouter 초거대 구조** (`_root.ts` 413줄, 서브라우터 318 import) — tRPC v11 proxy 타입 심층 전파 한계의 근본 원인. 도메인별 bounded context 로 분리 필요.
+- [ ] **초대형 TSX 파일** (50~90KB) — BatchDetail (1300줄), HRManagement (850줄) 등 page/container/table/form/dialog 단위 분해 필요
+- [ ] **런타임 startup migration** — production 기본 비활성화 했으나 장기적으로 Drizzle migration 으로 완전 이관 필요
+- [ ] **구조적 any** — 남은 2,208건 중 상당수는 AppRouter 분해 없이는 불가능
+
+### 개선 로드맵 (2026-04-19 기준)
 ```
-✅ Week 1-2: 보안 (CORS, 시크릿, tenant격리, N+1, 환경변수검증, Rate Limiting)
-✅ Week 3-4: 성능 (비밀번호, Partner tenant, deleteBatch 필수화)
-✅ Week 5-6: 코드 품질 (파일삭제 20,000줄, DB에러 통일, console.log 제거, 로깅 도입)
-⏳ Week 7-8: 타입 안전성 (any 제거 2,960건 - 점진적)
-⏳ Week 9-12: 테스트/문서 (커버리지 70%, API 문서화)
->>>>>>> origin/claude/fix-inventory-consumption-hcnFv
+✅ Week 1-2: 보안 기본 (CORS, 시크릿, 테넌트격리, N+1, env검증, Rate Limiting)
+✅ Week 3-4: 성능 & 보안 심화 (비밀번호, Partner tenant, deleteBatch, 하드코딩 제거)
+✅ Week 5-6: 코드 품질 (파일삭제 20,000줄, DB에러 통일, console.log, 로깅)
+⏳ Week 7-9: 타입 안전성 Day 1~5 완료 (3,389 → 2,208). 남은 작업: 중형 파일 + 구조적 any
+⏳ Week 10-12: 테스트 강화 (회계/재고/LOT/승인 도메인 회귀 테스트)
+⏳ Week 13-16: 아키텍처 분해 (AppRouter 도메인 분리 + 초대형 TSX 파일 분해)
 ```
+
+### 외부 감사 완성도 평가 (2026-04-19)
+
+| 영역 | 점수 |
+|------|------|
+| 기능 완성도 | 88 |
+| 운영 가능성 | 82 |
+| 문서/재현성 | 76 |
+| 보안/테넌트 격리 | 74 (Week 1-4 작업 후 80+ 예상) |
+| 코드 품질 | 72 (any 정리 진행 중) |
+| 아키텍처 건강도 | 68 (AppRouter/초대형 파일 해결 전까지 제한) |
+| **전체 평균** | **78** |
+
+**다음 2~3주 목표**: 80점 돌파
+- 아키텍처 68 → 73: 초대형 파일 Top 3 분해 or 라우터 분리 시작
+- 코드 품질 72 → 76: any 1,500 아래로
+- 보안 74 → 78: 운영 DB 자격정보 교체 + git history 정리
