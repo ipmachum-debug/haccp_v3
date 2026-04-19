@@ -22,23 +22,24 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import type { RouterOutput } from "@/lib/trpcTypes";
 
-// 승인 워크플로 도메인 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
-type ApprovalRequest = RouterOutput["approval"]["list"][number];
-type ApprovalSetting = RouterOutput["organization"]["approvalSettings"]["list"][number];
-type EmployeeRow = RouterOutput["organization"]["employees"]["list"][number];
-type PendingRecipe = RouterOutput["recipeApproval"]["getPending"][number];
-type RecipeHistory = RouterOutput["recipeApproval"]["getHistory"][number];
-type CcpFormRecord = RouterOutput["ccpForm"]["getByBatch"][number];
-type CcpInstance = RouterOutput["ccp"]["getByBatchId"][number];
-import { 
-  CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet, 
-  ClipboardCheck, FileCheck, Utensils, TrendingUp, Eye, Printer, 
+// 2026-04-19 분해: 도메인 타입 / 상수 / 유틸 컴포넌트 분리
+import type {
+  ApprovalRequest, ApprovalSetting, EmployeeRow,
+  PendingRecipe, RecipeHistory, CcpFormRecord, CcpInstance,
+} from "./_approvalManagement/types";
+import {
+  REQUEST_TYPE_LABELS, REQUEST_TYPE_ICONS, REQUEST_CATEGORIES,
+  CATEGORY_COLORS, STATUS_LABELS, STATUS_COLORS,
+} from "./_approvalManagement/constants";
+import { ApprovalStepsInline } from "./_approvalManagement/ApprovalStepsInline";
+
+import {
+  CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet,
+  ClipboardCheck, FileCheck, Utensils, TrendingUp, Eye, Printer,
   ClipboardList, CheckSquare, Square, ListChecks, ArrowRight,
-  ThermometerSun, Shield, Beaker, Bug, Snowflake, Droplets, 
-  Scale, Wrench, Truck, GraduationCap, Trash2, AlertTriangle,
-  UserCheck, ShieldCheck, RefreshCw, History, Filter, Ban
+  Shield, Trash2, AlertTriangle,
+  UserCheck, ShieldCheck, RefreshCw, History, Filter, Ban,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
@@ -56,186 +57,6 @@ import { ApprovalSealRow } from "@/components/SealGenerator";
 import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 
 import { formatLocalDate } from "../../lib/dateUtils";
-
-// ═══════════════════════════════════════════════════════════════
-// 상수 정의 (유형 라벨, 아이콘, 카테고리, 상태)
-// ═══════════════════════════════════════════════════════════════
-
-const REQUEST_TYPE_LABELS: Record<string, string> = {
-  batch_production: "배치 CCP 기록지 승인",
-  batch_approval: "배치 승인",
-  batch_completion: "생산일지 (배치완료)",
-  ccp_form: "CCP 모니터링 기록지",
-  daily_log: "일반위생관리 및 공정점검표",
-  weekly_log: "주간 일반위생관리 및 방충방서 점검표",
-  monthly_log: "월간 일반위생관리 및 CCP 검증점검표",
-  pest_control_checklist: "방충·방서 점검표",
-  employee_health_check: "종사자 건강상태 확인 일지",
-  inventory_adjustment: "재고 조정",
-  material_inspection: "원재료 검사",
-  hygiene_inspection: "위생 점검",
-  document_approval: "문서 승인",
-  recipe_change: "품목제조보고 변경",
-  ccp_deviation: "CCP 이탈",
-  temperature_humidity_check: "온·습도 점검표",
-  personal_hygiene_check: "개인위생 점검표",
-  sanitation_record: "세척·소독 기록",
-  consumer_complaint: "소비자 불만 처리",
-  airborne_bacteria_test: "낙하균 검사",
-  air_compressor: "압축공기 필터 관리",
-  air_compressor_maintenance: "에어콤프레샤 관리",
-  daily_disposal_record: "일일폐기기록",
-  equipment_history: "설비 이력 관리",
-  equipment_inspection: "설비 점검 기록",
-  finished_product_check: "완제품 검사",
-  food_recall_notice: "식품 회수 통보서",
-  handover_document: "인수인계 문서",
-  hygiene_facility_check: "위생시설 점검표",
-  illumination_check: "조도 점검표",
-  product_test_log: "제품 시험 일지",
-  product_test_report: "제품 시험 성적서",
-  self_quality_inspection: "자체 품질 검사",
-  supplier_inspection: "공급업체 점검",
-  surface_contamination_test: "표면오염 검사",
-  training_log: "교육 훈련 일지",
-  vehicle_temperature_check: "차량 온도 점검",
-  waste_management: "폐기물관리대장",
-  water_management_check: "용수관리 점검표",
-  weight_quality_check: "중량 품질 검사",
-  workplace_hygiene_check: "작업장 위생 점검",
-  checklist_approval: "체크리스트 승인",
-};
-
-const REQUEST_TYPE_ICONS: Record<string, any> = {
-  batch_production: ClipboardCheck,
-  batch_approval: Package,
-  batch_completion: Package,
-  ccp_form: ClipboardCheck,
-  daily_log: Shield,
-  weekly_log: Shield,
-  monthly_log: Shield,
-  pest_control_checklist: Shield,
-  inventory_adjustment: TrendingUp,
-  material_inspection: Droplet,
-  hygiene_inspection: ClipboardCheck,
-  document_approval: FileCheck,
-  recipe_change: Utensils,
-  ccp_deviation: AlertCircle,
-  temperature_humidity_check: ThermometerSun,
-  personal_hygiene_check: Shield,
-  sanitation_record: Droplets,
-  consumer_complaint: AlertTriangle,
-  airborne_bacteria_test: Beaker,
-  equipment_inspection: Wrench,
-  training_log: GraduationCap,
-  vehicle_temperature_check: Truck,
-  waste_management: Trash2,
-  water_management_check: Droplets,
-  workplace_hygiene_check: ClipboardCheck,
-};
-
-const REQUEST_CATEGORIES: Record<string, string> = {
-  batch_production: "CCP",
-  batch_approval: "생산",
-  batch_completion: "생산",
-  ccp_form: "CCP",
-  daily_log: "위생",
-  weekly_log: "위생",
-  monthly_log: "위생",
-  pest_control_checklist: "위생",
-  inventory_adjustment: "생산",
-  material_inspection: "검사",
-  hygiene_inspection: "위생",
-  document_approval: "문서",
-  recipe_change: "생산",
-  ccp_deviation: "CCP",
-  temperature_humidity_check: "위생",
-  personal_hygiene_check: "위생",
-  sanitation_record: "위생",
-  consumer_complaint: "품질",
-  airborne_bacteria_test: "검사",
-  air_compressor: "설비",
-  air_compressor_maintenance: "설비",
-  daily_disposal_record: "위생",
-  equipment_history: "설비",
-  equipment_inspection: "설비",
-  finished_product_check: "검사",
-  food_recall_notice: "품질",
-  handover_document: "문서",
-  hygiene_facility_check: "위생",
-  illumination_check: "위생",
-  product_test_log: "검사",
-  product_test_report: "검사",
-  self_quality_inspection: "검사",
-  supplier_inspection: "검사",
-  surface_contamination_test: "검사",
-  training_log: "교육",
-  vehicle_temperature_check: "위생",
-  waste_management: "위생",
-  water_management_check: "위생",
-  weight_quality_check: "검사",
-  workplace_hygiene_check: "위생",
-  checklist_approval: "위생",
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  "생산": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  "검사": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  "위생": "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  "CCP": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  "문서": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400",
-  "품질": "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
-  "설비": "bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400",
-  "교육": "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400",
-};
-
-// 3단계 승인 상태 라벨 및 색상
-const STATUS_LABELS: Record<string, string> = {
-  pending: "대기 중",
-  pending_review: "검토 대기",
-  pending_approval: "승인 대기",
-  approved: "승인됨",
-  rejected: "반려됨",
-  cancelled: "취소됨",
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-  pending_review: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400",
-  pending_approval: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-  approved: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-  rejected: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
-  cancelled: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
-};
-
-// ═══════════════════════════════════════════════════════════════
-// 유틸리티 컴포넌트
-// ═══════════════════════════════════════════════════════════════
-
-/** 3단계 승인 진행 표시 (작성 > 검토 > 승인, 인라인) */
-function ApprovalStepsInline({ status }: { status: string }) {
-  const steps = [
-    { key: "작성", done: true },
-    { key: "검토", done: status === "pending_approval" || status === "approved" },
-    { key: "승인", done: status === "approved" },
-  ];
-  return (
-    <span className="inline-flex items-center gap-0.5 text-[10px]">
-      {steps.map((step, i) => (
-        <span key={step.key} className="flex items-center gap-0.5">
-          {i > 0 && <span className="text-gray-300 mx-0.5">{">"}</span>}
-          <span className={step.done ? "text-green-600 font-semibold" : "text-gray-400"}>
-            {step.done ? "\u2713" : "\u25CB"}{step.key}
-          </span>
-        </span>
-      ))}
-    </span>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 메인 컴포넌트
-// ═══════════════════════════════════════════════════════════════
 
 export default function ApprovalManagement() {
   const [, setLocation] = useLocation();
