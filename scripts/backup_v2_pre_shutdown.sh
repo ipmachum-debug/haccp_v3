@@ -3,7 +3,7 @@
 # v2 정지 전 사전 백업 스크립트
 # 목적: haccpone-v2 (pm2 id 16) 정지 전 완전 백업
 # 실행: bash /root/haccp_v3/scripts/backup_v2_pre_shutdown.sh
-# 서버: root@49.50.130.101 (haccpone.com)
+# 서버: root@49.50.130.101 (millioai.com)
 # ═══════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -33,7 +33,7 @@ LOG_FILE="${BACKUP_DIR}/backup.log"
 
 echo ""
 echo "═══════════════════════════════════════════════════"
-echo "  HACCP-ONE v2 정지 전 백업 스크립트"
+echo "  Millio AI v2 정지 전 백업 스크립트"
 echo "  시작 시각: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "  백업 경로: ${BACKUP_DIR}"
 echo "═══════════════════════════════════════════════════"
@@ -167,7 +167,7 @@ if [ -f "${V3_DIST}" ] && [ -f "${V2_DIST}" ]; then
     ok "dist/index.js 완전 일치 ✅ (리스크 없음 확인)"
   else
     warn "dist/index.js 불일치! 내용을 비교하여 확인 필요"
-    echo "  → 실서비스는 이미 v3(haccpone.com)이므로 v2 정지는 안전하나"
+    echo "  → 실서비스는 이미 v3(millioai.com)이므로 v2 정지는 안전하나"
     echo "  → 코드 차이가 있으면 원인 파악 필요"
   fi
 else

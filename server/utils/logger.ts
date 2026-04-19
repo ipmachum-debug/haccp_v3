@@ -1,5 +1,5 @@
 /**
- * Structured Logging Utility for HACCP-ONE Server
+ * Structured Logging Utility for Millio AI Server
  *
  * Simple console-based logger that adds structured context
  * (timestamp, level, tenantId, userId, operation) to all log output.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HACCP-ONE 실 운영 데이터 입력 템플릿 워드 문서 생성"""
+"""Millio AI 실 운영 데이터 입력 템플릿 워드 문서 생성"""
 
 from docx import Document
 from docx.shared import Inches, Pt, Cm, RGBColor
@@ -96,7 +96,7 @@ def add_note(text):
 # ============================================================================
 
 # 표지
-title = doc.add_heading('HACCP-ONE 실 운영 데이터 입력 템플릿', level=0)
+title = doc.add_heading('Millio AI 실 운영 데이터 입력 템플릿', level=0)
 for run in title.runs:
     run.font.name = '맑은 고딕'
     run.element.rPr.rFonts.set(qn('w:eastAsia'), '맑은 고딕')
@@ -486,6 +486,6 @@ add_note('LOT번호를 비워두면 자동 생성됩니다.')
 add_note('이 워드 문서의 표를 직접 채워 주셔도 되고, JSON 파일로 주셔도 됩니다.')
 
 # ── 저장 ──
-output_path = '/home/user/haccp_v3/HACCP-ONE_데이터입력_템플릿.docx'
+output_path = '/home/user/haccp_v3/Millio AI_데이터입력_템플릿.docx'
 doc.save(output_path)
 print(f'✅ 워드 문서 생성 완료: {output_path}')

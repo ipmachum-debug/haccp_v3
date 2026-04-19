@@ -77,7 +77,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export async function exportTrialBalanceToExcel(data: TrialBalanceResult): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "HACCP-ONE";
+  workbook.creator = "Millio AI";
   workbook.created = new Date();
 
   const ws = workbook.addWorksheet("시산표");
@@ -152,7 +152,7 @@ export async function exportTrialBalanceToExcel(data: TrialBalanceResult): Promi
 
 export async function exportBalanceSheetToExcel(data: BalanceSheetResult): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "HACCP-ONE";
+  workbook.creator = "Millio AI";
   workbook.created = new Date();
 
   const ws = workbook.addWorksheet("재무상태표");
@@ -259,7 +259,7 @@ export async function exportBalanceSheetToExcel(data: BalanceSheetResult): Promi
 
 export async function exportIncomeStatementToExcel(data: IncomeStatementResult): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "HACCP-ONE";
+  workbook.creator = "Millio AI";
   workbook.created = new Date();
 
   const ws = workbook.addWorksheet("손익계산서");

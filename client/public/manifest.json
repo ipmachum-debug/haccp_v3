@@ -1,7 +1,7 @@
 {
-  "name": "HACCP 식품 안전 관리 시스템",
-  "short_name": "HACCP",
-  "description": "식품 안전 관리를 위한 HACCP 시스템",
+  "name": "Millio AI | 제조기반 올인원 AI ERP",
+  "short_name": "Millio AI",
+  "description": "제조업을 위한 올인원 AI ERP. 생산·재고·품질·HACCP·회계를 하나로.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

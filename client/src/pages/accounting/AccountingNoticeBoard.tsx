@@ -173,7 +173,7 @@ export default function AccountingNoticeBoard() {
     <tr><td class="b bg fw">일자</td><td class="b"></td><td class="b"></td><td class="b"></td></tr></table>
 
     <p style="text-align:center;font-size:9px;color:#999;margin-top:16px">
-      본 기록은 식품위생법 시행규칙에 따라 3년간 보관합니다. | HACCP-ONE 자동생성
+      본 기록은 식품위생법 시행규칙에 따라 3년간 보관합니다. | Millio AI 자동생성
     </p>
     <script>window.onload=function(){setTimeout(function(){window.print()},800)}</script>
     </body></html>`);

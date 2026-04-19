@@ -1,4 +1,4 @@
-# CLAUDE.md - HACCP-ONE 프로젝트 AI 개발 가이드
+# CLAUDE.md - Millio AI 프로젝트 AI 개발 가이드
 
 > 최종 업데이트: 2026-04-19
 > 현재 완성도: **78/100** — 실서비스 운영 가능 / 엔터프라이즈 전 단계
@@ -7,12 +7,12 @@
 
 ## 프로젝트 개요
 
-**HACCP-ONE**은 HACCP(식품안전관리인증) + ERP + 회계를 통합한 SaaS 솔루션입니다.
+**Millio AI**은 HACCP(식품안전관리인증) + ERP + 회계를 통합한 SaaS 솔루션입니다.
 - **회사**: 골든터틀컴퍼니 (www.goldenturtle.co.kr)
 - **스택**: React (Vite) + tRPC + MySQL (Drizzle ORM) + TypeScript
 - **멀티테넌트**: Row-level isolation (tenant_id 기반)
 - **인증**: 로컬 JWT (회원가입 → 관리자 승인 → 로그인)
-- **배포**: 외부 서버 haccpone.co.kr (49.50.130.101), PM2
+- **배포**: 외부 서버 millioai.com (49.50.130.101), PM2
 
 ---
 

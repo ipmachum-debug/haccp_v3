@@ -83,14 +83,14 @@ function SuperAdminPanel() {
         <div className="px-6 py-4 border-b bg-gray-50">
           <h3 className="text-lg font-semibold">테넌트별 연동 설정</h3>
           <p className="text-sm text-gray-500 mt-1">
-            각 HACCP-ONE 테넌트를 GOGOGOPICK 테넌트와 매칭하고, 동기화 기능을 부여합니다.
+            각 Millio AI 테넌트를 GOGOGOPICK 테넌트와 매칭하고, 동기화 기능을 부여합니다.
           </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-600">HACCP-ONE 테넌트</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-600">Millio AI 테넌트</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">GOGOGOPICK 매칭</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">동기화 허용</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">테넌트 활성</th>
@@ -405,7 +405,7 @@ function TenantAdminPanel() {
             <div className="bg-white rounded-xl border shadow-sm p-5">
               <h4 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-blue-500" />
-                HACCP-ONE 데이터
+                Millio AI 데이터
               </h4>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">거래처</span><span className="font-bold">{statusData?.haccpPartners || 0}건</span></div>

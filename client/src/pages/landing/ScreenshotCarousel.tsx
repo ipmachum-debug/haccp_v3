@@ -390,7 +390,7 @@ export default function ScreenshotCarousel({ lang = "ko" }: { lang?: "ko" | "en"
               <div className="w-3 h-3 rounded-full bg-emerald-300" />
             </div>
             <div className="ml-3 bg-white rounded-md px-3 py-1 text-xs text-stone-400 border border-stone-100 min-w-[180px]">
-              app.haccpone.com
+              app.millioai.com
             </div>
           </div>
           {/* Tab indicators */}

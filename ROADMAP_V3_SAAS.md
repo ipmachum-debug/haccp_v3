@@ -1,7 +1,7 @@
-# HACCP-ONE v3 단독 운영 → SaaS 전환 로드맵
+# Millio AI v3 단독 운영 → SaaS 전환 로드맵
 
 > 작성일: 2026-04-13  
-> 현재 상태: v3 실서비스 운영 중 (haccpone.com), v2 테스트용 병렬 운영  
+> 현재 상태: v3 실서비스 운영 중 (millioai.com), v2 테스트용 병렬 운영  
 > 목표: v2 완전 제거 → 단독 v3 운영 → SaaS 구독 서비스 출시
 
 ---
@@ -64,10 +64,10 @@ pm2 save
 lsof -i :3002 || echo "✅ 포트 3002 해제"
 
 # 4. nginx v2 도메인 → 리다이렉트 처리
-# v2.haccpone.com 접속 시 haccpone.com 으로 301 리다이렉트
+# v2.millioai.com 접속 시 millioai.com 으로 301 리다이렉트
 
 # 5. v3 응답 확인
-curl -I https://haccpone.com
+curl -I https://millioai.com
 curl -I http://localhost:3001
 ```
 
@@ -154,7 +154,7 @@ pm2 save
 rm -rf /root/haccpone-v2
 
 # nginx v2 가상호스트 제거
-rm /etc/nginx/sites-enabled/v2.haccpone.com 2>/dev/null || true
+rm /etc/nginx/sites-enabled/v2.millioai.com 2>/dev/null || true
 nginx -t && systemctl reload nginx
 
 # 디스크 확인
@@ -199,7 +199,7 @@ mysql -e "SET GLOBAL slow_query_log = 'ON'; SET GLOBAL long_query_time = 2;"
 
 이전 시 작업:
 1. 새 서버 프로비저닝 (haccp-v3-stable 이미지에서 생성)
-2. DNS 절체 (haccpone.com → 새 서버 IP)
+2. DNS 절체 (millioai.com → 새 서버 IP)
 3. SSL 인증서 재발급
 4. 구 서버 종료
 ```
@@ -217,7 +217,7 @@ mysql -e "SET GLOBAL slow_query_log = 'ON'; SET GLOBAL long_query_time = 2;"
 [ ] 구독 만료 처리 (만료 알림 → 접근 제한)
 [ ] 관리자 대시보드 (테넌트 관리, 매출 현황)
 [ ] 이용약관 / 개인정보처리방침 페이지
-[ ] 서비스 소개 랜딩페이지 (haccpone.com)
+[ ] 서비스 소개 랜딩페이지 (millioai.com)
 ```
 
 ### 플랜 구성 (초안)

@@ -367,7 +367,7 @@ async function main() {
 
   try {
     console.log("\n========================================");
-    console.log("  HACCP-ONE 문서 생성 + 자동로직");
+    console.log("  Millio AI 문서 생성 + 자동로직");
     console.log("========================================");
 
     await generateCcpRecords(conn);

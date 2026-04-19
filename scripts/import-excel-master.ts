@@ -277,7 +277,7 @@ async function main() {
 
   try {
     console.log("\n========================================");
-    console.log("  HACCP-ONE 마스터 데이터 임포트");
+    console.log("  Millio AI 마스터 데이터 임포트");
     console.log("========================================");
 
     const partnerIdMap = await importPartners(conn, wb);

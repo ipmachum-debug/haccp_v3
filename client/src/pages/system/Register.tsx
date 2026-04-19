@@ -187,18 +187,18 @@ export default function Register() {
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
                 <div className="flex items-center gap-3 text-stone-400 text-xs mt-0.5">
                   <div className="flex items-center gap-1"><Phone className="w-3 h-3" /><span>032-322-9958</span></div>
-                  <div className="flex items-center gap-1"><Globe className="w-3 h-3" /><span>haccpone.com</span></div>
+                  <div className="flex items-center gap-1"><Globe className="w-3 h-3" /><span>millioai.com</span></div>
                 </div>
               </div>
             </div>
 
             <h1 className="text-[2.75rem] xl:text-5xl font-bold leading-[1.15] tracking-tight" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-              <span className="text-[#1a1a2e]">통합 관리 시스템</span><br />
-              <span className="text-[#1a1a2e]">HACCP</span>
-              <span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent">ONE</span>
+              <span className="text-[#1a1a2e]">제조기반 올인원 ERP</span><br />
+              <span className="text-[#1a1a2e]">Millio</span>
+              <span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span>
             </h1>
             <p className="mt-4 text-lg text-stone-500" style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
-              식품 안전부터 회계까지, 하나의 플랫폼으로
+              공장의 모든 데이터를 AI가 하나로 연결합니다
             </p>
           </motion.div>
 
@@ -410,7 +410,7 @@ export default function Register() {
           </div>
 
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 0.5 }} className="mt-4 text-center text-stone-300 text-xs">
-            <p>&copy; {new Date().getFullYear()} HACCPONE. All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} Millio AI. All rights reserved.</p>
           </motion.div>
         </motion.div>
       </motion.div>

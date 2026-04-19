@@ -53,7 +53,7 @@ module.exports = {
       SESSION_SECRET: process.env.SESSION_SECRET,
 
       // ── CORS ──
-      CORS_ORIGINS: process.env.CORS_ORIGINS || 'https://haccpone.com',
+      CORS_ORIGINS: process.env.CORS_ORIGINS || 'https://millioai.com',
 
       // ── 타임존 ──
       TZ: process.env.TZ || 'Asia/Seoul',

@@ -192,7 +192,7 @@ async function main() {
 
   try {
     console.log("\n========================================");
-    console.log("  HACCP-ONE 배합비(BOM) 임포트");
+    console.log("  Millio AI 배합비(BOM) 임포트");
     console.log("========================================");
 
     await importBOM(conn, wb);

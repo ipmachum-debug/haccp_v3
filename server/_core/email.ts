@@ -4,8 +4,8 @@ import sgMail from '@sendgrid/mail';
  * SendGrid 기반 이메일 발송 설정
  */
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
-const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@haccpone.com';
-const SENDGRID_FROM_NAME = process.env.SENDGRID_FROM_NAME || 'HACCP ONE';
+const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@millioai.com';
+const SENDGRID_FROM_NAME = process.env.SENDGRID_FROM_NAME || 'Millio AI';
 
 if (SENDGRID_API_KEY) {
   sgMail.setApiKey(SENDGRID_API_KEY);
@@ -19,7 +19,7 @@ export async function sendPasswordResetEmail(
   resetToken: string,
   userName: string
 ): Promise<void> {
-  const resetUrl = `${process.env.FRONTEND_URL || "https://haccpone.com"}/reset-password?token=${resetToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL || "https://millioai.com"}/reset-password?token=${resetToken}`;
 
   if (!SENDGRID_API_KEY) {
     console.log('=== 비밀번호 재설정 이메일 (SendGrid 미설정) ===');
@@ -36,8 +36,8 @@ export async function sendPasswordResetEmail(
       email: SENDGRID_FROM_EMAIL,
       name: SENDGRID_FROM_NAME,
     },
-    subject: '[HACCP-ONE] 비밀번호 재설정 요청',
-    text: `안녕하세요, ${userName}님.\n\n비밀번호 재설정 요청을 받았습니다.\n아래 링크를 클릭하여 새로운 비밀번호를 설정해주세요.\n\n${resetUrl}\n\n이 링크는 1시간 동안만 유효합니다.\n비밀번호 재설정을 요청하지 않으셨다면 이 이메일을 무시하세요.\n\nHACCP-ONE 시스템`,
+    subject: '[Millio AI] 비밀번호 재설정 요청',
+    text: `안녕하세요, ${userName}님.\n\n비밀번호 재설정 요청을 받았습니다.\n아래 링크를 클릭하여 새로운 비밀번호를 설정해주세요.\n\n${resetUrl}\n\n이 링크는 1시간 동안만 유효합니다.\n비밀번호 재설정을 요청하지 않으셨다면 이 이메일을 무시하세요.\n\nMillio AI 시스템`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -102,7 +102,7 @@ export async function sendPasswordResetEmail(
       <body>
         <div class="container">
           <div class="header">
-            <h1>HACCP-ONE</h1>
+            <h1>Millio AI</h1>
             <p style="color: #666; margin-top: 5px;">식품안전 통합 관리 시스템</p>
           </div>
           <div class="content">
@@ -129,7 +129,7 @@ export async function sendPasswordResetEmail(
           </div>
           <div class="footer">
             <p>이 이메일은 자동으로 발송되었습니다. 회신하지 마세요.</p>
-            <p>&copy; 2026 HACCP-ONE. All rights reserved.</p>
+            <p>&copy; 2026 Millio AI. All rights reserved.</p>
           </div>
         </div>
       </body>

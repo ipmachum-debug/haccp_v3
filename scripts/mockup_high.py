@@ -13,7 +13,7 @@ def create_login_screen():
     draw.rectangle([0, 0, 500, H], fill=NAVY)
 
     # 좌측 브랜딩
-    draw.text((80, 200), "HACCP-ONE", fill="#FFFFFF", font=FONT_TITLE)
+    draw.text((80, 200), "Millio AI", fill="#FFFFFF", font=FONT_TITLE)
     draw.text((80, 250), "HACCP + ERP + AI", fill=SIDEBAR_TEXT, font=FONT_XL)
     draw.text((80, 290), "식품안전 통합 관리 플랫폼", fill=SIDEBAR_TEXT, font=FONT_LG)
 

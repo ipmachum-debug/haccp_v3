@@ -12,7 +12,7 @@ import { loginUser as localLoginUser, hashPassword } from "../../localAuth";
 import { sendPasswordResetEmail } from "../../_core/email";
 
 // 데모 계정 이메일 (상수)
-const DEMO_EMAIL = "demo@haccpone.com";
+const DEMO_EMAIL = "demo@millioai.com";
 
 export const authRouter = router({
     me: publicProcedure.query(async (opts) => {
@@ -215,7 +215,7 @@ export const authRouter = router({
         const insertResult = await db
           .insert(tenants)
           .values({
-            name: "HACCPONE 데모",
+            name: "Millio AI 데모",
             slug: DEMO_TENANT_SLUG,
             status: "trial",
             subscriptionPackage: "standard",
@@ -229,7 +229,7 @@ export const authRouter = router({
       if (!demoUser) {
         const { registerUser } = await import("../../localAuth");
         try {
-          await registerUser(DEMO_EMAIL, DEMO_PASSWORD, DEMO_NAME, "client_admin", "데모 체험 계정", "HACCPONE 데모", "000-00-00000");
+          await registerUser(DEMO_EMAIL, DEMO_PASSWORD, DEMO_NAME, "client_admin", "데모 체험 계정", "Millio AI 데모", "000-00-00000");
         } catch (e: any) {
           if (!e.message?.includes("이미")) throw e;
         }

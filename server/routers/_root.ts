@@ -10,143 +10,29 @@ import { z } from "zod";
 // 도메인별 라우터 import (index.ts barrel)
 // ══════════════════════════════════════════
 
-// ── accounting ──
-import {
-  accountingRouter,
-  accountingDailyRouter,
-  accountingDocumentsRouter,
-  accountingMonthlyRouter,
-  apLedgerRouter,
-  arLedgerRouter,
-  communicationLogsRouter,
-  matchingRulesRouter,
-  financialReportsRouter,
-  expenseRouter,
-  bankAccountRouter,
-  bankTransactionRouter,
-  bankTransactionBulkRouter,
-  accountingAccountsRouter,
-  accountCategoriesRouter,
-  inventoryAccountingRouter,
-  purchaseOrderRouter,
-  partnerPriceRouter,
-  quotationRouter,
-  taxInvoiceRouter,
-  popbillSettingsRouter,
-  journalEntryRouter,
-  vatManagementRouter,
-  cashFlowRouter,
-  fixedAssetRouter,
-  budgetRouter,
-  partnerCreditRouter,
-  payrollRouter,
-  hrManagementRouter,
-  purchaseReturnRouter,
-  recurringTransactionRouter,
-  changeLogRouter,
-  aiErpRouter,
-} from "./accounting";
+// ── accounting ── (2026-04-19: 도메인 맵으로 분리)
+import { accountingRouterMap } from "./_maps/accountingMap";
 
 // ── auth ──
 import { authRouter, tenantsPublicRouter } from "./auth";
 
-// ── checklist ──
-import {
-  checklistRouter,
-  checklistStatsRouter,
-  checklistTemplateRouter,
-  equipmentRouter,
-  checklistDashboardRouter,
-  waterQualityTestRouter,
-  airCompressorRouter,
-  validityEvaluationRouter,
-  personalHygieneCheckRouter,
-  waterUsageCheckRouter,
-  equipmentCleaningRecordRouter,
-  foreignMaterialRecordRouter,
-  refrigerationCheckRouter,
-  packagingStorageRecordRouter,
-  qualityIssueRecordRouter,
-  capaRecordRouter,
-  genericChecklistRouter,
-  calibrationRouter,
-  checklistInstanceRouter,
-  checklistScheduleRouter,
-  healthCertificateRouter,
-  hygieneRouter,
-  pestControlRouter,
-  qualityChecklistRouter,
-  scanChecklistRouter,
-} from "./checklist";
+// ── checklist ── (2026-04-19: 도메인 맵으로 분리)
+import { checklistRouterMap } from "./_maps/checklistMap";
 
 // ── dashboard ──
 import { dashboardRouter, pipelineRouter } from "./dashboard";
 
-// ── haccp ──
-import {
-  ccpRouter,
-  ccpFormRouter,
-  ccpScheduleRouter,
-  ccpTemplateRouter,
-  finishedProductInspectionRouter,
-  haccpIntegrationRouter,
-  inspectionRouter,
-  lotManagementRouter,
-  visualInspectionRouter,
-  correctiveActionRouter,
-  haccpPlanVerificationRouter,
-  hazardAnalysisRouter,
-  internalAuditRouter,
-  nonconformingProductRouter,
-  recallSimulationRouter,
-  supplierAuditRouter,
-  traceabilityRouter,
-  metalDetectionRouter,
-  ccpMonitoringRouter,
-} from "./haccp";
+// ── haccp ── (2026-04-19: 도메인 맵으로 분리)
+import { haccpRouterMap } from "./_maps/haccpMap";
 
 // ── inventory ──
 import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inventory";
 
-// ── master ──
-import {
-  categoriesRouter,
-  groupRouter,
-  materialRouter,
-  partnersRouter,
-  supplierRouter,
-  supplierEvaluationRouter,
-  templateSettingsRouter,
-  itemMasterRouter,
-  productSkuRouter,
-} from "./master";
+// ── master ── (2026-04-19: 도메인 맵으로 분리)
+import { masterRouterMap } from "./_maps/masterMap";
 
-// ── production ──
-import {
-  batchRouter,
-  batchApprovalRouter,
-  batchCostRouter,
-  batchScheduleRouter,
-  costAnalysisRouter,
-  costSavingAIRouter,
-  dailyReportRouter,
-  intermediateRouter,
-  mfReportRouter,
-  productRouter,
-  productionRouter,
-  productionDashboardRouter,
-  productionPredictionRouter,
-  productionScheduleRouter,
-  recipeRouter,
-  recipeApprovalRouter,
-  recipeManagementRouter,
-  scheduleOptimizationRouter,
-  aiProductionParserRouter,
-  dailyLogRouter,
-  weeklyLogsRouter,
-  monthlyLogsRouter,
-  yearlyLogsRouter,
-} from "./production";
+// ── production ── (2026-04-19: 도메인 맵으로 분리)
+import { productionRouterMap } from "./_maps/productionMap";
 
 // ── superadmin ──
 import {
@@ -155,43 +41,8 @@ import {
   superadminDashboardRouter,
 } from "./superadmin";
 
-// ── system ──
-import {
-  approvalRouter,
-  auditLogRouter,
-  excelRouter,
-  excelImportRouter,
-  favoritesRouter,
-  notificationRouter,
-  notificationSettingsRouter,
-  reportRouter,
-  schedulerRouter,
-  tenantRouter,
-  uploadHistoryRouter,
-  userRouter,
-  supportRouter,
-  subscriptionRouter,
-  subscriptionPublicRouter,
-  delegationRouter,
-  workflowRouter,
-  simplifiedImportRouter,
-  adminRouter,
-  adminEmployeeRouter,
-  auditLogsRouter,
-  auditReportRouter,
-  bannerRouter,
-  boardRouter,
-  documentApprovalRouter,
-  documentPrintRouter,
-  employeeRouter,
-  organizationRouter,
-  reportsRouter,
-  serverMonitorRouter,
-  trainingRouter,
-  dailyTrainingRouter,
-  tenantsRouter,
-  iotRouter,
-} from "./system";
+// ── system ── (2026-04-19: 도메인 맵으로 분리)
+import { systemRouterMap } from "./_maps/systemMap";
 
 // ── 독립 라우터 (외부 파일) ──
 import { aiRouter } from "../routers-ai";
@@ -212,174 +63,32 @@ export const appRouter = router({
   auth: authRouter,
   tenantsPublic: tenantsPublicRouter,
 
-  // ── production ──
-  batch: batchRouter,
-  batchApproval: batchApprovalRouter,
-  batchCost: batchCostRouter,
-  batchSchedule: batchScheduleRouter,
-  product: productRouter,
-  recipe: recipeRouter,
-  recipeManagement: recipeManagementRouter,
-  recipeApproval: recipeApprovalRouter,
-  costAnalysis: costAnalysisRouter,
-  costSavingAI: costSavingAIRouter,
-  intermediate: intermediateRouter,
-  mfReport: mfReportRouter,
-  production: productionRouter,
-  productionSchedule: productionScheduleRouter,
-  productionDashboard: productionDashboardRouter,
-  productionPrediction: productionPredictionRouter,
-  scheduleOptimization: scheduleOptimizationRouter,
-  aiProductionParser: aiProductionParserRouter,
-  dailyReport: dailyReportRouter,
-  dailyLog: dailyLogRouter,
-  weeklyLog: weeklyLogsRouter,
-  monthlyLog: monthlyLogsRouter,
-  yearlyLog: yearlyLogsRouter,
+  // ── production ── (2026-04-19 분해: _maps/productionMap.ts)
+  ...productionRouterMap,
 
-  // ── haccp ──
-  ccp: ccpRouter,
-  ccpForm: ccpFormRouter,
-  ccpSchedule: ccpScheduleRouter,
-  ccpTemplate: ccpTemplateRouter,
-  ccpMonitoring: ccpMonitoringRouter,
-  inspection: inspectionRouter,
-  visualInspection: visualInspectionRouter,
-  finishedProductInspection: finishedProductInspectionRouter,
-  haccpIntegration: haccpIntegrationRouter,
-  lotManagement: lotManagementRouter,
-  hazardAnalysis: hazardAnalysisRouter,
-  haccpPlanVerification: haccpPlanVerificationRouter,
-  internalAudit: internalAuditRouter,
-  nonconformingProduct: nonconformingProductRouter,
-  recallSimulation: recallSimulationRouter,
-  supplierAudit: supplierAuditRouter,
-  correctiveAction: correctiveActionRouter,
-  traceability: traceabilityRouter,
-  metalDetection: metalDetectionRouter,
+  // ── haccp ── (2026-04-19 분해: _maps/haccpMap.ts)
+  ...haccpRouterMap,
 
   // ── inventory ──
   inventory: inventoryRouter,
   materialLedger: materialLedgerRouter,
   stockAlerts: stockAlertsRouter,
 
-  // ── accounting ──
-  accounting: accountingRouter,
-  accountingDaily: accountingDailyRouter,
-  accountingMonthly: accountingMonthlyRouter,
-  accountingDocuments: accountingDocumentsRouter,
-  apLedger: apLedgerRouter,
-  arLedger: arLedgerRouter,
-  communicationLogs: communicationLogsRouter,
-  matchingRules: matchingRulesRouter,
-  financialReports: financialReportsRouter,
-  expense: expenseRouter,
-  bankAccount: bankAccountRouter,
-  bankTransaction: bankTransactionRouter,
-  bankTransactionBulk: bankTransactionBulkRouter,
-  accountingAccounts: accountingAccountsRouter,
-  accountCategories: accountCategoriesRouter,
-  accountingAccountCategories: accountCategoriesRouter,
-  inventoryAccounting: inventoryAccountingRouter,
-  // Phase A (2026-04-14): 발주/구매 관리
-  purchaseOrder: purchaseOrderRouter,
-  // Phase B (2026-04-14): 거래처별 단가표
-  partnerPrice: partnerPriceRouter,
-  // Phase C (2026-04-14): 견적서
-  quotation: quotationRouter,
-  // Phase C (2026-04-14): 세금계산서 + 팝빌
-  taxInvoice: taxInvoiceRouter,
-  journalEntry: journalEntryRouter,
-  vatManagement: vatManagementRouter,
-  cashFlow: cashFlowRouter,
-  fixedAsset: fixedAssetRouter,
-  budget: budgetRouter,
-  partnerCredit: partnerCreditRouter,
-  payroll: payrollRouter,
-  hr: hrManagementRouter,
-  purchaseReturn: purchaseReturnRouter,
-  recurring: recurringTransactionRouter,
-  changeLog: changeLogRouter,
-  aiErp: aiErpRouter,
-  popbillSettings: popbillSettingsRouter,
+  // ── accounting ── (2026-04-19 분해: _maps/accountingMap.ts)
+  ...accountingRouterMap,
 
   // ── dashboard ──
   dashboard: dashboardRouter,
   pipeline: pipelineRouter,
 
-  // ── master ──
-  material: materialRouter,
-  supplier: supplierRouter,
-  supplierEvaluation: supplierEvaluationRouter,
-  partners: partnersRouter,
-  categories: categoriesRouter,
-  group: groupRouter,
-  templateSettings: templateSettingsRouter,
-  itemMaster: itemMasterRouter,
-  productSku: productSkuRouter,
+  // ── master ── (2026-04-19 분해: _maps/masterMap.ts)
+  ...masterRouterMap,
 
-  // ── checklist ──
-  checklist: checklistRouter,
-  checklistTemplate: checklistTemplateRouter,
-  checklistStats: checklistStatsRouter,
-  checklistDashboard: checklistDashboardRouter,
-  checklistSchedule: checklistScheduleRouter,
-  checklistInstance: checklistInstanceRouter,
-  equipment: equipmentRouter,
-  qualityChecklist: qualityChecklistRouter,
-  scanChecklist: scanChecklistRouter,
-  calibration: calibrationRouter,
-  healthCertificate: healthCertificateRouter,
-  hygiene: hygieneRouter,
-  pestControl: pestControlRouter,
-  waterQualityTest: waterQualityTestRouter,
-  airCompressor: airCompressorRouter,
-  validityEvaluation: validityEvaluationRouter,
-  personalHygieneCheck: personalHygieneCheckRouter,
-  waterUsageCheck: waterUsageCheckRouter,
-  equipmentCleaningRecord: equipmentCleaningRecordRouter,
-  foreignMaterialRecord: foreignMaterialRecordRouter,
-  refrigerationCheck: refrigerationCheckRouter,
-  packagingStorageRecord: packagingStorageRecordRouter,
-  qualityIssueRecord: qualityIssueRecordRouter,
-  capaRecord: capaRecordRouter,
-  genericChecklist: genericChecklistRouter,
+  // ── checklist ── (2026-04-19 분해: _maps/checklistMap.ts)
+  ...checklistRouterMap,
 
-  // ── system ──
-  admin: adminRouter,
-  adminEmployee: adminEmployeeRouter,
-  user: userRouter,
-  tenant: tenantRouter,
-  tenants: tenantsRouter,
-  approval: approvalRouter,
-  notification: notificationRouter,
-  notificationSettings: notificationSettingsRouter,
-  report: reportRouter,
-  auditLog: auditLogRouter,
-  auditLogs: auditLogsRouter,
-  auditReport: auditReportRouter,
-  excel: excelRouter,
-  excelImport: excelImportRouter,
-  simplifiedImport: simplifiedImportRouter,
-  support: supportRouter,
-  subscription: subscriptionRouter,
-  subscriptionPublic: subscriptionPublicRouter,
-  delegation: delegationRouter,
-  workflow: workflowRouter,
-  favorites: favoritesRouter,
-  scheduler: schedulerRouter,
-  uploadHistory: uploadHistoryRouter,
-  banner: bannerRouter,
-  board: boardRouter,
-  documentApproval: documentApprovalRouter,
-  documentPrint: documentPrintRouter,
-  employee: employeeRouter,
-  organization: organizationRouter,
-  reports: reportsRouter,
-  serverMonitor: serverMonitorRouter,
-  training: trainingRouter,
-  dailyTraining: dailyTrainingRouter,
-  iot: iotRouter,
+  // ── system ── (2026-04-19 분해: _maps/systemMap.ts)
+  ...systemRouterMap,
 
   // ── ai (LLM 연동) ──
   ai: aiRouter,

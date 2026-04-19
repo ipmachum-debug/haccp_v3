@@ -77,7 +77,7 @@ export default function ExcelImport() {
 
   const handleImport = async () => {
     if (!fileBase64) return;
-    if (!confirm("엑셀 데이터를 HACCP-ONE에 임포트하시겠습니까?\n\n마스터 → 배합비 → 입고/생산/납품 → 문서생성 순서로 진행됩니다.")) return;
+    if (!confirm("엑셀 데이터를 Millio AI에 임포트하시겠습니까?\n\n마스터 → 배합비 → 입고/생산/납품 → 문서생성 순서로 진행됩니다.")) return;
 
     setImporting(true);
     setResults(null);

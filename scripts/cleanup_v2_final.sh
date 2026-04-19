@@ -100,11 +100,11 @@ log "  디스크 사용: ${BEFORE_DISK} → ${AFTER_DISK}"
 log "STEP 3: nginx v2 설정 정리"
 
 for path in \
-  /etc/nginx/sites-available/v2.haccpone.com \
-  /etc/nginx/sites-enabled/v2.haccpone.com \
+  /etc/nginx/sites-available/v2.millioai.com \
+  /etc/nginx/sites-enabled/v2.millioai.com \
   /etc/nginx/sites-available/haccpone-v2 \
   /etc/nginx/sites-enabled/haccpone-v2 \
-  /etc/nginx/conf.d/v2.haccpone.com.conf; do
+  /etc/nginx/conf.d/v2.millioai.com.conf; do
   if [ -f "$path" ]; then
     # 백업 후 삭제
     cp "$path" "${BACKUP_DIR}/env/nginx/$(basename $path).final_bak" 2>/dev/null || true
@@ -120,7 +120,7 @@ log "STEP 4: 삭제 후 v3 서비스 최종 확인"
 
 sleep 2
 V3_HTTP_FINAL=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "http://localhost:3001/" || echo "000")
-V3_DOMAIN_FINAL=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "https://haccpone.com/" || echo "000")
+V3_DOMAIN_FINAL=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "https://millioai.com/" || echo "000")
 
 [[ "${V3_HTTP_FINAL}" =~ ^(200|301|302)$ ]] && ok "v3 로컬 응답: HTTP ${V3_HTTP_FINAL}" || warn "v3 로컬 응답: HTTP ${V3_HTTP_FINAL}"
 [[ "${V3_DOMAIN_FINAL}" =~ ^(200|301|302)$ ]] && ok "v3 도메인 응답: HTTP ${V3_DOMAIN_FINAL}" || warn "v3 도메인 응답: HTTP ${V3_DOMAIN_FINAL}"

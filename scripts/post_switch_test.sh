@@ -18,7 +18,7 @@ section(){ echo -e "\n${BOLD}  ── $1 ──${NC}"; }
 
 PASS=0; FAIL=0; WARN=0
 BASE_URL="http://localhost:3001"
-DOMAIN_URL="https://haccpone.com"
+DOMAIN_URL="https://millioai.com"
 TIMEOUT=10
 
 echo ""
@@ -171,7 +171,7 @@ if [ "${FAIL}" -eq 0 ]; then
   echo ""
   echo "  다음 수동 테스트 항목을 직접 확인하세요:"
   echo "  ──────────────────────────────────────────"
-  echo "  [ ] 브라우저에서 https://haccpone.com 로그인"
+  echo "  [ ] 브라우저에서 https://millioai.com 로그인"
   echo "  [ ] CCP 기록 입력 & 저장"
   echo "  [ ] 배치 기록 조회"
   echo "  [ ] 일일 점검일지 작성"

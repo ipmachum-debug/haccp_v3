@@ -31,7 +31,7 @@ exec > >(tee -a "${SWITCH_LOG}") 2>&1
 
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${BOLD}║   HACCP-ONE v2 → v3 단독 전환 스크립트     ║${NC}"
+echo -e "${BOLD}║   Millio AI v2 → v3 단독 전환 스크립트     ║${NC}"
 echo -e "${BOLD}║   $(date '+%Y-%m-%d %H:%M:%S')                      ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
@@ -65,7 +65,7 @@ header "STEP 1: 전환 최종 확인"
 echo -e "${YELLOW}  다음 작업을 실행합니다:${NC}"
 echo "  • haccpone-v2 (PM2 id ${V2_PM2_ID}, 포트 ${V2_PORT}) 정지"
 echo "  • haccp_v3 (포트 ${V3_PORT}) → 실서비스 단독 운영"
-echo "  • nginx v2.haccpone.com → haccpone.com 리다이렉트"
+echo "  • nginx v2.millioai.com → millioai.com 리다이렉트"
 echo "  • PM2 설정 저장 (재부팅 후에도 v2 중지 상태 유지)"
 echo ""
 echo -e "${BOLD}  ⚠️  v2 정지 후 롤백: bash /root/haccp_v3/scripts/rollback_restart_v2.sh${NC}"
@@ -106,9 +106,9 @@ header "STEP 3: nginx v2 도메인 리다이렉트 처리"
 # nginx 설정 파일 경로 탐색
 NGINX_V2_CONF=""
 for path in \
-  /etc/nginx/sites-available/v2.haccpone.com \
+  /etc/nginx/sites-available/v2.millioai.com \
   /etc/nginx/sites-available/haccpone-v2 \
-  /etc/nginx/conf.d/v2.haccpone.com.conf \
+  /etc/nginx/conf.d/v2.millioai.com.conf \
   /etc/nginx/conf.d/haccpone-v2.conf; do
   if [ -f "$path" ]; then
     NGINX_V2_CONF="$path"
@@ -124,24 +124,24 @@ if [ -n "${NGINX_V2_CONF}" ]; then
 
   # v2 도메인 → v3 리다이렉트로 교체
   cat > "${NGINX_V2_CONF}" << 'NGINX_EOF'
-# v2.haccpone.com → haccpone.com 리다이렉트 (v2 정지 후)
+# v2.millioai.com → millioai.com 리다이렉트 (v2 정지 후)
 server {
     listen 80;
     listen [::]:80;
-    server_name v2.haccpone.com;
-    return 301 https://haccpone.com$request_uri;
+    server_name v2.millioai.com;
+    return 301 https://millioai.com$request_uri;
 }
 
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name v2.haccpone.com;
+    server_name v2.millioai.com;
 
     # SSL 인증서 (기존 경로 유지)
-    ssl_certificate /etc/letsencrypt/live/haccpone.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/haccpone.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/millioai.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/millioai.com/privkey.pem;
 
-    return 301 https://haccpone.com$request_uri;
+    return 301 https://millioai.com$request_uri;
 }
 NGINX_EOF
   ok "nginx v2 → v3 리다이렉트 설정 완료"
@@ -166,7 +166,7 @@ sleep 2
 
 V3_STATUS=$(pm2 describe haccpone 2>/dev/null | grep "status" | awk '{print $4}' | head -1 || echo "unknown")
 V3_HTTP_FINAL=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "http://localhost:${V3_PORT}/" 2>/dev/null || echo "000")
-V3_HTTP_DOMAIN=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "https://haccpone.com/" 2>/dev/null || echo "000")
+V3_HTTP_DOMAIN=$(curl -o /dev/null -s -w "%{http_code}" --max-time 8 "https://millioai.com/" 2>/dev/null || echo "000")
 
 echo ""
 echo "  ┌─────────────────────────────────────────┐"
@@ -216,7 +216,7 @@ echo ""
 echo -e "${BOLD}${GREEN}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}${GREEN}║         🎉 v2 → v3 전환 완료!              ║${NC}"
 echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════╣${NC}"
-echo -e "${BOLD}${GREEN}║  실서비스: haccpone.com → :3001 (v3 단독)  ║${NC}"
+echo -e "${BOLD}${GREEN}║  실서비스: millioai.com → :3001 (v3 단독)  ║${NC}"
 echo -e "${BOLD}${GREEN}║  v2 상태: 정지됨 (데이터 보존)              ║${NC}"
 echo -e "${BOLD}${GREEN}║  로그: ${SWITCH_LOG}${NC}"
 echo -e "${BOLD}${GREEN}╠══════════════════════════════════════════════╣${NC}"

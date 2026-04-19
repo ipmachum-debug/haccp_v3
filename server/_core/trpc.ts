@@ -146,7 +146,7 @@ export const protectedTenantProcedure = protectedProcedure;
 // 🔒 데모 계정 읽기 전용 보호
 // ============================================================================
 
-const DEMO_EMAIL = "demo@haccpone.com";
+const DEMO_EMAIL = "demo@millioai.com";
 
 // 데모 계정의 mutation 허용 목록 (로그아웃 등 필수 동작만)
 const DEMO_ALLOWED_MUTATIONS = [

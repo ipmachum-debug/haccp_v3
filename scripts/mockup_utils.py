@@ -59,7 +59,7 @@ def draw_sidebar(draw, active_tab="HACCP", menu_items=None, active_menu=None):
     draw.rectangle([0, 0, sw, H], fill=SIDEBAR_BG)
 
     # 로고
-    draw.text((20, 18), "HACCP-ONE", fill="#FFFFFF", font=FONT_XL)
+    draw.text((20, 18), "Millio AI", fill="#FFFFFF", font=FONT_XL)
     draw.text((20, 48), "v3.0", fill=SIDEBAR_TEXT, font=FONT_SM)
 
     # 탭 버튼

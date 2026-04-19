@@ -173,7 +173,7 @@ function ContactModal({
   };
 
   const handleEmailFallback = () => {
-    const subject = encodeURIComponent(form.subject || "HACCPONE 문의");
+    const subject = encodeURIComponent(form.subject || "Millio AI 문의");
     const body = encodeURIComponent(
       `이름: ${form.authorName}\n회사: ${form.companyName}\n연락처: ${form.authorPhone}\n\n${form.content}`
     );
@@ -573,7 +573,7 @@ export default function SupportPage() {
                 <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
                   <ShieldCheck className="w-4 h-4 text-white" />
                 </div>
-                <span className="text-lg font-bold text-[#1a1a2e]">HACCP<span className="text-orange-500">ONE</span></span>
+                <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300">|</span>
