@@ -609,7 +609,7 @@ export default function MaterialUsageReportList(props: MaterialUsageReportListPr
                 <label className="text-[10px] text-muted-foreground">유형</label>
                 <Select
                   value={savedFilter.reportType}
-                  onValueChange={(v: any) => setSavedFilter((f) => ({ ...f, reportType: v }))}
+                  onValueChange={(v) => setSavedFilter((f) => ({ ...f, reportType: v as typeof f.reportType }))}
                 >
                   <SelectTrigger className="w-28 h-8 text-xs">
                     <SelectValue />
@@ -626,7 +626,7 @@ export default function MaterialUsageReportList(props: MaterialUsageReportListPr
                 <label className="text-[10px] text-muted-foreground">상태</label>
                 <Select
                   value={savedFilter.status}
-                  onValueChange={(v: any) => setSavedFilter((f) => ({ ...f, status: v }))}
+                  onValueChange={(v) => setSavedFilter((f) => ({ ...f, status: v as typeof f.status }))}
                 >
                   <SelectTrigger className="w-32 h-8 text-xs">
                     <SelectValue />

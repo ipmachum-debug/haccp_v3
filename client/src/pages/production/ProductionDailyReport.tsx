@@ -56,7 +56,7 @@ function ApprovalStatusBadge({ status }: { status: string | null }) {
 }
 
 // MySQL datetime "2026-03-01 20:03:00" → Safari 호환을 위해 T로 변환
-function safeDate(d: any): Date | null {
+function safeDate(d: unknown): Date | null {
   if (!d) return null;
   try {
     const s = String(d).replace(' ', 'T');
@@ -64,10 +64,10 @@ function safeDate(d: any): Date | null {
     return isNaN(dt.getTime()) ? null : dt;
   } catch { return null; }
 }
-function fmtTime(d: any) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "HH:mm"); } catch { return "-"; } }
-function fmtDateTime(d: any) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "HH:mm:ss"); } catch { return "-"; } }
-function fmtDateTimeFull(d: any) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "MM-dd HH:mm"); } catch { return "-"; } }
-function safeNum(v: any, dec = 1) { const n = parseFloat(v); return isNaN(n) ? "-" : n.toFixed(dec); }
+function fmtTime(d: unknown) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "HH:mm"); } catch { return "-"; } }
+function fmtDateTime(d: unknown) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "HH:mm:ss"); } catch { return "-"; } }
+function fmtDateTimeFull(d: unknown) { const dt = safeDate(d); if (!dt) return "-"; try { return format(dt, "MM-dd HH:mm"); } catch { return "-"; } }
+function safeNum(v: unknown, dec = 1) { const n = typeof v === "number" ? v : parseFloat(String(v ?? "")); return isNaN(n) ? "-" : n.toFixed(dec); }
 
 // ===========================================================================
 // Print CSS for proper document-style printing

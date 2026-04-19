@@ -2,6 +2,14 @@ import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 커뮤니케이션 도메인 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
+type PartnerRow = RouterOutput["partners"]["list"][number];
+type CommLog = RouterOutput["communicationLogs"]["list"][number];
+type BoardItem = RouterOutput["board"]["getBoardItems"][number];
+type BoardComment = RouterOutput["board"]["getBoardComments"][number];
+type LogComment = RouterOutput["communicationLogs"]["getComments"][number];
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,7 +127,7 @@ function PartnerMemoTab() {
   const { data: logs = [], refetch: refetchLogs } = trpc.communicationLogs.list.useQuery(
     {
       partnerId: selectedPartner ? Number(selectedPartner) : undefined,
-      status: (statusFilter !== "all" ? statusFilter : undefined) as any,
+      status: (statusFilter !== "all" ? statusFilter : undefined) as "received" | "in_progress" | "completed" | undefined,
     },
     { refetchOnWindowFocus: false }
   );
@@ -186,8 +194,9 @@ function PartnerMemoTab() {
     });
   };
 
+  const logsList = logs as CommLog[];
   const filteredLogs = searchQuery
-    ? (logs as any[]).filter((l: any) => {
+    ? logsList.filter((l) => {
         const q = searchQuery.toLowerCase();
         return (
           (l.content && l.content.toLowerCase().includes(q)) ||
@@ -195,20 +204,20 @@ function PartnerMemoTab() {
           (l.partnerName && l.partnerName.toLowerCase().includes(q))
         );
       })
-    : (logs as any[]);
+    : logsList;
 
-  const sortedLogs = [...filteredLogs].sort((a: any, b: any) => {
+  const sortedLogs = [...filteredLogs].sort((a, b) => {
     const fieldA = sortBy === "createdAt" ? a.createdAt : a.updatedAt;
     const fieldB = sortBy === "createdAt" ? b.createdAt : b.updatedAt;
-    return new Date(fieldB).getTime() - new Date(fieldA).getTime();
+    return new Date(fieldB as string | number | Date).getTime() - new Date(fieldA as string | number | Date).getTime();
   });
 
-  const allLogs = logs as any[];
+  const allLogs = logsList;
   const stats = {
     total: allLogs.length,
-    received: allLogs.filter((l: any) => l.status === "received").length,
-    in_progress: allLogs.filter((l: any) => l.status === "in_progress").length,
-    completed: allLogs.filter((l: any) => l.status === "completed").length,
+    received: allLogs.filter((l) => l.status === "received").length,
+    in_progress: allLogs.filter((l) => l.status === "in_progress").length,
+    completed: allLogs.filter((l) => l.status === "completed").length,
   };
 
   return (
@@ -282,9 +291,9 @@ function PartnerMemoTab() {
                   <SelectValue placeholder="거래처 선택" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(partners as any[]).map((partner: any) => (
+                  {(partners as PartnerRow[]).map((partner) => (
                     <SelectItem key={partner.id} value={String(partner.id)}>
-                      {partner.companyName || partner.name || "이름 없음"}
+                      {partner.companyName || "이름 없음"}
                       {partner.bizNo ? ` (${partner.bizNo})` : ""}
                     </SelectItem>
                   ))}
@@ -355,11 +364,11 @@ function PartnerMemoTab() {
         </div>
       ) : (
         <div className="space-y-2">
-          {sortedLogs.map((log: any) => (
+          {sortedLogs.map((log) => (
             <MemoItem
               key={log.id}
               log={log}
-              onStatusChange={(id, s) => updateStatusMutation.mutate({ id, status: s as any })}
+              onStatusChange={(id, s) => updateStatusMutation.mutate({ id, status: s as CommLog["status"] })}
               onDelete={(id) => { if (confirm("정말 삭제하시겠습니까?")) deleteLogMutation.mutate({ id }); }}
               onUpdate={(id, c) => updateLogMutation.mutate({ id, content: c })}
               isStatusLoading={isStatusPending}
@@ -416,7 +425,7 @@ function InternalBoardTab() {
   const COMPLETED_PER_PAGE = 15;
 
   const { data: items = [], refetch, isLoading } = trpc.board.getBoardItems.useQuery(
-    { type: selectedType as any },
+    { type: selectedType as "all" | "notice" | "work" | "handover" },
     { refetchInterval: 30000 }
   );
 
@@ -425,7 +434,7 @@ function InternalBoardTab() {
   });
 
   const ackMutation = trpc.board.ackLog.useMutation({
-    onSuccess: (result: any) => {
+    onSuccess: (result: { alreadyAcked?: boolean }) => {
       toast[result.alreadyAcked ? "info" : "success"](result.alreadyAcked ? "이미 확인한 항목입니다" : "확인 완료!");
       refetch();
     },
@@ -467,17 +476,17 @@ function InternalBoardTab() {
 
   const isCreatePending = "isPending" in createNoticeMutation ? (createNoticeMutation as any).isPending : (createNoticeMutation as any).isLoading;
 
-  const allItems = items as any[];
+  const allItems = items as BoardItem[];
   // 접수/진행중 (상단 카드), 완료 (하단 리스트)
-  const activeItems = allItems.filter((item: any) => item.status !== "completed");
-  const completedItems = allItems.filter((item: any) => item.status === "completed");
+  const activeItems = allItems.filter((item) => item.status !== "completed");
+  const completedItems = allItems.filter((item) => item.status === "completed");
   // 완료 목록 페이지네이션
   const completedTotalPages = Math.max(1, Math.ceil(completedItems.length / COMPLETED_PER_PAGE));
   const completedPageItems = completedItems.slice((completedPage - 1) * COMPLETED_PER_PAGE, completedPage * COMPLETED_PER_PAGE);
 
   const stats = boardStats || { total: 0, notice: 0, work: 0, handover: 0, received: 0, inProgress: 0, completed: 0 };
 
-  const startEdit = (item: any) => {
+  const startEdit = (item: BoardItem) => {
     setEditingId(item.id);
     setEditType(item.logType || "notice");
     setEditTitle(item.title || "");
@@ -488,7 +497,7 @@ function InternalBoardTab() {
     if (!editingId || !editContent.trim()) return;
     updateNoticeMutation.mutate({
       id: editingId,
-      type: editType as any,
+      type: editType as "notice" | "work" | "handover",
       title: editTitle.trim() || undefined,
       content: editContent.trim(),
     });
@@ -588,7 +597,7 @@ function InternalBoardTab() {
             <Button variant="ghost" size="sm" onClick={() => { setNoticeContent(""); setNoticeTitle(""); setNoticeType("notice"); }} className="h-8 px-3 text-xs text-stone-500">초기화</Button>
             <Button size="sm" onClick={() => {
               if (!noticeContent.trim()) { toast.error("내용을 입력해주세요"); return; }
-              createNoticeMutation.mutate({ type: noticeType as any, content: noticeContent.trim(), title: noticeTitle.trim() || undefined });
+              createNoticeMutation.mutate({ type: noticeType as "notice" | "work" | "handover", content: noticeContent.trim(), title: noticeTitle.trim() || undefined });
             }} disabled={isCreatePending} className="h-8 px-5 text-xs bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-lg shadow-sm">
               {isCreatePending ? "등록 중..." : "등록"}
             </Button>
@@ -622,7 +631,7 @@ function InternalBoardTab() {
                 <span className="text-xs font-bold text-stone-700">접수/진행중</span>
                 <Badge variant="secondary" className="text-[10px] bg-rose-50 text-rose-600 px-1.5 py-0">{activeItems.length}건</Badge>
               </div>
-              {activeItems.map((item: any) => {
+              {activeItems.map((item) => {
                 const isEditMode = editingId === item.id;
                 return isEditMode ? (
                   /* 수정 모드 인라인 폼 */
@@ -690,7 +699,7 @@ function InternalBoardTab() {
                 </div>
 
                 {/* 리스트 아이템 */}
-                {completedPageItems.map((item: any) => {
+                {completedPageItems.map((item) => {
                   const config = typeConfig[item.logType] || typeConfig.notice;
                   const isExpanded = expandedCompletedId === item.id;
                   return (
@@ -814,9 +823,9 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
 
   return (
     <div className="mt-2.5 pt-2.5 border-t border-blue-100">
-      {(comments as any[]).length > 0 && (
+      {(comments as BoardComment[]).length > 0 && (
         <div className="space-y-1.5 mb-2">
-          {(comments as any[]).map((comment: any) => (
+          {(comments as BoardComment[]).map((comment) => (
             <div key={comment.id} className="flex items-start gap-2 bg-blue-50/50 rounded-lg p-2 group">
               <div className="w-5 h-5 rounded-full bg-blue-200/60 flex items-center justify-center flex-shrink-0 mt-0.5">
                 <User className="h-2.5 w-2.5 text-blue-700" />
@@ -824,7 +833,7 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-semibold text-gray-700">{comment.authorName || "사용자"}</span>
-                  <span className="text-[10px] text-gray-400">{new Date(comment.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="text-[10px] text-gray-400">{new Date(comment.createdAt as string | Date).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
                 <p className="text-xs mt-0.5 text-gray-600 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
               </div>
@@ -841,7 +850,7 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
       {canWrite ? (
         <div className="flex gap-1.5">
           <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-            onKeyDown={(e: any) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
             className="text-xs h-7 bg-blue-50/30 border-blue-200/60 focus:bg-white focus:border-blue-400 rounded-full px-3" />
           <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-blue-500 hover:bg-blue-600 flex-shrink-0"
             onClick={() => { if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}
@@ -859,7 +868,7 @@ function BoardCommentSection({ logId, currentUserId, canWrite }: { logId: number
 // 공지보드 댓글 수 뱃지
 function BoardCommentCountBadge({ logId }: { logId: number }) {
   const { data } = trpc.board.getBoardCommentCount.useQuery({ logId }, { refetchOnWindowFocus: false });
-  const count = (data as any)?.count || 0;
+  const count = (data as { count?: number } | undefined)?.count || 0;
   if (count === 0) return null;
   return (
     <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold leading-none">
@@ -872,9 +881,9 @@ function BoardCommentCountBadge({ logId }: { logId: number }) {
 // 공지보드 아이템 카드 (확인 + 수정/삭제 + 댓글)
 // ═══════════════════════════════════════════
 function BoardItemCard({ item, onAck, onEdit, onDelete, onComplete, canComment, currentUserId }: {
-  item: any;
+  item: BoardItem;
   onAck: (id: number) => void;
-  onEdit?: (item: any) => void;
+  onEdit?: (item: BoardItem) => void;
   onDelete?: (id: number) => void;
   onComplete?: (id: number) => void;
   canComment?: boolean;
@@ -990,9 +999,9 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
 
   return (
     <div className="mt-2 pt-2 border-t border-amber-100">
-      {(comments as any[]).length > 0 && (
+      {(comments as LogComment[]).length > 0 && (
         <div className="space-y-1.5 mb-2">
-          {(comments as any[]).map((comment: any) => (
+          {(comments as LogComment[]).map((comment) => (
             <div key={comment.id} className="flex items-start gap-2 bg-amber-50/50 rounded-lg p-2 group">
               <div className="w-5 h-5 rounded-full bg-amber-200/60 flex items-center justify-center flex-shrink-0 mt-0.5">
                 <User className="h-2.5 w-2.5 text-amber-700" />
@@ -1000,7 +1009,7 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[11px] font-semibold text-gray-700">{comment.authorName || "사용자"}</span>
-                  <span className="text-[10px] text-gray-400">{new Date(comment.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  <span className="text-[10px] text-gray-400">{new Date(comment.createdAt as string | Date).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
                 </div>
                 <p className="text-xs mt-0.5 text-gray-600 whitespace-pre-wrap break-words leading-relaxed">{comment.content}</p>
               </div>
@@ -1016,7 +1025,7 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
       )}
       <div className="flex gap-1.5">
         <Input placeholder="댓글을 입력하세요..." value={newComment} onChange={(e) => setNewComment(e.target.value)}
-          onKeyDown={(e: any) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}}
           className="text-xs h-7 bg-amber-50/30 border-amber-200/60 focus:bg-white focus:border-amber-400 rounded-full px-3" />
         <Button size="sm" className="h-7 w-7 p-0 rounded-full bg-amber-500 hover:bg-amber-600 flex-shrink-0"
           onClick={() => { if (newComment.trim()) createCommentMutation.mutate({ logId, content: newComment.trim() }); }}
@@ -1031,7 +1040,7 @@ function CommentSection({ logId, currentUserId }: { logId: number; currentUserId
 // 댓글 개수 뱃지
 function CommentCountBadge({ logId }: { logId: number }) {
   const { data: comments = [] } = trpc.communicationLogs.getComments.useQuery({ logId }, { refetchOnWindowFocus: false });
-  const count = (comments as any[]).length;
+  const count = (comments as LogComment[]).length;
   if (count === 0) return null;
   return (
     <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold leading-none">
@@ -1042,7 +1051,7 @@ function CommentCountBadge({ logId }: { logId: number }) {
 
 // 메모 아이템 컴포넌트
 function MemoItem({ log, onStatusChange, onDelete, onUpdate, isStatusLoading, currentUserId }: {
-  log: any;
+  log: CommLog;
   onStatusChange: (id: number, status: string) => void;
   onDelete: (id: number) => void;
   onUpdate: (id: number, content: string) => void;
@@ -1055,7 +1064,7 @@ function MemoItem({ log, onStatusChange, onDelete, onUpdate, isStatusLoading, cu
 
   const isAuthor = currentUserId && log.authorId === currentUserId;
 
-  const statusConfig: Record<string, { label: string; color: string; bgColor: string; borderColor: string; icon: any }> = {
+  const statusConfig: Record<string, { label: string; color: string; bgColor: string; borderColor: string; icon: React.ComponentType<{ className?: string }> }> = {
     received: { label: "접수", color: "text-rose-600", bgColor: "bg-rose-50", borderColor: "border-l-rose-400", icon: AlertCircle },
     in_progress: { label: "진행중", color: "text-amber-600", bgColor: "bg-amber-50", borderColor: "border-l-amber-400", icon: Clock },
     completed: { label: "완료", color: "text-emerald-600", bgColor: "bg-emerald-50", borderColor: "border-l-emerald-400", icon: CheckCircle2 },
