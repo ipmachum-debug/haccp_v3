@@ -4,6 +4,35 @@ import { getDb } from "../../db";
 import { eq, and, lte, gte, desc, or, isNull } from "drizzle-orm";
 import { banners } from "../../../drizzle/schema/schema_control_plane_ops";
 
+/**
+ * 생성/수정 시 배너의 tenantId 를 안전하게 해석.
+ * - super_admin 만 임의 테넌트/전역 배너 지정 가능
+ * - 일반 admin 은 input.tenantId 를 무시하고 ctx.tenantId 로 강제
+ */
+export function resolveBannerTenantId(
+  userRole: string,
+  ctxTenantId: number,
+  inputTenantId: number | null | undefined,
+): number | null {
+  if (userRole === "super_admin") return inputTenantId ?? null;
+  return ctxTenantId;
+}
+
+/**
+ * 수정/삭제/토글 전에 호출. 일반 admin 이 다른 테넌트 배너를 건드리려 하면 throw.
+ */
+export function assertBannerOwnership(
+  userRole: string,
+  ctxTenantId: number,
+  bannerTenantId: number | null,
+  action: "수정" | "삭제" | "제어",
+): void {
+  if (userRole === "super_admin") return;
+  if (bannerTenantId !== ctxTenantId) {
+    throw new Error(`다른 테넌트의 배너는 ${action}할 수 없습니다.`);
+  }
+}
+
 export const bannerRouter = router({
   // 활성 배너 조회 (일반 사용자용)
   getActiveBanners: protectedProcedure.query(async ({ ctx }) => {
@@ -64,12 +93,11 @@ export const bannerRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
 
-      // super_admin 만 임의 테넌트/전역 배너 생성 가능.
-      // 일반 admin 은 input.tenantId 무시하고 자신의 테넌트 로 강제.
-      const resolvedTenantId =
-        ctx.user.role === "super_admin"
-          ? (input.tenantId ?? null)
-          : ctx.tenantId;
+      const resolvedTenantId = resolveBannerTenantId(
+        ctx.user.role,
+        ctx.tenantId,
+        input.tenantId,
+      );
 
       const [banner] = await db
         .insert(banners)
@@ -119,12 +147,7 @@ export const bannerRouter = router({
         .where(eq(banners.id, id))
         .limit(1);
       if (!existing) throw new Error("Banner not found");
-      if (
-        ctx.user.role !== "super_admin" &&
-        existing.tenantId !== ctx.tenantId
-      ) {
-        throw new Error("다른 테넌트의 배너는 수정할 수 없습니다.");
-      }
+      assertBannerOwnership(ctx.user.role, ctx.tenantId, existing.tenantId, "수정");
 
       const updateData: any = { ...data };
       if (data.startDate) updateData.startDate = new Date(data.startDate);
@@ -152,12 +175,7 @@ export const bannerRouter = router({
         .where(eq(banners.id, input.id))
         .limit(1);
       if (!existing) throw new Error("Banner not found");
-      if (
-        ctx.user.role !== "super_admin" &&
-        existing.tenantId !== ctx.tenantId
-      ) {
-        throw new Error("다른 테넌트의 배너는 삭제할 수 없습니다.");
-      }
+      assertBannerOwnership(ctx.user.role, ctx.tenantId, existing.tenantId, "삭제");
 
       await db
         .delete(banners)
@@ -181,12 +199,7 @@ export const bannerRouter = router({
       if (!banner) {
         throw new Error("Banner not found");
       }
-      if (
-        ctx.user.role !== "super_admin" &&
-        banner.tenantId !== ctx.tenantId
-      ) {
-        throw new Error("다른 테넌트의 배너는 제어할 수 없습니다.");
-      }
+      assertBannerOwnership(ctx.user.role, ctx.tenantId, banner.tenantId, "제어");
 
       await db
         .update(banners)
