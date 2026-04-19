@@ -1,9 +1,9 @@
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 import { Link } from "wouter";
+import { MillioMark } from "@/components/brand/MillioMark";
 import {
   ArrowLeft,
-  ShieldCheck,
   CheckCircle2,
   Clock,
   Sparkles,
@@ -182,9 +182,7 @@ export default function RoadmapPage() {
           <div className="flex items-center gap-4">
             <Link href="/">
               <a className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-white" />
-                </div>
+                <MillioMark className="w-8 h-8" />
                 <span className="text-lg font-bold text-[#1a1a2e]">
                   Millio<span className="text-orange-500"> AI</span>
                 </span>

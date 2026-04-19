@@ -4,6 +4,7 @@ const motion = _motion as any;
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { MillioMark } from "@/components/brand/MillioMark";
 import {
   ShieldCheck, ArrowLeft, Search, MessageCircle, Clock,
   CheckCircle2, Send, X, ChevronRight, Eye, AlertCircle,
@@ -570,9 +571,7 @@ export default function SupportPage() {
           <div className="flex items-center gap-4">
             <Link href="/">
               <a className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-white" />
-                </div>
+                <MillioMark className="w-8 h-8" />
                 <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
               </a>
             </Link>

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { getGreetingMessage } from "@/lib/greetings";
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
+import { MillioMark } from "@/components/brand/MillioMark";
 import {
   CheckCircle2,
   Shield,
@@ -265,9 +266,7 @@ export default function Login() {
             className="mb-10"
           >
             <div className="flex items-center gap-3.5 mb-8">
-              <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-200/60">
-                <ShieldCheck className="w-6 h-6 text-white" />
-              </div>
+              <MillioMark className="w-12 h-12" />
               <div>
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
                 <div className="flex items-center gap-3 text-stone-400 text-xs mt-0.5">
