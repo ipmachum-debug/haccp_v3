@@ -26,6 +26,7 @@ import { ApprovalStepsInline } from "./_approvalManagement/ApprovalStepsInline";
 import { RequestRow } from "./_approvalManagement/RequestRow";
 import { RequestDetailDialog } from "./_approvalManagement/RequestDetailDialog";
 import { ApprovalActionDialogs } from "./_approvalManagement/ApprovalActionDialogs";
+import { useApprovalMutations } from "./_approvalManagement/useApprovalMutations";
 
 import {
   CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet,
@@ -188,183 +189,39 @@ export default function ApprovalManagement() {
   })();
 
   // ═══════════════════════════════════════════════════════════════
-  // 3단계 승인 Mutations (검토, 승인, 반려, 삭제)
+  // 3단계 승인 Mutations — useApprovalMutations 훅으로 캡슐화 (2026-04-19 분해)
   // ═══════════════════════════════════════════════════════════════
-
-  // 검토 완료 (pending_review -> pending_approval)
-  const reviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("검토 완료", { description: data.message || "검토가 완료되어 승인 대기로 이동했습니다." });
-      setReviewDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      setSelectedIds([]);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      setActiveTab("approval");
-    },
-    onError: (error: { message: string }) => {
-      toast.error("검토 실패", { description: error.message });
-    },
-  });
-
-  // 최종 승인 (pending_approval -> approved)
-  const approveMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("승인 완료", { description: data.message || "최종 승인이 완료되었습니다." });
-      setApproveDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      setSelectedIds([]);
-      refetchApproval();
-      refetchHistory();
-      setActiveTab("history");
-    },
-    onError: (error: { message: string }) => {
-      toast.error("승인 실패", { description: error.message });
-    },
-  });
-
-  // 반려 처리
-  const rejectReviewMutation = trpc.genericChecklist.reviewChecklist.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("반려 완료", { description: data.message || "요청이 반려되었습니다." });
-      setRejectDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      setSelectedIds([]);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      refetchHistory();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("반려 실패", { description: error.message });
-    },
-  });
-
-  const rejectApprovalMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("반려 완료", { description: data.message || "승인이 반려되었습니다." });
-      setRejectDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      setSelectedIds([]);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      refetchHistory();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("반려 실패", { description: error.message });
-    },
-  });
-
-  // 삭제 처리 (DB에서 완전 삭제)
-  const deleteMutation = trpc.approval.deleteRequest.useMutation({
-    onSuccess: () => {
-      toast.success("삭제 완료", { description: "승인 요청이 삭제되었습니다." });
-      setCancelDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      refetchHistory();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("삭제 실패", { description: error.message });
-    },
-  });
-
-  // 일괄 삭제 처리
-  const deleteMultipleMutation = trpc.approval.deleteMultipleRequests.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("일괄 삭제 완료", { description: data.message });
-      setSelectedIds([]);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      refetchHistory();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("일괄 삭제 실패", { description: error.message });
-    },
-  });
-
-  // 품목제조보고 승인/반려
-  const approveRecipeMutation = trpc.recipeApproval.approve.useMutation({
-    onSuccess: () => {
-      toast.success("승인 완료", { description: "품목제조보고가 승인되었습니다." });
-      setRecipeApproveDialogOpen(false);
-      setSelectedRecipe(null);
-      refetchPendingRecipes();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("승인 실패", { description: error.message });
-    },
-  });
-
-  const rejectRecipeMutation = trpc.recipeApproval.reject.useMutation({
-    onSuccess: () => {
-      toast.success("반려 완료", { description: "품목제조보고가 반려되었습니다." });
-      setRecipeRejectDialogOpen(false);
-      setRejectionReason("");
-      setSelectedRecipe(null);
-      refetchPendingRecipes();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("반려 실패", { description: error.message });
-    },
-  });
-
-  // 일괄 검토 완료
-  const batchReviewMutation = trpc.genericChecklist.batchReviewChecklists.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("일괄 검토 완료", { description: data.message });
-      setSelectedIds([]);
-      setBatchConfirmDialogOpen(false);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("일괄 검토 실패", { description: error.message });
-    },
-  });
-
-  // 일괄 최종 승인
-  const batchApproveMutation = trpc.genericChecklist.batchApproveChecklists.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("일괄 승인 완료", { description: data.message });
-      setSelectedIds([]);
-      setBatchConfirmDialogOpen(false);
-      refetchApproval();
-      refetchHistory();
-      setActiveTab("history");
-    },
-    onError: (error: { message: string }) => {
-      toast.error("일괄 승인 실패", { description: error.message });
-    },
-  });
-
-  // 승인자 자동 검토+승인
-  const autoReviewApproveMutation = trpc.genericChecklist.approveWithAutoReview.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("검토 및 승인 완료", { description: data.message });
-      setSelectedIds([]);
-      setReviewDialogOpen(false);
-      setComment("");
-      setSelectedRequest(null);
-      refetchReview();
-      refetchPending();
-      refetchApproval();
-      refetchHistory();
-    },
-    onError: (error: { message: string }) => {
-      toast.error("처리 실패", { description: error.message });
-    },
+  const {
+    reviewMutation,
+    approveMutation,
+    rejectReviewMutation,
+    rejectApprovalMutation,
+    deleteMutation,
+    deleteMultipleMutation,
+    approveRecipeMutation,
+    rejectRecipeMutation,
+    batchReviewMutation,
+    batchApproveMutation,
+    autoReviewApproveMutation,
+  } = useApprovalMutations({
+    setReviewDialogOpen,
+    setApproveDialogOpen,
+    setRejectDialogOpen,
+    setCancelDialogOpen,
+    setBatchConfirmDialogOpen,
+    setRecipeApproveDialogOpen,
+    setRecipeRejectDialogOpen,
+    setComment,
+    setRejectionReason,
+    setSelectedRequest,
+    setSelectedRecipe,
+    setSelectedIds,
+    setActiveTab,
+    refetchReview,
+    refetchPending,
+    refetchApproval,
+    refetchHistory,
+    refetchPendingRecipes,
   });
 
   // ═══════════════════════════════════════════════════════════════

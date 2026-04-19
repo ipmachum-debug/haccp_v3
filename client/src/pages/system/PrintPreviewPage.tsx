@@ -42,17 +42,37 @@ export default function PrintPreviewPage() {
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const trpcUtils = trpc.useUtils();
 
-  const reviewerEmployee = useMemo(() => (employees as any[]).find((e: any) => e.approvalRole === "reviewer" && e.isActive === 1), [employees]);
-  const approverEmployee = useMemo(() => (employees as any[]).find((e: any) => e.approvalRole === "approver" && e.isActive === 1), [employees]);
+  // 간단한 도메인 shape — 완전한 서버 타입 대신 실제 접근 필드만 모음
+  type EmployeeLite = {
+    id: number;
+    name?: string | null;
+    approvalRole?: string | null;
+    isActive?: number | null;
+  };
+  type ApprovalSettingLite = {
+    documentType: string;
+    authorEmployeeId?: number | null;
+    reviewerEmployeeId?: number | null;
+    approverEmployeeId?: number | null;
+  };
+
+  const reviewerEmployee = useMemo(
+    () => (employees as EmployeeLite[]).find((e) => e.approvalRole === "reviewer" && e.isActive === 1),
+    [employees]
+  );
+  const approverEmployee = useMemo(
+    () => (employees as EmployeeLite[]).find((e) => e.approvalRole === "approver" && e.isActive === 1),
+    [employees]
+  );
 
   // 문서 유형별 결재 설정에서 이름 조회 헬퍼
   const getApprovalSettingNames = (formType: string) => {
-    const setting = (allApprovalSettings as any[]).find((s: any) => s.documentType === formType);
+    const setting = (allApprovalSettings as ApprovalSettingLite[]).find((s) => s.documentType === formType);
     if (!setting) return null;
-    const empList = employees as any[];
-    const author = empList.find((e: any) => e.id === setting.authorEmployeeId);
-    const reviewer = empList.find((e: any) => e.id === setting.reviewerEmployeeId);
-    const approver = empList.find((e: any) => e.id === setting.approverEmployeeId);
+    const empList = employees as EmployeeLite[];
+    const author = empList.find((e) => e.id === setting.authorEmployeeId);
+    const reviewer = empList.find((e) => e.id === setting.reviewerEmployeeId);
+    const approver = empList.find((e) => e.id === setting.approverEmployeeId);
     return {
       authorName: author?.name || "",
       reviewerName: reviewer?.name || "",
