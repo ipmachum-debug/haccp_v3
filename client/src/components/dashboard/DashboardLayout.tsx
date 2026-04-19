@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
 import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, Upload, Scan, DollarSign, Receipt } from "lucide-react";
+import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
 import { CSSProperties, useEffect, useRef, useState } from "react";
@@ -775,15 +776,13 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2.5 px-3 transition-all w-full mb-4">
               {!isCollapsed ? (
                 <div className="flex items-center gap-2.5 w-full">
-                  <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
-                    <Shield className="h-[18px] w-[18px] text-primary" />
-                  </div>
+                  <MillioMark className="w-8 h-8 shrink-0" />
                   <div className="flex flex-col">
                     <h1 className="text-[15px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap">
                       Millio AI
                     </h1>
                     <span className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider uppercase">
-                      Food Safety Platform
+                      Manufacturing ERP · AI
                     </span>
                   </div>
                 </div>
@@ -794,9 +793,7 @@ function DashboardLayoutContent({
                   aria-label="Open navigation"
                   title="메뉴 열기"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-                    <Shield className="h-[18px] w-[18px] text-primary" />
-                  </div>
+                  <MillioMark className="w-8 h-8" />
                 </button>
               )}
             </div>

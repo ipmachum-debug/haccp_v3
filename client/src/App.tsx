@@ -178,6 +178,7 @@ const PipelineDashboard = lazy(() => import("./pages/production/PipelineDashboar
 const FAQPage = lazy(() => import("./pages/FAQPage"));
 const SupportPage = lazy(() => import("./pages/system/SupportPage"));
 const LegalPage = lazy(() => import("./pages/LegalPage"));
+const RoadmapPage = lazy(() => import("./pages/RoadmapPage"));
 
 // 11개 미구현 HACCP 체크리스트
 const WaterQualityTestList = lazy(() => import("./pages/checklist/WaterQualityTestList"));
@@ -277,6 +278,7 @@ function Router() {
       <Route path="/" component={LandingPage} />
       <Route path="/faq" component={FAQPage} />
       <Route path="/support" component={SupportPage} />
+      <Route path="/roadmap" component={RoadmapPage} />
       <Route path="/legal/:section" component={LegalPage} />
       <Route path="/legal" component={LegalPage} />
         <Route path="/dashboard" component={Dashboard} />

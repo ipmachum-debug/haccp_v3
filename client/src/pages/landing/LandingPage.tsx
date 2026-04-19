@@ -9,8 +9,9 @@ import {
   Play, Quote, ChevronLeft, ChevronRight, Sparkles, Check,
   ArrowUp, ArrowDown, Home
 } from "lucide-react";
+import { MillioMark } from "@/components/brand/MillioMark";
 import ScreenshotCarousel from "./ScreenshotCarousel";
-import { MillioLogo } from "@/components/MillioLogo";
+
 
 // ─── i18n ───
 const translations = {
@@ -25,10 +26,11 @@ const translations = {
       demo: "무료 체험 시작",
     },
     hero: {
-      badge: "AI 네이티브 제조 ERP · 2026",
+      badge: "AI 기반 제조 ERP · 2026",
+      tagline: "만드는 사람을 위한 ERP",
       headline1: "공장의 모든 데이터,",
       headline2: "AI가 하나로 연결합니다",
-      sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 제조업을 위한 올인원 AI ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
+      sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 만드는 사람을 위한 AI 기반 제조 ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
       cta1: "30일 무료로 시작",
       cta2: "1분 데모 보기",
       trust: "100+ 제조업체가 Millio AI로 공장을 운영 중",
@@ -196,9 +198,9 @@ const translations = {
       btn2: "1:1 상담 요청",
     },
     footer: {
-      desc: "제조업을 위한 올인원 AI ERP — 제조기반 올인원 ERP",
+      desc: "AI 기반 제조 ERP — 만드는 사람을 위한 ERP.",
       product: "제품",
-      productLinks: ["기능", "요금", "보안", "업데이트"],
+      productLinks: ["기능", "요금", "로드맵", "업데이트"],
       company: "회사",
       companyLinks: ["소개", "블로그", "채용", "연락처"],
       support: "지원",
@@ -219,10 +221,11 @@ const translations = {
       demo: "Start Free Trial",
     },
     hero: {
-      badge: "AI-Native Manufacturing ERP · 2026",
+      badge: "Manufacturing ERP powered by AI · 2026",
+      tagline: "ERP for the people who make things.",
       headline1: "Every factory data point,",
       headline2: "Connected by AI.",
-      sub: "Production · Inventory · Quality · Lot tracking · Accounting — all in one. Millio AI is the all-in-one AI ERP for manufacturers. Currently specialized for food manufacturing HACCP, expanding to cosmetics GMP, nutraceuticals, and general manufacturing.",
+      sub: "Production · Inventory · Quality · Lot tracking · Accounting — all in one. Millio AI is Manufacturing ERP powered by AI, built for the people who make things. Currently specialized for food manufacturing HACCP, expanding to cosmetics GMP, nutraceuticals, and general manufacturing.",
       cta1: "Start 30-Day Free Trial",
       cta2: "Watch 1-Min Demo",
       trust: "100+ manufacturers run their factories on Millio AI",
@@ -359,9 +362,9 @@ const translations = {
       btn2: "Talk to Sales",
     },
     footer: {
-      desc: "All-in-one AI ERP built for manufacturing.",
+      desc: "Manufacturing ERP powered by AI — ERP for the people who make things.",
       product: "Product",
-      productLinks: ["Features", "Pricing", "Security", "Updates"],
+      productLinks: ["Features", "Pricing", "Roadmap", "Updates"],
       company: "Company",
       companyLinks: ["About", "Blog", "Careers", "Contact"],
       support: "Support",
@@ -551,7 +554,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-between h-16 lg:h-20">
             {/* Logo - links to home */}
             <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
-              <MillioLogo className="w-9 h-9" />
+              <MillioMark className="w-9 h-9" />
               <span className="text-xl font-bold tracking-tight text-[#1a1a2e]">
                 Millio<span className="text-orange-500"> AI</span>
               </span>
@@ -646,8 +649,18 @@ export default function LandingPage() {
                 </span>
               </motion.h1>
 
+              {/* Tagline — emotional anchor */}
+              {t.hero.tagline && (
+                <motion.p
+                  variants={fadeUp}
+                  className="mt-5 text-base sm:text-lg font-serif italic text-stone-700"
+                >
+                  &ldquo;{t.hero.tagline}&rdquo;
+                </motion.p>
+              )}
+
               {/* Sub */}
-              <motion.p variants={fadeUp} className="mt-6 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
+              <motion.p variants={fadeUp} className="mt-5 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
                 {t.hero.sub}
               </motion.p>
 
@@ -893,7 +906,7 @@ export default function LandingPage() {
                   {/* Sidebar */}
                   <div className="w-52 bg-[#1a1a2e] p-4 hidden md:block">
                     <div className="flex items-center gap-2 mb-8">
-                      <MillioLogo className="w-7 h-7" />
+                      <MillioMark className="w-7 h-7" />
                       <span className="text-sm font-bold text-white">Millio AI</span>
                     </div>
                     {[
@@ -1036,6 +1049,15 @@ export default function LandingPage() {
                   {t.industries.note}
                 </p>
               </div>
+              <div className="mt-5">
+                <a
+                  href="/roadmap"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white rounded-full font-semibold text-sm hover:bg-[#2a2a3e] transition-all shadow-lg"
+                >
+                  {lang === "ko" ? "전체 로드맵 보기" : "View Full Roadmap"}
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              </div>
             </motion.div>
           )}
         </div>
@@ -1157,7 +1179,7 @@ export default function LandingPage() {
             {/* Brand + Company Info */}
             <div className="md:col-span-5">
               <div className="flex items-center gap-2.5 mb-4">
-                <MillioLogo className="w-9 h-9" />
+                <MillioMark className="w-9 h-9" />
                 <span className="text-lg font-bold text-white">
                   Millio<span className="text-orange-400"> AI</span>
                 </span>
@@ -1182,7 +1204,7 @@ export default function LandingPage() {
             {/* Links */}
             <div className="md:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-6">
               {[
-                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "#industries", "#testimonials"] },
+                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "/roadmap", "#testimonials"] },
                 { title: t.footer.company, links: t.footer.companyLinks, hrefs: ["#", "#", "#", "#"] },
                 { title: t.footer.support, links: t.footer.supportLinks, hrefs: ["#", "#", "/faq", "/support"] },
                 { title: t.footer.legal, links: t.footer.legalLinks, hrefs: ["/legal/terms", "/legal/privacy", "/legal/refund", "/legal/sla", "/legal/security", "/legal/aup", "/legal/dpa", "/legal/security-whitepaper", "/legal/data-ownership"] },

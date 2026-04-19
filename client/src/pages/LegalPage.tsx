@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 import { Link, useRoute } from "wouter";
+import { MillioMark } from "@/components/brand/MillioMark";
 import {
   ShieldCheck, ArrowLeft, FileText, Lock, CreditCard,
   Activity, Shield, AlertTriangle, Database, BookOpen,
@@ -34,7 +35,7 @@ const policySections: PolicySection[] = [
         <h3>제2조 (정의)</h3>
         <p>본 약관에서 사용하는 용어의 정의는 다음과 같습니다.</p>
         <ol>
-          <li>"서비스"란 회사가 제공하는 Millio AI 클라우드 기반 식품 제조 관리 SaaS 플랫폼을 의미합니다.</li>
+          <li>"서비스"란 회사가 제공하는 Millio AI 클라우드 기반 제조업 AI ERP SaaS 플랫폼을 의미합니다 (식품 HACCP 특화, 제조업 전반으로 확장 중).</li>
           <li>"이용자"란 본 약관에 따라 회사가 제공하는 서비스를 이용하는 회원 또는 비회원을 말합니다.</li>
           <li>"회원"이란 서비스에 가입하여 계정을 생성하고 서비스를 이용하는 자를 말합니다.</li>
           <li>"유료서비스"란 회사가 제공하는 월 또는 연 단위 구독 기반 서비스 및 부가 기능을 의미합니다.</li>
@@ -828,9 +829,7 @@ export default function LegalPage() {
           <div className="flex items-center gap-4">
             <Link href="/">
               <a className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-white" />
-                </div>
+                <MillioMark className="w-8 h-8" />
                 <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
               </a>
             </Link>
