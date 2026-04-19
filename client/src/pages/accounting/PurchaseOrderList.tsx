@@ -65,7 +65,6 @@ type OrderRow = RouterOutput["purchaseOrder"]["list"][number];
 type OrderDetail = RouterOutput["purchaseOrder"]["getById"];
 type OrderLine = NonNullable<OrderDetail>["lines"][number];
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const STATUS_LABELS: Record<string, { label: string; variant: string; className: string }> = {
   draft: { label: "작성 중", variant: "outline", className: "" },
   approved: { label: "승인됨", variant: "default", className: "bg-blue-600 text-white border-transparent" },
@@ -75,7 +74,6 @@ const STATUS_LABELS: Record<string, { label: string; variant: string; className:
 };
 
 export default function PurchaseOrderList() {
-  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <PurchaseOrderListContent />

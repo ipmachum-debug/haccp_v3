@@ -67,7 +67,6 @@ import {
 } from "lucide-react";
 import { formatLocalDate } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ============================================================================
 // 유틸 - 주간/월간 범위 계산
 // ============================================================================
@@ -343,7 +342,6 @@ interface MaterialUsageReportListProps {
   [key: string]: any;
 }
 export default function MaterialUsageReportList(props: MaterialUsageReportListProps = {}) {
-  const L = useIndustryLabel();
   const { embedded } = props;
 
   // ★ 기간 선택 상태 (이전 주/이전 달 등 과거 데이터 열람 지원)

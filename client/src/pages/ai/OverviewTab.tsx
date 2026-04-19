@@ -19,12 +19,10 @@ import {
 import { SeverityBadge } from "./SeverityBadge";
 import { formatDate } from "./types";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ============================================================================
 // Tab 1: 대시보드 개요
 // ============================================================================
 export function OverviewTab() {
-  const L = useIndustryLabel();
   const summary = trpc.ai.dashboardSummary.useQuery();
   const evaluateMutation = trpc.ai.evaluateRules.useMutation();
   const utils = trpc.useUtils();

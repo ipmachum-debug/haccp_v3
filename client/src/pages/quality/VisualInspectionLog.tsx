@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { ApprovalSeal } from "@/components/SealGenerator";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ===========================================================================
 // Status helpers
 // ===========================================================================
@@ -372,7 +371,6 @@ function VisualInspectionDocument({
 // Main component - monthly auto-create document
 // ===========================================================================
 export function VisualInspectionLogContent() {
-  const L = useIndustryLabel();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [logId, setLogId] = useState<number | null>(null);

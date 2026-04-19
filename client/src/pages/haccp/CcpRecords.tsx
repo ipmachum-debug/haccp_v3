@@ -20,7 +20,6 @@ import {
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   draft: { label: "작성중", color: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" },
   submitted: { label: "제출됨", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
@@ -36,7 +35,6 @@ const CCP_TYPE_COLORS: Record<string, string> = {
 };
 
 export default function CcpRecords() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState<string>("all");
   const [filters, setFilters] = useState<{
     ccpType?: string;

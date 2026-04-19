@@ -11,9 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Pencil, Plus, Trash2, Shield, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function CcpLimitSettings() {
-  const L = useIndustryLabel();
   const [selectedCcpType, setSelectedCcpType] = useState<string>("all");
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingSpec, setEditingSpec] = useState<any>(null);

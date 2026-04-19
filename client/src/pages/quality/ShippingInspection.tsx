@@ -35,9 +35,7 @@ import { toast } from "sonner";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ShippingInspection() {
-  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);

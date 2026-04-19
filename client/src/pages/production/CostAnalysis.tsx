@@ -8,11 +8,9 @@ import { Button } from "@/components/ui/button";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { TrendingUp, TrendingDown, DollarSign, Package } from "lucide-react";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8", "#82CA9D"];
 
 export default function CostAnalysis() {
-  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [productFilter, setProductFilter] = useState<string>("all");

@@ -17,7 +17,6 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const config: ChecklistFormConfig = {
   formType: "material_inspection",
   title: "원재료 검사 기록 작성",
@@ -58,7 +57,6 @@ const initialItems: InspectionItem[] = [
 ];
 
 export default function MaterialInspectionForm() {
-  const L = useIndustryLabel();
   const [materialId, setMaterialId] = useState("");
   const [materialCode, setMaterialCode] = useState("");
   const [materialName, setMaterialName] = useState("");

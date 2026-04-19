@@ -78,7 +78,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Edit, Trash2, Layers, Settings2, GripVertical, AlertTriangle, Clock, Package, Link2, Loader2, Save, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const ccpTypes = [
   { value: "CCP-1B", label: "CCP-1B (가열/증숙)", color: "bg-red-100 text-red-700" },
   { value: "CCP-2B", label: "CCP-2B (가열 굽기)", color: "bg-blue-100 text-blue-700" },
@@ -1036,7 +1035,6 @@ function ProductTimeProfileMapDialog({
 
 // ========== 메인 컴포넌트 ==========
 export default function CCPLimitsManagement() {
-  const L = useIndustryLabel();
   const [filterCcpType, setFilterCcpType] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any>(null);

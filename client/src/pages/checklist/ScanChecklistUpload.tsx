@@ -19,7 +19,6 @@ import {
   Upload, Camera, FileText, Loader2, CheckCircle2, Edit3,
   Trash2, Eye, AlertCircle, Scan, ArrowRight
 } from "lucide-react";
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -45,7 +44,6 @@ const checklistTypes = [
 type Step = "upload" | "processing" | "preview" | "done";
 
 export default function ScanChecklistUpload() {
-  const L = useIndustryLabel();
   const [step, setStep] = useState<Step>("upload");
   const [checklistType, setChecklistType] = useState("general");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);

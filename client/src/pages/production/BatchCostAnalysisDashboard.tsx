@@ -11,7 +11,6 @@ import { Eye, AlertTriangle, Droplets } from "lucide-react";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
 
 /** 정제수(purified water) 판별 */
@@ -22,7 +21,6 @@ function isWaterMaterial(name: string | null | undefined): boolean {
 }
 
 export default function BatchCostAnalysisDashboard() {
-  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 1);

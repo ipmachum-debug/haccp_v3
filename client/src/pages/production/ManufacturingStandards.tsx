@@ -6,9 +6,7 @@ import MaterialLedger from "@/pages/accounting/MaterialLedger";
 import MfReportList from "@/pages/production/MfReportList";
 import MaterialUsageReportList from "@/pages/accounting/MaterialUsageReportList";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ManufacturingStandards() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("material-ledger");
 
   return (

@@ -30,7 +30,6 @@ import {
 } from "@/components/ui/table";
 import { Edit, Eye, FileSpreadsheet, Sparkles } from "lucide-react";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ─── 타입 ─────────────────────────────────────────
 
 export interface PriceEditForm {
@@ -110,7 +109,6 @@ export function PriceEditDialog({
   onSave,
   updatePending,
 }: PriceEditDialogProps) {
-  const L = useIndustryLabel();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">

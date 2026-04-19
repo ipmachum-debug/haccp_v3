@@ -88,7 +88,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ============================================================
 // 항목별 일지 카테고리 정의 (PDF 양식 기반 매칭)
 // ============================================================
@@ -511,7 +510,6 @@ function SortableChecklistCard({ item, category }: { item: any; category: any })
 }
 
 export default function ChecklistDashboard() {
-  const L = useIndustryLabel();
   // 인증된 사용자의 tenantId 사용
   const { user: authUser } = useAuth();
   const user = { tenantId: authUser?.tenantId || 0 };

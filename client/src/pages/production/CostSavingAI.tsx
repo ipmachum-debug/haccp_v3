@@ -11,9 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Minus, Sparkles, ShoppingCart, Users, DollarSign } from "lucide-react";
 import { Streamdown } from "streamdown";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function CostSavingAI() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'overview');
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 

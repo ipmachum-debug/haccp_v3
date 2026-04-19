@@ -43,9 +43,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function CorrectiveAction() {
-  const L = useIndustryLabel();
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState<any>(null);

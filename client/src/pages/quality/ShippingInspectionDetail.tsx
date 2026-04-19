@@ -16,9 +16,7 @@ import { ArrowLeft, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ShippingInspectionDetail() {
-  const L = useIndustryLabel();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const inspectionId = params.id ? parseInt(params.id, 10) : 0;

@@ -14,9 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryReceipt() {
-  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");
   const [autoLot, setAutoLot] = useState(true);

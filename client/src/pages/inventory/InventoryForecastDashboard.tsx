@@ -7,9 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { AlertTriangle } from "lucide-react";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryForecastDashboard() {
-  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [forecastDays, setForecastDays] = useState(90);
 

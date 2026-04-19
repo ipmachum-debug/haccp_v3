@@ -9,9 +9,7 @@ import { TabsList } from "@/components/ui/tabs";
 import { Search, ArrowRight, ArrowLeft, Package, Warehouse, Factory, Calendar, Weight } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function Traceability() {
-  const L = useIndustryLabel();
   const [lotNumber, setLotNumber] = useState("");
   const [searchType, setSearchType] = useState<"material" | "product">("material");
   const [searchLotNumber, setSearchLotNumber] = useState<string | null>(null);

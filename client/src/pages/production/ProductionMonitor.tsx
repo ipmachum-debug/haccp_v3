@@ -5,9 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Activity, CheckCircle2, AlertCircle, Clock, RefreshCw } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionMonitor() {
-  const L = useIndustryLabel();
   const { data: batches, isLoading, refetch, isFetching } = trpc.batch.getActiveBatches.useQuery();
 
   if (isLoading) {

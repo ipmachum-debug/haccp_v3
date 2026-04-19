@@ -31,9 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Edit, Trash2, Copy, History, Search } from "lucide-react";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function RecipeManagement() {
-  const L = useIndustryLabel();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);

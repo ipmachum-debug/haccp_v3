@@ -26,7 +26,6 @@ import { Bar, Line, Pie } from "react-chartjs-2";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // Chart.js 등록
 ChartJS.register(
   CategoryScale,
@@ -41,7 +40,6 @@ ChartJS.register(
 );
 
 export default function ProductionEfficiency() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'cost');
   const [dateRange, setDateRange] = useState({
     startDate: formatLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),

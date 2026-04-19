@@ -10,9 +10,7 @@ import SuppliersTab from "@/components/masterData/SuppliersTab";
 
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function MasterDataManagement() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'products');
   return (
     <DashboardLayout>

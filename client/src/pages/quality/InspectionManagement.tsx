@@ -6,9 +6,7 @@ import { TabsList } from "@/components/ui/tabs";
 import { VisualInspectionLogContent } from "./VisualInspectionLog";
 import { FinishedProductInspectionLogContent } from "../haccp/FinishedProductInspectionLog";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InspectionManagement() {
-  const L = useIndustryLabel();
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(location.split('?')[1] || '');
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'visual');

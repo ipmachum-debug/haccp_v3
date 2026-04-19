@@ -97,7 +97,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { ApprovalSeal } from "@/components/SealGenerator";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ===========================================================================
 // Status helpers
 // ===========================================================================
@@ -591,7 +590,6 @@ function BatchDetailDialog({ batch, open, onClose }: { batch: ReportBatch; open:
 // 메인 컴포넌트
 // ===========================================================================
 export function ProductionDailyReportContent() {
-  const L = useIndustryLabel();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);

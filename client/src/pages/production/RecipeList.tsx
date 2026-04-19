@@ -17,9 +17,7 @@ import { Plus, Eye, Edit, Copy, Power, PowerOff, Search } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function RecipeList() {
-  const L = useIndustryLabel();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterActive, setFilterActive] = useState<boolean | undefined>(undefined);

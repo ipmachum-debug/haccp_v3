@@ -21,7 +21,6 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
   { category: "작업전", subcategory: "개인위생", itemOrder: 1, itemText: "위생복장과 이물 복장이 구분하여 보관되고 있는가?", checkResult: null as string | null },
@@ -83,7 +82,6 @@ const EMPTY_ISSUES = { issueDescription: "", actionTaken: "", completionDate: ""
 const EMPTY_REF_ISSUES = { issueDatetime: "", issueDescription: "", actionTaken: "", completionDate: "", actionBy: "", confirmedBy: "" };
 
 export default function DailyLogForm() {
-  const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const searchStr = useSearch();
   const params = new URLSearchParams(searchStr);

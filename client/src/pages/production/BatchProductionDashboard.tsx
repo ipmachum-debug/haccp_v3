@@ -6,9 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, AlertTriangle, Clock, Package } from "lucide-react";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function BatchProductionDashboard() {
-  const L = useIndustryLabel();
   const { data: activeBatches, isLoading: loadingBatches, refetch: refetchActiveBatches } = trpc.productionDashboard.getActiveBatches.useQuery();
   const { data: batchStats, isLoading: loadingStats, refetch: refetchBatchStats } = trpc.productionDashboard.getBatchStats.useQuery();
 

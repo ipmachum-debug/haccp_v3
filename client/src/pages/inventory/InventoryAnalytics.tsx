@@ -10,9 +10,7 @@ import { TrendingUp, TrendingDown, Minus, BarChart3, Package } from "lucide-reac
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryAnalytics() {
-  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 3);

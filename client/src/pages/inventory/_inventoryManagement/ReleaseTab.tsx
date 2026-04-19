@@ -19,9 +19,7 @@ import { fmt, fmtDate, won, Empty, Loading, StatCard, StyledTable, TH, TD, Secti
 import { RetroactiveDeductionButton, StockSyncButton } from "./StockActionButtons";
 import type { InventoryLot } from "./types";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export function ReleaseTab() {
-  const L = useIndustryLabel();
   const utils = trpc.useUtils();
   const today = new Date().toISOString().split("T")[0];
   const [releaseDate, setReleaseDate] = useState(today);

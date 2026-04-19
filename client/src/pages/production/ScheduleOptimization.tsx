@@ -11,9 +11,7 @@ import { AlertCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ScheduleOptimization() {
-  const L = useIndustryLabel();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

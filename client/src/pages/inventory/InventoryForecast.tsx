@@ -14,10 +14,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryForecast() {
-  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 
   // 모든 원재료 구매 추천 조회

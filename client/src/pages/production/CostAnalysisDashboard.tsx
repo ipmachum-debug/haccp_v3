@@ -8,9 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function CostAnalysisDashboard() {
-  const L = useIndustryLabel();
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
 
   // 제품 목록

@@ -16,12 +16,10 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // CCP 공정그룹 중 배합비 매핑 대상 (가열 3종만, 금속검출 제외)
 const HEAT_CCP_TYPES = ["CCP-1B", "CCP-2B"];
 
 export default function MfReportEdit() {
-  const L = useIndustryLabel();
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const reportId = parseInt(id || "0");

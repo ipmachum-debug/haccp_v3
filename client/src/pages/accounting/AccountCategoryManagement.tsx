@@ -39,7 +39,6 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Plus, Edit, Trash2, FolderTree } from "lucide-react";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 type MajorCategory = "매입비" | "인건비" | "운영비" | "판매비" | "관리비" | "금융·기타";
 
 const MAJOR_CATEGORIES: MajorCategory[] = [
@@ -61,7 +60,6 @@ const MAJOR_CATEGORY_COLORS: Record<MajorCategory, string> = {
 };
 
 export default function AccountCategoryManagement() {
-  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <AccountCategoryManagementContent />

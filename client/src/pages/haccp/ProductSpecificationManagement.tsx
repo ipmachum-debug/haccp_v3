@@ -16,9 +16,7 @@ import { FileText, Plus, Edit, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductSpecificationManagement() {
-  const L = useIndustryLabel();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSpec, setEditingSpec] = useState<any>(null);
 

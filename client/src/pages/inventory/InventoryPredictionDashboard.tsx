@@ -9,9 +9,7 @@ import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryPredictionDashboard() {
-  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [safetyStockLevel, setSafetyStockLevel] = useState<number>(0);
 

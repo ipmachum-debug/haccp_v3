@@ -36,12 +36,10 @@ import { ReceiptTab } from "./_inventoryManagement/ReceiptTab";
 import { AdjustmentTab } from "./_inventoryManagement/AdjustmentTab";
 import { SubsidiaryStockView } from "./_inventoryManagement/SubsidiaryStockView";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 /* ═══════════════════════════════════════════════════
    메인 컴포넌트
    ═══════════════════════════════════════════════════ */
 export default function InventoryManagement() {
-  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl("tab", "current");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month" | "quarter">("month");
   const [lotModalOpen, setLotModalOpen] = useState(false);

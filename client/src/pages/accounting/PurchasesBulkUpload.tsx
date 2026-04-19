@@ -31,7 +31,6 @@ import { fuzzyMatchItem, fuzzyMatchPartner, autoMatchHeaders, type FuzzyMatchRes
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 타입 정의
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -77,7 +76,6 @@ const EXPECTED_FIELDS = [
 ];
 
 export default function PurchasesBulkUpload() {
-  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <PurchasesBulkUploadContent />

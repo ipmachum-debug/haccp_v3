@@ -30,7 +30,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 /**
  * 은행 거래 매칭 페이지
  * 
@@ -44,7 +43,6 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
  */
 
 export default function BankTransactionMatching() {
-  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <BankTransactionMatchingContent />

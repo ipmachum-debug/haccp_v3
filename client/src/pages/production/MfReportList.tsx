@@ -18,7 +18,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // CCP 매핑 섹션 컴포넌트
 function CcpMappingSection({ productId, productName }: { productId: number; productName: string }) {
   const CCP_TYPES = [
@@ -348,7 +347,6 @@ function DeviationAnalysisSection({ versionId }: { versionId: number }) {
 }
 
 export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
-  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedReport, setSelectedReport] = useState<number | null>(null);

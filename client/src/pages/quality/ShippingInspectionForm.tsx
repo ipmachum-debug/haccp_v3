@@ -18,7 +18,6 @@ import { Plus, Trash2 } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
 
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const config: ChecklistFormConfig = {
   formType: "shipping_inspection",
   title: "출하 검사 작성",
@@ -43,7 +42,6 @@ const initialItems: InspectionItem[] = [
 ];
 
 export default function ShippingInspectionForm() {
-  const L = useIndustryLabel();
   const [productName, setProductName] = useState("");
   const [batchCode, setBatchCode] = useState("");
   const [inspectionDate, setInspectionDate] = useState(todayLocal());

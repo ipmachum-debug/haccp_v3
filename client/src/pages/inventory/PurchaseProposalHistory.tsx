@@ -18,10 +18,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function PurchaseProposalHistory() {
-  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
