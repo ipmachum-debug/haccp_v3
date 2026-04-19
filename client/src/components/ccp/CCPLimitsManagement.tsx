@@ -1,6 +1,52 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// CCP 관리 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type ProductRow = RouterOutput["product"]["list"]["items"][number];
+type ProcessGroup = RouterOutput["ccpMonitoring"]["getProcessGroups"][number];
+type ProcessGroupProduct = RouterOutput["ccpMonitoring"]["getProcessGroupProducts"][number];
+type EquipmentRow = RouterOutput["equipment"]["list"]["items"][number];
+type CcpLimitEquipment = {
+  id?: number;
+  equipmentId?: number;
+  equipment_id?: number;
+  ccpType?: string;
+  equipmentName?: string;
+  equipment_name?: string;
+  name?: string;
+  equipmentCode?: string;
+  code?: string;
+};
+type CcpLimitInitialData = {
+  id?: number;
+  name?: string;
+  ccpType?: string;
+  ccp_type?: string;
+  description?: string;
+  temperatureMin?: number | string;
+  temperature_min?: number | string;
+  temperatureMax?: number | string;
+  temperature_max?: number | string;
+  timeMin?: number | string;
+  time_min?: number | string;
+  timeMax?: number | string;
+  time_max?: number | string;
+  pressureMin?: number | string;
+  pressure_min?: number | string;
+  pressureMax?: number | string;
+  pressure_max?: number | string;
+  phMin?: number | string;
+  ph_min?: number | string;
+  phMax?: number | string;
+  ph_max?: number | string;
+  monitoringMethod?: string;
+  monitoring_method?: string;
+  correctiveAction?: string;
+  corrective_action?: string;
+  equipments?: CcpLimitEquipment[];
+};
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -55,9 +101,9 @@ function ProcessGroupFormDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  initialData?: any;
-  equipmentList: any[];
-  onSubmit: (data: any) => void;
+  initialData?: CcpLimitInitialData;
+  equipmentList: EquipmentRow[];
+  onSubmit: (data: Record<string, unknown>) => void;
 }) {
   const [activeTab, setActiveTab] = useState("basic");
   const [form, setForm] = useState(() => ({
@@ -74,7 +120,7 @@ function ProcessGroupFormDialog({
     phMax: initialData?.ph_max || initialData?.phMax || "",
     monitoringMethod: initialData?.monitoring_method || initialData?.monitoringMethod || "",
     correctiveAction: initialData?.corrective_action || initialData?.correctiveAction || "",
-    selectedEquipmentIds: (initialData?.equipments || []).map((e: any) => e.equipmentId || e.equipment_id) as number[],
+    selectedEquipmentIds: (initialData?.equipments || []).map((e: CcpLimitEquipment) => e.equipmentId || e.equipment_id) as number[],
   }));
 
   // ★ 제품 매핑 상태 (수정 모드에서만)
@@ -83,7 +129,7 @@ function ProcessGroupFormDialog({
 
   // 제품 목록 조회
   const { data: productData } = trpc.product.list.useQuery({ limit: 500 });
-  const allProducts = (productData as any)?.items ?? [];
+  const allProducts: ProductRow[] = (productData as { items?: ProductRow[] } | undefined)?.items ?? [];
 
   // 기존 매핑된 제품 조회 (수정 모드)
   const { data: mappedProducts } = trpc.ccpMonitoring.getProcessGroupProducts.useQuery(
@@ -94,7 +140,7 @@ function ProcessGroupFormDialog({
   // 매핑 데이터 초기화
   useEffect(() => {
     if (mappedProducts && Array.isArray(mappedProducts)) {
-      setSelectedProductIds(mappedProducts.map((p: any) => p.product_id));
+      setSelectedProductIds(mappedProducts.map((p: ProcessGroupProduct) => p.product_id));
     }
   }, [mappedProducts]);
 
@@ -144,7 +190,7 @@ function ProcessGroupFormDialog({
 
   // 해당 CCP 유형의 설비만 필터링
   const filteredEquipments = equipmentList.filter(
-    (eq: any) => eq.ccpType === form.ccpType
+    (eq: EquipmentRow) => eq.ccpType === form.ccpType
   );
 
   const toggleEquipment = (eqId: number) => {
@@ -165,7 +211,7 @@ function ProcessGroupFormDialog({
   };
 
   // 제품 검색 필터
-  const filteredProducts = allProducts.filter((p: any) => {
+  const filteredProducts = allProducts.filter((p: ProductRow) => {
     if (!productSearchTerm) return true;
     const term = productSearchTerm.toLowerCase();
     return (p.productName || "").toLowerCase().includes(term) ||
@@ -317,7 +363,7 @@ function ProcessGroupFormDialog({
                 </p>
               ) : (
                 <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
-                  {filteredEquipments.map((eq: any) => (
+                  {filteredEquipments.map((eq: EquipmentRow) => (
                     <label
                       key={eq.id}
                       className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-colors ${
@@ -390,7 +436,7 @@ function ProcessGroupFormDialog({
                           size="sm"
                           variant="outline"
                           className="h-7 text-xs"
-                          onClick={() => setSelectedProductIds(allProducts.map((p: any) => p.id))}
+                          onClick={() => setSelectedProductIds(allProducts.map((p: ProductRow) => p.id))}
                         >
                           전체 선택
                         </Button>
@@ -413,7 +459,7 @@ function ProcessGroupFormDialog({
                         </div>
                       ) : (
                         <div className="divide-y">
-                          {filteredProducts.map((product: any) => (
+                          {filteredProducts.map((product: ProductRow) => (
                             <label
                               key={product.id}
                               className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${
@@ -474,7 +520,7 @@ function ProcessGroupFormDialog({
 
                     {/* BOM 자동 매핑된 제품 목록 (읽기 전용) */}
                     <div className="max-h-[400px] overflow-y-auto border rounded-md">
-                      {!mappedProducts || (mappedProducts as any[]).length === 0 ? (
+                      {!mappedProducts || (mappedProducts as ProcessGroupProduct[]).length === 0 ? (
                         <div className="text-center py-8 text-sm text-muted-foreground">
                           <Package className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                           <p>BOM에서 이 공정으로 태깅된 원재료가 있는 제품이 없습니다.</p>
@@ -482,7 +528,7 @@ function ProcessGroupFormDialog({
                         </div>
                       ) : (
                         <div className="divide-y">
-                          {(mappedProducts as any[]).map((product: any, idx: number) => (
+                          {(mappedProducts as ProcessGroupProduct[]).map((product: ProcessGroupProduct, idx: number) => (
                             <div
                               key={product.product_id}
                               className="flex items-center gap-3 px-3 py-2 bg-blue-50/30 dark:bg-blue-950/10"
@@ -504,7 +550,7 @@ function ProcessGroupFormDialog({
 
                     <div className="flex items-center justify-between pt-2">
                       <span className="text-xs text-muted-foreground">
-                        총 {(mappedProducts as any[])?.length || 0}개 제품 자동 매핑됨
+                        총 {(mappedProducts as ProcessGroupProduct[])?.length || 0}개 제품 자동 매핑됨
                       </span>
                       <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>닫기</Button>
                     </div>
@@ -540,7 +586,7 @@ function TimeProfileDialog({
 
   // 공정그룹 목록 조회 (시간 데이터 포함)
   const { data: processGroupsRaw, refetch } = trpc.ccpMonitoring.getProcessGroups.useQuery(undefined);
-  const processGroups: any[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
+  const processGroups: ProcessGroup[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
 
   const updateMutation = trpc.ccpMonitoring.updateProcessGroup.useMutation({
     onSuccess: () => {
@@ -551,7 +597,7 @@ function TimeProfileDialog({
     onError: (err: { message: string }) => toast.error("저장 실패: " + err.message),
   });
 
-  const startEdit = (group: any) => {
+  const startEdit = (group: ProcessGroup) => {
     setEditingId(group.id);
     setEditForm({
       timeMin: group.time_min?.toString() ?? "",
@@ -560,7 +606,7 @@ function TimeProfileDialog({
     });
   };
 
-  const handleSave = (group: any) => {
+  const handleSave = (group: ProcessGroup) => {
     if (!editForm.timeMin) {
       toast.error("최소 시간(분)을 입력하세요");
       return;
@@ -585,7 +631,7 @@ function TimeProfileDialog({
   };
 
   // 시간 설정이 있는 그룹만 (CCP-4P 제외 — 금속검출은 시간 없음)
-  const timeGroups = processGroups.filter((g: any) => g.ccp_type !== "CCP-4P");
+  const timeGroups = processGroups.filter((g: ProcessGroup) => g.ccp_type !== "CCP-4P");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -614,7 +660,7 @@ function TimeProfileDialog({
             </div>
           ) : (
             <div className="space-y-2">
-              {timeGroups.map((group: any) => (
+              {timeGroups.map((group: ProcessGroup) => (
                 <div
                   key={group.id}
                   className="border rounded-lg p-4 bg-white dark:bg-gray-950 hover:border-blue-300 transition-colors"
@@ -749,18 +795,18 @@ function ProductTimeProfileMapDialog({
 
   // 공정그룹 목록
   const { data: processGroupsRaw } = trpc.ccpMonitoring.getProcessGroups.useQuery(undefined);
-  const processGroups: any[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
+  const processGroups: ProcessGroup[] = Array.isArray(processGroupsRaw) ? processGroupsRaw : [];
 
   // 전체 제품-공정그룹 매핑 결과 (BOM 기반 + CCP-4P 수동)
   const { data: groupProductsRaw } = trpc.ccpMonitoring.getProcessGroupProducts.useQuery(undefined);
-  const allGroupProducts: any[] = Array.isArray(groupProductsRaw) ? groupProductsRaw : [];
+  const allGroupProducts: ProcessGroupProduct[] = Array.isArray(groupProductsRaw) ? groupProductsRaw : [];
 
   // CCP-4P 제외한 시간 관련 그룹만
-  const timeGroups = processGroups.filter((g: any) => g.ccp_type !== "CCP-4P");
+  const timeGroups = processGroups.filter((g: ProcessGroup) => g.ccp_type !== "CCP-4P");
 
   const filteredGroups = selectedGroupId === "all"
     ? timeGroups
-    : timeGroups.filter((g: any) => g.id.toString() === selectedGroupId);
+    : timeGroups.filter((g: ProcessGroup) => g.id.toString() === selectedGroupId);
 
   const ccpBadgeClass = (type: string) => {
     if (type === "CCP-1B") return "bg-red-100 text-red-700 border-red-200";
@@ -798,7 +844,7 @@ function ProductTimeProfileMapDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">전체 공정</SelectItem>
-                {timeGroups.map((g: any) => (
+                {timeGroups.map((g: ProcessGroup) => (
                   <SelectItem key={g.id} value={g.id.toString()}>
                     {g.name}
                   </SelectItem>
@@ -814,9 +860,9 @@ function ProductTimeProfileMapDialog({
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredGroups.map((group: any) => {
+              {filteredGroups.map((group: ProcessGroup) => {
                 // BOM/수동 매핑에서 해당 그룹의 제품만 필터링
-                const mappedProducts: any[] = allGroupProducts.filter(
+                const mappedProducts: ProcessGroupProduct[] = allGroupProducts.filter(
                   (p: any) => p.process_group_id === group.id
                 );
 
@@ -857,7 +903,7 @@ function ProductTimeProfileMapDialog({
                             </TableCell>
                           </TableRow>
                         ) : (
-                          mappedProducts.map((product: any) => (
+                          mappedProducts.map((product: ProcessGroupProduct) => (
                             <TableRow key={product.id ?? product.product_id}>
                               <TableCell className="text-sm font-medium">
                                 {product.product_name ?? product.name}
@@ -909,7 +955,7 @@ export default function CCPLimitsManagement() {
 
   // 설비 목록 조회 (equipments 테이블 → { items, total, page, limit })
   const { data: equipmentData } = trpc.equipment.list.useQuery({});
-  const equipmentList = (equipmentData as any)?.items ?? [];
+  const equipmentList: EquipmentRow[] = (equipmentData as { items?: EquipmentRow[] } | undefined)?.items ?? [];
 
   // 공정 그룹 생성
   const createMutation = trpc.ccpMonitoring.createProcessGroup.useMutation({
@@ -988,7 +1034,7 @@ export default function CCPLimitsManagement() {
             </div>
           ) : (
             <div className="space-y-3">
-              {groups.map((group: any) => {
+              {groups.map((group: ProcessGroup) => {
                 const eqs = group.equipments || [];
                 const groupCcpType = group.ccp_type || group.ccpType;
                 return (
@@ -1082,7 +1128,7 @@ export default function CCPLimitsManagement() {
                           <p className="text-xs text-gray-400 mt-2">설비가 배정되지 않았습니다</p>
                         ) : (
                           <div className="mt-2 space-y-1">
-                            {eqs.map((eq: any, idx: number) => (
+                            {eqs.map((eq: CcpLimitEquipment, idx: number) => (
                               <div key={eq.id || idx} className="flex items-center gap-2 text-sm">
                                 <Badge variant="outline" className="text-xs w-6 h-5 flex items-center justify-center p-0">
                                   {idx + 1}

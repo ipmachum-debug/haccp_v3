@@ -1,5 +1,23 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 은행 거래 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type BankAccountRow = RouterOutput["bankAccount"]["list"]["accounts"][number];
+type PartnerRow = RouterOutput["partners"]["list"][number];
+type AccountingAccountRow = RouterOutput["accountingAccounts"]["list"][number];
+// BankTx: 서버 원본 + 프론트에서 사용하는 추가 필드 (joined 데이터)
+type BankTx = RouterOutput["bankTransaction"]["list"]["items"][number] & {
+  notes?: string | null;
+  isHighAmount?: "Y" | "N" | boolean;
+  txDate?: string | Date;
+  matchStatus?: string;
+  matchedPartnerName?: string | null;
+  matchedAccountName?: string | null;
+};
+type OpenArRow = RouterOutput["bankTransaction"]["listOpenArByPartner"][number];
+// PartnerRow 확장: 실제 서버 반환에 name 포함
+type PartnerRowExt = PartnerRow & { name?: string };
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,15 +119,15 @@ export default function BankTransactionTab() {
 
   // ★ 2026-04-14: 거래처 목록 (AR 회수 매칭용)
   const { data: partnersData = [] } = trpc.partners.list.useQuery();
-  const partnersArr: any[] = Array.isArray(partnersData)
+  const partnersArr: PartnerRow[] = Array.isArray(partnersData)
     ? partnersData
-    : ((partnersData as any)?.items ?? []);
+    : ((partnersData as { items?: PartnerRow[] } | undefined)?.items ?? []);
 
   // ★ 2026-04-13: 수동 매칭용 계정과목 목록 (ID 직접 입력 → 드롭다운 선택 UX 개선)
   const { data: accountingAccountsList } = trpc.accountingAccounts.list.useQuery({ isActive: "Y" });
-  const accountingAccounts: any[] = Array.isArray(accountingAccountsList)
+  const accountingAccounts: AccountingAccountRow[] = Array.isArray(accountingAccountsList)
     ? accountingAccountsList
-    : ((accountingAccountsList as any)?.items ?? []);
+    : ((accountingAccountsList as { items?: AccountingAccountRow[] } | undefined)?.items ?? []);
 
   // ★ 2026-04-14: 선택된 거래처의 미수 AR 목록 (조건부 fetch)
   const { data: openArList = [], isLoading: openArLoading } = trpc.bankTransaction.listOpenArByPartner.useQuery(
@@ -151,13 +169,23 @@ export default function BankTransactionTab() {
   // 첫 활성 계좌 자동 선택
   useEffect(() => {
     if (accounts.length > 0 && !selectedAccountId) {
-      const activeAccount = accounts.find((a: any) => a.isActive === "Y") || accounts[0];
+      const activeAccount = accounts.find((a: BankAccountRow) => a.isActive === "Y") || accounts[0];
       setSelectedAccountId(activeAccount.id);
     }
   }, [accounts, selectedAccountId]);
 
   // 거래 목록 (필터 적용)
-  const queryInput: any = {
+  const queryInput: {
+    bankAccountId?: number;
+    matchingStatus?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    approvalStatus?: string;
+    transactionType?: string;
+    page?: number;
+    limit?: number;
+  } = {
     bankAccountId: selectedAccountId || undefined,
     page,
     limit,
@@ -201,7 +229,7 @@ export default function BankTransactionTab() {
       }
       setAutoMatchPreview(result.preview);
       // 기본: 전체 선택
-      setSelectedPreviewIds(new Set(result.preview.map((p: any) => p.transactionId)));
+      setSelectedPreviewIds(new Set(result.preview.map((p: { transactionId: number }) => p.transactionId)));
       setIsAutoMatchPreviewOpen(true);
     },
     onError: (error: { message: string }) => {
@@ -436,7 +464,7 @@ export default function BankTransactionTab() {
   };
 
   // 수동 매칭 Dialog 열기
-  const handleOpenMatchDialog = (tx: any) => {
+  const handleOpenMatchDialog = (tx: BankTx) => {
     setSelectedTransaction(tx);
     setMatchAccountingId(tx.accountingAccountId?.toString() || "");
     setMatchDescription(tx.description || "");
@@ -508,7 +536,7 @@ export default function BankTransactionTab() {
   };
 
   // 인라인 수정 시작
-  const handleStartEdit = (tx: any) => {
+  const handleStartEdit = (tx: BankTx) => {
     setEditingTxId(tx.id);
     setEditDescription(tx.description || "");
     setEditMemo(tx.memo || tx.notes || "");
@@ -531,7 +559,7 @@ export default function BankTransactionTab() {
   };
 
   // 승인
-  const handleApprove = (tx: any) => {
+  const handleApprove = (tx: BankTx) => {
     if (tx.isHighAmount === "Y" || tx.isLargeAmount === "Y") {
       const confirmed = prompt(`고액 거래입니다. 금액을 확인해주세요.\n거래 금액: ${parseFloat(tx.amount).toLocaleString()}원\n\n확인된 금액을 입력하세요:`);
       if (confirmed) {
@@ -578,7 +606,7 @@ export default function BankTransactionTab() {
   // 체크박스: 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
     if (checked && transactionsData?.items) {
-      setSelectedIds(new Set(transactionsData.items.map((tx: any) => tx.id)));
+      setSelectedIds(new Set(transactionsData.items.map((tx: BankTx) => tx.id)));
     } else {
       setSelectedIds(new Set());
     }
@@ -599,7 +627,7 @@ export default function BankTransactionTab() {
   const isAllSelected =
     transactionsData?.items &&
     transactionsData.items.length > 0 &&
-    transactionsData.items.every((tx: any) => selectedIds.has(tx.id));
+    transactionsData.items.every((tx: BankTx) => selectedIds.has(tx.id));
 
   // 매칭 상태 뱃지
   // ★ 2026-04-13: text-white 명시 — Badge 기본 variant 의 text-primary-foreground 가
@@ -629,7 +657,7 @@ export default function BankTransactionTab() {
     }
   };
 
-  const selectedAccount = accounts.find((a: any) => a.id === selectedAccountId);
+  const selectedAccount = accounts.find((a: BankAccountRow) => a.id === selectedAccountId);
   const totalPages = transactionsData ? Math.ceil(transactionsData.total / limit) : 0;
 
   return (
@@ -647,7 +675,7 @@ export default function BankTransactionTab() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {accounts.filter((a: any) => a.isActive === "Y").map((account: any) => (
+          {accounts.filter((a: BankAccountRow) => a.isActive === "Y").map((account: BankAccountRow) => (
             <Card
               key={account.id}
               className={`cursor-pointer transition-all hover:shadow-md ${
@@ -902,7 +930,7 @@ export default function BankTransactionTab() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {transactionsData?.items?.map((tx: any) => (
+                        {transactionsData?.items?.map((tx: BankTx) => (
                           <TableRow
                             key={tx.id}
                             className={`${
@@ -1150,9 +1178,9 @@ export default function BankTransactionTab() {
                     <div className="mt-3">
                       <p className="text-sm font-medium mb-1">오류 목록:</p>
                       <div className="max-h-40 overflow-y-auto space-y-1">
-                        {uploadResult.errors.map((error: any, idx: number) => (
+                        {uploadResult.errors.map((error: { row?: number; message?: string; error?: string }, idx: number) => (
                           <p key={idx} className="text-xs text-red-600">
-                            행 {error.row}: {error.error}
+                            행 {error.row}: {error.error || error.message}
                           </p>
                         ))}
                       </div>
@@ -1278,8 +1306,8 @@ export default function BankTransactionTab() {
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
                           {partnersArr
-                            .filter((p: any) => p.partnerType === "customer" || !p.partnerType)
-                            .map((p: any) => (
+                            .filter((p: PartnerRow) => p.partnerType === "customer" || !p.partnerType)
+                            .map((p: PartnerRowExt) => (
                               <SelectItem key={p.id} value={String(p.id)}>
                                 {p.companyName || p.name}
                                 {p.bizNo ? ` (${p.bizNo})` : ""}
@@ -1315,7 +1343,7 @@ export default function BankTransactionTab() {
                                 </tr>
                               </thead>
                               <tbody>
-                                {openArList.map((ar: any) => {
+                                {openArList.map((ar: OpenArRow) => {
                                   const allocated = arAllocations[ar.id] || 0;
                                   return (
                                     <tr key={ar.id} className="border-t hover:bg-muted/30">
