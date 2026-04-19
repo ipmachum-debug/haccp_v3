@@ -1,22 +1,13 @@
 /**
  * 인사관리 — ERP 강화 Phase 3-2
  * 근태(출퇴근) + 휴가(연차/병가) 관리
+ *
+ * 2026-04-19: Top 10 #7 분해 — types / utils / forms 별도 모듈화
+ * (기존 1066 라인 → 약 860 라인으로 축소, 추가 파일 3개)
  */
 import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
-import type { RouterOutput } from "@/lib/trpcTypes";
-
-// HR/급여 도메인 데이터 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
-type Employee = RouterOutput["payroll"]["employees"][number];
-type LeaveBalanceRow = RouterOutput["hr"]["leaveBalance"][number];
-type LeaveRow = RouterOutput["hr"]["leaveList"][number];
-type AttendanceRow = RouterOutput["hr"]["attendanceList"][number];
-type DepartmentOption = RouterOutput["hr"]["departments"][number];
-type PositionOption = RouterOutput["hr"]["positions"][number];
-type UnmatchedUser = RouterOutput["hr"]["unmatchedUsers"][number];
-type InactiveEmployee = RouterOutput["hr"]["employeesByStatus"][number];
-type MatchingStatus = RouterOutput["hr"]["matchingStatus"][number];
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,44 +15,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
 import {
   Clock, Calendar, Users, LogIn, LogOut, CheckCircle, XCircle,
-  Loader2, Plus, AlertTriangle, Timer, Pencil, Printer, Trash2,
+  Plus, Timer, Pencil, Printer, Trash2,
 } from "lucide-react";
 import { todayLocal } from "@/lib/dateUtils";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
+import { toast } from "sonner";
 
-// Date 객체를 안전하게 문자열로 변환
-const safeDate = (v: unknown): string => {
-  if (!v) return "-";
-  if (typeof v === "string") return v.slice(0, 10);
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v).slice(0, 10);
-};
-
-const fmt = (n: number) => `₩${n.toLocaleString()}`;
-
-const leaveTypeLabels: Record<string, { label: string; color: string }> = {
-  annual: { label: "연차", color: "bg-blue-100 text-blue-700" },
-  sick: { label: "병가", color: "bg-red-100 text-red-700" },
-  personal: { label: "경조", color: "bg-purple-100 text-purple-700" },
-  maternity: { label: "출산", color: "bg-pink-100 text-pink-700" },
-  other: { label: "기타", color: "bg-gray-100 text-gray-700" },
-};
-
-const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: "대기", color: "bg-amber-100 text-amber-700" },
-  approved: { label: "승인", color: "bg-emerald-100 text-emerald-700" },
-  rejected: { label: "반려", color: "bg-red-100 text-red-700" },
-};
+// 분해된 모듈들
+import type {
+  Employee, LeaveBalanceRow, LeaveRow, AttendanceRow,
+  DepartmentOption, PositionOption,
+  UnmatchedUser, InactiveEmployee, MatchingStatus,
+} from "./_hrManagement/types";
+import { safeDate, leaveTypeLabels, statusLabels } from "./_hrManagement/utils";
+import {
+  LeaveRequestForm, ManualAttendanceForm, NewEmployeeForm, ManualLeaveForm,
+} from "./_hrManagement/forms";
 
 export default function HRManagement() {
   const { isAdmin } = useAuth();
@@ -852,215 +826,3 @@ export default function HRManagement() {
   );
 }
 
-function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
-  const [leaveType, setLeaveType] = useState("annual");
-  const [startDate, setStartDate] = useState(todayLocal());
-  const [endDate, setEndDate] = useState(todayLocal());
-  const [reason, setReason] = useState("");
-
-  const requestMut = trpc.hr.requestLeave.useMutation({
-    onSuccess: (r: { message?: string }) => { toast.success(r.message); onSuccess(); },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <Label className="text-xs">휴가 유형</Label>
-        <Select value={leaveType} onValueChange={setLeaveType}>
-          <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {Object.entries(leaveTypeLabels).map(([k, v]) => (
-              <SelectItem key={k} value={k}>{v.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs">시작일</Label>
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 text-sm" />
-        </div>
-        <div>
-          <Label className="text-xs">종료일</Label>
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 text-sm" />
-        </div>
-      </div>
-      <div>
-        <Label className="text-xs">사유 *</Label>
-        <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="휴가 사유" rows={2} />
-      </div>
-      <Button className="w-full" disabled={requestMut.isPending || !reason.trim()}
-        onClick={() => requestMut.mutate({ leaveType: leaveType as "annual" | "sick" | "personal" | "maternity" | "other", startDate, endDate, reason })}>
-        {requestMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-        휴가 신청
-      </Button>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   수기 연차 등록 폼 (관리자 → 미가입 직원용)
-   ═══════════════════════════════════════════ */
-/* ═══════════════════════════════════════════
-   비회원 직원 등록 폼
-   ═══════════════════════════════════════════ */
-/* ═══════════════════════════════════════════
-   출퇴근 수기 등록 폼 (관리자)
-   ═══════════════════════════════════════════ */
-function ManualAttendanceForm({ employees, onSubmit, isPending }: {
-  employees: Employee[]; onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
-}) {
-  const [empId, setEmpId] = useState<number | null>(null);
-  const [workDate, setWorkDate] = useState(todayLocal());
-  const [clockIn, setClockIn] = useState("09:00:00");
-  const [clockOut, setClockOut] = useState("18:00:00");
-  const [notes, setNotes] = useState("");
-
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">인터넷 미사용/누락 직원의 출퇴근을 수기 등록합니다.</p>
-      <div>
-        <Label className="text-xs">직원 *</Label>
-        <select className="w-full h-9 border rounded-lg px-2 text-sm"
-          value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
-          <option value="">직원 선택</option>
-          {employees.map((emp: Employee) => (
-            <option key={emp.id} value={emp.userId || emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label className="text-xs">날짜 *</Label>
-        <Input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} className="h-9 text-sm" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label className="text-xs">출근 시간 *</Label>
-          <Input type="time" step="1" value={clockIn} onChange={(e) => setClockIn(e.target.value)} className="h-9 text-sm" />
-        </div>
-        <div>
-          <Label className="text-xs">퇴근 시간</Label>
-          <Input type="time" step="1" value={clockOut} onChange={(e) => setClockOut(e.target.value)} className="h-9 text-sm" />
-        </div>
-      </div>
-      <div>
-        <Label className="text-xs">비고</Label>
-        <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="수기 등록 사유" className="h-9 text-sm" />
-      </div>
-      <Button className="w-full" disabled={isPending || !empId || !workDate || !clockIn}
-        onClick={() => onSubmit({ employeeId: empId!, workDate, clockIn, clockOut: clockOut || undefined, notes: notes || undefined })}>
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-        출퇴근 등록
-      </Button>
-    </div>
-  );
-}
-
-function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
-  departments: DepartmentOption[]; positions: PositionOption[];
-  onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
-}) {
-  const [name, setName] = useState("");
-  const [deptId, setDeptId] = useState<number | undefined>();
-  const [posId, setPosId] = useState<number | undefined>();
-  const [hireDate, setHireDate] = useState("");
-
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">회원가입 없이 직원을 등록합니다. 사번이 자동 생성됩니다.</p>
-      <div>
-        <Label className="text-xs">이름 *</Label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="홍길동" className="h-9 text-sm" />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label className="text-xs">부서</Label>
-          <select className="w-full h-9 border rounded-lg px-2 text-sm"
-            value={deptId || ""} onChange={(e) => setDeptId(Number(e.target.value) || undefined)}>
-            <option value="">선택 안함</option>
-            {departments.map((d: DepartmentOption) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <Label className="text-xs">직급</Label>
-          <select className="w-full h-9 border rounded-lg px-2 text-sm"
-            value={posId || ""} onChange={(e) => setPosId(Number(e.target.value) || undefined)}>
-            <option value="">선택 안함</option>
-            {positions.map((p: PositionOption) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div>
-        <Label className="text-xs">입사일</Label>
-        <Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} className="h-9 text-sm" />
-      </div>
-      <Button className="w-full" disabled={isPending || !name.trim()}
-        onClick={() => onSubmit({ name: name.trim(), departmentId: deptId, positionId: posId, hireDate: hireDate || undefined })}>
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-        직원 등록
-      </Button>
-    </div>
-  );
-}
-
-function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
-  employees: Employee[]; preselectedId: number | null;
-  onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
-}) {
-  const [empId, setEmpId] = useState<number | null>(preselectedId);
-  const [leaveType, setLeaveType] = useState("annual");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [reason, setReason] = useState("");
-
-  const days = startDate && endDate
-    ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / (1000*60*60*24)) + 1)
-    : 0;
-
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">회원가입 안 된 직원 등 수기로 연차를 등록합니다. 자동 승인 처리됩니다.</p>
-      <div>
-        <Label className="text-xs">직원 선택 *</Label>
-        <select className="w-full h-9 border rounded-lg px-2 text-sm"
-          value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
-          <option value="">직원 선택</option>
-          {employees.map((emp: Employee) => (
-            <option key={emp.id} value={emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <Label className="text-xs">유형</Label>
-        <select className="w-full h-9 border rounded-lg px-2 text-sm" value={leaveType}
-          onChange={(e) => setLeaveType(e.target.value)}>
-          <option value="annual">연차</option>
-          <option value="sick">병가</option>
-          <option value="personal">경조</option>
-          <option value="other">기타</option>
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label className="text-xs">시작일 *</Label>
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 text-sm" />
-        </div>
-        <div>
-          <Label className="text-xs">종료일 *</Label>
-          <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 text-sm" />
-        </div>
-      </div>
-      {days > 0 && <p className="text-xs text-blue-600 font-bold">→ {days}일</p>}
-      <div>
-        <Label className="text-xs">사유 *</Label>
-        <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="연차 사유" className="h-9 text-sm" />
-      </div>
-      <Button className="w-full" disabled={isPending || !empId || !startDate || !endDate || !reason.trim()}
-        onClick={() => onSubmit({ employeeId: empId!, leaveType, startDate, endDate, days, reason })}>
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-        수기 등록 (자동 승인)
-      </Button>
-    </div>
-  );
-}
