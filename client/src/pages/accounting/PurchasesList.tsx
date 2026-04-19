@@ -1,6 +1,26 @@
 import React, { useState, useMemo } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 매입 리스트 도메인 타입 — TransactionRow 와 호환되는 범용 shape 사용
+// (서버 반환 shape 가 복잡하고 joined 필드가 많아 TransactionRow 를 기준으로 맞춤)
+import type { TransactionRow } from "../../lib/transactionGrouping";
+type PurchaseRow = TransactionRow;
+type PartnerRow = RouterOutput["partners"]["list"][number];
+type PurchaseGroup = import("../../lib/transactionGrouping").TransactionGroup<PurchaseRow>;
+type PurchaseFilters = {
+  startDate?: string;
+  endDate?: string;
+  partnerId?: number;
+  status?: string;
+  paymentStatus?: string;
+  search?: string;
+  itemName?: string;
+};
+// generatePurchaseGroupPDF 입력: purchaseIds 배열 (id 가 아님)
+type GroupPDFInput = { purchaseIds: number[]; [k: string]: unknown };
+type GroupPDFResult = { pdf: string; message?: string; [k: string]: unknown };
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -142,10 +162,10 @@ function PurchasesListContent() {
   //   이전: 실패 시 단일 PDF 로 조용히 폴백 → 사용자는 "첫번째만 나온다" 로 착각
   //   현재: 실패 시 명확한 에러 토스트 (자세한 원인) + console.error
   const previewGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
-    onMutate: (variables: any) => {
+    onMutate: (variables: GroupPDFInput) => {
       console.log("[generatePurchaseGroupPDF] 호출:", variables);
     },
-    onSuccess: (data: any, variables: any) => {
+    onSuccess: (data: GroupPDFResult, variables: GroupPDFInput) => {
       console.log("[generatePurchaseGroupPDF] 성공:", { ids: variables?.purchaseIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
@@ -155,7 +175,7 @@ function PurchasesListContent() {
         description: `${variables?.purchaseIds?.length || 0}개 품목 묶음 PDF 가 새 탭에서 열렸습니다.`,
       });
     },
-    onError: (error: any, variables: any) => {
+    onError: (error: { message: string }, variables: GroupPDFInput) => {
       console.error("[generatePurchaseGroupPDF] 실패:", error.message, variables);
       toast({
         title: "거래명세표 그룹 PDF 실패",
@@ -165,10 +185,10 @@ function PurchasesListContent() {
     },
   });
   const printGroupPDFMutation = trpc.haccpIntegration.generatePurchaseGroupPDF.useMutation({
-    onMutate: (variables: any) => {
+    onMutate: (variables: GroupPDFInput) => {
       console.log("[printGroupPDF] 호출:", variables);
     },
-    onSuccess: (data: any, variables: any) => {
+    onSuccess: (data: GroupPDFResult, variables: GroupPDFInput) => {
       console.log("[printGroupPDF] 성공:", { ids: variables?.purchaseIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
@@ -186,7 +206,7 @@ function PurchasesListContent() {
         description: `${variables?.purchaseIds?.length || 0}개 품목 묶음 PDF 프린트 대화상자를 엽니다.`,
       });
     },
-    onError: (error: any, variables: any) => {
+    onError: (error: { message: string }, variables: GroupPDFInput) => {
       console.error("[printGroupPDF] 실패:", error.message, variables);
       toast({
         title: "거래명세표 그룹 PDF 인쇄 실패",
@@ -288,8 +308,9 @@ function PurchasesListContent() {
         await Promise.all(targetIds.map((id) => restoreMutation.mutateAsync({ purchaseId: id })));
       }
       toast({ title: `그룹 ${label} 완료`, description: `${targetIds.length}개 품목 처리됨` });
-    } catch (err: any) {
-      toast({ title: `그룹 ${label} 실패`, description: err?.message || "일부 품목 처리 실패", variant: "destructive" });
+    } catch (err) {
+      const error = err as Error;
+      toast({ title: `그룹 ${label} 실패`, description: error.message || "일부 품목 처리 실패", variant: "destructive" });
     }
   };
 
@@ -309,7 +330,7 @@ function PurchasesListContent() {
   const { data: partners = [] } = trpc.partners.list.useQuery();
 
   // 매입 목록 조회
-  const filters: any = {};
+  const filters: PurchaseFilters = {};
   if (startDate) filters.startDate = startDate;
   if (endDate) filters.endDate = endDate;
   if (selectedPartnerId !== "all") filters.partnerId = parseInt(selectedPartnerId);
@@ -321,8 +342,8 @@ function PurchasesListContent() {
   // KPI 계산 (전체 데이터 기준)
   const kpiData = useMemo(() => {
     const totalCount = purchases.length;
-    const totalAmount = purchases.reduce((sum: number, p: any) => sum + parseFloat(p.amount || p.totalAmount || "0"), 0);
-    const totalTax = purchases.reduce((sum: number, p: any) => sum + parseFloat(p.taxAmount || "0"), 0);
+    const totalAmount = purchases.reduce((sum: number, p: PurchaseRow) => sum + parseFloat(String(p.amount ?? p.totalAmount ?? "0")), 0);
+    const totalTax = purchases.reduce((sum: number, p: PurchaseRow) => sum + parseFloat(String(p.taxAmount ?? "0")), 0);
     const totalSum = totalAmount + totalTax;
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [purchases]);
@@ -332,7 +353,7 @@ function PurchasesListContent() {
   //   연속 배치하고, 그룹의 첫 row 에만 거래일자/거래처/상태/그룹액션 표시 (rowspan 효과).
   //   사용자 원함: "제품 리스트는 기존대로 바로 보이되, 제품명 옆에 거래처별로 그룹화"
   const groupedPurchases = useMemo(
-    () => groupTransactions(purchases as any),
+    () => groupTransactions(purchases as PurchaseRow[]),
     [purchases],
   );
 
@@ -347,7 +368,7 @@ function PurchasesListContent() {
   }, [groupedPurchases, safePage]);
   // 현재 페이지에 포함된 모든 품목 (select-all, 페이지 품목 수 계산용)
   const pagedPurchases = useMemo(() => {
-    return pagedGroups.flatMap((g: any) => g.items);
+    return pagedGroups.flatMap((g: PurchaseGroup) => g.items);
   }, [pagedGroups]);
 
   // 필터 변경 시 페이지 리셋
@@ -356,10 +377,10 @@ function PurchasesListContent() {
   // 현재 페이지 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const pageIds = pagedPurchases.map((p: any) => p.id);
+      const pageIds = pagedPurchases.map((p: PurchaseRow) => p.id);
       setSelectedIds((prev) => [...new Set([...prev, ...pageIds])]);
     } else {
-      const pageIds = new Set(pagedPurchases.map((p: any) => p.id));
+      const pageIds = new Set(pagedPurchases.map((p: PurchaseRow) => p.id));
       setSelectedIds((prev) => prev.filter((id) => !pageIds.has(id)));
     }
   };
@@ -402,7 +423,7 @@ function PurchasesListContent() {
       toast({ title: "선택 항목 없음", description: "다운로드할 항목을 선택해주세요.", variant: "destructive" });
       return;
     }
-    const selected = purchases.filter((p: any) => selectedIds.includes(p.id));
+    const selected = purchases.filter((p: PurchaseRow) => selectedIds.includes(p.id));
     downloadExcel(selected, "선택 매입 목록", `선택_매입_목록_${todayLocal()}.xlsx`);
   };
 
@@ -416,15 +437,15 @@ function PurchasesListContent() {
   };
 
   // 자동생성 안내 문구는 비고에 표시하지 않음
-  const cleanNote = (n: any): string => {
+  const cleanNote = (n: unknown): string => {
     const s = String(n || "").trim();
     if (!s) return "-";
     if (/^(제품출고|매입|매출)\s*자동생성/.test(s) || /\(B2[BC]\s*임포트\)/.test(s)) return "-";
     return s;
   };
 
-  const downloadExcel = (data: any[], sheetName: string, fileName: string) => {
-    const excelData = data.map((p: any) => ({
+  const downloadExcel = (data: PurchaseRow[], sheetName: string, fileName: string) => {
+    const excelData = data.map((p: PurchaseRow) => ({
       거래일자: p.transactionDate,
       거래처명: p.partnerName || "-",
       품목명: p.itemName,
@@ -433,7 +454,7 @@ function PurchasesListContent() {
       단가: p.unitPrice,
       금액: p.amount || p.totalAmount,
       세금: p.taxAmount || 0,
-      합계: (parseFloat(p.amount || p.totalAmount || "0") + parseFloat(p.taxAmount || "0")).toFixed(2),
+      합계: (parseFloat(String(p.amount ?? p.totalAmount ?? "0")) + parseFloat(String(p.taxAmount ?? "0"))).toFixed(2),
       증빙유형: p.documentType || "-",
       상태: getStatusLabel(p.status),
       비고: cleanNote(p.notes),
@@ -579,7 +600,7 @@ function PurchasesListContent() {
                 <SelectTrigger><SelectValue placeholder="전체" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">전체</SelectItem>
-                  {partners.map((p: any) => (
+                  {partners.map((p: PartnerRow) => (
                     <SelectItem key={p.id} value={p.id.toString()}>{p.companyName}</SelectItem>
                   ))}
                 </SelectContent>
@@ -667,7 +688,7 @@ function PurchasesListContent() {
                   <TableRow className="bg-muted/30">
                     <TableHead className="w-[44px]">
                       <Checkbox
-                        checked={pagedPurchases.length > 0 && pagedPurchases.every((p: any) => selectedIds.includes(p.id))}
+                        checked={pagedPurchases.length > 0 && pagedPurchases.every((p: PurchaseRow) => selectedIds.includes(p.id))}
                         onCheckedChange={handleSelectAll}
                       />
                     </TableHead>
@@ -690,17 +711,17 @@ function PurchasesListContent() {
                       - 같은 거래(date+partner+증빙)의 품목은 연속 배치
                       - 그룹 첫 row 에만 거래일자/거래처/상태/그룹액션 표시 (rowspan 효과)
                       - 그룹 배경색 교차로 시각적 구분 */}
-                  {pagedGroups.map((group: any, groupIdx: number) => {
+                  {pagedGroups.map((group: PurchaseGroup, groupIdx: number) => {
                     const groupBgClass = groupIdx % 2 === 0 ? "" : "bg-slate-50/40";
                     const availableGroupActions = getAvailableActions(group.dominantStatus, "purchase");
                     const statusLabel = STATUS_LABELS[group.dominantStatus] || group.dominantStatus;
                     const statusColor = STATUS_COLORS[group.dominantStatus] || "";
                     const isMultiItem = group.items.length > 1;
 
-                    return group.items.map((purchase: any, itemIdx: number) => {
+                    return group.items.map((purchase: PurchaseRow, itemIdx: number) => {
                       const isFirst = itemIdx === 0;
-                      const amount = parseFloat(purchase.amount || purchase.totalAmount || "0");
-                      const tax = parseFloat(purchase.taxAmount || "0");
+                      const amount = parseFloat(String(purchase.amount ?? purchase.totalAmount ?? "0"));
+                      const tax = parseFloat(String(purchase.taxAmount ?? "0"));
                       const itemActions = getAvailableActions(purchase.status, "purchase");
 
                       return (
@@ -796,7 +817,7 @@ function PurchasesListContent() {
                                   {/* 거래명세표 PDF — 그룹 전체 묶음 (2026-04-15 가시화) */}
                                   <Button size="sm" variant="outline"
                                     onClick={() => {
-                                      const ids = group.items.map((i: any) => i.id);
+                                      const ids = group.items.map((i: PurchaseRow) => i.id);
                                       console.log(`[그룹 PDF 미리보기 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
                                       toast({
                                         title: `📄 ${ids.length}개 품목 묶음 PDF 생성 중`,
@@ -810,7 +831,7 @@ function PurchasesListContent() {
                                   </Button>
                                   <Button size="sm" variant="outline"
                                     onClick={() => {
-                                      const ids = group.items.map((i: any) => i.id);
+                                      const ids = group.items.map((i: PurchaseRow) => i.id);
                                       console.log(`[그룹 PDF 인쇄 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
                                       toast({
                                         title: `🖨️ ${ids.length}개 품목 묶음 인쇄 중`,

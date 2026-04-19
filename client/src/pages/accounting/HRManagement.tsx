@@ -80,11 +80,11 @@ export default function HRManagement() {
   // 출퇴근
   const { data: myToday, refetch: refetchToday } = trpc.hr.myToday.useQuery(undefined, { refetchInterval: 30000 });
   const clockInMut = trpc.hr.clockIn.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchToday(); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchToday(); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const clockOutMut = trpc.hr.clockOut.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchToday(); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchToday(); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -111,30 +111,30 @@ export default function HRManagement() {
 
   // 근태 수정 (관리자)
   const updateAttMut = trpc.hr.updateAttendance.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const deleteAttMut = trpc.hr.deleteAttendance.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 근태 수기 등록
   const [manualAttOpen, setManualAttOpen] = useState(false);
   const createAttMut = trpc.hr.createAttendanceManual.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); setManualAttOpen(false); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); setManualAttOpen(false); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 일괄 출근 (기출근자 자동 제외)
   const bulkClockInMut = trpc.hr.bulkClockIn.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 일일 마감 (퇴근 미기록 자동처리)
   const closeDayMut = trpc.hr.closeDay.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchAtt(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchAtt(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -143,7 +143,7 @@ export default function HRManagement() {
   const { data: deptList } = trpc.hr.departments.useQuery();
   const { data: posList } = trpc.hr.positions.useQuery();
   const createEmpMut = trpc.hr.createEmployee.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); setNewEmpOpen(false); refetchBalance(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); setNewEmpOpen(false); refetchBalance(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -152,25 +152,25 @@ export default function HRManagement() {
   const { data: unmatchedUsers } = trpc.hr.unmatchedUsers.useQuery();
   const { data: matchingStatus, refetch: refetchMatching } = trpc.hr.matchingStatus.useQuery();
   const linkUserMut = trpc.hr.linkUserToEmployee.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchMatching(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchBalance(); refetchMatching(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 연차 부여 수정 (관리자)
   const setBalanceMut = trpc.hr.setLeaveBalance.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchBalance(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 수기 연차 등록 (관리자)
   const manualLeaveMut = trpc.hr.createLeaveManual.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); setManualLeaveOpen(false); refetchLeaves(); refetchBalance(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); setManualLeaveOpen(false); refetchLeaves(); refetchBalance(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 직원 상태 변경 (관리자)
   const updateStatusMut = trpc.hr.updateEmployeeStatus.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchBalance(); refetchInactive(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchBalance(); refetchInactive(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -268,11 +268,11 @@ export default function HRManagement() {
 
   // 휴가 승인/반려/삭제
   const approveMut = trpc.hr.approveLeave.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const deleteLeaveMut = trpc.hr.deleteLeave.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); refetchLeaves(); refetchBalance(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -859,7 +859,7 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
   const [reason, setReason] = useState("");
 
   const requestMut = trpc.hr.requestLeave.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
+    onSuccess: (r: { message?: string }) => { toast.success(r.message); onSuccess(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -891,7 +891,7 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
         <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="휴가 사유" rows={2} />
       </div>
       <Button className="w-full" disabled={requestMut.isPending || !reason.trim()}
-        onClick={() => requestMut.mutate({ leaveType: leaveType as any, startDate, endDate, reason })}>
+        onClick={() => requestMut.mutate({ leaveType: leaveType as "annual" | "sick" | "personal" | "maternity" | "other", startDate, endDate, reason })}>
         {requestMut.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         휴가 신청
       </Button>
@@ -909,7 +909,7 @@ function LeaveRequestForm({ onSuccess }: { onSuccess: () => void }) {
    출퇴근 수기 등록 폼 (관리자)
    ═══════════════════════════════════════════ */
 function ManualAttendanceForm({ employees, onSubmit, isPending }: {
-  employees: any[]; onSubmit: (data: any) => void; isPending: boolean;
+  employees: Employee[]; onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
 }) {
   const [empId, setEmpId] = useState<number | null>(null);
   const [workDate, setWorkDate] = useState(todayLocal());
@@ -925,7 +925,7 @@ function ManualAttendanceForm({ employees, onSubmit, isPending }: {
         <select className="w-full h-9 border rounded-lg px-2 text-sm"
           value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
           <option value="">직원 선택</option>
-          {employees.map((emp: any) => (
+          {employees.map((emp: Employee) => (
             <option key={emp.id} value={emp.userId || emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
           ))}
         </select>
@@ -958,8 +958,8 @@ function ManualAttendanceForm({ employees, onSubmit, isPending }: {
 }
 
 function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
-  departments: any[]; positions: any[];
-  onSubmit: (data: any) => void; isPending: boolean;
+  departments: DepartmentOption[]; positions: PositionOption[];
+  onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
 }) {
   const [name, setName] = useState("");
   const [deptId, setDeptId] = useState<number | undefined>();
@@ -979,7 +979,7 @@ function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
           <select className="w-full h-9 border rounded-lg px-2 text-sm"
             value={deptId || ""} onChange={(e) => setDeptId(Number(e.target.value) || undefined)}>
             <option value="">선택 안함</option>
-            {departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {departments.map((d: DepartmentOption) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </div>
         <div>
@@ -987,7 +987,7 @@ function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
           <select className="w-full h-9 border rounded-lg px-2 text-sm"
             value={posId || ""} onChange={(e) => setPosId(Number(e.target.value) || undefined)}>
             <option value="">선택 안함</option>
-            {positions.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            {positions.map((p: PositionOption) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </div>
       </div>
@@ -1005,8 +1005,8 @@ function NewEmployeeForm({ departments, positions, onSubmit, isPending }: {
 }
 
 function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
-  employees: any[]; preselectedId: number | null;
-  onSubmit: (data: any) => void; isPending: boolean;
+  employees: Employee[]; preselectedId: number | null;
+  onSubmit: (data: Record<string, unknown>) => void; isPending: boolean;
 }) {
   const [empId, setEmpId] = useState<number | null>(preselectedId);
   const [leaveType, setLeaveType] = useState("annual");
@@ -1026,7 +1026,7 @@ function ManualLeaveForm({ employees, preselectedId, onSubmit, isPending }: {
         <select className="w-full h-9 border rounded-lg px-2 text-sm"
           value={empId?.toString() || ""} onChange={(e) => setEmpId(Number(e.target.value) || null)}>
           <option value="">직원 선택</option>
-          {employees.map((emp: any) => (
+          {employees.map((emp: Employee) => (
             <option key={emp.id} value={emp.id}>{emp.name} {emp.position ? `(${emp.position})` : ""}</option>
           ))}
         </select>

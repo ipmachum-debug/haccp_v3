@@ -1,6 +1,15 @@
 import React, { useState, useMemo, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+import type { TransactionRow } from "../../lib/transactionGrouping";
+
+// 매출 리스트 도메인 타입 — TransactionRow 기반 (PurchasesList 와 동일 패턴)
+type SaleRow = TransactionRow;
+type PartnerRow = RouterOutput["partners"]["list"][number];
+type SaleGroup = import("../../lib/transactionGrouping").TransactionGroup<SaleRow>;
+type GroupPDFInput = { saleIds: number[]; [k: string]: unknown };
+type GroupPDFResult = { pdf: string; message?: string; [k: string]: unknown };
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -176,10 +185,10 @@ function SalesListContent() {
   // ─── 그룹 PDF (2026-04-15 디버그 강화) ───────────────────
   // ★ fallback 제거 — 실패 시 명확한 에러 표시 (디버깅 가능하도록)
   const previewGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
-    onMutate: (variables: any) => {
+    onMutate: (variables: GroupPDFInput) => {
       console.log("[generateSaleGroupPDF] 호출:", variables);
     },
-    onSuccess: (data: any, variables: any) => {
+    onSuccess: (data: GroupPDFResult, variables: GroupPDFInput) => {
       console.log("[generateSaleGroupPDF] 성공:", { ids: variables?.saleIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
@@ -189,7 +198,7 @@ function SalesListContent() {
         description: `${variables?.saleIds?.length || 0}개 품목 묶음 PDF 가 새 탭에서 열렸습니다.`,
       });
     },
-    onError: (error: any, variables: any) => {
+    onError: (error: { message: string }, variables: GroupPDFInput) => {
       console.error("[generateSaleGroupPDF] 실패:", error.message, variables);
       toast({
         title: "거래명세표 그룹 PDF 실패",
@@ -199,10 +208,10 @@ function SalesListContent() {
     },
   });
   const printGroupPDFMutation = trpc.haccpIntegration.generateSaleGroupPDF.useMutation({
-    onMutate: (variables: any) => {
+    onMutate: (variables: GroupPDFInput) => {
       console.log("[printSaleGroupPDF] 호출:", variables);
     },
-    onSuccess: (data: any, variables: any) => {
+    onSuccess: (data: GroupPDFResult, variables: GroupPDFInput) => {
       console.log("[printSaleGroupPDF] 성공:", { ids: variables?.saleIds, pdfBytes: data.pdf?.length });
       const blob = base64ToPdfBlob(data.pdf);
       const url = URL.createObjectURL(blob);
@@ -220,7 +229,7 @@ function SalesListContent() {
         description: `${variables?.saleIds?.length || 0}개 품목 묶음 PDF 프린트 대화상자를 엽니다.`,
       });
     },
-    onError: (error: any, variables: any) => {
+    onError: (error: { message: string }, variables: GroupPDFInput) => {
       console.error("[printSaleGroupPDF] 실패:", error.message, variables);
       toast({
         title: "거래명세표 그룹 PDF 인쇄 실패",
@@ -263,8 +272,9 @@ function SalesListContent() {
         await Promise.all(targetIds.map((id) => saleRestoreMutation.mutateAsync({ saleId: id })));
       }
       toast({ title: `그룹 ${label} 완료`, description: `${targetIds.length}개 품목 처리됨` });
-    } catch (err: any) {
-      toast({ title: `그룹 ${label} 실패`, description: err?.message || "일부 품목 처리 실패", variant: "destructive" });
+    } catch (err) {
+      const error = err as Error;
+      toast({ title: `그룹 ${label} 실패`, description: error.message || "일부 품목 처리 실패", variant: "destructive" });
     }
   };
 
@@ -294,7 +304,7 @@ function SalesListContent() {
 
   // ─── 거래 그룹화 + 페이지네이션 ─────────────────────────
   // ★ 2026-04-14: sales 선언 뒤로 이동 (TDZ 에러 방지)
-  const groupedSales = useMemo(() => groupTransactions(sales as any), [sales]);
+  const groupedSales = useMemo(() => groupTransactions(sales as SaleRow[]), [sales]);
 
   // 그룹 단위 페이지네이션
   const [groupPage, setGroupPage] = useState(1);
@@ -306,15 +316,15 @@ function SalesListContent() {
     return groupedSales.slice(start, start + GROUP_PAGE_SIZE);
   }, [groupedSales, safeGroupPage]);
   const pagedSalesItems = useMemo(
-    () => pagedGroupsSales.flatMap((g: any) => g.items),
+    () => pagedGroupsSales.flatMap((g: SaleGroup) => g.items),
     [pagedGroupsSales],
   );
 
   // KPI 계산
   const kpiData = useMemo(() => {
     const totalCount = sales.length;
-    const totalAmount = sales.reduce((sum: number, s: any) => sum + parseFloat(s.amount || "0"), 0);
-    const totalTax = sales.reduce((sum: number, s: any) => sum + parseFloat(s.taxAmount || "0"), 0);
+    const totalAmount = sales.reduce((sum: number, s: SaleRow) => sum + parseFloat(String(s.amount ?? "0")), 0);
+    const totalTax = sales.reduce((sum: number, s: SaleRow) => sum + parseFloat(String(s.taxAmount ?? "0")), 0);
     const totalSum = totalAmount + totalTax;
     return { totalCount, totalAmount, totalTax, totalSum };
   }, [sales]);
@@ -324,7 +334,7 @@ function SalesListContent() {
 
   // 전체 선택/해제
   const handleSelectAll = (checked: boolean) => {
-    setSelectedIds(checked ? sales.map((s: any) => s.id) : []);
+    setSelectedIds(checked ? sales.map((s: SaleRow) => s.id) : []);
   };
 
   const handleSelectOne = (id: number, checked: boolean) => {
@@ -364,7 +374,7 @@ function SalesListContent() {
       toast({ title: "선택 항목 없음", description: "다운로드할 항목을 선택해주세요.", variant: "destructive" });
       return;
     }
-    const selected = sales.filter((s: any) => selectedIds.includes(s.id));
+    const selected = sales.filter((s: SaleRow) => selectedIds.includes(s.id));
     downloadExcel(selected, "선택 매출조회", `선택_매출조회_${todayLocal()}.xlsx`);
   };
 
@@ -378,15 +388,15 @@ function SalesListContent() {
   };
 
   // 자동생성 안내 문구(예: "제품출고 자동생성...") 는 비고에 표시하지 않음
-  const cleanNote = (n: any): string => {
+  const cleanNote = (n: unknown): string => {
     const s = String(n || "").trim();
     if (!s) return "-";
     if (/^제품출고\s*자동생성/.test(s) || /\(B2[BC]\s*임포트\)/.test(s)) return "-";
     return s;
   };
 
-  const downloadExcel = (data: any[], sheetName: string, fileName: string) => {
-    const excelData = data.map((s: any) => ({
+  const downloadExcel = (data: SaleRow[], sheetName: string, fileName: string) => {
+    const excelData = data.map((s: SaleRow) => ({
       거래일자: new Date(s.transactionDate).toLocaleDateString("ko-KR"),
       거래처명: s.partnerName || "-",
       품목명: s.itemName || "-",
@@ -394,7 +404,7 @@ function SalesListContent() {
       단가: s.unitPrice || 0,
       금액: s.amount || 0,
       세금: s.taxAmount || 0,
-      합계: parseFloat(s.amount || "0") + parseFloat(s.taxAmount || "0"),
+      합계: parseFloat(String(s.amount ?? "0")) + parseFloat(String(s.taxAmount ?? "0")),
       증빙유형: getProofLabel(s.proofType),
       상태: getStatusLabel(s.status),
       비고: cleanNote(s.notes),
@@ -561,7 +571,7 @@ function SalesListContent() {
                   <SelectTrigger><SelectValue placeholder="전체" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">전체</SelectItem>
-                    {partners.map((p: any) => (
+                    {partners.map((p: PartnerRow) => (
                       <SelectItem key={p.id} value={p.id.toString()}>{p.companyName}</SelectItem>
                     ))}
                   </SelectContent>
@@ -651,8 +661,8 @@ function SalesListContent() {
                     <TableRow className="bg-muted/30">
                       <TableHead className="w-[44px]">
                         <Checkbox
-                          checked={pagedSalesItems.length > 0 && pagedSalesItems.every((s: any) => selectedIds.includes(s.id))}
-                          onCheckedChange={(checked) => setSelectedIds(checked ? pagedSalesItems.map((s: any) => s.id) : [])}
+                          checked={pagedSalesItems.length > 0 && pagedSalesItems.every((s: SaleRow) => selectedIds.includes(s.id))}
+                          onCheckedChange={(checked) => setSelectedIds(checked ? pagedSalesItems.map((s: SaleRow) => s.id) : [])}
                         />
                       </TableHead>
                       <TableHead className="text-xs font-semibold">거래일자</TableHead>
@@ -670,17 +680,17 @@ function SalesListContent() {
                   </TableHeader>
                   <TableBody>
                     {/* 거래별 그룹화 rowspan-flat 렌더 (2026-04-14 재설계) */}
-                    {pagedGroupsSales.map((group: any, groupIdx: number) => {
+                    {pagedGroupsSales.map((group: SaleGroup, groupIdx: number) => {
                       const groupBgClass = groupIdx % 2 === 0 ? "" : "bg-slate-50/40";
                       const availableGroupActions = getAvailableActions(group.dominantStatus, "sale");
                       const statusLabel = STATUS_LABELS[group.dominantStatus] || group.dominantStatus;
                       const statusColor = STATUS_COLORS[group.dominantStatus] || "";
                       const isMultiItem = group.items.length > 1;
 
-                      return group.items.map((sale: any, itemIdx: number) => {
+                      return group.items.map((sale: SaleRow, itemIdx: number) => {
                         const isFirst = itemIdx === 0;
-                        const amount = parseFloat(sale.amount || "0");
-                        const tax = parseFloat(sale.taxAmount || "0");
+                        const amount = parseFloat(String(sale.amount ?? "0"));
+                        const tax = parseFloat(String(sale.taxAmount ?? "0"));
                         const itemActions = getAvailableActions(sale.status, "sale");
 
                         return (
@@ -714,7 +724,7 @@ function SalesListContent() {
                               {sale.itemName || "-"}
                             </TableCell>
                             <TableCell className="text-sm text-right tabular-nums">
-                              {parseFloat(sale.quantity || "0").toLocaleString()}
+                              {parseFloat(String(sale.quantity ?? "0")).toLocaleString()}
                             </TableCell>
                             <TableCell className="text-sm text-right tabular-nums">
                               {formatCurrency(sale.unitPrice || "0")}
@@ -777,7 +787,7 @@ function SalesListContent() {
                                     {/* 거래명세표 PDF — 그룹 묶음 (2026-04-15 가시화) */}
                                     <Button size="sm" variant="outline"
                                       onClick={() => {
-                                        const ids = group.items.map((i: any) => i.id);
+                                        const ids = group.items.map((i: SaleRow) => i.id);
                                         console.log(`[매출 그룹 PDF 미리보기 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
                                         toast({
                                           title: `📄 ${ids.length}개 품목 묶음 PDF 생성 중`,
@@ -791,7 +801,7 @@ function SalesListContent() {
                                     </Button>
                                     <Button size="sm" variant="outline"
                                       onClick={() => {
-                                        const ids = group.items.map((i: any) => i.id);
+                                        const ids = group.items.map((i: SaleRow) => i.id);
                                         console.log(`[매출 그룹 PDF 인쇄 클릭] group.items.length=${group.items.length}, ids=${JSON.stringify(ids)}`, group);
                                         toast({
                                           title: `🖨️ ${ids.length}개 품목 묶음 인쇄 중`,
