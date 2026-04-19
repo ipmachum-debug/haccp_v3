@@ -7,22 +7,18 @@
 
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
-import mysql, { type Connection } from "mysql2/promise";
+import type { PoolConnection } from "mysql2/promise";
 import ExcelJS from "exceljs";
+import { getPool } from "../../db/pool";
 // getEffectiveTenantId 제거 → tenantRequiredProcedure가 ctx.tenantId 보장
 
 // ─── DB 연결 ───
-// DATABASE_URL env 사용 — 하드코딩 자격정보 제거 (보안 정리 2026-04-19)
-// TODO: 장기적으로 앱 공통 pool (server/db/pool.ts) 을 재사용하도록 전환 필요
-async function getDbConnection() {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error("[excelImport] DATABASE_URL 환경변수 미설정");
-  }
-  const conn = await mysql.createConnection(url);
-  // KST 타임존 설정
-  await conn.query("SET time_zone = '+09:00'");
-  return conn;
+// 앱 공통 Pool 재사용 (보안 정리 2026-04-19 Phase 2)
+// 이전: 자체 createConnection + 하드코딩 비밀번호 + 개별 conn.end()
+// 이후: getPool().getConnection() — 공통 커넥션 풀, env 기반, KST 타임존 자동 적용
+// 주의: 사용 후 conn.release() 로 pool 에 반환해야 함 (기존 conn.end() 도 호환)
+async function getDbConnection(): Promise<PoolConnection> {
+  return getPool().getConnection();
 }
 
 function formatDate(val: any): string {
@@ -142,7 +138,7 @@ export const excelImportRouter = router({
       } catch (err: any) {
         results.errors.push(err.message);
       } finally {
-        await conn.end();
+        conn.release();
       }
 
       return results;
@@ -182,7 +178,7 @@ export const excelImportRouter = router({
           partners: partners[0].c,
         };
       } finally {
-        await conn.end();
+        conn.release();
       }
     }),
 });
@@ -192,7 +188,7 @@ export const excelImportRouter = router({
 // ═══════════════════════════════════════
 
 async function importMasterData(
-  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
+  conn: PoolConnection, wb: ExcelJS.Workbook, tenantId: number,
   results: any
 ) {
   const partnerIdMap: Record<string, number> = {};
@@ -308,7 +304,7 @@ async function importMasterData(
 const materialQueue: Array<{ name: string; unit: string; idx: number }> = [];
 
 async function importBomData(
-  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
+  conn: PoolConnection, wb: ExcelJS.Workbook, tenantId: number,
   idMap: Awaited<ReturnType<typeof importMasterData>>,
   results: any
 ) {
@@ -391,7 +387,7 @@ async function importBomData(
 }
 
 async function importOperationsData(
-  conn: Connection, wb: ExcelJS.Workbook, tenantId: number,
+  conn: PoolConnection, wb: ExcelJS.Workbook, tenantId: number,
   idMap: Awaited<ReturnType<typeof importMasterData>>,
   results: any
 ) {
@@ -591,7 +587,7 @@ async function importOperationsData(
 const purchaseRows: any[] = [];
 const batchRows: any[] = [];
 
-async function generateDocuments(conn: Connection, tenantId: number, results: any) {
+async function generateDocuments(conn: PoolConnection, tenantId: number, results: any) {
   // ── 승인 요청 ──
   const [batches] = (await conn.execute(
     `SELECT b.id, b.batch_code FROM h_batches b LEFT JOIN h_approval_requests ar ON ar.reference_id = b.id AND ar.reference_type = 'batch' AND ar.tenant_id = b.tenant_id WHERE b.tenant_id = ? AND b.notes = '엑셀 임포트' AND ar.id IS NULL`,
