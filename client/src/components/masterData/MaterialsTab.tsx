@@ -88,7 +88,7 @@ export default function MaterialsTab() {
       setMaterialDialogOpen(false);
       refetchMaterials();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`원재료 추가 실패: ${error.message}`);
     },
   });
@@ -98,7 +98,7 @@ export default function MaterialsTab() {
       toast.success("원재료가 삭제되었습니다");
       refetchMaterials();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`원재료 삭제 실패: ${error.message}`);
     },
   });
@@ -109,7 +109,7 @@ export default function MaterialsTab() {
       setEditingMaterial(null);
       refetchMaterials();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`원재료 수정 실패: ${error.message}`);
     },
   });

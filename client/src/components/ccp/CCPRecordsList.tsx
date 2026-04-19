@@ -58,7 +58,7 @@ export function CCPRecordsList() {
       setDeleteDialogOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("삭제 실패", { description: error.message });
     },
   });

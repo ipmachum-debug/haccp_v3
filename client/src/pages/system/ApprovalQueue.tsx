@@ -30,7 +30,7 @@ export default function ApprovalQueue() {
       setApprovalNotes("");
       setSelectedInstance(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -43,7 +43,7 @@ export default function ApprovalQueue() {
       setRejectionNotes("");
       setSelectedInstance(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -56,7 +56,7 @@ export default function ApprovalQueue() {
       setApprovalNotes("");
       setSelectedInstances([]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });
@@ -69,7 +69,7 @@ export default function ApprovalQueue() {
       setRejectionNotes("");
       setSelectedInstances([]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

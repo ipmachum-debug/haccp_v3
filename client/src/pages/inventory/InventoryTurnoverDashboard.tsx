@@ -43,7 +43,7 @@ export default function InventoryTurnoverDashboard() {
       setThresholdRate("");
       setAlertEnabled(true);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`설정 실패: ${error.message}`);
     },
   });
@@ -53,7 +53,7 @@ export default function InventoryTurnoverDashboard() {
     onSuccess: (data: any) => {
       alert(`재고 회전율 자동 알림 생성 완료: ${data.alertsCreated}개 생성`);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`알림 생성 실패: ${error.message}`);
     },
   });

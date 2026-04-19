@@ -35,7 +35,7 @@ export default function ResetPassword() {
         navigate("/login");
       }, 3000);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

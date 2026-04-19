@@ -34,7 +34,7 @@ export default function Register() {
       toast.success(data.message || "회원가입이 완료되었습니다!");
       setLocation("/login");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "회원가입에 실패했습니다.");
     },
   });

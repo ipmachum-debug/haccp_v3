@@ -22,7 +22,7 @@ export default function InventoryPredictionDashboard() {
       toast.success("안전 재고 수준이 업데이트되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

@@ -63,7 +63,7 @@ export default function DocumentApprovalManagement() {
       setReviewDialogOpen(false);
       setComments("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`검토 실패: ${error.message}`);
     }
   });
@@ -76,7 +76,7 @@ export default function DocumentApprovalManagement() {
       setApproveDialogOpen(false);
       setComments("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`승인 실패: ${error.message}`);
     }
   });
@@ -90,7 +90,7 @@ export default function DocumentApprovalManagement() {
       setSelectedIds([]);
       setComments("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일괄 검토 실패: ${error.message}`);
     }
   });
@@ -104,7 +104,7 @@ export default function DocumentApprovalManagement() {
       setSelectedIds([]);
       setComments("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일괄 승인 실패: ${error.message}`);
     }
   });

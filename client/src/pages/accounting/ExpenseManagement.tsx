@@ -147,7 +147,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e: any) => toast({ title: "확정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "확정 실패", description: e.message, variant: "destructive" }),
   });
 
   const cancelMut = trpc.expense.cancel.useMutation({
@@ -158,7 +158,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e: any) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
   });
 
   const deleteMut = trpc.expense.delete.useMutation({
@@ -167,7 +167,7 @@ function ExpenseListTab() {
       utils.expense.list.invalidate();
       utils.expense.getSummary.invalidate();
     },
-    onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
   });
 
   // ─── 엑셀 다운로드 ──────────────────
@@ -685,7 +685,7 @@ function ExpenseFormDialog({
       utils.expense.getSummary.invalidate();
       onClose();
     },
-    onError: (e: any) => toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "등록 실패", description: e.message, variant: "destructive" }),
   });
 
   const updateMut = trpc.expense.update.useMutation({
@@ -698,7 +698,7 @@ function ExpenseFormDialog({
       utils.expense.getSummary.invalidate();
       onClose();
     },
-    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
 
   const totals = useMemo(() => {
@@ -1044,15 +1044,15 @@ function RecurringTab() {
 
   const createMut = trpc.expense.recurringCreate.useMutation({
     onSuccess: () => { toast({ title: "템플릿 등록 완료" }); setIsFormOpen(false); utils.expense.recurringList.invalidate(); },
-    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const updateMut = trpc.expense.recurringUpdate.useMutation({
     onSuccess: () => { toast({ title: "수정 완료" }); setIsFormOpen(false); setEditingTpl(null); utils.expense.recurringList.invalidate(); },
-    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const deleteMut = trpc.expense.recurringDelete.useMutation({
     onSuccess: () => { toast({ title: "삭제 완료" }); utils.expense.recurringList.invalidate(); },
-    onError: (e: any) => toast({ title: "오류", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "오류", description: e.message, variant: "destructive" }),
   });
   const generateMut = trpc.expense.recurringGenerate.useMutation({
     onSuccess: (data: any) => {
@@ -1061,7 +1061,7 @@ function RecurringTab() {
       utils.expense.recurringList.invalidate();
       utils.expense.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "생성 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "생성 실패", description: e.message, variant: "destructive" }),
   });
 
   const RECURRENCE_LABEL: Record<string, string> = { monthly: "매월", quarterly: "분기", yearly: "매년" };
@@ -1281,7 +1281,7 @@ function UnpaidTab() {
       utils.expense.unpaidList.invalidate();
       if (historyVoucherId) utils.expense.unpaidPaymentHistory.invalidate();
     },
-    onError: (e: any) => toast({ title: "지급 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "지급 실패", description: e.message, variant: "destructive" }),
   });
 
   // 미지급 합계

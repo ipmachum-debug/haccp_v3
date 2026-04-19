@@ -153,7 +153,7 @@ function PurchaseOrderListContent() {
       toast({ title: "승인 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "승인 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "승인 실패", description: e.message, variant: "destructive" }),
   });
 
   const cancelMutation = trpc.purchaseOrder.cancel.useMutation({
@@ -161,7 +161,7 @@ function PurchaseOrderListContent() {
       toast({ title: "취소 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "취소 실패", description: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = trpc.purchaseOrder.delete.useMutation({
@@ -169,7 +169,7 @@ function PurchaseOrderListContent() {
       toast({ title: "삭제 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
-    onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
   });
 
   const updateMutation = trpc.purchaseOrder.update.useMutation({
@@ -179,7 +179,7 @@ function PurchaseOrderListContent() {
       setEditDialogOpen(false);
       setEditingPo(null);
     },
-    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
   });
 
   const receiveMutation = trpc.purchaseOrder.receive.useMutation({
@@ -193,7 +193,7 @@ function PurchaseOrderListContent() {
       setReceivePoId(null);
       setReceiveLines({});
     },
-    onError: (e: any) => toast({ title: "입고 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "입고 실패", description: e.message, variant: "destructive" }),
   });
 
   // ★ 2026-04-14: 발주서 PDF 공통 헬퍼
@@ -228,7 +228,7 @@ function PurchaseOrderListContent() {
       }, 120_000);
       toast({ title: "인쇄", description: "프린트 대화상자를 엽니다." });
     },
-    onError: (e: any) => toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "인쇄 실패", description: e.message, variant: "destructive" }),
   });
 
   // 👁️ 자세히보기 (새 탭)
@@ -239,7 +239,7 @@ function PurchaseOrderListContent() {
       window.open(url, "_blank");
       toast({ title: "미리보기", description: "새 탭에서 열렸습니다." });
     },
-    onError: (e: any) => toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
+    onError: (e: { message: string }) => toast({ title: "미리보기 실패", description: e.message, variant: "destructive" }),
   });
 
   // 통계 카드

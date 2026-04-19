@@ -74,7 +74,7 @@ export default function UserManagement() {
       toast.success("역할이 변경되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`역할 변경 실패: ${error.message}`);
     },
   });
@@ -84,7 +84,7 @@ export default function UserManagement() {
       toast.success("상태가 변경되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });
@@ -94,7 +94,7 @@ export default function UserManagement() {
       toast.success("사용자가 삭제되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`사용자 삭제 실패: ${error.message}`);
     },
   });
@@ -105,7 +105,7 @@ export default function UserManagement() {
       setSelectedUsers([]);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일괄 승인 실패: ${error.message}`);
     },
   });
@@ -116,7 +116,7 @@ export default function UserManagement() {
       setSelectedUsers([]);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일괄 거부 실패: ${error.message}`);
     },
   });
@@ -133,7 +133,7 @@ export default function UserManagement() {
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`초대 실패: ${error.message}`);
     },
   });

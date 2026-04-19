@@ -63,7 +63,7 @@ export default function JournalEntries() {
   // 삭제
   const deleteMut = trpc.journalEntry.delete.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   return (
@@ -105,18 +105,18 @@ export default function JournalEntries() {
                 <Label className="text-[10px]">검색</Label>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                  <Input value={search} onChange={(e: any) => { setSearch(e.target.value); setPage(1); }}
+                  <Input value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
                     placeholder="적요 검색..." className="h-8 pl-8 text-xs" />
                 </div>
               </div>
               <div>
                 <Label className="text-[10px]">시작일</Label>
-                <Input type="date" value={startDate} onChange={(e: any) => { setStartDate(e.target.value); setPage(1); }}
+                <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
                   className="h-8 text-xs w-[130px]" />
               </div>
               <div>
                 <Label className="text-[10px]">종료일</Label>
-                <Input type="date" value={endDate} onChange={(e: any) => { setEndDate(e.target.value); setPage(1); }}
+                <Input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
                   className="h-8 text-xs w-[130px]" />
               </div>
               <Button variant={manualOnly ? "default" : "outline"} size="sm"
@@ -241,7 +241,7 @@ function CreateJournalForm({ accounts, onSuccess }: { accounts: any[]; onSuccess
 
   const createMut = trpc.journalEntry.create.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const totalDebit = lines.reduce((s, l) => s + l.debitAmount, 0);
@@ -308,12 +308,12 @@ function CreateJournalForm({ accounts, onSuccess }: { accounts: any[]; onSuccess
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-xs">전표일자 *</Label>
-          <Input type="date" value={entryDate} onChange={(e: any) => setEntryDate(e.target.value)}
+          <Input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)}
             className="h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">적요 *</Label>
-          <Input value={description} onChange={(e: any) => setDescription(e.target.value)}
+          <Input value={description} onChange={(e) => setDescription(e.target.value)}
             placeholder="거래 내용을 입력하세요" className="h-9 text-sm" />
         </div>
       </div>
@@ -356,17 +356,17 @@ function CreateJournalForm({ accounts, onSuccess }: { accounts: any[]; onSuccess
                     />
                   </td>
                   <td className="p-1.5">
-                    <Input value={line.description} onChange={(e: any) => updateLine(line.id, { description: e.target.value })}
+                    <Input value={line.description} onChange={(e) => updateLine(line.id, { description: e.target.value })}
                       placeholder="행 적요 (선택)" className="h-8 text-xs" />
                   </td>
                   <td className="p-1.5">
                     <Input type="number" min={0} value={line.debitAmount || ""}
-                      onChange={(e: any) => updateLine(line.id, { debitAmount: Number(e.target.value) || 0, creditAmount: 0 })}
+                      onChange={(e) => updateLine(line.id, { debitAmount: Number(e.target.value) || 0, creditAmount: 0 })}
                       placeholder="0" className="h-8 text-xs text-right font-mono" />
                   </td>
                   <td className="p-1.5">
                     <Input type="number" min={0} value={line.creditAmount || ""}
-                      onChange={(e: any) => updateLine(line.id, { creditAmount: Number(e.target.value) || 0, debitAmount: 0 })}
+                      onChange={(e) => updateLine(line.id, { creditAmount: Number(e.target.value) || 0, debitAmount: 0 })}
                       placeholder="0" className="h-8 text-xs text-right font-mono" />
                   </td>
                   <td className="p-1">

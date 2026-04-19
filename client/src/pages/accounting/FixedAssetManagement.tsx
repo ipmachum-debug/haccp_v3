@@ -48,12 +48,12 @@ export default function FixedAssetManagement() {
 
   const disposeMut = trpc.fixedAsset.dispose.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const depMut = trpc.fixedAsset.runDepreciation.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const handleDispose = (id: number, name: string) => {
@@ -131,7 +131,7 @@ export default function FixedAssetManagement() {
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input value={search} onChange={(e: any) => setSearch(e.target.value)}
+            <Input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="자산명/코드 검색..." className="h-8 pl-8 text-xs" />
           </div>
           {(["active", "disposed", "all"] as const).map((s) => (
@@ -230,7 +230,7 @@ function CreateAssetForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMut = trpc.fixedAsset.create.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const upd = (k: string, v: any) => setForm({ ...form, [k]: v });
@@ -240,7 +240,7 @@ function CreateAssetForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs">자산명 *</Label>
-          <Input value={form.assetName} onChange={(e: any) => upd("assetName", e.target.value)}
+          <Input value={form.assetName} onChange={(e) => upd("assetName", e.target.value)}
             placeholder="예: 냉동고 #2" className="h-9 text-sm" />
         </div>
         <div>
@@ -258,19 +258,19 @@ function CreateAssetForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs">취득일 *</Label>
-          <Input type="date" value={form.acquisitionDate} onChange={(e: any) => upd("acquisitionDate", e.target.value)}
+          <Input type="date" value={form.acquisitionDate} onChange={(e) => upd("acquisitionDate", e.target.value)}
             className="h-9 text-sm" />
         </div>
         <div>
           <Label className="text-xs">취득원가 (원) *</Label>
-          <Input type="number" value={form.acquisitionCost} onChange={(e: any) => upd("acquisitionCost", e.target.value)}
+          <Input type="number" value={form.acquisitionCost} onChange={(e) => upd("acquisitionCost", e.target.value)}
             placeholder="0" className="h-9 text-sm" />
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div>
           <Label className="text-xs">내용연수 (월)</Label>
-          <Input type="number" value={form.usefulLifeMonths} onChange={(e: any) => upd("usefulLifeMonths", e.target.value)}
+          <Input type="number" value={form.usefulLifeMonths} onChange={(e) => upd("usefulLifeMonths", e.target.value)}
             className="h-9 text-sm" />
         </div>
         <div>
@@ -285,13 +285,13 @@ function CreateAssetForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <div>
           <Label className="text-xs">잔존가치</Label>
-          <Input type="number" value={form.salvageValue} onChange={(e: any) => upd("salvageValue", e.target.value)}
+          <Input type="number" value={form.salvageValue} onChange={(e) => upd("salvageValue", e.target.value)}
             className="h-9 text-sm" />
         </div>
       </div>
       <div>
         <Label className="text-xs">설치장소</Label>
-        <Input value={form.location} onChange={(e: any) => upd("location", e.target.value)}
+        <Input value={form.location} onChange={(e) => upd("location", e.target.value)}
           placeholder="예: 본사 1층 생산동" className="h-9 text-sm" />
       </div>
       <Button className="w-full" onClick={() => createMut.mutate({

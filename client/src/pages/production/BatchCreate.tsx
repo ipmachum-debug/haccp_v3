@@ -245,7 +245,7 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
         setLocation(`/dashboard/batch/${data.batchId}`);
       }
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`배치 생성 실패: ${error.message}`);
     },
   });

@@ -63,7 +63,7 @@ export default function TrainingManagement() {
       setIsCreateCourseOpen(false);
       refetchCourses();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });

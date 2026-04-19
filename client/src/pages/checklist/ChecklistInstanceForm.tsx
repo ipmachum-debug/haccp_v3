@@ -57,7 +57,7 @@ export default function ChecklistInstanceForm() {
       toast({ title: "임시 저장되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -67,7 +67,7 @@ export default function ChecklistInstanceForm() {
       toast({ title: "제출되었습니다." });
       setLocation("/checklist-instance");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -78,7 +78,7 @@ export default function ChecklistInstanceForm() {
       toast({ title: "AI가 내용을 생성했습니다.", description: "검토 후 수정하실 수 있습니다." });
       setIsAiGenerating(false);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
       setIsAiGenerating(false);
     },
@@ -96,7 +96,7 @@ export default function ChecklistInstanceForm() {
         });
       }
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

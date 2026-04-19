@@ -52,7 +52,7 @@ function CcpMappingSection({ productId, productName }: { productId: number; prod
       toast.success("CCP 매핑이 저장되었습니다.");
       refetchMappings();
     },
-    onError: (err: any) => toast.error(`저장 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`저장 실패: ${err.message}`),
   });
 
   // 매핑 데이터에서 현재 제품 정보 추출
@@ -558,7 +558,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
       toast.success("재고 차감이 완료되었습니다");
       utils.mfReport.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`재고 차감 실패: ${error.message}`);
     },
   });

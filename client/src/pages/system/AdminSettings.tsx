@@ -57,7 +57,7 @@ export default function AdminSettings() {
       toast.success("회사 정보가 저장되었습니다. 거래명세표에 즉시 반영됩니다.");
       utilsCompany.companyInfo.get.invalidate();
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast.error(`저장 실패: ${err.message || "알 수 없는 오류"}`);
     },
   });
@@ -86,7 +86,7 @@ export default function AdminSettings() {
       toast.success("데이터베이스 스키마가 성공적으로 생성되었습니다");
       setShowInitDialog(false);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`데이터베이스 초기화 실패: ${error.message}`);
     },
   });
@@ -98,7 +98,7 @@ export default function AdminSettings() {
       );
       setShowSeedDialog(false);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`샘플 데이터 생성 실패: ${error.message}`);
     },
   });
@@ -115,7 +115,7 @@ export default function AdminSettings() {
     onSuccess: (result: any) => {
       toast.success(`${result.deletedCount}개의 오래된 알림이 삭제되었습니다`);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`자동 삭제 실패: ${error.message}`);
     },
   });
@@ -125,7 +125,7 @@ export default function AdminSettings() {
       toast.success(`${result.archivedCount}개의 알림이 아카이브되었습니다`);
       setArchiveType("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`아카이브 실패: ${error.message}`);
     },
   });
@@ -147,7 +147,7 @@ export default function AdminSettings() {
       toast.success(result.message);
       refetchLogs();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`수동 실행 실패: ${error.message}`);
     },
   });
@@ -161,7 +161,7 @@ export default function AdminSettings() {
     onSuccess: (result: any) => {
       toast.success(result.message);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`설정 저장 실패: ${error.message}`);
     },
   });

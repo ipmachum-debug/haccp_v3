@@ -34,7 +34,7 @@ export default function BackupManagement() {
       setDeleteDialogOpen(false);
       setSelectedBackupId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`백업 삭제 실패: ${error.message}`);
     },
   });

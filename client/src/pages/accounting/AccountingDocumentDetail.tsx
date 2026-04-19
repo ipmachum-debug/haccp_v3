@@ -48,7 +48,7 @@ export default function AccountingDocumentDetail() {
       refetch();
       setStatusForm({ status: "uploaded", comment: "" });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });

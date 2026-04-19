@@ -93,7 +93,7 @@ function AccountCategoryManagementContent() {
       resetForm();
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "등록 실패",
         description: error.message,
@@ -113,7 +113,7 @@ function AccountCategoryManagementContent() {
       setEditingCategory(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "수정 실패",
         description: error.message,
@@ -131,7 +131,7 @@ function AccountCategoryManagementContent() {
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "삭제 실패",
         description: error.message,

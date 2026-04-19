@@ -38,7 +38,7 @@ export function CustomPeriodLogModal({ open, onClose, tenantId }: CustomPeriodLo
       toast({ title: "저장 완료", description: "특정기간일지가 저장되었습니다." });
       onClose();
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast({ title: "저장 실패", description: err.message, variant: "destructive" });
     },
   });

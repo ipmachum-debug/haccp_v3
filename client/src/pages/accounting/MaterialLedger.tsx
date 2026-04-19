@@ -135,7 +135,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       refetchDashboard();
       setEditDialog(null);
     },
-    onError: (err: any) => toast.error(`수정 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`수정 실패: ${err.message}`),
   });
 
   // 월별 집계
@@ -145,7 +145,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       refetchMonthly();
       refetchDashboard();
     },
-    onError: (err: any) => toast.error(`집계 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`집계 실패: ${err.message}`),
   });
 
   // 승인 요청
@@ -154,7 +154,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       toast.success("승인 요청이 제출되었습니다.");
       refetchApproval();
     },
-    onError: (err: any) => toast.error(`승인 요청 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`승인 요청 실패: ${err.message}`),
   });
 
   // 승인
@@ -164,7 +164,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       refetchApproval();
       refetchMonthly();
     },
-    onError: (err: any) => toast.error(`승인 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`승인 실패: ${err.message}`),
   });
 
   // 반려
@@ -175,7 +175,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       setRejectDialog(false);
       setRejectReason("");
     },
-    onError: (err: any) => toast.error(`반려 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`반려 실패: ${err.message}`),
   });
 
   // 엑셀 다운로드
@@ -201,7 +201,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
       URL.revokeObjectURL(url);
       toast.success("엑셀 파일이 다운로드되었습니다.");
     },
-    onError: (err: any) => toast.error(`다운로드 실패: ${err.message}`),
+    onError: (err: { message: string }) => toast.error(`다운로드 실패: ${err.message}`),
   });
 
   // ========== 필터링 ==========

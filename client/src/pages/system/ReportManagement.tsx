@@ -26,7 +26,7 @@ export default function ReportManagement() {
       
       toast.success("보고서가 생성되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`보고서 생성 실패: ${error.message}`);
     },
   });

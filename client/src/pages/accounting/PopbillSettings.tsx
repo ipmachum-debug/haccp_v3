@@ -75,7 +75,7 @@ export default function PopbillSettingsContent() {
       toast({ title: "저장 완료", description: res.message });
       utils.popbillSettings.get.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "저장 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -87,7 +87,7 @@ export default function PopbillSettingsContent() {
       });
       utils.popbillSettings.get.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "회원 등록 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -99,7 +99,7 @@ export default function PopbillSettingsContent() {
       });
       utils.popbillSettings.get.invalidate();
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "포인트 조회 실패", description: e.message, variant: "destructive" }),
   });
 
@@ -114,7 +114,7 @@ export default function PopbillSettingsContent() {
         });
       }
     },
-    onError: (e: any) =>
+    onError: (e: { message: string }) =>
       toast({ title: "팝빌 URL 요청 실패", description: e.message, variant: "destructive" }),
   });
 

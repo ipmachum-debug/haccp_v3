@@ -36,7 +36,7 @@ export default function ScheduleOptimization() {
       setNewDate("");
       toast.success("일정이 변경되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일정 변경 실패: ${error.message}`);
     },
   });

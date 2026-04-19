@@ -221,7 +221,7 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
         }
       }
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       console.error("[AI Parser] 학습 저장 실패:", err.message);
     },
   });
@@ -271,7 +271,7 @@ export default function AIProductionParser({ onConfirm, onClose }: Props) {
         toast.info(`${matchedCount}/${data.items.length}개 항목 매칭 완료. 나머지를 확인해주세요.`);
       }
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast.error(`파싱 실패: ${err.message}`);
     },
   });

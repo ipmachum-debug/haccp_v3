@@ -42,7 +42,7 @@ export default function CalibrationEquipmentModal({
       onSuccess();
       handleReset();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });

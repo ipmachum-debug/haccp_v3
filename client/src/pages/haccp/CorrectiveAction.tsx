@@ -63,7 +63,7 @@ export default function CorrectiveAction() {
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });

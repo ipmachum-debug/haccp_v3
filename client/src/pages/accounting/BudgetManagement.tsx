@@ -36,7 +36,7 @@ export default function BudgetManagement() {
 
   const deleteMut = trpc.budget.delete.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   // 요약 통계
@@ -230,7 +230,7 @@ function BudgetForm({ year, onSuccess }: { year: number; onSuccess: () => void }
 
   const upsertMut = trpc.budget.upsert.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); onSuccess(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const applyUniform = () => {
@@ -255,7 +255,7 @@ function BudgetForm({ year, onSuccess }: { year: number; onSuccess: () => void }
       <div className="flex gap-2 items-end">
         <div className="flex-1">
           <Label className="text-xs">균등 배분 금액</Label>
-          <Input type="number" value={uniformAmount} onChange={(e: any) => setUniformAmount(e.target.value)}
+          <Input type="number" value={uniformAmount} onChange={(e) => setUniformAmount(e.target.value)}
             placeholder="매월 동일 금액" className="h-8 text-xs" />
         </div>
         <Button variant="outline" size="sm" onClick={applyUniform} className="h-8 text-xs">적용</Button>
@@ -266,7 +266,7 @@ function BudgetForm({ year, onSuccess }: { year: number; onSuccess: () => void }
           <div key={i}>
             <Label className="text-[10px]">{label}</Label>
             <Input type="number" value={amounts[i] || ""} className="h-8 text-xs"
-              onChange={(e: any) => {
+              onChange={(e) => {
                 const next = [...amounts];
                 next[i] = Number(e.target.value) || 0;
                 setAmounts(next);

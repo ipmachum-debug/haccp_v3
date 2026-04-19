@@ -55,7 +55,7 @@ export default function MonthlyCloseTab() {
       toast({ title: "월 집계 생성 완료", description: `${selectedYear}년 ${selectedMonth}월 집계가 생성되었습니다.` });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "월 집계 생성 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -65,7 +65,7 @@ export default function MonthlyCloseTab() {
       toast({ title: "월 마감 확정 완료", description: `${selectedYear}년 ${selectedMonth}월 마감이 확정되었습니다.` });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "월 마감 확정 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -77,7 +77,7 @@ export default function MonthlyCloseTab() {
       setReopenReason("");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "월 마감 재오픈 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -88,7 +88,7 @@ export default function MonthlyCloseTab() {
       if (data.pdfUrl) window.open(data.pdfUrl, "_blank");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "PDF 생성 실패", description: error.message, variant: "destructive" });
     },
   });

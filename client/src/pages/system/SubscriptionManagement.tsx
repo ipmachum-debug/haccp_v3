@@ -78,7 +78,7 @@ export default function SubscriptionManagement() {
       toast.success(result.message);
       refetch();
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: { message: string }) => toast.error(err.message),
   });
 
   if (isLoading || !status) {

@@ -36,7 +36,7 @@ export default function AccountingMonthlySummaryDetail() {
       toast.success("월 마감이 확정되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`확정 실패: ${error.message}`);
     },
   });
@@ -46,7 +46,7 @@ export default function AccountingMonthlySummaryDetail() {
       toast.success("월 마감이 잠금되었습니다. 더 이상 수정할 수 없습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`잠금 실패: ${error.message}`);
     },
   });
@@ -58,7 +58,7 @@ export default function AccountingMonthlySummaryDetail() {
       // TODO: 실제 PDF 다운로드 로직
       window.open(data.fileUrl, "_blank");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`PDF 생성 실패: ${error.message}`);
     },
   });

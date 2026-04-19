@@ -276,11 +276,11 @@ export default function CashFlowDashboard() {
               <div className="flex gap-2 items-end">
                 <div>
                   <Label className="text-[10px]">시작일</Label>
-                  <Input type="date" value={dailyStart} onChange={(e: any) => setDailyStart(e.target.value)} className="h-8 text-xs w-[130px]" />
+                  <Input type="date" value={dailyStart} onChange={(e) => setDailyStart(e.target.value)} className="h-8 text-xs w-[130px]" />
                 </div>
                 <div>
                   <Label className="text-[10px]">종료일</Label>
-                  <Input type="date" value={dailyEnd} onChange={(e: any) => setDailyEnd(e.target.value)} className="h-8 text-xs w-[130px]" />
+                  <Input type="date" value={dailyEnd} onChange={(e) => setDailyEnd(e.target.value)} className="h-8 text-xs w-[130px]" />
                 </div>
               </div>
 

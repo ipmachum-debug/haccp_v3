@@ -88,7 +88,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래 등록 실패: ${error.message}`);
     },
   });
@@ -101,7 +101,7 @@ function AccountingManagementContent() {
       resetForm();
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래 수정 실패: ${error.message}`);
     },
   });
@@ -111,7 +111,7 @@ function AccountingManagementContent() {
       toast.success("거래가 삭제되었습니다");
       refetchTransactions();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래 삭제 실패: ${error.message}`);
     },
   });
@@ -121,7 +121,7 @@ function AccountingManagementContent() {
       toast.success("기본 계정 과목이 초기화되었습니다");
       window.location.reload();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`초기화 실패: ${error.message}`);
     },
   });

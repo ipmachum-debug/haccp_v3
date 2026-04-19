@@ -66,7 +66,7 @@ export default function CcpRecords() {
       setDeleteDialogOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error("삭제 실패", { description: error.message });
     },
   });
@@ -91,7 +91,7 @@ export default function CcpRecords() {
       URL.revokeObjectURL(url);
       toast.success("Excel 파일이 다운로드되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`Export 실패: ${error.message}`);
     },
   });

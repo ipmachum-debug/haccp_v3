@@ -36,7 +36,7 @@ export default function PartnerCreditManagement() {
 
   const setLimitMut = trpc.partnerCredit.setCreditLimit.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const handleSetLimit = (id: number, name: string, current: number) => {
@@ -90,7 +90,7 @@ export default function PartnerCreditManagement() {
         <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input value={search} onChange={(e: any) => setSearch(e.target.value)}
+            <Input value={search} onChange={(e) => setSearch(e.target.value)}
               placeholder="거래처명/사업자번호 검색..." className="h-8 pl-8 text-xs" />
           </div>
           {(["all", "supplier", "customer"] as const).map((t) => (

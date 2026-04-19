@@ -339,7 +339,7 @@ export function FinishedProductInspectionLogContent() {
       setLogId(r.id);
       setInitialized(true);
     },
-    onError: (e: any) => {
+    onError: (e: { message: string }) => {
       toast.error("문서 초기화 실패: " + e.message);
       setInitialized(true);
     },
@@ -380,7 +380,7 @@ export function FinishedProductInspectionLogContent() {
         refetchDetail();
       }
     },
-    onError: (e: any) => console.error('[syncOutbounds]', e.message),
+    onError: (e: { message: string }) => console.error('[syncOutbounds]', e.message),
   });
 
   // 관리자: logId 확정 시 자동 동기화
@@ -397,7 +397,7 @@ export function FinishedProductInspectionLogContent() {
       setEditMode(false);
       refetchDetail();
     },
-    onError: (e: any) => toast.error("저장 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("저장 실패: " + e.message),
   });
   const deleteMutation = (trpc as any).finishedProductInspection.delete.useMutation({
     onSuccess: () => {
@@ -406,14 +406,14 @@ export function FinishedProductInspectionLogContent() {
       setInitialized(false);
       getOrCreateMutation.mutate({ year: currentYear, month: currentMonth });
     },
-    onError: (e: any) => toast.error("삭제 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("삭제 실패: " + e.message),
   });
   const submitMutation = (trpc as any).finishedProductInspection.submitForApproval.useMutation({
     onSuccess: (r: any) => {
       toast.success(r.message);
       refetchDetail();
     },
-    onError: (e: any) => toast.error("승인 요청 실패: " + e.message),
+    onError: (e: { message: string }) => toast.error("승인 요청 실패: " + e.message),
   });
 
   // ---- detail data ----

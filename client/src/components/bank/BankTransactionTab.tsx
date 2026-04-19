@@ -186,7 +186,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`업로드 오류: ${error.message}`);
     },
   });
@@ -204,7 +204,7 @@ export default function BankTransactionTab() {
       setSelectedPreviewIds(new Set(result.preview.map((p: any) => p.transactionId)));
       setIsAutoMatchPreviewOpen(true);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`자동 매칭 미리보기 오류: ${error.message}`);
     },
   });
@@ -219,7 +219,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`자동 매칭 오류: ${error.message}`);
     },
   });
@@ -236,7 +236,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (e: any) => toast.error(`AR 회수 실패: ${e.message}`),
+    onError: (e: { message: string }) => toast.error(`AR 회수 실패: ${e.message}`),
   });
 
   // 수동 매칭
@@ -250,7 +250,7 @@ export default function BankTransactionTab() {
       setMatchAccountingId("");
       setMatchDescription("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`매칭 실패: ${error.message}`);
     },
   });
@@ -262,7 +262,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`매칭 해제 실패: ${error.message}`);
     },
   });
@@ -274,7 +274,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       setEditingTxId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`수정 실패: ${error.message}`);
     },
   });
@@ -285,7 +285,7 @@ export default function BankTransactionTab() {
       toast.success("거래가 승인되었습니다");
       utils.bankTransaction.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
@@ -296,7 +296,7 @@ export default function BankTransactionTab() {
       toast.success("거래가 반려되었습니다");
       utils.bankTransaction.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`반려 실패: ${error.message}`);
     },
   });
@@ -309,7 +309,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -322,7 +322,7 @@ export default function BankTransactionTab() {
       utils.bankTransaction.list.invalidate();
       utils.bankAccount.getStats.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`전체 삭제 실패: ${error.message}`);
     },
   });

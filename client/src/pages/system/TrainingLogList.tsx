@@ -25,7 +25,7 @@ export default function TrainingLogList() {
       toast({ title: "삭제 완료", description: "기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -35,7 +35,7 @@ export default function TrainingLogList() {
       toast({ title: "승인 요청 완료", description: "승인관리 페이지에서 확인할 수 있습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
     },
   });

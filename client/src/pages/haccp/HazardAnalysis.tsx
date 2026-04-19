@@ -61,7 +61,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
       setIsCreateOpen(false);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`등록 실패: ${error.message}`);
     },
   });
@@ -73,7 +73,7 @@ export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean;
       setEditingHazard(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

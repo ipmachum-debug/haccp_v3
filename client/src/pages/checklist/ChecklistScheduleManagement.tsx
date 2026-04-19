@@ -64,7 +64,7 @@ export default function ChecklistScheduleManagement() {
       refetch();
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -76,7 +76,7 @@ export default function ChecklistScheduleManagement() {
       refetch();
       resetForm();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -86,7 +86,7 @@ export default function ChecklistScheduleManagement() {
       toast({ title: "스케줄이 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -96,7 +96,7 @@ export default function ChecklistScheduleManagement() {
       toast({ title: "스케줄 상태가 변경되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });

@@ -43,7 +43,7 @@ export default function TemplateVersionHistory({
       onRollback();
       onClose();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`롤백 실패: ${error.message}`);
     },
   });

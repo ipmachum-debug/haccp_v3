@@ -19,7 +19,7 @@ export default function ForeignMaterialRecordList() {
       toast({ title: "삭제 완료", description: "이물 관리 기록 기록이 삭제되었습니다." });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
     },
   });

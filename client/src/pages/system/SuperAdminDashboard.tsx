@@ -19,7 +19,7 @@ export default function SuperAdminDashboard() {
     onSuccess: (data: any) => {
       console.log("✅ 테넌트 전환:", data.message);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       console.error("❌ 테넌트 전환 실패:", error.message);
     },
   });

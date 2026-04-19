@@ -46,7 +46,7 @@ export default function Inventory() {
       setExpiryDate("");
       setReceiptDate(todayLocal());
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -56,7 +56,7 @@ export default function Inventory() {
       toast.success("재고 LOT가 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

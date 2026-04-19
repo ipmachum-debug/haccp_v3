@@ -28,7 +28,7 @@ export default function PositionManagement() {
       utils.organization.positions.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`직급 생성 실패: ${error.message}`);
     },
   });
@@ -39,7 +39,7 @@ export default function PositionManagement() {
       utils.organization.positions.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`직급 수정 실패: ${error.message}`);
     },
   });
@@ -49,7 +49,7 @@ export default function PositionManagement() {
       toast.success("직급이 삭제되었습니다.");
       utils.organization.positions.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`직급 삭제 실패: ${error.message}`);
     },
   });

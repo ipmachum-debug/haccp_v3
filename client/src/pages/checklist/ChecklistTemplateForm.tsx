@@ -65,7 +65,7 @@ export default function ChecklistTemplateForm() {
       alert("템플릿이 생성되었습니다.");
       setLocation("/checklist-templates");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`생성 실패: ${error.message}`);
     },
   });
@@ -75,7 +75,7 @@ export default function ChecklistTemplateForm() {
       alert("템플릿이 수정되었습니다.");
       setLocation("/checklist-templates");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`수정 실패: ${error.message}`);
     },
   });

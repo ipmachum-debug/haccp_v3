@@ -88,7 +88,7 @@ export default function TemplateCustomizer({ open, onClose, templateType }: Temp
       setTemplateName("");
       refetchTemplates();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`템플릿 저장 실패: ${error.message}`);
     },
   });
@@ -99,7 +99,7 @@ export default function TemplateCustomizer({ open, onClose, templateType }: Temp
       toast.success("템플릿이 삭제되었습니다");
       refetchTemplates();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`템플릿 삭제 실패: ${error.message}`);
     },
   });

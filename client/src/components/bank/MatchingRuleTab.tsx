@@ -135,7 +135,7 @@ export default function MatchingRuleTab() {
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -146,7 +146,7 @@ export default function MatchingRuleTab() {
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -156,7 +156,7 @@ export default function MatchingRuleTab() {
       toast.success("매칭 규칙이 삭제되었습니다");
       utils.matchingRules.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

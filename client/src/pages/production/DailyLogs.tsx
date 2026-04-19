@@ -55,7 +55,7 @@ export default function DailyLogs() {
   });
   const deleteMut = trpc.dailyLog.delete.useMutation({
     onSuccess: () => { utils.dailyLog.list.invalidate(); },
-    onError: (e: any) => alert(`삭제 실패: ${e.message}`),
+    onError: (e: { message: string }) => alert(`삭제 실패: ${e.message}`),
   });
   const handleDelete = (id: number, title: string, status: string) => {
     if (status === 'approved') { alert('승인완료된 일지는 삭제할 수 없습니다.'); return; }

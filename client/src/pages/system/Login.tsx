@@ -57,7 +57,7 @@ export default function Login() {
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: handleLoginSuccess,
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       if (error.message && error.message.includes("승인 대기")) {
         toast.warning("관리자 승인을 기다려주세요.");
         setTimeout(() => { setLocation("/pending-approval"); }, 1000);

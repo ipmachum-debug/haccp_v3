@@ -56,7 +56,7 @@ export default function SupplierEvaluation() {
       resetForm();
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       alert(`평가 등록 실패: ${error.message}`);
     },
   });

@@ -20,7 +20,7 @@ export default function AccountingMonthlySummaryNew() {
       toast.success("월 마감 집계가 생성되었습니다.");
       setLocation(`/accounting/monthly-summary/${year}/${month}`);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`월 마감 생성 실패: ${error.message}`);
     },
   });

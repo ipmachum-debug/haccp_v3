@@ -61,7 +61,7 @@ export default function MaterialReceiptManagement() {
       setIsReceiveDialogOpen(false);
       refetchLots();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });

@@ -79,12 +79,12 @@ export default function AccountingDocuments() {
         fileName: "", fileKey: "", fileUrl: "",
       });
     },
-    onError: (error: any) => { toast.error(`업로드 실패: ${error.message}`); },
+    onError: (error: { message: string }) => { toast.error(`업로드 실패: ${error.message}`); },
   });
 
   const deleteMutation = trpc.accountingDocuments.delete.useMutation({
     onSuccess: () => { toast.success("문서가 삭제되었습니다."); refetch(); },
-    onError: (error: any) => { toast.error(`삭제 실패: ${error.message}`); },
+    onError: (error: { message: string }) => { toast.error(`삭제 실패: ${error.message}`); },
   });
 
   const handleUpload = () => {

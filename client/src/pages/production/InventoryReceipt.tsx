@@ -49,7 +49,7 @@ export default function InventoryReceipt() {
         },
       });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`매입 거래 생성 실패: ${error.message}`);
     },
   });
@@ -83,7 +83,7 @@ export default function InventoryReceipt() {
       setReceiptDate(todayLocal());
       refetchLots();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });
@@ -117,7 +117,7 @@ export default function InventoryReceipt() {
       setReceiptDate(todayLocal());
       refetchLots();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`입고 실패: ${error.message}`);
     },
   });

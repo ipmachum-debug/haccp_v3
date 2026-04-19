@@ -45,7 +45,7 @@ export default function CcpReportGenerator() {
       URL.revokeObjectURL(url);
       toast.success("Excel 보고서가 다운로드되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`Excel 보고서 생성 실패: ${error.message}`);
     },
   });
@@ -59,7 +59,7 @@ export default function CcpReportGenerator() {
       link.click();
       toast.success("PDF 보고서가 다운로드되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`PDF 보고서 생성 실패: ${error.message}`);
     },
   });

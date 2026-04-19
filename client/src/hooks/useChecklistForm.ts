@@ -64,7 +64,7 @@ export function useChecklistForm(config: ChecklistFormConfig): UseChecklistFormR
     onSuccess: () => {
       toast({ title: "저장 완료", description: "데이터가 성공적으로 저장되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "저장 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -73,7 +73,7 @@ export function useChecklistForm(config: ChecklistFormConfig): UseChecklistFormR
     onSuccess: () => {
       toast({ title: "수정 완료", description: "데이터가 성공적으로 수정되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "수정 실패", description: error.message, variant: "destructive" });
     },
   });
@@ -84,7 +84,7 @@ export function useChecklistForm(config: ChecklistFormConfig): UseChecklistFormR
       setFormStatus("submitted");
       setTimeout(() => setLocation("/dashboard/approval"), 1500);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
     },
   });

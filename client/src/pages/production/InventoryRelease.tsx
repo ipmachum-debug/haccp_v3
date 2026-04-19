@@ -47,7 +47,7 @@ export default function InventoryRelease() {
         },
       });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`매출 거래 생성 실패: ${error.message}`);
     },
   });
@@ -84,7 +84,7 @@ export default function InventoryRelease() {
       setReleaseDate(todayLocal());
       refetchLots();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`출고 실패: ${error.message}`);
     },
   });

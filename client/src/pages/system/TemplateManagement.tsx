@@ -35,7 +35,7 @@ export default function TemplateManagement() {
       toast.success("템플릿이 성공적으로 삭제되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`템플릿 삭제 실패: ${error.message}`);
     },
   });
@@ -46,7 +46,7 @@ export default function TemplateManagement() {
       toast.success("템플릿 상태가 성공적으로 변경되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`템플릿 상태 변경 실패: ${error.message}`);
     },
   });
@@ -57,7 +57,7 @@ export default function TemplateManagement() {
       toast.success("템플릿이 성공적으로 복제되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`템플릿 복제 실패: ${error.message}`);
     },
   });

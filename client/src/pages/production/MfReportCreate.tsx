@@ -93,7 +93,7 @@ export default function MfReportCreate() {
       toast.success("품목제조보고가 생성되었습니다");
       setLocation("/dashboard/manufacturing-standards");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`생성 실패: ${error.message}`);
     },
   });

@@ -119,7 +119,7 @@ export default function BatchDetail() {
         }
       }
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -156,7 +156,7 @@ export default function BatchDetail() {
         setTimeout(() => setLocation("/dashboard/approval"), 2000);
       }
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`CCP 생성 실패: ${error.message}`);
     },
   });
@@ -198,7 +198,7 @@ export default function BatchDetail() {
       URL.revokeObjectURL(url);
       toast.success("HACCP 보고서가 다운로드되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`HACCP 보고서 생성 실패: ${error.message}`);
     },
   });
@@ -212,7 +212,7 @@ export default function BatchDetail() {
       setSelectedLotId(null);
       setInputQuantity("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`투입 실패: ${error.message}`);
     },
   });
@@ -223,7 +223,7 @@ export default function BatchDetail() {
       setRevenueInput("");
       window.location.reload();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -234,7 +234,7 @@ export default function BatchDetail() {
       refetchInputs();
       refetchLots();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -243,7 +243,7 @@ export default function BatchDetail() {
     onSuccess: () => {
       toast.success("배치 승인 요청이 전송되었습니다");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`승인 요청 실패: ${error.message}`);
     },
   });
@@ -253,7 +253,7 @@ export default function BatchDetail() {
       toast.success("배치가 승인되었습니다");
       window.location.reload();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
@@ -263,7 +263,7 @@ export default function BatchDetail() {
       toast.success("배치가 반려되었습니다");
       window.location.reload();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`반려 실패: ${error.message}`);
     },
   });
@@ -292,7 +292,7 @@ export default function BatchDetail() {
       // 삭제 후 자동 재생성 허용 (ref 리셋)
       autoCreateAttempted.current = false;
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });

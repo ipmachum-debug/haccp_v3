@@ -41,7 +41,7 @@ export function WeeklyHygieneLogModal({
       handleClose();
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: '오류',
         description: error.message,

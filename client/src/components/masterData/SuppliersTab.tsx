@@ -65,7 +65,7 @@ export default function SuppliersTab() {
       setSupplierDialogOpen(false);
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 추가 실패: ${error.message}`);
     },
   });
@@ -75,7 +75,7 @@ export default function SuppliersTab() {
       toast.success("거래처가 삭제되었습니다");
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 삭제 실패: ${error.message}`);
     },
   });
@@ -86,7 +86,7 @@ export default function SuppliersTab() {
       setEditingSupplier(null);
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 수정 실패: ${error.message}`);
     },
   });

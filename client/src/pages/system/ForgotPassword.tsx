@@ -16,7 +16,7 @@ export default function ForgotPassword() {
       toast.success(data.message);
       setEmail("");
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message);
     },
   });

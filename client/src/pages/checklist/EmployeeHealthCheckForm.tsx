@@ -163,7 +163,7 @@ export default function EmployeeHealthCheckForm() {
       setApprovalStatus("submitted");
       toast({ title: "승인 요청 완료", description: "검토자에게 승인 요청이 전송되었습니다." });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
     },
   });

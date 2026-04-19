@@ -56,7 +56,7 @@ export default function WidgetSettingsPanel() {
       toast.success("위젯 설정이 저장되었습니다");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`설정 저장 실패: ${error.message}`);
     },
   });

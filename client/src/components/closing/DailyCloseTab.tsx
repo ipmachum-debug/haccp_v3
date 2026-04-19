@@ -54,7 +54,7 @@ export default function DailyCloseTab() {
       refetchIsClosed();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "일일 마감 실패", description: error.message, variant: "destructive" });
     },
   });

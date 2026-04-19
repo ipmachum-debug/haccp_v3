@@ -35,7 +35,7 @@ export default function ApprovalPendingList() {
       setSelectedRequest(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`승인 실패: ${error.message}`);
     },
   });
@@ -49,7 +49,7 @@ export default function ApprovalPendingList() {
       setSelectedRequest(null);
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거부 실패: ${error.message}`);
     },
   });

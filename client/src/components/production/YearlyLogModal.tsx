@@ -48,7 +48,7 @@ export function YearlyLogModal({ open, onClose, tenantId }: YearlyLogModalProps)
       toast({ title: "저장 완료", description: "연간일지가 저장되었습니다." });
       onClose();
     },
-    onError: (err: any) => {
+    onError: (err: { message: string }) => {
       toast({ title: "저장 실패", description: err.message, variant: "destructive" });
     },
   });
