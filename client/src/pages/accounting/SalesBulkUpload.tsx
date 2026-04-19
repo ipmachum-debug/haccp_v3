@@ -1,6 +1,12 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+type PartnerRow = RouterOutput["partners"]["list"][number];
+type ItemMasterRow = RouterOutput["itemMaster"]["list"]["items"][number];
+type UploadItem = ItemMasterRow & { _displayType: string };
+type UploadError = { row?: number; index?: number; message?: string; error?: string };
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -92,7 +98,7 @@ function SalesBulkUploadContent() {
   const [matchDialogRowId, setMatchDialogRowId] = useState<string>('');
   const [matchDialogType, setMatchDialogType] = useState<'item' | 'partner'>('item');
 
-  const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: any[] } | null>(null);
+  const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: UploadError[] } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   // ─── 데이터 조회 ───
@@ -100,7 +106,7 @@ function SalesBulkUploadContent() {
     { search: '', limit: 50 },
     { staleTime: 60_000 }
   );
-  const partners: any[] = (allPartners as any[]) ?? [];
+  const partners: PartnerRow[] = (allPartners as PartnerRow[]) ?? [];
 
   const { data: rawMaterials } = trpc.itemMaster.list.useQuery({ itemType: "raw_material" as any, isActive: 1, limit: 500 });
   const { data: ownProducts } = trpc.itemMaster.list.useQuery({ itemType: "own_product" as any, isActive: 1, limit: 500 });
@@ -108,10 +114,10 @@ function SalesBulkUploadContent() {
   const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({ itemType: "subsidiary" as any, isActive: 1, limit: 500 });
 
   const allItems = useMemo(() => [
-    ...(ownProducts?.items ?? []).map((i: any) => ({ ...i, _displayType: '자사제품' })),
-    ...(rawMaterials?.items ?? []).map((i: any) => ({ ...i, _displayType: '원재료' })),
-    ...(externalProducts?.items ?? []).map((i: any) => ({ ...i, _displayType: '외부제품' })),
-    ...(subsidiaryItems?.items ?? []).map((i: any) => ({ ...i, _displayType: '부자재' })),
+    ...(ownProducts?.items ?? []).map((i: ItemMasterRow) => ({ ...i, _displayType: '자사제품' })),
+    ...(rawMaterials?.items ?? []).map((i: ItemMasterRow) => ({ ...i, _displayType: '원재료' })),
+    ...(externalProducts?.items ?? []).map((i: ItemMasterRow) => ({ ...i, _displayType: '외부제품' })),
+    ...(subsidiaryItems?.items ?? []).map((i: ItemMasterRow) => ({ ...i, _displayType: '부자재' })),
   ], [rawMaterials, ownProducts, externalProducts, subsidiaryItems]);
 
   const utils = trpc.useUtils();
@@ -139,10 +145,10 @@ function SalesBulkUploadContent() {
           return;
         }
 
-        const headers = jsonData[0].map((h: any) => String(h || '').trim());
-        const rows = jsonData.slice(1).filter((row: any[]) => row.some((cell: any) => cell !== '' && cell !== null && cell !== undefined));
+        const headers = jsonData[0].map((h: string | number) => String(h || '').trim());
+        const rows = jsonData.slice(1).filter((row: Array<string | number>) => row.some((cell) => cell !== '' && cell !== null && cell !== undefined));
 
-        const rawRows = rows.map((row: any[]) => {
+        const rawRows = rows.map((row: Array<string | number>) => {
           const obj: Record<string, string> = {};
           headers.forEach((h: string, idx: number) => {
             obj[h] = String(row[idx] ?? '').trim();
@@ -286,7 +292,7 @@ function SalesBulkUploadContent() {
     setMatchDialogOpen(true);
   };
 
-  const handleSelectMatch = (rowId: string, type: 'item' | 'partner', selected: any) => {
+  const handleSelectMatch = (rowId: string, type: "item" | "partner", selected: ItemMasterRow | PartnerRow) => {
     setParsedRows(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       if (type === 'item') {
@@ -347,8 +353,9 @@ function SalesBulkUploadContent() {
       utils.haccpIntegration.getAllSales.invalidate();
       setStep('result');
       toast({ title: `매출 일괄 등록 완료`, description: `성공: ${result.successCount}건, 실패: ${result.failCount}건` });
-    } catch (e: any) {
-      toast({ title: "등록 오류", description: e.message, variant: "destructive" });
+    } catch (e) {
+        const error = e as Error;
+      toast({ title: "등록 오류", description: error.message, variant: "destructive" });
     } finally {
       setIsUploading(false);
     }
@@ -693,7 +700,7 @@ function SalesBulkUploadContent() {
             <div className="bg-red-50 dark:bg-red-950/10 rounded-lg p-4 text-left max-w-md mx-auto">
               <p className="text-sm font-medium text-red-700 mb-2">오류 상세:</p>
               {uploadResult.errors.map((err, i) => (
-                <p key={i} className="text-xs text-red-600">행 {err.index + 1}: {err.message}</p>
+                <p key={i} className="text-xs text-red-600">행 {(err.index ?? 0) + 1}: {err.message}</p>
               ))}
             </div>
           )}
@@ -778,12 +785,12 @@ function SalesBulkUploadContent() {
   );
 }
 
-function ItemSearchSelect({ items, onSelect }: { items: any[]; onSelect: (item: any) => void }) {
+function ItemSearchSelect({ items, onSelect }: { items: UploadItem[]; onSelect: (item: UploadItem) => void }) {
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     if (!search) return items.slice(0, 10);
     const q = search.toLowerCase();
-    return items.filter((i: any) =>
+    return items.filter((i: UploadItem) =>
       (i.itemName || '').toLowerCase().includes(q) || (i.itemCode || '').toLowerCase().includes(q)
     ).slice(0, 10);
   }, [search, items]);
@@ -796,7 +803,7 @@ function ItemSearchSelect({ items, onSelect }: { items: any[]; onSelect: (item: 
           className="h-7 text-xs pl-7" />
       </div>
       <div className="max-h-[150px] overflow-y-auto">
-        {filtered.map((item: any) => (
+        {filtered.map((item: UploadItem) => (
           <button key={item.id} onClick={() => onSelect(item)}
             className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded flex items-center gap-2">
             <span className="font-medium truncate flex-1">{item.itemName}</span>
@@ -808,13 +815,13 @@ function ItemSearchSelect({ items, onSelect }: { items: any[]; onSelect: (item: 
   );
 }
 
-function PartnerSearchSelect({ partners, onSelect }: { partners: any[]; onSelect: (p: any) => void }) {
+function PartnerSearchSelect({ partners, onSelect }: { partners: PartnerRow[]; onSelect: (p: PartnerRow) => void }) {
   const [search, setSearch] = useState('');
   const filtered = useMemo(() => {
     if (!search) return partners.slice(0, 10);
     const q = search.toLowerCase();
-    return partners.filter((p: any) =>
-      (p.company_name || '').toLowerCase().includes(q) || (p.biz_no || '').toLowerCase().includes(q)
+    return partners.filter((p: PartnerRow) =>
+      (p.companyName || '').toLowerCase().includes(q) || (p.bizNo || '').toLowerCase().includes(q)
     ).slice(0, 10);
   }, [search, partners]);
 
@@ -826,11 +833,11 @@ function PartnerSearchSelect({ partners, onSelect }: { partners: any[]; onSelect
           className="h-7 text-xs pl-7" />
       </div>
       <div className="max-h-[150px] overflow-y-auto">
-        {filtered.map((p: any) => (
+        {filtered.map((p: PartnerRow) => (
           <button key={p.id} onClick={() => onSelect(p)}
             className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded flex items-center gap-2">
-            <span className="font-medium truncate flex-1">{p.company_name}</span>
-            <span className="text-[10px] text-muted-foreground">{p.biz_no || ''}</span>
+            <span className="font-medium truncate flex-1">{p.companyName}</span>
+            <span className="text-[10px] text-muted-foreground">{p.bizNo || ''}</span>
           </button>
         ))}
       </div>
