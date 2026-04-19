@@ -17,7 +17,9 @@ import { Activity, Package, Calendar, CheckCircle, TrendingUp } from "lucide-rea
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionStatus() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'today');
   const [chartPeriod, setChartPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
 

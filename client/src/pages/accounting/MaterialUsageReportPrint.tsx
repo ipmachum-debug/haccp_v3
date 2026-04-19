@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ============================================================================
 // 타입 정의
 // ============================================================================
@@ -128,6 +129,7 @@ function fmtDateMMDDDay(dateStr: string): string {
 // 컴포넌트
 // ============================================================================
 export default function MaterialUsageReportPrint() {
+  const L = useIndustryLabel();
   const params = useMemo(() => {
     const p = new URLSearchParams(window.location.search);
     return {

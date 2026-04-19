@@ -35,8 +35,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function IntermediateManagement() {
+  const L = useIndustryLabel();
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);

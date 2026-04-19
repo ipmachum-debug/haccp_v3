@@ -11,7 +11,9 @@ import { Info, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function BatchProfitabilityDashboard() {
+  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setMonth(date.getMonth() - 3);

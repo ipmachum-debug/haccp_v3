@@ -29,6 +29,7 @@ import {
 import { Plus, Edit, Copy, Trash2, FileText } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const CATEGORY_LABELS: Record<string, string> = {
   CCP: "CCP 점검",
   SANITATION: "위생 관리",
@@ -48,6 +49,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export default function ChecklistTemplates() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const { hasRole } = useAuth();
   const [categoryFilter, setCategoryFilter] = useState<string>("all");

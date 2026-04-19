@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface BatchItem {
   id: string;
   productId: string;
@@ -62,6 +63,7 @@ function useDragReorder(items: BatchItem[], setItems: (items: BatchItem[]) => vo
 }
 
 export default function DailyBatchCreate() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const { user } = useAuth();
 

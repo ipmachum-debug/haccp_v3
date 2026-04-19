@@ -36,6 +36,7 @@ import ApprovalTimeline from "@/components/dashboard/ApprovalTimeline";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 /** 배치 기본정보 요약 (BOM 배치량 + 배치수 + 처리모드 + 생성일) */
 function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
@@ -52,13 +53,13 @@ function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t">
       <div>
-        <div className="text-sm font-medium text-muted-foreground">BOM 1배치 기준량</div>
+        <div className="text-sm font-medium text-muted-foreground">BOM 1{L("batch")} 기준량</div>
         <div className="text-lg font-semibold mt-1">
           {bomBatchKg ? `${bomBatchKg.toLocaleString("ko-KR")} kg` : <span className="text-muted-foreground">-</span>}
         </div>
       </div>
       <div>
-        <div className="text-sm font-medium text-muted-foreground">배치 수</div>
+        <div className="text-sm font-medium text-muted-foreground">{`${L("batch")} 수`}</div>
         <div className="text-lg font-semibold mt-1">
           {batchCount ? (
             <span>{batchCount}배치 <span className="text-sm font-normal text-muted-foreground">({plannedQuantity}kg ÷ {bomBatchKg}kg)</span></span>
@@ -80,6 +81,7 @@ function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
 }
 
 export default function BatchDetail() {
+  const L = useIndustryLabel();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const batchId = params.id ? parseInt(params.id, 10) : 0;
@@ -119,7 +121,7 @@ export default function BatchDetail() {
 
   const updateStatusMutation = trpc.batch.updateStatus.useMutation({
     onSuccess: async (data: { message?: string; [k: string]: unknown }, variables: { id: number; status: string; [k: string]: unknown }) => {
-      toast.success("배치 상태가 변경되었습니다");
+      toast.success(`${L("batch")} 상태가 변경되었습니다`);
 
       // 배치 완료 시 승인 요청 자동 생성
       if (variables.status === "completed" && batch) {
@@ -128,13 +130,13 @@ export default function BatchDetail() {
             requestType: "batch_production",
             referenceType: "batch",
             referenceId: batchId,
-            title: `배치 생산 승인 - ${batch.batchCode}`,
-            description: `계획일: ${new Date(batch.plannedDate).toLocaleDateString()}\n상태: 완료\n배치 코드: ${batch.batchCode}`,
+            title: `${L("batch")} 생산 승인 - ${batch.batchCode}`,
+            description: `계획일: ${new Date(batch.plannedDate).toLocaleDateString()}\n상태: 완료\n${L("batch")} 코드: ${batch.batchCode}`,
             priority: "high" as const,
           });
-          toast.success("배치 완료 및 승인 요청이 생성되었습니다.");
+          toast.success(`${L("batch")} 완료 및 승인 요청이 생성되었습니다.`);
         } catch (error) {
-          toast.error("배치는 완료되었으나 승인 요청 생성에 실패했습니다.");
+          toast.error(`${L("batch")}는 완료되었으나 승인 요청 생성에 실패했습니다.`);
         }
       }
     },
@@ -261,7 +263,7 @@ export default function BatchDetail() {
 
   const requestApprovalMutation = trpc.approval.requestBatchApproval.useMutation({
     onSuccess: () => {
-      toast.success("배치 승인 요청이 전송되었습니다");
+      toast.success(`${L("batch")} 승인 요청이 전송되었습니다`);
     },
     onError: (error: { message: string }) => {
       toast.error(`승인 요청 실패: ${error.message}`);
@@ -270,7 +272,7 @@ export default function BatchDetail() {
 
   const approveBatchMutation = trpc.batch.approve.useMutation({
     onSuccess: () => {
-      toast.success("배치가 승인되었습니다");
+      toast.success(`${L("batch")}가 승인되었습니다`);
       window.location.reload();
     },
     onError: (error: { message: string }) => {
@@ -280,7 +282,7 @@ export default function BatchDetail() {
 
   const rejectBatchMutation = trpc.batch.reject.useMutation({
     onSuccess: () => {
-      toast.success("배치가 반려되었습니다");
+      toast.success(`${L("batch")}가 반려되었습니다`);
       window.location.reload();
     },
     onError: (error: { message: string }) => {
@@ -299,7 +301,7 @@ export default function BatchDetail() {
   );
 
   const handleDeleteMaterialInput = (inputId: number) => {
-    if (confirm("원재료 투입 내역을 삭제하시겠습니까? 재고가 자동으로 복구됩니다.")) {
+    if (confirm(`${L("material")} 투입 내역을 삭제하시겠습니까? 재고가 자동으로 복구됩니다.`)) {
       deleteMaterialInputMutation.mutate({ inputId });
     }
   };
@@ -340,7 +342,7 @@ export default function BatchDetail() {
 
   const handleAddMaterialInput = () => {
     if (!selectedMaterialId || !selectedLotId || !inputQuantity) {
-      toast.error("원재료, LOT, 수량을 모두 입력해주세요");
+      toast.error(`${L("material")}, LOT, 수량을 모두 입력해주세요`);
       return;
     }
 
@@ -397,7 +399,7 @@ export default function BatchDetail() {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <Loader2 className="h-8 w-8 animate-spin" />
-            <span>배치 정보 로딩 중...</span>
+            <span>{`${L("batch")} 정보 로딩 중...`}</span>
           </div>
         </div>
       </DashboardLayout>
@@ -409,7 +411,7 @@ export default function BatchDetail() {
       <DashboardLayout>
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
           <Package className="h-16 w-16 text-muted-foreground" />
-          <p className="text-muted-foreground">배치를 찾을 수 없습니다</p>
+          <p className="text-muted-foreground">{`${L("batch")}를 찾을 수 없습니다`}</p>
           <Button onClick={() => setLocation("/dashboard/batch-management")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             목록으로 돌아가기
@@ -430,7 +432,7 @@ export default function BatchDetail() {
             </Button>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">{batch.batchCode}</h1>
-              <p className="text-muted-foreground mt-1">{(batch as any).productName || "제품명 없음"} · 배치 상세 정보</p>
+              <p className="text-muted-foreground mt-1">{(batch as any).productName || `${L("product")}명 없음`} · 배치 상세 정보</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -478,16 +480,16 @@ export default function BatchDetail() {
         <Card>
           <CardHeader>
             <CardTitle>기본 정보</CardTitle>
-            <CardDescription>배치의 기본 정보입니다</CardDescription>
+            <CardDescription>{`${L("batch")}의 기본 정보입니다`}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
-                <div className="text-sm font-medium text-muted-foreground">배치 코드</div>
+                <div className="text-sm font-medium text-muted-foreground">{`${L("batch")} 코드`}</div>
                 <div className="text-lg font-semibold mt-1">{batch.batchCode}</div>
               </div>
               <div>
-                <div className="text-sm font-medium text-muted-foreground">제품명</div>
+                <div className="text-sm font-medium text-muted-foreground">{`${L("product")}명`}</div>
                 <div className="text-lg font-semibold mt-1">{(batch as any).productName || "-"}</div>
               </div>
               <div>
@@ -519,7 +521,7 @@ export default function BatchDetail() {
         <Card>
           <CardHeader>
             <CardTitle>상태 관리 및 승인</CardTitle>
-            <CardDescription>배치의 생산 단계를 변경하거나 승인/반려하세요</CardDescription>
+            <CardDescription>{`${L("batch")}의 생산 단계를 변경하거나 승인/반려하세요`}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -567,7 +569,7 @@ export default function BatchDetail() {
               {/* 승인/반려 버튼 */}
               {batch.status === "completed" && (
                 <div>
-                  <h4 className="text-sm font-semibold mb-2">배치 승인</h4>
+                  <h4 className="text-sm font-semibold mb-2">{`${L("batch")} 승인`}</h4>
                   {approvalStatus?.status === "approved" ? (
                     <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
                       <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
@@ -628,7 +630,7 @@ export default function BatchDetail() {
                           variant="default"
                           className="bg-green-600 hover:bg-green-700"
                           onClick={() => {
-                            if (confirm("배치를 승인하시겠습니까?")) {
+                            if (confirm(`${L("batch")}를 승인하시겠습니까?`)) {
                               approveBatchMutation.mutate({ batchId });
                             }
                           }}
@@ -690,7 +692,7 @@ export default function BatchDetail() {
                 <HistoryIcon className="h-5 w-5" />
                 승인 이력
               </CardTitle>
-              <CardDescription>배치 승인 요청 및 처리 과정을 확인하세요</CardDescription>
+              <CardDescription>{`${L("batch")} 승인 요청 및 처리 과정을 확인하세요`}</CardDescription>
             </CardHeader>
             <CardContent>
               <ApprovalTimeline batchId={batchId} />
@@ -705,7 +707,7 @@ export default function BatchDetail() {
               <DollarSign className="h-5 w-5" />
               매출액 관리
             </CardTitle>
-            <CardDescription>배치의 매출액을 입력하여 수익성을 분석하세요</CardDescription>
+            <CardDescription>{`${L("batch")}의 매출액을 입력하여 수익성을 분석하세요`}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4 items-end">
@@ -761,7 +763,7 @@ export default function BatchDetail() {
                     <DollarSign className="h-5 w-5" />
                     비용 분석
                   </CardTitle>
-                  <CardDescription>배치 생산 비용 분석 및 원재료별 비용 현황</CardDescription>
+                  <CardDescription>{`${L("batch")} 생산 비용 분석 및 ${L("material")}별 비용 현황`}</CardDescription>
                 </div>
                 <Button
                   variant="outline"
@@ -779,7 +781,7 @@ export default function BatchDetail() {
                     <div className="p-6 border rounded-lg bg-blue-50 dark:bg-blue-950">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm text-muted-foreground">총 원재료 비용</p>
+                          <p className="text-sm text-muted-foreground">{`총 ${L("material")} 비용`}</p>
                           <p className="text-3xl font-bold mt-1">
                             {batchCost.totalCost.toLocaleString('ko-KR')}원
                           </p>
@@ -788,7 +790,7 @@ export default function BatchDetail() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
+                      <h4 className="font-semibold text-sm">{`${L("material")}별 상세 비용`}</h4>
                       <div className="space-y-2">
                         {batchCost.materialCosts.map((item: BatchCostMaterial, index: number) => (
                           <div key={item.materialId} className={`p-3 border rounded-lg ${item.isWater ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200' : ''}`}>
@@ -857,15 +859,15 @@ export default function BatchDetail() {
         {/* 원재료 투입 */}
         <Card>
           <CardHeader>
-            <CardTitle>원재료 투입</CardTitle>
-            <CardDescription>배치에 투입된 원재료 목록입니다</CardDescription>
+            <CardTitle>{`${L("material")} 투입`}</CardTitle>
+            <CardDescription>{`${L("batch")}에 투입된 ${L("material")} 목록입니다`}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4 mb-6 p-4 border rounded-lg">
-              <h3 className="font-semibold">원재료 투입 추가</h3>
+              <h3 className="font-semibold">{`${L("material")} 투입 추가`}</h3>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="material">원재료 *</Label>
+                  <Label htmlFor="material">{`${L("material")} *`}</Label>
                   <Select
                     value={selectedMaterialId?.toString() || ""}
                     onValueChange={(value) => {
@@ -874,7 +876,7 @@ export default function BatchDetail() {
                     }}
                   >
                     <SelectTrigger id="material">
-                      <SelectValue placeholder="원재료 선택" />
+                      <SelectValue placeholder={`${L("material")} 선택`} />
                     </SelectTrigger>
                     <SelectContent>
                       {(Array.isArray(materials) ? materials : []).map((material: any) => (

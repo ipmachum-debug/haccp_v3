@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button";
 import LotTraceabilityModal from "@/components/LotTraceabilityModal";
 import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/PaginatedTable";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryManagement() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'current');
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month">("week");
   const [lotModalOpen, setLotModalOpen] = useState(false);

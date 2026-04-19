@@ -45,6 +45,7 @@ import {
   XCircle,
   Printer,
 } from "lucide-react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // 날짜 유틸
 function formatDate(d: Date) {
@@ -59,6 +60,7 @@ function getDaysInMonth(ym: string) {
 }
 
 export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("daily");
   const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
   const [selectedMonth, setSelectedMonth] = useState(getYearMonth(new Date()));

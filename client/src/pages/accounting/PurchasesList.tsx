@@ -81,8 +81,10 @@ import {
   STATUS_COLORS,
   type TransactionGroup,
 } from "../../lib/transactionGrouping";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function PurchasesList() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <PurchasesListContent />

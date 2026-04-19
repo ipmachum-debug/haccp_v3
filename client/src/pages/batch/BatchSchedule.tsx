@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-reac
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // date-fns localizer 설정
 const locales = {
   ko: ko,
@@ -42,6 +43,7 @@ interface CalendarEvent {
 }
 
 export default function BatchSchedule() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<View>("month");

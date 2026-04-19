@@ -14,7 +14,9 @@ import {
 import { ArrowLeft, Edit, History } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function RecipeDetail() {
+  const L = useIndustryLabel();
   const [, params] = useRoute("/dashboard/recipes/:id");
   const recipeId = params?.id ? parseInt(params.id) : 0;
 

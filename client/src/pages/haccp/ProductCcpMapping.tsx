@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import { Loader2, Search, ChevronRight, Thermometer, Gauge, Zap, BookOpen, AlertCircle, CheckCircle2, Settings, Package, Beaker } from "lucide-react";
 import { useState, useMemo } from "react";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const CCP_TYPE_COLORS: Record<string, string> = {
   "CCP-1B": "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   "CCP-2B": "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
@@ -23,6 +24,7 @@ const CCP_TYPE_ICONS: Record<string, any> = {
 };
 
 export default function ProductCcpMapping(props: { embedded?: boolean } & Record<string, any> = {}) {
+  const L = useIndustryLabel();
   const { embedded = false } = props;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<number | null>(null);

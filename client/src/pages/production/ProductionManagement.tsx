@@ -9,7 +9,9 @@ import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysisDashboard from "./CostAnalysisDashboard";
 import { PipelineDashboardContent } from "./PipelineDashboard";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionManagement() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("pipeline");
 
   return (

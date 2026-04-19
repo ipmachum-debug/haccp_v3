@@ -75,6 +75,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // ===== 5분류 체계 (고정, 추가/삭제 불가) =====
 type AccountCategory = "assets" | "liabilities" | "equity" | "revenue" | "expenses";
 
@@ -174,6 +175,7 @@ const categoryToMajor: Record<AccountCategory, string> = {
 };
 
 export default function AccountingAccounts() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("structure");
 
   // P6: 성능 개선 — 공유 데이터를 부모에서 한 번만 조회하고 자식 탭에 전달

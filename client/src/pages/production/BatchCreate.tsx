@@ -17,6 +17,7 @@ import {
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import confetti from "canvas-confetti";
 
 import { todayLocal } from "../../lib/dateUtils";
@@ -136,13 +137,13 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
         // 폴백: 기본 배치번호 생성 (productId-날짜-001)
         const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
         setBatchCode(`${selectedProductId}-${dateStr}-001`);
-        toast.error("배치번호 자동생성 실패 - 임시번호가 생성되었습니다. 확인 후 수정해주세요.");
+        toast.error(`${L("batch")}번호 자동생성 실패 - 임시번호가 생성되었습니다. 확인 후 수정해주세요.`);
       }
     } catch (err: any) {
       console.error("[BatchCreate] 배치번호 생성 에러:", err);
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
       setBatchCode(`${selectedProductId}-${dateStr}-001`);
-      toast.error("배치번호 자동생성 실패 - 임시번호가 생성되었습니다.");
+      toast.error(`${L("batch")}번호 자동생성 실패 - 임시번호가 생성되었습니다.`);
     }
   };
 
@@ -224,21 +225,21 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
 
       if (data.autoNavigateToApproval) {
         // 자동 모드: 승인관리 자동 이동 (서버에서 승인 요청도 자동 등록됨)
-        toast.success("배치 생성 완료! 승인관리로 이동합니다.", {
+        toast.success(`${L("batch")} 생성 완료! 승인관리로 이동합니다.`, {
           description: `${ccpMsg} · 설비기준·공정기준 자동 삽입 완료`,
           duration: 4000,
         });
         setTimeout(() => setLocation("/dashboard/approval"), 1500);
       } else if (processingMode === "auto" && !data.ccpCreated) {
         // 자동 모드지만 CCP 생성 실패 → 배치 상세로
-        toast.warning("배치 생성됨. CCP 생성 실패 - BOM 매핑 확인 필요", {
+        toast.warning(`${L("batch")} 생성됨. CCP 생성 실패 - BOM 매핑 확인 필요`, {
           description: data.message,
           duration: 6000,
         });
         setLocation(`/dashboard/batch/${data.batchId}`);
       } else {
         // 수동 모드: 배치 상세로 이동하여 CCP 기록지 직접 확인
-        toast.success("배치 생성 완료!", {
+        toast.success(`${L("batch")} 생성 완료!`, {
           description: `${ccpMsg} · 설비기준·공정기준 삽입 완료 → CCP 기록지 확인 후 수동 승인`,
           duration: 5000,
         });
@@ -246,14 +247,14 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
       }
     },
     onError: (error: { message: string }) => {
-      toast.error(`배치 생성 실패: ${error.message}`);
+      toast.error(`${L("batch")} 생성 실패: ${error.message}`);
     },
   });
 
   // ── 폼 제출 ──
   const handleSubmit = () => {
     if (!selectedProductId || !plannedQuantityKg || !batchCode) {
-      toast.error("제품, 생산량, 배치번호를 모두 입력해주세요");
+      toast.error(`${L("product")}, 생산량, ${L("batch")}번호를 모두 입력해주세요`);
       return;
     }
     const qty = parseFloat(plannedQuantityKg);
@@ -296,7 +297,7 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
             새 배치 생성
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            제품과 생산량을 입력하면 CCP · 체크리스트 · 기록지가 자동 생성됩니다
+            {`${L("product")}과 생산량을 입력하면`} CCP · 체크리스트 · 기록지가 자동 생성됩니다
           </p>
         </div>
 
@@ -380,7 +381,7 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block flex-shrink-0" />
-                    배치 상세에서 직접 기록지 확인
+                    {`${L("batch")} 상세에서 직접 기록지 확인`}
                   </div>
                   <div className="flex items-center gap-1 font-medium text-orange-600 dark:text-orange-400">
                     <ArrowRight className="h-3 w-3 flex-shrink-0" />
@@ -397,17 +398,17 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <span className="bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold">1</span>
-              제품 및 생산량 설정
+              {`${L("product")} 및 생산량 설정`}
             </CardTitle>
           </CardHeader>
           <CardContent className="overflow-visible">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 overflow-visible">
             {/* 제품 선택 - Autocomplete Input */}
             <div className="space-y-2">
-              <Label htmlFor="product">제품 *</Label>
+              <Label htmlFor="product">{L("product")} *</Label>
               {productsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground h-10">
-                  <Loader2 className="h-4 w-4 animate-spin" /> 제품 목록 로딩 중...
+                  <Loader2 className="h-4 w-4 animate-spin" /> {`${L("product")} 목록 로딩 중...`}
                 </div>
               ) : (
                 <div className="relative">
@@ -417,7 +418,7 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
                       ref={productInputRef}
                       id="product"
                       type="text"
-                      placeholder="제품명 또는 코드 검색..."
+                      placeholder={`${L("product")}명 또는 코드 검색...`}
                       value={productSearchOpen ? productSearchText : (selectedProduct ? (selectedProduct.productName || `제품 #${selectedProduct.id}`) : productSearchText)}
                       onChange={(e) => {
                         setProductSearchText(e.target.value);

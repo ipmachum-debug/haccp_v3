@@ -18,10 +18,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type DateRange = "7days" | "30days" | "90days" | "all";
 
 export default function CcpStats() {
+  const L = useIndustryLabel();
   const [dateRange, setDateRange] = useState<DateRange>("30days");
 
   const { startDate, endDate } = useMemo(() => {

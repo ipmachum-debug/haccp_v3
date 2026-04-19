@@ -17,7 +17,9 @@ import { TabsList } from "@/components/ui/tabs";
 import { Plus, Eye, FileText } from "lucide-react";
 
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function MaterialInspections() {
+  const L = useIndustryLabel();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [resultFilter, setResultFilter] = useState<string | undefined>(undefined);
 

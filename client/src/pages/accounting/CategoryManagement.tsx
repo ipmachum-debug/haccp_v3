@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Plus, Edit, Trash2, GripVertical, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 type CategoryType = "material" | "product" | "purchase" | "sale";
 
 interface Category {
@@ -37,6 +38,7 @@ const categoryTypeLabels: Record<CategoryType, string> = {
 };
 
 export default function CategoryManagement() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState<CategoryType>("material");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);

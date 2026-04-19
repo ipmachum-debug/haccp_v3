@@ -16,6 +16,7 @@ import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Cart
 import { useState, useEffect, useMemo } from "react";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // ─── Section Header Component ───
 function SectionHeader({ icon: Icon, title, description, actionLabel, actionHref }: {
@@ -144,6 +145,8 @@ function ProgressBar({ value, className }: { value: number; className?: string }
 // MAIN DASHBOARD - Control Center
 // ═══════════════════════════════════════════
 export default function Dashboard() {
+  const L = useIndustryLabel();
+
   // ─── Data Queries ───
   const { data: stats } = trpc.dashboard.getStats.useQuery(undefined, {
     staleTime: 2 * 60 * 1000,
@@ -254,7 +257,7 @@ export default function Dashboard() {
               경영 상황판
             </h1>
             <p className="text-[13px] text-muted-foreground mt-1">
-              {dateStr} 기준 공장 운영 현황을 한눈에 확인하세요
+              {dateStr} 기준 {L("site")} 운영 현황을 한눈에 확인하세요
             </p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
@@ -267,7 +270,7 @@ export default function Dashboard() {
             <Button size="sm" className="h-9" asChild>
               <Link href="/dashboard/batch-management?tab=create">
                 <Package className="mr-1.5 h-3.5 w-3.5" />
-                새 배치 생성
+                새 {L("batch")} 생성
               </Link>
             </Button>
           </div>
@@ -276,7 +279,7 @@ export default function Dashboard() {
         {/* ═══ TOP KPI CARDS ═══ */}
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
           <MiniKPI
-            label="오늘 생산 배치"
+            label={`오늘 생산 ${L("batch")}`}
             value={totalBatches}
             icon={Factory}
             color="slate"
@@ -284,7 +287,7 @@ export default function Dashboard() {
             href="/dashboard/batch-management"
           />
           <MiniKPI
-            label="진행 중 배치"
+            label={`진행 중 ${L("batch")}`}
             value={inProgressBatches.length}
             icon={Zap}
             color="blue"
@@ -406,7 +409,7 @@ export default function Dashboard() {
                     <span className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{progressPercent}%</span>
                     <span className="text-sm text-muted-foreground ml-2">완료</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{completedCount} / {totalBatches} 배치</span>
+                  <span className="text-xs text-muted-foreground">{completedCount} / {totalBatches} {L("batch")}</span>
                 </div>
                 <ProgressBar value={progressPercent} />
               </div>
@@ -653,7 +656,7 @@ export default function Dashboard() {
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Layers className="h-4.5 w-4.5 text-emerald-600" />
-                <CardTitle className="text-[15px]">배치 상태 분포</CardTitle>
+                <CardTitle className="text-[15px]">{L("batch")} 상태 분포</CardTitle>
               </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -690,7 +693,7 @@ export default function Dashboard() {
                 </ResponsiveContainer>
               ) : (
                 <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
-                  배치 데이터가 없습니다
+                  {L("batch")} 데이터가 없습니다
                 </div>
               )}
             </CardContent>
@@ -827,7 +830,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Package className="h-4.5 w-4.5 text-emerald-600" />
-                <CardTitle className="text-[15px]">최근 배치</CardTitle>
+                <CardTitle className="text-[15px]">최근 {L("batch")}</CardTitle>
               </div>
               <Link href="/dashboard/batch-management">
                 <Button variant="ghost" size="sm" className="text-xs gap-1">
@@ -842,7 +845,7 @@ export default function Dashboard() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border/60">
-                      <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">배치코드</th>
+                      <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{L("batch")}코드</th>
                       <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">생성일</th>
                       <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">상태</th>
                     </tr>
@@ -868,7 +871,7 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="py-8 text-center text-sm text-muted-foreground">
-                아직 생성된 배치가 없습니다
+                아직 생성된 {L("batch")}가 없습니다
               </div>
             )}
           </CardContent>

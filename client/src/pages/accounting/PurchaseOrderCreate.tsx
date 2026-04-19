@@ -21,6 +21,7 @@ import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { todayLocal } from "@/lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface POLine {
   id: string; // temp client id
   materialId: number | null;
@@ -48,6 +49,7 @@ function emptyLine(): POLine {
 }
 
 export default function PurchaseOrderCreate() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <PurchaseOrderCreateContent />

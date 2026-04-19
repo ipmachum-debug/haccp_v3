@@ -17,7 +17,9 @@ import { TabsList } from "@/components/ui/tabs";
 import { Plus, Eye } from "lucide-react";
 
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ShippingInspections() {
+  const L = useIndustryLabel();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
   const { data: inspections, isLoading } = trpc.inspection.shipping.list.useQuery({

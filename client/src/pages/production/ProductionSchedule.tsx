@@ -9,7 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Calendar, Package, AlertCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionSchedule() {
+  const L = useIndustryLabel();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

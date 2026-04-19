@@ -15,7 +15,9 @@ import { Search, Calendar, AlertTriangle, CheckCircle, Clock, Package } from "lu
 import { trpc } from "@/lib/trpc";
 import { format } from "date-fns";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryLots() {
+  const L = useIndustryLabel();
   const [searchTerm, setSearchTerm] = useState("");
 
   // LOT 목록 조회 (임시 - API 구현 필요)

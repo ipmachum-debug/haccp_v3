@@ -14,7 +14,9 @@ import { Button } from "@/components/ui/button";
 import { SectionTitle } from "@/components/inventory/InventoryHelpers";
 import type { InventoryLot } from "./types";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export function AdjustmentTab({ isMat }: { isMat: boolean }) {
+  const L = useIndustryLabel();
   const [lotId, setLotId] = useState<number | null>(null);
   const [adjType, setAdjType] = useState<"increase" | "decrease">("increase");
   const [qty, setQty] = useState("");

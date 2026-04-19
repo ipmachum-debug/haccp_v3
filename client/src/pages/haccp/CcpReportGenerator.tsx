@@ -12,7 +12,9 @@ import { toast } from "sonner";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function CcpReportGenerator() {
+  const L = useIndustryLabel();
   const [reportType, setReportType] = useState<string>("daily");
   const [dateRange, setDateRange] = useState({
     startDate: formatLocalDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),

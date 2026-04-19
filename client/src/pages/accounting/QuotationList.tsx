@@ -59,6 +59,7 @@ import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   draft: { label: "작성 중", className: "bg-slate-200 text-slate-700 border-transparent" },
   sent: { label: "발송됨", className: "bg-blue-600 text-white border-transparent" },
@@ -70,6 +71,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
 };
 
 export default function QuotationList() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <QuotationListContent />
