@@ -145,3 +145,17 @@ export function useIndustryLabel() {
   const { getLabel } = useIndustryFeatures();
   return getLabel;
 }
+
+/**
+ * 업종 정보 변경 훅 (관리자 전용)
+ * — `updateIndustry` 성공 시 `getCurrentIndustry` 캐시를 즉시 invalidate 해서
+ *   사이드바 메뉴가 5분 대기 없이 새 업종 설정을 반영하도록 한다.
+ */
+export function useUpdateIndustry() {
+  const utils = trpc.useUtils();
+  return trpc.industry.updateIndustry.useMutation({
+    onSuccess: () => {
+      utils.industry.getCurrentIndustry.invalidate();
+    },
+  });
+}

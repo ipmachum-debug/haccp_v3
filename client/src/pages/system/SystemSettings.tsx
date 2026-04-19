@@ -15,7 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { Settings, Package, Tag, Factory, ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe, Info, Shield, Award } from "lucide-react";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
+import { useIndustryFeatures, useUpdateIndustry } from "@/hooks/useIndustryFeatures";
 
 export default function SystemSettings() {
   const [erpEnabled, setErpEnabled] = useState(false);
@@ -33,16 +33,21 @@ export default function SystemSettings() {
     isLoading: industryLoading,
   } = useIndustryFeatures();
 
-  const updateIndustryMut = trpc.industry.updateIndustry.useMutation({
-    onSuccess: (data) => {
-      toast.success(`업종이 ${data.profile.nameKo}(으)로 변경되었습니다. 페이지를 새로고침하면 메뉴가 업데이트됩니다.`);
-      // Invalidate the industry query to force a refresh
-      setTimeout(() => window.location.reload(), 1500);
-    },
-    onError: (error: { message: string }) => {
-      toast.error(`오류: ${error.message}`);
-    },
-  });
+  const updateIndustryMut = useUpdateIndustry();
+  // onSuccess 핸들러 별도 지정 (useUpdateIndustry가 캐시 invalidate 처리)
+  const handleIndustryMutate = (code: string) => {
+    setPendingIndustryCode(code);
+    updateIndustryMut.mutate({ industryCode: code }, {
+      onSuccess: (data) => {
+        toast.success(`업종이 ${data.profile.nameKo}(으)로 변경되었습니다. 메뉴가 자동 업데이트됩니다.`);
+        setPendingIndustryCode(null);
+      },
+      onError: (error: { message: string }) => {
+        toast.error(`오류: ${error.message}`);
+        setPendingIndustryCode(null);
+      },
+    });
+  };
 
   // 업종 코드 변경 핸들러
   const [pendingIndustryCode, setPendingIndustryCode] = useState<string | null>(null);
@@ -61,8 +66,7 @@ export default function SystemSettings() {
     if (code === industryCode) return;
     const opt = INDUSTRY_OPTIONS.find(o => o.code === code);
     if (confirm(`업종을 '${opt?.label}'으로 변경하면 사이드바 메뉴와 기능이 변경됩니다. 계속하시겠습니까?`)) {
-      setPendingIndustryCode(code);
-      updateIndustryMut.mutate({ industryCode: code });
+      handleIndustryMutate(code);
     }
   };
 

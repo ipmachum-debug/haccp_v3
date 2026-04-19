@@ -4,10 +4,34 @@
 -- Date: 2026-04-19
 -- ============================================
 
--- 1. tenants 테이블에 업종코드 컬럼 추가
-ALTER TABLE tenants
-  ADD COLUMN industry_code VARCHAR(20) DEFAULT NULL COMMENT 'KSIC 업종코드 (ex: C10, C1011, C20)',
-  ADD COLUMN industry_category VARCHAR(50) DEFAULT NULL COMMENT '대분류 (food, cosmetics, supplement, pharma, general)';
+-- 1. tenants 테이블에 업종코드 컬럼 추가 (idempotent — 재실행 안전)
+DROP PROCEDURE IF EXISTS _millio_add_industry_cols;
+DELIMITER $$
+CREATE PROCEDURE _millio_add_industry_cols()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'tenants'
+      AND COLUMN_NAME = 'industry_code'
+  ) THEN
+    ALTER TABLE tenants
+      ADD COLUMN industry_code VARCHAR(20) DEFAULT NULL COMMENT 'KSIC 업종코드 (ex: C10, C1011, C20)';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'tenants'
+      AND COLUMN_NAME = 'industry_category'
+  ) THEN
+    ALTER TABLE tenants
+      ADD COLUMN industry_category VARCHAR(50) DEFAULT NULL COMMENT '대분류 (food, cosmetics, supplement, pharma, general)';
+  END IF;
+END $$
+DELIMITER ;
+CALL _millio_add_industry_cols();
+DROP PROCEDURE _millio_add_industry_cols;
 
 -- 2. 업종코드 마스터 테이블
 CREATE TABLE IF NOT EXISTS industry_codes (
