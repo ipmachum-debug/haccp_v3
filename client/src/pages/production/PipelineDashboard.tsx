@@ -33,7 +33,59 @@ import {
   Calendar
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import type { RouterOutput } from '@/lib/trpcTypes';
 import { useAuth } from '@/_core/hooks/useAuth';
+
+// 파이프라인 대시보드 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type PipelineBatch = {
+  id: number;
+  batchId?: number;
+  batchCode?: string;
+  productName?: string;
+  status?: string;
+  steps?: PipelineStep[];
+  alerts?: PipelineAlert[];
+  mode?: string;
+  startTime?: string | Date | null;
+  currentStep?: string;
+  [k: string]: unknown;
+};
+type PipelineStep = { id?: number; step?: string; name?: string; status?: string; [k: string]: unknown };
+type PipelineAlert = { id?: number; level?: string; message?: string; [k: string]: unknown };
+type ClosingNotification = {
+  id: number;
+  is_read?: 0 | 1 | boolean;
+  message?: string;
+  title?: string;
+  priority?: string;
+  notification_type?: string;
+  created_at?: string | Date;
+};
+type ClosingReportSummary = {
+  production?: {
+    totalBatches?: number;
+    completedBatches?: number;
+    incompleteBatches?: number;
+    completionRate?: number;
+  };
+  approvals?: { pendingCount?: number };
+  inventory?: { lowStockCount?: number };
+  ccp?: { deviationCount?: number };
+  alerts?: Array<{ id: number; message?: string; level?: string }>;
+  warnings?: string[];
+};
+type IotDevice = {
+  id: number;
+  status?: string;
+  name?: string;
+  device_name?: string;
+  device_type?: string;
+  equipment_name?: string;
+  unit?: string;
+  last_heartbeat?: string | Date | null;
+  heartbeat_interval_sec?: number;
+  latest_value?: number | string | null;
+};
 
 import { todayLocal } from "../../lib/dateUtils";
 
@@ -133,7 +185,7 @@ const SensorStatusBadge = ({ status }: { status: string }) => {
 // 콘텐츠만 (ProductionManagement 탭에 임베드할 때 사용)
 export const PipelineDashboardContent: React.FC = () => {
   const { user } = useAuth();
-  const siteId = (user as any)?.siteId || (user as any)?.tenantId || 0;
+  const siteId = (user as { siteId?: number; tenantId?: number } | null)?.siteId || (user as { siteId?: number; tenantId?: number } | null)?.tenantId || 0;
   const [selectedDate, setSelectedDate] = useState<string>(
     todayLocal()
   );
@@ -148,8 +200,8 @@ export const PipelineDashboardContent: React.FC = () => {
 
   // IoT 디바이스 → SensorData 변환 (설비별 개별 표시)
   const sensors: SensorData[] = useMemo(() => {
-    if (!iotDevices || (iotDevices as any[]).length === 0) return DEFAULT_SENSORS;
-    return (iotDevices as any[]).map((dev: any) => {
+    if (!iotDevices || (iotDevices as IotDevice[]).length === 0) return DEFAULT_SENSORS;
+    return (iotDevices as IotDevice[]).map((dev: IotDevice) => {
       const isOnline = dev.status === 'active' && dev.last_heartbeat;
       const lastHb = dev.last_heartbeat ? new Date(dev.last_heartbeat) : null;
       const secSinceHb = lastHb ? (Date.now() - lastHb.getTime()) / 1000 : Infinity;
@@ -169,7 +221,7 @@ export const PipelineDashboardContent: React.FC = () => {
     });
   }, [iotDevices]);
   const [isClosingRunning, setIsClosingRunning] = useState(false);
-  const tenantId = (user as any)?.tenantId || 0;
+  const tenantId = (user as { tenantId?: number } | null)?.tenantId || 0;
 
   // tRPC 쿼리 - 파이프라인 현황 조회
   const { data: pipelineData, isLoading, refetch } = trpc.pipeline.getStatus.useQuery(
@@ -219,24 +271,24 @@ export const PipelineDashboardContent: React.FC = () => {
   // 최근 알림 (읽지 않은 것)
   const unreadNotifications = useMemo(() => {
     if (!closingNotifications) return [];
-    return (closingNotifications as any[]).filter((n: any) => !n.is_read).slice(0, 5);
+    return (closingNotifications as ClosingNotification[]).filter((n: ClosingNotification) => !n.is_read).slice(0, 5);
   }, [closingNotifications]);
 
   const handleRefresh = () => { refetch(); };
 
   // 통계 계산
-  const batches = (pipelineData as any)?.batches || (pipelineData as any) || [];
+  const batches = (pipelineData as { batches?: PipelineBatch[] } | undefined)?.batches || ((pipelineData as PipelineBatch[] | undefined) || []);
   const batchList = Array.isArray(batches) ? batches : [];
   const totalBatches = batchList.length;
-  const completedBatches = batchList.filter((b: any) => b.status === 'completed').length;
-  const inProgressBatches = batchList.filter((b: any) => b.status === 'in_progress').length;
-  const pendingBatches = batchList.filter((b: any) => b.status === 'planned' || b.status === 'pending').length;
-  const errorBatches = batchList.filter((b: any) => b.status === 'error' || b.status === 'cancelled').length;
+  const completedBatches = batchList.filter((b: PipelineBatch) => b.status === 'completed').length;
+  const inProgressBatches = batchList.filter((b: PipelineBatch) => b.status === 'in_progress').length;
+  const pendingBatches = batchList.filter((b: PipelineBatch) => b.status === 'planned' || b.status === 'pending').length;
+  const errorBatches = batchList.filter((b: PipelineBatch) => b.status === 'error' || b.status === 'cancelled').length;
   const overallProgress = totalBatches > 0 
-    ? Math.round(batchList.reduce((sum: number, b: any) => {
+    ? Math.round(batchList.reduce((sum: number, b: PipelineBatch) => {
         const steps = b.steps || b.pipeline || [];
         if (Array.isArray(steps) && steps.length > 0) {
-          const completed = steps.filter((s: any) => s.status === 'completed').length;
+          const completed = steps.filter((s: PipelineStep) => s.status === 'completed').length;
           return sum + (completed / PIPELINE_STAGES.length) * 100;
         }
         if (b.status === 'completed') return sum + 100;
@@ -351,14 +403,14 @@ export const PipelineDashboardContent: React.FC = () => {
             <span className="text-sm font-semibold">IoT 센서 모니터링</span>
           </div>
           <div className="flex items-center gap-2">
-            {iotDashboard && (iotDashboard as any).anomalies24h > 0 && (
+            {iotDashboard && ((iotDashboard as { anomalies24h?: number }).anomalies24h ?? 0) > 0 && (
               <span className="text-xs text-rose-100 bg-rose-500/40 px-2 py-0.5 rounded-full">
-                이상치 {(iotDashboard as any).anomalies24h}건
+                이상치 {(iotDashboard as { anomalies24h?: number }).anomalies24h}건
               </span>
             )}
             <span className="text-xs text-emerald-100 bg-white/20 px-2 py-0.5 rounded-full">
-              {iotDevices && (iotDevices as any[]).length > 0
-                ? `${(iotDevices as any[]).filter((d: any) => d.status === 'active').length}/${(iotDevices as any[]).length} 연결`
+              {iotDevices && (iotDevices as IotDevice[]).length > 0
+                ? `${(iotDevices as IotDevice[]).filter((d: IotDevice) => d.status === 'active').length}/${(iotDevices as IotDevice[]).length} 연결`
                 : 'API 연동 가능'}
             </span>
           </div>
@@ -400,12 +452,12 @@ export const PipelineDashboardContent: React.FC = () => {
               <span className="text-sm font-semibold">일일 마감 보고서</span>
             </div>
             <span className="text-xs text-emerald-100">
-              {(closingReport as any)?.generated_at ? new Date((closingReport as any).generated_at).toLocaleString('ko-KR') : ''}
+              {(closingReport as { generated_at?: string } | undefined)?.generated_at ? new Date(String((closingReport as { generated_at?: string }).generated_at)).toLocaleString('ko-KR') : ''}
             </span>
           </div>
           <div className="p-5">
             {(() => {
-              const summary = (closingReport as any)?.summary;
+              const summary = (closingReport as { summary?: ClosingReportSummary } | undefined)?.summary;
               if (!summary) return <p className="text-sm text-stone-400">보고서 데이터 없음</p>;
               const prod = summary.production || {};
               return (
@@ -460,7 +512,7 @@ export const PipelineDashboardContent: React.FC = () => {
             <Badge className="bg-white/20 text-white border-0 text-xs">{unreadNotifications.length}건</Badge>
           </div>
           <div className="divide-y divide-amber-100">
-            {unreadNotifications.map((notif: any) => (
+            {unreadNotifications.map((notif: ClosingNotification) => (
               <div key={notif.id} className="px-5 py-3 flex items-start gap-3 hover:bg-amber-50/50 transition-colors">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                   notif.priority === 'urgent' ? 'bg-rose-100 text-rose-600' :
@@ -502,18 +554,19 @@ export const PipelineDashboardContent: React.FC = () => {
 
       {/* ── 배치별 파이프라인 ── */}
       <div className="space-y-3">
-        {batchList.map((batch: any) => {
-          const steps = batch.steps || batch.pipeline || [];
-          const batchCode = batch.batchCode || batch.batch_code || '-';
-          const productName = batch.productName || batch.product_name || '제품';
-          const lotNumber = batch.lotNumber || batch.lot_number || '';
-          const plannedQty = batch.plannedQuantity || batch.planned_quantity || 0;
-          const actualQty = batch.actualQuantity || batch.actual_quantity || 0;
+        {batchList.map((batch: PipelineBatch) => {
+          const b = batch as Record<string, unknown>;
+          const steps = (batch.steps || b.pipeline || []) as PipelineStep[];
+          const batchCode = String(batch.batchCode ?? b.batch_code ?? '-');
+          const productName = String(batch.productName ?? b.product_name ?? '제품');
+          const lotNumber = String(b.lotNumber ?? b.lot_number ?? '');
+          const plannedQty = Number(b.plannedQuantity ?? b.planned_quantity ?? 0);
+          const actualQty = Number(b.actualQuantity ?? b.actual_quantity ?? 0);
 
           // 진행률 계산
           let batchProgress = 0;
           if (Array.isArray(steps) && steps.length > 0) {
-            const completedSteps = steps.filter((s: any) => s.status === 'completed').length;
+            const completedSteps = steps.filter((s: PipelineStep) => s.status === 'completed').length;
             batchProgress = Math.round((completedSteps / PIPELINE_STAGES.length) * 100);
           } else if (batch.status === 'completed') {
             batchProgress = 100;
@@ -564,10 +617,10 @@ export const PipelineDashboardContent: React.FC = () => {
                     let stageDetail = '';
                     
                     if (Array.isArray(steps) && steps.length > 0) {
-                      const matchedStep = steps.find((s: any) => s.step === stage.step || s.name === stage.name || s.id === stage.id);
+                      const matchedStep = steps.find((s: PipelineStep) => String(s.step ?? '') === String(stage.step) || s.name === stage.name || String(s.id ?? '') === stage.id);
                       if (matchedStep) {
                         stageStatus = matchedStep.status || 'pending';
-                        stageDetail = matchedStep.detail || '';
+                        stageDetail = String((matchedStep as { detail?: string }).detail ?? '');
                       }
                     } else {
                       // steps 배열이 없을 때 batch.status로 추정
@@ -635,7 +688,7 @@ export const PipelineDashboardContent: React.FC = () => {
               {/* 알림 영역 */}
               {batch.alerts && Array.isArray(batch.alerts) && batch.alerts.length > 0 && (
                 <div className="px-5 pb-4 space-y-1.5">
-                  {batch.alerts.map((alert: any, idx: number) => (
+                  {batch.alerts.map((alert: PipelineAlert, idx: number) => (
                     <div
                       key={idx}
                       className={`

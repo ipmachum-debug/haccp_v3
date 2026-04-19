@@ -6,6 +6,25 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 배치 상세 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type MaterialRow = RouterOutput["material"]["list"]["items"][number];
+type BatchInput = RouterOutput["inventory"]["getBatchInputs"][number];
+type InventoryLot = RouterOutput["inventory"]["getLotsByMaterialId"][number];
+type CcpInstance = RouterOutput["ccp"]["getByBatchId"][number];
+type BatchCostMaterial = {
+  materialId?: number;
+  materialName: string;
+  unitPrice?: number | string;
+  usedAmount?: number | string;
+  cost?: number | string;
+  totalCost?: number | string;
+  isWater?: boolean;
+  [k: string]: unknown;
+};
+type CcpCheckIncomplete = { ccpType: string; reason?: string; message?: string };
+type AiAlert = { id: number; level?: string; title?: string; message?: string; [k: string]: unknown };
 import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
@@ -20,7 +39,7 @@ import { todayLocal } from "../../lib/dateUtils";
 
 /** 배치 기본정보 요약 (BOM 배치량 + 배치수 + 처리모드 + 생성일) */
 function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
-  productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: any;
+  productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: string | Date;
 }) {
   const { data: bomData } = trpc.ccpForm.getBomBatchKg.useQuery(
     { productId: productId! },
@@ -71,7 +90,7 @@ export default function BatchDetail() {
     { enabled: !!batchId }
   );
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
-  const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
+  const materials = (_rawMaterials as { items?: MaterialRow[] } | undefined)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: batchInputs, refetch: refetchInputs } = trpc.inventory.getBatchInputs.useQuery({ batchId }, { enabled: !!batchId });
   const { data: batchCost } = trpc.batch.getCost.useQuery({ batchId }, { enabled: !!batchId });
   const { data: batchCompletion } = trpc.batch.checkCompletion.useQuery({ batchId }, { enabled: !!batchId && batch?.mode === "manual" });
@@ -99,7 +118,7 @@ export default function BatchDetail() {
   const utils = trpc.useUtils();
 
   const updateStatusMutation = trpc.batch.updateStatus.useMutation({
-    onSuccess: async (data: any, variables: any) => {
+    onSuccess: async (data: { message?: string; [k: string]: unknown }, variables: { id: number; status: string; [k: string]: unknown }) => {
       toast.success("배치 상태가 변경되었습니다");
 
       // 배치 완료 시 승인 요청 자동 생성
@@ -126,14 +145,15 @@ export default function BatchDetail() {
 
   // ── CCP 자동 생성 뮤테이션 ──
   const generateCcpMutation = trpc.batch.generateCcp.useMutation({
-    onSuccess: (result: any) => {
-      if (result.alreadyExists) {
+    onSuccess: (result: { message?: string; [k: string]: unknown }) => {
+      if ((result as { alreadyExists?: boolean }).alreadyExists) {
         // 이미 있는 경우 조용히 refetch만
         refetchCcps();
         return;
       }
-      if (result.ccpCount > 0) {
-        toast.success(`CCP ${result.ccpCount}건 자동 생성 완료`, {
+      const ccpCount = Number((result as { ccpCount?: number }).ccpCount ?? 0);
+      if (ccpCount > 0) {
+        toast.success(`CCP ${ccpCount}건 자동 생성 완료`, {
           description: result.message,
           duration: 4000,
         });
@@ -147,7 +167,7 @@ export default function BatchDetail() {
 
       // 자동 모드이고, CCP 자동 생성 성공 시 승인관리로 자동 이동 (중복 방지)
       // 이미 completed인 배치(백업 데이터 등)는 리다이렉트하지 않음
-      if (batch?.mode === "auto" && batch?.status !== "completed" && result.ccpCount > 0 && !autoNavigated.current) {
+      if (batch?.mode === "auto" && batch?.status !== "completed" && ccpCount > 0 && !autoNavigated.current) {
         autoNavigated.current = true;
         toast.info("자동처리 완료: 승인관리로 이동합니다", {
           description: `CCP ${result.ccpCount}건 기록지 생성 완료 · 설비기준·공정기준 자동 삽입`,
@@ -182,7 +202,7 @@ export default function BatchDetail() {
   }, [ccpLoading, isLoading, batch, ccpList]);
 
   const generateHaccpReportMutation = trpc.batch.generateHaccpReport.useMutation({
-    onSuccess: (result: any) => {
+    onSuccess: (result: { message?: string; pdf: string; [k: string]: unknown }) => {
       const byteCharacters = atob(result.pdf);
       const byteNumbers = new Array(byteCharacters.length);
       for (let i = 0; i < byteCharacters.length; i++) {
@@ -204,7 +224,7 @@ export default function BatchDetail() {
   });
 
   const addMaterialInputMutation = trpc.inventory.addMaterialInput.useMutation({
-    onSuccess: (result: any) => {
+    onSuccess: (result: { message?: string; [k: string]: unknown }) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
@@ -229,7 +249,7 @@ export default function BatchDetail() {
   });
 
   const deleteMaterialInputMutation = trpc.inventory.deleteMaterialInput.useMutation({
-    onSuccess: (result: any) => {
+    onSuccess: (result: { message?: string; [k: string]: unknown }) => {
       toast.success(result.message);
       refetchInputs();
       refetchLots();
@@ -285,7 +305,7 @@ export default function BatchDetail() {
   };
 
   const bulkDeleteCcpMutation = trpc.ccp.bulkDelete.useMutation({
-    onSuccess: (result: any) => {
+    onSuccess: (result: { message?: string; [k: string]: unknown }) => {
       toast.success(result.message);
       refetchCcps();
       setSelectedCcpIds([]);
@@ -324,7 +344,7 @@ export default function BatchDetail() {
       return;
     }
 
-    const selectedLot = lots?.find((lot: any) => lot.id === selectedLotId);
+    const selectedLot = lots?.find((lot: InventoryLot) => lot.id === selectedLotId);
     if (!selectedLot) {
       toast.error("선택한 LOT를 찾을 수 없습니다");
       return;
@@ -356,8 +376,8 @@ export default function BatchDetail() {
     if (!ccpList || ccpList.length === 0) {
       return <Badge variant="destructive">CCP 미생성</Badge>;
     }
-    const draftCount = ccpList.filter((c: any) => c.status === "draft").length;
-    const approvedCount = ccpList.filter((c: any) => c.status === "approved").length;
+    const draftCount = ccpList.filter((c: CcpInstance) => c.status === "draft").length;
+    const approvedCount = ccpList.filter((c: CcpInstance) => c.status === "approved").length;
     if (approvedCount === ccpList.length) {
       return <Badge className="bg-green-100 text-green-800">CCP 전체 승인됨</Badge>;
     }
@@ -590,7 +610,7 @@ export default function BatchDetail() {
                               <div className="mt-2 text-xs">
                                 <div className="font-semibold mb-1">미완료/부적합 CCP:</div>
                                 <ul className="list-disc list-inside space-y-0.5">
-                                  {ccpCheckStatus.incompleteCcps.map((ccp: any, idx: number) => (
+                                  {ccpCheckStatus.incompleteCcps.map((ccp: CcpCheckIncomplete, idx: number) => (
                                     <li key={idx}>
                                       {ccp.ccpType} - {ccp.reason}
                                     </li>
@@ -770,28 +790,28 @@ export default function BatchDetail() {
                     <div className="space-y-2">
                       <h4 className="font-semibold text-sm">원재료별 상세 비용</h4>
                       <div className="space-y-2">
-                        {batchCost.materialCosts.map((item: any, index: any) => (
+                        {batchCost.materialCosts.map((item: BatchCostMaterial, index: number) => (
                           <div key={item.materialId} className={`p-3 border rounded-lg ${item.isWater ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200' : ''}`}>
                             <div className="flex items-center justify-between mb-2">
                               <span className="font-medium text-sm flex items-center gap-1.5">
                                 {item.materialName}
                                 {item.isWater && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 border border-blue-200">원가제외</span>}
                               </span>
-                              <span className="font-bold">{item.isWater ? '-' : `${item.totalCost.toLocaleString('ko-KR')}원`}</span>
+                              <span className="font-bold">{item.isWater ? '-' : `${Number(item.totalCost ?? 0).toLocaleString('ko-KR')}원`}</span>
                             </div>
                             <div className="text-xs text-muted-foreground space-y-1">
                               <div className="flex justify-between">
                                 <span>수량:</span>
-                                <span>{item.quantity.toLocaleString('ko-KR')} {item.unit}</span>
+                                <span>{Number((item as { quantity?: number | string }).quantity ?? 0).toLocaleString('ko-KR')} {String((item as { unit?: string }).unit ?? '')}</span>
                               </div>
                               <div className="flex justify-between">
                                 <span>단가:</span>
-                                <span>{item.isWater ? '-' : `${item.unitPrice.toLocaleString('ko-KR')}원/${item.unit}`}</span>
+                                <span>{item.isWater ? '-' : `${Number(item.unitPrice ?? 0).toLocaleString('ko-KR')}원/${String((item as { unit?: string }).unit ?? '')}`}</span>
                               </div>
                               {!item.isWater && (
                                 <div className="flex justify-between">
                                   <span>비용 비율:</span>
-                                  <span>{batchCost.totalCost > 0 ? ((item.totalCost / batchCost.totalCost) * 100).toFixed(1) : 0}%</span>
+                                  <span>{batchCost.totalCost > 0 ? ((Number(item.totalCost ?? 0) / batchCost.totalCost) * 100).toFixed(1) : 0}%</span>
                                 </div>
                               )}
                             </div>
@@ -806,7 +826,7 @@ export default function BatchDetail() {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
-                            data={batchCost.materialCosts.filter((item: any) => !item.isWater).map((item: any) => ({
+                            data={batchCost.materialCosts.filter((item: BatchCostMaterial) => !item.isWater).map((item: BatchCostMaterial) => ({
                               name: item.materialName,
                               value: item.totalCost,
                             }))}
@@ -818,7 +838,7 @@ export default function BatchDetail() {
                             fill="#8884d8"
                             dataKey="value"
                           >
-                            {batchCost.materialCosts.filter((item: any) => !item.isWater).map((entry: any, index: any) => (
+                            {batchCost.materialCosts.filter((item: BatchCostMaterial) => !item.isWater).map((entry: BatchCostMaterial, index: number) => (
                               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                             ))}
                           </Pie>
@@ -877,7 +897,7 @@ export default function BatchDetail() {
                       <SelectValue placeholder="LOT 선택" />
                     </SelectTrigger>
                     <SelectContent>
-                      {lots?.map((lot: any) => (
+                      {lots?.map((lot: InventoryLot) => (
                         <SelectItem key={lot.id} value={lot.id.toString()}>
                           {lot.lotNumber} (가용: {lot.availableQuantity}{lot.unit}, 유통기한: {lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString("ko-KR") : "-"})
                         </SelectItem>
@@ -932,9 +952,9 @@ export default function BatchDetail() {
                     </tr>
                   </thead>
                   <tbody>
-                    {batchInputs.map((input: any) => (
+                    {batchInputs.map((input: BatchInput) => (
                       <tr key={input.id} className="border-b hover:bg-accent/50">
-                        <td className="p-3">{input.materialName || `원재료 #${input.materialId}`}</td>
+                        <td className="p-3">{String((input as { materialName?: string }).materialName ?? `원재료 #${input.materialId}`)}</td>
                         <td className="p-3">{input.lotId || "-"}</td>
                         <td className="p-3">{input.plannedQuantity}</td>
                         <td className="p-3">{input.actualQuantity || "-"}</td>
@@ -1133,7 +1153,7 @@ CCP 기록지 수동 확인 후 승인 요청`,
                             toast.success("승인 요청이 등록되었습니다. 승인관리 페이지로 이동합니다.");
                             setTimeout(() => setLocation("/dashboard/approval"), 1200);
                           } catch (err) {
-                            toast.error("승인 요청 등록 실패: " + (err as any)?.message);
+                            toast.error("승인 요청 등록 실패: " + (err as Error)?.message);
                           }
                         }}
                       >
@@ -1143,7 +1163,7 @@ CCP 기록지 수동 확인 후 승인 요청`,
                     </div>
                   </div>
                 )}
-                {ccpList.map((ccp: any) => (
+                {ccpList.map((ccp: CcpInstance) => (
                   <div key={ccp.id} className="relative">
                     {/* 체크박스 (삭제 선택용) */}
                     <button
@@ -1318,7 +1338,7 @@ function BatchAIRiskCard({ batchId }: { batchId: number }) {
           {/* 최근 알림 목록 (최대 3개) */}
           {data.alerts.length > 0 && (
             <div className="space-y-1 mt-2 border-t pt-2">
-              {data.alerts.slice(0, 3).map((alert: any) => (
+              {data.alerts.slice(0, 3).map((alert: AiAlert) => (
                 <div key={alert.id} className="flex items-start gap-2 text-sm">
                   <Badge variant="outline" className={`text-[10px] shrink-0 ${
                     alert.severity === "critical" ? "bg-red-100 text-red-700" :
