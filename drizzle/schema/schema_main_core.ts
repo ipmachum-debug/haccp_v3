@@ -19,7 +19,11 @@ export const tenants = mysqlTable("tenants", {
   subscriptionDays: int("subscription_days").default(0), // 구독 일수
   gracePeriodEndDate: date("grace_period_end_date"), // 유예기간 종료일 (7일)
   isReadOnly: boolean("is_read_only").default(false), // 읽기 전용 모드
-  
+
+  // 업종 정보 (2026-04-19 추가, schema_control_plane 와 동기화)
+  industryCode: varchar("industry_code", { length: 20 }),
+  industryCategory: varchar("industry_category", { length: 50 }),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

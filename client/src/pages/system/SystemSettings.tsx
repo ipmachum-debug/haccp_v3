@@ -16,6 +16,7 @@ import { Settings, Package, Tag, Factory, ChefHat, Sparkles, Pill, Cpu, Scissors
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useIndustryFeatures, useUpdateIndustry } from "@/hooks/useIndustryFeatures";
+import { INDUSTRY_OPTIONS } from "@/lib/industryOptions";
 
 export default function SystemSettings() {
   const [erpEnabled, setErpEnabled] = useState(false);
@@ -38,7 +39,7 @@ export default function SystemSettings() {
   const handleIndustryMutate = (code: string) => {
     setPendingIndustryCode(code);
     updateIndustryMut.mutate({ industryCode: code }, {
-      onSuccess: (data) => {
+      onSuccess: (data: { profile: { nameKo: string } }) => {
         toast.success(`업종이 ${data.profile.nameKo}(으)로 변경되었습니다. 메뉴가 자동 업데이트됩니다.`);
         setPendingIndustryCode(null);
       },
@@ -51,16 +52,6 @@ export default function SystemSettings() {
 
   // 업종 코드 변경 핸들러
   const [pendingIndustryCode, setPendingIndustryCode] = useState<string | null>(null);
-
-  const INDUSTRY_OPTIONS = [
-    { code: "C10", label: "식품 제조업", category: "food", icon: ChefHat },
-    { code: "C10_SUP", label: "건강기능식품 제조업", category: "supplement", icon: Pill },
-    { code: "C20", label: "화장품 제조업", category: "cosmetics", icon: Sparkles },
-    { code: "C21", label: "의약품 제조업", category: "pharma", icon: Syringe },
-    { code: "C26", label: "전자부품·장비 제조업", category: "electronics", icon: Cpu },
-    { code: "C13", label: "섬유·의복 제조업", category: "textile", icon: Scissors },
-    { code: "C_GENERAL", label: "일반 제조업", category: "general", icon: Factory },
-  ];
 
   const handleIndustryChange = (code: string) => {
     if (code === industryCode) return;

@@ -54,7 +54,8 @@ import {
   BarChart3,
   TrendingUp,
   Link2,
-  Unlink
+  Unlink,
+  Factory,
 } from "lucide-react";
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
@@ -62,28 +63,8 @@ import { useToast } from "@/hooks/use-toast";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { FEATURES } from "@/lib/featureFlags";
-import { Factory, ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe } from "lucide-react";
-
-// 업종 카테고리 표시용
-const INDUSTRY_CATEGORIES: Record<string, { label: string; color: string; icon: any }> = {
-  food: { label: "식품제조", color: "bg-orange-100 text-orange-700 border-orange-200", icon: ChefHat },
-  cosmetics: { label: "화장품", color: "bg-pink-100 text-pink-700 border-pink-200", icon: Sparkles },
-  supplement: { label: "건기식", color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: Pill },
-  pharma: { label: "의약품", color: "bg-blue-100 text-blue-700 border-blue-200", icon: Syringe },
-  electronics: { label: "전자", color: "bg-indigo-100 text-indigo-700 border-indigo-200", icon: Cpu },
-  textile: { label: "섬유", color: "bg-purple-100 text-purple-700 border-purple-200", icon: Scissors },
-  general: { label: "일반제조", color: "bg-stone-100 text-stone-700 border-stone-200", icon: Factory },
-};
-
-const INDUSTRY_OPTIONS = [
-  { code: "C10", label: "식품 제조업", category: "food" },
-  { code: "C10_SUP", label: "건강기능식품 제조업", category: "supplement" },
-  { code: "C20", label: "화장품 제조업", category: "cosmetics" },
-  { code: "C21", label: "의약품 제조업", category: "pharma" },
-  { code: "C26", label: "전자부품·장비 제조업", category: "electronics" },
-  { code: "C13", label: "섬유·의복 제조업", category: "textile" },
-  { code: "C_GENERAL", label: "일반 제조업", category: "general" },
-];
+// 업종 카테고리/옵션은 `@/lib/industryOptions` 공유 상수 사용
+import { INDUSTRY_OPTIONS, INDUSTRY_CATEGORIES } from "@/lib/industryOptions";
 
 export default function TenantManagement() {
   const [searchTerm, setSearchTerm] = useState("");

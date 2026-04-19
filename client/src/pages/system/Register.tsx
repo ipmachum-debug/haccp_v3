@@ -14,8 +14,8 @@ import {
   CheckCircle2, Shield, TrendingUp, Users, Building2,
   ShieldCheck, Factory, Calculator, Package, FileText,
   Phone, Globe, Mail, Clock, MapPin, ArrowRight,
-  ChefHat, Sparkles, Pill, Cpu, Scissors, Syringe
 } from "lucide-react";
+import { INDUSTRY_OPTIONS } from "@/lib/industryOptions";
 
 
 export default function Register() {
@@ -30,16 +30,6 @@ export default function Register() {
   const [businessNumber, setBusinessNumber] = useState("");
   const [selectedTenantId, setSelectedTenantId] = useState<number | undefined>(undefined);
   const [industryCode, setIndustryCode] = useState("C10");
-
-  const INDUSTRY_OPTIONS = [
-    { code: "C10", label: "식품 제조업", category: "food", icon: ChefHat },
-    { code: "C10_SUP", label: "건강기능식품", category: "supplement", icon: Pill },
-    { code: "C20", label: "화장품 제조업", category: "cosmetics", icon: Sparkles },
-    { code: "C21", label: "의약품 제조업", category: "pharma", icon: Syringe },
-    { code: "C26", label: "전자부품·장비", category: "electronics", icon: Cpu },
-    { code: "C13", label: "섬유·의복", category: "textile", icon: Scissors },
-    { code: "C_GENERAL", label: "일반 제조업", category: "general", icon: Factory },
-  ];
 
   const { data: tenantsData } = trpc.tenantsPublic.getAll.useQuery();
 
@@ -60,17 +50,15 @@ export default function Register() {
     if (userType === "client_admin" && !companyName.trim()) { toast.error("회사명을 입력해주세요."); return; }
     if (userType === "employee" && !selectedTenantId) { toast.error("소속 회사를 선택해주세요."); return; }
 
-    // 업종 정보를 userMemo에 포함 (승인 시 참고용)
-    const memoWithIndustry = userType === "client_admin"
-      ? `[업종: ${INDUSTRY_OPTIONS.find(o => o.code === industryCode)?.label || industryCode}] ${userMemo.trim()}`.trim()
-      : userMemo.trim() || undefined;
-
+    // industryCode 는 서버의 authregister 입력 필드로 직접 전달 →
+    // 승인 시 tenant.industry_code 로 자동 반영
     registerMutation.mutate({
       email, password, name, userType,
-      userMemo: memoWithIndustry,
+      userMemo: userMemo.trim() || undefined,
       companyName: userType === "client_admin" ? companyName : undefined,
       businessNumber: userType === "client_admin" ? businessNumber : undefined,
       tenantId: userType === "employee" ? selectedTenantId : undefined,
+      industryCode: userType === "client_admin" ? industryCode : undefined,
     });
   };
 
