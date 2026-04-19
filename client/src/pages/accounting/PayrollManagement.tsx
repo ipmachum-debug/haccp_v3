@@ -20,7 +20,33 @@ import {
 
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
-function payslipHtml(p: any, year: number, month: number): string {
+// 공통 급여 항목 타입 — 서버 payroll.list[number] 과 호환
+// fmt() 는 number 만 받으므로 deduction 필드들은 기본 0 으로 폴백되는 non-optional 로 정의
+type PayrollRow = {
+  id: number;
+  employeeName: string;
+  position?: string | null;
+  department?: string | null;
+  status?: string | null;
+  baseSalary: number;
+  overtime: number;
+  bonus: number;
+  allowances: number;
+  grossPay: number;
+  totalDeductions: number;
+  netPay: number;
+  nationalPension: number;
+  healthInsurance: number;
+  // 일부 payslip 필드가 DB/서버 매핑상 다른 이름을 쓸 수 있어 둘 다 허용
+  employmentInsurance: number;
+  employment: number;
+  incomeTax: number;
+  longTermCare: number;
+  localIncomeTax: number;
+  residentTax: number;
+};
+
+function payslipHtml(p: PayrollRow, year: number, month: number): string {
   return `
     <div style="page-break-after:always;max-width:210mm;margin:0 auto;padding:20px;font-family:'Malgun Gothic',sans-serif;font-size:11px">
       <h1 style="text-align:center;font-size:18px;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:4px">급 여 명 세 서</h1>
@@ -56,7 +82,7 @@ function payslipHtml(p: any, year: number, month: number): string {
     </div>`;
 }
 
-function printPayslip(p: any, year: number, month: number) {
+function printPayslip(p: PayrollRow, year: number, month: number) {
   const pw = window.open("", "_blank");
   if (!pw) return;
   pw.document.write(`<html><head><title>급여명세서 - ${p.employeeName}</title>
@@ -67,7 +93,7 @@ function printPayslip(p: any, year: number, month: number) {
   pw.document.close();
 }
 
-function printAllPayslips(payroll: any[], year: number, month: number) {
+function printAllPayslips(payroll: PayrollRow[], year: number, month: number) {
   const pw = window.open("", "_blank");
   if (!pw) return;
   const all = payroll.map(p => payslipHtml(p, year, month)).join("");
@@ -84,26 +110,34 @@ export default function PayrollManagement() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [editItem, setEditItem] = useState<any>(null);
+  const [editItem, setEditItem] = useState<{
+    id: number;
+    name: string;
+    baseSalary: number;
+    overtime: number;
+    bonus: number;
+    allowances: number;
+  } | null>(null);
 
-  const { data: payroll, isLoading, refetch } = trpc.payroll.list.useQuery({ year, month });
+  const { data: payrollRaw, isLoading, refetch } = trpc.payroll.list.useQuery({ year, month });
+  const payroll = (payrollRaw ?? []) as PayrollRow[];
   const { data: summary } = trpc.payroll.summary.useQuery({ year, month });
 
   const deleteMut = trpc.payroll.delete.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetch(); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const updateMut = trpc.payroll.update.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); setEditItem(null); refetch(); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); setEditItem(null); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
-  const handleEditPayroll = (p: any) => {
+  const handleEditPayroll = (p: PayrollRow) => {
     setEditItem({ id: p.id, name: p.employeeName, baseSalary: p.baseSalary, overtime: p.overtime, bonus: p.bonus, allowances: p.allowances });
   };
 
   const confirmMut = trpc.payroll.confirmPayment.useMutation({
-    onSuccess: (r: any) => { toast.success(r.message); refetch(); },
+    onSuccess: (r: { message: string }) => { toast.success(r.message); refetch(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -213,7 +247,7 @@ export default function PayrollManagement() {
                     <th className="p-2 text-center font-medium w-[70px]">액션</th>
                   </tr></thead>
                   <tbody>
-                    {payroll.map((p: any) => (
+                    {payroll.map((p) => (
                       <tr key={p.id} className="border-b hover:bg-accent/50">
                         <td className="p-2 font-medium">{p.employeeName}</td>
                         <td className="p-2 text-muted-foreground">{p.position || "-"}</td>
@@ -258,10 +292,10 @@ export default function PayrollManagement() {
                   {payroll.length > 0 && (
                     <tfoot><tr className="bg-muted/40 border-t-2 font-bold text-[11px]">
                       <td colSpan={5} className="p-2 text-right">합계</td>
-                      <td className="p-2 text-right font-mono bg-blue-50/50">{fmt(payroll.reduce((s: number, p: any) => s + p.grossPay, 0))}</td>
+                      <td className="p-2 text-right font-mono bg-blue-50/50">{fmt(payroll.reduce((s: number, p: PayrollRow) => s + p.grossPay, 0))}</td>
                       <td colSpan={6}></td>
-                      <td className="p-2 text-right font-mono bg-amber-50/50 text-amber-700">{fmt(payroll.reduce((s: number, p: any) => s + p.totalDeductions, 0))}</td>
-                      <td className="p-2 text-right font-mono bg-emerald-50/50 text-emerald-700">{fmt(payroll.reduce((s: number, p: any) => s + p.netPay, 0))}</td>
+                      <td className="p-2 text-right font-mono bg-amber-50/50 text-amber-700">{fmt(payroll.reduce((s: number, p: PayrollRow) => s + p.totalDeductions, 0))}</td>
+                      <td className="p-2 text-right font-mono bg-emerald-50/50 text-emerald-700">{fmt(payroll.reduce((s: number, p: PayrollRow) => s + p.netPay, 0))}</td>
                       <td></td>
                     </tr></tfoot>
                   )}

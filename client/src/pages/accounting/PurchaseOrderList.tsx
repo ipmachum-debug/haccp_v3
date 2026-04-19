@@ -58,6 +58,12 @@ import {
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { toast } from "@/hooks/use-toast";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 발주서 목록 단일 row / 상세 조회 / 라인 타입
+type OrderRow = RouterOutput["purchaseOrder"]["list"][number];
+type OrderDetail = RouterOutput["purchaseOrder"]["getById"];
+type OrderLine = NonNullable<OrderDetail>["lines"][number];
 
 const STATUS_LABELS: Record<string, { label: string; variant: string; className: string }> = {
   draft: { label: "작성 중", variant: "outline", className: "" },
@@ -84,7 +90,7 @@ function PurchaseOrderListContent() {
 
   // 수정 Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [editingPo, setEditingPo] = useState<any>(null);
+  const [editingPo, setEditingPo] = useState<{ id: number; poNumber?: string } | null>(null);
   const [editPartnerId, setEditPartnerId] = useState<number | null>(null);
   const [editPartnerName, setEditPartnerName] = useState("");
   const [editOrderDate, setEditOrderDate] = useState("");
@@ -114,7 +120,7 @@ function PurchaseOrderListContent() {
 
   // 발주 목록
   const { data: orders = [], isLoading } = trpc.purchaseOrder.list.useQuery({
-    status: statusFilter !== "all" ? (statusFilter as any) : undefined,
+    status: statusFilter !== "all" ? (statusFilter as "draft" | "approved" | "partial" | "received" | "cancelled") : undefined,
     startDate: startDate || undefined,
     endDate: endDate || undefined,
     search: searchText || undefined,
@@ -132,7 +138,7 @@ function PurchaseOrderListContent() {
   useEffect(() => {
     if (receiveDialogOpen && receivingPo && !receiveAutoFilled) {
       const initialLines: Record<number, number> = {};
-      for (const line of (receivingPo as any)?.lines || []) {
+      for (const line of (receivingPo as OrderDetail)?.lines || []) {
         const ordered = Number(line.orderedQty);
         const already = Number(line.receivedQty);
         const remaining = ordered - already;
@@ -149,7 +155,7 @@ function PurchaseOrderListContent() {
   }, [receiveDialogOpen, receivingPo, receiveAutoFilled]);
 
   const approveMutation = trpc.purchaseOrder.approve.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string }) => {
       toast({ title: "승인 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
@@ -157,7 +163,7 @@ function PurchaseOrderListContent() {
   });
 
   const cancelMutation = trpc.purchaseOrder.cancel.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string }) => {
       toast({ title: "취소 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
@@ -165,7 +171,7 @@ function PurchaseOrderListContent() {
   });
 
   const deleteMutation = trpc.purchaseOrder.delete.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string }) => {
       toast({ title: "삭제 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
     },
@@ -173,7 +179,7 @@ function PurchaseOrderListContent() {
   });
 
   const updateMutation = trpc.purchaseOrder.update.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string }) => {
       toast({ title: "수정 완료", description: r.message });
       utils.purchaseOrder.list.invalidate();
       setEditDialogOpen(false);
@@ -183,7 +189,7 @@ function PurchaseOrderListContent() {
   });
 
   const receiveMutation = trpc.purchaseOrder.receive.useMutation({
-    onSuccess: (r: any) => {
+    onSuccess: (r: { message: string; newStatus: string }) => {
       toast({
         title: "입고 처리 완료",
         description: `${r.message} — 상태: ${STATUS_LABELS[r.newStatus]?.label || r.newStatus}`,
@@ -245,13 +251,13 @@ function PurchaseOrderListContent() {
   // 통계 카드
   const stats = useMemo(() => {
     const count = orders.length;
-    const grandTotal = orders.reduce((s: number, o: any) => s + parseFloat(o.grandTotal || "0"), 0);
-    const pending = orders.filter((o: any) => o.status === "approved").length;
+    const grandTotal = (orders as OrderRow[]).reduce((s, o) => s + parseFloat(String(o.grandTotal ?? "0")), 0);
+    const pending = (orders as OrderRow[]).filter((o) => o.status === "approved").length;
     return { count, grandTotal, pending };
   }, [orders]);
 
   // 수정 Dialog 열기
-  const handleOpenEdit = async (po: any) => {
+  const handleOpenEdit = async (po: OrderRow) => {
     setEditingPo(po);
     setEditPartnerId(po.partnerId);
     setEditPartnerName(po.partnerName || `#${po.partnerId}`);
@@ -519,7 +525,7 @@ function PurchaseOrderListContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                orders.map((po: any) => {
+                orders.map((po: OrderRow) => {
                   const statusInfo = STATUS_LABELS[po.status] || { label: po.status, variant: "secondary", className: "" };
                   return (
                     <TableRow key={po.id} className="group">
@@ -780,7 +786,7 @@ function PurchaseOrderListContent() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PackageCheck className="h-5 w-5 text-green-600" />
-              입고 처리 — {(receivingPo as any)?.poNumber}
+              입고 처리 — {(receivingPo as OrderDetail)?.poNumber}
             </DialogTitle>
             <DialogDescription>
               실제 입고된 수량을 입력하세요. 매입전표가 자동 생성되고 재고/수불이 업데이트됩니다.
@@ -800,7 +806,7 @@ function PurchaseOrderListContent() {
             <div>
               <Label className="text-xs">공급업체</Label>
               <div className="h-9 flex items-center text-sm">
-                {(receivingPo as any)?.partner?.companyName || "-"}
+                {(receivingPo as OrderDetail)?.partner?.companyName || "-"}
               </div>
             </div>
           </div>
@@ -818,7 +824,7 @@ function PurchaseOrderListContent() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(receivingPo as any)?.lines?.map((line: any) => {
+                {(receivingPo as OrderDetail)?.lines?.map((line: any) => {
                   const ordered = Number(line.orderedQty);
                   const already = Number(line.receivedQty);
                   const remaining = ordered - already;
