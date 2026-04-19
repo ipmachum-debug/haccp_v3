@@ -412,7 +412,13 @@ export async function getApLedger(filters?: {
       createdAt: apLedger.createdAt
     })
     .from(apLedger)
-    .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id));
+    .leftJoin(
+      partners,
+      and(
+        eq(apLedger.supplierPartnerId, partners.id),
+        eq(partners.tenantId, apLedger.tenantId),
+      ),
+    );
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -449,7 +455,13 @@ export async function getApLedgerById(id: number, tenantId?: number) {
       createdAt: apLedger.createdAt
     })
     .from(apLedger)
-    .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(apLedger.supplierPartnerId, partners.id),
+        eq(partners.tenantId, apLedger.tenantId),
+      ),
+    )
     .where(and(...conditions));
 
   return entry;
@@ -482,7 +494,13 @@ export async function getApSummaryBySupplier(startDate?: string, endDate?: strin
       transactionCount: sql<number>`COUNT(*)`
     })
     .from(apLedger)
-    .leftJoin(partners, eq(apLedger.supplierPartnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(apLedger.supplierPartnerId, partners.id),
+        eq(partners.tenantId, apLedger.tenantId),
+      ),
+    )
     .groupBy(apLedger.supplierPartnerId, partners.companyName);
 
   if (conditions.length > 0) {
@@ -555,7 +573,13 @@ export async function getArLedger(filters?: {
       createdAt: arLedger.createdAt
     })
     .from(arLedger)
-    .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id));
+    .leftJoin(
+      partners,
+      and(
+        eq(arLedger.customerPartnerId, partners.id),
+        eq(partners.tenantId, arLedger.tenantId),
+      ),
+    );
 
   if (conditions.length > 0) {
     query = query.where(and(...conditions)) as any;
@@ -593,7 +617,13 @@ export async function getArLedgerById(id: number, tenantId?: number) {
       createdAt: arLedger.createdAt
     })
     .from(arLedger)
-    .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(arLedger.customerPartnerId, partners.id),
+        eq(partners.tenantId, arLedger.tenantId),
+      ),
+    )
     .where(and(...conditions));
 
   return entry;
@@ -626,7 +656,13 @@ export async function getArSummaryByCustomer(startDate?: string, endDate?: strin
       transactionCount: sql<number>`COUNT(*)`
     })
     .from(arLedger)
-    .leftJoin(partners, eq(arLedger.customerPartnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(arLedger.customerPartnerId, partners.id),
+        eq(partners.tenantId, arLedger.tenantId),
+      ),
+    )
     .groupBy(arLedger.customerPartnerId, partners.companyName);
 
   if (conditions.length > 0) {

@@ -122,7 +122,13 @@ export const purchaseOrderRouter = router({
           approvedAt: purchaseOrders.approvedAt,
         })
         .from(purchaseOrders)
-        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(purchaseOrders.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(and(...conditions))
         .orderBy(desc(purchaseOrders.orderDate), desc(purchaseOrders.id));
 
@@ -141,7 +147,13 @@ export const purchaseOrderRouter = router({
       const [po] = await db
         .select()
         .from(purchaseOrders)
-        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(purchaseOrders.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.tenantId, ctx.tenantId)),
         )
@@ -769,7 +781,13 @@ export const purchaseOrderRouter = router({
       const [po] = await db
         .select()
         .from(purchaseOrders)
-        .leftJoin(partners, eq(purchaseOrders.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(purchaseOrders.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(purchaseOrders.id, input.id), eq(purchaseOrders.tenantId, ctx.tenantId)),
         )

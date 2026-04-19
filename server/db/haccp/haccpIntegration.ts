@@ -429,7 +429,13 @@ export async function getAllPurchases(filters?: {
       createdAt: accountingPurchases.createdAt
     })
     .from(accountingPurchases)
-    .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id));
+    .leftJoin(
+      partners,
+      and(
+        eq(accountingPurchases.partnerId, partners.id),
+        eq(partners.tenantId, accountingPurchases.tenantId),
+      ),
+    );
 
   const conditions = [eq(accountingPurchases.tenantId, tenantId as number)];
   if (filters?.startDate) {
@@ -492,7 +498,13 @@ export async function getAllSales(filters?: {
       createdAt: accountingSales.createdAt
     })
     .from(accountingSales)
-    .leftJoin(partners, eq(accountingSales.partnerId, partners.id));
+    .leftJoin(
+      partners,
+      and(
+        eq(accountingSales.partnerId, partners.id),
+        eq(partners.tenantId, accountingSales.tenantId),
+      ),
+    );
 
   const conditions = [eq(accountingSales.tenantId, tenantId as number)];
   if (filters?.startDate) {
@@ -530,7 +542,13 @@ export async function getPurchaseById(id: number, tenantId?: number) {
   const purchase = await db
     .select()
     .from(accountingPurchases)
-    .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(accountingPurchases.partnerId, partners.id),
+        eq(partners.tenantId, accountingPurchases.tenantId),
+      ),
+    )
     .where(and(eq(accountingPurchases.id, id), eq(accountingPurchases.tenantId, tenantId as number)))
     .limit(1);
 
@@ -556,7 +574,13 @@ export async function getSaleById(id: number, tenantId?: number) {
   const sale = await db
     .select()
     .from(accountingSales)
-    .leftJoin(partners, eq(accountingSales.partnerId, partners.id))
+    .leftJoin(
+      partners,
+      and(
+        eq(accountingSales.partnerId, partners.id),
+        eq(partners.tenantId, accountingSales.tenantId),
+      ),
+    )
     .where(and(eq(accountingSales.id, id), eq(accountingSales.tenantId, tenantId as number)))
     .limit(1);
 

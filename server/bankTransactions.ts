@@ -250,7 +250,13 @@ export async function getBankTransactions(filters?: {
       partnerName: partners.companyName
     })
     .from(bankTransactions)
-    .leftJoin(partners, eq(bankTransactions.matchedPartnerId, partners.id));
+    .leftJoin(
+      partners,
+      and(
+        eq(bankTransactions.matchedPartnerId, partners.id),
+        eq(partners.tenantId, bankTransactions.tenantId),
+      ),
+    );
 
   const conditions = [];
   if (filters?.bankAccountId) {

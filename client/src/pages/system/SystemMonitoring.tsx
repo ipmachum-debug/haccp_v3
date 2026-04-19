@@ -16,8 +16,8 @@ import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 
 export default function SystemMonitoring() {
-  // 모든 테넌트 조회
-  const { data, isLoading: tenantsLoading } = trpc.tenantsPublic.getAll.useQuery();
+  // 슈퍼관리자 전용 모니터링 통계 (사용자 수/활성 상태 포함)
+  const { data, isLoading: tenantsLoading } = trpc.tenants.monitoringStats.useQuery();
   const tenants = data?.tenants || [];
 
   // TODO: 시스템 통계 API 추가 필요

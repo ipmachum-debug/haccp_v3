@@ -94,6 +94,36 @@ export const tenantsRouter = router({
     }),
 
   /**
+   * 시스템 모니터링용 통계 (슈퍼관리자 전용)
+   * — 예전 tenantsPublic.getAll 에서 이관: 사용자 수/활성 여부 노출은 슈퍼관리자에게만
+   */
+  monitoringStats: localSuperAdminProcedure.query(async () => {
+    const db = await getDb();
+    const rows = await db
+      .select({
+        id: tenants.id,
+        name: tenants.name,
+        createdAt: tenants.createdAt,
+        status: tenants.status,
+        userCount: count(users.id),
+      })
+      .from(tenants)
+      .leftJoin(users, eq(users.tenantId, tenants.id))
+      .groupBy(tenants.id, tenants.name, tenants.createdAt, tenants.status)
+      .orderBy(desc(tenants.createdAt));
+
+    return {
+      tenants: rows.map((t) => ({
+        id: t.id,
+        name: t.name,
+        createdAt: t.createdAt,
+        isActive: t.status === "active",
+        _count: { users: Number(t.userCount || 0) },
+      })),
+    };
+  }),
+
+  /**
    * 테넌트 상세 조회
    */
   getDetail: protectedProcedure

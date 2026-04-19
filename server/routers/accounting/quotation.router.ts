@@ -114,7 +114,13 @@ export const quotationRouter = router({
           acceptedAt: quotations.acceptedAt,
         })
         .from(quotations)
-        .leftJoin(partners, eq(quotations.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(quotations.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(and(...conditions))
         .orderBy(desc(quotations.quoteDate), desc(quotations.id));
 
@@ -133,7 +139,13 @@ export const quotationRouter = router({
       const [quo] = await db
         .select()
         .from(quotations)
-        .leftJoin(partners, eq(quotations.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(quotations.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(quotations.id, input.id), eq(quotations.tenantId, ctx.tenantId)),
         )
@@ -620,7 +632,13 @@ export const quotationRouter = router({
       const [quo] = await db
         .select()
         .from(quotations)
-        .leftJoin(partners, eq(quotations.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(quotations.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(quotations.id, input.id), eq(quotations.tenantId, ctx.tenantId)),
         )
