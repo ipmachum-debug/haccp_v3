@@ -34,6 +34,7 @@ import {
 } from "./_approvalManagement/constants";
 import { ApprovalStepsInline } from "./_approvalManagement/ApprovalStepsInline";
 import { RequestRow } from "./_approvalManagement/RequestRow";
+import { RequestDetailDialog } from "./_approvalManagement/RequestDetailDialog";
 
 import {
   CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet,
@@ -1093,125 +1094,24 @@ export default function ApprovalManagement() {
         </Dialog>
 
         {/* ============================================================ */}
-        {/* 상세 보기 다이얼로그 */}
+        {/* 상세 보기 다이얼로그 (2026-04-19 분해: _approvalManagement/RequestDetailDialog) */}
         {/* ============================================================ */}
-        <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-base">승인 요청 상세</DialogTitle>
-            </DialogHeader>
-            {selectedRequest && (
-              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-                {/* 3단계 진행 표시 */}
-                <div className="p-2 bg-muted/50 rounded text-xs">
-                  <ApprovalStepsInline status={selectedRequest.status} />
-                </div>
-
-                {/* 승인 직인 (승인 완료 시) */}
-                {selectedRequest.status === "approved" && (() => {
-                  const cfd = (selectedRequest as ApprovalRequest & { checklistFormData?: { approval?: { writerName?: string; reviewerName?: string; approverName?: string; reviewerApproved?: boolean; approverApproved?: boolean } } }).checklistFormData;
-                  const approval = cfd?.approval;
-                  const settingNames2 = getApprovalSettingNames(selectedRequest.requestType || "");
-                  const writerName = settingNames2?.writerName || approval?.writerName || selectedRequest.requester?.name || "작성자";
-                  const reviewerName = settingNames2?.reviewerName || approval?.reviewerName || selectedRequest.reviewer?.name || "검토자";
-                  const approverName = settingNames2?.approverName || approval?.approverName || selectedRequest.approver?.name || "승인자";
-                  return (
-                    <div className="p-2 bg-muted/50 rounded flex justify-center">
-                      <ApprovalSealRow
-                        writer={{ name: writerName, date: selectedRequest.requestedAt || selectedRequest.createdAt }}
-                        reviewer={selectedRequest.reviewedAt || approval?.reviewerApproved ? { name: reviewerName, date: selectedRequest.reviewedAt || selectedRequest.approvedAt } : undefined}
-                        approver={selectedRequest.approvedAt || approval?.approverApproved ? { name: approverName, date: selectedRequest.approvedAt } : undefined}
-                        size={45}
-                      />
-                    </div>
-                  );
-                })()}
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><div className="text-[10px] text-muted-foreground">유형</div><div className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</div></div>
-                  <div><div className="text-[10px] text-muted-foreground">상태</div><Badge className={`${STATUS_COLORS[selectedRequest.status] || STATUS_COLORS.pending} text-[10px]`}>{STATUS_LABELS[selectedRequest.status] || selectedRequest.status}</Badge></div>
-                  <div><div className="text-[10px] text-muted-foreground">제목</div><div className="font-medium text-xs">{selectedRequest.title}</div></div>
-                  <div><div className="text-[10px] text-muted-foreground">요청일</div><div className="text-xs">{selectedRequest.requestedAt ? format(new Date(selectedRequest.requestedAt), "PPP p", { locale: ko }) : "-"}</div></div>
-                  {selectedRequest.reviewedAt && (<div><div className="text-[10px] text-muted-foreground">검토일</div><div className="text-xs">{format(new Date(selectedRequest.reviewedAt), "PPP p", { locale: ko })}</div></div>)}
-                  {selectedRequest.approvedAt && (<div><div className="text-[10px] text-muted-foreground">승인일</div><div className="text-xs">{format(new Date(selectedRequest.approvedAt), "PPP p", { locale: ko })}</div></div>)}
-                </div>
-                {selectedRequest.description && (
-                  <div className="border-t pt-2"><div className="text-[10px] text-muted-foreground mb-1">설명</div><div className="text-xs whitespace-pre-line">{selectedRequest.description}</div></div>
-                )}
-                {(selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
-                  <div className="border-t pt-2">
-                    <div className="text-xs font-semibold mb-1 flex items-center gap-1"><Package className="h-3.5 w-3.5 text-blue-600" />CCP 기록지 (배치 #{selectedRequest.referenceId})</div>
-                    {(ccpFormRecords as CcpFormRecord[]).length > 0 && (
-                      <div className="mb-2 space-y-1">
-                        {(ccpFormRecords as CcpFormRecord[]).map((fr) => (
-                          <div key={fr.id} className="flex items-center justify-between bg-gray-50 border rounded px-2 py-1 text-xs">
-                            <span className="font-medium">{fr.ccpType} - {fr.processGroupName || '-'}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${fr.status === 'approved' ? 'bg-green-100 text-green-700' : fr.status === 'submitted' ? 'bg-blue-100 text-blue-700' : fr.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                              {fr.status === 'approved' ? 'OK' : fr.status === 'submitted' ? '검토중' : fr.status === 'rejected' ? '반려' : '작성중'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {ccpListForApproval && ccpListForApproval.length > 0 ? (
-                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {(ccpListForApproval as CcpInstance[]).map((ccp) => (
-                          <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcpForApproval} />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">CCP 기록지를 불러오는 중이거나 생성되지 않았습니다.</div>
-                    )}
-                    <Button size="sm" variant="outline" className="w-full mt-2 text-blue-600 border-blue-300 h-7 text-xs"
-                      onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
-                    >배치 상세 / CCP 전체 보기</Button>
-                  </div>
-                )}
-                {selectedRequest.reviewComments && (<div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">검토: {selectedRequest.reviewComments}</div>)}
-                {selectedRequest.notes && selectedRequest.status === "approved" && (<div className="text-xs text-green-600 bg-green-50 p-2 rounded">승인: {selectedRequest.notes}</div>)}
-                {selectedRequest.rejectionReason && (<div className="text-xs text-red-600 bg-red-50 p-2 rounded">반려: {selectedRequest.rejectionReason}</div>)}
-              </div>
-            )}
-            <DialogFooter className="flex-wrap gap-1.5">
-              <Button variant="outline" size="sm" onClick={() => setDetailDialogOpen(false)}>닫기</Button>
-              {selectedRequest && ['daily_log', 'weekly_log', 'monthly_log'].includes(selectedRequest.requestType) && selectedRequest.status !== 'approved' && (() => {
-                const routeMap: Record<string, string> = { daily_log: '/daily-log/daily', weekly_log: '/weekly-log/form', monthly_log: '/monthly-log/form' };
-                const route = routeMap[selectedRequest.requestType];
-                const dateMatch = selectedRequest.title?.match(/(\d{4}-\d{2}-\d{2})/);
-                const dateParam = dateMatch ? dateMatch[1] : '';
-                return (
-                  <Button variant="outline" size="sm" className="text-amber-600 border-amber-300"
-                    onClick={() => { setDetailDialogOpen(false); setLocation(`${route}?date=${dateParam}&id=${selectedRequest.referenceId}`); }}
-                  ><FileText className="h-3.5 w-3.5 mr-1" />수정</Button>
-                );
-              })()}
-              {selectedRequest && (selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
-                <Button variant="outline" size="sm" className="text-blue-600"
-                  onClick={() => { setDetailDialogOpen(false); setLocation(`/dashboard/batch/${selectedRequest.referenceId}`); }}
-                ><Package className="h-3.5 w-3.5 mr-1" />배치</Button>
-              )}
-              {selectedRequest && (selectedRequest.status === "pending_review" || selectedRequest.status === "pending") && canReview && (
-                <>
-                  <Button size="sm" className="bg-orange-500 hover:bg-orange-600"
-                    onClick={() => { setDetailDialogOpen(false); setComment(""); setReviewDialogOpen(true); }}
-                  ><UserCheck className="h-3.5 w-3.5 mr-1" />검토</Button>
-                  <Button size="sm" variant="destructive" onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}>반려</Button>
-                </>
-              )}
-              {selectedRequest?.status === "pending_approval" && canApprove && (
-                <>
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700"
-                    onClick={() => { setDetailDialogOpen(false); setComment(""); setApproveDialogOpen(true); }}
-                  ><ShieldCheck className="h-3.5 w-3.5 mr-1" />승인</Button>
-                  <Button size="sm" variant="destructive" onClick={() => { setDetailDialogOpen(false); setComment(""); setRejectDialogOpen(true); }}>반려</Button>
-                </>
-              )}
-              {selectedRequest?.status === "approved" && (
-                <Button variant="outline" size="sm" onClick={() => setLocation("/dashboard/document-output")}><Printer className="h-3.5 w-3.5 mr-1" />출력</Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <RequestDetailDialog
+          open={detailDialogOpen}
+          onOpenChange={setDetailDialogOpen}
+          request={selectedRequest}
+          canReview={canReview}
+          canApprove={canApprove}
+          settingNames={selectedRequest ? getApprovalSettingNames(selectedRequest.requestType || "") : null}
+          ccpFormRecords={(ccpFormRecords as CcpFormRecord[]) || []}
+          ccpListForApproval={ccpListForApproval as CcpInstance[] | undefined}
+          onRecordSaved={refetchCcpForApproval}
+          onClose={() => setDetailDialogOpen(false)}
+          onOpenReview={() => { setComment(""); setReviewDialogOpen(true); }}
+          onOpenApprove={() => { setComment(""); setApproveDialogOpen(true); }}
+          onOpenReject={() => { setComment(""); setRejectDialogOpen(true); }}
+          onNavigate={setLocation}
+        />
 
         {/* 품목제조보고 승인 다이얼로그 */}
         <Dialog open={recipeApproveDialogOpen} onOpenChange={setRecipeApproveDialogOpen}>
