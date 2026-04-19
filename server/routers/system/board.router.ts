@@ -15,6 +15,79 @@ import {
   communicationLogNotifications,
 } from "../../../drizzle/schema/index";
 
+// ══════════════════════════════════════
+// 자동 스키마 보장 (lazy, 프로세스당 1회)
+// — communication_logs.log_type / title, communication_log_acks 테이블,
+//   communication_log_comments 테이블을 자동으로 생성한다.
+// — production DB에 migrateBoard가 실행된 적 없어도 작동.
+// ══════════════════════════════════════
+let _boardSchemaReady: Promise<void> | null = null;
+async function ensureBoardSchema(): Promise<void> {
+  if (_boardSchemaReady) return _boardSchemaReady;
+  _boardSchemaReady = (async () => {
+    const pool = await getRawConnection();
+    const safeExec = async (ddl: string, label: string) => {
+      try {
+        await pool.execute(ddl);
+      } catch (e: any) {
+        const msg = String(e?.message || "");
+        if (
+          msg.includes("Duplicate column") ||
+          msg.includes("Duplicate key") ||
+          msg.includes("already exists")
+        ) {
+          return;
+        }
+        console.warn(`[ensureBoardSchema] ${label} skipped:`, msg);
+      }
+    };
+    await safeExec(
+      `ALTER TABLE communication_logs ADD COLUMN log_type VARCHAR(20) NOT NULL DEFAULT 'notice' AFTER mentions`,
+      "log_type column"
+    );
+    await safeExec(
+      `ALTER TABLE communication_logs ADD COLUMN title VARCHAR(200) NULL AFTER log_type`,
+      "title column"
+    );
+    await safeExec(
+      `ALTER TABLE communication_logs ADD INDEX idx_cl_log_type (log_type)`,
+      "log_type index"
+    );
+    await safeExec(
+      `CREATE TABLE IF NOT EXISTS communication_log_acks (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        log_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        checked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_cla_log_id (log_id),
+        INDEX idx_cla_user_id (user_id),
+        UNIQUE INDEX idx_cla_unique_ack (log_id, user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+      "acks table"
+    );
+    await safeExec(
+      `CREATE TABLE IF NOT EXISTS communication_log_comments (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        log_id BIGINT NOT NULL,
+        content TEXT NOT NULL,
+        author_id BIGINT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_clc_log_id (log_id),
+        INDEX idx_clc_author_id (author_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+      "comments table"
+    );
+  })().catch((e) => {
+    // 실패해도 다음 요청에서 재시도 가능하도록 캐시 초기화
+    _boardSchemaReady = null;
+    throw e;
+  });
+  return _boardSchemaReady;
+}
+
 export const boardRouter = router({
   // ══════════════════════════════════════
   // 공지 작성 (관리자용) - type 포함 (parameterized)
@@ -28,12 +101,12 @@ export const boardRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: any) => {
+      await ensureBoardSchema();
       const pool = await getRawConnection();
 
       const logType = String(input.type || "notice");
       // 사내공지보드 글은 반드시 partner_id = 0, log_type은 notice/work/handover만
       const safeLogType = ['notice', 'work', 'handover'].includes(logType) ? logType : 'notice';
-      console.log("[createNotice] input.type =", input.type, "-> safeLogType =", safeLogType);
 
       try {
         const [result]: any = await pool.execute(
@@ -77,20 +150,9 @@ export const boardRouter = router({
 
         return { id: insertId, success: true };
       } catch (error: any) {
-        console.error("[createNotice] primary insert error:", error.message);
-        // log_type 컬럼이 없는 경우 기본 삽입
-        if (error.message?.includes("log_type") || error.message?.includes("title") || error.message?.includes("Unknown column")) {
-          const [result]: any = await pool.execute(
-            `INSERT INTO communication_logs (tenant_id, partner_id, content, status, author_id, mentions)
-             VALUES (?, 0, ?, 'received', ?, NULL)`,
-            [
-              Number(ctx.tenantId),
-              input.content,
-              Number(ctx.user.id),
-            ]
-          );
-          return { id: result?.insertId || 0, success: true };
-        }
+        // ensureBoardSchema()가 실행됐으므로 log_type/title 컬럼은 존재해야 함.
+        // 그래도 실패하면 근본 원인을 감추지 말고 throw.
+        console.error("[createNotice] insert error:", error.message);
         throw error;
       }
     }),
@@ -105,6 +167,7 @@ export const boardRouter = router({
       }).optional()
     )
     .query(async ({ input, ctx }: any) => {
+      await ensureBoardSchema();
       const pool = await getRawConnection();
       const tenantId = Number(ctx.tenantId);
       const userId = Number(ctx.user.id);
@@ -120,7 +183,6 @@ export const boardRouter = router({
       }
 
       try {
-        console.log("[getBoardItems] tenantId =", tenantId, "userId =", userId, "type =", input?.type, "typeCondition =", typeCondition, "params =", params);
         const queryStr = `
           SELECT 
             cl.id, cl.tenant_id as tenantId, cl.partner_id as partnerId,
@@ -564,6 +626,7 @@ export const boardRouter = router({
   // ══════════════════════════════════════
   getBoardStats: tenantRequiredProcedure
     .query(async ({ ctx }: any) => {
+      await ensureBoardSchema();
       const pool = await getRawConnection();
       const tenantId = Number(ctx.tenantId);
 

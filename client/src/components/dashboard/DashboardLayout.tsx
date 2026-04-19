@@ -783,7 +783,7 @@ function DashboardLayoutContent({
                       Millio AI
                     </h1>
                     <span className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider uppercase">
-                      Food Safety Platform
+                      Manufacturing ERP · AI
                     </span>
                   </div>
                 </div>

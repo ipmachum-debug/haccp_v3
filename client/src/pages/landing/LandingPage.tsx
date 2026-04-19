@@ -24,10 +24,11 @@ const translations = {
       demo: "무료 체험 시작",
     },
     hero: {
-      badge: "AI 네이티브 제조 ERP · 2026",
+      badge: "AI 기반 제조 ERP · 2026",
+      tagline: "만드는 사람을 위한 ERP",
       headline1: "공장의 모든 데이터,",
       headline2: "AI가 하나로 연결합니다",
-      sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 제조업을 위한 올인원 AI ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
+      sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 만드는 사람을 위한 AI 기반 제조 ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
       cta1: "30일 무료로 시작",
       cta2: "1분 데모 보기",
       trust: "100+ 제조업체가 Millio AI로 공장을 운영 중",
@@ -195,9 +196,9 @@ const translations = {
       btn2: "1:1 상담 요청",
     },
     footer: {
-      desc: "제조업을 위한 올인원 AI ERP — 제조기반 올인원 ERP",
+      desc: "AI 기반 제조 ERP — 만드는 사람을 위한 ERP.",
       product: "제품",
-      productLinks: ["기능", "요금", "보안", "업데이트"],
+      productLinks: ["기능", "요금", "로드맵", "업데이트"],
       company: "회사",
       companyLinks: ["소개", "블로그", "채용", "연락처"],
       support: "지원",
@@ -218,10 +219,11 @@ const translations = {
       demo: "Start Free Trial",
     },
     hero: {
-      badge: "AI-Native Manufacturing ERP · 2026",
+      badge: "Manufacturing ERP powered by AI · 2026",
+      tagline: "ERP for the people who make things.",
       headline1: "Every factory data point,",
       headline2: "Connected by AI.",
-      sub: "Production · Inventory · Quality · Lot tracking · Accounting — all in one. Millio AI is the all-in-one AI ERP for manufacturers. Currently specialized for food manufacturing HACCP, expanding to cosmetics GMP, nutraceuticals, and general manufacturing.",
+      sub: "Production · Inventory · Quality · Lot tracking · Accounting — all in one. Millio AI is Manufacturing ERP powered by AI, built for the people who make things. Currently specialized for food manufacturing HACCP, expanding to cosmetics GMP, nutraceuticals, and general manufacturing.",
       cta1: "Start 30-Day Free Trial",
       cta2: "Watch 1-Min Demo",
       trust: "100+ manufacturers run their factories on Millio AI",
@@ -358,9 +360,9 @@ const translations = {
       btn2: "Talk to Sales",
     },
     footer: {
-      desc: "All-in-one AI ERP built for manufacturing.",
+      desc: "Manufacturing ERP powered by AI — ERP for the people who make things.",
       product: "Product",
-      productLinks: ["Features", "Pricing", "Security", "Updates"],
+      productLinks: ["Features", "Pricing", "Roadmap", "Updates"],
       company: "Company",
       companyLinks: ["About", "Blog", "Careers", "Contact"],
       support: "Support",
@@ -647,8 +649,18 @@ export default function LandingPage() {
                 </span>
               </motion.h1>
 
+              {/* Tagline — emotional anchor */}
+              {t.hero.tagline && (
+                <motion.p
+                  variants={fadeUp}
+                  className="mt-5 text-base sm:text-lg font-serif italic text-stone-700"
+                >
+                  &ldquo;{t.hero.tagline}&rdquo;
+                </motion.p>
+              )}
+
               {/* Sub */}
-              <motion.p variants={fadeUp} className="mt-6 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
+              <motion.p variants={fadeUp} className="mt-5 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
                 {t.hero.sub}
               </motion.p>
 
@@ -1039,6 +1051,15 @@ export default function LandingPage() {
                   {t.industries.note}
                 </p>
               </div>
+              <div className="mt-5">
+                <a
+                  href="/roadmap"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white rounded-full font-semibold text-sm hover:bg-[#2a2a3e] transition-all shadow-lg"
+                >
+                  {lang === "ko" ? "전체 로드맵 보기" : "View Full Roadmap"}
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              </div>
             </motion.div>
           )}
         </div>
@@ -1187,7 +1208,7 @@ export default function LandingPage() {
             {/* Links */}
             <div className="md:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-6">
               {[
-                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "#industries", "#testimonials"] },
+                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "/roadmap", "#testimonials"] },
                 { title: t.footer.company, links: t.footer.companyLinks, hrefs: ["#", "#", "#", "#"] },
                 { title: t.footer.support, links: t.footer.supportLinks, hrefs: ["#", "#", "/faq", "/support"] },
                 { title: t.footer.legal, links: t.footer.legalLinks, hrefs: ["/legal/terms", "/legal/privacy", "/legal/refund", "/legal/sla", "/legal/security", "/legal/aup", "/legal/dpa", "/legal/security-whitepaper", "/legal/data-ownership"] },

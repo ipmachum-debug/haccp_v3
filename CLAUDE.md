@@ -1,18 +1,28 @@
 # CLAUDE.md - Millio AI 프로젝트 AI 개발 가이드
 
-> 최종 업데이트: 2026-04-19
+> 최종 업데이트: 2026-04-19 (brand: HACCP-ONE → Millio AI)
 > 현재 완성도: **78/100** — 실서비스 운영 가능 / 엔터프라이즈 전 단계
 
 ---
 
 ## 프로젝트 개요
 
-**Millio AI**은 HACCP(식품안전관리인증) + ERP + 회계를 통합한 SaaS 솔루션입니다.
-- **회사**: 골든터틀컴퍼니 (www.goldenturtle.co.kr)
+**Millio AI** — AI 기반 제조 ERP · "만드는 사람을 위한 ERP".
+- **서비스명**: Millio AI (Manufacturing ERP powered by AI)
+- **슬로건**: "AI 기반 제조 ERP" / "만드는 사람을 위한 ERP"
+- **포지셔닝**: 제조업 공통 AI ERP (생산·재고·품질·LOT·회계) + 식품 HACCP 특화 모듈. Phase 2·3·4로 화장품 GMP / 건기식 / 일반 제조 / 해외 확장.
+- **회사**: 주식회사 골든터틀컴퍼니 (www.goldenturtle.co.kr)
+- **도메인**: millioai.com (메인), millioai.co.kr, millio.co.kr, haccpone.com/co.kr (backward-compat — 같은 ERP)
 - **스택**: React (Vite) + tRPC + MySQL (Drizzle ORM) + TypeScript
 - **멀티테넌트**: Row-level isolation (tenant_id 기반)
 - **인증**: 로컬 JWT (회원가입 → 관리자 승인 → 로그인)
-- **배포**: 외부 서버 millioai.com (49.50.130.101), PM2
+- **배포**: 외부 서버 49.50.130.101 (PM2 프로세스명은 레거시 이유로 `haccpone` 유지)
+
+### 운영 유지 참조 (건드리지 말 것)
+- PM2 프로세스명: `haccpone` (`ecosystem.config.cjs`)
+- DB 이름 폴백: `haccpone` (`scripts/check-product-name-consistency.ts`)
+- /root/haccpone-v2/.env 폴백 경로 (`server/_core/env.ts`, `index.ts`)
+- v2 마이그레이션 스크립트 (scripts/*_v2_*)
 
 ---
 
