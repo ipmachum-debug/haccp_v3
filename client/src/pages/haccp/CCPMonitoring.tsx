@@ -29,6 +29,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // CCP 유형 정의 (공통)
 const ccpTypes = [
   { value: "CCP-1B", label: "CCP-1B (가열/증숙)" },
@@ -913,6 +914,7 @@ function EquipmentCcpSettingsForm({
 // 메인 CCP 모니터링 페이지
 // ============================================================
 export default function CCPMonitoring() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("records");
   const [selectedCcpType, setSelectedCcpType] = useState<"CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P">("CCP-1B");
   const [pdfPeriod, setPdfPeriod] = useState<"daily" | "weekly" | "monthly">("daily");

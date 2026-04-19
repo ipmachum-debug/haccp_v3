@@ -43,6 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const CCP_TYPE_OPTIONS = [
   { value: "CCP-1B", label: "CCP-1B (가열/증숙 공정)", icon: Thermometer, color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
@@ -59,6 +60,7 @@ const CCP_TYPE_COLORS: Record<string, string> = {
 };
 
 export default function CcpTemplateManagement({ embedded = false }: { embedded?: boolean } = {}) {
+  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);

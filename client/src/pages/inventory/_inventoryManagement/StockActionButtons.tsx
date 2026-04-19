@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Play, RefreshCw } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 /* ═══════════════════════════════════════════════════
    배치 생산 소급 재고 차감 버튼
    ═══════════════════════════════════════════════════ */

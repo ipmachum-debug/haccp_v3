@@ -17,7 +17,9 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Save, CheckCircle } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ChecklistInstance() {
+  const L = useIndustryLabel();
   const params = useParams();
   const instanceId = parseInt(params.id!);
   const [, setLocation] = useLocation();

@@ -30,6 +30,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface IngredientRow {
   materialId?: number;
   intermediateId?: number;
@@ -41,6 +42,7 @@ interface IngredientRow {
 }
 
 export default function MfReportCreate() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [reportCode, setReportCode] = useState("");

@@ -10,7 +10,9 @@ import ScheduleOptimization from "./ScheduleOptimization";
 import CapacityAnalysis from "./CapacityAnalysis";
 import ProductAnalysis from "./ProductAnalysis";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionOperations() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("daily-logs");
 
   return (

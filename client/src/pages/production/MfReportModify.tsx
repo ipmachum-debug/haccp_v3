@@ -13,6 +13,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface IngredientRow {
   materialId?: number;
   intermediateId?: number;
@@ -25,6 +26,7 @@ interface IngredientRow {
 }
 
 export default function MfReportModify() {
+  const L = useIndustryLabel();
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const reportId = parseInt(id || "0");

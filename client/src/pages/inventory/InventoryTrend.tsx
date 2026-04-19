@@ -22,6 +22,7 @@ import {
   Legend,
   ChartOptions,
 } from "chart.js";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 ChartJS.register(
   CategoryScale,
@@ -35,6 +36,7 @@ ChartJS.register(
 );
 
 export default function InventoryTrend() {
+  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);

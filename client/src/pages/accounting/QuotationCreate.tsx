@@ -29,6 +29,7 @@ import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { todayLocal } from "@/lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface QuoLine {
   id: string;
   targetType: "material" | "product" | "service";
@@ -66,6 +67,7 @@ function emptyLine(): QuoLine {
 }
 
 export default function QuotationCreate() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <QuotationCreateContent />

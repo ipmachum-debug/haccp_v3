@@ -22,6 +22,7 @@ import {
   PointElement,
   LineElement,
 } from "chart.js";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 ChartJS.register(
   CategoryScale,
@@ -36,6 +37,7 @@ ChartJS.register(
 );
 
 export default function InspectionStatistics() {
+  const L = useIndustryLabel();
   const [inspectionType, setInspectionType] = useState<"material" | "hygiene" | "shipping">("material");
   const [dateRange, setDateRange] = useState<"week" | "month" | "quarter">("month");
 

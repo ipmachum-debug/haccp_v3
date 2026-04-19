@@ -13,6 +13,7 @@ import { CalendarIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const locales = {
   ko: ko,
 };
@@ -34,6 +35,7 @@ interface CalendarEvent {
 }
 
 export default function BatchScheduleCalendar() {
+  const L = useIndustryLabel();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);

@@ -66,6 +66,7 @@ import {
 } from "./_partnerPrices/PartnerPricesDialogs";
 import type { RouterOutput } from "@/lib/trpcTypes";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // 서버 list 의 단일 row 타입 — 상세 다이얼로그/테이블/통계에서 공통 사용
 type PartnerPriceRow = RouterOutput["partnerPrice"]["list"][number];
 
@@ -106,6 +107,7 @@ function emptyBatchLine(): BatchLine {
 }
 
 export default function PartnerPricesManagement() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <PartnerPricesContent />

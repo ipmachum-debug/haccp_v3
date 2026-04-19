@@ -27,7 +27,9 @@ import {
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function MaterialInspectionDetail() {
+  const L = useIndustryLabel();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const inspectionId = params.id ? parseInt(params.id, 10) : 0;

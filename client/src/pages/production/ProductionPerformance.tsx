@@ -11,9 +11,11 @@ import { ko } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"];
 
 export default function ProductionPerformance() {
+  const L = useIndustryLabel();
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     from: startOfMonth(new Date()),
     to: endOfMonth(new Date()),

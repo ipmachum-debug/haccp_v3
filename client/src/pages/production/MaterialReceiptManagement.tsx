@@ -42,7 +42,9 @@ import { TabsList } from "@/components/ui/tabs";
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function MaterialReceiptManagement() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'lots');
   const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);

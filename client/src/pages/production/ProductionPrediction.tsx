@@ -6,7 +6,9 @@ import { Clock, Package, TrendingUp, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ProductionPrediction() {
+  const L = useIndustryLabel();
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
   
   const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });

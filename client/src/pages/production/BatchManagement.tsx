@@ -8,7 +8,9 @@ import BatchCreate from "./BatchCreate";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysis from "./CostAnalysis";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function BatchManagement() {
+  const L = useIndustryLabel();
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(location.split('?')[1] || '');
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'list');

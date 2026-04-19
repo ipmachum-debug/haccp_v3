@@ -11,7 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Settings } from "lucide-react";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function InventoryTurnoverDashboard() {
+  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [thresholdDays, setThresholdDays] = useState(90);

@@ -19,7 +19,9 @@ import { toast } from "sonner";
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function Inventory() {
+  const L = useIndustryLabel();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [materialId, setMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");

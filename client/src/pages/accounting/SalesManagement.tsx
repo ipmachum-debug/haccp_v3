@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const ITEM_TYPE_LABELS: Record<string, string> = {
   raw_material: "원재료",
   own_product: "자사제품",
@@ -61,6 +62,7 @@ type SaleItem = {
 };
 
 export default function SalesManagement() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <SalesManagementContent />

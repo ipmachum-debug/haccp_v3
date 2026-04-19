@@ -89,6 +89,7 @@ type IotDevice = {
 
 import { todayLocal } from "../../lib/dateUtils";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // 파이프라인 단계 정의
 const PIPELINE_STAGES = [
   { id: 'recipe', name: '레시피', icon: FileText, step: 1 },

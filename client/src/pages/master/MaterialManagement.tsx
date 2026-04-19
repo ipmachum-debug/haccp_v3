@@ -25,11 +25,13 @@ import { Badge } from "@/components/ui/badge";
 import { Package, Plus, Edit, Trash2, History, Search, Pencil, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import CategorySelect from "@/components/masterData/CategorySelect";
 import { MaterialPriceChart } from "@/components/masterData/MaterialPriceChart";
 
 export default function MaterialManagement() {
+  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<any>(null);
@@ -113,12 +115,12 @@ export default function MaterialManagement() {
   const handleCreate = async () => {
     try {
       await createMutation.mutateAsync(formData);
-      toast.success("원재료가 성공적으로 생성되었습니다.");
+      toast.success(`${L("material")}가 성공적으로 생성되었습니다.`);
       setIsCreateDialogOpen(false);
       resetForm();
       refetch();
     } catch (error: any) {
-      toast.error(error.message || "원재료 생성 중 오류가 발생했습니다.");
+      toast.error(error.message || `${L("material")} 생성 중 오류가 발생했습니다.`);
     }
   };
 
@@ -139,13 +141,13 @@ export default function MaterialManagement() {
     if (!editingMaterial) return;
     try {
       await updateMutation.mutateAsync({ id: editingMaterial.id, ...formData });
-      toast.success("원재료가 성공적으로 수정되었습니다.");
+      toast.success(`${L("material")}가 성공적으로 수정되었습니다.`);
       setIsEditDialogOpen(false);
       setEditingMaterial(null);
       resetForm();
       refetch();
     } catch (error: any) {
-      toast.error(error.message || "원재료 수정 중 오류가 발생했습니다.");
+      toast.error(error.message || `${L("material")} 수정 중 오류가 발생했습니다.`);
     }
   };
 
@@ -153,10 +155,10 @@ export default function MaterialManagement() {
     if (!confirm("정말 삭제하시겠습니까?")) return;
     try {
       await deleteMutation.mutateAsync({ id });
-      toast.success("원재료가 성공적으로 삭제되었습니다.");
+      toast.success(`${L("material")}가 성공적으로 삭제되었습니다.`);
       refetch();
     } catch (error: any) {
-      toast.error(error.message || "원재료 삭제 중 오류가 발생했습니다.");
+      toast.error(error.message || `${L("material")} 삭제 중 오류가 발생했습니다.`);
     }
   };
 
@@ -181,9 +183,9 @@ export default function MaterialManagement() {
 
     <div className="space-y-6">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">원재료 관리</h1>
+        <h1 className="text-3xl font-bold mb-2">{`${L("material")} 관리`}</h1>
         <p className="text-muted-foreground">
-          원재료 정보를 등록하고 관리합니다.
+          {`${L("material")} 정보를 등록하고 관리합니다.`}
         </p>
       </div>
 
@@ -191,7 +193,7 @@ export default function MaterialManagement() {
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="원재료명 또는 코드 검색..."
+            placeholder={`${L("material")}명 또는 코드 검색...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -234,14 +236,14 @@ export default function MaterialManagement() {
             </DialogTrigger>
             <DialogContent>
             <DialogHeader>
-              <DialogTitle>원재료 추가</DialogTitle>
+              <DialogTitle>{`${L("material")} 추가`}</DialogTitle>
               <DialogDescription>
-                새로운 원재료 정보를 입력합니다.
+                {`새로운 ${L("material")} 정보를 입력합니다.`}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="materialName">원재료명 *</Label>
+                <Label htmlFor="materialName">{`${L("material")}명 *`}</Label>
                 <Input
                   id="materialName"
                   value={formData.materialName}
@@ -252,7 +254,7 @@ export default function MaterialManagement() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="materialCode">원재료코드 *</Label>
+                <Label htmlFor="materialCode">{`${L("material")}코드 *`}</Label>
                 <Input
                   id="materialCode"
                   value={isGeneratingCode ? "코드 생성 중..." : formData.materialCode}
@@ -325,7 +327,7 @@ export default function MaterialManagement() {
 
       <Card>
         <CardHeader>
-          <CardTitle>원재료 목록</CardTitle>
+          <CardTitle>{`${L("material")} 목록`}</CardTitle>
           <CardDescription>
             등록된 원재료 ({filteredMaterials?.length || 0}개)
           </CardDescription>
@@ -334,8 +336,8 @@ export default function MaterialManagement() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>원재료코드</TableHead>
-                <TableHead>원재료명</TableHead>
+                <TableHead>{`${L("material")}코드`}</TableHead>
+                <TableHead>{`${L("material")}명`}</TableHead>
                 <TableHead>카테고리</TableHead>
                 <TableHead>단위</TableHead>
                 <TableHead className="text-right">현재 재고</TableHead>
@@ -492,7 +494,7 @@ export default function MaterialManagement() {
                   <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                     {searchTerm
                       ? "검색 결과가 없습니다."
-                      : "등록된 원재료가 없습니다. 원재료를 추가하여 시작하세요."}
+                      : `등록된 ${L("material")}가 없습니다. ${L("material")}를 추가하여 시작하세요.`}
                   </TableCell>
                 </TableRow>
               )}
@@ -505,9 +507,9 @@ export default function MaterialManagement() {
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>원재료 수정</DialogTitle>
+            <DialogTitle>{`${L("material")} 수정`}</DialogTitle>
             <DialogDescription>
-              원재료 정보를 수정합니다.
+              {`${L("material")} 정보를 수정합니다.`}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">

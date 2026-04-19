@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench } from "lucide-react";
 
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 type ItemType = "raw_material" | "own_product" | "external_product" | "subsidiary";
 
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
@@ -37,6 +38,7 @@ const ITEM_TYPE_COLORS: Record<ItemType, string> = {
 };
 
 export default function ItemMasterManagement() {
+  const L = useIndustryLabel();
   return (
     <DashboardLayout>
       <ItemMasterContent />

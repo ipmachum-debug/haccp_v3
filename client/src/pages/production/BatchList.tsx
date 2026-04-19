@@ -32,6 +32,7 @@ import { useState, useEffect, useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type ViewMode = "table" | "calendar";
 
@@ -91,6 +92,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function BatchList() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const [page, setPage] = useState(1);
   const [limit] = useState(200);
@@ -118,7 +120,7 @@ export default function BatchList() {
 
   const deleteMutation = trpc.batch.delete.useMutation({
     onSuccess: () => {
-      toast.success("배치가 삭제되었습니다.");
+      toast.success(`${L("batch")}가 삭제되었습니다.`);
       setDeleteTarget(null);
       refetch();
     },
@@ -257,7 +259,7 @@ export default function BatchList() {
             </Button>
             {isWorker && (
               <Link href="/dashboard/batch/new">
-                <Button size="sm" className="h-9"><Plus className="mr-1 h-4 w-4" />새 배치</Button>
+                <Button size="sm" className="h-9"><Plus className="mr-1 h-4 w-4" />{`새 ${L("batch")}`}</Button>
               </Link>
             )}
             {isWorker && (
@@ -275,7 +277,7 @@ export default function BatchList() {
           <div className="text-center py-12 text-muted-foreground">로딩 중...</div>
         ) : isError ? (
           <div className="text-center py-12 text-red-500">
-            배치 목록 로딩 실패: {error?.message || "서버 에러"}
+            {`${L("batch")} 목록 로딩 실패:`} {error?.message || "서버 에러"}
             <Button variant="outline" size="sm" className="ml-3" onClick={() => refetch()}>재시도</Button>
           </div>
         ) : batches && batches.length > 0 ? (
@@ -373,7 +375,7 @@ export default function BatchList() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>배치 코드</TableHead>
+                        <TableHead>{`${L("batch")} 코드`}</TableHead>
                         <TableHead>상태</TableHead>
                         <TableHead className="text-right">계획 수량</TableHead>
                         <TableHead>작업일</TableHead>
@@ -535,9 +537,9 @@ export default function BatchList() {
         ) : (
           <EmptyState
             icon={Package}
-            title="아직 생성된 배치가 없습니다"
-            description="첫 번째 배치를 생성하여 생산 관리를 시작하세요."
-            actionLabel="첫 배치 생성하기"
+            title={`아직 생성된 ${L("batch")}가 없습니다`}
+            description={`첫 번째 ${L("batch")}를 생성하여 생산 관리를 시작하세요.`}
+            actionLabel={`첫 ${L("batch")} 생성하기`}
             onAction={() => setLocation("/dashboard/batch/new")}
           />
         )}
@@ -548,7 +550,7 @@ export default function BatchList() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {dayDetailDate ? new Date(dayDetailDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : ""} 배치 목록
+              {dayDetailDate ? new Date(dayDetailDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : ""} {L("batch")} 목록
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-2 max-h-[400px] overflow-y-auto">
@@ -580,10 +582,10 @@ export default function BatchList() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>배치 삭제 확인</AlertDialogTitle>
+            <AlertDialogTitle>{`${L("batch")} 삭제 확인`}</AlertDialogTitle>
             <AlertDialogDescription>
-              <strong>{deleteTarget?.batchCode}</strong> 배치를 삭제하시겠습니까?<br />
-              관련 CCP 기록지, 승인 요청, 문서 인스턴스, 원재료 투입 기록이 모두 함께 삭제됩니다.<br />
+              <strong>{deleteTarget?.batchCode}</strong> {L("batch")}를 삭제하시겠습니까?<br />
+              관련 CCP 기록지, 승인 요청, 문서 인스턴스, {`${L("material")} 투입 기록이 모두 함께 삭제됩니다.`}<br />
               이 작업은 되돌릴 수 없습니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
