@@ -1,0 +1,46 @@
+/**
+ * HACCP 도메인 라우터 매핑 — _root.ts 분해 (2026-04-19)
+ */
+import {
+  ccpRouter,
+  ccpFormRouter,
+  ccpScheduleRouter,
+  ccpTemplateRouter,
+  finishedProductInspectionRouter,
+  haccpIntegrationRouter,
+  inspectionRouter,
+  lotManagementRouter,
+  visualInspectionRouter,
+  correctiveActionRouter,
+  haccpPlanVerificationRouter,
+  hazardAnalysisRouter,
+  internalAuditRouter,
+  nonconformingProductRouter,
+  recallSimulationRouter,
+  supplierAuditRouter,
+  traceabilityRouter,
+  metalDetectionRouter,
+  ccpMonitoringRouter,
+} from "../haccp";
+
+export const haccpRouterMap = {
+  ccp: ccpRouter,
+  ccpForm: ccpFormRouter,
+  ccpSchedule: ccpScheduleRouter,
+  ccpTemplate: ccpTemplateRouter,
+  ccpMonitoring: ccpMonitoringRouter,
+  inspection: inspectionRouter,
+  visualInspection: visualInspectionRouter,
+  finishedProductInspection: finishedProductInspectionRouter,
+  haccpIntegration: haccpIntegrationRouter,
+  lotManagement: lotManagementRouter,
+  hazardAnalysis: hazardAnalysisRouter,
+  haccpPlanVerification: haccpPlanVerificationRouter,
+  internalAudit: internalAuditRouter,
+  nonconformingProduct: nonconformingProductRouter,
+  recallSimulation: recallSimulationRouter,
+  supplierAudit: supplierAuditRouter,
+  correctiveAction: correctiveActionRouter,
+  traceability: traceabilityRouter,
+  metalDetection: metalDetectionRouter,
+} as const;
