@@ -65,6 +65,27 @@ import { todayLocal } from "../../lib/dateUtils";
 import { FEATURES } from "@/lib/featureFlags";
 // 업종 카테고리/옵션은 `@/lib/industryOptions` 공유 상수 사용
 import { INDUSTRY_OPTIONS, INDUSTRY_CATEGORIES } from "@/lib/industryOptions";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 도메인 타입 — 테넌트 관리 화면 공용
+type TenantRow = RouterOutput["tenants"]["list"]["tenants"][number];
+type OpscoreTenant = {
+  id: number | string;
+  name?: string;
+  company_name?: string;
+  code?: string | null;
+};
+type MemberRow = {
+  id: number;
+  name?: string | null;
+  email?: string;
+  role?: string | null;
+  user_type?: string;
+  approvalStatus?: string | null;
+  isActive?: number | boolean | null;
+  lastLoginAt?: string | Date | null;
+  createdAt?: string | Date | null;
+};
 
 export default function TenantManagement() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -287,7 +308,7 @@ export default function TenantManagement() {
     });
   };
 
-  const openEditDialog = (tenant: any) => {
+  const openEditDialog = (tenant: TenantRow) => {
     setSelectedTenant(tenant);
     setFormData({
       name: tenant.name,
@@ -298,12 +319,12 @@ export default function TenantManagement() {
     setEditDialogOpen(true);
   };
 
-  const openDetailDialog = (tenant: any) => {
+  const openDetailDialog = (tenant: TenantRow) => {
     setSelectedTenant(tenant);
     setDetailDialogOpen(true);
   };
 
-  const openSubscriptionDialog = (tenant: any) => {
+  const openSubscriptionDialog = (tenant: TenantRow) => {
     setSelectedTenant(tenant);
     // ★ 2026-04-14: Date/ISO string → "YYYY-MM-DD" 변환
     //   <Input type="date"> 는 "YYYY-MM-DD" 문자열만 받으므로 Date 객체를 주면 빈 값 표시됨
@@ -340,7 +361,7 @@ export default function TenantManagement() {
   useEffect(() => {
     if (selectedTenant && opscoreMappings) {
       const mapping = opscoreMappings.mappings?.find(
-        (m: any) => m.haccp_tenant_id === selectedTenant.id
+        (m: { haccp_tenant_id: number }) => m.haccp_tenant_id === selectedTenant.id
       );
       if (mapping) {
         setOpscoreForm({
@@ -383,7 +404,7 @@ export default function TenantManagement() {
   const tenants = data?.tenants || [];
 
   // 구독 상태 뱃지 렌더링
-  const renderSubscriptionBadge = (tenant: any) => {
+  const renderSubscriptionBadge = (tenant: TenantRow) => {
     if (!tenant.subscriptionEndDate) {
       return <Badge variant="outline">구독 없음</Badge>;
     }
@@ -412,19 +433,19 @@ export default function TenantManagement() {
   };
 
   // 역할 뱃지 렌더링
-  const renderRoleBadge = (role: string) => {
+  const renderRoleBadge = (role: string | null | undefined) => {
     const roleMap: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
       super_admin: { label: "슈퍼관리자", variant: "default" },
       admin: { label: "관리자", variant: "default" },
       worker: { label: "작업자", variant: "secondary" },
       monitor: { label: "모니터", variant: "outline" },
     };
-    const roleInfo = roleMap[role] || { label: role, variant: "outline" as const };
+    const roleInfo = (role && roleMap[role]) || { label: role ?? "-", variant: "outline" as const };
     return <Badge variant={roleInfo.variant}>{roleInfo.label}</Badge>;
   };
 
   // 승인 상태 뱃지 렌더링
-  const renderApprovalBadge = (status: string) => {
+  const renderApprovalBadge = (status: string | null | undefined) => {
     if (status === "approved") {
       return <Badge variant="default"><CheckCircle className="h-3 w-3 mr-1" />승인됨</Badge>;
     } else if (status === "pending") {
@@ -432,7 +453,7 @@ export default function TenantManagement() {
     } else if (status === "rejected") {
       return <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />거부됨</Badge>;
     }
-    return <Badge variant="outline">{status}</Badge>;
+    return <Badge variant="outline">{status ?? "-"}</Badge>;
   };
 
   return (
@@ -704,7 +725,7 @@ export default function TenantManagement() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {tenantDetail.members.map((member: any) => (
+                          {tenantDetail.members.map((member: MemberRow) => (
                             <TableRow key={member.id}>
                               <TableCell className="font-medium">{member.name}</TableCell>
                               <TableCell className="text-sm text-muted-foreground">{member.email}</TableCell>
@@ -1185,7 +1206,7 @@ export default function TenantManagement() {
                         if (value === "none") {
                           setOpscoreForm({ ...opscoreForm, opscore_tenant_id: null, opscore_tenant_name: null });
                         } else {
-                          const tenant = opscoreMappings?.opscoreTenants?.find((t: any) => t.id.toString() === value);
+                          const tenant = opscoreMappings?.opscoreTenants?.find((t: OpscoreTenant) => t.id.toString() === value);
                           setOpscoreForm({
                             ...opscoreForm,
                             opscore_tenant_id: parseInt(value),
@@ -1199,7 +1220,7 @@ export default function TenantManagement() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">매칭 없음</SelectItem>
-                        {opscoreMappings?.opscoreTenants?.map((t: any) => (
+                        {opscoreMappings?.opscoreTenants?.map((t: OpscoreTenant) => (
                           <SelectItem key={t.id} value={t.id.toString()}>
                             {t.name} ({t.code})
                           </SelectItem>
