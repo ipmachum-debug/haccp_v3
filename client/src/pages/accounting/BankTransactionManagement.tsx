@@ -252,7 +252,7 @@ export default function BankTransactionManagement() {
             </SelectContent>
           </Select>
 
-          <Select value={matchStatus} onValueChange={(v: any) => setMatchStatus(v)}>
+          <Select value={matchStatus} onValueChange={(v) => setMatchStatus(v as typeof matchStatus)}>
             <SelectTrigger className="w-40">
               <SelectValue />
             </SelectTrigger>

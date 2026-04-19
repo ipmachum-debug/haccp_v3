@@ -4,7 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
 import { Badge } from "@/components/ui/badge";
+
+// 재고 도메인 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
+type InventoryLot = RouterOutput["inventory"]["list"][number];
+type InboundReceipt = RouterOutput["inventory"]["getInboundHistory"][number];
+type TurnoverRow = RouterOutput["inventory"]["getTurnoverAnalysis"][number];
+type TrendRow = RouterOutput["inventory"]["getTrend"][number];
+type PurchaseSuggestion = RouterOutput["inventory"]["getPurchaseOrderSuggestions"][number];
+type SubsidiaryLot = RouterOutput["inventory"]["listLots"][number];
 import { TableBody, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -50,7 +59,7 @@ export default function InventoryManagement() {
   const turnoverAnalysis = useMemo(() => {
     if (!rawTurnoverAnalysis) return rawTurnoverAnalysis;
     const efficiencyMap: Record<string, string> = { high: "양호", medium: "적정", low: "주의" };
-    return (rawTurnoverAnalysis as any[]).map((m: any) => ({
+    return (rawTurnoverAnalysis as TurnoverRow[]).map((m) => ({
       ...m,
       turnoverRate: Number(m.turnoverRate) || 0,
       averageHoldingPeriod: Number(m.averageHoldingPeriod) || 0,
@@ -63,7 +72,7 @@ export default function InventoryManagement() {
   // NaN 방어: 서버 데이터 Number 변환
   const trend = useMemo(() => {
     if (!rawTrend) return rawTrend;
-    return (rawTrend as any[]).map((r: any) => ({
+    return (rawTrend as TrendRow[]).map((r) => ({
       ...r,
       receiptQuantity: Number(r.receiptQuantity) || 0,
       usageQuantity: Number(r.usageQuantity) || 0,
@@ -169,7 +178,7 @@ export default function InventoryManagement() {
                 <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
                   <div className="flex items-center justify-between">
                     <SectionTitle icon={TrendingUp} title="원재료 재고 이동 추이" desc="일별 입고/소모/조정" />
-                    <Select value={trendPeriod} onValueChange={(v) => setTrendPeriod(v as any)}>
+                    <Select value={trendPeriod} onValueChange={(v) => setTrendPeriod(v as typeof trendPeriod)}>
                       <SelectTrigger className="w-32 h-10 text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="week">최근 7일</SelectItem>
@@ -245,21 +254,21 @@ export default function InventoryManagement() {
 /* ═══════════════════════════════════════════════════
    추이 테이블 (페이지네이션 + 정렬)
    ═══════════════════════════════════════════════════ */
-function TrendTablePaginated({ data }: { data: any[] }) {
+function TrendTablePaginated({ data }: { data: TrendRow[] }) {
   const {
     sort, handleSort, pagination, setPage, setPageSize,
     pageData, totalItems, totalPages, startIdx, endIdx
   } = usePaginatedSort(data, {
     defaultSort: { key: "date", direction: "desc" },
     defaultPageSize: 30,
-    sortFn: (a: any, b: any, key: string, dir) => {
+    sortFn: (a: TrendRow, b: TrendRow, key: string, dir) => {
       if (["receiptQuantity", "usageQuantity", "adjustmentQuantity", "netChange", "transactionCount"].includes(key)) {
-        const aVal = Number(a[key]) || 0;
-        const bVal = Number(b[key]) || 0;
+        const aVal = Number((a as unknown as Record<string, unknown>)[key]) || 0;
+        const bVal = Number((b as unknown as Record<string, unknown>)[key]) || 0;
         return dir === "asc" ? aVal - bVal : bVal - aVal;
       }
-      const aVal = String(a[key] || "");
-      const bVal = String(b[key] || "");
+      const aVal = String((a as unknown as Record<string, unknown>)[key] || "");
+      const bVal = String((b as unknown as Record<string, unknown>)[key] || "");
       return dir === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     },
   });
@@ -278,7 +287,7 @@ function TrendTablePaginated({ data }: { data: any[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {pageData.map((r: any) => {
+          {(pageData as TrendRow[]).map((r) => {
             const nc = Number(r.netChange) || 0;
             return (
               <TableRow key={r.date} className="hover:bg-muted/30">
@@ -310,21 +319,22 @@ function TrendTablePaginated({ data }: { data: any[] }) {
 /* ═══════════════════════════════════════════════════
    회전율 테이블 (페이지네이션 + 정렬)
    ═══════════════════════════════════════════════════ */
-function TurnoverTablePaginated({ data }: { data: any[] }) {
+type TurnoverRowDisplay = Omit<TurnoverRow, "efficiency"> & { efficiency: string };
+function TurnoverTablePaginated({ data }: { data: TurnoverRowDisplay[] }) {
   const {
     sort, handleSort, pagination, setPage, setPageSize,
     pageData, totalItems, totalPages, startIdx, endIdx
   } = usePaginatedSort(data, {
     defaultSort: { key: "turnoverRate", direction: "desc" },
     defaultPageSize: 30,
-    sortFn: (a: any, b: any, key: string, dir) => {
+    sortFn: (a: TurnoverRowDisplay, b: TurnoverRowDisplay, key: string, dir) => {
       if (["turnoverRate", "usageQuantity", "averageInventory", "averageHoldingPeriod"].includes(key)) {
-        const aVal = Number(a[key]) || 0;
-        const bVal = Number(b[key]) || 0;
+        const aVal = Number((a as unknown as Record<string, unknown>)[key]) || 0;
+        const bVal = Number((b as unknown as Record<string, unknown>)[key]) || 0;
         return dir === "asc" ? aVal - bVal : bVal - aVal;
       }
-      const aVal = String(a[key] || "");
-      const bVal = String(b[key] || "");
+      const aVal = String((a as unknown as Record<string, unknown>)[key] || "");
+      const bVal = String((b as unknown as Record<string, unknown>)[key] || "");
       return dir === "asc" ? aVal.localeCompare(bVal, "ko") : bVal.localeCompare(aVal, "ko");
     },
   });
@@ -343,7 +353,7 @@ function TurnoverTablePaginated({ data }: { data: any[] }) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {pageData.map((m: any) => (
+          {(pageData as TurnoverRowDisplay[]).map((m) => (
             <TableRow key={m.materialId} className="hover:bg-muted/30">
               <TD>
                 <span className="font-medium">{m.materialName}</span>
@@ -415,7 +425,7 @@ function PurchaseOrderTab() {
               <TH className="text-center">우선</TH><TH className="text-center w-32">작업</TH>
             </TableRow></TableHeader>
             <TableBody>
-              {suggs.map((s: any) => (
+              {(suggs as PurchaseSuggestion[]).map((s) => (
                 <TableRow key={s.materialId} className={`hover:bg-muted/30 ${!s.needsOrder ? "opacity-50" : ""}`}>
                   <TD>
                     <span className="font-medium">{s.materialName}</span>
@@ -690,10 +700,10 @@ function ReleaseTab() {
   const availableLots = useMemo(() => {
     if (!lots) return [];
     const selectedIds = new Set(items.map(i => i.lotId));
-    return (lots as any[])
-      .filter((l: any) => parseFloat(l.availableQuantity) > 0 || selectedIds.has(l.id.toString()))
-      .sort((a: any, b: any) => {
-        if (a.expiryDate && b.expiryDate) return new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime();
+    return (lots as InventoryLot[])
+      .filter((l) => parseFloat(String(l.availableQuantity)) > 0 || selectedIds.has(l.id.toString()))
+      .sort((a, b) => {
+        if (a.expiryDate && b.expiryDate) return new Date(a.expiryDate as string | Date).getTime() - new Date(b.expiryDate as string | Date).getTime();
         if (a.expiryDate) return -1;
         if (b.expiryDate) return 1;
         return 0;
@@ -702,7 +712,7 @@ function ReleaseTab() {
 
   const getAvailableLotsForItem = (currentItemId: number) => {
     const selectedIds = new Set(items.filter(i => i.id !== currentItemId && i.lotId).map(i => i.lotId));
-    return availableLots.filter((l: any) => !selectedIds.has(l.id.toString()));
+    return availableLots.filter((l) => !selectedIds.has(l.id.toString()));
   };
 
   const isExpiringSoon = (dateStr: string) => {
@@ -720,8 +730,8 @@ function ReleaseTab() {
   };
 
   const handleLotChange = (itemId: number, lotIdStr: string) => {
-    const lot = (lots as any[])?.find((l: any) => l.id.toString() === lotIdStr);
-    setItems(p => p.map(i => i.id === itemId ? { ...i, lotId: lotIdStr, materialName: lot?.materialName || "", availableQty: lot?.availableQuantity || "0", unit: lot?.unit || "", unitPrice: lot?.unitPrice || "0", expiryDate: lot?.expiryDate || "", lotNumber: lot?.lotNumber || "", quantity: "", amount: "0" } : i));
+    const lot = (lots as InventoryLot[] | undefined)?.find((l) => l.id.toString() === lotIdStr);
+    setItems(p => p.map(i => i.id === itemId ? { ...i, lotId: lotIdStr, materialName: lot?.materialName || "", availableQty: String(lot?.availableQuantity ?? "0"), unit: lot?.unit || "", unitPrice: String(lot?.unitPrice ?? "0"), expiryDate: lot?.expiryDate ? String(lot.expiryDate).slice(0, 10) : "", lotNumber: lot?.lotNumber || "", quantity: "", amount: "0" } : i));
   };
   const handleQty = (id: number, q: string) => setItems(p => p.map(i => i.id === id ? { ...i, quantity: q, amount: q && i.unitPrice ? (parseFloat(q) * parseFloat(i.unitPrice)).toFixed(0) : "0" } : i));
   const addItem = () => setItems(p => [...p, emptyRItem()]);
@@ -1348,8 +1358,8 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
     onError: (e: { message: string }) => alert(`실패: ${e.message}`),
   });
 
-  const selectedLot = lots?.find((l: any) => l.id === lotId) as any;
-  const currentQty = selectedLot ? parseFloat(selectedLot.availableQuantity || 0) : 0;
+  const selectedLot = (lots as InventoryLot[] | undefined)?.find((l) => l.id === lotId);
+  const currentQty = selectedLot ? parseFloat(String(selectedLot.availableQuantity ?? "0")) : 0;
   const changeAmt = parseFloat(qty) || 0;
   const previewQty = adjType === "increase" ? currentQty + changeAmt : Math.max(0, currentQty - changeAmt);
 
@@ -1374,7 +1384,7 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
               <label className="text-xs font-medium text-muted-foreground mb-1.5 block">LOT 선택 <span className="text-red-500">*</span></label>
               <Select value={lotId?.toString() || ""} onValueChange={v => setLotId(parseInt(v))}>
                 <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="LOT 선택" /></SelectTrigger>
-                <SelectContent>{lots?.map((l: any) => (
+                <SelectContent>{(lots as InventoryLot[] | undefined)?.map((l) => (
                   <SelectItem key={l.id} value={l.id.toString()}>
                     <span className="text-xs">{l.lotNumber} - {l.materialName} ({l.availableQuantity} {l.unit})</span>
                   </SelectItem>
@@ -1383,7 +1393,7 @@ function AdjustmentTab({ isMat }: { isMat: boolean }) {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1.5 block">조정 유형 <span className="text-red-500">*</span></label>
-              <Select value={adjType} onValueChange={(v: any) => setAdjType(v)}>
+              <Select value={adjType} onValueChange={(v) => setAdjType(v as typeof adjType)}>
                 <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="increase">증가 (+)</SelectItem>
@@ -1443,12 +1453,12 @@ function SubsidiaryStockView({ filterType }: { filterType: "subsidiary" | "exter
 
   const subsidiaryLots = useMemo(() => {
     if (!allLots) return [];
-    return (allLots as any[]).filter((lot: any) => lot.itemType === filterType);
+    return (allLots as SubsidiaryLot[]).filter((lot) => lot.itemType === filterType);
   }, [allLots, filterType]);
 
-  const activeLots = subsidiaryLots.filter((l: any) => l.status === "available");
-  const totalValue = activeLots.reduce((sum: number, l: any) => {
-    return sum + (parseFloat(l.availableQuantity || "0") * parseFloat(l.unitPrice || "0"));
+  const activeLots = subsidiaryLots.filter((l) => l.status === "available");
+  const totalValue = activeLots.reduce((sum, l) => {
+    return sum + (parseFloat(String(l.availableQuantity ?? "0")) * parseFloat(String(l.unitPrice ?? "0")));
   }, 0);
 
   if (isLoading) return <div className="py-12 text-center text-muted-foreground">로딩 중...</div>;
@@ -1497,7 +1507,7 @@ function SubsidiaryStockView({ filterType }: { filterType: "subsidiary" | "exter
                   <th className="text-center p-3 font-medium text-xs">상태</th>
                 </tr></thead>
                 <tbody>
-                  {subsidiaryLots.map((lot: any) => (
+                  {subsidiaryLots.map((lot) => (
                     <tr key={lot.id} className="border-b hover:bg-accent/50">
                       <td className="p-3 font-mono text-xs">{lot.lotNumber}</td>
                       <td className="p-3">

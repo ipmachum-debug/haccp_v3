@@ -316,7 +316,7 @@ function ProcessGroupFormDialog({
                     <Label className="text-xs font-medium text-gray-700 mb-1 block">운영 방식</Label>
                     <Select
                       value={form.equipGroupMode}
-                      onValueChange={(v: any) => setForm({ ...form, equipGroupMode: v })}
+                      onValueChange={(v) => setForm({ ...form, equipGroupMode: v as typeof form.equipGroupMode })}
                     >
                       <SelectTrigger className="h-9 text-sm w-full">
                         <SelectValue placeholder="운영 방식 선택" />

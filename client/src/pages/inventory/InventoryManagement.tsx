@@ -851,7 +851,7 @@ function AdjustmentTab() {
           
           <div>
             <label className="text-sm font-medium">조정 유형</label>
-            <Select value={adjustmentType} onValueChange={(v: any) => setAdjustmentType(v)}>
+            <Select value={adjustmentType} onValueChange={(v) => setAdjustmentType(v as typeof adjustmentType)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>

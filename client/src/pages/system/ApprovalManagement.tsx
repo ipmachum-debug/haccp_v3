@@ -22,6 +22,16 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 승인 워크플로 도메인 타입 (trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출)
+type ApprovalRequest = RouterOutput["approval"]["list"][number];
+type ApprovalSetting = RouterOutput["organization"]["approvalSettings"]["list"][number];
+type EmployeeRow = RouterOutput["organization"]["employees"]["list"][number];
+type PendingRecipe = RouterOutput["recipeApproval"]["getPending"][number];
+type RecipeHistory = RouterOutput["recipeApproval"]["getHistory"][number];
+type CcpFormRecord = RouterOutput["ccpForm"]["getByBatch"][number];
+type CcpInstance = RouterOutput["ccp"]["getByBatchId"][number];
 import { 
   CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet, 
   ClipboardCheck, FileCheck, Utensils, TrendingUp, Eye, Printer, 
@@ -278,9 +288,9 @@ export default function ApprovalManagement() {
 
   // 승인 이력 조회
   const { data: historyAll, refetch: refetchHistory } = trpc.approval.list.useQuery(
-    { 
-      status: statusFilter === "all" ? undefined : statusFilter as any,
-      requestType: typeFilter === "all" ? undefined : typeFilter as any,
+    {
+      status: statusFilter === "all" ? undefined : statusFilter as "pending_review" | "pending_approval" | "approved" | "rejected" | "cancelled",
+      requestType: typeFilter === "all" ? undefined : typeFilter as string,
     },
     { enabled: activeTab === "history" }
   );
@@ -300,10 +310,11 @@ export default function ApprovalManagement() {
     { enabled: !!batchIdForCcp && detailDialogOpen }
   );
   const getApprovalSettingNames = (requestType: string) => {
-    const setting = (allApprovalSettings as any[]).find((s: any) => s.documentType === requestType);
+    const setting = (allApprovalSettings as ApprovalSetting[]).find((s) => s.documentType === requestType);
     if (!setting) return null;
-    const findName = (empId: number) => {
-      const emp = (allEmployees as any[]).find((e: any) => e.id === empId);
+    const findName = (empId: number | null | undefined) => {
+      if (empId == null) return null;
+      const emp = (allEmployees as EmployeeRow[]).find((e) => e.id === empId);
       return emp?.name || null;
     };
     return {
@@ -314,20 +325,20 @@ export default function ApprovalManagement() {
   };
   // 처리이력: approved, rejected만 표시 (statusFilter가 all일 때) + 날짜 필터
   const historyRequests = (() => {
-    let list = statusFilter === "all" 
-      ? (historyAll || []).filter((r: any) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
-      : historyAll || [];
+    let list: ApprovalRequest[] = statusFilter === "all"
+      ? ((historyAll as ApprovalRequest[] | undefined) || []).filter((r) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
+      : ((historyAll as ApprovalRequest[] | undefined) || []);
     // 날짜 필터 적용
     if (historyDateFrom) {
-      list = list.filter((r: any) => {
+      list = list.filter((r) => {
         const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && formatLocalDate(new Date(d)) >= historyDateFrom;
+        return d && formatLocalDate(new Date(d as string | Date)) >= historyDateFrom;
       });
     }
     if (historyDateTo) {
-      list = list.filter((r: any) => {
+      list = list.filter((r) => {
         const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && formatLocalDate(new Date(d)) <= historyDateTo;
+        return d && formatLocalDate(new Date(d as string | Date)) <= historyDateTo;
       });
     }
     return list;
@@ -349,13 +360,13 @@ export default function ApprovalManagement() {
   );
 
   // 검토 대기 합산 (pending_review + pending) - approved/cancelled 제외 + 중복 제거
-  const allReviewRequests = (() => {
-    const combined = [...(reviewRequests || []), ...(pendingRequests || [])];
-    const filtered = combined.filter((r: any) => 
+  const allReviewRequests: ApprovalRequest[] = (() => {
+    const combined = [...((reviewRequests as ApprovalRequest[] | undefined) || []), ...((pendingRequests as ApprovalRequest[] | undefined) || [])];
+    const filtered = combined.filter((r) =>
       r.status === "pending_review" || r.status === "pending"
     );
     const seen = new Set<number>();
-    return filtered.filter((r: any) => {
+    return filtered.filter((r) => {
       if (seen.has(r.id)) return false;
       seen.add(r.id);
       return true;
@@ -585,7 +596,7 @@ export default function ApprovalManagement() {
   // 일괄 검토 핸들러 (확인 다이얼로그 경유)
   const handleBatchReview = () => {
     const reviewIds = selectedIds.filter(id => 
-      allReviewRequests.some((r: any) => r.id === id)
+      allReviewRequests.some((r) => r.id === id)
     );
     if (reviewIds.length === 0) {
       toast.error("검토할 항목을 선택해주세요.");
@@ -597,7 +608,7 @@ export default function ApprovalManagement() {
 
   const confirmBatchReview = () => {
     const reviewIds = selectedIds.filter(id => 
-      allReviewRequests.some((r: any) => r.id === id)
+      allReviewRequests.some((r) => r.id === id)
     );
     batchReviewMutation.mutate({ approvalRequestIds: reviewIds });
   };
@@ -605,7 +616,7 @@ export default function ApprovalManagement() {
   // 일괄 승인 핸들러 (확인 다이얼로그 경유)
   const handleBatchApprove = () => {
     const approveIds = selectedIds.filter(id => 
-      (approvalRequests || []).some((r: any) => r.id === id)
+      ((approvalRequests as ApprovalRequest[] | undefined) || []).some((r) => r.id === id)
     );
     if (approveIds.length === 0) {
       toast.error("승인할 항목을 선택해주세요.");
@@ -617,7 +628,7 @@ export default function ApprovalManagement() {
 
   const confirmBatchApprove = () => {
     const approveIds = selectedIds.filter(id => 
-      (approvalRequests || []).some((r: any) => r.id === id)
+      ((approvalRequests as ApprovalRequest[] | undefined) || []).some((r) => r.id === id)
     );
     batchApproveMutation.mutate({ approvalRequestIds: approveIds });
   };
@@ -625,7 +636,7 @@ export default function ApprovalManagement() {
   // 검토 대기 탭에서 승인자가 일괄 검토+승인 (바로 승인)
   const handleBatchDirectApprove = () => {
     const reviewIds = selectedIds.filter(id => 
-      allReviewRequests.some((r: any) => r.id === id)
+      allReviewRequests.some((r) => r.id === id)
     );
     if (reviewIds.length === 0) {
       toast.error("승인할 항목을 선택해주세요.");
@@ -653,16 +664,16 @@ export default function ApprovalManagement() {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const toggleSelectAll = (list: any[]) => {
-    const allIds = list.map((r: any) => r.id);
-    const allSelected = allIds.length > 0 && allIds.every((id: number) => selectedIds.includes(id));
+  const toggleSelectAll = (list: ApprovalRequest[]) => {
+    const allIds = list.map((r) => r.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
     setSelectedIds(allSelected ? [] : allIds);
   };
 
   // 카테고리 필터링
-  const filterByCategory = (list: any[]) => {
+  const filterByCategory = (list: ApprovalRequest[]): ApprovalRequest[] => {
     if (categoryFilter === "all") return list;
-    return list.filter((r: any) => {
+    return list.filter((r) => {
       const cat = REQUEST_CATEGORIES[r.requestType] || "기타";
       return cat === categoryFilter;
     });
@@ -670,25 +681,25 @@ export default function ApprovalManagement() {
 
   const filteredReview = filterByCategory(allReviewRequests);
   const filteredApproval = filterByCategory(
-    (approvalRequests || []).filter((r: any) => r.status === "pending_approval")
+    ((approvalRequests as ApprovalRequest[] | undefined) || []).filter((r) => r.status === "pending_approval")
   );
 
   // 카테고리별 통계
-  const reviewCategoryStats = allReviewRequests.reduce((acc: Record<string, number>, r: any) => {
+  const reviewCategoryStats = allReviewRequests.reduce<Record<string, number>>((acc, r) => {
     const cat = REQUEST_CATEGORIES[r.requestType] || "기타";
     acc[cat] = (acc[cat] || 0) + 1;
     return acc;
-  }, {} as Record<string, number>);
+  }, {});
 
   // 선택된 항목 수 계산
-  const selectedReviewCount = selectedIds.filter(id => allReviewRequests.some((r: any) => r.id === id)).length;
-  const selectedApprovalCount = selectedIds.filter(id => (approvalRequests || []).some((r: any) => r.id === id)).length;
+  const selectedReviewCount = selectedIds.filter(id => allReviewRequests.some((r) => r.id === id)).length;
+  const selectedApprovalCount = selectedIds.filter(id => ((approvalRequests as ApprovalRequest[] | undefined) || []).some((r) => r.id === id)).length;
 
   // ═══════════════════════════════════════════════════════════════
   // 테이블 행 렌더링 (컴팩트 모드)
   // ═══════════════════════════════════════════════════════════════
 
-  const renderRequestRow = (request: any, mode: "review" | "approve" | "readonly" = "readonly") => {
+  const renderRequestRow = (request: ApprovalRequest, mode: "review" | "approve" | "readonly" = "readonly") => {
     const Icon = REQUEST_TYPE_ICONS[request.requestType] || FileText;
     const category = REQUEST_CATEGORIES[request.requestType] || "기타";
     const categoryColor = CATEGORY_COLORS[category] || "bg-gray-100 text-gray-800";
@@ -765,8 +776,8 @@ export default function ApprovalManagement() {
         </div>
 
         {/* 상태 */}
-        <Badge className={`${STATUS_COLORS[request.status] || STATUS_COLORS.pending} text-[10px] px-1.5 py-0 flex-shrink-0`}>
-          {STATUS_LABELS[request.status] || request.status}
+        <Badge className={`${STATUS_COLORS[request.status ?? "pending"] || STATUS_COLORS.pending} text-[10px] px-1.5 py-0 flex-shrink-0`}>
+          {STATUS_LABELS[request.status ?? "pending"] || request.status}
         </Badge>
 
         {/* 액션 버튼 */}
@@ -971,7 +982,7 @@ export default function ApprovalManagement() {
         )}
 
         {/* 탭 */}
-        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as any); setSelectedIds([]); }}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedIds([]); }}>
           <TabsList className="flex flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="review" className="flex items-center gap-1 text-xs px-2 py-1.5">
               <UserCheck className="h-3.5 w-3.5" />
@@ -1013,7 +1024,7 @@ export default function ApprovalManagement() {
                 <button onClick={() => toggleSelectAll(filteredReview)}
                   className="text-muted-foreground hover:text-blue-600"
                 >
-                  {filteredReview.every((r: any) => selectedIds.includes(r.id))
+                  {filteredReview.every((r: ApprovalRequest) => selectedIds.includes(r.id))
                     ? <CheckSquare className="w-4 h-4 text-blue-600" />
                     : <Square className="w-4 h-4" />
                   }
@@ -1046,7 +1057,7 @@ export default function ApprovalManagement() {
             ) : (
               <Card>
                 <CardContent className="p-0">
-                  {filteredReview.map((request: any) => renderRequestRow(request, "review"))}
+                  {filteredReview.map((request: ApprovalRequest) => renderRequestRow(request, "review"))}
                 </CardContent>
               </Card>
             )}
@@ -1061,7 +1072,7 @@ export default function ApprovalManagement() {
                 <button onClick={() => toggleSelectAll(filteredApproval)}
                   className="text-muted-foreground hover:text-blue-600"
                 >
-                  {filteredApproval.every((r: any) => selectedIds.includes(r.id))
+                  {filteredApproval.every((r: ApprovalRequest) => selectedIds.includes(r.id))
                     ? <CheckSquare className="w-4 h-4 text-blue-600" />
                     : <Square className="w-4 h-4" />
                   }
@@ -1085,7 +1096,7 @@ export default function ApprovalManagement() {
             ) : (
               <Card>
                 <CardContent className="p-0">
-                  {filteredApproval.map((request: any) => renderRequestRow(request, "approve"))}
+                  {filteredApproval.map((request: ApprovalRequest) => renderRequestRow(request, "approve"))}
                 </CardContent>
               </Card>
             )}
@@ -1154,7 +1165,7 @@ export default function ApprovalManagement() {
             ) : (
               <Card>
                 <CardContent className="p-0">
-                  {historyRequests.map((request: any) => renderRequestRow(request, "readonly"))}
+                  {historyRequests.map((request: ApprovalRequest) => renderRequestRow(request, "readonly"))}
                 </CardContent>
               </Card>
             )}
@@ -1174,7 +1185,7 @@ export default function ApprovalManagement() {
             ) : (
               <Card>
                 <CardContent className="p-0">
-                  {pendingRecipes.map((recipe: any) => (
+                  {pendingRecipes.map((recipe: PendingRecipe) => (
                     <div key={recipe.id} className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40 text-sm">
                       <Utensils className="h-4 w-4 text-purple-600 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
@@ -1231,7 +1242,7 @@ export default function ApprovalManagement() {
             ) : (
               <Card>
                 <CardContent className="p-0">
-                  {recipeHistory.map((recipe: any) => (
+                  {recipeHistory.map((recipe: RecipeHistory) => (
                     <div key={recipe.id} className="flex items-center gap-3 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40 text-sm">
                       <Utensils className="h-4 w-4 text-blue-600 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
@@ -1408,7 +1419,7 @@ export default function ApprovalManagement() {
 
                 {/* 승인 직인 (승인 완료 시) */}
                 {selectedRequest.status === "approved" && (() => {
-                  const cfd = (selectedRequest as any).checklistFormData;
+                  const cfd = (selectedRequest as ApprovalRequest & { checklistFormData?: { approval?: { writerName?: string; reviewerName?: string; approverName?: string; reviewerApproved?: boolean; approverApproved?: boolean } } }).checklistFormData;
                   const approval = cfd?.approval;
                   const settingNames2 = getApprovalSettingNames(selectedRequest.requestType || "");
                   const writerName = settingNames2?.writerName || approval?.writerName || selectedRequest.requester?.name || "작성자";
@@ -1440,9 +1451,9 @@ export default function ApprovalManagement() {
                 {(selectedRequest.requestType === "batch_production" || selectedRequest.requestType === "batch_approval") && selectedRequest.referenceId && (
                   <div className="border-t pt-2">
                     <div className="text-xs font-semibold mb-1 flex items-center gap-1"><Package className="h-3.5 w-3.5 text-blue-600" />CCP 기록지 (배치 #{selectedRequest.referenceId})</div>
-                    {(ccpFormRecords as any[]).length > 0 && (
+                    {(ccpFormRecords as CcpFormRecord[]).length > 0 && (
                       <div className="mb-2 space-y-1">
-                        {(ccpFormRecords as any[]).map((fr: any) => (
+                        {(ccpFormRecords as CcpFormRecord[]).map((fr) => (
                           <div key={fr.id} className="flex items-center justify-between bg-gray-50 border rounded px-2 py-1 text-xs">
                             <span className="font-medium">{fr.ccpType} - {fr.processGroupName || '-'}</span>
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${fr.status === 'approved' ? 'bg-green-100 text-green-700' : fr.status === 'submitted' ? 'bg-blue-100 text-blue-700' : fr.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -1454,7 +1465,7 @@ export default function ApprovalManagement() {
                     )}
                     {ccpListForApproval && ccpListForApproval.length > 0 ? (
                       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {(ccpListForApproval as any[]).map((ccp: any) => (
+                        {(ccpListForApproval as CcpInstance[]).map((ccp) => (
                           <CcpInspectionCard key={ccp.id} ccp={ccp} onRecordSaved={refetchCcpForApproval} />
                         ))}
                       </div>

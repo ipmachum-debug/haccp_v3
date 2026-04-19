@@ -253,7 +253,7 @@ export default function MaterialInspectionDetail() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="result">검사 결과</Label>
-                  <Select value={result} onValueChange={(v: any) => setResult(v)}>
+                  <Select value={result} onValueChange={(v) => setResult(v as typeof result)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
