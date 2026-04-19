@@ -61,9 +61,16 @@ export const bannerRouter = router({
         priority: z.number().default(0),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      
+
+      // super_admin 만 임의 테넌트/전역 배너 생성 가능.
+      // 일반 admin 은 input.tenantId 무시하고 자신의 테넌트 로 강제.
+      const resolvedTenantId =
+        ctx.user.role === "super_admin"
+          ? (input.tenantId ?? null)
+          : ctx.tenantId;
+
       const [banner] = await db
         .insert(banners)
         .values({
@@ -75,11 +82,11 @@ export const bannerRouter = router({
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
           targetRoles: input.targetRoles ?? null,
-          tenantId: input.tenantId ?? null,
+          tenantId: resolvedTenantId,
           priority: input.priority,
         })
         .$returningId();
-      
+
       return { success: true, id: banner.id };
     }),
 
@@ -101,56 +108,91 @@ export const bannerRouter = router({
         isActive: z.boolean().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       const { id, ...data } = input;
-      
+
+      // 기존 배너 소유 검증 — 일반 admin 은 자신 테넌트 배너만 수정 가능
+      const [existing] = await db
+        .select({ tenantId: banners.tenantId })
+        .from(banners)
+        .where(eq(banners.id, id))
+        .limit(1);
+      if (!existing) throw new Error("Banner not found");
+      if (
+        ctx.user.role !== "super_admin" &&
+        existing.tenantId !== ctx.tenantId
+      ) {
+        throw new Error("다른 테넌트의 배너는 수정할 수 없습니다.");
+      }
+
       const updateData: any = { ...data };
       if (data.startDate) updateData.startDate = new Date(data.startDate);
       if (data.endDate) updateData.endDate = new Date(data.endDate);
-      
+      // 일반 admin 은 tenantId 변경 불가
+      if (ctx.user.role !== "super_admin") delete updateData.tenantId;
+
       await db
         .update(banners)
         .set(updateData)
         .where(eq(banners.id, id));
-      
+
       return { success: true };
     }),
 
   // 배너 삭제 (슈퍼관리자용)
   deleteBanner: adminProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      
+
+      const [existing] = await db
+        .select({ tenantId: banners.tenantId })
+        .from(banners)
+        .where(eq(banners.id, input.id))
+        .limit(1);
+      if (!existing) throw new Error("Banner not found");
+      if (
+        ctx.user.role !== "super_admin" &&
+        existing.tenantId !== ctx.tenantId
+      ) {
+        throw new Error("다른 테넌트의 배너는 삭제할 수 없습니다.");
+      }
+
       await db
         .delete(banners)
         .where(eq(banners.id, input.id));
-      
+
       return { success: true };
     }),
 
   // 배너 활성화/비활성화 토글 (슈퍼관리자용)
   toggleBanner: adminProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      
+
       const [banner] = await db
         .select()
         .from(banners)
         .where(eq(banners.id, input.id))
         .limit(1);
-      
+
       if (!banner) {
         throw new Error("Banner not found");
       }
-      
+      if (
+        ctx.user.role !== "super_admin" &&
+        banner.tenantId !== ctx.tenantId
+      ) {
+        throw new Error("다른 테넌트의 배너는 제어할 수 없습니다.");
+      }
+
       await db
         .update(banners)
         .set({ isActive: !banner.isActive })
         .where(eq(banners.id, input.id));
-      
+
       return { success: true, isActive: !banner.isActive };
     }),
 });

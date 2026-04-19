@@ -259,7 +259,13 @@ export async function generatePurchaseStatementPDFByIds(
     const rawPurchases = await db
       .select()
       .from(accountingPurchases)
-      .leftJoin(partners, eq(accountingPurchases.partnerId, partners.id))
+      .leftJoin(
+        partners,
+        and(
+          eq(accountingPurchases.partnerId, partners.id),
+          eq(partners.tenantId, accountingPurchases.tenantId),
+        ),
+      )
       .where(and(...conditions) as any);
 
     console.log(`[generatePurchaseStatementPDFByIds] DB 조회 결과: requested=${purchaseIds.length}, fetched=${rawPurchases.length}`);
@@ -389,7 +395,13 @@ export async function generateSaleStatementPDFByIds(
     const rawSales = await db
       .select()
       .from(accountingSales)
-      .leftJoin(partners, eq(accountingSales.partnerId, partners.id))
+      .leftJoin(
+        partners,
+        and(
+          eq(accountingSales.partnerId, partners.id),
+          eq(partners.tenantId, accountingSales.tenantId),
+        ),
+      )
       .where(and(...conditions) as any);
 
     console.log(`[generateSaleStatementPDFByIds] DB 조회 결과: requested=${saleIds.length}, fetched=${rawSales.length}`);

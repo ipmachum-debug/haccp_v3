@@ -74,7 +74,13 @@ export const partnerPriceRouter = router({
           createdAt: partnerPrices.createdAt,
         })
         .from(partnerPrices)
-        .leftJoin(partners, eq(partnerPrices.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(partnerPrices.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(and(...conditions))
         .orderBy(
           desc(partnerPrices.effectiveFrom),

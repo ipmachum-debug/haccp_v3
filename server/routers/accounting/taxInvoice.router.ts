@@ -128,7 +128,13 @@ export const taxInvoiceRouter = router({
           createdAt: taxInvoices.createdAt,
         })
         .from(taxInvoices)
-        .leftJoin(partners, eq(taxInvoices.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(taxInvoices.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(and(...conditions))
         .orderBy(desc(taxInvoices.issueDate), desc(taxInvoices.id));
     }),
@@ -145,7 +151,13 @@ export const taxInvoiceRouter = router({
       const [ti] = await db
         .select()
         .from(taxInvoices)
-        .leftJoin(partners, eq(taxInvoices.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(taxInvoices.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(taxInvoices.id, input.id), eq(taxInvoices.tenantId, ctx.tenantId)),
         )
@@ -503,7 +515,13 @@ export const taxInvoiceRouter = router({
       const [ti] = await db
         .select()
         .from(taxInvoices)
-        .leftJoin(partners, eq(taxInvoices.partnerId, partners.id))
+        .leftJoin(
+          partners,
+          and(
+            eq(taxInvoices.partnerId, partners.id),
+            eq(partners.tenantId, ctx.tenantId),
+          ),
+        )
         .where(
           and(eq(taxInvoices.id, input.id), eq(taxInvoices.tenantId, ctx.tenantId)),
         )
