@@ -10,6 +10,7 @@ import {
   ArrowUp, ArrowDown, Home
 } from "lucide-react";
 import ScreenshotCarousel from "./ScreenshotCarousel";
+import { MillioLogo } from "@/components/MillioLogo";
 
 // ─── i18n ───
 const translations = {
@@ -550,9 +551,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-between h-16 lg:h-20">
             {/* Logo - links to home */}
             <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
-              <div className="w-9 h-9 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-200/50">
-                <ShieldCheck className="w-5 h-5 text-white" />
-              </div>
+              <MillioLogo className="w-9 h-9" />
               <span className="text-xl font-bold tracking-tight text-[#1a1a2e]">
                 Millio<span className="text-orange-500"> AI</span>
               </span>
@@ -894,9 +893,7 @@ export default function LandingPage() {
                   {/* Sidebar */}
                   <div className="w-52 bg-[#1a1a2e] p-4 hidden md:block">
                     <div className="flex items-center gap-2 mb-8">
-                      <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-amber-500 rounded-lg flex items-center justify-center">
-                        <ShieldCheck className="w-4 h-4 text-white" />
-                      </div>
+                      <MillioLogo className="w-7 h-7" />
                       <span className="text-sm font-bold text-white">Millio AI</span>
                     </div>
                     {[
@@ -1160,9 +1157,7 @@ export default function LandingPage() {
             {/* Brand + Company Info */}
             <div className="md:col-span-5">
               <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-9 h-9 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-5 h-5 text-white" />
-                </div>
+                <MillioLogo className="w-9 h-9" />
                 <span className="text-lg font-bold text-white">
                   Millio<span className="text-orange-400"> AI</span>
                 </span>
