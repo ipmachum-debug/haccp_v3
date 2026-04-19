@@ -36,6 +36,7 @@ import {
   dailyTrainingRouter,
   tenantsRouter,
   iotRouter,
+  industryRouter,
 } from "../system";
 
 export const systemRouterMap = {
@@ -73,4 +74,5 @@ export const systemRouterMap = {
   training: trainingRouter,
   dailyTraining: dailyTrainingRouter,
   iot: iotRouter,
+  industry: industryRouter,
 } as const;
