@@ -14,6 +14,7 @@ import {
   ShieldCheck, Factory, Calculator, Package, FileText,
   Phone, Globe, Mail, Clock, MapPin, ArrowRight
 } from "lucide-react";
+import { MillioLogo } from "@/components/MillioLogo";
 
 export default function Register() {
   const [, setLocation] = useLocation();
@@ -180,8 +181,8 @@ export default function Register() {
         <div className="max-w-xl">
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="mb-10">
             <div className="flex items-center gap-3.5 mb-8">
-              <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-200/60">
-                <ShieldCheck className="w-6 h-6 text-white" />
+              <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-200/40 border border-stone-100">
+                <MillioLogo className="w-9 h-9" />
               </div>
               <div>
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
@@ -275,9 +276,9 @@ export default function Register() {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-                className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 mb-4 shadow-lg shadow-orange-200/50"
+                className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white mb-4 shadow-lg shadow-blue-200/40 border border-stone-100"
               >
-                <ShieldCheck className="w-7 h-7 text-white" />
+                <MillioLogo className="w-10 h-10" />
               </motion.div>
               <h2 className="text-2xl font-bold text-[#1a1a2e]" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>회원가입</h2>
               <p className="text-stone-400 text-sm mt-1">
