@@ -223,10 +223,25 @@ async function startServer() {
     ttl: 60 * 60 * 24 * 7,  // 7일 (초 단위)
   });
   
+  // SESSION_SECRET: production 에서는 필수, dev 에서만 폴백 허용
+  const sessionSecret = (() => {
+    const env = process.env.SESSION_SECRET;
+    if (env && env.length >= 32) return env;
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "[SECURITY] SESSION_SECRET 환경변수 필수 (32자 이상). production 부팅 중단.",
+      );
+    }
+    console.warn(
+      "[SECURITY] SESSION_SECRET 미설정 — dev/test 전용 폴백 사용 중.",
+    );
+    return "dev-only-session-secret-do-not-use-in-production-12345678";
+  })();
+
   // Session 미들웨어 (Redis 스토어 사용)
   app.use(session({
     store: redisStore,
-    secret: process.env.SESSION_SECRET || (() => { console.warn('[SECURITY] SESSION_SECRET 환경변수를 설정하세요!'); return 'haccp-v3-fallback-' + (process.env.DATABASE_URL || '').slice(-16); })(),
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -521,9 +536,18 @@ async function startServer() {
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
       
-      // 자동 마이그레이션 실행 (누락된 컬럼 추가 등)
-      const { runStartupMigrations } = await import("../db/startupMigrations");
-      await runStartupMigrations();
+      // 자동 마이그레이션 — production 기본 비활성.
+      // 배포 재현성/스키마 drift 방지를 위해 배포 파이프라인에서 명시적으로 돌리는 것이 원칙.
+      // 비상 시 RUN_STARTUP_MIGRATIONS=true 로 강제 실행 가능.
+      const shouldRunMigrations =
+        process.env.NODE_ENV !== "production" ||
+        process.env.RUN_STARTUP_MIGRATIONS === "true";
+      if (shouldRunMigrations) {
+        const { runStartupMigrations } = await import("../db/startupMigrations");
+        await runStartupMigrations();
+      } else {
+        console.log("[Server] startupMigrations skipped (production default). Set RUN_STARTUP_MIGRATIONS=true to enable.");
+      }
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
     }
