@@ -99,29 +99,36 @@ export async function registerUser(
   userMemo?: string,
   companyName?: string,
   businessNumber?: string,
-  tenantId?: number
+  tenantId?: number,
+  industryCode?: string
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  
+
   // 사용자 유형 검증
   if (userType === 'client_admin' && !companyName) {
     throw new Error("클라이언트 관리자는 회사명이 필수입니다.");
   }
-  
+
   if (userType === 'employee' && !tenantId) {
     throw new Error("직원은 소속 회사를 선택해야 합니다.");
   }
-  
+
   // 이메일 중복 체크
   const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   if (existingUser) {
     throw new Error("이미 사용 중인 이메일입니다");
   }
-  
+
   // 비밀번호 해시
   const passwordHash = await hashPassword(password);
-  
+
+  // 업종코드를 userMemo 에 기계가독 마커로 저장 (승인 시 parseIndustryCodeFromMemo 로 파싱해서 tenant 에 반영)
+  // 예: "[INDUSTRY_CODE:C10] 사용자 메모..."
+  const memoWithIndustry = industryCode
+    ? `[INDUSTRY_CODE:${industryCode}] ${userMemo || ""}`.trim()
+    : userMemo || null;
+
   // 사용자 생성 (관리자 승인 대기 상태)
   const [newUser] = await db.insert(users).values({
     tenantId: userType === 'client_admin' ? null : tenantId, // 클라이언트 관리자는 승인 후 테너트 생성
@@ -129,7 +136,7 @@ export async function registerUser(
     passwordHash,
     name,
     userType,
-    userMemo: userMemo || null,
+    userMemo: memoWithIndustry,
     companyName: companyName || null,
     businessNumber: businessNumber || null,
     role: 'worker',
@@ -175,4 +182,20 @@ export async function registerUser(
 }
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
+}
+
+/**
+ * `[INDUSTRY_CODE:xxx]` 마커가 들어있는 userMemo 에서 업종 코드 추출.
+ * 마커가 없으면 null 반환. (원본 memo 는 stripIndustryCodeMarker 로 별도 추출)
+ */
+export function parseIndustryCodeFromMemo(memo: string | null | undefined): string | null {
+  if (!memo) return null;
+  const m = memo.match(/\[INDUSTRY_CODE:([A-Z0-9_]+)\]/);
+  return m?.[1] ?? null;
+}
+
+/** `[INDUSTRY_CODE:xxx]` 마커를 제거한 사용자 메모 본문 반환. */
+export function stripIndustryCodeMarker(memo: string | null | undefined): string {
+  if (!memo) return "";
+  return memo.replace(/\[INDUSTRY_CODE:[A-Z0-9_]+\]\s*/g, "").trim();
 }

@@ -15,6 +15,8 @@ import {
   sendApprovalRejection 
 } from "../../services/emailService";
 import { createAuditLogFromContext } from "../../utils/auditLogger";
+import { parseIndustryCodeFromMemo, stripIndustryCodeMarker } from "../../localAuth";
+import { resolveIndustryProfile } from "../../lib/industry/industryConfig";
 
 export const superadminApprovalRouter = router({
   // 클라이언트 관리자 승인 대기 목록 조회
@@ -106,18 +108,28 @@ export const superadminApprovalRouter = router({
         const tenantName = user.companyName || `${user.name}의 회사`;
         const tenantSlug = generateSlug(tenantName);
 
+        // userMemo 에서 업종 코드 파싱 → tenant 생성 시 반영
+        const pendingIndustryCode = parseIndustryCodeFromMemo(user.userMemo);
+        const industryProfile = pendingIndustryCode
+          ? resolveIndustryProfile(pendingIndustryCode)
+          : null;
+
         const [newTenant] = await db
           .insert(tenants)
           .values({
             name: tenantName,
             slug: tenantSlug,
             status: 'active',
+            industryCode: pendingIndustryCode || null,
+            industryCategory: industryProfile?.category || null,
           })
           .$returningId();
 
         const tenantId = newTenant.id;
 
         // 2. 사용자 업데이트 (승인 + 테넌트 할당 + 관리자 권한)
+        // userMemo 에서 INDUSTRY_CODE 마커 제거 (tenant 에 반영됐으므로 중복 저장 안 함)
+        const cleanMemo = stripIndustryCodeMarker(user.userMemo);
         await db
           .update(users)
           .set({
@@ -126,6 +138,7 @@ export const superadminApprovalRouter = router({
             role: 'admin', // 클라이언트 관리자 권한
             tenantId: tenantId,
             adminMemo: input.adminMemo || null,
+            userMemo: cleanMemo || null,
           })
           .where(eq(users.id, input.userId));
 

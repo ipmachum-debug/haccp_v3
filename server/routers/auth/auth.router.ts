@@ -53,22 +53,25 @@ export const authRouter = router({
           userMemo: z.string().optional(),
           companyName: z.string().optional(),
           businessNumber: z.string().optional(),
-          tenantId: z.number().optional()
+          tenantId: z.number().optional(),
+          // 2026-04-19: client_admin 가입 시 선택한 업종 — 승인 시 tenant.industry_code 로 전파
+          industryCode: z.string().min(2).max(20).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const { registerUser } = await import("../../localAuth");
         const result = await registerUser(
-          input.email, 
-          input.password, 
-          input.name, 
-          input.userType, 
+          input.email,
+          input.password,
+          input.name,
+          input.userType,
           input.userMemo,
           input.companyName,
           input.businessNumber,
-          input.tenantId
+          input.tenantId,
+          input.industryCode
         );
-        
+
         return result;
       }),
 
