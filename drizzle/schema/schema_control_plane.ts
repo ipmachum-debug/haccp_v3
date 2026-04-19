@@ -29,6 +29,10 @@ export const tenants = mysqlTable("tenants", {
   businessNumber: varchar("business_number", { length: 50 }), // 사업자등록번호
   address: text("address"),
   
+  // 업종 정보
+  industryCode: varchar("industry_code", { length: 20 }), // KSIC 업종코드 (ex: "C10", "C1011", "C20")
+  industryCategory: varchar("industry_category", { length: 50 }), // 대분류 (food, cosmetics, supplement, pharma, general)
+  
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 }, (table) => ({

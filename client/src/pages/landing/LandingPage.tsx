@@ -12,6 +12,7 @@ import {
 import { MillioMark } from "@/components/brand/MillioMark";
 import ScreenshotCarousel from "./ScreenshotCarousel";
 
+
 // ─── i18n ───
 const translations = {
   ko: {

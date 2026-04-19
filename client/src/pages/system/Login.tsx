@@ -28,6 +28,7 @@ import {
   Play
 } from "lucide-react";
 
+
 export default function Login() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");

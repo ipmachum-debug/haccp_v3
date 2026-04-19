@@ -46,3 +46,4 @@ export * from "./communicationLogBoard";
 export * from "./ccpMonitoring";
 export * from "./expense";
 export * from "./support";
+export * from "./industryCode";

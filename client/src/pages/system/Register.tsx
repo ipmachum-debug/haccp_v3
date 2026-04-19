@@ -16,6 +16,7 @@ import {
   Phone, Globe, Mail, Clock, MapPin, ArrowRight
 } from "lucide-react";
 
+
 export default function Register() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
