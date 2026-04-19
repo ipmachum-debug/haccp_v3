@@ -270,7 +270,7 @@ function generatePrintHTML(batches: ReportBatch[], summary: ReportSummary, dateS
 <div class="doc-container">
   <div class="header-row">
     <div class="title-area">
-      <div class="system-label">Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+      <div class="system-label">Millio AI | AI 기반 제조 ERP</div>
       <h1>생 산 일 지</h1>
       <div class="subtitle">Production Daily Report</div>
       <div class="work-date">작업일: <strong>${dateString}</strong></div>
@@ -344,7 +344,7 @@ function generatePrintHTML(batches: ReportBatch[], summary: ReportSummary, dateS
     <tr><td class="remarks-label">확인</td><td>&nbsp;</td></tr>
   </table>
 
-  <div class="footer">Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템 | ${dateString} 생산일지</div>
+  <div class="footer">Millio AI | AI 기반 제조 ERP | ${dateString} 생산일지</div>
 </div>
 </body></html>`;
 }
@@ -372,7 +372,7 @@ function ProductionDailyDocument({
       {/* 헤더 + 결재란 */}
       <div className="flex items-start justify-between mb-5">
         <div>
-          <div className="text-[10px] text-gray-400 mb-1">Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+          <div className="text-[10px] text-gray-400 mb-1">Millio AI | AI 기반 제조 ERP</div>
           <h1 className="text-2xl font-bold tracking-tight">생 산 일 지</h1>
           <p className="text-xs text-gray-500 mt-0.5">Production Daily Report</p>
           <p className="text-xs text-gray-600 mt-1">작업일: <span className="font-bold">{dateString}</span></p>
@@ -531,7 +531,7 @@ function ProductionDailyDocument({
       </table>
 
       <div className="mt-4 text-[9px] text-gray-400 text-center border-t border-gray-200 pt-2">
-        Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템 | {dateString} 생산일지
+        Millio AI | AI 기반 제조 ERP | {dateString} 생산일지
       </div>
     </div>
   );

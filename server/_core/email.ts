@@ -103,7 +103,7 @@ export async function sendPasswordResetEmail(
         <div class="container">
           <div class="header">
             <h1>Millio AI</h1>
-            <p style="color: #666; margin-top: 5px;">식품안전 통합 관리 시스템</p>
+            <p style="color: #666; margin-top: 5px;">AI 기반 제조 ERP</p>
           </div>
           <div class="content">
             <h2>안녕하세요, ${userName}님</h2>

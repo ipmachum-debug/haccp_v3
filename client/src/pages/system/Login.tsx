@@ -267,7 +267,10 @@ export default function Login() {
             className="mb-10"
           >
             <div className="flex items-center gap-3.5 mb-8">
-              <MillioMark className="w-12 h-12" />
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-300/30 rounded-2xl blur-lg" />
+                <MillioMark className="relative w-14 h-14" />
+              </div>
               <div>
                 <h3 className="text-stone-700 text-sm font-semibold">주식회사 골든터틀컴퍼니</h3>
                 <div className="flex items-center gap-3 text-stone-400 text-xs mt-0.5">
@@ -398,9 +401,10 @@ export default function Login() {
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.4, type: "spring", stiffness: 200 }}
-                className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white mb-4 shadow-lg shadow-blue-200/40 border border-stone-100"
+                className="relative inline-flex items-center justify-center mb-4"
               >
-                <MillioMark className="w-10 h-10" />
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-300/30 rounded-2xl blur-lg" />
+                <MillioMark className="relative w-16 h-16" />
               </motion.div>
               <h2 className="text-2xl font-bold text-[#1a1a2e]" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>로그인</h2>
               <p className="text-stone-400 text-sm mt-1">계정에 로그인하세요</p>

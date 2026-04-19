@@ -456,8 +456,8 @@ const policySections: PolicySection[] = [
         <h3>2. 허용된 사용</h3>
         <p>이용자는 다음 목적 범위 내에서 서비스를 사용할 수 있습니다.</p>
         <ul>
-          <li>식품 제조 관리</li>
-          <li>HACCP 관리</li>
+          <li>제조업 공통 ERP (생산·재고·회계·품질)</li>
+          <li>식품 HACCP 관리 / 화장품 GMP (업종별 특화)</li>
           <li>생산 관리</li>
           <li>재고 관리</li>
           <li>품질 관리</li>
@@ -829,8 +829,11 @@ export default function LegalPage() {
           <div className="flex items-center gap-4">
             <Link href="/">
               <a className="flex items-center gap-2">
-                <MillioMark className="w-8 h-8" />
-                <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 to-blue-300/30 rounded-xl blur-md" />
+                  <MillioMark className="relative w-9 h-9" />
+                </div>
+                <span className="text-lg font-bold text-[#1a1a2e] font-serif tracking-tight">Millio<span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300 hidden sm:inline">|</span>

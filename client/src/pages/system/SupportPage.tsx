@@ -570,9 +570,12 @@ export default function SupportPage() {
         <div className="max-w-5xl mx-auto px-5 sm:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/">
-              <a className="flex items-center gap-2">
-                <MillioMark className="w-8 h-8" />
-                <span className="text-lg font-bold text-[#1a1a2e]">Millio<span className="text-orange-500"> AI</span></span>
+              <a className="group flex items-center gap-2.5">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 to-blue-300/30 rounded-xl blur-md group-hover:blur-lg transition-all" />
+                  <MillioMark className="relative w-9 h-9 group-hover:scale-105 transition-transform" />
+                </div>
+                <span className="text-lg font-bold text-[#1a1a2e] font-serif tracking-tight">Millio<span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300">|</span>

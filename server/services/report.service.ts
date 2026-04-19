@@ -243,7 +243,7 @@ export function generateReportHtml(params: {
   </table>
 
   <div class="footer">
-    <p>HACCP 식품 안전 관리 시스템</p>
+    <p>Millio AI — AI 기반 제조 ERP</p>
     <p>생성 일시: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
 </body>

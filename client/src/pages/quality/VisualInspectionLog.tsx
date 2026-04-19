@@ -271,7 +271,7 @@ function VisualInspectionDocument({
       {/* Header + seal */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-[10px] text-gray-400 mb-1">Millio AI | 식품안전 + 회계 + ERP 통합 관리 시스템</div>
+          <div className="text-[10px] text-gray-400 mb-1">Millio AI | AI 기반 제조 ERP</div>
           <h1 className="text-xl font-bold tracking-tight">육 안 검 사 일 지</h1>
           <p className="text-xs text-gray-500 mt-0.5">Visual Inspection Log (원재료)</p>
           <p className="text-xs text-gray-600 mt-1">검사기간: <span className="font-bold">{year}년 {month}월</span></p>

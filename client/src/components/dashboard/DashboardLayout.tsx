@@ -776,13 +776,16 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2.5 px-3 transition-all w-full mb-4">
               {!isCollapsed ? (
                 <div className="flex items-center gap-2.5 w-full">
-                  <MillioMark className="w-8 h-8 shrink-0" />
-                  <div className="flex flex-col">
-                    <h1 className="text-[15px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap">
-                      Millio AI
+                  <div className="relative shrink-0">
+                    <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/20 to-blue-300/30 rounded-xl blur-md" />
+                    <MillioMark className="relative w-10 h-10" />
+                  </div>
+                  <div className="flex flex-col leading-tight">
+                    <h1 className="text-[16px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap font-serif">
+                      Millio<span className="text-orange-500"> AI</span>
                     </h1>
-                    <span className="text-[10px] text-sidebar-foreground/50 font-medium tracking-wider uppercase">
-                      Manufacturing ERP · AI
+                    <span className="text-[9px] text-sidebar-foreground/50 font-semibold tracking-[0.18em] uppercase -mt-0.5">
+                      Manufacturing · AI
                     </span>
                   </div>
                 </div>
@@ -793,7 +796,10 @@ function DashboardLayoutContent({
                   aria-label="Open navigation"
                   title="메뉴 열기"
                 >
-                  <MillioMark className="w-8 h-8" />
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-br from-orange-300/30 to-blue-300/20 rounded-lg blur-sm" />
+                    <MillioMark className="relative w-9 h-9" />
+                  </div>
                 </button>
               )}
             </div>
