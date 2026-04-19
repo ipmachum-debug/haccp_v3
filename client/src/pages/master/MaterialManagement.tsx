@@ -30,11 +30,52 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import CategorySelect from "@/components/masterData/CategorySelect";
 import { MaterialPriceChart } from "@/components/masterData/MaterialPriceChart";
 
+// 로컬 도메인 타입 — 서버 material.list 와 호환되는 경량 shape
+interface MaterialRow {
+  id: number;
+  materialCode?: string;
+  materialName: string;
+  category?: string | null;
+  categoryId?: number | null;
+  supplier?: string | null;
+  unit?: string | null;
+  unitPrice?: number | string | null;
+  averagePrice?: number | string | null;
+  stockQuantity?: number | string | null;
+  availableQuantity?: number | string | null;
+  minimumStock?: number | string | null;
+  safetyStockLevel?: number | string | null;
+  expiryAlertDays?: number | null;
+  expiryWarningDays?: number | null;
+  storageConditions?: string | null;
+  nutritionInfo?: string | null;
+  allergens?: string | null;
+  memo?: string | null;
+  isActive?: number | boolean;
+}
+
+interface CategoryLite {
+  id: number;
+  name: string;
+  type: string;
+}
+
+interface PriceHistoryEntry {
+  id?: number;
+  unitPrice?: number | string;
+  oldPrice?: number | string | null;
+  newPrice?: number | string | null;
+  changedAt?: string | Date;
+  reason?: string | null;
+  changeReason?: string | null;
+  partnerName?: string | null;
+}
+
 export default function MaterialManagement() {
   const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [editingMaterial, setEditingMaterial] = useState<any>(null);
+  const [editingMaterial, setEditingMaterial] = useState<MaterialRow | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(undefined);
@@ -56,7 +97,7 @@ export default function MaterialManagement() {
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   
   // 필터링된 원재료 목록
-  const filteredMaterials = materials?.filter((material: any) => {
+  const filteredMaterials = materials?.filter((material: MaterialRow) => {
     const matchesSearch = material.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          material.materialCode?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategoryId === undefined || material.categoryId === selectedCategoryId;
@@ -101,8 +142,8 @@ export default function MaterialManagement() {
         try {
           const result = await utils.inventory.generateCode.fetch();
           setFormData(prev => ({ ...prev, materialCode: result }));
-        } catch (error: any) {
-          console.error("코드 자동 생성 실패:", error.message);
+        } catch (error) {
+          console.error("코드 자동 생성 실패:", error instanceof Error ? error.message : String(error));
         } finally {
           setIsGeneratingCode(false);
         }
@@ -119,19 +160,19 @@ export default function MaterialManagement() {
       setIsCreateDialogOpen(false);
       resetForm();
       refetch();
-    } catch (error: any) {
-      toast.error(error.message || `${L("material")} 생성 중 오류가 발생했습니다.`);
+    } catch (error) {
+      toast.error((error instanceof Error ? error.message : String(error)) || `${L("material")} 생성 중 오류가 발생했습니다.`);
     }
   };
 
-  const handleEdit = (material: any) => {
+  const handleEdit = (material: MaterialRow) => {
     setEditingMaterial(material);
     setFormData({
       materialName: material.materialName,
-      materialCode: material.materialCode,
+      materialCode: material.materialCode ?? "",
       category: material.category || "",
       unit: material.unit || "KG",
-      safetyStock: parseFloat(material.safetyStockLevel || "0"),
+      safetyStock: parseFloat(String(material.safetyStockLevel ?? "0")),
       expiryWarningDays: material.expiryWarningDays || 7,
     });
     setIsEditDialogOpen(true);
@@ -146,8 +187,8 @@ export default function MaterialManagement() {
       setEditingMaterial(null);
       resetForm();
       refetch();
-    } catch (error: any) {
-      toast.error(error.message || `${L("material")} 수정 중 오류가 발생했습니다.`);
+    } catch (error) {
+      toast.error((error instanceof Error ? error.message : String(error)) || `${L("material")} 수정 중 오류가 발생했습니다.`);
     }
   };
 
@@ -157,8 +198,8 @@ export default function MaterialManagement() {
       await deleteMutation.mutateAsync({ id });
       toast.success(`${L("material")}가 성공적으로 삭제되었습니다.`);
       refetch();
-    } catch (error: any) {
-      toast.error(error.message || `${L("material")} 삭제 중 오류가 발생했습니다.`);
+    } catch (error) {
+      toast.error((error instanceof Error ? error.message : String(error)) || `${L("material")} 삭제 중 오류가 발생했습니다.`);
     }
   };
 
@@ -171,8 +212,8 @@ export default function MaterialManagement() {
       toast.success(successMessage);
       setIsBatchUpdateDialogOpen(false);
       refetch();
-    } catch (error: any) {
-      toast.error(error.message || "일괄 업데이트 중 오류가 발생했습니다.");
+    } catch (error) {
+      toast.error((error instanceof Error ? error.message : String(error)) || "일괄 업데이트 중 오류가 발생했습니다.");
     }
   };
 
@@ -207,7 +248,7 @@ export default function MaterialManagement() {
             className="border rounded px-3 py-2 text-sm"
           >
             <option value="">전체</option>
-            {categories?.filter((c: any) => c.type === "material").map((category: any) => (
+            {categories?.filter((c: CategoryLite) => c.type === "material").map((category: CategoryLite) => (
               <option key={category.id} value={category.id}>
                 {category.name}
               </option>
@@ -350,7 +391,7 @@ export default function MaterialManagement() {
             </TableHeader>
             <TableBody>
               {filteredMaterials && filteredMaterials.length > 0 ? (
-                filteredMaterials.map((material: any) => (
+                filteredMaterials.map((material: MaterialRow) => (
                   <TableRow key={material.id}>
                     <TableCell className="font-medium">{material.materialCode}</TableCell>
                     <TableCell>{material.materialName}</TableCell>
@@ -359,12 +400,12 @@ export default function MaterialManagement() {
                     <TableCell className="text-right">
                       <span
                         className={
-                          material.availableQuantity < material.safetyStockLevel
+                          Number(material.availableQuantity ?? 0) < Number(material.safetyStockLevel ?? 0)
                             ? "text-red-600 font-semibold"
                             : ""
                         }
                       >
-                        {material.availableQuantity?.toFixed(2) || "0.00"}
+                        {Number(material.availableQuantity ?? 0).toFixed(2)}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">{material.safetyStockLevel || "0"}</TableCell>
@@ -590,7 +631,7 @@ export default function MaterialManagement() {
           <DialogHeader>
             <DialogTitle>단가 변경 이력</DialogTitle>
             <DialogDescription>
-              {materials?.find((m: any) => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
+              {materials?.find((m: MaterialRow) => m.id === priceHistoryMaterialId)?.materialName}의 단가 변경 이력을 확인하세요.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -601,9 +642,9 @@ export default function MaterialManagement() {
                   <h4 className="text-sm font-medium mb-4">가격 변동 추이</h4>
                   <ResponsiveContainer width="100%" height={250}>
                     <LineChart
-                      data={priceHistory.map((h: any) => ({
-                        date: new Date(h.changedAt).toLocaleDateString("ko-KR"),
-                        price: parseFloat(h.newPrice),
+                      data={priceHistory.map((h: PriceHistoryEntry) => ({
+                        date: h.changedAt ? new Date(h.changedAt).toLocaleDateString("ko-KR") : "",
+                        price: parseFloat(String(h.newPrice ?? "0")),
                       })).reverse()}
                     >
                       <CartesianGrid strokeDasharray="3 3" />
@@ -617,7 +658,7 @@ export default function MaterialManagement() {
                 </div>
                 {/* 이력 타임라인 */}
                 <div className="space-y-2">
-                {priceHistory.map((history: any, index: number) => (
+                {priceHistory.map((history: PriceHistoryEntry, index: number) => (
                   <div
                     key={history.id}
                     className="flex items-start gap-4 p-4 border rounded-lg"
@@ -628,22 +669,22 @@ export default function MaterialManagement() {
                         <div className="font-medium">
                           {history.oldPrice ? (
                             <>
-                              {parseFloat(history.oldPrice).toLocaleString()}원 →{" "}
+                              {parseFloat(String(history.oldPrice)).toLocaleString()}원 →{" "}
                               <span className="text-primary">
-                                {parseFloat(history.newPrice).toLocaleString()}원
+                                {parseFloat(String(history.newPrice ?? "0")).toLocaleString()}원
                               </span>
                             </>
                           ) : (
                             <>
                               초기 단가:{" "}
                               <span className="text-primary">
-                                {parseFloat(history.newPrice).toLocaleString()}원
+                                {parseFloat(String(history.newPrice ?? "0")).toLocaleString()}원
                               </span>
                             </>
                           )}
                         </div>
                         <div className="text-sm text-muted-foreground">
-                          {new Date(history.changedAt).toLocaleString("ko-KR")}
+                          {history.changedAt && new Date(history.changedAt).toLocaleString("ko-KR")}
                         </div>
                       </div>
                       {history.reason && (
