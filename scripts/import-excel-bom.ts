@@ -20,7 +20,7 @@ async function getConnection() {
   return mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "G0ld3n!T1004#Sec",
+    password: process.env.DB_PASSWORD || "",
     database: "haccp_tenant_db",
   });
 }
@@ -192,7 +192,7 @@ async function main() {
 
   try {
     console.log("\n========================================");
-    console.log("  HACCP-ONE 배합비(BOM) 임포트");
+    console.log("  Millio AI 배합비(BOM) 임포트");
     console.log("========================================");
 
     await importBOM(conn, wb);

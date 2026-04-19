@@ -1,5 +1,5 @@
 import {mysqlTable, bigint, varchar, text, timestamp, mysqlEnum, int, index} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 계정 과목 관리 (5분류 체계)
@@ -77,7 +77,8 @@ export const SYSTEM_ACCOUNTS = {
   SERVICE_REVENUE: "SERVICE_REVENUE",     // 서비스매출
   
   // 비용 (Expenses) - 세부는 사용자 정의
-  COST_OF_GOODS: "COST_OF_GOODS",         // 매출원가
+  COST_OF_GOODS: "COST_OF_GOODS",
+  WIP: "WIP",         // 매출원가
 } as const;
 
 export type SystemAccountCode = typeof SYSTEM_ACCOUNTS[keyof typeof SYSTEM_ACCOUNTS];

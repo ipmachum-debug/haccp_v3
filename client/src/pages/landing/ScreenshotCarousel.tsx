@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion as _motion, AnimatePresence } from "framer-motion";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const motion = _motion as any;
 import {
   ChevronLeft, ChevronRight, Factory, ShieldCheck, Package,
@@ -22,6 +23,7 @@ interface ScreenSlide {
 // ─── Mock screen contents ───
 
 function DashboardScreen() {
+  const L = useIndustryLabel();
   return (
     <div className="p-4 space-y-3">
       <div className="grid grid-cols-4 gap-2">
@@ -271,7 +273,7 @@ function AIScreen() {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span>원료 유효기한 경고: <strong>1건</strong></span>
+                <span>{L("material")} 유효기한 경고: <strong>1건</strong></span>
               </div>
             </div>
           </div>
@@ -390,7 +392,7 @@ export default function ScreenshotCarousel({ lang = "ko" }: { lang?: "ko" | "en"
               <div className="w-3 h-3 rounded-full bg-emerald-300" />
             </div>
             <div className="ml-3 bg-white rounded-md px-3 py-1 text-xs text-stone-400 border border-stone-100 min-w-[180px]">
-              app.haccpone.com
+              app.millioai.com
             </div>
           </div>
           {/* Tab indicators */}

@@ -3,26 +3,35 @@ import { publicProcedure, router } from "../../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { lt, or, eq, sql } from "drizzle-orm";
-import { users, tenants } from "../../../drizzle/schema_main";
+import { users, tenants } from "../../../drizzle/schema/schema_main";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "../../_core/cookies";
 import crypto from "crypto";
 import { getDb, getUserByEmail } from "../../db";
 import { loginUser as localLoginUser, hashPassword } from "../../localAuth";
 import { sendPasswordResetEmail } from "../../_core/email";
-import { users, tenants } from "../../../drizzle/schema_main";
 
 // 데모 계정 이메일 (상수)
-const DEMO_EMAIL = "demo@haccpone.com";
+const DEMO_EMAIL = "demo@millioai.com";
 
 export const authRouter = router({
     me: publicProcedure.query(async (opts) => {
       const user = opts.ctx.user;
 
       // 로그인한 사용자의 경우 기본 즐겨찾기 자동 생성
+      // ★ 2026-04-15: 이전에는 console.error 만 남기고 me 응답은 정상 반환
+      //   → 테이블 부재 시 사용자 초기 UX 저하를 인지 못 함.
+      //   warn 레벨로 명확히 구분하고 userId 포함해 추적 가능하게.
       if (user) {
-        const { createDefaultFavorites } = await import("../../db/favorites");
-        try { await createDefaultFavorites(user.id, (user as any).tenantId); } catch (e) { console.error("[auth.me] Failed to create default favorites:", e); }
+        try {
+          const { createDefaultFavorites } = await import("../../db/system/favorites");
+          await createDefaultFavorites(user.id, (user as any).tenantId);
+        } catch (e: any) {
+          console.warn(
+            `[auth.me] 기본 즐겨찾기 생성 실패 (userId=${user.id}):`,
+            e?.message || e,
+          );
+        }
       }
 
       // 데모 계정 식별 플래그 추가
@@ -44,22 +53,25 @@ export const authRouter = router({
           userMemo: z.string().optional(),
           companyName: z.string().optional(),
           businessNumber: z.string().optional(),
-          tenantId: z.number().optional()
+          tenantId: z.number().optional(),
+          // 2026-04-19: client_admin 가입 시 선택한 업종 — 승인 시 tenant.industry_code 로 전파
+          industryCode: z.string().min(2).max(20).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const { registerUser } = await import("../../localAuth");
         const result = await registerUser(
-          input.email, 
-          input.password, 
-          input.name, 
-          input.userType, 
+          input.email,
+          input.password,
+          input.name,
+          input.userType,
           input.userMemo,
           input.companyName,
           input.businessNumber,
-          input.tenantId
+          input.tenantId,
+          input.industryCode
         );
-        
+
         return result;
       }),
 
@@ -206,7 +218,7 @@ export const authRouter = router({
         const insertResult = await db
           .insert(tenants)
           .values({
-            name: "HACCPONE 데모",
+            name: "Millio AI 데모",
             slug: DEMO_TENANT_SLUG,
             status: "trial",
             subscriptionPackage: "standard",
@@ -220,7 +232,7 @@ export const authRouter = router({
       if (!demoUser) {
         const { registerUser } = await import("../../localAuth");
         try {
-          await registerUser(DEMO_EMAIL, DEMO_PASSWORD, DEMO_NAME, "client_admin", "데모 체험 계정", "HACCPONE 데모", "000-00-00000");
+          await registerUser(DEMO_EMAIL, DEMO_PASSWORD, DEMO_NAME, "client_admin", "데모 체험 계정", "Millio AI 데모", "000-00-00000");
         } catch (e: any) {
           if (!e.message?.includes("이미")) throw e;
         }

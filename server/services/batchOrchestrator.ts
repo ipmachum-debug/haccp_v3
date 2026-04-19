@@ -102,8 +102,8 @@ export async function createSingleBatch(
     createdBy: input.userId,
   });
 
-  // === 2. 제품 정보 조회 ===
-  const product = await getProductById(input.productId);
+  // === 2. 제품 정보 조회 (테넌트 격리) ===
+  const product = await getProductById(input.productId, input.tenantId);
   const productName = product?.productName || "";
 
   // === 3. CCP 자동 생성 ===
@@ -148,19 +148,26 @@ export async function createSingleBatch(
       plannedQuantity: input.plannedQuantityKg,
       bomBatchKg: bomBatchKg ?? undefined, // 선행 조회된 값 전달
     });
-    ccpCreated = result.instanceIds.length > 0;
-    ccpCount = result.instanceIds.length;
+    // ★ 2026-04-15: ccpCreated 판정 기준을 "그룹 존재 여부" 로 변경
+    //   이전 버그: instanceIds.length > 0 로만 판정하면, 이미 인스턴스가 존재하는
+    //   배치(복구/재시도)는 instanceIds=[] 반환 → form_record 생성 스킵
+    //   수정: result.groups 에 신규 + 기존 그룹 전부 포함되므로 groups 기준 판정
+    ccpCreated = (result.groups || []).length > 0;
+    ccpCount = result.groups?.length || 0;
     ccpGroups = (result.groups || []).map((g: any) => ({
       id: g.id, name: g.name, ccp_type: g.ccp_type,
     }));
     ccpGroupNames = ccpGroups.map(g => g.name);
-    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, instanceIds=${result.instanceIds}, groups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
+    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, newInstanceIds=${result.instanceIds}, totalGroups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
 
     // 3.1. CCP form records 자동 생성 (인쇄용 양식)
+    //   ★ 기존 + 신규 그룹 모두 대상 → 누락 없이 form_record 보장
     if (ccpCreated && result.groups.length > 0) {
-      try {
-        const { getOrCreateCcpFormRecord } = await import("../db/ccpFormRecords");
-        for (const group of result.groups) {
+      const { getOrCreateCcpFormRecord } = await import("../db/haccp/ccpFormRecords");
+      let formSuccessCount = 0;
+      let formFailCount = 0;
+      for (const group of result.groups) {
+        try {
           await getOrCreateCcpFormRecord({
             tenantId: input.tenantId,
             siteId: input.siteId,
@@ -180,15 +187,23 @@ export async function createSingleBatch(
             clPressureMpaLo: group.pressure_min ?? undefined,
             clProductTempLo: group.temperature_min ?? undefined,
           });
+          formSuccessCount++;
+        } catch (formErr: any) {
+          formFailCount++;
+          console.error(
+            `[batchOrchestrator] CCP form_record 생성 실패 (${group.ccp_type}/${group.name}):`,
+            formErr?.message || formErr,
+          );
         }
-        console.log(`[batchOrchestrator] CCP form records 생성 완료: ${result.groups.length}건 (bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`);
-      } catch (formErr) {
-        console.error("[batchOrchestrator] CCP form records 생성 실패:", formErr);
       }
+      console.log(
+        `[batchOrchestrator] CCP form records 생성: ${formSuccessCount}/${result.groups.length} 성공, ${formFailCount}건 실패 ` +
+        `(bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`,
+      );
 
       // 3.2. h_ccp_rows → h_ccp_form_rows 동기화 (설비 기준값 → 인쇄용 기록지)
       try {
-        const { syncCcpRowsToFormRows } = await import("../db/ccpFormRecords");
+        const { syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
         const syncResult = await syncCcpRowsToFormRows({
           batchId,
           tenantId: input.tenantId,
@@ -232,7 +247,7 @@ export async function createSingleBatch(
   // === 5. 배치 스케줄 생성 ===
   let scheduleCreated = false;
   try {
-    const { createBatchSchedule } = await import("../db/batchSchedules");
+    const { createBatchSchedule } = await import("../db/production/batchSchedules");
     await createBatchSchedule({
       tenantId: input.tenantId,
       batchId,
@@ -245,11 +260,33 @@ export async function createSingleBatch(
     console.error("[batchOrchestrator] 스케줄 생성 실패:", error);
   }
 
+  // === 5.5. 배치 상태 → in_progress 전환 + 원료 자동 출고 (auto 모드) ===
+  // ★ auto 모드이거나 endTime 이 지정되어 있으면 즉시 시작 상태로 전환하고
+  //    h_batch_inputs 기준 원료 차감 + material_ledger_daily 반영
+  //    (기존에는 updateStatus 뮤테이션으로만 트리거되어 auto 모드 배치는 수불 반영 누락)
+  if (ccpCreated && (input.mode === "auto" || input.endTime)) {
+    try {
+      const { updateBatchStatus } = await import("../db/production/batchCRUD");
+      await updateBatchStatus(batchId, "in_progress", input.tenantId);
+      const { autoIssueMaterialsForBatch } = await import("../lib/production/autoMaterialIssue");
+      const issueResult = await autoIssueMaterialsForBatch(batchId, input.userId);
+      if (!issueResult?.success) {
+        console.warn(`[batchOrchestrator] 원료 자동 출고 일부 실패 (batch=${batchId}):`, issueResult?.errors);
+      } else {
+        console.log(
+          `[batchOrchestrator] 배치 #${batchId} 원료 자동 출고 완료: ${issueResult.issuedMaterials?.length || 0}건`,
+        );
+      }
+    } catch (issueErr) {
+      console.error(`[batchOrchestrator] 배치 #${batchId} 원료 자동 출고 실패:`, issueErr);
+    }
+  }
+
   // === 6. 승인요청 자동 등록 (skipGroupActions가 true면 caller가 그룹 수준에서 처리) ===
   let approvalRequestId: number | null = null;
   if (ccpCreated && !input.skipGroupActions) {
     try {
-      const { autoCreateApprovalRequest } = await import("../lib/autoApprovalRequest");
+      const { autoCreateApprovalRequest } = await import("../lib/production/autoApprovalRequest");
       const approvalResult = await autoCreateApprovalRequest(
         batchId, input.userId, null,
       );
@@ -262,6 +299,8 @@ export async function createSingleBatch(
 
     // === 6.1. CCP-4P 금속검출 통합 승인요청 (단일 배치 모드) ===
     // CCP-4P는 날짜별 1건 통합 기록지 → 승인요청이 없으면 자동 생성
+    // ★ 2026-04-15 수정: 작성자 자동승인 후 'pending_review' 상태 (검토자 단계)
+    //   이전: status='approved' 로 즉시 점프 → 검토/승인 단계 건너뛰기 버그
     if (ccpGroups.some(g => g.ccp_type === "CCP-4P")) {
       try {
         const conn4p = await getRawConnection();
@@ -275,30 +314,112 @@ export async function createSingleBatch(
         if ((ccp4pRecs as any[]).length > 0) {
           const ccp4pRec = (ccp4pRecs as any[])[0];
           if (!ccp4pRec.approval_request_id) {
+            // form_record 는 'submitted' 로 (작성자 완료 + 검토 대기)
             await conn4p.execute(
               `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
               [input.userId, ccp4pRec.id, input.tenantId],
             );
-            const title4p = `[CCP-CCP-4P] ${input.workDate} 금속검출 통합`;
-            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n제품: ${productName}\n배치코드: ${batchCodeFinal}`;
+            const title4p = `[CCP 기록지-CCP-4P] ${input.workDate} 금속검출 통합`;
+            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n[작성자 자동승인 → 검토자 대기]`;
+            // ★ pending_review 로 등록 (작성자 자동승인 → 검토자 단계)
             const [approvalResult4p] = await conn4p.execute(
               `INSERT INTO h_approval_requests
                 (site_id, tenant_id, request_type, reference_type, reference_id,
-                 title, description, status, priority, requested_by, created_at)
-               VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
-              [input.siteId, input.tenantId, ccp4pRec.id, title4p, desc4p, input.userId],
+                 title, description, status, priority,
+                 requested_by, requested_at, created_at)
+               VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
+                       ?, ?, 'pending_review', 'high',
+                       ?, NOW(), NOW())`,
+              [
+                input.siteId, input.tenantId, ccp4pRec.id,
+                title4p, desc4p,
+                input.userId,
+              ],
             );
             const approvalId4p = (approvalResult4p as any).insertId;
             await conn4p.execute(
               `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
               [approvalId4p, ccp4pRec.id, input.tenantId],
             );
-            console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
+            console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 등록 (pending_review): approvalId=${approvalId4p}`);
           }
         }
       } catch (ccp4pErr) {
         console.error("[batchOrchestrator] CCP-4P 승인요청 생성 실패:", ccp4pErr);
       }
+    }
+
+  }
+
+  // === 6.2. CCP-1B / CCP-2B h_ccp_form_records.status → 'submitted' 전환 ===
+  // ★ 2026-04-15 수정: 'approved' → 'submitted' (작성자 완료 후 검토 대기)
+  //   이전: approved 로 즉시 넘겨 승인 워크플로우 건너뛰기
+  //   현재: 작성자 자동승인 단계로 submitted, 검토자가 검토 필요
+  if (ccpCreated) {
+    try {
+      const ccp1b2bConn = await getRawConnection();
+      const [updateResult] = await ccp1b2bConn.execute(
+        `UPDATE h_ccp_form_records
+         SET status = 'submitted', submitted_at = NOW(), writer_id = ?
+         WHERE batch_id = ? AND tenant_id = ? AND ccp_type IN ('CCP-1B','CCP-2B')
+           AND status NOT IN ('submitted', 'approved')`,
+        [input.userId, batchId, input.tenantId],
+      );
+      const affected = (updateResult as any).affectedRows || 0;
+      if (affected > 0) {
+        console.log(`[batchOrchestrator] CCP-1B/2B form_record ${affected}건 → submitted (batchId=${batchId})`);
+      }
+    } catch (ccp1b2bErr) {
+      console.error("[batchOrchestrator] CCP-1B/2B form_record status 전환 실패:", ccp1b2bErr);
+    }
+  }
+
+  // === 6.3. 배치별 batch_production 승인요청 생성 (CCP 기록지 인쇄용) ===
+  // ★ 2026-04-15 수정:
+  //   - status: 'approved' → 'pending_review' (작성자 자동승인 → 검토자 단계)
+  //   - 제목: "[CCP 기록지]" prefix 로 생산일지와 구분 (중복 표시 오해 방지)
+  //   이전 버그: 검토/승인 단계 건너뛰고 즉시 출력 대기로 점프
+  // 중복 생성 방지: 동일 batch_id 의 batch_production AR 이 이미 있으면 skip
+  if (ccpCreated && ccpCount > 0) {
+    try {
+      const bpConn = await getRawConnection();
+      const [existing] = await bpConn.execute<any[]>(
+        `SELECT id FROM h_approval_requests
+         WHERE tenant_id = ? AND request_type = 'batch_production'
+           AND reference_type = 'batch' AND reference_id = ?
+         LIMIT 1`,
+        [input.tenantId, batchId],
+      );
+      if ((existing as any[]).length === 0) {
+        const ccpGroupNames = ccpGroups
+          .map((g: any) => `${g.name || g.ccp_type}(${g.ccp_type})`)
+          .join(", ");
+        const modeLabel = input.mode === "manual" ? "[수동]" : "[자동]";
+        const bpTitle = `[CCP 기록지]${modeLabel} ${batchCodeFinal} (${productName})`;
+        const bpDesc =
+          `제품: ${productName}\n계획일: ${input.workDate}\n` +
+          `CCP ${ccpCount}건 자동 생성 완료\n배치코드: ${batchCodeFinal}\n` +
+          `CCP 공정: ${ccpGroupNames}\n` +
+          `[작성자 자동승인 → 검토자 대기]`;
+        // ★ pending_review 로 등록 → 검토자 검토 필수
+        await bpConn.execute(
+          `INSERT INTO h_approval_requests
+             (site_id, tenant_id, request_type, reference_type, reference_id,
+              title, description, status, priority,
+              requested_by, requested_at, created_at)
+           VALUES (?, ?, 'batch_production', 'batch', ?,
+                   ?, ?, 'pending_review', 'high',
+                   ?, NOW(), NOW())`,
+          [
+            input.siteId, input.tenantId, batchId,
+            bpTitle, bpDesc,
+            input.userId,
+          ],
+        );
+        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_review)`);
+      }
+    } catch (bpErr) {
+      console.error(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 생성 실패:`, bpErr);
     }
   }
 
@@ -306,8 +427,8 @@ export async function createSingleBatch(
   let dailyReportCreated = false;
   if (!input.skipGroupActions) {
     try {
-      const { autoGenerateDailyReport } = await import("../lib/autoDailyReport");
-      const dailyResult = await autoGenerateDailyReport(batchId, input.userId);
+      const { autoGenerateDailyReport } = await import("../lib/production/autoDailyReport");
+      const dailyResult = await autoGenerateDailyReport(batchId, input.userId, input.workDate);
       dailyReportCreated = dailyResult.success;
     } catch (dailyErr) {
       console.error("[batchOrchestrator] 일일일지 생성 실패:", dailyErr);
@@ -318,7 +439,7 @@ export async function createSingleBatch(
   let periodicLogsResult: any = null;
   if (!input.skipGroupActions) {
     try {
-      const { autoGenerateAllPeriodicLogs } = await import("../lib/autoPeriodicLogs");
+      const { autoGenerateAllPeriodicLogs } = await import("../lib/production/autoPeriodicLogs");
       periodicLogsResult = await autoGenerateAllPeriodicLogs(
         input.mode,
         input.tenantId,

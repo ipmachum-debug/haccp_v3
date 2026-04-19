@@ -65,7 +65,7 @@ export default function BatchSchedule() {
       toast.success("일정이 수정되었습니다.");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`일정 수정 실패: ${error.message}`);
     },
   });

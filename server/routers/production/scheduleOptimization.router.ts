@@ -11,14 +11,14 @@ export const scheduleOptimizationRouter = router({
         facilityIds: z.array(z.number()).optional()
       }))
       .query(async ({ input, ctx }) => {
-        const { optimizeProductionSchedule } = await import("../../api/scheduleOptimization");
-        return await optimizeProductionSchedule({ ...input, tenantId: ctx.tenantId ?? undefined });
+        const { optimizeProductionSchedule } = await import("../../db/production/scheduleOptimizationAPI");
+        return await optimizeProductionSchedule({ ...input, tenantId: ctx.tenantId });
       }),
     
     // 재고 수준 기반 생산 우선순위 계산
     getPriority: tenantRequiredProcedure
       .query(async ({ ctx }) => {
-        const { calculateProductionPriority } = await import("../../api/scheduleOptimization");
-        return await calculateProductionPriority(ctx.tenantId ?? undefined);
+        const { calculateProductionPriority } = await import("../../db/production/scheduleOptimizationAPI");
+        return await calculateProductionPriority(ctx.tenantId);
       })
 });

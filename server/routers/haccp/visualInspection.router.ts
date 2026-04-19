@@ -11,7 +11,7 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { createVisualInspectionTables } = await import("../../db/visualInspection");
+        const { createVisualInspectionTables } = await import("../../db/haccp/visualInspection");
         return await createVisualInspectionTables(db);
       }),
 
@@ -24,9 +24,9 @@ export const visualInspectionRouter = router({
         if (!db) return [];
         try {
           // 자동으로 테이블 생성 확인
-          const { createVisualInspectionTables, listVisualInspectionLogs } = await import("../../db/visualInspection");
+          const { createVisualInspectionTables, listVisualInspectionLogs } = await import("../../db/haccp/visualInspection");
           await createVisualInspectionTables(db);
-          return await listVisualInspectionLogs(db, ctx.tenantId ?? undefined, input.year, input.month);
+          return await listVisualInspectionLogs(db, ctx.tenantId, input.year, input.month);
         } catch (err) {
           console.error('[visualInspection.list]', err);
           return [];
@@ -41,8 +41,29 @@ export const visualInspectionRouter = router({
         const db = await getDb();
         if (!db) return null;
         try {
-          const { getVisualInspectionLog } = await import("../../db/visualInspection");
-          return await getVisualInspectionLog(db, ctx.tenantId ?? undefined, input.id);
+          const { getVisualInspectionLog } = await import("../../db/haccp/visualInspection");
+          const { sql } = await import("drizzle-orm");
+
+          // ★ 2026-04-14: 기존 로그의 created_by 가 NULL 이면 현재 사용자로 백필
+          //   복구 후 또는 오래된 로그에서 발생 가능. 한 번 set 되면 다음 조회부터
+          //   creator_name 폴백이 정상 작동.
+          await db.execute(sql`
+            UPDATE h_visual_inspection_logs
+            SET created_by = ${ctx.user.id}
+            WHERE id = ${input.id}
+              AND tenant_id = ${ctx.tenantId}
+              AND (created_by IS NULL OR created_by = 0)
+          `);
+
+          const result = await getVisualInspectionLog(db, ctx.tenantId, input.id);
+
+          // ★ 최종 폴백: 작성자 이름이 여전히 비어있으면 현재 로그인 유저 이름 사용
+          //   (복구된 로그에서 created_by 가 유효 user_id 가 아닐 경우 대비)
+          if (result && !result.requesterName) {
+            (result as any).requesterName = ctx.user.name || "미지정";
+          }
+
+          return result;
         } catch (err) {
           console.error('[visualInspection.getById]', err);
           return null;
@@ -56,9 +77,9 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { createVisualInspectionTables, createVisualInspectionLog } = await import("../../db/visualInspection");
+        const { createVisualInspectionTables, createVisualInspectionLog } = await import("../../db/haccp/visualInspection");
         await createVisualInspectionTables(db);
-        return await createVisualInspectionLog(db, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
+        return await createVisualInspectionLog(db, ctx.tenantId, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
       }),
 
     // 항목 저장
@@ -89,8 +110,8 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { saveVisualInspectionItems } = await import("../../db/visualInspection");
-        return await saveVisualInspectionItems(db, ctx.tenantId ?? undefined, input.logId, input.items);
+        const { saveVisualInspectionItems } = await import("../../db/haccp/visualInspection");
+        return await saveVisualInspectionItems(db, ctx.tenantId, input.logId, input.items);
       }),
 
     // 삭제
@@ -100,8 +121,8 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { deleteVisualInspectionLog } = await import("../../db/visualInspection");
-        return await deleteVisualInspectionLog(db, ctx.tenantId ?? undefined, input.id);
+        const { deleteVisualInspectionLog } = await import("../../db/haccp/visualInspection");
+        return await deleteVisualInspectionLog(db, ctx.tenantId, input.id);
       }),
 
     // 승인 요청
@@ -112,9 +133,9 @@ export const visualInspectionRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const pool = await getRawConnection();
-        const { submitVisualInspectionApproval } = await import("../../db/visualInspection");
+        const { submitVisualInspectionApproval } = await import("../../db/haccp/visualInspection");
         return await submitVisualInspectionApproval(
-          db, pool, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.logId, ctx.user.id
+          db, pool, ctx.tenantId, ctx.user.siteId || ctx.tenantId, input.logId, ctx.user.id
         );
       }),
 
@@ -125,9 +146,9 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { createVisualInspectionTables, getOrCreateMonthlyLog } = await import("../../db/visualInspection");
+        const { createVisualInspectionTables, getOrCreateMonthlyLog } = await import("../../db/haccp/visualInspection");
         await createVisualInspectionTables(db);
-        return await getOrCreateMonthlyLog(db, ctx.tenantId ?? undefined, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
+        return await getOrCreateMonthlyLog(db, ctx.tenantId, ctx.user.siteId || ctx.tenantId, input.year, input.month, ctx.user.id);
       }),
 
     // 관리자용: 원재료 입고 → 육안검사 자동 동기화 (신규 입고건만 추가)
@@ -137,8 +158,19 @@ export const visualInspectionRouter = router({
         const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const { syncReceivingsToInspectionLog } = await import("../../db/visualInspection");
-        return await syncReceivingsToInspectionLog(db, ctx.tenantId ?? undefined, input.logId, input.year, input.month);
+        const { syncReceivingsToInspectionLog } = await import("../../db/haccp/visualInspection");
+        return await syncReceivingsToInspectionLog(db, ctx.tenantId, input.logId, input.year, input.month);
+      }),
+
+    // month-mismatch 아이템 정리 (관리자용) — 2026-04-14 추가
+    cleanupMismatched: tenantRequiredProcedure
+      .input(z.object({ logId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (!db) throw new Error("DB 연결 실패");
+        const { cleanupMismatchedItems } = await import("../../db/haccp/visualInspection");
+        return await cleanupMismatchedItems(db, ctx.tenantId, input.logId);
       }),
 
     // 원재료 입고 데이터 자동 가져오기
@@ -149,8 +181,8 @@ export const visualInspectionRouter = router({
         const db = await getDb();
         if (!db) return [];
         try {
-          const { fetchMaterialReceivingsForMonth } = await import("../../db/visualInspection");
-          return await fetchMaterialReceivingsForMonth(db, ctx.tenantId ?? undefined, input.year, input.month);
+          const { fetchMaterialReceivingsForMonth } = await import("../../db/haccp/visualInspection");
+          return await fetchMaterialReceivingsForMonth(db, ctx.tenantId, input.year, input.month);
         } catch (err) {
           console.error('[visualInspection.fetchMaterialReceivings]', err);
           return [];
@@ -165,8 +197,8 @@ export const visualInspectionRouter = router({
         const db = await getDb();
         if (!db) return {};
         try {
-          const { fetchPreviousItemDefaults } = await import("../../db/visualInspection");
-          return await fetchPreviousItemDefaults(db, ctx.tenantId ?? undefined, input.year, input.month);
+          const { fetchPreviousItemDefaults } = await import("../../db/haccp/visualInspection");
+          return await fetchPreviousItemDefaults(db, ctx.tenantId, input.year, input.month);
         } catch (err) {
           console.error('[visualInspection.fetchPreviousDefaults]', err);
           return {};

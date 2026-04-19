@@ -1,8 +1,15 @@
-import "dotenv/config";
+// dotenv v17: override=true 필수 — 시스템 환경에 OPENAI_API_KEY="" (빈값)이 있으면
+// dotenv가 "이미 정의됨"으로 판단하여 .env 값을 주입하지 않는 문제 방지
+import { config as dotenvConfig } from "dotenv";
+import path from "path";
+dotenvConfig({
+  path: path.resolve(process.cwd(), ".env"),
+  override: true,
+});
+
 import express from "express";
 import { createServer } from "http";
 import net from "net";
-import path from "path";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import session from "express-session";
@@ -24,8 +31,8 @@ import { initInspectionNotificationScheduler } from "./inspectionNotificationSch
 import { initApprovalAutomationScheduler } from "./approvalAutomationScheduler";
 import { initInspectionReportScheduler } from "./inspectionReportScheduler";
 import { initChecklistGenerator } from "../schedulers/checklistGenerator";
-import { initSubscriptionScheduler } from "../services/subscriptionScheduler";
 import { initDailyClosingScheduler } from "../services/dailyClosingScheduler";
+import { initSentry, captureException } from "../lib/sentry";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -68,22 +75,79 @@ function validateEnvVars(): void {
 }
 
 async function startServer() {
+  // ★ ESM 번들에서 dotenv/config import가 lazy init될 수 있으므로
+  //    startServer 진입 시 명시적으로 .env 로드 (override=true 로 빈값 덮어쓰기)
+  // ★ 2026-04-15: PM2 CWD 불일치 대비 — 여러 경로 순회하여 첫 번째 발견 파일 로드
+  const fs = await import("fs");
+  const candidatePaths = [
+    path.resolve(process.cwd(), ".env"),
+    "/root/haccp_v3/.env",
+    "/root/haccp_v3/webapp/.env",
+    "/root/haccpone-v2/.env",
+    "/home/user/haccp_v3/.env",
+    "/var/www/haccp_v3/.env",
+  ];
+  let loadedFrom: string | null = null;
+  for (const p of candidatePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        dotenvConfig({ path: p, override: true });
+        loadedFrom = p;
+        break;
+      }
+    } catch { /* ignore per-path */ }
+  }
+  console.log(`[startServer] dotenv loaded from: ${loadedFrom ?? "(none — process env only)"}`);
+
   validateEnvVars();
+
+  // Sentry 에러 모니터링 초기화 (SENTRY_DSN 환경변수 필요)
+  initSentry();
+
+  // AI/LLM 진단 출력 (서버 로그에서 확인 가능)
+  const { printEnvDiagnostics } = await import("./env.js").catch(() => ({ printEnvDiagnostics: undefined }));
+  if (printEnvDiagnostics) printEnvDiagnostics();
 
   const app = express();
   const server = createServer(app);
-  
-  // Rate Limiting - 기본 IP당 분당 200회 제한
+
+  // trust proxy — nginx 뒤에서 X-Forwarded-For 헤더를 사용해 실제 클라이언트 IP 식별
+  // ★ 2026-04-15 Genspark 커밋 fa64385 동기화
+  //   이전: 모든 요청이 127.0.0.1 로 카운트 → 한 사람이 전체 한계 소진 → 429
+  //   현재: trust proxy 1 → req.ip 가 X-Forwarded-For 의 실제 클라이언트 IP 반환
+  app.set('trust proxy', 1);
+
+  // Rate Limiting
+  // ★ 2026-04-15 조정: SPA tRPC 부하를 고려하여 한계 대폭 상향
+  //   이전: 200 req/min → CCP 모니터링 같은 다중 쿼리 페이지에서 정상 사용자도 429
+  //   현재: 인증된 /trpc/* 는 제외, 그 외는 1200 req/min (DoS 방어용)
   const rateMap = new Map<string, { count: number; resetAt: number }>();
+  const RATE_LIMIT_MAX = 1200; // req per minute per IP
   app.use((req, res, next) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // 인증된 API 경로는 rate limit 스킵 (세션 기반 인증이 이미 보호)
+    // 정적 에셋(assets, @vite, node_modules)도 스킵
+    const p = req.path || "";
+    if (
+      p.startsWith("/trpc/") ||
+      p.startsWith("/api/") ||
+      p.startsWith("/assets/") ||
+      p.startsWith("/@") ||
+      p.startsWith("/node_modules/") ||
+      p.startsWith("/src/") ||
+      p === "/favicon.ico"
+    ) {
+      return next();
+    }
+    // trust proxy 설정으로 req.ip 가 X-Forwarded-For 의 실제 클라이언트 IP 반환
+    // 폴백: X-Forwarded-For 헤더 직접 파싱
+    const ip = req.ip || req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const entry = rateMap.get(ip);
     if (!entry || now > entry.resetAt) {
       rateMap.set(ip, { count: 1, resetAt: now + 60000 });
     } else {
       entry.count++;
-      if (entry.count > 200) {
+      if (entry.count > RATE_LIMIT_MAX) {
         res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
         return;
       }
@@ -99,7 +163,7 @@ async function startServer() {
   // CORS 설정 - 허용 도메인 제한
   const allowedOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
-    : ['https://haccpone.com', 'https://www.haccpone.com', 'http://localhost:5173', 'http://localhost:3000'];
+    : ['https://millioai.com', 'https://www.millioai.com', 'http://localhost:5173', 'http://localhost:3000'];
   app.use(cors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) callback(null, true);
@@ -163,10 +227,25 @@ async function startServer() {
     ttl: 60 * 60 * 24 * 7,  // 7일 (초 단위)
   });
   
+  // SESSION_SECRET: production 에서는 필수, dev 에서만 폴백 허용
+  const sessionSecret = (() => {
+    const env = process.env.SESSION_SECRET;
+    if (env && env.length >= 32) return env;
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "[SECURITY] SESSION_SECRET 환경변수 필수 (32자 이상). production 부팅 중단.",
+      );
+    }
+    console.warn(
+      "[SECURITY] SESSION_SECRET 미설정 — dev/test 전용 폴백 사용 중.",
+    );
+    return "dev-only-session-secret-do-not-use-in-production-12345678";
+  })();
+
   // Session 미들웨어 (Redis 스토어 사용)
   app.use(session({
     store: redisStore,
-    secret: process.env.SESSION_SECRET || (() => { console.warn('[SECURITY] SESSION_SECRET 환경변수를 설정하세요!'); return 'haccp-v3-fallback-' + (process.env.DATABASE_URL || '').slice(-16); })(),
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -174,7 +253,7 @@ async function startServer() {
       secure: process.env.NODE_ENV === 'production', // HTTPS에서만 secure 쿠키
       sameSite: 'lax',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7일
-      domain: process.env.NODE_ENV === 'production' ? '.haccpone.com' : undefined,
+      domain: process.env.NODE_ENV === 'production' ? '.millioai.com' : undefined,
     },
   }));
   
@@ -183,14 +262,14 @@ async function startServer() {
   // Login route (네이티브 HTML form 제출용)
   app.use(loginRouter);
   // 특정기간일지 REST API 라우트
-  const customPeriodLogRouter = (await import("../routers/customPeriodLogs")).default;
+  const customPeriodLogRouter = (await import("../routers/production/customPeriodLogs.router")).default;
   app.use("/api/customPeriodLog", customPeriodLogRouter);
   // 연간일지 REST API 라우트
-  const yearlyLogRestRouter = (await import("../routers/yearlyLogRest")).default;
+  const yearlyLogRestRouter = (await import("../routers/production/yearlyLogRest.router")).default;
   app.use("/api/yearlyLog", yearlyLogRestRouter);
   app.use("/api/superadmin", superadminRouter);
   // 비용전표 첨부파일 업로드 REST API
-  const expenseUploadRouter = (await import("../routers/expenseUpload")).default;
+  const expenseUploadRouter = (await import("../routers/accounting/expenseUpload.router")).default;
   app.use("/api/expense", expenseUploadRouter);
   // 업로드 파일 정적 서빙
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
@@ -208,7 +287,7 @@ async function startServer() {
       if (!checkLocalhost(req)) return res.status(403).json({ error: "localhost only" });
       const { date, tenantId } = req.body || {};
       if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
-      const { autoRegenerateProductionDaily } = await import("../lib/autoProductionDaily");
+      const { autoRegenerateProductionDaily } = await import("../lib/production/autoProductionDaily");
       const result = await autoRegenerateProductionDaily(Number(tenantId), String(date));
       res.json(result);
     } catch (err: any) {
@@ -281,7 +360,7 @@ async function startServer() {
       const { date, tenantId } = req.body || {};
       if (!date || !tenantId) return res.status(400).json({ error: "date and tenantId required" });
       const { getRawConnection } = await import("../db/connection");
-      const { syncCcpRowsToFormRows } = await import("../db/ccpFormRecords");
+      const { syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
       const pool = await getRawConnection();
       const [batchRows] = await pool.execute(
         `SELECT id, batch_code, batch_order FROM h_batches WHERE planned_date = ? AND tenant_id = ? ORDER BY batch_order`,
@@ -325,7 +404,7 @@ async function startServer() {
       }
 
       const deletedBatches: any[] = [];
-      const { deleteBatch } = await import("../db/batchFunctions");
+      const { deleteBatch } = await import("../db/production/batchFunctions");
 
       // 2. 각 배치를 강제 삭제 (deleteBatch 함수 사용 - CCP, 일정, 승인 등 cascade 삭제)
       for (const batch of batchRows) {
@@ -376,12 +455,16 @@ async function startServer() {
       }
 
       // 4. 생산일지(h_daily_reports) 해당 날짜 삭제
+      // ★ 2026-04-15: 이전에는 catch (_e) {} 로 완전 무시 → 테이블 미존재/FK 제약 실패가
+      //   조용히 넘어가 데이터 중복/불일치 생김. warn 로그 남기도록 변경.
       try {
         await pool.execute(
           `DELETE FROM h_daily_reports WHERE report_date = ? AND report_type = 'production_daily' AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_daily_reports 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 5. production_sku_output 해당 날짜 삭제
       try {
@@ -389,7 +472,9 @@ async function startServer() {
           `DELETE FROM production_sku_output WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] production_sku_output 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 6. h_production_performance 해당 날짜 삭제
       try {
@@ -397,7 +482,9 @@ async function startServer() {
           `DELETE FROM h_production_performance WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_production_performance 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       // 7. h_production_start 해당 날짜 삭제
       try {
@@ -405,7 +492,9 @@ async function startServer() {
           `DELETE FROM h_production_start WHERE work_date = ? AND tenant_id = ?`,
           [String(date), Number(tenantId)]
         );
-      } catch (_e) {}
+      } catch (e: any) {
+        console.warn(`[force-delete-batches] h_production_start 삭제 실패 (date=${date}):`, e?.message || e);
+      }
 
       res.json({
         success: true,
@@ -451,9 +540,18 @@ async function startServer() {
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
       
-      // 자동 마이그레이션 실행 (누락된 컬럼 추가 등)
-      const { runStartupMigrations } = await import("../db/startupMigrations");
-      await runStartupMigrations();
+      // 자동 마이그레이션 — production 기본 비활성.
+      // 배포 재현성/스키마 drift 방지를 위해 배포 파이프라인에서 명시적으로 돌리는 것이 원칙.
+      // 비상 시 RUN_STARTUP_MIGRATIONS=true 로 강제 실행 가능.
+      const shouldRunMigrations =
+        process.env.NODE_ENV !== "production" ||
+        process.env.RUN_STARTUP_MIGRATIONS === "true";
+      if (shouldRunMigrations) {
+        const { runStartupMigrations } = await import("../db/startupMigrations");
+        await runStartupMigrations();
+      } else {
+        console.log("[Server] startupMigrations skipped (production default). Set RUN_STARTUP_MIGRATIONS=true to enable.");
+      }
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
     }
@@ -477,8 +575,6 @@ async function startServer() {
     initChecklistGenerator();
     // 검사 리포트 스케줄러 초기화
     initInspectionReportScheduler();
-    // 구독 만료 알림 스케줄러 초기화
-    initSubscriptionScheduler();
     // 일일 마감 스케줄러 초기화 (매일 18:00)
     initDailyClosingScheduler();
   });
@@ -500,6 +596,16 @@ async function startServer() {
   
   process.on("SIGTERM", gracefulShutdown);
   process.on("SIGINT", gracefulShutdown);
+
+  // 미처리 에러 Sentry 보고 + 서버 종료 방지
+  process.on("uncaughtException", (err) => {
+    console.error("[FATAL] uncaughtException:", err);
+    captureException(err, { type: "uncaughtException" });
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[FATAL] unhandledRejection:", reason);
+    captureException(reason instanceof Error ? reason : new Error(String(reason)), { type: "unhandledRejection" });
+  });
 }
 
 startServer().catch(console.error);

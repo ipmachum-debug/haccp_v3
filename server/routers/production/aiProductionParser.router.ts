@@ -123,7 +123,7 @@ export const aiProductionParserRouter = router({
       text: z.string().min(1).max(5000),
     }))
     .mutation(async ({ input, ctx }) => {
-      const tenantId = ctx.tenantId ?? undefined;
+      const tenantId = ctx.tenantId;
       const db = await getDb();
 
       // Step 1: 학습 사전 로드
@@ -395,7 +395,7 @@ export const aiProductionParserRouter = router({
       })),
     }))
     .mutation(async ({ input, ctx }) => {
-      const tenantId = ctx.tenantId ?? undefined;
+      const tenantId = ctx.tenantId;
       const userId = ctx.user.id;
 
       try {
@@ -490,7 +490,7 @@ export const aiProductionParserRouter = router({
   // ============================================================
   getLearningStats: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const tenantId = ctx.tenantId ?? undefined;
+      const tenantId = ctx.tenantId;
       try {
         const pool = await getRawConnection();
 
@@ -566,7 +566,7 @@ export const aiProductionParserRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      const tenantId = ctx.tenantId ?? undefined;
+      const tenantId = ctx.tenantId;
       const results = await db.select({
         id: itemMaster.id,
         itemCode: itemMaster.itemCode,

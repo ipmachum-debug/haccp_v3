@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""HACCP-ONE 통합 가이드 PDF 생성 - 메인 실행 스크립트"""
+"""Millio AI 통합 가이드 PDF 생성 - 메인 실행 스크립트"""
 
 import os
 import sys
@@ -71,11 +71,11 @@ def write_closing(pdf):
     pdf.set_y(70)
     pdf.set_font("CJK", "B", 20)
     pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 12, "HACCP-ONE", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 12, "Millio AI", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
     pdf.set_font("CJK", "", 12)
     pdf.set_text_color(180, 200, 255)
-    pdf.cell(0, 8, "식품안전의 미래, HACCP-ONE과 함께하세요", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, "식품안전의 미래, Millio AI과 함께하세요", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(10)
 
     pdf.set_font("CJK", "", 11)
@@ -83,7 +83,7 @@ def write_closing(pdf):
     contact = [
         "골든터틀컴퍼니",
         "웹사이트: www.goldenturtle.co.kr",
-        "서비스: haccpone.co.kr",
+        "서비스: millioai.com",
         "이메일: support@goldenturtle.co.kr",
     ]
     for line in contact:
@@ -99,7 +99,7 @@ def write_closing(pdf):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print("HACCP-ONE 통합 가이드 PDF 생성 시작...")
+    print("Millio AI 통합 가이드 PDF 생성 시작...")
 
     pdf = HaccpPDF()
 

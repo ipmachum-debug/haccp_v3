@@ -18,7 +18,7 @@ const DRY_RUN = process.env.DRY_RUN === 'true';
 const BACKUP_FILE = process.env.BACKUP_FILE || '/root/backup_20260410_101612.sql';
 const TENANT_ID = parseInt(process.env.TENANT_ID || '2');
 
-const DB_URL = process.env.DATABASE_URL || 'mysql://root:G0ld3n%21T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4';
+const DB_URL = process.env.DATABASE_URL || (() => { throw new Error('DATABASE_URL 환경변수 미설정'); })();
 
 interface BackupRow {
   id: number;

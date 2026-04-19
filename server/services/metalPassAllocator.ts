@@ -90,8 +90,10 @@ export function timeToMin(t: string): number {
 }
 
 export function minToTime(m: number): string {
-  const h = Math.floor(m / 60) % 24;
-  const min = m % 60;
+  // ★ 부동소수점 방지: 정수화 후 계산
+  const mi = Math.round(m);
+  const h = Math.floor(mi / 60) % 24;
+  const min = mi % 60;
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
@@ -190,17 +192,19 @@ function allocateProportional(
   const totalQty = rows.reduce((s, r) => s + (r.plannedQty || 0), 0);
 
   if (totalQty <= 0 || rows.length === 0) {
+    // ★ 부동소수점 방지: 정수 분(minutes) 유지
     const each = rows.length > 0 ? totalMinutes / rows.length : 0;
     const eachPass = rows.length > 0 ? Math.round(totalPassQty / rows.length) : 0;
     return {
-      allocMin: rows.map(() => Math.round(each * 100) / 100),
+      allocMin: rows.map(() => Math.round(each)),
       allocPassQty: rows.map(() => eachPass),
     };
   }
 
   return {
+    // ★ 부동소수점 방지: 정수 분(minutes) 유지
     allocMin: rows.map((r) =>
-      Math.round((totalMinutes * ((r.plannedQty || 0) / totalQty)) * 100) / 100
+      Math.round(totalMinutes * ((r.plannedQty || 0) / totalQty))
     ),
     allocPassQty: rows.map((r) =>
       Math.round(totalPassQty * ((r.plannedQty || 0) / totalQty))

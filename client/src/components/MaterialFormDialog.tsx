@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import CategorySelect from "./CategorySelect";
+import CategorySelect from "./masterData/CategorySelect";
 
 interface MaterialFormData {
   materialName: string;
@@ -73,7 +73,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "원재료 등록에 실패했습니다.");
     },
   });
@@ -84,7 +84,7 @@ export default function MaterialFormDialog({
       onOpenChange(false);
       onSuccess?.();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(error.message || "원재료 수정에 실패했습니다.");
     },
   });

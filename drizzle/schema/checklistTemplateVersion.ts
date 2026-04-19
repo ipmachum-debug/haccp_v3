@@ -1,4 +1,4 @@
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import {
   bigint,
   datetime,

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +49,7 @@ export default function AccountingDailyClose() {
       refetchIsClosed();
       refetchHistory();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "일일 마감 실패",
         description: error.message,

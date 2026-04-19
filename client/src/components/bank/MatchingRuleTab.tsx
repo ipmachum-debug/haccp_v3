@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -88,13 +90,52 @@ export default function MatchingRuleTab() {
   // 매칭 규칙 목록
   const { data: rules, isLoading } = trpc.matchingRules.list.useQuery();
 
+  // ★ 2026-04-13: 거래처 / 계정과목 드롭다운용 데이터
+  const { data: partnersData } = trpc.partners.list.useQuery();
+  const partnersArr: any[] = Array.isArray(partnersData) ? partnersData : ((partnersData as any)?.items ?? []);
+
+  const { data: accountingAccountsList } = trpc.accountingAccounts.list.useQuery({ isActive: "Y" });
+  const accountingAccountsArr: any[] = Array.isArray(accountingAccountsList)
+    ? accountingAccountsList
+    : ((accountingAccountsList as any)?.items ?? []);
+
+  // 계정과목 5분류별 그룹화
+  const groupedAccounts = useMemo(() => {
+    const groups: Record<string, any[]> = {
+      assets: [],
+      liabilities: [],
+      equity: [],
+      revenue: [],
+      expenses: [],
+      other: [],
+    };
+    for (const acc of accountingAccountsArr) {
+      const cat = String(acc.category || "other");
+      if (groups[cat]) groups[cat].push(acc);
+      else groups.other.push(acc);
+    }
+    for (const key of Object.keys(groups)) {
+      groups[key].sort((a, b) => String(a.code || "").localeCompare(String(b.code || "")));
+    }
+    return groups;
+  }, [accountingAccountsArr]);
+
+  const CATEGORY_LABELS: Record<string, string> = {
+    assets: "자산",
+    liabilities: "부채",
+    equity: "자본",
+    revenue: "수익",
+    expenses: "비용",
+    other: "기타",
+  };
+
   const createMutation = trpc.matchingRules.create.useMutation({
     onSuccess: () => {
       toast.success("매칭 규칙이 생성되었습니다");
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -105,7 +146,7 @@ export default function MatchingRuleTab() {
       utils.matchingRules.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -115,7 +156,7 @@ export default function MatchingRuleTab() {
       toast.success("매칭 규칙이 삭제되었습니다");
       utils.matchingRules.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -561,27 +602,51 @@ export default function MatchingRuleTab() {
 
               {(formData.targetType === "partner" || formData.targetType === "both") && (
                 <div>
-                  <Label htmlFor="targetPartnerId">거래처 ID</Label>
-                  <Input
-                    id="targetPartnerId"
-                    type="number"
+                  <Label htmlFor="targetPartnerId">거래처</Label>
+                  <Select
                     value={formData.targetPartnerId}
-                    onChange={(e) => setFormData({ ...formData, targetPartnerId: e.target.value })}
-                    placeholder="거래처 ID"
-                  />
+                    onValueChange={(v) => setFormData({ ...formData, targetPartnerId: v })}
+                  >
+                    <SelectTrigger id="targetPartnerId">
+                      <SelectValue placeholder="거래처를 선택하세요" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[400px]">
+                      {partnersArr.map((p: any) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.companyName || p.name || `Partner#${p.id}`}
+                          {p.bizNo ? ` (${p.bizNo})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
 
               {(formData.targetType === "account" || formData.targetType === "both") && (
                 <div>
-                  <Label htmlFor="targetAccountId">계정과목 ID</Label>
-                  <Input
-                    id="targetAccountId"
-                    type="number"
+                  <Label htmlFor="targetAccountId">계정과목</Label>
+                  <Select
                     value={formData.targetAccountId}
-                    onChange={(e) => setFormData({ ...formData, targetAccountId: e.target.value })}
-                    placeholder="계정과목 ID"
-                  />
+                    onValueChange={(v) => setFormData({ ...formData, targetAccountId: v })}
+                  >
+                    <SelectTrigger id="targetAccountId">
+                      <SelectValue placeholder="계정과목을 선택하세요" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-[400px]">
+                      {(["assets", "liabilities", "equity", "revenue", "expenses", "other"] as const).map((k) =>
+                        groupedAccounts[k].length > 0 ? (
+                          <SelectGroup key={k}>
+                            <SelectLabel>{CATEGORY_LABELS[k]}</SelectLabel>
+                            {groupedAccounts[k].map((acc: any) => (
+                              <SelectItem key={acc.id} value={String(acc.id)}>
+                                {acc.code} · {acc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null,
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,7 @@ function SalesManagementContent() {
   
   const [isPartnerSearchOpen, setIsPartnerSearchOpen] = useState(false);
   const [materialSearchItemId, setMaterialSearchItemId] = useState<string | null>(null);
+  const [isNewPartner, setIsNewPartner] = useState(false);
   
   const [items, setItems] = useState<SaleItem[]>([
     {
@@ -115,7 +116,11 @@ function SalesManagementContent() {
     isActive: 1,
     limit: 500,
   });
-  // subsidiary_material은 DB 스키마에 없으므로 제거
+  const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({
+    itemType: "subsidiary" as any,
+    isActive: 1,
+    limit: 500,
+  });
 
   // 모든 판매 가능 품목 통합
   const allSaleItems = [
@@ -131,7 +136,10 @@ function SalesManagementContent() {
       ...item,
       _displayType: "외부제품",
     })),
-
+    ...(subsidiaryItems?.items ?? []).map((item: any) => ({
+      ...item,
+      _displayType: "부자재",
+    })),
   ];
 
   const utils = trpc.useUtils();
@@ -160,7 +168,7 @@ function SalesManagementContent() {
         },
       ]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -223,22 +231,52 @@ function SalesManagementContent() {
     );
   };
 
-  const handleItemMasterSelect = (selectedMasterItem: any) => {
+  const handleItemMasterSelect = async (selectedMasterItem: any) => {
     if (!materialSearchItemId) return;
 
-    setItems(
-      items.map((item) => {
-        if (item.id !== materialSearchItemId) return item;
+    // Phase B: 거래처(고객)별 단가 조회 (매출)
+    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    if (selectedPartnerId && selectedMasterItem.id) {
+      try {
+        // itemType 이 'own_product' 이면 product, 아니면 material
+        const targetType = selectedMasterItem.itemType === "own_product" ? "product" : "material";
+        const price = await utils.partnerPrice.resolvePrice.fetch({
+          partnerId: Number(selectedPartnerId),
+          targetType,
+          ...(targetType === "product"
+            ? { productId: selectedMasterItem.id }
+            : { materialId: selectedMasterItem.id }),
+        });
+        if (price && price.unitPrice > 0) {
+          resolvedUnitPrice = price.unitPrice;
+          toast({
+            title: "거래처 단가 자동 적용",
+            description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
+          });
+        }
+      } catch {
+        // 단가 없음 → defaultUnitPrice 사용
+      }
+    }
 
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== materialSearchItemId) return item;
+        const quantity = item.quantity;
+        const amount = quantity * resolvedUnitPrice;
+        const taxAmount = item.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
         return {
           ...item,
           itemMasterId: selectedMasterItem.id,
           itemType: selectedMasterItem.itemType,
           itemName: selectedMasterItem.itemName || "",
-          unitPrice: selectedMasterItem.defaultUnitPrice || 0,
+          unitPrice: resolvedUnitPrice,
           packagingUnit: selectedMasterItem.baseUnit || "kg",
+          amount,
+          taxAmount,
+          totalAmount: amount + taxAmount,
         };
-      })
+      }),
     );
 
     setMaterialSearchItemId(null);
@@ -249,8 +287,8 @@ function SalesManagementContent() {
   const grandTotal = items.reduce((sum, item) => sum + item.totalAmount, 0);
 
   const handleSave = () => {
-    if (!selectedPartnerId) {
-      toast({ title: "거래처를 선택해주세요.", variant: "destructive" });
+    if (!selectedPartnerId && !selectedPartnerName.trim()) {
+      toast({ title: "거래처를 선택하거나 입력해주세요.", variant: "destructive" });
       return;
     }
 
@@ -335,7 +373,17 @@ function SalesManagementContent() {
       <div className="bg-muted/30 rounded-md p-3 mb-3 border">
         <div className="grid grid-cols-4 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs font-medium">거래처 *</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">거래처 *</Label>
+              <button type="button" className="text-[9px] text-blue-600 hover:underline"
+                onClick={() => { setIsNewPartner(!isNewPartner); setSelectedPartnerId(""); setSelectedPartnerName(""); }}>
+                {isNewPartner ? "기존 거래처" : "신규 직접입력"}
+              </button>
+            </div>
+            {isNewPartner ? (
+              <Input value={selectedPartnerName} onChange={(e) => setSelectedPartnerName(e.target.value)}
+                placeholder="거래처명 직접 입력" className="h-8 text-sm bg-amber-50 border-amber-300" />
+            ) : (
             <div className="flex gap-1">
               <Input
                 value={selectedPartnerName}
@@ -348,6 +396,7 @@ function SalesManagementContent() {
                 <Search className="h-3.5 w-3.5" />
               </Button>
             </div>
+            )}
           </div>
 
           <div className="space-y-1">

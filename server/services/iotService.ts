@@ -336,6 +336,7 @@ async function createEvent(
     description?: string;
   }
 ): Promise<number> {
+  // @ts-expect-error - library type issue
   const [result] = await conn.execute<any>(
     `INSERT INTO iot_events
      (tenant_id, device_id, event_type, batch_id, ccp_instance_id, sensor_data_id,
@@ -361,6 +362,7 @@ async function evaluateRules(
 ): Promise<string[]> {
   const triggered: string[] = [];
 
+  // @ts-expect-error - library type issue
   const [rules] = await conn.execute<any[]>(
     `SELECT * FROM iot_rules
      WHERE tenant_id = ? AND is_active = 1

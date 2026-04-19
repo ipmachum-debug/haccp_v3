@@ -15,7 +15,7 @@ export const checklistTemplateRouter = router({
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
         const { getChecklistTemplates } = await import("../../db");
-        return await getChecklistTemplates({ ...input, tenantId: tenantId ?? undefined }, tenantId);
+        return await getChecklistTemplates({ ...input, tenantId: tenantId ?? undefined });
       }),
     
     // 템플릿 상세 조회 (항목 포함)
@@ -61,7 +61,7 @@ export const checklistTemplateRouter = router({
         const template = await createChecklistTemplateWithItems({
           ...input,
           createdBy: ctx.user.id
-        }, tenantId);
+        });
 
         // 감사 로그 기록
         await createAuditLog({
@@ -72,7 +72,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 생성: ${input.name}`
-        }, tenantId);
+        });
         
         return template;
       }),
@@ -117,7 +117,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 수정: ${input.name || id}`
-        }, tenantId);
+        });
 
         return template;
       }),
@@ -139,7 +139,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 삭제: ${input.id}`
-        }, tenantId);
+        });
 
         return result;
       }),
@@ -178,7 +178,7 @@ export const checklistTemplateRouter = router({
             defaultValue: item.defaultValue || undefined,
             helpText: item.helpText || undefined
           }))
-        }, tenantId);
+        });
 
         // 감사 로그 기록
         await createAuditLog({
@@ -189,7 +189,7 @@ export const checklistTemplateRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `체크리스트 템플릿 복제: ${input.newName}`
-        }, tenantId);
+        });
         
         return newTemplate;
       })

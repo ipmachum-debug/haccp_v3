@@ -183,76 +183,121 @@ export async function cancelPayment(params: {
   return { status: data.status };
 }
 
+// ─── 타입 정의 (DB 조회 결과) ───
+
+interface BillingTenantRow {
+  id: number;
+  name: string;
+  plan: string;
+  billing_key: string;
+  customer_key: string;
+}
+
+interface ExistingPaymentRow {
+  id: number;
+}
+
 // ─── 월 정기결제 실행 (스케줄러용) ───
 
 /**
  * 전체 테넌트 월 정기결제 처리
  * scheduler.ts에서 매월 1일 호출
+ *
+ * 안전장치:
+ *  - 멱등성: order_id 기반 중복 결제 방지 (DB 선제 체크 + Toss orderId 유니크)
+ *  - Cluster 안전: GET_LOCK() advisory lock으로 워커 1개만 실행
  */
 export async function processMonthlyBilling(): Promise<{
   processed: number;
   succeeded: number;
   failed: number;
+  skipped: number;
   errors: string[];
 }> {
   const { getDb } = await import("../../db");
   const { sql: sqlTag } = await import("drizzle-orm");
   const { PLAN_CONFIG } = await import("../../utils/planConfig");
+  type PlanType = keyof typeof PLAN_CONFIG;
 
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const result = { processed: 0, succeeded: 0, failed: 0, errors: [] as string[] };
+  const result = { processed: 0, succeeded: 0, failed: 0, skipped: 0, errors: [] as string[] };
 
-  // 활성 테넌트 중 빌링키가 있는 것만 조회
-  const [tenants] = await db.execute(sqlTag`
-    SELECT t.id, t.name, t.subscription_package as plan, t.billing_key, t.customer_key
-    FROM tenants t
-    WHERE t.status = 'active'
-      AND t.billing_key IS NOT NULL
-      AND t.billing_key != ''
-  `);
+  // ── Cluster 안전장치: advisory lock (10초 타임아웃) ──
+  const [lockResult] = await db.execute(sqlTag`SELECT GET_LOCK('billing_monthly', 10) as acquired`);
+  const lockAcquired = (lockResult as Array<{ acquired: number }>)?.[0]?.acquired;
+  if (!lockAcquired) {
+    console.log("[결제] 다른 워커가 이미 정기결제 처리 중 — skip");
+    return result;
+  }
 
-  for (const tenant of (tenants as any[])) {
-    result.processed++;
-    const plan = PLAN_CONFIG[tenant.plan as keyof typeof PLAN_CONFIG];
-    if (!plan) continue;
+  try {
+    // 활성 테넌트 중 빌링키가 있는 것만 조회
+    const [rows] = await db.execute(sqlTag`
+      SELECT t.id, t.name, t.subscription_package as plan, t.billing_key, t.customer_key
+      FROM tenants t
+      WHERE t.status = 'active'
+        AND t.billing_key IS NOT NULL
+        AND t.billing_key != ''
+    `);
+    const tenantRows = rows as BillingTenantRow[];
 
-    const orderId = `HACCP-${tenant.id}-${new Date().toISOString().slice(0, 7).replace("-", "")}`;
-    const amount = Math.round(plan.monthlyPrice * 1.1); // 부가세 포함
+    for (const tenant of tenantRows) {
+      result.processed++;
+      const plan = PLAN_CONFIG[tenant.plan as PlanType];
+      if (!plan) continue;
 
-    try {
-      const payment = await chargeBilling({
-        billingKey: tenant.billing_key,
-        customerKey: tenant.customer_key,
-        amount,
-        orderId,
-        orderName: `HACCP-ONE ${plan.name} 월 이용료`,
-      });
+      const orderId = `HACCP-${tenant.id}-${new Date().toISOString().slice(0, 7).replace("-", "")}`;
+      const amount = Math.round(plan.monthlyPrice * 1.1); // 부가세 포함
 
-      // 결제 이력 저장
-      await db.execute(sqlTag`
-        INSERT INTO subscription_payments
-          (tenant_id, payment_key, order_id, amount, tax_amount, status, plan, paid_at)
-        VALUES
-          (${tenant.id}, ${payment.paymentKey}, ${orderId}, ${plan.monthlyPrice},
-           ${Math.round(plan.monthlyPrice * 0.1)}, 'paid', ${tenant.plan}, NOW())
+      // ── 멱등성 체크: 같은 orderId로 이미 결제된 건이 있으면 skip ──
+      const [existingRows] = await db.execute(sqlTag`
+        SELECT id FROM subscription_payments WHERE order_id = ${orderId} LIMIT 1
       `);
+      if ((existingRows as ExistingPaymentRow[]).length > 0) {
+        console.log(`[결제] 테넌트 ${tenant.id}: orderId ${orderId} 이미 결제됨 — skip`);
+        result.skipped++;
+        continue;
+      }
 
-      result.succeeded++;
-      console.log(`[결제] 테넌트 ${tenant.id} (${tenant.name}): ${amount}원 결제 성공`);
-    } catch (err: any) {
-      result.failed++;
-      result.errors.push(`테넌트 ${tenant.id}: ${err.message}`);
-      console.error(`[결제] 테넌트 ${tenant.id} 결제 실패:`, err.message);
+      try {
+        const payment = await chargeBilling({
+          billingKey: tenant.billing_key,
+          customerKey: tenant.customer_key,
+          amount,
+          orderId,
+          orderName: `Millio AI ${plan.name} 월 이용료`,
+        });
 
-      // 결제 실패 시 유예 기간 설정 (5일)
-      await db.execute(sqlTag`
-        UPDATE tenants
-        SET grace_period_end_date = DATE_ADD(NOW(), INTERVAL 5 DAY)
-        WHERE id = ${tenant.id}
-      `);
+        // 결제 이력 저장
+        await db.execute(sqlTag`
+          INSERT INTO subscription_payments
+            (tenant_id, payment_key, order_id, amount, tax_amount, status, plan, paid_at)
+          VALUES
+            (${tenant.id}, ${payment.paymentKey}, ${orderId}, ${plan.monthlyPrice},
+             ${Math.round(plan.monthlyPrice * 0.1)}, 'paid', ${tenant.plan}, NOW())
+        `);
+
+        result.succeeded++;
+        console.log(`[결제] 테넌트 ${tenant.id} (${tenant.name}): ${amount}원 결제 성공`);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        result.failed++;
+        result.errors.push(`테넌트 ${tenant.id}: ${errMsg}`);
+        console.error(`[결제] 테넌트 ${tenant.id} 결제 실패:`, errMsg);
+
+        // 결제 실패 시 유예 기간 설정 (5일)
+        await db.execute(sqlTag`
+          UPDATE tenants
+          SET grace_period_end_date = DATE_ADD(NOW(), INTERVAL 5 DAY)
+          WHERE id = ${tenant.id}
+        `);
+      }
     }
+  } finally {
+    // advisory lock 해제
+    await db.execute(sqlTag`SELECT RELEASE_LOCK('billing_monthly')`);
   }
 
   return result;

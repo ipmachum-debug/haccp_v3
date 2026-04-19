@@ -1,4 +1,4 @@
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 /**
  * 사용자 인증 관련 테이블
  */

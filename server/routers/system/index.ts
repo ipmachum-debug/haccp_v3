@@ -13,6 +13,26 @@ export { uploadHistoryRouter } from "./uploadHistory.router";
 export { userRouter } from "./user.router";
 export { supportRouter } from "./support.router";
 export { subscriptionRouter } from "./subscription.router";
+export { subscriptionPublicRouter } from "./subscriptionPublic.router";
 export { delegationRouter } from "./delegation.router";
 export { workflowRouter } from "./workflow.router";
 export { simplifiedImportRouter } from "./simplifiedImport.router";
+
+// v2-rebuild: 개별 파일에서 이동
+export { adminRouter } from "./admin.router";
+export { adminEmployeeRouter } from "./adminEmployee.router";
+export { auditLogsRouter } from "./auditLogs.router";
+export { auditReportRouter } from "./auditReport.router";
+export { bannerRouter } from "./banner.router";
+export { boardRouter } from "./board.router";
+export { documentApprovalRouter } from "./documentApproval.router";
+export { documentPrintRouter } from "./documentPrint.router";
+export { employeeRouter } from "./employee.router";
+export { organizationRouter } from "./organization.router";
+export { reportsRouter } from "./reports.router";
+export { serverMonitorRouter } from "./serverMonitor.router";
+export { trainingRouter } from "./training.router";
+export { dailyTrainingRouter } from "./dailyTraining.router";
+export { tenantsRouter } from "./tenants.router";
+export { iotRouter } from "./iot.router";
+export { industryRouter } from "./industry.router";

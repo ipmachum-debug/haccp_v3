@@ -12,10 +12,29 @@
 import React from "react";
 import { TitleWithApproval } from "./PrintHelpers";
 
+// 렌더러 입력: 체크리스트 폼 데이터 — 각 문서 유형별로 shape 이 다양 (40+ 타입)
+// 서버에서 JSON 파싱 후 any 로 흘러오므로 렌더러 시그니처는 any 허용,
+// 내부 접근은 가능한 경우 narrowing 으로 타입 안전성 확보
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type FormData = Record<string, any>;
+type DocInfo = {
+  authorName?: string;
+  reviewerName?: string;
+  approverName?: string;
+  authorSealDate?: string;
+  reviewerSealDate?: string;
+  approverSealDate?: string;
+  requesterName?: string;
+  requestedAt?: string | Date;
+  reviewedAt?: string | Date;
+  approvedAt?: string | Date;
+  [k: string]: unknown;
+};
+
 // ============================================================================
 // daily_log 5페이지 전용 렌더러
 // ============================================================================
-export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
+export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactNode[] {
   const d = data || {};
   const authorName = doc?.authorName || "";
   const approverName = doc?.approverName || "";
@@ -165,9 +184,9 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
   const foreignConfirmer = foreignNotes.confirmedBy || confirmer;
 
   // 적합/부적합 판정: true, 'yes', 'pass', '적합' → 적합, 그 외(값 없으면 포함) → 부적합
-  const check = (v: any) => (v === true || v === 'yes' || v === 'pass' || v === '적합') ? "적합" : "부적합";
+  const check = (v: unknown) => (v === true || v === 'yes' || v === 'pass' || v === '적합') ? "적합" : "부적합";
   // 데이터 없으면 "-" 표시 (아예 미입력 상태)
-  const checkOrDash = (v: any) => v === null || v === undefined ? "-" : check(v);
+  const checkOrDash = (v: unknown) => v === null || v === undefined ? "-" : check(v);
   const cellCls = "border border-gray-400 px-2 py-1 text-sm";
   const headCls = "border border-gray-400 px-2 py-1 text-sm font-medium bg-gray-50";
   const secCls = "border border-gray-400 px-2 py-1 text-sm font-bold bg-blue-50";
@@ -380,7 +399,7 @@ export function renderDailyLogPages(data: any, doc?: any): React.ReactNode[] {
 // ============================================================================
 // 종사자 건강상태 확인 일지 전용 렌더러
 // ============================================================================
-export function renderEmployeeHealthCheck(data: any) {
+export function renderEmployeeHealthCheck(data: FormData) {
   const questions = data?.questions || [];
   const employeeRows = data?.employeeRows || [];
   const checkDate = data?.checkDate || "";
@@ -407,12 +426,12 @@ export function renderEmployeeHealthCheck(data: any) {
         <thead>
           <tr className="bg-gray-50">
             <th rowSpan={2} className="border border-gray-400 px-1 py-1 w-20">종사자명</th>
-            {questions.map((q: any, idx: number) => (
+            {questions.map((q: { label?: string; text?: string }, idx: number) => (
               <th key={idx} colSpan={2} className="border border-gray-400 px-1 py-1 text-center">{q.text || `질문 ${idx + 1}`}</th>
             ))}
           </tr>
           <tr className="bg-gray-50">
-            {questions.map((_: any, idx: number) => (
+            {questions.map((_q: { label?: string; text?: string }, idx: number) => (
               <React.Fragment key={idx}>
                 <th className="border border-gray-400 px-1 py-0.5 text-center w-6">O</th>
                 <th className="border border-gray-400 px-1 py-0.5 text-center w-6">X</th>
@@ -421,11 +440,11 @@ export function renderEmployeeHealthCheck(data: any) {
           </tr>
         </thead>
         <tbody>
-          {employeeRows.length > 0 ? employeeRows.map((row: any, idx: number) => (
+          {employeeRows.length > 0 ? employeeRows.map((row: { name?: string; answers?: Record<string, string> }, idx: number) => (
             <tr key={idx}>
               <td className="border border-gray-400 px-1 py-0.5 text-center">{row.name || `종사자 ${idx + 1}`}</td>
-              {questions.map((q: any, qIdx: number) => {
-                const answer = row.answers?.[q.id] || "X";
+              {questions.map((q: { id?: string; label?: string; text?: string; field?: string }, qIdx: number) => {
+                const answer = (q.id && row.answers?.[q.id]) || "X";
                 return (
                   <React.Fragment key={qIdx}>
                     <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "O" ? "✓" : ""}</td>
@@ -447,7 +466,7 @@ export function renderEmployeeHealthCheck(data: any) {
 // ============================================================================
 // 에어컴프레서 유지보수 기록
 // ============================================================================
-export function renderAirCompressorMaintenance(data: any) {
+export function renderAirCompressorMaintenance(data: FormData) {
   const rows = data?.rows || [];
   return (
     <div>
@@ -473,7 +492,7 @@ export function renderAirCompressorMaintenance(data: any) {
           </tr>
         </thead>
         <tbody>
-          {rows.length > 0 ? rows.map((row: any, idx: number) => (
+          {rows.length > 0 ? rows.map((row: Record<string, string | number | boolean | null | undefined>, idx: number) => (
             <tr key={idx}>
               <td className="border border-gray-400 px-2 py-1 text-center">{row.date || "-"}</td>
               <td className="border border-gray-400 px-2 py-1 text-center">{row.oilChange ? "✓" : "-"}</td>
@@ -490,7 +509,7 @@ export function renderAirCompressorMaintenance(data: any) {
 // ============================================================================
 // 설비 점검 기록
 // ============================================================================
-export function renderEquipmentInspection(data: any) {
+export function renderEquipmentInspection(data: FormData) {
   const items = data?.data || data?.items || [];
   return (
     <div>
@@ -506,7 +525,7 @@ export function renderEquipmentInspection(data: any) {
           <th className="border border-gray-400 px-2 py-1">판정</th>
         </tr></thead>
         <tbody>
-          {items.length > 0 ? items.map((item: any, idx: number) => (
+          {items.length > 0 ? items.map((item: Record<string, string | number | boolean | null | undefined>, idx: number) => (
             <tr key={idx}>
               <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
               <td className="border border-gray-400 px-2 py-1">{item.equipmentName || item["설비명"] || "-"}</td>
@@ -526,7 +545,7 @@ export function renderEquipmentInspection(data: any) {
 // ============================================================================
 // 온·습도 점검표
 // ============================================================================
-export function renderTemperatureHumidityCheck(data: any) {
+export function renderTemperatureHumidityCheck(data: FormData) {
   const records = data?.spaceRows || data?.records || data?.rows || data?.data || [];
   return (
     <div>
@@ -541,7 +560,7 @@ export function renderTemperatureHumidityCheck(data: any) {
           <th className="border border-gray-400 px-2 py-1">판정</th>
         </tr></thead>
         <tbody>
-          {records.length > 0 ? records.map((r: any, idx: number) => (
+          {records.length > 0 ? records.map((r: Record<string, string | number | boolean | null | undefined>, idx: number) => (
             <tr key={idx}>
               <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
               <td className="border border-gray-400 px-2 py-1">{r.area || r.location || "-"}</td>
@@ -560,7 +579,7 @@ export function renderTemperatureHumidityCheck(data: any) {
 // ============================================================================
 // 공중낙하세균 검사 성적서
 // ============================================================================
-export function renderAirborneBacteriaTest(data: any) {
+export function renderAirborneBacteriaTest(data: FormData) {
   const rows = data?.rows || data?.data || [];
   return (
     <div>
@@ -576,7 +595,7 @@ export function renderAirborneBacteriaTest(data: any) {
           <th className="border border-gray-400 px-2 py-1">판정</th>
         </tr></thead>
         <tbody>
-          {rows.length > 0 ? rows.map((r: any, idx: number) => (
+          {rows.length > 0 ? rows.map((r: Record<string, string | number | boolean | null | undefined>, idx: number) => (
             <tr key={idx}>
               <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
               <td className="border border-gray-400 px-2 py-1">{r.location || "-"}</td>
@@ -596,7 +615,7 @@ export function renderAirborneBacteriaTest(data: any) {
 // ============================================================================
 // 교육훈련 기록
 // ============================================================================
-export function renderTrainingLog(data: any) {
+export function renderTrainingLog(data: FormData) {
   const formData = data || {};
   return (
     <div>

@@ -23,7 +23,7 @@ async function getConnection() {
   return mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "G0ld3n!T1004#Sec",
+    password: process.env.DB_PASSWORD || "",
     database: "haccp_tenant_db",
   });
 }
@@ -808,7 +808,7 @@ async function main() {
 
   try {
     console.log("\n========================================");
-    console.log("  HACCP-ONE 운영 데이터 임포트");
+    console.log("  Millio AI 운영 데이터 임포트");
     console.log("========================================");
 
     await importOpeningStock(conn, wb, idMap);

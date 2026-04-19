@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { generateMaterialCode, generateProductCode, generateSupplierCode } from "./db/codeGenerator";
+import { generateMaterialCode, generateProductCode, generateSupplierCode } from "./db/system/codeGenerator";
 
 describe("자동 코드 생성 테스트", () => {
   it("원재료 코드 생성 (MAT-XXX)", async () => {

@@ -16,7 +16,7 @@ import {
   hPackagingStorageRecords,
   hQualityIssueRecords,
   hCapaRecords,
-} from "../../../drizzle/schema_main";
+} from "../../../drizzle/schema/schema_main";
 import { eq, and, sql, count } from "drizzle-orm";
 
 import { formatLocalDate } from "../../utils/timezone";

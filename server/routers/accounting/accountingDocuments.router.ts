@@ -22,13 +22,13 @@ export const accountingDocumentsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const docsDb = await import("../../db/accountingDocuments");
+        const docsDb = await import("../../db/accounting/accountingDocuments");
 
         const documentId = await docsDb.createDocument({
           ...input,
-          tenantId: ctx.tenantId!,
+          tenantId: ctx.tenantId,
           uploadedBy: ctx.user.id
-        } as any, ctx.tenantId ?? undefined);
+        } as any, ctx.tenantId);
 
         return {
           success: true,
@@ -48,7 +48,7 @@ export const accountingDocumentsRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const docsDb = await import("../../db/accountingDocuments");
+        const docsDb = await import("../../db/accounting/accountingDocuments");
         return await docsDb.listDocuments(input, tenantId);
       }),
 
@@ -60,9 +60,9 @@ export const accountingDocumentsRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        const docsDb = await import("../../db/accountingDocuments");
+        const docsDb = await import("../../db/accounting/accountingDocuments");
         
-        const document = await docsDb.getDocument(input.id, ctx.tenantId ?? undefined);
+        const document = await docsDb.getDocument(input.id, ctx.tenantId);
         if (!document) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -71,8 +71,8 @@ export const accountingDocumentsRouter = router({
         }
 
         // 워크플로우 이력 조회
-        const workflow = await docsDb.getDocumentWorkflow(input.id, ctx.tenantId ?? undefined);
-        const latestStatus = await docsDb.getDocumentLatestStatus(input.id, ctx.tenantId ?? undefined);
+        const workflow = await docsDb.getDocumentWorkflow(input.id, ctx.tenantId);
+        const latestStatus = await docsDb.getDocumentLatestStatus(input.id, ctx.tenantId);
 
         return {
           ...document,
@@ -89,8 +89,8 @@ export const accountingDocumentsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const docsDb = await import("../../db/accountingDocuments");
-        await docsDb.deleteDocument(input.id, ctx.tenantId ?? undefined);
+        const docsDb = await import("../../db/accounting/accountingDocuments");
+        await docsDb.deleteDocument(input.id, ctx.tenantId);
 
         return {
           success: true,
@@ -108,14 +108,14 @@ export const accountingDocumentsRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const docsDb = await import("../../db/accountingDocuments");
+        const docsDb = await import("../../db/accounting/accountingDocuments");
 
         await docsDb.updateDocumentStatus(
           input.documentId,
           input.status,
           ctx.user.id,
           input.comment
-        , ctx.tenantId ?? undefined);
+        , ctx.tenantId);
 
         return {
           success: true,
@@ -132,29 +132,29 @@ export const accountingDocumentsRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
-        const docsDb = await import("../../db/accountingDocuments");
+        const docsDb = await import("../../db/accounting/accountingDocuments");
         return await docsDb.getDocumentWorkflow(input.documentId, tenantId);
       }),
     // HACCP 연동 자동화: 재료 입고 시 매입 거래 자동 생성
     autoCreatePurchaseFromReceipt: adminProcedure
       .input(z.object({ transactionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { createPurchaseFromReceipt } = await import("../../db/haccpAccountingIntegration");
-        return await createPurchaseFromReceipt(ctx.tenantId!, input.transactionId);
+        const { createPurchaseFromReceipt } = await import("../../db/haccp/haccpAccountingIntegration");
+        return await createPurchaseFromReceipt(ctx.tenantId, input.transactionId);
       }),
 
     // HACCP 연동 자동화: 제품 출고 시 매출 거래 자동 생성
     autoCreateSaleFromUsage: adminProcedure
       .input(z.object({ transactionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
-        const { createSaleFromUsage } = await import("../../db/haccpAccountingIntegration");
-        return await createSaleFromUsage(ctx.tenantId!, input.transactionId);
+        const { createSaleFromUsage } = await import("../../db/haccp/haccpAccountingIntegration");
+        return await createSaleFromUsage(ctx.tenantId, input.transactionId);
       }),
 
     // HACCP 연동 자동화: 기존 재고 거래 일괄 처리 (마이그레이션용)
     batchCreateAccountingTransactions: adminProcedure
       .mutation(async ({ ctx }) => {
-        const { batchCreateAccountingTransactions } = await import("../../db/haccpAccountingIntegration");
-        return await batchCreateAccountingTransactions(ctx.tenantId!);
+        const { batchCreateAccountingTransactions } = await import("../../db/haccp/haccpAccountingIntegration");
+        return await batchCreateAccountingTransactions(ctx.tenantId);
       })
 });

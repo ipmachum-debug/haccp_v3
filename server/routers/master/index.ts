@@ -6,3 +6,4 @@ export { partnersRouter } from "./partners.router";
 export { supplierRouter } from "./supplier.router";
 export { supplierEvaluationRouter } from "./supplierEvaluation.router";
 export { templateSettingsRouter } from "./templateSettings.router";
+export { itemMasterRouter, productSkuRouter } from "./itemMaster.router";

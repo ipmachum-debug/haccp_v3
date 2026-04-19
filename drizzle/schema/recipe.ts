@@ -1,8 +1,10 @@
 import {mysqlTable,  bigint, varchar, text, decimal, timestamp, mysqlEnum, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
- * 레시피 헤더 (품목제조보고서)
+ * @deprecated 레시피 관리는 h_mf_report_versions (BOM) 사용을 권장합니다.
+ * 배치 생산에서는 이미 BOM 기반으로 전환 완료 (h_recipes 폴백 제거).
+ * 레시피 승인 워크플로(api/recipeApproval.ts)에서 아직 사용 중.
  */
 export const recipes = mysqlTable("recipes", {
   id: int("id").primaryKey().autoincrement(),

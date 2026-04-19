@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { getDb, predictAllInventoryShortage, generatePurchaseOrderSuggestions, getBatchCostAnalysis, getProductionTimeAnalysis, getDefectRateAnalysis } from "./db";
-import { hMaterials, hInventoryLots, hInventoryTransactions, hBatches, hProducts } from "../drizzle/schema_main";
+import { hMaterials, hInventoryLots, hInventoryTransactions, hBatches, hProducts } from "../drizzle/schema/schema_main";
 import { eq } from "drizzle-orm";
 
 import { toKSTDate, todayKST } from "./utils/timezone";

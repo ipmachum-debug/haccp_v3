@@ -41,7 +41,7 @@ export function renderTrainingMonthlyReport(data: MonthlyReportData) {
           교육훈련 월간 기록부
         </h1>
         <p className="text-sm text-gray-600">
-          {year}년 {month}월 | {companyName || "HACCP-ONE"} | 전체 이수율: {overallRate}%
+          {year}년 {month}월 | {companyName || "Millio AI"} | 전체 이수율: {overallRate}%
         </p>
       </div>
 
@@ -160,7 +160,7 @@ export function renderTrainingMonthlyReport(data: MonthlyReportData) {
       </table>
 
       <p className="text-[10px] text-gray-400 mt-4 text-center">
-        본 기록은 식품위생법 시행규칙에 따라 3년간 보관합니다. | HACCP-ONE 자동생성
+        본 기록은 식품위생법 시행규칙에 따라 3년간 보관합니다. | Millio AI 자동생성
       </p>
     </div>
   );

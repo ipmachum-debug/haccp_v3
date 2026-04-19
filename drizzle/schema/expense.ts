@@ -1,5 +1,5 @@
 import { mysqlTable, bigint, varchar, text, timestamp, mysqlEnum, int, decimal } from "drizzle-orm/mysql-core";
-import { tenants } from "../schema_main";
+import { tenants } from "./schema_main";
 
 /**
  * 비용전표 (Expense Vouchers)

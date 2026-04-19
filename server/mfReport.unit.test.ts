@@ -8,21 +8,21 @@ import { describe, it, expect } from "vitest";
 
 describe("품목제조보고 시스템 API 로직 검증", () => {
   it("1. calculateBatchRequirements 함수가 export되어 있는지 확인", async () => {
-    const { calculateBatchRequirements } = await import("./db/mfReportAPI");
+    const { calculateBatchRequirements } = await import("./db/production/mfReportAPI");
     expect(calculateBatchRequirements).toBeDefined();
     expect(typeof calculateBatchRequirements).toBe("function");
     console.log("✓ calculateBatchRequirements 함수 확인 완료");
   });
 
   it("2. deductInventoryByMfReport 함수가 export되어 있는지 확인", async () => {
-    const { deductInventoryByMfReport } = await import("./db/mfReportAPI");
+    const { deductInventoryByMfReport } = await import("./db/production/mfReportAPI");
     expect(deductInventoryByMfReport).toBeDefined();
     expect(typeof deductInventoryByMfReport).toBe("function");
     console.log("✓ deductInventoryByMfReport 함수 확인 완료");
   });
 
   it("3. generateIngredientLabel 함수가 export되어 있는지 확인", async () => {
-    const { generateIngredientLabel } = await import("./db/mfReportAPI");
+    const { generateIngredientLabel } = await import("./db/production/mfReportAPI");
     expect(generateIngredientLabel).toBeDefined();
     expect(typeof generateIngredientLabel).toBe("function");
     console.log("✓ generateIngredientLabel 함수 확인 완료");

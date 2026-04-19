@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion as _motion } from "framer-motion";
 const motion = _motion as any;
 import { Link, useRoute } from "wouter";
+import { MillioMark } from "@/components/brand/MillioMark";
 import {
   ShieldCheck, ArrowLeft, FileText, Lock, CreditCard,
   Activity, Shield, AlertTriangle, Database, BookOpen,
@@ -21,20 +22,20 @@ type PolicySection = {
 const policySections: PolicySection[] = [
   {
     id: "terms",
-    title: "HACCPONE 이용약관",
+    title: "Millio AI 이용약관",
     shortTitle: "이용약관",
     icon: FileText,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 약관은 주식회사 골든터틀컴퍼니가 제공하는 HACCPONE 서비스의 이용과 관련하여 회사와 이용자 간의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+        <p className="text-stone-500 mb-8">본 약관은 주식회사 골든터틀컴퍼니가 제공하는 Millio AI 서비스의 이용과 관련하여 회사와 이용자 간의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.</p>
 
         <h3>제1조 (목적)</h3>
-        <p>이 약관은 <strong>주식회사 골든터틀컴퍼니(이하 "회사")</strong>가 운영하는 <strong>HACCPONE 서비스(이하 "서비스")</strong>를 이용함에 있어 회사와 이용자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+        <p>이 약관은 <strong>주식회사 골든터틀컴퍼니(이하 "회사")</strong>가 운영하는 <strong>Millio AI 서비스(이하 "서비스")</strong>를 이용함에 있어 회사와 이용자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
 
         <h3>제2조 (정의)</h3>
         <p>본 약관에서 사용하는 용어의 정의는 다음과 같습니다.</p>
         <ol>
-          <li>"서비스"란 회사가 제공하는 HACCPONE 클라우드 기반 식품 제조 관리 SaaS 플랫폼을 의미합니다.</li>
+          <li>"서비스"란 회사가 제공하는 Millio AI 클라우드 기반 제조업 AI ERP SaaS 플랫폼을 의미합니다 (식품 HACCP 특화, 제조업 전반으로 확장 중).</li>
           <li>"이용자"란 본 약관에 따라 회사가 제공하는 서비스를 이용하는 회원 또는 비회원을 말합니다.</li>
           <li>"회원"이란 서비스에 가입하여 계정을 생성하고 서비스를 이용하는 자를 말합니다.</li>
           <li>"유료서비스"란 회사가 제공하는 월 또는 연 단위 구독 기반 서비스 및 부가 기능을 의미합니다.</li>
@@ -307,15 +308,15 @@ const policySections: PolicySection[] = [
   },
   {
     id: "refund",
-    title: "HACCPONE 환불 정책",
+    title: "Millio AI 환불 정책",
     shortTitle: "환불정책",
     icon: CreditCard,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 정책은 HACCPONE 유료서비스 이용과 관련된 환불 기준을 규정합니다.</p>
+        <p className="text-stone-500 mb-8">본 정책은 Millio AI 유료서비스 이용과 관련된 환불 기준을 규정합니다.</p>
 
         <h3>1. 구독 서비스</h3>
-        <p>HACCPONE 서비스는 월 또는 연 단위 구독 방식으로 제공됩니다.</p>
+        <p>Millio AI 서비스는 월 또는 연 단위 구독 방식으로 제공됩니다.</p>
 
         <h3>2. 환불 기준</h3>
 
@@ -353,12 +354,12 @@ const policySections: PolicySection[] = [
   },
   {
     id: "sla",
-    title: "HACCPONE 서비스 수준 정책 (SLA)",
+    title: "Millio AI 서비스 수준 정책 (SLA)",
     shortTitle: "SLA 정책",
     icon: Activity,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 정책은 HACCPONE 서비스의 안정적인 운영을 위해 제공되는 서비스 수준을 정의합니다.</p>
+        <p className="text-stone-500 mb-8">본 정책은 Millio AI 서비스의 안정적인 운영을 위해 제공되는 서비스 수준을 정의합니다.</p>
 
         <h3>1. 서비스 가용성</h3>
         <p>회사는 다음 수준의 서비스 가용성을 목표로 합니다.</p>
@@ -390,7 +391,7 @@ const policySections: PolicySection[] = [
   },
   {
     id: "security",
-    title: "HACCPONE 데이터 보안 정책",
+    title: "Millio AI 데이터 보안 정책",
     shortTitle: "데이터 보안 정책",
     icon: Shield,
     content: (
@@ -437,12 +438,12 @@ const policySections: PolicySection[] = [
   },
   {
     id: "aup",
-    title: "HACCPONE 서비스 이용 정책",
+    title: "Millio AI 서비스 이용 정책",
     shortTitle: "서비스 이용 정책",
     icon: AlertTriangle,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 정책은 HACCPONE 서비스의 안전하고 안정적인 운영을 위해 이용자가 준수해야 할 이용 기준을 규정합니다. 본 정책은 HACCPONE 이용약관의 일부로 적용됩니다.</p>
+        <p className="text-stone-500 mb-8">본 정책은 Millio AI 서비스의 안전하고 안정적인 운영을 위해 이용자가 준수해야 할 이용 기준을 규정합니다. 본 정책은 Millio AI 이용약관의 일부로 적용됩니다.</p>
 
         <h3>1. 목적</h3>
         <ul>
@@ -455,8 +456,8 @@ const policySections: PolicySection[] = [
         <h3>2. 허용된 사용</h3>
         <p>이용자는 다음 목적 범위 내에서 서비스를 사용할 수 있습니다.</p>
         <ul>
-          <li>식품 제조 관리</li>
-          <li>HACCP 관리</li>
+          <li>제조업 공통 ERP (생산·재고·회계·품질)</li>
+          <li>식품 HACCP 관리 / 화장품 GMP (업종별 특화)</li>
           <li>생산 관리</li>
           <li>재고 관리</li>
           <li>품질 관리</li>
@@ -518,12 +519,12 @@ const policySections: PolicySection[] = [
   },
   {
     id: "dpa",
-    title: "HACCPONE 데이터 처리 계약 (DPA)",
+    title: "Millio AI 데이터 처리 계약 (DPA)",
     shortTitle: "데이터 처리 계약",
     icon: Database,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 데이터 처리 계약(Data Processing Agreement)은 HACCPONE 서비스를 이용하는 고객과 주식회사 골든터틀컴퍼니 간 데이터 처리에 관한 사항을 규정합니다.</p>
+        <p className="text-stone-500 mb-8">본 데이터 처리 계약(Data Processing Agreement)은 Millio AI 서비스를 이용하는 고객과 주식회사 골든터틀컴퍼니 간 데이터 처리에 관한 사항을 규정합니다.</p>
 
         <h3>1. 역할 정의</h3>
         <table>
@@ -590,15 +591,15 @@ const policySections: PolicySection[] = [
   },
   {
     id: "security-whitepaper",
-    title: "HACCPONE Security Whitepaper",
+    title: "Millio AI Security Whitepaper",
     shortTitle: "보안 백서",
     icon: BookOpen,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 문서는 HACCPONE 서비스의 보안 구조 및 데이터 보호 정책을 설명합니다.</p>
+        <p className="text-stone-500 mb-8">본 문서는 Millio AI 서비스의 보안 구조 및 데이터 보호 정책을 설명합니다.</p>
 
         <h3>1. 보안 설계 원칙</h3>
-        <p>HACCPONE은 다음 보안 원칙을 기반으로 설계되었습니다.</p>
+        <p>Millio AI는 다음 보안 원칙을 기반으로 설계되었습니다.</p>
         <ul>
           <li><strong>Confidentiality (기밀성)</strong></li>
           <li><strong>Integrity (무결성)</strong></li>
@@ -606,7 +607,7 @@ const policySections: PolicySection[] = [
         </ul>
 
         <h3>2. 시스템 아키텍처</h3>
-        <p>HACCPONE은 클라우드 기반 SaaS 아키텍처로 구성됩니다.</p>
+        <p>Millio AI는 클라우드 기반 SaaS 아키텍처로 구성됩니다.</p>
         <h4>주요 구성</h4>
         <ul>
           <li>Web Application</li>
@@ -617,7 +618,7 @@ const policySections: PolicySection[] = [
         </ul>
 
         <h3>3. 멀티 테넌트 보안</h3>
-        <p>HACCPONE은 멀티 테넌트 구조로 운영됩니다. 각 고객 데이터는 논리적으로 분리됩니다.</p>
+        <p>Millio AI는 멀티 테넌트 구조로 운영됩니다. 각 고객 데이터는 논리적으로 분리됩니다.</p>
         <h4>보안 방식</h4>
         <ul>
           <li>Tenant ID 기반 접근</li>
@@ -671,15 +672,15 @@ const policySections: PolicySection[] = [
   },
   {
     id: "data-ownership",
-    title: "HACCPONE 데이터 소유권 정책",
+    title: "Millio AI 데이터 소유권 정책",
     shortTitle: "데이터 소유권 정책",
     icon: Key,
     content: (
       <div className="legal-content">
-        <p className="text-stone-500 mb-8">본 데이터 소유권 정책은 주식회사 골든터틀컴퍼니가 제공하는 HACCPONE 서비스에서 생성 및 저장되는 데이터의 소유권, 관리 책임 및 이용 범위를 규정합니다. 본 정책은 HACCPONE 이용약관 및 데이터 처리 계약(DPA)의 일부로 적용됩니다.</p>
+        <p className="text-stone-500 mb-8">본 데이터 소유권 정책은 주식회사 골든터틀컴퍼니가 제공하는 Millio AI 서비스에서 생성 및 저장되는 데이터의 소유권, 관리 책임 및 이용 범위를 규정합니다. 본 정책은 Millio AI 이용약관 및 데이터 처리 계약(DPA)의 일부로 적용됩니다.</p>
 
         <h3>제1조 (목적)</h3>
-        <p>본 정책은 HACCPONE 서비스를 이용하는 고객이 생성하거나 업로드한 데이터의 소유권, 관리 책임 및 사용 범위를 명확히 규정함을 목적으로 합니다.</p>
+        <p>본 정책은 Millio AI 서비스를 이용하는 고객이 생성하거나 업로드한 데이터의 소유권, 관리 책임 및 사용 범위를 명확히 규정함을 목적으로 합니다.</p>
 
         <h3>제2조 (데이터 정의)</h3>
         <p>본 정책에서 "데이터"란 다음 정보를 의미합니다.</p>
@@ -697,7 +698,7 @@ const policySections: PolicySection[] = [
 
         <h3>제3조 (데이터 소유권)</h3>
         <ol>
-          <li>HACCPONE 서비스에서 고객이 생성하거나 입력한 데이터의 소유권은 <strong>해당 고객</strong>에게 있습니다.</li>
+          <li>Millio AI 서비스에서 고객이 생성하거나 입력한 데이터의 소유권은 <strong>해당 고객</strong>에게 있습니다.</li>
           <li>회사는 서비스 제공을 위한 범위를 제외하고 고객 데이터의 소유권을 주장하지 않습니다.</li>
           <li>회사는 고객 데이터에 대해 다음 행위를 하지 않습니다.
             <ul>
@@ -828,10 +829,11 @@ export default function LegalPage() {
           <div className="flex items-center gap-4">
             <Link href="/">
               <a className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4 text-white" />
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 to-blue-300/30 rounded-xl blur-md" />
+                  <MillioMark className="relative w-9 h-9" />
                 </div>
-                <span className="text-lg font-bold text-[#1a1a2e]">HACCP<span className="text-orange-500">ONE</span></span>
+                <span className="text-lg font-bold text-[#1a1a2e] font-serif tracking-tight">Millio<span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span></span>
               </a>
             </Link>
             <span className="text-stone-300 hidden sm:inline">|</span>

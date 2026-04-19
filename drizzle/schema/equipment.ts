@@ -1,5 +1,5 @@
 import {mysqlTable,  varchar, text, timestamp, decimal, boolean, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 import { relations } from "drizzle-orm";
 // 설비 마스터 (간소화)
 export const equipments = mysqlTable("equipments", {

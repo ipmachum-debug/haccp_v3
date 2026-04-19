@@ -132,7 +132,7 @@ export function generateInvoicePDF(data: InvoiceData): string {
   pdf.setFontSize(7);
   pdf.setTextColor(150, 150, 150);
   pdf.text(
-    "HACCP-ONE | www.goldenturtle.co.kr | 본 청구서는 전자적으로 발행되었습니다.",
+    "Millio AI | www.goldenturtle.co.kr | 본 청구서는 전자적으로 발행되었습니다.",
     pdf.internal.pageSize.width / 2,
     pdf.internal.pageSize.height - 15,
     { align: "center" }
@@ -172,7 +172,7 @@ export function buildInvoiceData(params: {
     customerAddress: params.tenantAddress || "-",
     customerRepresentative: params.tenantRepresentative || "-",
     items: [{
-      name: `HACCP-ONE ${params.planName} 플랜 월 이용료`,
+      name: `Millio AI ${params.planName} 플랜 월 이용료`,
       period: `${year}.${month}.01 ~ ${year}.${month}.${lastDay}`,
       quantity: 1,
       unitPrice: params.monthlyPrice,

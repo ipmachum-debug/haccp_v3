@@ -12,10 +12,15 @@ export const FORM_TYPE_LABELS: Record<string, string> = {
   consumer_complaint: "소비자 불만 처리 기록",
   daily_disposal_record: "일일 폐기물 처리 기록",
   daily_log: "일반위생관리 및 공정점검표",
+  production_daily: "생산일지",
+  batch_completion: "생산일지",
   employee_health_check: "종사자 건강상태 확인 일지",
   equipment_history: "설비 이력 관리",
   equipment_inspection: "설비 점검 기록",
   finished_product_check: "완제품 검사 기록",
+  visual_inspection: "원재료 육안검사일지",
+  finished_product_inspection: "완제품 출고검사일지",
+  material_usage_report: "원료수불 보고서",
   food_recall_notice: "식품 회수 통보서",
   handover_document: "인수인계서",
   hygiene_facility_check: "위생시설 점검표",
@@ -46,7 +51,6 @@ export const FORM_TYPE_LABELS: Record<string, string> = {
   batch_approval: "배치 CCP 기록지",
   ccp_form: "CCP 모니터링 기록지",
   ccp_checklist: "CCP 체크리스트",
-  production_daily: "생산일지",
 };
 
 export const DAILY_LOG_PAGE_TITLES = [

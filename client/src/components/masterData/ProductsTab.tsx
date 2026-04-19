@@ -29,8 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Upload, FileSpreadsheet, FileDown, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download, Eye } from "lucide-react";
-import ProductBulkUploadModal from "@/components/ProductBulkUploadModal";
-import TemplateCustomizer from "@/components/TemplateCustomizer";
+import ProductBulkUploadModal from "@/components/masterData/ProductBulkUploadModal";
+import TemplateCustomizer from "@/components/checklist/TemplateCustomizer";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -90,7 +90,7 @@ export default function ProductsTab() {
       setProductDialogOpen(false);
       refetchProducts();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`제품 추가 실패: ${error.message}`);
     },
   });
@@ -100,7 +100,7 @@ export default function ProductsTab() {
       toast.success("제품이 삭제되었습니다");
       refetchProducts();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`제품 삭제 실패: ${error.message}`);
     },
   });
@@ -111,7 +111,7 @@ export default function ProductsTab() {
       setEditingProduct(null);
       refetchProducts();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`제품 수정 실패: ${error.message}`);
     },
   });

@@ -1,0 +1,379 @@
+import { router, tenantRequiredProcedure } from "../../_core/trpc";
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import * as batchPdfLogsDb from "../../db/production/batchPdfLogs";
+import { getDb } from "../../db";
+import { hBackups } from "../../../drizzle/schema";
+import { desc, eq, and } from "drizzle-orm";
+import { storageGet } from "../../storage";
+
+/**
+ * Admin 라우터
+ * 관리자 전용 기능을 제공합니다
+ */
+export const adminRouter = router({
+  /**
+   * 실패 작업 목록 조회
+   */
+  getFailedTasks: tenantRequiredProcedure.query(async ({ ctx }) => {
+    // admin 권한 확인
+    if (ctx.user.role !== "admin") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "관리자만 접근할 수 있습니다",
+      });
+    }
+
+    // h_batch_completion_retries 테이블에서 실패 작업 조회
+    const failedTasks = await batchPdfLogsDb.getFailedTasks(ctx.tenantId);
+    return failedTasks;
+  }),
+
+  /**
+   * 실패 작업 재시도
+   */
+  retryFailedTask: tenantRequiredProcedure
+    .input(z.object({ taskId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // admin 권한 확인
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+
+      // 실패 작업 재시도 로직
+      const result = await batchPdfLogsDb.retryFailedTask(input.taskId, ctx.tenantId);
+      return result;
+    }),
+
+  /**
+   * 실패 작업 삭제
+   */
+  deleteFailedTask: tenantRequiredProcedure
+    .input(z.object({ taskId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // admin 권한 확인
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+
+      // 실패 작업 삭제 로직
+      const result = await batchPdfLogsDb.deleteFailedTask(input.taskId, ctx.tenantId);
+      return result;
+    }),
+
+  /**
+   * 백업 목록 조회
+   */
+  listBackups: tenantRequiredProcedure.query(async ({ ctx }) => {
+    // admin 권한 확인
+    if (ctx.user.role !== "admin") {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "관리자만 접근할 수 있습니다",
+      });
+    }
+
+    // 백업 목록 조회 (최신순)
+    const db = await getDb();
+    if (!db) {
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "데이터베이스 연결 실패",
+      });
+    }
+
+    const tenantId = ctx.tenantId;
+    const backups = await db
+      .select()
+      .from(hBackups)
+      .where(eq(hBackups.tenantId, tenantId))
+      .orderBy(desc(hBackups.createdAt))
+      .limit(50);
+
+    return backups;
+  }),
+
+  /**
+   * 백업 다운로드 URL 생성
+   */
+  getBackupDownloadUrl: tenantRequiredProcedure
+    .input(z.object({ backupId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      // admin 권한 확인
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+
+      // 백업 정보 조회
+      const db = await getDb();
+      if (!db) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "데이터베이스 연결 실패",
+        });
+      }
+
+      const tenantId = ctx.tenantId;
+      const backup = await db
+        .select()
+        .from(hBackups)
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)))
+        .limit(1);
+
+      if (backup.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "백업을 찾을 수 없습니다",
+        });
+      }
+
+      const backupData = backup[0];
+
+      // S3 백업인 경우 다운로드 URL 반환
+      if (backupData.backupType === "s3" && backupData.s3Key) {
+        const { url } = await storageGet(backupData.s3Key);
+        return { url };
+      }
+
+      // 로컬 백업인 경우 (현재는 지원하지 않음)
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "로컬 백업은 다운로드할 수 없습니다",
+      });
+    }),
+
+  /**
+   * 데이터베이스 초기화 (스키마 생성)
+   * ⚠️ 운영 환경에서는 실행 불가 - admin 인증 + 환경 제한 적용
+   */
+  initializeDatabase: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+      if (process.env.NODE_ENV === "production") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "운영 환경에서는 데이터베이스 초기화를 실행할 수 없습니다",
+        });
+      }
+
+      try {
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        const execAsync = promisify(exec);
+
+        const { stdout, stderr } = await execAsync("cd /home/ubuntu/haccp_v3 && pnpm db:push --accept-data-loss");
+
+        return {
+          success: true,
+          message: "데이터베이스 스키마가 성공적으로 생성되었습니다",
+          output: stdout,
+        };
+      } catch (error: any) {
+        console.error("[Admin] Database initialization error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `데이터베이스 초기화 실패: ${error.message}`,
+        });
+      }
+    }),
+
+  /**
+   * 샘플 데이터 생성
+   * ⚠️ 운영 환경에서는 실행 불가 - admin 인증 + 환경 제한 적용
+   */
+  seedSampleData: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+      if (process.env.NODE_ENV === "production") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "운영 환경에서는 샘플 데이터를 생성할 수 없습니다",
+        });
+      }
+
+      try {
+        const { seedSampleData } = await import("../../db/seed.js");
+        const result = await seedSampleData();
+        return result;
+      } catch (error: any) {
+        console.error("[Admin] Sample data seeding error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `샘플 데이터 생성 실패: ${error.message}`,
+        });
+      }
+    }),
+
+  /**
+   * 백업 삭제
+   */
+  deleteBackup: tenantRequiredProcedure
+    .input(z.object({ backupId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      // admin 권한 확인
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "관리자만 접근할 수 있습니다",
+        });
+      }
+
+      // 백업 정보 조회
+      const db = await getDb();
+      if (!db) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "데이터베이스 연결 실패",
+        });
+      }
+
+      const tenantId = ctx.tenantId;
+      const backup = await db
+        .select()
+        .from(hBackups)
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)))
+        .limit(1);
+
+      if (backup.length === 0) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "백업을 찾을 수 없습니다",
+        });
+      }
+
+      // 데이터베이스에서 백업 메타데이터 삭제
+      await db.delete(hBackups).where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, tenantId)));
+
+      // TODO: S3에서 파일 삭제 (현재는 메타데이터만 삭제)
+      // S3 삭제 API가 필요하면 추가 구현
+
+      return { success: true };
+    }),
+
+  /**
+   * 수동 백업 실행 (관리자 전용)
+   */
+  createBackup: tenantRequiredProcedure
+    .mutation(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 접근할 수 있습니다" });
+      }
+
+      try {
+        const { exec } = await import("child_process");
+        const { promisify } = await import("util");
+        const execAsync = promisify(exec);
+        const path = await import("path");
+        const fs = await import("fs");
+
+        const backupDir = path.resolve("/home/ubuntu/haccp_v3/backups");
+        if (!fs.existsSync(backupDir)) {
+          fs.mkdirSync(backupDir, { recursive: true });
+        }
+
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+        const timeStr = now.toISOString().slice(11, 19).replace(/:/g, "");
+        const backupFile = path.join(backupDir, `haccp_manual_${dateStr}_${timeStr}.sql.gz`);
+
+        const dbUrl = process.env.DATABASE_URL;
+        if (!dbUrl) throw new Error("DATABASE_URL 미설정");
+
+        const url = new URL(dbUrl);
+        const dumpCmd = `mysqldump -h ${url.hostname} -P ${url.port || 3306} -u ${url.username} -p'${decodeURIComponent(url.password)}' ${url.pathname.slice(1)} --single-transaction --routines --triggers | gzip > ${backupFile}`;
+
+        await execAsync(dumpCmd, { timeout: 300000 });
+
+        const stats = fs.statSync(backupFile);
+        const db = await getDb();
+        if (db) {
+          await db.insert(hBackups).values({
+            tenantId: ctx.tenantId,
+            fileName: path.basename(backupFile),
+            fileSize: stats.size,
+            backupType: "local",
+            status: "completed",
+            createdBy: ctx.user.id,
+          } as any);
+        }
+
+        return {
+          success: true,
+          fileName: path.basename(backupFile),
+          fileSize: stats.size,
+          message: `백업이 완료되었습니다 (${(stats.size / 1024 / 1024).toFixed(1)}MB)`,
+        };
+      } catch (error: any) {
+        console.error("[Admin] Manual backup error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `백업 실패: ${error.message}`,
+        });
+      }
+    }),
+
+  /**
+   * 백업 복원 안내 (직접 복원은 위험하므로 가이드만 제공)
+   */
+  getRestoreGuide: tenantRequiredProcedure
+    .input(z.object({ backupId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 접근할 수 있습니다" });
+      }
+
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
+
+      const backup = await db
+        .select()
+        .from(hBackups)
+        .where(and(eq(hBackups.id, input.backupId), eq(hBackups.tenantId, ctx.tenantId)))
+        .limit(1);
+
+      if (backup.length === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "백업을 찾을 수 없습니다" });
+      }
+
+      const b = backup[0];
+      return {
+        backup: {
+          id: b.id,
+          fileName: b.fileName,
+          fileSize: b.fileSize,
+          createdAt: b.createdAt,
+          backupType: b.backupType,
+        },
+        restoreCommands: [
+          `# 1. 서버 접속 후 PM2 중지`,
+          `pm2 stop millioai`,
+          `# 2. 백업 파일로 복원`,
+          b.backupType === "local"
+            ? `gunzip < /home/ubuntu/haccp_v3/backups/${b.fileName} | mysql -u root -p haccp_db`
+            : `# S3에서 다운로드 후 복원: aws s3 cp s3://bucket/${b.s3Key} backup.sql.gz && gunzip < backup.sql.gz | mysql -u root -p haccp_db`,
+          `# 3. PM2 재시작`,
+          `pm2 start millioai`,
+        ],
+        warning: "⚠️ 복원 시 현재 데이터가 덮어씌워집니다. 반드시 현재 상태를 먼저 백업하세요.",
+      };
+    }),
+});

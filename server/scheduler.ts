@@ -42,7 +42,7 @@ export function initScheduler() {
     // 소비기한 만료 알람 자동 생성
     console.log(`[Scheduler] ${timestamp} - 소비기한 만료 알람 생성 시작`);
     try {
-      const { generateExpiredAlerts } = await import("./lib/expiryAlertGenerator");
+      const { generateExpiredAlerts } = await import("./lib/inventory/expiryAlertGenerator");
       await generateExpiredAlerts();
       console.log(`[Scheduler] ${timestamp} - 소비기한 만료 알람 생성 완료`);
     } catch (error) {
@@ -148,7 +148,7 @@ export function initScheduler() {
     console.log(`[원료수불부 스케줄러] ${timestamp} - 일일 마감 자동 업데이트 시작`);
     
     try {
-      const { autoUpdateFromDailyClose } = await import("./db/materialLedger");
+      const { autoUpdateFromDailyClose } = await import("./db/accounting/materialLedger");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -188,7 +188,7 @@ export function initScheduler() {
     console.log(`[AI Scheduler] ${timestamp} - AI 규칙 평가 시작`);
 
     try {
-      const { evaluateAllRules, saveAlerts } = await import("./db/rulesEngine");
+      const { evaluateAllRules, saveAlerts } = await import("./db/ai/rulesEngine");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -237,7 +237,7 @@ export function initScheduler() {
     console.log(`[ERP AI Scheduler] ${timestamp} - ERP AI 점검 시작`);
 
     try {
-      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accountingEventTriggers");
+      const { checkUpcomingPayments, runDailyExpenseAnomalyScan } = await import("./db/accounting/accountingEventTriggers");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -286,9 +286,9 @@ export function initScheduler() {
     console.log(`[ERP AI Weekly] ${timestamp} - 주간 현금흐름/분개 점검 시작`);
 
     try {
-      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
-      const { validateJournalEntries } = await import("./db/aiJournalValidation");
-      const { saveAlerts } = await import("./db/rulesEngine");
+      const { forecastCashFlow } = await import("./db/ai/aiCashFlowForecast");
+      const { validateJournalEntries } = await import("./db/ai/aiJournalValidation");
+      const { saveAlerts } = await import("./db/ai/rulesEngine");
       const { tenants } = await import("../drizzle/schema");
       const { eq } = await import("drizzle-orm");
       const { getDb } = await import("./db");
@@ -344,6 +344,42 @@ export function initScheduler() {
     }
   });
   console.log("[Scheduler] ERP AI 주간 현금흐름/분개 점검 스케줄러 초기화 완료 (매주 월요일 오전 8시)");
+
+  // ===== 원료수불 주간 보고서 자동 생성 (매주 월요일 오전 6시) =====
+  // 지난 주(월~일) 데이터로 보고서를 자동 생성하고 검토 요청 상태로 등록
+  cron.schedule("0 6 * * 1", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[원료수불] ${timestamp} - 주간 보고서 자동 생성 시작`);
+    try {
+      const { tenants } = await import("../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
+      const { getDb } = await import("./db");
+      const db = await getDb();
+      if (!db) return;
+
+      const activeTenants = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.status, "active"));
+
+      const { autoGenerateLastWeekReport } = await import("./db/accounting/materialUsageReport");
+      let success = 0;
+      let failed = 0;
+      for (const t of activeTenants) {
+        try {
+          await autoGenerateLastWeekReport(t.id, 1);
+          success++;
+        } catch (e) {
+          failed++;
+          console.error(`[원료수불] tenant=${t.id} 자동생성 실패:`, e);
+        }
+      }
+      console.log(`[원료수불] ${timestamp} - 주간 보고서 자동 생성 완료 (성공 ${success}, 실패 ${failed})`);
+    } catch (error) {
+      console.error(`[원료수불] ${timestamp} - 자동 생성 실패:`, error);
+    }
+  });
+  console.log("[Scheduler] 원료수불 주간 보고서 자동 생성 스케줄러 초기화 완료 (매주 월요일 오전 6시)");
 
   // ===== 자동 백업 (매일 새벽 2시) =====
   cron.schedule("0 2 * * *", async () => {
@@ -442,5 +478,115 @@ export function initScheduler() {
     } catch { /* 무시 */ }
   });
   console.log("[Scheduler] 운영 모니터링 알림 스케줄러 초기화 완료 (매 5분 체크)");
+
+  // ===== 근태 자동마감 (매일 00:05 — 전날 퇴근 미기록자 자동 처리) =====
+  cron.schedule("5 0 * * *", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[HR Auto-Close] ${timestamp} - 전날 근태 자동마감 시작`);
+    try {
+      const { getPool } = await import("./db/pool");
+      const pool = getPool();
+      // 어제 날짜
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth()+1).padStart(2,"0")}-${String(yesterday.getDate()).padStart(2,"0")}`;
+
+      // 모든 테넌트의 퇴근 미기록자 자동 마감
+      const [result]: any = await pool.execute(
+        `UPDATE attendance_records
+         SET clock_out = TIME_FORMAT(ADDTIME(clock_in, '09:00:00'), '%H:%i:%s'),
+             work_hours = 8.0,
+             notes = CONCAT(COALESCE(notes, ''), ' [시스템자동마감: 24시초과]')
+         WHERE work_date = ? AND clock_out IS NULL`,
+        [yesterdayStr],
+      );
+      console.log(`[HR Auto-Close] ${yesterdayStr} 자동마감 완료: ${result.affectedRows}명`);
+    } catch (err: any) {
+      console.error("[HR Auto-Close] 자동마감 실패:", err.message?.substring(0, 100));
+    }
+  });
+  console.log("[Scheduler] 근태 자동마감 스케줄러 초기화 완료 (매일 00:05 전날 미퇴근자 처리)");
+
+  // ===== SaaS 구독 결제 스케줄러 (매월 1일 오전 6시) =====
+  cron.schedule("0 6 1 * *", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Billing] ${timestamp} - 월 정기결제 처리 시작`);
+    try {
+      const { processMonthlyBilling } = await import("./services/payment/tossPayments");
+      const result = await processMonthlyBilling();
+      console.log(`[Billing] 정기결제 완료: 처리 ${result.processed}건, 성공 ${result.succeeded}건, 실패 ${result.failed}건`);
+      if (result.errors.length > 0) {
+        console.error(`[Billing] 결제 실패 상세:`, result.errors);
+      }
+    } catch (err: any) {
+      console.error("[Billing] 월 정기결제 실패:", err.message?.substring(0, 200));
+    }
+  });
+
+  // ===== 구독 만료 체크 (매일 오전 7시) =====
+  cron.schedule("0 7 * * *", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Subscription] ${timestamp} - 구독 만료 체크 시작`);
+    try {
+      const { getDb } = await import("./db");
+      const { sql: sqlTag } = await import("drizzle-orm");
+      const db = await getDb();
+      if (!db) return;
+
+      // 1) 만료된 구독 → grace_period 전환 (7일 유예)
+      const [expired]: any = await db.execute(sqlTag`
+        UPDATE tenants
+        SET status = 'grace_period',
+            grace_period_end_date = DATE_ADD(NOW(), INTERVAL 7 DAY)
+        WHERE status = 'active'
+          AND subscription_end_date IS NOT NULL
+          AND subscription_end_date < CURDATE()
+          AND (grace_period_end_date IS NULL OR grace_period_end_date < CURDATE())
+      `);
+      if (expired?.affectedRows > 0) {
+        console.log(`[Subscription] ${expired.affectedRows}건 테넌트 유예기간 전환`);
+      }
+
+      // 2) 유예기간 만료 → 읽기전용 전환
+      const [graceDone]: any = await db.execute(sqlTag`
+        UPDATE tenants
+        SET is_read_only = 1,
+            status = 'suspended'
+        WHERE status = 'grace_period'
+          AND grace_period_end_date IS NOT NULL
+          AND grace_period_end_date < CURDATE()
+      `);
+      if (graceDone?.affectedRows > 0) {
+        console.log(`[Subscription] ${graceDone.affectedRows}건 테넌트 읽기전용 전환 (구독 정지)`);
+      }
+
+      // 3) 만료 임박 알림 (7일, 3일, 1일 전)
+      for (const daysLeft of [7, 3, 1]) {
+        const notifType = `${daysLeft}_days` as const;
+        const [rows]: any = await db.execute(sqlTag`
+          SELECT t.id, t.name FROM tenants t
+          WHERE t.status = 'active'
+            AND t.subscription_end_date IS NOT NULL
+            AND DATEDIFF(t.subscription_end_date, CURDATE()) = ${daysLeft}
+            AND NOT EXISTS (
+              SELECT 1 FROM subscription_notifications sn
+              WHERE sn.tenant_id = t.id
+                AND sn.notification_type = ${notifType}
+                AND DATE(sn.created_at) = CURDATE()
+            )
+        `);
+        for (const tenant of (rows as any[])) {
+          await db.execute(sqlTag`
+            INSERT INTO subscription_notifications (tenant_id, notification_type, message)
+            VALUES (${tenant.id}, ${notifType}, ${`구독이 ${daysLeft}일 후 만료됩니다. 갱신해 주세요.`})
+          `);
+          console.log(`[Subscription] 테넌트 ${tenant.id} (${tenant.name}): ${daysLeft}일 전 만료 알림 전송`);
+        }
+      }
+    } catch (err: any) {
+      console.error("[Subscription] 구독 만료 체크 실패:", err.message?.substring(0, 200));
+    }
+  });
+  console.log("[Scheduler] SaaS 정기결제 스케줄러 초기화 완료 (매월 1일 06:00, 만료 체크 매일 07:00)");
 
 }

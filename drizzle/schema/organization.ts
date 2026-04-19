@@ -1,5 +1,5 @@
 import { mysqlTable, varchar, timestamp, boolean, bigint, int } from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 문서 결재자 설정 테이블

@@ -61,7 +61,7 @@ describe("회계 기능 확장 테스트", () => {
     });
 
     // 3. 매입 등록 (포장규격 10kg × 수량 5개 = 총 50kg)
-    const { createPurchase } = await import("./db/haccpIntegration");
+    const { createPurchase } = await import("./db/haccp/haccpIntegration");
     const quantity = 5;
     const packagingSize = 10;
     const unitPrice = 10000;
