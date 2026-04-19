@@ -10,10 +10,12 @@ import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
 import { ko } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"];
 
 export default function ProductionPerformance() {
+  const L = useIndustryLabel();
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     from: startOfMonth(new Date()),
     to: endOfMonth(new Date()),
@@ -247,7 +249,7 @@ export default function ProductionPerformance() {
           {/* 배치 상태 분포 */}
           <Card>
             <CardHeader>
-              <CardTitle>배치 상태 분포</CardTitle>
+              <CardTitle>{`${L("batch")} 상태 분포`}</CardTitle>
               <CardDescription>배치 상태별 비율</CardDescription>
             </CardHeader>
             <CardContent>
@@ -305,7 +307,7 @@ export default function ProductionPerformance() {
           {/* 배치 완료율 추이 */}
           <Card>
             <CardHeader>
-              <CardTitle>배치 완료율</CardTitle>
+              <CardTitle>{`${L("batch")} 완료율`}</CardTitle>
               <CardDescription>전체 배치 대비 완료된 배치 비율</CardDescription>
             </CardHeader>
             <CardContent>

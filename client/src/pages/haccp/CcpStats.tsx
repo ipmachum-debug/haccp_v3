@@ -18,10 +18,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type DateRange = "7days" | "30days" | "90days" | "all";
 
 export default function CcpStats() {
+  const L = useIndustryLabel();
   const [dateRange, setDateRange] = useState<DateRange>("30days");
 
   const { startDate, endDate } = useMemo(() => {
@@ -247,7 +249,7 @@ export default function CcpStats() {
                       <thead>
                         <tr className="border-b">
                           <th className="text-left p-2 font-medium text-xs">제품명</th>
-                          <th className="text-right p-2 font-medium text-xs">배치 수</th>
+                          <th className="text-right p-2 font-medium text-xs">{`${L("batch")} 수`}</th>
                           <th className="text-right p-2 font-medium text-xs">CCP 인스턴스</th>
                           <th className="text-right p-2 font-medium text-xs">자동 생성 행</th>
                           <th className="text-right p-2 font-medium text-xs">자동 생성 비율</th>

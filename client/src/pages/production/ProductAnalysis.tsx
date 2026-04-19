@@ -4,8 +4,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ProductAnalysis() {
+  const L = useIndustryLabel();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -62,7 +64,7 @@ export default function ProductAnalysis() {
               <TableHeader>
                 <TableRow>
                   <TableHead>제품</TableHead>
-                  <TableHead>배치 수</TableHead>
+                  <TableHead>{`${L("batch")} 수`}</TableHead>
                   <TableHead>계획 수량</TableHead>
                   <TableHead>실제 수량</TableHead>
                   <TableHead>완료 배치</TableHead>

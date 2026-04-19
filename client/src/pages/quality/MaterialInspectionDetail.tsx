@@ -26,8 +26,10 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function MaterialInspectionDetail() {
+  const L = useIndustryLabel();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const inspectionId = params.id ? parseInt(params.id, 10) : 0;
@@ -186,7 +188,7 @@ export default function MaterialInspectionDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">원재료 검사 상세</h1>
+            <h1 className="text-3xl font-bold">{`${L("material")} 검사 상세`}</h1>
             <p className="text-muted-foreground mt-1">
               검사 ID: {inspection.id}
             </p>

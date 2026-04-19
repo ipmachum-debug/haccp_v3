@@ -29,6 +29,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 interface IngredientRow {
   materialId?: number;
@@ -41,6 +42,7 @@ interface IngredientRow {
 }
 
 export default function MfReportCreate() {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [reportCode, setReportCode] = useState("");
@@ -248,7 +250,7 @@ export default function MfReportCreate() {
             </div>
 
             <div className="border-t pt-4 mt-4">
-              <h3 className="text-sm font-semibold mb-3">배치 정보</h3>
+              <h3 className="text-sm font-semibold mb-3">{`${L("batch")} 정보`}</h3>
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="yieldBasis">수율 기준</Label>
@@ -291,7 +293,7 @@ export default function MfReportCreate() {
 
         <Card>
           <CardHeader>
-            <CardTitle>원재료 및 혼합재제 구성</CardTitle>
+            <CardTitle>{`${L("material")} 및 혼합재제 구성`}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-6 gap-4 items-end">

@@ -8,8 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Calendar, Package, AlertCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ProductionSchedule() {
+  const L = useIndustryLabel();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -142,7 +144,7 @@ export default function ProductionSchedule() {
                   <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("status")}>
                     <span className="flex items-center">상태<SortIcon field="status" /></span>
                   </TableHead>
-                  <TableHead>원재료 소요량</TableHead>
+                  <TableHead>{`${L("material")} 소요량`}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -182,7 +184,7 @@ export default function ProductionSchedule() {
       <Dialog open={selectedBatchId !== null} onOpenChange={(open) => !open && setSelectedBatchId(null)}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>원재료 소요량 계산</DialogTitle>
+            <DialogTitle>{`${L("material")} 소요량 계산`}</DialogTitle>
             <DialogDescription>
               배치별 필요한 원재료 수량 및 재고 현황
             </DialogDescription>

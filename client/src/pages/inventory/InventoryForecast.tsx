@@ -14,8 +14,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryForecast() {
+  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 
   // 모든 원재료 구매 추천 조회
@@ -162,7 +164,7 @@ export default function InventoryForecast() {
             <TableHeader>
               <TableRow>
                 <TableHead>우선순위</TableHead>
-                <TableHead>원재료명</TableHead>
+                <TableHead>{`${L("material")}명`}</TableHead>
                 <TableHead className="text-right">현재 재고</TableHead>
                 <TableHead className="text-right">안전 재고</TableHead>
                 <TableHead className="text-right">추천 구매량</TableHead>

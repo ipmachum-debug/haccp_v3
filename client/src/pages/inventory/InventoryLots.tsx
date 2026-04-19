@@ -14,8 +14,10 @@ import {
 import { Search, Calendar, AlertTriangle, CheckCircle, Clock, Package } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { format } from "date-fns";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryLots() {
+  const L = useIndustryLabel();
   const [searchTerm, setSearchTerm] = useState("");
 
   // LOT 목록 조회 (임시 - API 구현 필요)
@@ -98,7 +100,7 @@ export default function InventoryLots() {
               <TableHeader>
                 <TableRow>
                   <TableHead>LOT 번호</TableHead>
-                  <TableHead>원재료명</TableHead>
+                  <TableHead>{`${L("material")}명`}</TableHead>
                   <TableHead>수량</TableHead>
                   <TableHead>생산일자</TableHead>
                   <TableHead>소비기한</TableHead>

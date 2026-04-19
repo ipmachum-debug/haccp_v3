@@ -17,9 +17,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // CCP 매핑 섹션 컴포넌트
 function CcpMappingSection({ productId, productName }: { productId: number; productName: string }) {
+  const L = useIndustryLabel();
   const CCP_TYPES = [
     { value: "CCP-1B", label: "CCP-1B", description: "금속검출 (입고)" },
     { value: "CCP-2B", label: "CCP-2B", description: "금속검출 (포장 전)" },
@@ -285,7 +287,7 @@ function DeviationAnalysisSection({ versionId }: { versionId: number }) {
               <th className="text-right p-2 font-medium">실제 평균 (%)</th>
               <th className="text-right p-2 font-medium">오차</th>
               <th className="text-right p-2 font-medium">표준편차</th>
-              <th className="text-center p-2 font-medium">배치 수</th>
+              <th className="text-center p-2 font-medium">{`${L("batch")} 수`}</th>
               <th className="text-center p-2 font-medium">신뢰도</th>
             </tr>
           </thead>

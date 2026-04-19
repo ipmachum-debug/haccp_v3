@@ -742,8 +742,15 @@ function DashboardLayoutContent({
 
   // ★ 업종별 동적 라벨 적용
   if (!industryLoading && user?.role !== "super_admin") {
+    const batchLabel = industryLabel("batch", "배치");
+    const materialLabel = industryLabel("material", "원재료");
+    const siteLabel = industryLabel("site", "공장");
     const labelMap: Record<string, string> = {
       "생산관리": `${industryLabel("product", "제품")} 생산관리`,
+      "재고 관리": `${materialLabel} · 재고 관리`,
+      "마스터 데이터": `${materialLabel} 마스터`,
+      "품목 마스터": `품목 마스터`,
+      "부적합제품관리": `부적합${industryLabel("product", "제품")}관리`,
     };
     displayedMenuItems = displayedMenuItems.map((item: any) => {
       if (labelMap[item.label]) {

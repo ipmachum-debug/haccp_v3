@@ -34,8 +34,10 @@ import { Plus, Search, Eye, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ShippingInspection() {
+  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);
@@ -393,7 +395,7 @@ export default function ShippingInspection() {
               <TableHeader>
                 <TableRow>
                   <TableHead>검사 날짜</TableHead>
-                  <TableHead>배치 코드</TableHead>
+                  <TableHead>{`${L("batch")} 코드`}</TableHead>
                   <TableHead>제품명</TableHead>
                   <TableHead>수량</TableHead>
                   <TableHead>검사자</TableHead>

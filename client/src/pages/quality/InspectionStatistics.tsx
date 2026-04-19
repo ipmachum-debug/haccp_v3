@@ -22,6 +22,7 @@ import {
   PointElement,
   LineElement,
 } from "chart.js";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 ChartJS.register(
   CategoryScale,
@@ -36,6 +37,7 @@ ChartJS.register(
 );
 
 export default function InspectionStatistics() {
+  const L = useIndustryLabel();
   const [inspectionType, setInspectionType] = useState<"material" | "hygiene" | "shipping">("material");
   const [dateRange, setDateRange] = useState<"week" | "month" | "quarter">("month");
 
@@ -215,7 +217,7 @@ export default function InspectionStatistics() {
                 <SelectValue placeholder="검사 유형 선택" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="material">원재료 검사</SelectItem>
+                <SelectItem value="material">{`${L("material")} 검사`}</SelectItem>
                 <SelectItem value="hygiene">위생 점검</SelectItem>
                 <SelectItem value="shipping">출하 검사</SelectItem>
               </SelectContent>

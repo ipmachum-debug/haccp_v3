@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label";
 import { AlertCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ScheduleOptimization() {
+  const L = useIndustryLabel();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -128,7 +130,7 @@ export default function ScheduleOptimization() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>배치 코드</TableHead>
+                      <TableHead>{`${L("batch")} 코드`}</TableHead>
                       <TableHead>제품</TableHead>
                       <TableHead>현재 일정</TableHead>
                       <TableHead>문제</TableHead>

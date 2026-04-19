@@ -13,8 +13,10 @@ import {
 } from "@/components/ui/table";
 import { ArrowLeft, Edit, History } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function RecipeDetail() {
+  const L = useIndustryLabel();
   const [, params] = useRoute("/dashboard/recipes/:id");
   const recipeId = params?.id ? parseInt(params.id) : 0;
 
@@ -90,7 +92,7 @@ export default function RecipeDetail() {
         <div className="grid gap-6 md:grid-cols-2 mb-6">
           <Card>
             <CardHeader>
-              <CardTitle>배치 정보</CardTitle>
+              <CardTitle>{`${L("batch")} 정보`}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex justify-between">
@@ -129,7 +131,7 @@ export default function RecipeDetail() {
 
         <Card>
           <CardHeader>
-            <CardTitle>원재료 목록</CardTitle>
+            <CardTitle>{`${L("material")} 목록`}</CardTitle>
           </CardHeader>
           <CardContent>
             {!recipe.lines || recipe.lines.length === 0 ? (

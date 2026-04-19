@@ -41,8 +41,10 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function MaterialReceiptManagement() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'lots');
   const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false);
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
@@ -103,7 +105,7 @@ export default function MaterialReceiptManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">원재료 입고 관리</h1>
+          <h1 className="text-3xl font-bold">{`${L("material")} 입고 관리`}</h1>
           <p className="text-muted-foreground mt-1">
             원재료 입고, LOT 관리, 재고 거래 내역 조회
           </p>
@@ -118,14 +120,14 @@ export default function MaterialReceiptManagement() {
           <DialogContent className="max-w-md">
             <form onSubmit={handleReceiveMaterial}>
               <DialogHeader>
-                <DialogTitle>원재료 입고</DialogTitle>
+                <DialogTitle>{`${L("material")} 입고`}</DialogTitle>
                 <DialogDescription>
                   입고할 원재료 정보를 입력하세요. LOT 번호는 자동 생성됩니다.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label htmlFor="materialId">원재료 *</Label>
+                  <Label htmlFor="materialId">{`${L("material")} *`}</Label>
                   <Select name="materialId" required>
                     <SelectTrigger>
                       <SelectValue placeholder="원재료 선택" />
@@ -309,7 +311,7 @@ export default function MaterialReceiptManagement() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>원재료 선택</Label>
+                <Label>{`${L("material")} 선택`}</Label>
                 <Select
                   value={selectedMaterialId?.toString() || ""}
                   onValueChange={(value) => setSelectedMaterialId(parseInt(value))}

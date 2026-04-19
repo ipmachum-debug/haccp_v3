@@ -16,8 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Plus, Eye, Edit, Copy, Power, PowerOff, Search } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function RecipeList() {
+  const L = useIndustryLabel();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterActive, setFilterActive] = useState<boolean | undefined>(undefined);
@@ -138,7 +140,7 @@ export default function RecipeList() {
                   <TableRow>
                     <TableHead>레시피 이름</TableHead>
                     <TableHead>버전</TableHead>
-                    <TableHead>배치 크기</TableHead>
+                    <TableHead>{`${L("batch")} 크기`}</TableHead>
                     <TableHead>수율</TableHead>
                     <TableHead>소요 시간</TableHead>
                     <TableHead>상태</TableHead>

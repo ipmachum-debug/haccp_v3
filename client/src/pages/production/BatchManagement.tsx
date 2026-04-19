@@ -7,8 +7,10 @@ import BatchList from "./BatchList";
 import BatchCreate from "./BatchCreate";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysis from "./CostAnalysis";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function BatchManagement() {
+  const L = useIndustryLabel();
   const [location, setLocation] = useLocation();
   const searchParams = new URLSearchParams(location.split('?')[1] || '');
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'list');
@@ -32,7 +34,7 @@ export default function BatchManagement() {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="mb-4">
-          <h1 className="text-2xl font-bold mb-1">배치 관리</h1>
+          <h1 className="text-2xl font-bold mb-1">{`${L("batch")} 관리`}</h1>
           <p className="text-muted-foreground text-sm">
             배치 목록, 생성 및 수익성 분석을 통합 관리합니다.
           </p>

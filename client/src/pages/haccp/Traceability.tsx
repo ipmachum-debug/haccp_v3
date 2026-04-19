@@ -8,8 +8,10 @@ import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Search, ArrowRight, ArrowLeft, Package, Warehouse, Factory, Calendar, Weight } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function Traceability() {
+  const L = useIndustryLabel();
   const [lotNumber, setLotNumber] = useState("");
   const [searchType, setSearchType] = useState<"material" | "product">("material");
   const [searchLotNumber, setSearchLotNumber] = useState<string | null>(null);
@@ -181,7 +183,7 @@ function ForwardTraceResult({ data }: { data: any }) {
                   <Factory className="w-8 h-8" />
                 </div>
                 <div className="flex-1">
-                  <div className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">배치 생산</div>
+                  <div className="text-sm text-green-600 dark:text-green-400 font-semibold mb-1">{`${L("batch")} 생산`}</div>
                   <div className="text-2xl font-bold mb-2">{batch.batchCode}</div>
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">

@@ -25,6 +25,7 @@ import {
 import { Bar, Line, Pie } from "react-chartjs-2";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // Chart.js 등록
 ChartJS.register(
@@ -40,6 +41,7 @@ ChartJS.register(
 );
 
 export default function ProductionEfficiency() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'cost');
   const [dateRange, setDateRange] = useState({
     startDate: formatLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
@@ -240,7 +242,7 @@ export default function ProductionEfficiency() {
                     <table className="w-full border-collapse">
                       <thead>
                         <tr className="border-b">
-                          <th className="text-left py-2 px-4">배치 코드</th>
+                          <th className="text-left py-2 px-4">{`${L("batch")} 코드`}</th>
                           <th className="text-left py-2 px-4">제품명</th>
                           <th className="text-right py-2 px-4">계획 원가</th>
                           <th className="text-right py-2 px-4">실제 원가</th>
@@ -308,7 +310,7 @@ export default function ProductionEfficiency() {
                       <thead>
                         <tr className="border-b">
                           <th className="text-left py-2 px-4">날짜</th>
-                          <th className="text-right py-2 px-4">배치 수</th>
+                          <th className="text-right py-2 px-4">{`${L("batch")} 수`}</th>
                           <th className="text-right py-2 px-4">평균 생산 시간</th>
                         </tr>
                       </thead>

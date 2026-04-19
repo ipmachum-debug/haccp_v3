@@ -15,9 +15,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Plus, Eye, FileText } from "lucide-react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 
 export default function MaterialInspections() {
+  const L = useIndustryLabel();
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [resultFilter, setResultFilter] = useState<string | undefined>(undefined);
 
@@ -67,7 +69,7 @@ export default function MaterialInspections() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">원재료 검사</h1>
+          <h1 className="text-3xl font-bold">{`${L("material")} 검사`}</h1>
           <p className="text-muted-foreground mt-1">
             입고된 원재료의 품질 검사 기록을 관리합니다.
           </p>
@@ -91,7 +93,7 @@ export default function MaterialInspections() {
         <TabsContent value="all" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>원재료 검사 목록</CardTitle>
+              <CardTitle>{`${L("material")} 검사 목록`}</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading ? (

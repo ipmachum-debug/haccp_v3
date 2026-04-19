@@ -10,8 +10,10 @@ import { TabsList } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Minus, Sparkles, ShoppingCart, Users, DollarSign } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function CostSavingAI() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'overview');
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
 
@@ -105,7 +107,7 @@ export default function CostSavingAI() {
       {/* 원재료 선택 */}
       <Card>
         <CardHeader>
-          <CardTitle>원재료 선택</CardTitle>
+          <CardTitle>{`${L("material")} 선택`}</CardTitle>
           <CardDescription>분석할 원재료를 선택하세요.</CardDescription>
         </CardHeader>
         <CardContent>

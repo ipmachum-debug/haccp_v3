@@ -34,8 +34,10 @@ import { Plus, Search, Eye, Edit, CheckCircle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function MaterialInspection() {
+  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);
@@ -137,7 +139,7 @@ export default function MaterialInspection() {
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">원재료 검사</h1>
+          <h1 className="text-3xl font-bold">{`${L("material")} 검사`}</h1>
           <p className="text-muted-foreground mt-1">
             원재료 입고 시 검사 기록을 관리합니다.
           </p>
@@ -151,7 +153,7 @@ export default function MaterialInspection() {
           </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>원재료 검사 기록 생성</DialogTitle>
+              <DialogTitle>{`${L("material")} 검사 기록 생성`}</DialogTitle>
               <DialogDescription>
                 원재료 입고 시 검사 항목을 기록합니다.
               </DialogDescription>
@@ -159,7 +161,7 @@ export default function MaterialInspection() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>원재료 코드 *</Label>
+                  <Label>{`${L("material")} 코드 *`}</Label>
                   <Input
                     value={formData.materialCode}
                     onChange={(e) =>
@@ -386,8 +388,8 @@ export default function MaterialInspection() {
               <TableHeader>
                 <TableRow>
                   <TableHead>검사 날짜</TableHead>
-                  <TableHead>원재료명</TableHead>
-                  <TableHead>원재료 코드</TableHead>
+                  <TableHead>{`${L("material")}명`}</TableHead>
+                  <TableHead>{`${L("material")} 코드`}</TableHead>
                   <TableHead>LOT 번호</TableHead>
                   <TableHead>검사자</TableHead>
                   <TableHead>상태</TableHead>
@@ -495,7 +497,7 @@ export default function MaterialInspection() {
       <Dialog open={isDetailDialogOpen} onOpenChange={setIsDetailDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>원재료 검사 상세</DialogTitle>
+            <DialogTitle>{`${L("material")} 검사 상세`}</DialogTitle>
           </DialogHeader>
           {selectedRecord && (
             <div className="space-y-4">

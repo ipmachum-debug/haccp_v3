@@ -18,8 +18,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function Inventory() {
+  const L = useIndustryLabel();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [materialId, setMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");
@@ -158,7 +160,7 @@ export default function Inventory() {
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="material">원재료 *</Label>
+                  <Label htmlFor="material">{`${L("material")} *`}</Label>
                   <Select
                     value={materialId?.toString() || ""}
                     onValueChange={(value) => setMaterialId(parseInt(value))}

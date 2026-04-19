@@ -16,8 +16,10 @@ import { TabsList } from "@/components/ui/tabs";
 import { Activity, Package, Calendar, CheckCircle, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ProductionStatus() {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'today');
   const [chartPeriod, setChartPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
 
@@ -53,7 +55,7 @@ export default function ProductionStatus() {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>배치 코드</TableHead>
+          <TableHead>{`${L("batch")} 코드`}</TableHead>
           <TableHead>제품</TableHead>
           <TableHead>계획 수량</TableHead>
           <TableHead>실제 수량</TableHead>

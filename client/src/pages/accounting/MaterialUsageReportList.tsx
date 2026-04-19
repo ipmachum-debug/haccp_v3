@@ -66,11 +66,13 @@ import {
   Search,
 } from "lucide-react";
 import { formatLocalDate } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // ============================================================================
 // 유틸 - 주간/월간 범위 계산
 // ============================================================================
 function getWeekRange(baseDate: Date): { start: string; end: string } {
+  const L = useIndustryLabel();
   const day = baseDate.getDay();
   const diffToMon = day === 0 ? -6 : 1 - day;
   const mon = new Date(baseDate);
@@ -308,7 +310,7 @@ function AutoReportCard({
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="text-xs">원재료명</TableHead>
+                          <TableHead className="text-xs">{`${L("material")}명`}</TableHead>
                           <TableHead className="text-xs text-right">총 사용량</TableHead>
                         </TableRow>
                       </TableHeader>

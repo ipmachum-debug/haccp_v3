@@ -18,8 +18,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function PurchaseProposalHistory() {
+  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
@@ -244,8 +246,8 @@ export default function PurchaseProposalHistory() {
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead>원재료명</TableHead>
-                                    <TableHead>원재료 코드</TableHead>
+                                    <TableHead>{`${L("material")}명`}</TableHead>
+                                    <TableHead>{`${L("material")} 코드`}</TableHead>
                                     <TableHead className="text-right">수량</TableHead>
                                     <TableHead>단위</TableHead>
                                     <TableHead className="text-right">단가</TableHead>

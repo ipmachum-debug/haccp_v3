@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const config: ChecklistFormConfig = {
   formType: "material_inspection",
@@ -57,6 +58,7 @@ const initialItems: InspectionItem[] = [
 ];
 
 export default function MaterialInspectionForm() {
+  const L = useIndustryLabel();
   const [materialId, setMaterialId] = useState("");
   const [materialCode, setMaterialCode] = useState("");
   const [materialName, setMaterialName] = useState("");
@@ -127,7 +129,7 @@ export default function MaterialInspectionForm() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="materialId">원재료 ID *</Label>
+                <Label htmlFor="materialId">{`${L("material")} ID *`}</Label>
                 <Input
                   id="materialId"
                   type="number"
@@ -138,7 +140,7 @@ export default function MaterialInspectionForm() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="materialCode">원재료 코드 *</Label>
+                <Label htmlFor="materialCode">{`${L("material")} 코드 *`}</Label>
                 <Input
                   id="materialCode"
                   value={materialCode}

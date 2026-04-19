@@ -8,8 +8,10 @@ import { Package, TrendingDown, AlertTriangle, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryPredictionDashboard() {
+  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [safetyStockLevel, setSafetyStockLevel] = useState<number>(0);
 
@@ -60,7 +62,7 @@ export default function InventoryPredictionDashboard() {
       {/* 원재료 선택 */}
       <Card>
         <CardHeader>
-          <CardTitle>원재료 선택</CardTitle>
+          <CardTitle>{`${L("material")} 선택`}</CardTitle>
           <CardDescription>예측을 확인할 원재료를 선택하세요</CardDescription>
         </CardHeader>
         <CardContent>

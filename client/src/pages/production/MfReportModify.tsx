@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { formatLocalDate } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 interface IngredientRow {
   materialId?: number;
@@ -25,6 +26,7 @@ interface IngredientRow {
 }
 
 export default function MfReportModify() {
+  const L = useIndustryLabel();
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const reportId = parseInt(id || "0");
@@ -273,7 +275,7 @@ export default function MfReportModify() {
           {/* 원재료 구성 */}
           <Card>
             <CardHeader className="py-3 px-4">
-              <CardTitle className="text-base">원재료 및 혼합재제 구성</CardTitle>
+              <CardTitle className="text-base">{`${L("material")} 및 혼합재제 구성`}</CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4 space-y-4">
               {/* 기존 원재료 테이블 */}

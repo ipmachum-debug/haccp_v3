@@ -45,9 +45,11 @@ import {
   XCircle,
   Printer,
 } from "lucide-react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // 날짜 유틸
 function formatDate(d: Date) {
+  const L = useIndustryLabel();
   return formatLocalDate(d);
 }
 function getYearMonth(d: Date) {
@@ -465,7 +467,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                     <TableHeader>
                       <TableRow className="bg-slate-50">
                         <TableHead className="w-12 text-center sticky left-0 bg-slate-50 z-10">No</TableHead>
-                        <TableHead className="w-48 sticky left-12 bg-slate-50 z-10">원재료명</TableHead>
+                        <TableHead className="w-48 sticky left-12 bg-slate-50 z-10">{`${L("material")}명`}</TableHead>
                         <TableHead className="text-right w-28">전월재고(kg)</TableHead>
                         <TableHead className="text-right w-28 text-blue-600">입고(kg)</TableHead>
                         <TableHead className="text-right w-28 text-green-600">사용(kg)</TableHead>
@@ -608,7 +610,7 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="w-12 text-center sticky left-0 bg-slate-50 z-20">No</TableHead>
-                          <TableHead className="w-40 sticky left-12 bg-slate-50 z-20">원재료명</TableHead>
+                          <TableHead className="w-40 sticky left-12 bg-slate-50 z-20">{`${L("material")}명`}</TableHead>
                           <TableHead className="text-right w-20 bg-gray-100">전월재고</TableHead>
                           {Array.from({ length: daysInMonth }, (_, i) => (
                             <TableHead key={`rh-${i}`} className="text-center w-16 text-blue-600 bg-blue-50 text-xs">
@@ -824,8 +826,8 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-12 text-center">No</TableHead>
-                          <TableHead>원재료 코드</TableHead>
-                          <TableHead>원재료명</TableHead>
+                          <TableHead>{`${L("material")} 코드`}</TableHead>
+                          <TableHead>{`${L("material")}명`}</TableHead>
                           <TableHead className="text-right">총 사용량</TableHead>
                           <TableHead className="text-center">단위</TableHead>
                         </TableRow>

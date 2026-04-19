@@ -10,11 +10,13 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Eye, AlertTriangle, Droplets } from "lucide-react";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
 
 /** 정제수(purified water) 판별 */
 function isWaterMaterial(name: string | null | undefined): boolean {
+  const L = useIndustryLabel();
   if (!name) return false;
   const n = name.toLowerCase();
   return n.includes("정제수") || n.includes("purified water");
@@ -207,7 +209,7 @@ export default function BatchCostAnalysisDashboard() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>배치 코드</TableHead>
+                    <TableHead>{`${L("batch")} 코드`}</TableHead>
                     <TableHead>제품명</TableHead>
                     <TableHead>생산일</TableHead>
                     <TableHead className="text-right">생산량</TableHead>

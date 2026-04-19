@@ -13,8 +13,10 @@ import { useLocation } from "wouter";
 import { Checkbox } from "@/components/ui/checkbox";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryReceipt() {
+  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [lotNumber, setLotNumber] = useState("");
   const [autoLot, setAutoLot] = useState(true);
@@ -193,7 +195,7 @@ export default function InventoryReceipt() {
               <div className="grid grid-cols-2 gap-4">
                 {/* 원재료 선택 */}
                 <div className="space-y-2">
-                  <Label htmlFor="material">원재료 *</Label>
+                  <Label htmlFor="material">{`${L("material")} *`}</Label>
                   <Select
                     value={selectedMaterialId?.toString() || ""}
                     onValueChange={(value) => {

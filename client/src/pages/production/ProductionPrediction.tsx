@@ -5,8 +5,10 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { Clock, Package, TrendingUp, AlertCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ProductionPrediction() {
+  const L = useIndustryLabel();
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
   
   const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });
@@ -143,7 +145,7 @@ export default function ProductionPrediction() {
         {/* 원재료 소비량 예측 차트 */}
         <Card>
           <CardHeader>
-            <CardTitle>원재료 소비량 예측</CardTitle>
+            <CardTitle>{`${L("material")} 소비량 예측`}</CardTitle>
             <CardDescription>
               제품별 예상 원재료 소비량
             </CardDescription>

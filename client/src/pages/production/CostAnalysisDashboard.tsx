@@ -7,8 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function CostAnalysisDashboard() {
+  const L = useIndustryLabel();
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
 
   // 제품 목록
@@ -205,7 +207,7 @@ export default function CostAnalysisDashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead>제품명</TableHead>
-                  <TableHead className="text-right">배치 수</TableHead>
+                  <TableHead className="text-right">{`${L("batch")} 수`}</TableHead>
                   <TableHead className="text-right">총 생산량</TableHead>
                   <TableHead className="text-right">총 재료원가</TableHead>
                   <TableHead className="text-right">평균 kg당 원가</TableHead>
@@ -249,7 +251,7 @@ export default function CostAnalysisDashboard() {
               <TableHeader>
                 <TableRow>
                   <TableHead>순위</TableHead>
-                  <TableHead>원재료명</TableHead>
+                  <TableHead>{`${L("material")}명`}</TableHead>
                   <TableHead className="text-right">단가</TableHead>
                   <TableHead className="text-right">총 사용량</TableHead>
                   <TableHead className="text-right">총 비용</TableHead>

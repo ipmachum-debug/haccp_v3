@@ -30,8 +30,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus, Edit, Trash2, Copy, History, Search } from "lucide-react";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function RecipeManagement() {
+  const L = useIndustryLabel();
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -204,7 +206,7 @@ export default function RecipeManagement() {
                 <TableHead>레시피 이름</TableHead>
                 <TableHead>제품</TableHead>
                 <TableHead>버전</TableHead>
-                <TableHead>배치 크기</TableHead>
+                <TableHead>{`${L("batch")} 크기`}</TableHead>
                 <TableHead>수율</TableHead>
                 <TableHead>상태</TableHead>
                 <TableHead>작업</TableHead>
@@ -517,7 +519,7 @@ function RecipeForm({
 
       {/* 원재료 배합 */}
       <div className="border-t pt-4">
-        <h3 className="font-semibold mb-4">원재료 배합</h3>
+        <h3 className="font-semibold mb-4">{`${L("material")} 배합`}</h3>
         
         {/* 기존 라인 목록 */}
         {formData.lines.length > 0 && (

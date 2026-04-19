@@ -22,6 +22,7 @@ import {
   Legend,
   ChartOptions,
 } from "chart.js";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 ChartJS.register(
   CategoryScale,
@@ -35,6 +36,7 @@ ChartJS.register(
 );
 
 export default function InventoryTrend() {
+  const L = useIndustryLabel();
   const [startDate, setStartDate] = useState(() => {
     const date = new Date();
     date.setDate(date.getDate() - 30);
@@ -320,8 +322,8 @@ export default function InventoryTrend() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>원재료명</TableHead>
-                  <TableHead>원재료 코드</TableHead>
+                  <TableHead>{`${L("material")}명`}</TableHead>
+                  <TableHead>{`${L("material")} 코드`}</TableHead>
                   <TableHead className="text-right">총 사용량</TableHead>
                   <TableHead className="text-right">현재 재고</TableHead>
                   <TableHead className="text-right">회전율</TableHead>
@@ -358,7 +360,7 @@ export default function InventoryTrend() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>원재료명</TableHead>
+                  <TableHead>{`${L("material")}명`}</TableHead>
                   <TableHead>LOT 번호</TableHead>
                   <TableHead>유통기한</TableHead>
                   <TableHead className="text-right">수량</TableHead>

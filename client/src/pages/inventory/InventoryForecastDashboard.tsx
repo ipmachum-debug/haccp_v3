@@ -6,8 +6,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { AlertTriangle } from "lucide-react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function InventoryForecastDashboard() {
+  const L = useIndustryLabel();
   const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null);
   const [forecastDays, setForecastDays] = useState(90);
 
@@ -97,7 +99,7 @@ export default function InventoryForecastDashboard() {
           {/* 원재료 선택 */}
           <Card>
             <CardHeader>
-              <CardTitle>원재료 선택</CardTitle>
+              <CardTitle>{`${L("material")} 선택`}</CardTitle>
               <CardDescription>상세 예측 정보를 확인할 원재료를 선택하세요</CardDescription>
             </CardHeader>
             <CardContent>

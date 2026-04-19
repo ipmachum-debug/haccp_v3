@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { Loader2, Search, ChevronRight, Thermometer, Gauge, Zap, BookOpen, AlertCircle, CheckCircle2, Settings, Package, Beaker } from "lucide-react";
 import { useState, useMemo } from "react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 const CCP_TYPE_COLORS: Record<string, string> = {
   "CCP-1B": "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -23,6 +24,7 @@ const CCP_TYPE_ICONS: Record<string, any> = {
 };
 
 export default function ProductCcpMapping(props: { embedded?: boolean } & Record<string, any> = {}) {
+  const L = useIndustryLabel();
   const { embedded = false } = props;
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<number | null>(null);
@@ -303,7 +305,7 @@ export default function ProductCcpMapping(props: { embedded?: boolean } & Record
                       <TableHeader>
                         <TableRow>
                           <TableHead className="w-[30px] text-xs">#</TableHead>
-                          <TableHead className="text-xs">원재료명</TableHead>
+                          <TableHead className="text-xs">{`${L("material")}명`}</TableHead>
                           <TableHead className="text-xs w-[70px] text-right">배합비(%)</TableHead>
                           <TableHead className="text-xs w-[80px] text-right">수율조정(kg)</TableHead>
                           <TableHead className="text-xs">CCP 공정 그룹</TableHead>
