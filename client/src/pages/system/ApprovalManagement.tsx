@@ -11,16 +11,6 @@ import { TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 // 2026-04-19 분해: 도메인 타입 / 상수 / 유틸 컴포넌트 분리
@@ -35,6 +25,7 @@ import {
 import { ApprovalStepsInline } from "./_approvalManagement/ApprovalStepsInline";
 import { RequestRow } from "./_approvalManagement/RequestRow";
 import { RequestDetailDialog } from "./_approvalManagement/RequestDetailDialog";
+import { ApprovalActionDialogs } from "./_approvalManagement/ApprovalActionDialogs";
 
 import {
   CheckCircle, Clock, XCircle, AlertCircle, FileText, Package, Droplet,
@@ -961,137 +952,54 @@ export default function ApprovalManagement() {
         </Tabs>
 
         {/* ============================================================ */}
-        {/* 검토 다이얼로그 */}
+        {/* 액션 다이얼로그 묶음 (2026-04-19 분해: ApprovalActionDialogs) */}
+        {/* 검토 / 승인 / 반려 / 삭제 / 일괄 / 레시피승인 / 레시피반려 */}
         {/* ============================================================ */}
-        <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base">
-                <UserCheck className="h-5 w-5 text-orange-600" />
-                검토 확인
-              </DialogTitle>
-              <DialogDescription className="text-xs">
-                검토 완료 시 승인 대기 상태로 이동합니다.
-              </DialogDescription>
-            </DialogHeader>
-            {selectedRequest && (
-              <div className="text-sm border rounded p-2 bg-muted/50 space-y-1">
-                <div className="flex justify-between"><span className="text-muted-foreground">유형:</span><span className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">제목:</span><span className="font-medium text-xs truncate max-w-[200px]">{selectedRequest.title}</span></div>
-              </div>
-            )}
-            <div>
-              <Label htmlFor="review-comment" className="text-xs">검토 코멘트 (선택)</Label>
-              <Textarea id="review-comment" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="검토 코멘트..." rows={2} className="text-sm" />
-            </div>
-            <DialogFooter className="flex-wrap gap-1.5">
-              <Button variant="outline" size="sm" onClick={() => setReviewDialogOpen(false)}>취소</Button>
-              <Button size="sm" className="bg-orange-500 hover:bg-orange-600" onClick={handleReview} disabled={reviewMutation.isPending}>
-                {reviewMutation.isPending ? "..." : "검토 완료"}
-              </Button>
-              {canApprove && (
-                <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleAutoReviewApprove} disabled={autoReviewApproveMutation.isPending}>
-                  {autoReviewApproveMutation.isPending ? "..." : "검토+승인"}
-                </Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 승인 다이얼로그 */}
-        <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-5 w-5 text-green-600" />최종 승인</DialogTitle>
-            </DialogHeader>
-            {selectedRequest && (
-              <div className="text-sm border rounded p-2 bg-muted/50 space-y-1">
-                <div className="flex justify-between"><span className="text-muted-foreground">유형:</span><span className="font-medium text-xs">{REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">제목:</span><span className="font-medium text-xs truncate max-w-[200px]">{selectedRequest.title}</span></div>
-              </div>
-            )}
-            <div>
-              <Label className="text-xs">승인 코멘트 (선택)</Label>
-              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="승인 코멘트..." rows={2} className="text-sm" />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setApproveDialogOpen(false)}>취소</Button>
-              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleApprove} disabled={approveMutation.isPending}>
-                {approveMutation.isPending ? "..." : "최종 승인"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 반려 다이얼로그 */}
-        <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base"><XCircle className="h-5 w-5 text-red-600" />반려</DialogTitle>
-            </DialogHeader>
-            <div>
-              <Label className="text-xs">반려 사유 (필수)</Label>
-              <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="반려 사유..." rows={2} className="text-sm" required />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setRejectDialogOpen(false)}>취소</Button>
-              <Button size="sm" variant="destructive" onClick={handleReject}
-                disabled={!comment.trim() || rejectReviewMutation.isPending || rejectApprovalMutation.isPending}
-              >
-                {(rejectReviewMutation.isPending || rejectApprovalMutation.isPending) ? "..." : "반려"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 삭제 다이얼로그 */}
-        <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-base text-red-600"><Trash2 className="h-5 w-5" />승인 요청 삭제</DialogTitle>
-              <DialogDescription className="text-xs">이 승인 요청을 완전히 삭제합니다. 삭제된 데이터는 복구할 수 없습니다.</DialogDescription>
-            </DialogHeader>
-            {selectedRequest && (
-              <div className="text-sm py-1 space-y-1">
-                <p className="font-medium">{selectedRequest.title}</p>
-                <p className="text-xs text-muted-foreground">#{selectedRequest.id} · {REQUEST_TYPE_LABELS[selectedRequest.requestType] || selectedRequest.requestType}</p>
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setCancelDialogOpen(false)}>취소</Button>
-              <Button size="sm" variant="destructive" onClick={handleCancel} disabled={deleteMutation.isPending}>
-                {deleteMutation.isPending ? "삭제 중..." : "삭제 확인"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 일괄 처리 확인 다이얼로그 */}
-        <Dialog open={batchConfirmDialogOpen} onOpenChange={setBatchConfirmDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="text-base">
-                {batchConfirmAction === "review" ? "일괄 검토 확인" : "일괄 승인 확인"}
-              </DialogTitle>
-              <DialogDescription className="text-xs">
-                {batchConfirmAction === "review"
-                  ? `${selectedReviewCount}건 일괄 검토`
-                  : `${selectedApprovalCount}건 일괄 승인`
-                }
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setBatchConfirmDialogOpen(false)}>취소</Button>
-              <Button size="sm"
-                className={batchConfirmAction === "review" ? "bg-orange-500 hover:bg-orange-600" : "bg-green-600 hover:bg-green-700"}
-                onClick={batchConfirmAction === "review" ? confirmBatchReview : confirmBatchApprove}
-                disabled={batchReviewMutation.isPending || batchApproveMutation.isPending}
-              >
-                {(batchReviewMutation.isPending || batchApproveMutation.isPending) ? "..." : "확인"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ApprovalActionDialogs
+          selectedRequest={selectedRequest}
+          selectedRecipe={selectedRecipe}
+          comment={comment}
+          setComment={setComment}
+          rejectionReason={rejectionReason}
+          setRejectionReason={setRejectionReason}
+          canApprove={canApprove}
+          batchConfirmAction={batchConfirmAction}
+          selectedReviewCount={selectedReviewCount}
+          selectedApprovalCount={selectedApprovalCount}
+          reviewDialogOpen={reviewDialogOpen}
+          setReviewDialogOpen={setReviewDialogOpen}
+          approveDialogOpen={approveDialogOpen}
+          setApproveDialogOpen={setApproveDialogOpen}
+          rejectDialogOpen={rejectDialogOpen}
+          setRejectDialogOpen={setRejectDialogOpen}
+          cancelDialogOpen={cancelDialogOpen}
+          setCancelDialogOpen={setCancelDialogOpen}
+          batchConfirmDialogOpen={batchConfirmDialogOpen}
+          setBatchConfirmDialogOpen={setBatchConfirmDialogOpen}
+          recipeApproveDialogOpen={recipeApproveDialogOpen}
+          setRecipeApproveDialogOpen={setRecipeApproveDialogOpen}
+          recipeRejectDialogOpen={recipeRejectDialogOpen}
+          setRecipeRejectDialogOpen={setRecipeRejectDialogOpen}
+          reviewPending={reviewMutation.isPending}
+          approvePending={approveMutation.isPending}
+          rejectReviewPending={rejectReviewMutation.isPending}
+          rejectApprovalPending={rejectApprovalMutation.isPending}
+          autoReviewApprovePending={autoReviewApproveMutation.isPending}
+          deletePending={deleteMutation.isPending}
+          batchReviewPending={batchReviewMutation.isPending}
+          batchApprovePending={batchApproveMutation.isPending}
+          approveRecipePending={approveRecipeMutation.isPending}
+          rejectRecipePending={rejectRecipeMutation.isPending}
+          onReview={handleReview}
+          onAutoReviewApprove={handleAutoReviewApprove}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onCancel={handleCancel}
+          onConfirmBatchReview={confirmBatchReview}
+          onConfirmBatchApprove={confirmBatchApprove}
+          onApproveRecipe={(recipeId) => approveRecipeMutation.mutate({ recipeId })}
+          onRejectRecipe={(recipeId, reason) => rejectRecipeMutation.mutate({ recipeId, reason })}
+        />
 
         {/* ============================================================ */}
         {/* 상세 보기 다이얼로그 (2026-04-19 분해: _approvalManagement/RequestDetailDialog) */}
@@ -1112,45 +1020,6 @@ export default function ApprovalManagement() {
           onOpenReject={() => { setComment(""); setRejectDialogOpen(true); }}
           onNavigate={setLocation}
         />
-
-        {/* 품목제조보고 승인 다이얼로그 */}
-        <Dialog open={recipeApproveDialogOpen} onOpenChange={setRecipeApproveDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle className="text-base">품목제조보고 승인</DialogTitle></DialogHeader>
-            {selectedRecipe && (
-              <div className="text-sm space-y-1">
-                <div className="flex justify-between"><span className="text-muted-foreground">레시피:</span><span className="font-medium">{selectedRecipe.recipeName}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">버전:</span><span>{selectedRecipe.version}</span></div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setRecipeApproveDialogOpen(false)}>취소</Button>
-              <Button size="sm" onClick={() => { if (selectedRecipe) approveRecipeMutation.mutate({ recipeId: selectedRecipe.id }); }} disabled={approveRecipeMutation.isPending}>
-                {approveRecipeMutation.isPending ? "..." : "승인"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* 품목제조보고 반려 다이얼로그 */}
-        <Dialog open={recipeRejectDialogOpen} onOpenChange={setRecipeRejectDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle className="text-base">품목제조보고 반려</DialogTitle></DialogHeader>
-            <div>
-              <Label className="text-xs">반려 사유 (필수)</Label>
-              <Textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} placeholder="반려 사유..." rows={2} className="text-sm" required />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setRecipeRejectDialogOpen(false)}>취소</Button>
-              <Button size="sm" variant="destructive"
-                onClick={() => { if (selectedRecipe && rejectionReason.trim()) rejectRecipeMutation.mutate({ recipeId: selectedRecipe.id, reason: rejectionReason }); }}
-                disabled={!rejectionReason.trim() || rejectRecipeMutation.isPending}
-              >
-                {rejectRecipeMutation.isPending ? "..." : "반려"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </DashboardLayout>
   );
