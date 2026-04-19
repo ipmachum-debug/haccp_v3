@@ -9,6 +9,12 @@
 import { useState, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import type { RouterOutput } from "@/lib/trpcTypes";
+
+// 승인문서 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
+type ApprovalRequest = RouterOutput["approval"]["list"][number];
+type ApprovalSetting = RouterOutput["organization"]["approvalSettings"]["list"][number];
+type EmployeeRow = RouterOutput["organization"]["employees"]["list"][number];
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -160,7 +166,7 @@ export default function DocumentPrintManagement() {
   });
 
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [detailDialog, setDetailDialog] = useState<{ open: boolean; request: any | null }>({ open: false, request: null });
+  const [detailDialog, setDetailDialog] = useState<{ open: boolean; request: ApprovalRequest | null }>({ open: false, request: null });
   const [batchPrintConfirm, setBatchPrintConfirm] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{ open: boolean; ids: number[]; titles: string[] }>({ open: false, ids: [], titles: [] });
@@ -215,7 +221,7 @@ export default function DocumentPrintManagement() {
   }, []);
 
   // 정렬용 날짜 계산 (우선순위: 작업일 → requestedAt → approvedAt → createdAt)
-  const getSortableDate = useCallback((r: any): string => {
+  const getSortableDate = useCallback((r: ApprovalRequest): string => {
     const workDate = extractDateFromTitle(r.title || "");
     if (workDate) return workDate;
     if (r.requestedAt) return new Date(r.requestedAt).toISOString().split("T")[0];
@@ -228,7 +234,7 @@ export default function DocumentPrintManagement() {
   // 1차: 작업일(제목에서 추출)
   // 2차: requestedAt / approvedAt / createdAt
   // 3차: 제목 사전순
-  const sortByDateDesc = useCallback((requests: any[]): any[] => {
+  const sortByDateDesc = useCallback((requests: ApprovalRequest[]): ApprovalRequest[] => {
     return [...requests].sort((a, b) => {
       const dateA = getSortableDate(a);
       const dateB = getSortableDate(b);
@@ -248,7 +254,7 @@ export default function DocumentPrintManagement() {
     });
   }, [getSortableDate]);
 
-  const filterRequests = useCallback((requests: any[], category?: string) => {
+  const filterRequests = useCallback((requests: ApprovalRequest[], category?: string) => {
     let filtered = requests;
     if (category) filtered = filtered.filter(r => getCategoryForRequest(r.requestType) === category);
     if (appliedFilters.dateFrom) filtered = filtered.filter(r => { const d = getSortableDate(r); return d >= appliedFilters.dateFrom; });
@@ -267,7 +273,7 @@ export default function DocumentPrintManagement() {
     d.setDate(d.getDate() - printQueueRecentDays);
     return d.toISOString().split("T")[0];
   })();
-  const unprintedRequests = approvedRequests.filter((r: any) => {
+  const unprintedRequests = approvedRequests.filter((r: ApprovalRequest) => {
     if (printedIds.has(r.id)) return false;
     if (printQueueShowAll) return true;
     // 작업일(제목) 우선, 없으면 requestedAt/approvedAt/createdAt
@@ -286,7 +292,7 @@ export default function DocumentPrintManagement() {
   const handleResetFilters = () => { setFilterDateFrom(""); setFilterDateTo(""); setFilterPrintStatus("all"); setFilterKeyword(""); setAppliedFilters({ dateFrom: "", dateTo: "", printStatus: "all", keyword: "" }); };
   const handleRefresh = () => { refetchApproved(); toast({ title: "새로고침 완료" }); };
 
-  const handlePrint = async (request: any) => {
+  const handlePrint = async (request: ApprovalRequest) => {
     const newPrintedIds = new Set([...Array.from(printedIds), request.id]);
     savePrintedIds(newPrintedIds);
     savePrintHistory([{ date: new Date().toISOString(), ids: [request.id], count: 1 }, ...printHistory]);
@@ -299,9 +305,9 @@ export default function DocumentPrintManagement() {
     setBatchPrintConfirm(true);
   };
 
-  const executeBatchPrint = async (requests: any[]) => {
+  const executeBatchPrint = async (requests: ApprovalRequest[]) => {
     setIsPrinting(true);
-    const ids = requests.map((r: any) => r.id).filter(Boolean);
+    const ids = requests.map((r: ApprovalRequest) => r.id).filter(Boolean);
 
     if (ids.length === 0) {
       setIsPrinting(false);
@@ -346,9 +352,9 @@ export default function DocumentPrintManagement() {
     });
   };
 
-  const handleBatchPrintAll = (requests: any[]) => {
+  const handleBatchPrintAll = (requests: ApprovalRequest[]) => {
     if (requests.length === 0) return;
-    setSelectedIds(requests.map((r: any) => r.id));
+    setSelectedIds(requests.map((r: ApprovalRequest) => r.id));
     setBatchPrintConfirm(true);
   };
 
@@ -360,8 +366,8 @@ export default function DocumentPrintManagement() {
   };
 
   const toggleSelect = (id: number) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  const toggleSelectAll = (list: any[]) => {
-    const allIds = list.map((r: any) => r.id);
+  const toggleSelectAll = (list: ApprovalRequest[]) => {
+    const allIds = list.map((r: ApprovalRequest) => r.id);
     setSelectedIds(allIds.length > 0 && allIds.every((id: number) => selectedIds.includes(id)) ? [] : allIds);
   };
 
@@ -391,7 +397,7 @@ export default function DocumentPrintManagement() {
     },
   });
 
-  const handleDeleteRequest = (request: any) => {
+  const handleDeleteRequest = (request: ApprovalRequest) => {
     setDeleteConfirmDialog({ open: true, ids: [request.id], titles: [request.title || `#${request.id}`] });
   };
 
@@ -420,7 +426,7 @@ export default function DocumentPrintManagement() {
   };
 
   // 컴팩트 문서 행 렌더링
-  const renderDocumentRow = (request: any, showCheckbox: boolean = true, showDelete: boolean = true) => {
+  const renderDocumentRow = (request: ApprovalRequest, showCheckbox: boolean = true, showDelete: boolean = true) => {
     const isSelected = selectedIds.includes(request.id);
     const isPrinted = printedIds.has(request.id);
     const cat = getCategoryForRequest(request.requestType);
@@ -494,9 +500,9 @@ export default function DocumentPrintManagement() {
     </div>
   );
 
-  const renderSelectionBar = (list: any[]) => {
+  const renderSelectionBar = (list: ApprovalRequest[]) => {
     if (list.length === 0) return null;
-    const allIds = list.map((r: any) => r.id);
+    const allIds = list.map((r: ApprovalRequest) => r.id);
     const allSelected = allIds.length > 0 && allIds.every((id: number) => selectedIds.includes(id));
     const selectedCount = allIds.filter((id: number) => selectedIds.includes(id)).length;
     return (
@@ -670,7 +676,7 @@ export default function DocumentPrintManagement() {
               </div>
               {renderSelectionBar(printQueueFiltered)}
               {printQueueFiltered.length > 0
-                ? printQueueFiltered.map((r: any) => renderDocumentRow(r))
+                ? printQueueFiltered.map((r: ApprovalRequest) => renderDocumentRow(r))
                 : renderEmpty(
                     printQueueShowAll
                       ? "출력 대기 문서가 없습니다."
@@ -684,7 +690,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="ccp" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(ccpFiltered)}
-            {ccpFiltered.length > 0 ? ccpFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("CCP 승인 문서가 없습니다.")}
+            {ccpFiltered.length > 0 ? ccpFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("CCP 승인 문서가 없습니다.")}
           </CardContent></Card>
         </TabsContent>
 
@@ -692,7 +698,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="prerequisite" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(prerequisiteFiltered)}
-            {prerequisiteFiltered.length > 0 ? prerequisiteFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("선행/위생 승인 문서가 없습니다.")}
+            {prerequisiteFiltered.length > 0 ? prerequisiteFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("선행/위생 승인 문서가 없습니다.")}
           </CardContent></Card>
         </TabsContent>
 
@@ -700,7 +706,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="production" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(productionFiltered)}
-            {productionFiltered.length > 0 ? productionFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("품목제조 승인 문서가 없습니다.")}
+            {productionFiltered.length > 0 ? productionFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("품목제조 승인 문서가 없습니다.")}
           </CardContent></Card>
         </TabsContent>
 
@@ -708,7 +714,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="inspection" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(inspectionFiltered)}
-            {inspectionFiltered.length > 0 ? inspectionFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("승인된 검사일지가 없습니다. (육안검사 / 완제품출고검사)")}
+            {inspectionFiltered.length > 0 ? inspectionFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("승인된 검사일지가 없습니다. (육안검사 / 완제품출고검사)")}
           </CardContent></Card>
         </TabsContent>
 
@@ -716,7 +722,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="production_log" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(productionLogFiltered)}
-            {productionLogFiltered.length > 0 ? productionLogFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("승인된 생산일지가 없습니다.")}
+            {productionLogFiltered.length > 0 ? productionLogFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("승인된 생산일지가 없습니다.")}
           </CardContent></Card>
         </TabsContent>
 
@@ -724,7 +730,7 @@ export default function DocumentPrintManagement() {
         <TabsContent value="material" className="mt-2">
           <Card><CardContent className="p-0">
             {renderSelectionBar(materialFiltered)}
-            {materialFiltered.length > 0 ? materialFiltered.map((r: any) => renderDocumentRow(r)) : renderEmpty("승인된 원료수불 보고서가 없습니다.")}
+            {materialFiltered.length > 0 ? materialFiltered.map((r: ApprovalRequest) => renderDocumentRow(r)) : renderEmpty("승인된 원료수불 보고서가 없습니다.")}
           </CardContent></Card>
         </TabsContent>
 
@@ -745,7 +751,7 @@ export default function DocumentPrintManagement() {
             <CardContent className="p-0">
               {printedIds.size > 0 ? (
                 <>
-                  {sortByDateDesc(approvedRequests.filter((r: any) => printedIds.has(r.id))).map((r: any) => renderDocumentRow(r, false, true))}
+                  {sortByDateDesc(approvedRequests.filter((r: ApprovalRequest) => printedIds.has(r.id))).map((r: any) => renderDocumentRow(r, false, true))}
                   {printHistory.length > 0 && (
                     <div className="px-3 py-2 border-t">
                       <h4 className="text-[10px] font-medium text-gray-500 mb-1.5">최근 인쇄 기록</h4>
@@ -780,7 +786,7 @@ export default function DocumentPrintManagement() {
             </CardHeader>
             <CardContent className="p-0">
               {renderSelectionBar(sortByDateDesc(allRequests))}
-              {allRequests.length > 0 ? sortByDateDesc(allRequests).map((r: any) => {
+              {allRequests.length > 0 ? sortByDateDesc(allRequests).map((r: ApprovalRequest) => {
                 const isSelected = selectedIds.includes(r.id);
                 const cat = getCategoryForRequest(r.requestType);
                 const catColor = CATEGORY_BADGE_COLORS[cat] || "";
@@ -808,8 +814,8 @@ export default function DocumentPrintManagement() {
                     <button onClick={(e) => { e.stopPropagation(); toggleSelect(r.id); }} className="flex-shrink-0 text-muted-foreground hover:text-blue-600">
                       {isSelected ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
                     </button>
-                    <Badge className={`${statusColors[r.status] || "bg-gray-100 text-gray-700"} text-[10px] px-1 py-0 flex-shrink-0`}>
-                      {statusLabels[r.status] || r.status}
+                    <Badge className={`${(r.status && statusColors[r.status]) || "bg-gray-100 text-gray-700"} text-[10px] px-1 py-0 flex-shrink-0`}>
+                      {(r.status && statusLabels[r.status]) || r.status}
                     </Badge>
                     <Badge className={`${catColor} text-[10px] px-1 py-0 flex-shrink-0`}>
                       {getRequestTypeLabel(r.requestType)}
@@ -855,22 +861,28 @@ export default function DocumentPrintManagement() {
               </div>
               {/* 승인 직인 */}
               {(() => {
-                const cfd = (detailDialog.request as any).checklistFormData;
+                if (!detailDialog.request) return null;
+                const req = detailDialog.request;
+                const cfd = (req as ApprovalRequest & { checklistFormData?: { approval?: { writerName?: string; reviewerName?: string; approverName?: string; reviewerApproved?: boolean; approverApproved?: boolean } } }).checklistFormData;
                 const approval = cfd?.approval;
-                const docSetting2 = (allApprovalSettings as any[]).find((s: any) => s.documentType === detailDialog.request.requestType);
-                const empList2 = allEmployees as any[];
-                const settingAuthor2 = docSetting2?.authorEmployeeId ? empList2.find((e: any) => e.id === docSetting2.authorEmployeeId)?.name : "";
-                const settingReviewer2 = docSetting2?.reviewerEmployeeId ? empList2.find((e: any) => e.id === docSetting2.reviewerEmployeeId)?.name : "";
-                const settingApprover2 = docSetting2?.approverEmployeeId ? empList2.find((e: any) => e.id === docSetting2.approverEmployeeId)?.name : "";
-                const writerName = approval?.writerName || settingAuthor2 || detailDialog.request.requester?.name || "작성자";
-                const reviewerName = approval?.reviewerName || settingReviewer2 || detailDialog.request.reviewer?.name || "검토자";
-                const approverName = approval?.approverName || settingApprover2 || detailDialog.request.approver?.name || "승인자";
+                const docSetting2 = (allApprovalSettings as ApprovalSetting[]).find((s: ApprovalSetting) => s.documentType === req.requestType);
+                const empList2 = allEmployees as EmployeeRow[];
+                const settingAuthor2 = docSetting2?.authorEmployeeId ? empList2.find((e: EmployeeRow) => e.id === docSetting2.authorEmployeeId)?.name : "";
+                const settingReviewer2 = docSetting2?.reviewerEmployeeId ? empList2.find((e: EmployeeRow) => e.id === docSetting2.reviewerEmployeeId)?.name : "";
+                const settingApprover2 = docSetting2?.approverEmployeeId ? empList2.find((e: EmployeeRow) => e.id === docSetting2.approverEmployeeId)?.name : "";
+                const requesterName = (req as ApprovalRequest & { requester?: { name?: string } }).requester?.name;
+                const reviewerNameFromReq = (req as ApprovalRequest & { reviewer?: { name?: string } }).reviewer?.name;
+                const approverNameFromReq = (req as ApprovalRequest & { approver?: { name?: string } }).approver?.name;
+                const writerName = approval?.writerName || settingAuthor2 || requesterName || "작성자";
+                const reviewerName = approval?.reviewerName || settingReviewer2 || reviewerNameFromReq || "검토자";
+                const approverName = approval?.approverName || settingApprover2 || approverNameFromReq || "승인자";
+                const toDateStr = (d: string | Date | null | undefined) => (d ? (typeof d === "string" ? d : d.toISOString()) : undefined);
                 return (
                   <div className="border-t pt-2 flex justify-center">
                     <ApprovalSealRow
-                      writer={{ name: writerName, date: detailDialog.request.requestedAt || detailDialog.request.createdAt }}
-                      reviewer={detailDialog.request.reviewedAt || approval?.reviewerApproved ? { name: reviewerName, date: detailDialog.request.reviewedAt || detailDialog.request.approvedAt } : undefined}
-                      approver={detailDialog.request.approvedAt || approval?.approverApproved ? { name: approverName, date: detailDialog.request.approvedAt } : undefined}
+                      writer={{ name: writerName, date: toDateStr(req.requestedAt || req.createdAt) }}
+                      reviewer={req.reviewedAt || approval?.reviewerApproved ? { name: reviewerName, date: toDateStr(req.reviewedAt || req.approvedAt) } : undefined}
+                      approver={req.approvedAt || approval?.approverApproved ? { name: approverName, date: toDateStr(req.approvedAt) } : undefined}
                       size={45}
                     />
                   </div>
@@ -881,7 +893,7 @@ export default function DocumentPrintManagement() {
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setDetailDialog({ open: false, request: null })}>닫기</Button>
             {detailDialog.request && (
-              <Button size="sm" onClick={() => { handlePrint(detailDialog.request); setDetailDialog({ open: false, request: null }); }}>
+              <Button size="sm" onClick={() => { if (detailDialog.request) handlePrint(detailDialog.request); setDetailDialog({ open: false, request: null }); }}>
                 <Printer className="h-3.5 w-3.5 mr-1" />인쇄
               </Button>
             )}
@@ -931,7 +943,7 @@ export default function DocumentPrintManagement() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setBatchPrintConfirm(false)}>취소</Button>
-            <Button size="sm" onClick={() => { const sel = approvedRequests.filter((r: any) => selectedIds.includes(r.id)); executeBatchPrint(sel); }} disabled={isPrinting}>
+            <Button size="sm" onClick={() => { const sel = approvedRequests.filter((r: ApprovalRequest) => selectedIds.includes(r.id)); executeBatchPrint(sel); }} disabled={isPrinting}>
               {isPrinting ? <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />...</> : <><Printer className="h-3.5 w-3.5 mr-1" />인쇄 ({selectedIds.length})</>}
             </Button>
           </DialogFooter>
