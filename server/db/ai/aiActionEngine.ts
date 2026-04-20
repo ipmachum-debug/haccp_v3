@@ -541,7 +541,7 @@ async function gatherContext(
 
         // 전체 직원수 & 완료수
         const [userCount] = await conn.execute<any[]>(
-          "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'", [tenantId]
+          "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'", [tenantId]
         );
         const [doneCount] = await conn.execute<any[]>(
           "SELECT COUNT(*) as cnt FROM h_training_logs WHERE day_no = ? AND assignment_date = ? AND tenant_id = ? AND status = 'DONE'",

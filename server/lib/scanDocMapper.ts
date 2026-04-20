@@ -106,7 +106,7 @@ async function mapTrainingLog(
       for (const attendee of data.attendees) {
         // 이름으로 사용자 찾기
         const [users] = await conn.execute<any[]>(
-          "SELECT id FROM users WHERE tenant_id = ? AND name = ? AND status = 'approved'",
+          "SELECT id FROM users WHERE tenant_id = ? AND name = ? AND approval_status = 'approved'",
           [tenantId, attendee.name || attendee]
         );
         if (users.length > 0) {

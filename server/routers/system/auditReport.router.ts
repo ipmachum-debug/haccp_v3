@@ -31,7 +31,7 @@ export const auditReportRouter = router({
         [tenantId, startDate, endDate]
       );
       const [trainUsers] = await conn.execute<any[]>(
-        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'",
+        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'",
         [tenantId]
       );
       const [trainDone] = await conn.execute<any[]>(
