@@ -31,17 +31,21 @@ async function getOrCreateAssignment(tenantId: number, today: string): Promise<n
   if (isWeekend) return null;
 
   // 3) 평일이면 무조건 배정 (선배정)
+  // MAX(day_no) 사용: 중간 레코드 삭제/누락 시에도 절대 역행하지 않음
   const [lastAssign] = await pool.execute<any[]>(
-    "SELECT day_no FROM h_training_assignments WHERE tenant_id = ? ORDER BY assignment_date DESC LIMIT 1",
+    "SELECT MAX(day_no) as max_day FROM h_training_assignments WHERE tenant_id = ?",
     [tenantId]
   );
 
-  let nextDayNo: number;
-  if (lastAssign.length > 0) {
-    nextDayNo = (lastAssign[0].day_no % 120) + 1; // 120일 순환
-  } else {
-    nextDayNo = 1; // 첫 시작
-  }
+  // 순환 주기는 topics 테이블의 실제 최대 day_no 기준 (120/200 등 유연 대응)
+  const [topicMaxRows] = await pool.execute<any[]>(
+    "SELECT MAX(day_no) as max_day FROM h_training_topics WHERE tenant_id = 0 OR tenant_id = ?",
+    [tenantId]
+  );
+  const cycleLen = Math.max(1, Number(topicMaxRows[0]?.max_day) || 120);
+
+  const lastDay = Number(lastAssign[0]?.max_day) || 0;
+  const nextDayNo = lastDay > 0 ? (lastDay % cycleLen) + 1 : 1;
 
   // 4) 배정 생성
   await pool.execute(
