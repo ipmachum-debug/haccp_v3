@@ -75,12 +75,12 @@ export default function OnboardingPage() {
   const { data: plans } = trpc.onboarding.getPlans.useQuery();
 
   const registerMutation = trpc.onboarding.register.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       setResult(data as any);
       setStep(3);
       toast.success(data.message);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err: any) => toast.error(err.message),
   });
 
   const validate = (): string | null => {
