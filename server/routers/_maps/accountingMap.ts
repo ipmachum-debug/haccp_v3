@@ -41,6 +41,7 @@ import {
   recurringTransactionRouter,
   changeLogRouter,
   aiErpRouter,
+  aiSkuMatchRouter,
 } from "../accounting";
 
 export const accountingRouterMap = {
@@ -80,5 +81,6 @@ export const accountingRouterMap = {
   recurring: recurringTransactionRouter,
   changeLog: changeLogRouter,
   aiErp: aiErpRouter,
+  aiSkuMatch: aiSkuMatchRouter,
   popbillSettings: popbillSettingsRouter,
 } as const;

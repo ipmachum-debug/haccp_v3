@@ -231,12 +231,18 @@ export async function createPurchase(params: {
 
 /**
  * 매출 거래 직접 생성 (품목 단위)
+ *
+ * ★ 2026-04-21 (Phase 8+): materialId 파라미터 추가
+ *   - productId 또는 materialId 중 하나만 설정 (XOR)
+ *   - 완제품 판매 → productId
+ *   - 원재료/부자재/외부제품 판매 → materialId
  */
 export async function createSale(params: {
   transactionDate: string;
   partnerId: number;
   itemName: string;
-  productId?: number; // ★ 2026-04-14: h_products FK (Module 2)
+  productId?: number;   // 완제품 FK (h_products_v2)
+  materialId?: number;  // 원재료/부자재/외부제품 FK (h_materials)
   quantity: number;
   unitPrice: number;
   amount: number;
@@ -249,11 +255,19 @@ export async function createSale(params: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
+  // XOR 검증
+  if (params.productId && params.materialId) {
+    throw new Error(
+      `createSale: productId(${params.productId})와 materialId(${params.materialId}) 동시 설정 불가 (XOR 제약)`,
+    );
+  }
+
   const [sale] = await db.insert(accountingSales).values({
     tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
-    productId: params.productId ?? null, // ★ 2026-04-14: 제품 FK 저장
+    productId: params.productId ?? null,
+    materialId: params.materialId ?? null,
     itemName: params.itemName,
     quantity: params.quantity.toString(),
     unit: params.unit || "개",
