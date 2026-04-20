@@ -225,6 +225,7 @@ function FinishedProductDocument({
   items: FinishedProductItem[]; year: number; month: number;
   approvalInfo?: { requesterName?: string; reviewerName?: string; approverName?: string; approvedAt?: string; reviewedAt?: string; requestedAt?: string };
 }) {
+  const L = useIndustryLabel();
   const bCls = "border border-gray-600";
   const thCls = `${bCls} px-1 py-1 text-[8px] font-semibold bg-green-50 text-center whitespace-nowrap`;
   const tdCls = `${bCls} px-1 py-0.5 text-[9px] text-center`;
@@ -325,6 +326,7 @@ function FinishedProductDocument({
 // Main component - monthly auto-create, with auto-complete & approval
 // ===========================================================================
 export function FinishedProductInspectionLogContent() {
+  const L = useIndustryLabel();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [logId, setLogId] = useState<number | null>(null);

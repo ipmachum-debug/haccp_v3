@@ -76,6 +76,7 @@ export default function QuotationCreate() {
 }
 
 function QuotationCreateContent() {
+  const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState<string>("");

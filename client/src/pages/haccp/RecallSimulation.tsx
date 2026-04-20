@@ -23,6 +23,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function RecallSimulation({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
+  const L = useIndustryLabel();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCompleteOpen, setIsCompleteOpen] = useState(false);

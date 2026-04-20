@@ -1,5 +1,4 @@
 /**
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
  * 단순 데이터 임포트 페이지
  *
  * 신규 테넌트 온보딩 시 과거 운영 데이터를 축적하는 UI.
@@ -8,6 +7,7 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 import { useState, useRef } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {

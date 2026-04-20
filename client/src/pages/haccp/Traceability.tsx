@@ -224,6 +224,7 @@ function ForwardTraceResult({ data }: { data: any }) {
  * 역방향 추적 결과 (완제품 → 배치 → 원재료 LOT) - 플로우차트 스타일
  */
 function BackwardTraceResult({ data }: { data: any }) {
+  const L = useIndustryLabel();
   if (!data.materialInputs || data.materialInputs.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">

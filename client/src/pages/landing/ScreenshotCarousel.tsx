@@ -230,6 +230,7 @@ function AccountingScreen() {
 }
 
 function AIScreen() {
+  const L = useIndustryLabel();
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-2 mb-1">

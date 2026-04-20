@@ -23,6 +23,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function SupplierAudit({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("suppliers");
   const [isCreateSupplierOpen, setIsCreateSupplierOpen] = useState(false);
   const [isCreateAuditOpen, setIsCreateAuditOpen] = useState(false);

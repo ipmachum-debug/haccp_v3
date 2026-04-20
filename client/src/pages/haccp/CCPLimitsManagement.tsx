@@ -112,6 +112,7 @@ function ProcessGroupFormDialog({
   equipmentList: EquipmentRow[];
   onSubmit: (data: Record<string, unknown>) => void;
 }) {
+  const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("basic");
   const [form, setForm] = useState(() => ({
     name: initialData?.name || "",
@@ -686,6 +687,7 @@ function TimeProfileDialog({
   onOpenChange: (open: boolean) => void;
   onGroupUpdated?: () => void;
 }) {
+  const L = useIndustryLabel();
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ timeMin: string; timeMax: string; description: string }>({
     timeMin: "",
@@ -894,6 +896,7 @@ function ProductTimeProfileMapDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const L = useIndustryLabel();
   const [filterCcpType, setFilterCcpType] = useState<string>("all");
 
   // BOM 기반 제품-공정그룹 전체 매핑 조회 (getProcessGroupProducts 재활용)

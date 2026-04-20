@@ -80,6 +80,7 @@ export default function QuotationList() {
 }
 
 function QuotationListContent() {
+  const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState<string>("");

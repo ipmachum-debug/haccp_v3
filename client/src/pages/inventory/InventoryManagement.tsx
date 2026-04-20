@@ -419,6 +419,7 @@ export default function InventoryManagement() {
 
 // 재고 예측 탭 컴포넌트
 function PredictionTab() {
+  const L = useIndustryLabel();
   const [daysAhead, setDaysAhead] = useState(30);
   
   const { data: predictions, isLoading } = trpc.inventory.predictAllShortage.useQuery({ days: daysAhead });
@@ -503,6 +504,7 @@ function PredictionTab() {
 
 // 발주 제안 탭 컴포넌트
 function PurchaseOrderTab() {
+  const L = useIndustryLabel();
   const [daysAhead, setDaysAhead] = useState(30);
   const utils = trpc.useUtils();
   
@@ -733,6 +735,7 @@ function ReleaseTab() {
 
 // 입고관리 탭 컴포넌트 (페이지네이션 + 정렬)
 function ReceiptTab() {
+  const L = useIndustryLabel();
   const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 500 });
   const pg = usePaginatedSort(receipts || [], { defaultSort: { key: 'receiptDate', direction: 'desc' } });
 
@@ -899,6 +902,7 @@ function AdjustmentTab() {
 
 // 원재료별 재고 현황 테이블 (페이지네이션 + 정렬)
 function MaterialStockTable({ materialStocks, isLoading }: { materialStocks: any[]; isLoading: boolean }) {
+  const L = useIndustryLabel();
   const pg = usePaginatedSort(materialStocks, { defaultSort: { key: 'materialName', direction: 'asc' } });
 
   return (

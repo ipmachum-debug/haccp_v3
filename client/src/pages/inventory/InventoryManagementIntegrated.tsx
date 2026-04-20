@@ -329,6 +329,7 @@ function TrendTablePaginated({ data }: { data: TrendRow[] }) {
    ═══════════════════════════════════════════════════ */
 type TurnoverRowDisplay = Omit<TurnoverRow, "efficiency"> & { efficiency: string };
 function TurnoverTablePaginated({ data }: { data: TurnoverRowDisplay[] }) {
+  const L = useIndustryLabel();
   const {
     sort, handleSort, pagination, setPage, setPageSize,
     pageData, totalItems, totalPages, startIdx, endIdx
@@ -398,6 +399,7 @@ function TurnoverTablePaginated({ data }: { data: TurnoverRowDisplay[] }) {
    발주 제안 (원재료 전용) - 현황 탭과 동일한 재고값 표시
    ═══════════════════════════════════════════════════ */
 function PurchaseOrderTab() {
+  const L = useIndustryLabel();
   const [days, setDays] = useState(30);
   const utils = trpc.useUtils();
   const { data: suggs, isLoading } = trpc.inventory.getPurchaseOrderSuggestions.useQuery({ days });

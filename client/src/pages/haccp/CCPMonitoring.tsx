@@ -492,6 +492,7 @@ function EquipmentCcpSettingsForm({
   onSaved: () => void;
   processGroup?: any;
 }) {
+  const L = useIndustryLabel();
   // equipments 테이블 필드명: ccpType (camelCase via drizzle)
   const ccpType = (equipment.ccpType) as "CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P";
 

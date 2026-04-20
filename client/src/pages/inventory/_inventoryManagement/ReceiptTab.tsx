@@ -22,6 +22,7 @@ import { usePaginatedSort, SortableHeader, PaginationBar } from "@/components/Pa
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export function ReceiptTab() {
+  const L = useIndustryLabel();
   const utils = trpc.useUtils();
   const today = new Date().toISOString().split("T")[0];
   const [matId, setMatId] = useState<number | null>(null); const [matName, setMatName] = useState(""); const [qty, setQty] = useState(""); const [unit, setUnit] = useState("kg");

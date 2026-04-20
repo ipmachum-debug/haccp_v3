@@ -44,6 +44,7 @@ import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function HazardAnalysis({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
+  const L = useIndustryLabel();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<number>(1);
   const [editingHazard, setEditingHazard] = useState<any>(null);

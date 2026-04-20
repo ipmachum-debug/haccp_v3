@@ -185,6 +185,7 @@ const SensorStatusBadge = ({ status }: { status: string }) => {
 
 // 콘텐츠만 (ProductionManagement 탭에 임베드할 때 사용)
 export const PipelineDashboardContent: React.FC = () => {
+  const L = useIndustryLabel();
   const { user } = useAuth();
   const siteId = (user as { siteId?: number; tenantId?: number } | null)?.siteId || (user as { siteId?: number; tenantId?: number } | null)?.tenantId || 0;
   const [selectedDate, setSelectedDate] = useState<string>(

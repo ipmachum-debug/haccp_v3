@@ -47,6 +47,7 @@ export default function ItemMasterManagement() {
 }
 
 function ItemMasterContent() {
+  const L = useIndustryLabel();
   const { toast } = useToast();
   
   // 다운로드 mutations (useMutation 훅)

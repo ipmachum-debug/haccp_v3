@@ -15,6 +15,7 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // Tab 4: 시정조치 AI
 // ============================================================================
 export function CorrectiveActionTab() {
+  const L = useIndustryLabel();
   const [deviationType, setDeviationType] = useState("CCP 온도 이탈");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");

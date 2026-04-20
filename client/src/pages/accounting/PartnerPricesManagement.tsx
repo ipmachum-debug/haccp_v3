@@ -116,6 +116,7 @@ export default function PartnerPricesManagement() {
 }
 
 function PartnerPricesContent() {
+  const L = useIndustryLabel();
   // 필터
   const [partnerFilterId, setPartnerFilterId] = useState<number | null>(null);
   const [partnerFilterName, setPartnerFilterName] = useState<string>("");

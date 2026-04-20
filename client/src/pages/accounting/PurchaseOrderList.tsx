@@ -84,6 +84,7 @@ export default function PurchaseOrderList() {
 }
 
 function PurchaseOrderListContent() {
+  const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchText, setSearchText] = useState<string>("");

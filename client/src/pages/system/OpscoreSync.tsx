@@ -296,6 +296,7 @@ function SuperAdminPanel() {
 // 테넌트 관리자용: 동기화 설정 및 실행
 // ============================================================
 function TenantAdminPanel() {
+  const L = useIndustryLabel();
   const { data: myMapping, refetch: refetchMapping } = trpc.opscoreSync.getMyMapping.useQuery();
   const { data: statusData, refetch: refetchStatus } = trpc.opscoreSync.getStatus.useQuery();
   const toggleSync = trpc.opscoreSync.toggleTenantSync.useMutation({

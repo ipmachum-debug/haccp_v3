@@ -60,6 +60,7 @@ const CCP_TYPE_COLORS: Record<string, string> = {
 };
 
 export default function CcpTemplateManagement({ embedded = false }: { embedded?: boolean } = {}) {
+  const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
