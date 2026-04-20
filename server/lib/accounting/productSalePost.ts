@@ -61,17 +61,22 @@ export async function postProductSale(
   const saleQty = Number(sale.quantity || 0);
   const docId = `SALE-${saleId}`;
   const productId = (sale as any).productId as number | null;
+  const materialId = (sale as any).materialId as number | null;
   const entryDate = typeof sale.transactionDate === "string"
     ? sale.transactionDate
     : formatLocalDate(sale.transactionDate as Date);
 
-  // ── 2b. product_id 없으면 item_name 으로 자동 해결 (레거시 호환) ──
-  //   h_products_v2 가 현재 사용 테이블 (h_products 는 legacy)
+  // ── 2b. product_id/material_id 자동 해결 (레거시 호환) ──
+  //   원재료/부자재/외부제품 매출 지원 (Phase 8+)
+  //   우선순위: 명시된 ID → product_id(h_products_v2) 매칭 → material_id(h_materials) 매칭
   let resolvedProductId: number | null = productId;
-  if (!resolvedProductId && sale.itemName) {
+  let resolvedMaterialId: number | null = materialId;
+
+  if (!resolvedProductId && !resolvedMaterialId && sale.itemName) {
     try {
       const itemName = sale.itemName;
       const likePattern = `%${itemName}%`;
+      // 1순위: 완제품 매칭 시도
       const matResult: any = await db.execute(sql`
         SELECT id FROM h_products_v2
         WHERE tenant_id = ${tenantId} AND is_active = 1
@@ -82,11 +87,36 @@ export async function postProductSale(
       const matRowsArr: any[] = (matResult as any)?.[0] || [];
       if (matRowsArr[0]?.id) {
         resolvedProductId = Number(matRowsArr[0].id);
+      } else {
+        // 2순위: 원재료/부자재/외부제품 매칭
+        const mResult: any = await db.execute(sql`
+          SELECT id FROM h_materials
+          WHERE tenant_id = ${tenantId}
+            AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
+          ORDER BY (material_name = ${itemName}) DESC, id ASC
+          LIMIT 1
+        `);
+        const mRows: any[] = (mResult as any)?.[0] || [];
+        if (mRows[0]?.id) {
+          resolvedMaterialId = Number(mRows[0].id);
+        }
       }
     } catch (e) {
-      console.error(`[productSalePost] product_id 조회 실패 (계속):`, e);
+      console.error(`[productSalePost] product_id/material_id 조회 실패 (계속):`, e);
     }
   }
+
+  // XOR 검증: product_id 와 material_id 동시 설정 차단
+  if (resolvedProductId && resolvedMaterialId) {
+    throw new Error(
+      `[${docId}] product_id 와 material_id 동시 설정 불가 (XOR 제약): ` +
+        `product=${resolvedProductId}, material=${resolvedMaterialId}`,
+    );
+  }
+
+  // 재고 차감 대상 구분 (제품 vs 원재료/부자재/외부제품)
+  const isProductSale = !!resolvedProductId;
+  const isMaterialSale = !!resolvedMaterialId;
 
   // ── 3. 필수 계정 사전 검증 ──────────────────────────────
   const receivableAcc = await resolveSystemAccount(
@@ -98,9 +128,13 @@ export async function postProductSale(
   const cogsAcc = await resolveSystemAccount(
     tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가",
   );
-  const inventoryGoodsAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "제품",
-  );
+  // COGS 분개 대변 계정: 제품재고 vs 원재료재고 (판매 품목 타입에 따라)
+  const inventoryGoodsAcc = isProductSale
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "제품")
+    : null;
+  const inventoryRawAcc = isMaterialSale
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1310", "원재료")
+    : null;
   const vatAcc = taxAmount > 0
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_OUTPUT, "2350", "부가세예수금")
     : null;
@@ -109,7 +143,8 @@ export async function postProductSale(
   if (receivableAcc.id === 0) missing.push("ACCOUNTS_RECEIVABLE");
   if (salesRevenueAcc.id === 0) missing.push("SALES_REVENUE");
   if (cogsAcc.id === 0) missing.push("COST_OF_GOODS");
-  if (inventoryGoodsAcc.id === 0) missing.push("INVENTORY_GOODS");
+  if (isProductSale && inventoryGoodsAcc && inventoryGoodsAcc.id === 0) missing.push("INVENTORY_GOODS");
+  if (isMaterialSale && inventoryRawAcc && inventoryRawAcc.id === 0) missing.push("INVENTORY_RAW");
   if (vatAcc && vatAcc.id === 0) missing.push("VAT_OUTPUT");
   if (missing.length > 0) {
     throw new Error(
@@ -132,19 +167,25 @@ export async function postProductSale(
       throw new Error(`취소된 매출은 확정할 수 없습니다. (ID: ${saleId})`);
     }
 
-    // (A) FEFO 재고 차감 — product_id 있을 때만
+    // (A) FEFO 재고 차감 — product_id 또는 material_id 있을 때
     //     없으면 재고 차감 없이 회계 분개만 수행 (레거시 호환)
     //     COGS 는 LOT 단가가 없으니 supplyAmount 를 fallback 원가로 사용
     let totalCogs = 0; // 실제 차감된 LOT 단가 × 수량 합계
     const usedLots: Array<{ lotId: number; qty: number; unitCost: number }> = [];
 
-    if (resolvedProductId && saleQty > 0) {
+    // 차감 대상 식별 (제품 vs 원재료) + FEFO 쿼리용 WHERE 절
+    const lotFilterColumn = isProductSale ? "product_id" : isMaterialSale ? "material_id" : null;
+    const lotFilterValue = isProductSale ? resolvedProductId : resolvedMaterialId;
+    const ledgerId = resolvedProductId ?? resolvedMaterialId; // 수불부는 material_id 컬럼 공용
+    const itemTypeLabel = isProductSale ? "제품" : "원재료/부자재/외부제품";
+
+    if (lotFilterColumn && lotFilterValue && saleQty > 0) {
       // (A-1) FEFO 순으로 사용 가능 LOT 조회 + 각 LOT 잠금
       const [lotRows] = await conn.execute(
         `SELECT id, available_quantity, current_quantity, unit_price, expiry_date
          FROM h_inventory_lots
          WHERE tenant_id = ?
-           AND product_id = ?
+           AND ${lotFilterColumn} = ?
            AND status = 'available'
            AND available_quantity > 0.001
          ORDER BY
@@ -153,7 +194,7 @@ export async function postProductSale(
            receipt_date ASC,
            id ASC
          FOR UPDATE`,
-        [tenantId, resolvedProductId],
+        [tenantId, lotFilterValue],
       );
       const availableLots = lotRows as any[];
 
@@ -164,7 +205,7 @@ export async function postProductSale(
       );
       if (totalAvailable + 0.001 < saleQty) {
         throw new Error(
-          `[${docId}] 제품 #${resolvedProductId} 재고 부족: ` +
+          `[${docId}] ${itemTypeLabel} #${lotFilterValue} 재고 부족: ` +
             `요청 ${saleQty}, 가용 ${totalAvailable.toFixed(3)}`,
         );
       }
@@ -216,9 +257,8 @@ export async function postProductSale(
         remaining -= takeQty;
       }
 
-      // (A-4) 제품 수불부 (material_ledger_daily) 증가 — product_id 사용
-      //       이 테이블은 원래 material_id 기준이지만 제품도 같은 테이블 쓰는 구조.
-      //       material_id 컬럼에 product_id 를 저장 (도메인 통일)
+      // (A-4) 수불부 (material_ledger_daily) 증가 — product/material 공용
+      //       이 테이블은 material_id 컬럼 하나로 제품/원재료 모두 트래킹
       try {
         await conn.execute(
           `INSERT INTO material_ledger_daily
@@ -228,9 +268,9 @@ export async function postProductSale(
              usage_qty = usage_qty + VALUES(usage_qty),
              updated_at = NOW()`,
           [
-            tenantId, resolvedProductId, entryDate,
+            tenantId, ledgerId, entryDate,
             saleQty,
-            `매출 확정 ${docId}`,
+            `매출 확정 ${docId} (${itemTypeLabel})`,
           ],
         );
       } catch (mldErr) {
@@ -322,14 +362,16 @@ export async function postProductSale(
         description: `매출원가: ${sale.itemName || ""} (${docId})`,
         sortOrder: cogsSortOrder++,
       });
-      // 대변: 제품재고
+      // 대변: 제품재고(완제품 매출) vs 원재료재고(원재료/부자재/외부제품 매출)
+      const creditInventoryAcc = isProductSale ? inventoryGoodsAcc! : inventoryRawAcc!;
+      const creditLabel = isProductSale ? "제품재고" : "원재료재고";
       await insertJournalLine(conn, {
         tenantId, journalEntryId: cogsEntryId,
-        accountId: inventoryGoodsAcc.id,
-        accountCode: inventoryGoodsAcc.code,
-        accountName: inventoryGoodsAcc.name,
+        accountId: creditInventoryAcc.id,
+        accountCode: creditInventoryAcc.code,
+        accountName: creditInventoryAcc.name,
         debitAmount: 0, creditAmount: cogsAmount,
-        description: `제품재고 감소: ${sale.itemName || ""} (${docId})`,
+        description: `${creditLabel} 감소: ${sale.itemName || ""} (${docId})`,
         sortOrder: cogsSortOrder++,
       });
     }
@@ -344,15 +386,17 @@ export async function postProductSale(
       `UPDATE accounting_sales
        SET status = 'approved',
            product_id = COALESCE(product_id, ?),
+           material_id = COALESCE(material_id, ?),
            posted_at = NOW(),
            posted_by = ?
        WHERE id = ? AND tenant_id = ?`,
-      [resolvedProductId, userId, saleId, tenantId],
+      [resolvedProductId, resolvedMaterialId, userId, saleId, tenantId],
     );
 
     console.log(
       `[productSalePost] 매출 #${saleId} 확정 완료 ` +
-        `(매출: ${totalAmount}, COGS: ${cogsAmount}, LOTs: ${usedLots.length}건)`,
+        `(타입: ${isProductSale ? "제품" : isMaterialSale ? "원재료/부자재/외부제품" : "레거시"}, ` +
+        `매출: ${totalAmount}, COGS: ${cogsAmount}, LOTs: ${usedLots.length}건)`,
     );
     return { alreadyProcessed: false };
   }, `postProductSale:${saleId}`);
