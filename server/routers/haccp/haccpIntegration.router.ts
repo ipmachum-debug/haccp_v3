@@ -342,6 +342,59 @@ export const haccpIntegrationRouter = router({
         return { successCount, failCount, errors, total: input.items.length };
       }),
 
+    // 매출 엑셀 업로드 중복 사전 검사 (Phase 8+)
+    //   동일 거래처+날짜+품목명 조합이 이미 존재하는지 반환
+    checkSalesDuplicates: adminProcedure
+      .input(z.object({
+        candidates: z.array(z.object({
+          transactionDate: z.string(),
+          partnerId: z.number(),
+          itemName: z.string(),
+        })).max(2000),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (input.candidates.length === 0) return [];
+        const { getRawConnection } = await import("../../db");
+        const conn = await getRawConnection();
+        try {
+          // 전체 거래처+날짜+품목 조합 union
+          const dates = Array.from(new Set(input.candidates.map(c => c.transactionDate)));
+          const partnerIds = Array.from(new Set(input.candidates.map(c => c.partnerId)));
+          if (dates.length === 0 || partnerIds.length === 0) return [];
+          // 해당 범위 내 기존 매출 조회 (한 번의 쿼리로)
+          const placeholders_d = dates.map(() => "?").join(",");
+          const placeholders_p = partnerIds.map(() => "?").join(",");
+          const [rows] = await conn.execute<any[]>(
+            `SELECT transaction_date, partner_id, item_name, quantity, total_amount
+             FROM accounting_sales
+             WHERE tenant_id = ?
+               AND transaction_date IN (${placeholders_d})
+               AND partner_id IN (${placeholders_p})
+               AND status != 'cancelled'`,
+            [ctx.tenantId, ...dates, ...partnerIds],
+          );
+          const existingKeys = new Map<string, { quantity: number; amount: number }>();
+          for (const r of rows as any[]) {
+            const key = `${r.transaction_date}|${r.partner_id}|${r.item_name}`;
+            existingKeys.set(key, { quantity: Number(r.quantity), amount: Number(r.total_amount) });
+          }
+          return input.candidates.map((c) => {
+            const key = `${c.transactionDate}|${c.partnerId}|${c.itemName}`;
+            const match = existingKeys.get(key);
+            return {
+              transactionDate: c.transactionDate,
+              partnerId: c.partnerId,
+              itemName: c.itemName,
+              isDuplicate: !!match,
+              existing: match ?? null,
+            };
+          });
+        } catch (err: any) {
+          console.warn("[checkSalesDuplicates]", err.message?.substring(0, 100));
+          return input.candidates.map((c) => ({ ...c, isDuplicate: false, existing: null }));
+        }
+      }),
+
     // 매출 일괄 등록
     bulkCreateSales: adminProcedure
       .input(z.object({
@@ -349,6 +402,8 @@ export const haccpIntegrationRouter = router({
           transactionDate: z.string(),
           partnerId: z.number(),
           itemName: z.string(),
+          productId: z.number().optional(),   // 완제품 FK (매칭 엔진 결과)
+          materialId: z.number().optional(),  // 원재료/부자재/외부제품 FK (매칭 엔진 결과)
           quantity: z.number(),
           unitPrice: z.number(),
           amount: z.number(),

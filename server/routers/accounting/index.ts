@@ -40,3 +40,5 @@ export { purchaseReturnRouter } from "./purchaseReturn.router";
 export { recurringTransactionRouter } from "./recurringTransaction.router";
 export { changeLogRouter } from "./changeLog.router";
 export { aiErpRouter } from "./aiErp.router";
+// Phase 8+ (2026-04-21): AI SKU 매칭 (엑셀 업로드 의심 구간 재검증)
+export { aiSkuMatchRouter } from "./aiSkuMatch.router";
