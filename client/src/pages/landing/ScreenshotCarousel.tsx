@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion as _motion, AnimatePresence } from "framer-motion";
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const motion = _motion as any;
+// LandingPage는 public 이라 useIndustryLabel 사용 금지
+// (industry.getCurrentIndustry 는 auth 필요 → 401 발동 → login 리다이렉트 루프)
 import {
   ChevronLeft, ChevronRight, Factory, ShieldCheck, Package,
   BarChart3, Sparkles, CheckCircle2, TrendingUp, AlertTriangle,
@@ -23,7 +24,6 @@ interface ScreenSlide {
 // ─── Mock screen contents ───
 
 function DashboardScreen() {
-  const L = useIndustryLabel();
   return (
     <div className="p-4 space-y-3">
       <div className="grid grid-cols-4 gap-2">
@@ -230,7 +230,6 @@ function AccountingScreen() {
 }
 
 function AIScreen() {
-  const L = useIndustryLabel();
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center gap-2 mb-1">
@@ -274,7 +273,7 @@ function AIScreen() {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span>{L("material")} 유효기한 경고: <strong>1건</strong></span>
+                <span>원재료 유효기한 경고: <strong>1건</strong></span>
               </div>
             </div>
           </div>
