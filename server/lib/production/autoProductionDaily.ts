@@ -159,19 +159,16 @@ export async function autoRegenerateProductionDaily(
     }
 
     // ── 배치 파이프라인 상태 매핑 ──
-    // h_batches.status는 계획단계에서 변하지 않으므로,
-    // h_approval_requests (batch_production) 상태를 기준으로 실제 파이프라인 상태를 결정
+    // 배치 최종 상태(completed/shipped/cancelled)가 파이프라인 상태보다 우선한다.
+    // CCP 기록이 비어 파이프라인이 pending_review로 남아있어도, 배치가 완료 처리되었다면 '완료'로 간주.
     const mapPipelineStatus = (batchStatus: string, pipelineStatus: string | null): string => {
-      // 파이프라인 승인 상태가 있으면 그것을 사용
-      if (pipelineStatus === 'approved') return 'completed';      // 승인완료 = 생산완료
-      if (pipelineStatus === 'pending_review') return 'in_progress'; // 검토대기 = 진행중
-      if (pipelineStatus === 'pending_approval') return 'in_progress';
-      if (pipelineStatus === 'rejected') return 'rejected';       // 반려
-      // 파이프라인 없으면 h_batches.status 사용
-      if (batchStatus === 'completed') return 'completed';
-      if (batchStatus === 'in_progress') return 'in_progress';
-      if (batchStatus === 'approved') return 'in_progress'; // h_batches approved = CCP 승인됨 = 진행중
-      return batchStatus; // planned, paused, cancelled 등
+      if (batchStatus === 'completed' || batchStatus === 'shipped') return 'completed';
+      if (batchStatus === 'cancelled' || batchStatus === 'rejected') return 'rejected';
+      if (pipelineStatus === 'approved') return 'completed';
+      if (pipelineStatus === 'rejected') return 'rejected';
+      if (pipelineStatus === 'pending_review' || pipelineStatus === 'pending_approval') return 'in_progress';
+      if (batchStatus === 'in_progress' || batchStatus === 'approved') return 'in_progress';
+      return batchStatus; // planned, paused 등
     };
 
     const batchList = (batches as any[]).map((b: any) => {
