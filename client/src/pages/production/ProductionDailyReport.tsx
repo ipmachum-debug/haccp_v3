@@ -542,6 +542,7 @@ function ProductionDailyDocument({
 // 배치 상세 다이얼로그
 // ===========================================================================
 function BatchDetailDialog({ batch, open, onClose }: { batch: ReportBatch; open: boolean; onClose: () => void }) {
+  const L = useIndustryLabel();
   if (!batch) return null;
   const th = "text-xs font-medium text-gray-500 py-1.5 pr-4 whitespace-nowrap align-top";
   const td = "text-sm py-1.5";
@@ -591,6 +592,7 @@ function BatchDetailDialog({ batch, open, onClose }: { batch: ReportBatch; open:
 // 메인 컴포넌트
 // ===========================================================================
 export function ProductionDailyReportContent() {
+  const L = useIndustryLabel();
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
