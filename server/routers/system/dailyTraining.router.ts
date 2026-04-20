@@ -196,7 +196,7 @@ export const dailyTrainingRouter = router({
 
     // 전체 직원 목록 (해당 테넌트)
     const [users] = await pool.execute<any[]>(
-      "SELECT id, name, email, role FROM users WHERE tenant_id = ? AND status = 'approved'",
+      "SELECT id, name, email, role FROM users WHERE tenant_id = ? AND approval_status = 'approved'",
       [tenantId]
     );
 
@@ -245,7 +245,7 @@ export const dailyTrainingRouter = router({
 
       // 전체 직원 수
       const [userCount] = await pool.execute<any[]>(
-        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'",
+        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'",
         [tenantId]
       );
 
@@ -266,7 +266,7 @@ export const dailyTrainingRouter = router({
          FROM users u
          LEFT JOIN h_training_logs l ON u.id = l.user_id AND l.tenant_id = ? AND l.status = 'DONE'
            AND l.assignment_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-         WHERE u.tenant_id = ? AND u.status = 'approved'
+         WHERE u.tenant_id = ? AND u.approval_status = 'approved'
          GROUP BY u.id, u.name
          ORDER BY done_count DESC`,
         [tenantId, days, tenantId]
@@ -308,7 +308,7 @@ export const dailyTrainingRouter = router({
 
     // 전체 직원 수
     const [userCountRows] = await pool.execute<any[]>(
-      "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'",
+      "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'",
       [tenantId]
     );
     const totalUsers = userCountRows[0]?.cnt || 1;
@@ -342,7 +342,7 @@ export const dailyTrainingRouter = router({
     if (dayNo === null) return { count: 0, assigned: false };
 
     const [users] = await pool.execute<any[]>(
-      "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'",
+      "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'",
       [tenantId]
     );
     const [logs] = await pool.execute<any[]>(
@@ -382,7 +382,7 @@ export const dailyTrainingRouter = router({
 
       // 전체 직원 목록
       const [users] = await pool.execute<any[]>(
-        "SELECT id, name, role FROM users WHERE tenant_id = ? AND status = 'approved' ORDER BY name",
+        "SELECT id, name, role FROM users WHERE tenant_id = ? AND approval_status = 'approved' ORDER BY name",
         [tenantId]
       );
 
@@ -465,7 +465,7 @@ export const dailyTrainingRouter = router({
         [tenantId, startDate, endDate]
       );
       const [userCount] = await pool.execute<any[]>(
-        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND status = 'approved'", [tenantId]
+        "SELECT COUNT(*) as cnt FROM users WHERE tenant_id = ? AND approval_status = 'approved'", [tenantId]
       );
       const [logCount] = await pool.execute<any[]>(
         `SELECT COUNT(*) as cnt FROM h_training_logs
@@ -637,7 +637,7 @@ export const dailyTrainingRouter = router({
          CROSS JOIN h_training_assignments a
          LEFT JOIN h_training_topics t ON a.day_no = t.day_no AND (t.tenant_id = 0 OR t.tenant_id = ?)
          LEFT JOIN h_training_logs l ON l.user_id = u.id AND l.day_no = a.day_no AND l.assignment_date = a.assignment_date AND l.tenant_id = ?
-         WHERE u.tenant_id = ? AND u.status = 'approved'
+         WHERE u.tenant_id = ? AND u.approval_status = 'approved'
            AND a.tenant_id = u.tenant_id
            AND a.assignment_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
            AND a.assignment_date < CURDATE()
