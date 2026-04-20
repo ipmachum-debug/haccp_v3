@@ -437,18 +437,13 @@ export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
         }
         
         // 4. 일일 마감 보고서 생성
+        // generateDailyReport 내부에서 autoRegenerateProductionDaily(planned_date 기준)도 함께 호출됨.
+        // 과거에는 여기서 generateProductionDailyReport를 한 번 더 호출했으나,
+        // 해당 함수는 created_at 조건을 포함해 당일 생성/수정된 타 날짜 배치까지 긁어와
+        // 오늘자 생산일지에 섞여 들어가는 오염을 일으키므로 제거.
         const reportSuccess = await generateDailyReport(db, tenantId, dateStr, summary);
         if (!reportSuccess) {
           summary.warnings.push("보고서 저장 실패");
-        }
-        
-        // 5. 생산일보 (Production Daily Report) 자동 생성
-        try {
-          await generateProductionDailyReport(db, tenantId, dateStr);
-          console.log(`[일일마감] 테넌트 ${tenantId} 생산일보 생성 완료`);
-        } catch (pdrErr: any) {
-          console.error(`[일일마감] 테넌트 ${tenantId} 생산일보 생성 실패:`, pdrErr);
-          summary.warnings.push(`생산일보 생성 실패: ${pdrErr?.message || '알 수 없는 오류'}`);
         }
         
         console.log(`[일일마감] 테넌트 ${tenantId} 완료: 배치 ${summary.completedBatches}/${summary.totalBatches}, 미처리문서 ${summary.pendingApprovals}, 재고부족 ${summary.lowStockMaterials}`);
@@ -472,10 +467,12 @@ export async function runDailyClosingProcess(): Promise<DailyClosingSummary[]> {
 }
 
 // ============================================================================
-// 5. 생산일보 (Production Daily Report) 자동 생성
-// - 당일 배치 생산 실적, CCP 기록, 이슈를 집계하여 h_daily_reports에 저장
-// - ProductionDailyReport 페이지(생산일보 탭)에서 조회
+// 5. [DEPRECATED] 생산일보 (Production Daily Report) 자동 생성
+// - created_at 조건으로 타 날짜 배치가 당일자 일지로 섞여 들어가는 버그가 있어 비활성화.
+// - 대체 경로: generateDailyReport() 말미의 autoRegenerateProductionDaily() (planned_date 기준).
+// - 호출부 모두 제거됨. 참고용으로만 남김.
 // ============================================================================
+/** @deprecated planned_date 기준 autoRegenerateProductionDaily를 사용할 것 */
 async function generateProductionDailyReport(db: any, tenantId: number, dateStr: string): Promise<void> {
   try {
     // 1. 당일 배치 목록 + 제품정보 조회

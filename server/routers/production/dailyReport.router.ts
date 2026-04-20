@@ -233,13 +233,15 @@ export const dailyReportRouter = router({
         }
 
         // 배치 파이프라인 상태 매핑
+        // 배치 최종 상태(completed/shipped/cancelled)가 파이프라인 상태보다 우선한다.
+        // CCP 기록이 비어 파이프라인이 pending_review로 남아있어도, 배치가 완료 처리되었다면 '완료'로 간주.
         const mapPipelineStatus = (batchStatus: string, pipelineStatus: string | null): string => {
+          if (batchStatus === 'completed' || batchStatus === 'shipped') return 'completed';
+          if (batchStatus === 'cancelled' || batchStatus === 'rejected') return 'rejected';
           if (pipelineStatus === 'approved') return 'completed';
-          if (pipelineStatus === 'pending_review' || pipelineStatus === 'pending_approval') return 'in_progress';
           if (pipelineStatus === 'rejected') return 'rejected';
-          if (batchStatus === 'completed') return 'completed';
-          if (batchStatus === 'in_progress') return 'in_progress';
-          if (batchStatus === 'approved') return 'in_progress';
+          if (pipelineStatus === 'pending_review' || pipelineStatus === 'pending_approval') return 'in_progress';
+          if (batchStatus === 'in_progress' || batchStatus === 'approved') return 'in_progress';
           return batchStatus;
         };
 
