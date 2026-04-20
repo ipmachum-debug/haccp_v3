@@ -280,16 +280,18 @@ export const genericChecklistRouter = router({
       if (input.action === "approve") {
         if (refId) {
           if (requestType === 'batch_production' && referenceType === 'batch') {
-            // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
+            // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
+            // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
+            // 승인 기록은 approval_requests 테이블에 별도 보관됨
             await db.execute(sql`
               UPDATE h_batches
-              SET status = 'approved',
+              SET status = 'completed',
                   end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
                   completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
                   updated_at = NOW()
               WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
             `);
-            console.log(`[approveChecklist] 배치 #${refId} 상태 → approved`);
+            console.log(`[approveChecklist] 배치 #${refId} 상태 → completed (승인 완료)`);
 
             // 배치 승인 시 생산일지 갱신
             try {
@@ -320,12 +322,13 @@ export const genericChecklistRouter = router({
       } else {
         if (refId) {
           if (requestType === 'batch_production' && referenceType === 'batch') {
-            // 배치 반려: h_batches 상태를 'rejected'로 변경
+            // 배치 반려: h_batches 상태를 'cancelled'로 변경
+            // ⚠️ 'rejected'는 enum에 없음 → 'cancelled' 사용 (반려/취소 의미)
             await db.execute(sql`
-              UPDATE h_batches SET status = 'rejected', updated_at = NOW()
+              UPDATE h_batches SET status = 'cancelled', updated_at = NOW()
               WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
             `);
-            console.log(`[approveChecklist] 배치 #${refId} 상태 → rejected`);
+            console.log(`[approveChecklist] 배치 #${refId} 상태 → cancelled (반려)`);
           } else {
             await db.update(hGenericChecklistRecords).set({ status: "submitted", updatedAt: new Date() } as any)
               .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
@@ -390,16 +393,17 @@ export const genericChecklistRouter = router({
 
           if (refId) {
             if (requestType === 'batch_production' && referenceType === 'batch') {
-              // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
+              // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
+              // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
               await db.execute(sql`
                 UPDATE h_batches
-                SET status = 'approved',
+                SET status = 'completed',
                     end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
                     completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
                     updated_at = NOW()
                 WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
               `);
-              console.log(`[batchApproveChecklists] 배치 #${refId} 상태 → approved`);
+              console.log(`[batchApproveChecklists] 배치 #${refId} 상태 → completed (승인 완료)`);
 
               // 배치 승인 시 생산일지(production_daily) 자동 갱신
               try {
@@ -464,16 +468,17 @@ export const genericChecklistRouter = router({
 
       if (refId) {
         if (requestType === 'batch_production' && referenceType === 'batch') {
-          // 배치 승인: h_batches 상태를 'approved'로 변경 + 완료일 설정
+          // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
+          // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
           await db.execute(sql`
             UPDATE h_batches
-            SET status = 'approved',
+            SET status = 'completed',
                 end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
                 completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
                 updated_at = NOW()
             WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
           `);
-          console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → approved`);
+          console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → completed (승인 완료)`);
 
           // 배치 승인 시 생산일지(production_daily) 자동 갱신
           try {
