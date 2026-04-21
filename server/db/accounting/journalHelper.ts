@@ -1,3 +1,10 @@
+/**
+ * @deprecated core-erp 레이어로 이주됨.
+ *   신규 코드: `import { ... } from "../../core-erp/accounting/journal"` 사용
+ *   이 파일은 하위 호환 유지를 위한 레거시 경로.
+ *   모든 import 가 core-erp/accounting/journal 로 이주되면 이 파일 삭제 예정.
+ */
+
 import { getRawConnection } from "../connection";
 import { SYSTEM_ACCOUNTS, type SystemAccountCode } from "../../../drizzle/schema/accountingAccounts";
 

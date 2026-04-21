@@ -455,6 +455,71 @@ export function createFeatureProcedure(feature: FeatureArea, permission: Permiss
 }
 
 // ============================================================================
+// 🔐 Capability 기반 접근 제어 (platform/permission/capability)
+// ============================================================================
+
+/**
+ * requireCapability - feature × action 기반 권한 검사
+ *
+ * 배경: docs/architecture/04-policy-registry.md
+ *
+ * 판정:
+ *   - admin / super_admin: 무조건 통과 (lockout 방지)
+ *   - 그 외: hasCapability(userId, featureCode, action) 필요
+ *
+ * 사용:
+ *   const readAccounting = requireCapability("ERP_ACCOUNTING", "READ");
+ *   export const trialBalance = readAccounting.query(...);
+ */
+export function requireCapability(
+  featureCode: string,
+  action: "READ" | "WRITE" | "APPROVE" | "CANCEL" | "POST" | "EXPORT",
+) {
+  return t.procedure.use(
+    t.middleware(async (opts) => {
+      const { ctx, next, path, type } = opts;
+
+      if (!ctx.user) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+      }
+
+      const { tenantId, tenantDb } = resolveTenantContext(ctx);
+      if (!tenantId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "테넌트 정보가 필요합니다." });
+      }
+
+      // admin / super_admin 은 bypass (조직 관리자는 모든 capability 보유 가정)
+      const role = ctx.user.role;
+      if (role !== "admin" && role !== "super_admin") {
+        const { hasCapability } = await import("../platform/permission/capability");
+        const allowed = await hasCapability(ctx.user.id as number, featureCode, action);
+        if (!allowed) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: `권한이 없습니다: ${featureCode}:${action}`,
+          });
+        }
+      }
+
+      const isSuperAdminActing = ctx.user.role === "super_admin" && !!ctx.actingTenantId;
+      if (isSuperAdminActing) {
+        logSuperAdminAction(ctx, path, type);
+      }
+
+      return next({
+        ctx: {
+          ...ctx,
+          user: ctx.user,
+          tenantId: tenantId as number,
+          db: tenantDb,
+          isSuperAdminActing,
+        },
+      });
+    }),
+  );
+}
+
+// ============================================================================
 // 💰 플랜 기능 게이팅 미들웨어 팩토리
 // ============================================================================
 
