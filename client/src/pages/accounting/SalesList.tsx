@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import type { TransactionRow } from "../../lib/transactionGrouping";
 
@@ -85,6 +86,14 @@ function SalesListContent() {
   const [editingSale, setEditingSale] = useState<any>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+
+  // 매출 상태 일괄 복구 (approved → pending) — 2026-04-21 관리자 유지보수용
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const [bulkRestoreOpen, setBulkRestoreOpen] = useState(false);
+  const [bulkRestoreScope, setBulkRestoreScope] = useState<"today" | "last_n_days" | "all_approved">("today");
+  const [bulkRestoreDays, setBulkRestoreDays] = useState<number>(7);
+  const [bulkRestorePreview, setBulkRestorePreview] = useState<{ affectedCount: number; minDate: string | null; maxDate: string | null; totalAmount: number } | null>(null);
 
   // ★ 2026-04-13: base64 → Blob 공통 헬퍼
   const base64ToPdfBlob = (b64: string): Blob => {
@@ -179,6 +188,28 @@ function SalesListContent() {
     },
     onError: (error: { message: string }) => {
       toast({ title: "복구 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // 매출 상태 일괄 복구 (approved → pending) — 관리자 전용
+  const bulkRestoreMutation = trpc.inventoryAccounting.bulkRestoreApprovedToPending.useMutation({
+    onSuccess: (data: { dryRun: boolean; affectedCount: number; minDate: string | null; maxDate: string | null; totalAmount: number; message: string }) => {
+      if (data.dryRun) {
+        setBulkRestorePreview({
+          affectedCount: data.affectedCount,
+          minDate: data.minDate,
+          maxDate: data.maxDate,
+          totalAmount: data.totalAmount,
+        });
+      } else {
+        toast({ title: "일괄 복구 완료", description: data.message });
+        setBulkRestoreOpen(false);
+        setBulkRestorePreview(null);
+        refetch();
+      }
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "일괄 복구 실패", description: error.message, variant: "destructive" });
     },
   });
 
@@ -479,10 +510,23 @@ function SalesListContent() {
               <p className="text-sm text-muted-foreground">매출 거래 내역을 조회하고 관리합니다.</p>
             </div>
           </div>
-          <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" />
-            엑셀 일괄등록
-          </Button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <Button
+                onClick={() => { setBulkRestoreOpen(true); setBulkRestorePreview(null); }}
+                variant="outline"
+                size="sm"
+                className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                title="approved → pending 일괄 복구 (관리자 유지보수)"
+              >
+                상태 일괄 복구
+              </Button>
+            )}
+            <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
+              <FileSpreadsheet className="h-4 w-4" />
+              엑셀 일괄등록
+            </Button>
+          </div>
         </div>
 
         {/* KPI 요약 카드 */}
@@ -894,6 +938,104 @@ function SalesListContent() {
         onOpenChange={setBulkUploadOpen}
         mode="sale"
       />
+
+      {/* 매출 상태 일괄 복구 다이얼로그 (관리자 전용, 2026-04-21) */}
+      {bulkRestoreOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-lg p-6 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold">매출 상태 일괄 복구</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                <span className="font-semibold text-amber-700">approved → pending</span> 으로 일괄 전환합니다.
+                복구 후 각 매출을 승인 버튼으로 다시 처리해야 재고/LOT/분개가 반영됩니다.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs mb-1.5 block">대상 범위</Label>
+                <Select
+                  value={bulkRestoreScope}
+                  onValueChange={(v: any) => { setBulkRestoreScope(v); setBulkRestorePreview(null); }}
+                >
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="today">오늘 생성된 건만</SelectItem>
+                    <SelectItem value="last_n_days">최근 N일</SelectItem>
+                    <SelectItem value="all_approved">전체 approved 건</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {bulkRestoreScope === "last_n_days" && (
+                <div>
+                  <Label className="text-xs mb-1.5 block">일 수</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={bulkRestoreDays}
+                    onChange={(e) => { setBulkRestoreDays(Number(e.target.value) || 7); setBulkRestorePreview(null); }}
+                    className="h-9"
+                  />
+                </div>
+              )}
+
+              {bulkRestorePreview && (
+                <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm space-y-1">
+                  <div className="font-semibold text-amber-800">미리보기 결과</div>
+                  <div>영향 건수: <span className="font-bold">{bulkRestorePreview.affectedCount}건</span></div>
+                  {bulkRestorePreview.affectedCount > 0 && (
+                    <>
+                      <div>거래일자: {bulkRestorePreview.minDate} ~ {bulkRestorePreview.maxDate}</div>
+                      <div>총 금액: ₩{bulkRestorePreview.totalAmount.toLocaleString()}</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setBulkRestoreOpen(false); setBulkRestorePreview(null); }}
+                disabled={bulkRestoreMutation.isPending}
+              >
+                취소
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => bulkRestoreMutation.mutate({
+                  scope: bulkRestoreScope,
+                  days: bulkRestoreScope === "last_n_days" ? bulkRestoreDays : undefined,
+                  dryRun: true,
+                })}
+                disabled={bulkRestoreMutation.isPending}
+              >
+                {bulkRestoreMutation.isPending ? "조회 중..." : "미리보기"}
+              </Button>
+              <Button
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => {
+                  if (!bulkRestorePreview || bulkRestorePreview.affectedCount === 0) return;
+                  if (!window.confirm(`정말 ${bulkRestorePreview.affectedCount}건을 pending 으로 복구하시겠습니까?`)) return;
+                  bulkRestoreMutation.mutate({
+                    scope: bulkRestoreScope,
+                    days: bulkRestoreScope === "last_n_days" ? bulkRestoreDays : undefined,
+                    dryRun: false,
+                  });
+                }}
+                disabled={bulkRestoreMutation.isPending || !bulkRestorePreview || bulkRestorePreview.affectedCount === 0}
+              >
+                실제 복구
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
