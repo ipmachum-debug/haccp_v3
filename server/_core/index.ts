@@ -509,6 +509,83 @@ async function startServer() {
     }
   });
 
+  // ── 백업 헬스체크 (Bearer 토큰 인증, GitHub Actions 용) ──
+  // /home/root/backups/haccp/backup_status.json 파일을 읽어 현재 상태 반환.
+  // 이 파일은 scripts/backup.sh 가 백업 완료 후 자동으로 업데이트한다.
+  app.get("/api/system/backup-health", async (req, res) => {
+    try {
+      const expectedToken = process.env.BACKUP_HEALTH_TOKEN;
+      if (!expectedToken) {
+        return res.status(503).json({ ok: false, error: "BACKUP_HEALTH_TOKEN 미설정 (서버 env 확인 필요)" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (providedToken !== expectedToken) {
+        return res.status(401).json({ ok: false, error: "invalid token" });
+      }
+
+      const fs = await import("fs/promises");
+      const STATUS_PATH = process.env.BACKUP_STATUS_PATH || "/home/root/backups/haccp/backup_status.json";
+
+      let statusJson: any;
+      try {
+        const raw = await fs.readFile(STATUS_PATH, "utf-8");
+        statusJson = JSON.parse(raw);
+      } catch (err: any) {
+        return res.status(500).json({
+          ok: false,
+          error: "backup_status.json 읽기 실패 — 백업이 한 번도 실행되지 않았거나 스크립트 오류",
+          details: err.message,
+          status_path: STATUS_PATH,
+        });
+      }
+
+      const nowEpoch = Math.floor(Date.now() / 1000);
+      const mtimeEpoch = Number(statusJson.latest_backup_mtime_epoch || 0);
+      const ageSeconds = mtimeEpoch > 0 ? nowEpoch - mtimeEpoch : -1;
+      const ageMinutes = ageSeconds >= 0 ? Math.floor(ageSeconds / 60) : -1;
+      const sizeBytes = Number(statusJson.latest_backup_size_bytes || 0);
+
+      // ── 판정 규칙 ──
+      // - 최신 백업이 26시간 이내여야 함 (cron: 매일 02:00)
+      // - 최소 크기 10KB (354바이트 참사 방지)
+      const MAX_AGE_MINUTES = 1560;
+      const MIN_SIZE_BYTES = 10240;
+
+      const errors: string[] = [];
+      if (ageMinutes < 0) {
+        errors.push("백업 파일 mtime 정보 없음");
+      } else if (ageMinutes > MAX_AGE_MINUTES) {
+        errors.push(`백업 노후: ${ageMinutes}분 경과 (허용: ${MAX_AGE_MINUTES}분)`);
+      }
+      if (sizeBytes < MIN_SIZE_BYTES) {
+        errors.push(`백업 과소: ${sizeBytes}바이트 (최소: ${MIN_SIZE_BYTES}바이트) — DB_NAME 환경변수 확인 필요`);
+      }
+
+      const ok = errors.length === 0;
+      return res.status(ok ? 200 : 503).json({
+        ok,
+        errors,
+        checked_at: new Date().toISOString(),
+        thresholds: { max_age_minutes: MAX_AGE_MINUTES, min_size_bytes: MIN_SIZE_BYTES },
+        status: {
+          ...statusJson,
+          derived_age_minutes: ageMinutes,
+          derived_age_hours: ageMinutes >= 0 ? Math.round((ageMinutes / 60) * 10) / 10 : null,
+          derived_size_human: sizeBytes >= 1024 * 1024
+            ? `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`
+            : sizeBytes >= 1024
+            ? `${(sizeBytes / 1024).toFixed(1)}KB`
+            : `${sizeBytes}B`,
+        },
+      });
+    } catch (err: any) {
+      console.error("[backup-health] error:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
