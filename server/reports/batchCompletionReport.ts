@@ -1,6 +1,6 @@
 import PDFDocument from "pdfkit";
 import { storagePut } from "../storage";
-import { getDb } from "../db";
+import { getDb } from "../db/connection";
 import { hBatches, hProductsV2, hCcpInstances, hCcpRecords, hBatchInputs } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 

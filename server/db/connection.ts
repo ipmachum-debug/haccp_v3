@@ -85,6 +85,13 @@ export async function getRawConnection(): Promise<Pool> {
   return _rawConnection;
 }
 
+type TransactionFailureTracker = (operationName: string, err: unknown) => void;
+let _trackTxFailure: TransactionFailureTracker | null = null;
+
+export function setTransactionFailureTracker(fn: TransactionFailureTracker): void {
+  _trackTxFailure = fn;
+}
+
 /**
  * 트랜잭션 래퍼 - 단일 PoolConnection에서 BEGIN/COMMIT/ROLLBACK 보장
  * 회계/재고 POST 등 원자성이 필요한 다중 INSERT/UPDATE에 사용
@@ -102,11 +109,9 @@ export async function withTransaction<T>(
     return result;
   } catch (err) {
     await conn.rollback();
-    // 트랜잭션 실패 추적
-    try {
-      const { trackTransactionFailure } = await import("../utils/operationMonitor");
-      trackTransactionFailure(operationName || "unknown", err);
-    } catch { /* monitor import 실패 시 무시 */ }
+    if (_trackTxFailure) {
+      try { _trackTxFailure(operationName || "unknown", err); } catch { /* ignore */ }
+    }
     throw err;
   } finally {
     conn.release();

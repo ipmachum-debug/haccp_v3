@@ -1,0 +1,54 @@
+name: Architecture Check
+
+# PR 에서 5계층 의존 규칙 위반 시 머지 차단.
+# 규칙 정의: .dependency-cruiser.cjs
+# 배경 문서: docs/architecture/01-dependency-rules.md
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'shared/**'
+      - '.dependency-cruiser.cjs'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/architecture-check.yml'
+
+jobs:
+  dep-cruise:
+    name: 레이어 의존 규칙 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: npm install
+        run: npm install
+
+      - name: dependency-cruiser 실행
+        run: npm run arch:check
+
+      - name: 위반 시 가이드 출력
+        if: failure()
+        run: |
+          {
+            echo "## 🚨 레이어 의존 규칙 위반"
+            echo ""
+            echo "이 PR 은 \`.dependency-cruiser.cjs\` 의 의존 규칙을 위반했어."
+            echo ""
+            echo "### 다음을 확인해줘"
+            echo "- \`docs/architecture/00-layers.md\` — 5계층 정의"
+            echo "- \`docs/architecture/01-dependency-rules.md\` — 금지/허용 규칙"
+            echo "- \`docs/architecture/ADR-002-no-core-to-industry.md\` — core↔industry 규칙"
+            echo ""
+            echo "### 로컬에서 재현"
+            echo "\`\`\`bash"
+            echo "npm run arch:check"
+            echo "\`\`\`"
+          } >> "$GITHUB_STEP_SUMMARY"

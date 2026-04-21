@@ -104,6 +104,13 @@ async function startServer() {
   // Sentry 에러 모니터링 초기화 (SENTRY_DSN 환경변수 필요)
   initSentry();
 
+  // 트랜잭션 실패 텔레메트리 — connection.ts ↔ operationMonitor.ts 순환 해소용 registry
+  {
+    const { setTransactionFailureTracker } = await import("../db/connection.js");
+    const { trackTransactionFailure } = await import("../utils/operationMonitor.js");
+    setTransactionFailureTracker(trackTransactionFailure);
+  }
+
   // AI/LLM 진단 출력 (서버 로그에서 확인 가능)
   const { printEnvDiagnostics } = await import("./env.js").catch(() => ({ printEnvDiagnostics: undefined }));
   if (printEnvDiagnostics) printEnvDiagnostics();
