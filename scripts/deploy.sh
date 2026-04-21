@@ -51,8 +51,10 @@ NEW_COMMIT=$(git rev-parse --short HEAD)
 log "   ✅ 동기화 완료 (새 커밋: ${NEW_COMMIT})"
 
 # ── 2. 의존성 설치 ──
-log "2. npm install (package-lock 기반, devDeps 포함 — 빌드 필요)"
-npm install 2>&1 | tail -30 | tee -a "${LOG_FILE}"
+# NODE_ENV=production 환경에서도 devDeps(vite/esbuild) 가 설치되도록
+# --include=dev 플래그 명시.
+log "2. npm install --include=dev (빌드 도구 vite/esbuild 필요)"
+npm install --include=dev 2>&1 | tail -30 | tee -a "${LOG_FILE}"
 
 # ── 3. 빌드 ──
 log "3. npm run build"
