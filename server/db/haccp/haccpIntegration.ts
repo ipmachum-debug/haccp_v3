@@ -279,7 +279,11 @@ export async function createSale(params: {
     taxRate: (params.taxRate ?? 10).toFixed(2),
     sourceType: "manual",
     notes: params.memo ?? null,
-    status: "approved",
+    // ★ 2026-04-21 수정: pending 으로 변경
+    //   이전: "approved" — 상태만 approved 지만 재고/LOT/분개 실제 반영 없음 ("반쪽 승인")
+    //   현재: "pending" — 승인 버튼(productSalePost) 실행 시 재고 차감 + LOT 차감 + 매출 분개
+    //   관련: bulkCreateSales, SalesBulkUpload.tsx, productSalePost.ts
+    status: "pending",
     createdBy: params.createdBy,
   } as any);
 
