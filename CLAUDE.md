@@ -1,7 +1,63 @@
 # CLAUDE.md - Millio AI 프로젝트 AI 개발 가이드
 
-> 최종 업데이트: 2026-04-19 (brand: HACCP-ONE → Millio AI)
+> 최종 업데이트: 2026-04-21 (아키텍처 문서 추가 / 레이어 규칙 확정)
 > 현재 완성도: **78/100** — 실서비스 운영 가능 / 엔터프라이즈 전 단계
+
+---
+
+## 🚨 먼저 읽을 것 — 아키텍처 규칙
+
+**새 기능 / 리팩토링 / 신규 파일 작성 전 반드시 확인**:
+
+📘 **`docs/architecture/`** — CANONICAL 아키텍처 문서 (2026-04-21 확정)
+- `00-layers.md` — 5계층 + shared-kernel 구조
+- `01-dependency-rules.md` — 레이어 간 의존 금지/허용 규칙 (CI 강제)
+- `02-naming-conventions.md` — 테이블/라우터/파일 네이밍
+- `03-event-catalog.md` — 도메인 이벤트 목록
+- `04-policy-registry.md` — Feature/Capability/Package/Posting/Approval 정책
+- `ADR-001-shared-kernel.md`, `ADR-002-no-core-to-industry.md` — 결정 기록
+
+### 5계층 요약
+
+```
+addon  (ai / hr-advanced / bi / iot / mobile / external-integration)
+  ↑
+industry  (food / cosmetic / health / electronics / apparel / general-manufacturing)
+  ↑
+core-mes  (bom / routing / workorder / production / quality / lot / equipment)
+  ↑
+core-erp  (purchase / sales / inventory / accounting / costing / partner / warehouse)
+  ↑
+shared-kernel  (item / uom / lot-id / partner-ref / warehouse-ref / currency)
+  ↑
+platform  (tenant / auth / permission / billing / audit / feature-flag / notification / workflow / event-bus)
+```
+
+### 절대 금지 (AI 가 파일 생성 시 반드시 준수)
+
+1. ❌ `core-erp` 또는 `core-mes` 에서 `industry/*` import (ADR-002)
+2. ❌ core 테이블에 업종 전용 컬럼 추가 (예: `mes_production_results` 에 `food_ccp_value` 금지)
+3. ❌ 코드 안에 `if (industry === 'food')` 분기 (정책 데이터로 관리)
+4. ❌ `platform` 에 업무 로직 (purchase/inventory/production 금지)
+5. ❌ `shared-kernel` 에 서비스/라우터 (타입/상수/스키마만)
+6. ❌ `delete` 액션 네이밍 (취소는 `cancel`, 역분개는 `unpost`)
+7. ❌ `admin-hardcoded` if 문 권한 (capability 기반)
+8. ❌ 대규모 Big Bang Rewrite — Strangler Fig 점진 이주
+
+### 신규 파일 생성 시 체크리스트
+
+- [ ] 어느 레이어에 속하는가? (00-layers.md)
+- [ ] 의존 방향이 허용되는가? (01-dependency-rules.md)
+- [ ] 네이밍 규칙을 따르는가? (02-naming-conventions.md)
+- [ ] 이벤트 발행이 필요한가? (03-event-catalog.md)
+- [ ] 권한 체크가 capability 기반인가? (04-policy-registry.md)
+- [ ] 테넌트 격리 (`tenantRequiredProcedure`) 적용됐는가?
+
+### 의존성 규칙 CI 실행
+
+```bash
+npx depcruise --config .dependency-cruiser.cjs server
+```
 
 ---
 
