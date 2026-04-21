@@ -64,28 +64,24 @@ if ! npm run build 2>&1 | tail -80 | tee -a "${LOG_FILE}"; then
 fi
 log "   ✅ 빌드 완료"
 
-# ── 4. PM2 재시작 ──
-log "4. pm2 restart ${PM2_NAME} --update-env"
-pm2 restart "${PM2_NAME}" --update-env 2>&1 | tee -a "${LOG_FILE}"
+# ── 4. PM2 재시작 (detached — 자기 자신을 재시작하는 문제 회피) ──
+# 지금 이 스크립트는 haccpone 서버의 자식 프로세스로 실행 중이다.
+# 바로 `pm2 restart haccpone` 를 호출하면 부모(haccpone) 가 죽으면서
+# 이 스크립트도 같이 SIGTERM 으로 죽어 HTTP 응답이 호출자에게 전달되지 못한다.
+#
+# 해결: setsid + nohup 으로 세션을 분리하고, 5초 후 background 에서 pm2 restart.
+# 그 사이에 deploy.sh 가 깨끗하게 exit 0 → Node 엔드포인트가 HTTP 응답 전송 →
+# GitHub Actions 수신 → 그 뒤 pm2 가 haccpone 재시작.
+log "4. pm2 restart ${PM2_NAME} --update-env (5초 후 background 실행)"
 
-# ── 5. 헬스 확인 (5초 대기 후 PM2 상태) ──
-sleep 5
-PM2_STATUS=$(pm2 jlist 2>/dev/null | node -e "
-try {
-  const list = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-  const p = list.find(x => x.name === '${PM2_NAME}');
-  if (!p) { console.log('NOT_FOUND'); process.exit(0); }
-  console.log(p.pm2_env.status + ':' + (p.pm2_env.restart_time || 0));
-} catch(e) { console.log('ERROR'); }
-" 2>/dev/null || echo "ERROR")
+setsid bash -c "
+  sleep 5
+  echo '[\$(date '+%Y-%m-%d %H:%M:%S')] [detached] pm2 restart 시작' >> '${LOG_FILE}'
+  pm2 restart '${PM2_NAME}' --update-env >> '${LOG_FILE}' 2>&1
+  echo '[\$(date '+%Y-%m-%d %H:%M:%S')] [detached] pm2 restart 완료' >> '${LOG_FILE}'
+" < /dev/null > /dev/null 2>&1 &
 
-log "   PM2 상태: ${PM2_STATUS}"
-
-if [[ "${PM2_STATUS}" == online:* ]]; then
-  log "═══ 배포 완료 (커밋: ${NEW_COMMIT}) ═══"
-  exit 0
-else
-  log "   ⚠️ PM2 프로세스가 online 상태가 아님 — 로그 확인 필요"
-  log "   pm2 logs ${PM2_NAME} --lines 50"
-  exit 1
-fi
+log "═══ 배포 스크립트 완료 (커밋: ${NEW_COMMIT}) ═══"
+log "   PM2 재시작은 5초 뒤 background 에서 실행됨"
+log "   확인: tail -20 ${LOG_FILE}  (재시작 완료 메시지 포함)"
+exit 0
