@@ -586,6 +586,74 @@ async function startServer() {
     }
   });
 
+  // ── 자동 배포 (Bearer 토큰 인증, GitHub Actions 용) ──
+  // GitHub Actions 에서 POST 로 호출하면 scripts/deploy.sh 를 실행하여
+  // git pull → npm install → npm run build → pm2 restart 를 수행한다.
+  // 동시 배포 방지를 위해 in-memory 락 사용.
+  let deployInProgress = false;
+  app.post("/api/system/deploy", async (req, res) => {
+    try {
+      const expectedToken = process.env.DEPLOY_TOKEN;
+      if (!expectedToken) {
+        return res.status(503).json({ ok: false, error: "DEPLOY_TOKEN 미설정 (서버 env 확인 필요)" });
+      }
+
+      const authHeader = req.headers.authorization || "";
+      const providedToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (providedToken !== expectedToken) {
+        return res.status(401).json({ ok: false, error: "invalid token" });
+      }
+
+      if (deployInProgress) {
+        return res.status(409).json({ ok: false, error: "다른 배포가 진행 중입니다" });
+      }
+      deployInProgress = true;
+
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execAsync = promisify(exec);
+
+      const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT_PATH || "/root/haccp_v3/scripts/deploy.sh";
+      const startedAt = new Date().toISOString();
+
+      console.log(`[deploy] 배포 시작 (script: ${DEPLOY_SCRIPT})`);
+      try {
+        const { stdout, stderr } = await execAsync(`bash ${DEPLOY_SCRIPT}`, {
+          timeout: 10 * 60 * 1000, // 10분
+          maxBuffer: 10 * 1024 * 1024, // 10MB
+          env: { ...process.env }, // PM2/npm PATH 유지
+        });
+
+        console.log("[deploy] 배포 성공");
+        return res.status(200).json({
+          ok: true,
+          started_at: startedAt,
+          finished_at: new Date().toISOString(),
+          stdout: stdout.slice(-5000), // 마지막 5KB
+          stderr: stderr.slice(-2000),
+        });
+      } catch (err: any) {
+        console.error("[deploy] 배포 실패:", err.message);
+        return res.status(500).json({
+          ok: false,
+          error: "deploy script failed",
+          started_at: startedAt,
+          finished_at: new Date().toISOString(),
+          code: err.code,
+          signal: err.signal,
+          stdout: (err.stdout || "").slice(-5000),
+          stderr: (err.stderr || "").slice(-2000),
+        });
+      } finally {
+        deployInProgress = false;
+      }
+    } catch (err: any) {
+      deployInProgress = false;
+      console.error("[deploy] endpoint error:", err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
