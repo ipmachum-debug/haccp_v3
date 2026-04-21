@@ -18,7 +18,9 @@
     "deploy": "bash scripts/deploy-to-server.sh",
     "backup:full": "./scripts/backup-to-remote.sh full",
     "backup:schema": "./scripts/backup-to-remote.sh schema",
-    "backup:data": "./scripts/backup-to-remote.sh data"
+    "backup:data": "./scripts/backup-to-remote.sh data",
+    "arch:check": "depcruise --config .dependency-cruiser.cjs server",
+    "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot server | dot -T svg > architecture-graph.svg"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
@@ -146,6 +148,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "add": "^2.0.6",
     "autoprefixer": "^10.4.20",
+    "dependency-cruiser": "^16.5.0",
     "drizzle-kit": "^0.31.4",
     "esbuild": "^0.25.0",
     "pnpm": "^10.15.1",

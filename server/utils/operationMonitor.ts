@@ -105,7 +105,7 @@ export async function checkAndAlert(): Promise<void> {
 
   // DB 알림 생성 시도
   try {
-    const { getDb } = await import("../db");
+    const { getDb } = await import("../db/connection");
     const { sql } = await import("drizzle-orm");
     const db = await getDb();
     if (!db) return;
@@ -138,7 +138,7 @@ export async function getDetailedHealth(): Promise<{
   let dbConnected = false;
   let dbLatency = 0;
   try {
-    const { getRawConnection } = await import("../db");
+    const { getRawConnection } = await import("../db/connection");
     const pool = await getRawConnection();
     const start = Date.now();
     await pool.execute("SELECT 1");

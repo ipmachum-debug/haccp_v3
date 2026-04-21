@@ -47,3 +47,5 @@ export * from "./ccpMonitoring";
 export * from "./expense";
 export * from "./support";
 export * from "./industryCode";
+export * from "./domainEvents";
+export * from "./capabilities";
