@@ -197,4 +197,80 @@ export const inventoryAccountingRouter = router({
       );
       return { success: true, message: "매출이 대기 상태로 복구되었습니다." };
     }),
+
+  // ─── 일괄 복구 관리 엔드포인트 (2026-04-21) ────────────────────
+  // 배경: bulk 업로드가 createSale()을 통해 status='approved' 로 들어가던 이슈 복구용
+  //       (실제로는 재고/LOT/분개 연결 없이 "반쪽 승인" 상태였음)
+  //       수정 후 추가된 일괄 조작용 엔드포인트. 관리자 전용.
+
+  // approved → pending 일괄 복구 (범위: 오늘 / 최근 N일 / 전체)
+  bulkRestoreApprovedToPending: tenantRequiredProcedure
+    .input(
+      z.object({
+        scope: z.enum(["today", "last_n_days", "all_approved"]),
+        days: z.number().int().positive().max(365).optional(),
+        dryRun: z.boolean().default(true),
+      }),
+    )
+    .mutation(async ({ input, ctx }: { input: { scope: "today" | "last_n_days" | "all_approved"; days?: number; dryRun: boolean }, ctx: any }) => {
+      // 관리자 전용
+      if (ctx.user.role !== "admin" && ctx.user.role !== "super_admin") {
+        throw new Error("관리자 권한이 필요합니다.");
+      }
+
+      const pool = await getRawConnection();
+      let whereClause = `status = 'approved' AND tenant_id = ?`;
+      const params: any[] = [ctx.tenantId];
+
+      if (input.scope === "today") {
+        whereClause += ` AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = CURDATE()`;
+      } else if (input.scope === "last_n_days") {
+        const days = input.days ?? 7;
+        whereClause += ` AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`;
+        params.push(days);
+      }
+      // all_approved 는 추가 조건 없음
+
+      // 영향 건수 조회
+      const [countRows]: any = await pool.execute(
+        `SELECT COUNT(*) AS cnt,
+                MIN(transaction_date) AS min_date,
+                MAX(transaction_date) AS max_date,
+                SUM(total_amount) AS total_amount
+           FROM accounting_sales WHERE ${whereClause}`,
+        params,
+      );
+      const summary = countRows?.[0] ?? { cnt: 0, min_date: null, max_date: null, total_amount: 0 };
+
+      if (input.dryRun || summary.cnt === 0) {
+        return {
+          dryRun: true,
+          affectedCount: Number(summary.cnt),
+          minDate: summary.min_date,
+          maxDate: summary.max_date,
+          totalAmount: Number(summary.total_amount ?? 0),
+          message: summary.cnt === 0
+            ? "대상 없음"
+            : `${Number(summary.cnt)}건이 복구됩니다 (실제 실행 시).`,
+        };
+      }
+
+      // 실제 UPDATE
+      const [result]: any = await pool.execute(
+        `UPDATE accounting_sales SET status = 'pending' WHERE ${whereClause}`,
+        params,
+      );
+      const affected = Number(result.affectedRows ?? 0);
+
+      console.log(`[bulkRestoreApprovedToPending] tenant=${ctx.tenantId} user=${ctx.user.id} scope=${input.scope} affected=${affected}`);
+
+      return {
+        dryRun: false,
+        affectedCount: affected,
+        minDate: summary.min_date,
+        maxDate: summary.max_date,
+        totalAmount: Number(summary.total_amount ?? 0),
+        message: `${affected}건이 pending 으로 복구되었습니다.`,
+      };
+    }),
 });
