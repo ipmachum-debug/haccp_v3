@@ -1,6 +1,7 @@
 name: Backup Health Check
 
 # 매일 KST 08:00 (UTC 23:00 전날) 에 백업 상태를 점검한다.
+# 서버에 SSH 로 접속하지 않고, 앱의 공개 API 를 Bearer 토큰으로 호출.
 # 실패 시 GitHub Issue 를 자동 생성 → 설정된 이메일로 알림.
 
 on:
@@ -10,79 +11,91 @@ on:
 
 jobs:
   check-backup:
-    name: 서버 백업 파일 점검
+    name: 백업 헬스체크 API 호출
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     permissions:
       issues: write      # 실패 시 Issue 자동 생성
-      contents: read     # 기본 권한
+      contents: read
+
+    env:
+      BACKUP_HEALTH_URL: ${{ secrets.BACKUP_HEALTH_URL }}
+      BACKUP_HEALTH_TOKEN: ${{ secrets.BACKUP_HEALTH_TOKEN }}
 
     steps:
-      - name: SSH 로 서버 백업 상태 확인
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
-          command_timeout: 2m
-          script: |
-            set -e
-            BACKUP_DIR="/home/root/backups/haccp/db"
+      - name: Millio AI 백업 상태 조회
+        id: health
+        run: |
+          set +e   # curl 비-0 종료코드도 우리 로직에서 핸들링
 
-            echo "=== Millio AI 백업 헬스체크 ==="
-            echo "대상 디렉토리: ${BACKUP_DIR}"
-            echo
+          if [ -z "${BACKUP_HEALTH_URL}" ] || [ -z "${BACKUP_HEALTH_TOKEN}" ]; then
+            echo "::error::BACKUP_HEALTH_URL 또는 BACKUP_HEALTH_TOKEN 시크릿 미설정"
+            exit 1
+          fi
 
-            if [ ! -d "${BACKUP_DIR}" ]; then
-              echo "::error::백업 디렉토리가 존재하지 않습니다: ${BACKUP_DIR}"
-              exit 1
-            fi
+          echo "=== 백업 헬스체크 ==="
+          echo "URL: ${BACKUP_HEALTH_URL}"
+          echo
 
-            LATEST=$(ls -t "${BACKUP_DIR}"/*.sql.gz 2>/dev/null | head -1 || true)
+          RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=$(curl -sS -o "${RESPONSE_FILE}" -w "%{http_code}" \
+            -H "Authorization: Bearer ${BACKUP_HEALTH_TOKEN}" \
+            --max-time 20 \
+            "${BACKUP_HEALTH_URL}")
 
-            if [ -z "${LATEST}" ]; then
-              echo "::error::*.sql.gz 백업 파일이 단 하나도 없습니다."
-              exit 1
-            fi
+          CURL_EXIT=$?
 
-            AGE_MIN=$(( ( $(date +%s) - $(stat -c %Y "${LATEST}") ) / 60 ))
-            SIZE_BYTES=$(stat -c %s "${LATEST}")
-            SIZE_HUMAN=$(du -h "${LATEST}" | cut -f1)
-            TOTAL_COUNT=$(ls -1 "${BACKUP_DIR}"/*.sql.gz 2>/dev/null | wc -l)
+          echo "HTTP Status: ${HTTP_CODE}"
+          echo
+          echo "=== Response Body ==="
+          cat "${RESPONSE_FILE}" | head -200
+          echo
 
-            echo "최신 백업:    $(basename "${LATEST}")"
-            echo "생성 후 경과: ${AGE_MIN} 분"
-            echo "파일 크기:    ${SIZE_BYTES} bytes (${SIZE_HUMAN})"
-            echo "총 보관 개수: ${TOTAL_COUNT} 개"
-            echo
-
-            # ── 검증 규칙 ──
-            # 1) 최신 백업이 26시간 이내여야 함 (cron: 매일 02:00)
-            MAX_AGE_MIN=1560   # 26h = 1560min
-            # 2) 파일 크기가 최소 10KB 이상 (354바이트 참사 재발 방지)
-            MIN_SIZE_BYTES=10240
-
-            FAIL=0
-
-            if [ "${AGE_MIN}" -gt "${MAX_AGE_MIN}" ]; then
-              echo "::error::백업이 너무 오래됨 — ${AGE_MIN}분 경과 (허용: ${MAX_AGE_MIN}분)"
-              FAIL=1
-            fi
-
-            if [ "${SIZE_BYTES}" -lt "${MIN_SIZE_BYTES}" ]; then
-              echo "::error::백업 파일이 너무 작음 — ${SIZE_BYTES}바이트 (최소: ${MIN_SIZE_BYTES}바이트). DB_NAME 환경변수 확인 필요."
-              FAIL=1
-            fi
-
-            if [ "${FAIL}" -eq 1 ]; then
+          if [ "${CURL_EXIT}" -ne 0 ]; then
+            echo "::error::curl 실패 (exit=${CURL_EXIT}) — 서버 다운 또는 네트워크 차단"
+            # GitHub Step Summary 에도 기록
+            {
+              echo "## 🚨 백업 헬스체크 실패"
               echo
-              echo "=== 최근 5개 백업 상세 ==="
-              ls -lh "${BACKUP_DIR}" | tail -5
-              exit 1
-            fi
+              echo "- **원인**: curl 실행 실패 (exit=${CURL_EXIT})"
+              echo "- **URL**: \`${BACKUP_HEALTH_URL}\`"
+              echo "- **가능한 원인**: 서버 다운, 도메인 DNS 이슈, 네트워크 차단"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
-            echo "✅ 백업 정상: $(basename "${LATEST}") (${SIZE_HUMAN}, ${AGE_MIN}분 전)"
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✅ 백업 정상"
+            {
+              echo "## ✅ 백업 정상"
+              echo
+              echo '```json'
+              cat "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || cat "${RESPONSE_FILE}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # HTTP 4xx/5xx → 실패
+          echo "::error::헬스체크 API 가 비정상 응답 (HTTP ${HTTP_CODE})"
+
+          # 에러 응답 바디를 다음 스텝에서 쓰기 위해 파일로 공유
+          echo "RESPONSE_BODY<<EOF" >> "$GITHUB_OUTPUT"
+          cat "${RESPONSE_FILE}" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "HTTP_CODE=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 🚨 백업 헬스체크 실패"
+            echo
+            echo "- **HTTP Status**: ${HTTP_CODE}"
+            echo "- **응답 바디**:"
+            echo '```json'
+            cat "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || cat "${RESPONSE_FILE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit 1
 
       - name: 실패 시 GitHub Issue 자동 생성
         if: failure()
@@ -92,20 +105,30 @@ jobs:
             const today = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const notifyEmail = '${{ secrets.NOTIFY_EMAIL }}';
+            const httpCode = '${{ steps.health.outputs.HTTP_CODE }}' || 'N/A';
+            const responseBody = `${{ steps.health.outputs.RESPONSE_BODY }}` || '(응답 없음)';
 
             const body = [
               '## 🚨 백업 헬스체크 실패',
               '',
               `- **발생 시각 (KST)**: ${today}`,
+              `- **HTTP Status**: ${httpCode}`,
               `- **워크플로우 로그**: [${context.runId}](${runUrl})`,
               `- **알림 대상**: ${notifyEmail}`,
+              '',
+              '### 응답 바디',
+              '',
+              '```json',
+              responseBody.slice(0, 2000),
+              '```',
               '',
               '### 가능한 원인',
               '',
               '1. **백업 cron 미실행** — 서버 cron daemon 중단 또는 crontab 변경됨',
               '2. **백업 파일이 너무 작음** — `DB_NAME` 환경변수 누락 (354바이트 참사 재발)',
-              '3. **SSH 접속 실패** — 서버 다운 또는 방화벽/키 변경',
-              '4. **디스크 가득 참** — `/home/root/backups/haccp/db/` 경로 마운트 이슈',
+              '3. **API 서버 다운** — PM2 프로세스 죽었거나 재시작 루프',
+              '4. **도메인/DNS 이슈** — HTTPS 인증서 만료 등',
+              '5. **backup_status.json 누락** — backup.sh 가 한 번도 실행된 적 없음 (초기 배포 직후 정상)',
               '',
               '### 긴급 대응 절차',
               '',
@@ -115,6 +138,7 @@ jobs:
               '',
               '# 2. 최근 백업 파일 확인',
               'ls -lh /home/root/backups/haccp/db/ | tail -5',
+              'cat /home/root/backups/haccp/backup_status.json',
               '',
               '# 3. cron 스케줄 확인',
               'crontab -l | grep backup',
@@ -122,15 +146,19 @@ jobs:
               '# 4. 백업 로그 확인',
               'tail -50 /home/root/backups/haccp/backup.log',
               '',
-              '# 5. 수동 백업 실행 (테스트)',
+              '# 5. PM2 프로세스 상태',
+              'pm2 list',
+              'pm2 logs haccpone --lines 50',
+              '',
+              '# 6. 수동 백업 실행 (테스트)',
               'DB_NAME=haccp_tenant_db DB_PASSWORD=\'...\' /root/haccp_v3/scripts/backup.sh',
               '```',
               '',
               '### 복구 확인',
               '',
               '- [ ] 최신 백업 파일 크기 > 10KB 확인',
-              '- [ ] 파일 내용에 `INSERT INTO` 문 포함되어 있는지 확인 (`zcat`)',
-              '- [ ] 수동 복원 테스트 (다른 DB 로)',
+              '- [ ] `backup_status.json` 타임스탬프가 방금 업데이트됨',
+              '- [ ] API 엔드포인트 curl 테스트 성공 (HTTP 200)',
               '- [ ] 다음 자동 백업(02:00 AM) 정상 동작 확인',
               '',
               '---',
