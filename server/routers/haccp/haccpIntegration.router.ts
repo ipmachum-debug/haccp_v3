@@ -120,6 +120,7 @@ export const haccpIntegrationRouter = router({
           unitPrice: z.number(),
           amount: z.number(),
           taxAmount: z.number(),
+          taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0
           memo: z.string().optional(),
           accountCategoryId: z.number().optional(),
           expiryDate: z.string().optional(), // 소비기한
@@ -165,6 +166,7 @@ export const haccpIntegrationRouter = router({
           unitPrice: z.number(),
           amount: z.number(),
           taxAmount: z.number(),
+          taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0
           unit: z.string().optional(),
           memo: z.string().optional(),
           accountCategoryId: z.number().optional()
@@ -316,6 +318,7 @@ export const haccpIntegrationRouter = router({
           unitPrice: z.number(),
           amount: z.number(),
           taxAmount: z.number(),
+          taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0, 미지정이면 DB default(10)
           memo: z.string().optional(),
           unit: z.string().optional(),
         }))
@@ -459,6 +462,7 @@ export const haccpIntegrationRouter = router({
           unitPrice: z.number(),
           amount: z.number(),
           taxAmount: z.number(),
+          taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0, 미지정이면 DB default(10)
           unit: z.string().optional(),
           memo: z.string().optional(),
         }))

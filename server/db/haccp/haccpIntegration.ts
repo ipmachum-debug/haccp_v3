@@ -20,6 +20,7 @@ export async function createPurchase(params: {
   unitPrice: number;
   amount: number;
   taxAmount: number;
+  taxRate?: number; // 세율(%) — 면세 거래면 0, 미지정이면 기본 10%
   memo?: string;
   accountCategoryId?: number;
   expiryDate?: string; // 소비기한
@@ -57,7 +58,7 @@ export async function createPurchase(params: {
     unitPrice: params.unitPrice.toString(),
     totalAmount: params.amount.toString(),
     taxAmount: params.taxAmount.toString(),
-    taxRate: "10.00",
+    taxRate: (params.taxRate ?? 10).toFixed(2),
     sourceType: "manual",
     notes: params.memo ?? null,
     status: "approved",
@@ -247,6 +248,7 @@ export async function createSale(params: {
   unitPrice: number;
   amount: number;
   taxAmount: number;
+  taxRate?: number; // 세율(%) — 면세 거래면 0, 미지정이면 기본 10%
   unit?: string;
   memo?: string;
   accountCategoryId?: number;
@@ -274,7 +276,7 @@ export async function createSale(params: {
     unitPrice: params.unitPrice.toString(),
     totalAmount: params.amount.toString(),
     taxAmount: params.taxAmount.toString(),
-    taxRate: "10.00",
+    taxRate: (params.taxRate ?? 10).toFixed(2),
     sourceType: "manual",
     notes: params.memo ?? null,
     status: "approved",
