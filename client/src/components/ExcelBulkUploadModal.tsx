@@ -79,6 +79,7 @@ const PURCHASE_FIELDS = [
   { key: 'transactionDate', label: '거래일자', aliases: ['날짜', '일자', '매입일자', '매입일', '입고일', '입고일자', 'date', '거래날짜'] },
   { key: 'partnerName', label: '거래처', aliases: ['거래처명', '공급처', '공급업체', '업체명', '업체', '공급자', 'supplier', 'partner', '거래처이름'] },
   { key: 'itemName', label: '품목명', aliases: ['품목', '품명', '상품명', '제품명', '원재료명', '재료명', 'item', 'product', '자재명'] },
+  { key: 'skuCode', label: 'SKU', aliases: ['sku코드', 'sku', 'SKU', 'skuCode', '상품코드', '품목코드', '자재코드', '원재료코드', 'itemcode'] },
   { key: 'quantity', label: '수량', aliases: ['수량(EA)', '입고수량', 'qty', 'quantity', '갯수', '개수'] },
   { key: 'unitPrice', label: '단가', aliases: ['단가(원)', '매입단가', '입고단가', 'price', 'unit price', '원가'] },
   { key: 'amount', label: '공급가액', aliases: ['금액', '공급가', '매입금액', 'amount', '합계금액', '공급가액(원)'] },
@@ -372,10 +373,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
 
     setParsedRows(rows);
     setStep('review');
-    // 중복 검사 비동기 실행 (매출 모드만)
-    if (mode === 'sale') {
-      setTimeout(() => { void runDuplicateCheck(rows); }, 100);
-    }
+    // 중복 검사 비동기 실행 (매입/매출 모두)
+    setTimeout(() => { void runDuplicateCheck(rows); }, 100);
   }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, mode]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -418,7 +417,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
   };
 
   /**
-   * 매출 업로드 중복 검사 (거래처+날짜+품목명 조합) — Phase 8+
+   * 업로드 중복 검사 (거래처+날짜+품목명 조합) — Phase 8+
+   * 매입: checkPurchaseDuplicates, 매출: checkSalesDuplicates
    */
   const runDuplicateCheck = async (rows: ParsedRow[]) => {
     try {
@@ -429,7 +429,9 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         setDuplicateKeys(new Set());
         return;
       }
-      const query = (utils as any).haccpIntegration?.checkSalesDuplicates;
+      const query = isPurchase
+        ? (utils as any).haccpIntegration?.checkPurchaseDuplicates
+        : (utils as any).haccpIntegration?.checkSalesDuplicates;
       if (!query) return;
       const result: Array<{ transactionDate: string; partnerId: number; itemName: string; isDuplicate: boolean }> =
         await query.fetch({ candidates });
@@ -630,18 +632,57 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
   // ─── 엑셀 양식 다운로드 ───
   const handleDownloadTemplate = () => {
     if (isPurchase) {
+      // 매입 양식 (Phase 8+): SKU 컬럼 추가 + 안내 sheet 동봉
       const templateData = [
-        ['거래일자', '거래처', '품목명', '수량', '단가', '공급가액', '부가세', '합계', '단위', '비고'],
-        ['2026-03-05', '(주)골든푸드', '돈육(삼겹살)', '100', '15000', '1500000', '150000', '1650000', 'kg', ''],
-        ['2026-03-05', '한솔농산', '고춧가루', '50', '8000', '400000', '40000', '440000', 'kg', '국내산'],
+        ['거래일자', '거래처', '품목명', 'SKU', '수량', '단가', '공급가액', '부가세', '합계', '단위', '비고'],
+        ['2026-03-05', '(주)골든푸드', '돈육(삼겹살)', '10001', '100', '15000', '1500000', '150000', '1650000', 'kg', ''],
+        ['2026-03-05', '한솔농산', '고춧가루', '', '50', '8000', '400000', '40000', '440000', 'kg', '국내산 (SKU 미입력 시 품명 퍼지매칭)'],
       ];
       const ws = XLSX.utils.aoa_to_sheet(templateData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "매입등록양식");
       ws['!cols'] = [
-        { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 8 }, { wch: 10 },
-        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 6 }, { wch: 15 },
+        { wch: 12 }, { wch: 20 }, { wch: 20 }, { wch: 10 }, { wch: 8 }, { wch: 10 },
+        { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 6 }, { wch: 20 },
       ];
+
+      // 안내 시트: 매칭 규칙 + 재고 연동 안내
+      const guideRows = [
+        ['매입 엑셀 일괄등록 안내'],
+        [],
+        ['■ 필수 열'],
+        ['- 거래일자 : YYYY-MM-DD 또는 YYYYMMDD'],
+        ['- 거래처   : 등록된 거래처명과 유사하게 (자동 매칭)'],
+        ['- 품목명   : 등록된 품목 마스터 이름 (퍼지 매칭 0.7 이상)'],
+        ['- 수량 / 단가 : 숫자'],
+        [],
+        ['■ 선택 열'],
+        ['- SKU : 품목 코드 (예: 10001). 있으면 품목 매칭이 100% 확실'],
+        ['- 공급가액/부가세/합계 : 비워두면 수량×단가로 자동 계산'],
+        ['- 단위 : 기본 EA'],
+        ['- 비고 : 자유 메모'],
+        [],
+        ['■ 매칭 파이프라인 (업로드 후 자동 실행)'],
+        ['1) SKU 완전일치 → 즉시 확정'],
+        ['2) 품명 퍼지 ≥0.9 → 즉시 확정'],
+        ['3) 품명 퍼지 0.7~0.9 → "확인 필요" 표시 (AI 재매칭 버튼으로 LLM 재검증 가능)'],
+        ['4) 매칭 실패 → 수동 선택'],
+        [],
+        ['■ 재고 연동 (원재료 매칭 시 자동)'],
+        ['- 원재료 → LOT 자동 생성 (MAT-YYYYMMDD-순번) + FEFO 입고'],
+        ['- 원재료 → 육안검사일지 자동 생성 (status=pending)'],
+        ['- 카테고리 alertDays 설정 시 소비기한 알람 자동 생성'],
+        ['- 원료수불부 입고 연동 + 복식부기 자동분개'],
+        [],
+        ['■ 묶음 (입고전표)'],
+        ['- 같은 거래처+같은 거래일자 행들은 조회 시 1개 입고전표로 그룹화되어 표시됩니다.'],
+        ['- 업로드 전 "입고전표 그룹화 예상" 카드에서 몇 건으로 묶일지 미리 확인 가능'],
+        ['- 동일 거래처+날짜+품목 조합이 기존에 있으면 "중복" 뱃지 표시'],
+      ];
+      const wsGuide = XLSX.utils.aoa_to_sheet(guideRows);
+      wsGuide['!cols'] = [{ wch: 70 }];
+      XLSX.utils.book_append_sheet(wb, wsGuide, "안내");
+
       XLSX.writeFile(wb, `매입_일괄등록_양식_${todayLocal()}.xlsx`);
     } else {
       // 매출 양식 (Phase 8+): SKU 컬럼 추가 + 안내 sheet 동봉
@@ -768,16 +809,12 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 <p>- <strong>거래처</strong>: 등록된 거래처명과 유사하게</p>
                 <p>- <strong>품목명</strong>: 등록된 품목 마스터와 유사하게</p>
                 <p>- <strong>수량</strong>, <strong>단가</strong>: 숫자</p>
-                {!isPurchase && (
-                  <>
-                    <p className="mt-2 font-medium text-foreground text-xs mb-1">선택 열 (매출):</p>
-                    <p>- <strong>SKU</strong>: 품목 코드 (있으면 매칭 100% 확실)</p>
-                  </>
-                )}
+                <p className="mt-2 font-medium text-foreground text-xs mb-1">선택 열:</p>
+                <p>- <strong>SKU</strong>: 품목 코드 (있으면 매칭 100% 확실)</p>
                 <p className="mt-1.5 text-[10px]">공급가액/부가세/합계는 수량 x 단가로 자동 계산됩니다.</p>
-                {!isPurchase && (
-                  <p className="text-[10px]">같은 거래처·거래일자는 자동으로 하나의 명세서로 묶여 표시됩니다.</p>
-                )}
+                <p className="text-[10px]">
+                  같은 거래처·거래일자는 자동으로 하나의 {isPurchase ? '입고전표' : '명세서'}로 묶여 표시됩니다.
+                </p>
               </div>
             </div>
           )}
@@ -891,8 +928,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 </Card>
               </div>
 
-              {/* 그룹화 프리뷰 (매출만) — Phase 8+ */}
-              {!isPurchase && (() => {
+              {/* 그룹화 프리뷰 (매입/매출) — Phase 8+ */}
+              {(() => {
                 const groups = new Map<string, { partnerId: number; count: number }>();
                 for (const r of readyRows) {
                   if (!r.partnerId || !r.transactionDate) continue;
@@ -901,12 +938,20 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                   groups.get(key)!.count++;
                 }
                 if (groups.size === 0) return null;
+                const cardTone = isPurchase
+                  ? 'bg-emerald-50/40 border-emerald-200'
+                  : 'bg-blue-50/40 border-blue-200';
+                const textTone = isPurchase
+                  ? 'text-emerald-900 dark:text-emerald-200'
+                  : 'text-blue-900 dark:text-blue-200';
+                const iconTone = isPurchase ? 'text-emerald-600' : 'text-blue-600';
+                const groupLabel = isPurchase ? '입고전표' : '명세서';
                 return (
-                  <Card className="p-2.5 bg-blue-50/40 border-blue-200 space-y-1.5">
+                  <Card className={`p-2.5 ${cardTone} space-y-1.5`}>
                     <div className="flex items-center gap-2 text-xs">
-                      <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600" />
-                      <span className="font-medium text-blue-900 dark:text-blue-200">
-                        명세서 그룹화 예상: <strong>{groups.size}개 명세서</strong> × 평균 <strong>{(readyRows.length / groups.size).toFixed(1)}개 품목</strong>
+                      <FileSpreadsheet className={`h-3.5 w-3.5 ${iconTone}`} />
+                      <span className={`font-medium ${textTone}`}>
+                        {groupLabel} 그룹화 예상: <strong>{groups.size}개 {groupLabel}</strong> × 평균 <strong>{(readyRows.length / groups.size).toFixed(1)}개 품목</strong>
                       </span>
                       <span className="text-[10px] text-muted-foreground ml-auto">
                         (거래처 {new Set(Array.from(groups.values()).map(g => g.partnerId)).size}곳)
@@ -928,7 +973,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                   <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매핑 수정
                 </Button>
                 <div className="flex gap-2">
-                  {!isPurchase && parsedRows.some(r => r.status === 'warning') && (
+                  {parsedRows.some(r => r.status === 'warning') && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -992,7 +1037,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                                row.status === 'warning' ? <Badge className="bg-amber-100 text-amber-700 text-[9px] px-1 py-0">확인</Badge> :
                                row.status === 'error' ? <Badge className="bg-red-100 text-red-700 text-[9px] px-1 py-0">오류</Badge> :
                                <Badge variant="secondary" className="text-[9px] px-1 py-0">대기</Badge>}
-                              {!isPurchase && row.partnerId && row.transactionDate && row.itemName &&
+                              {row.partnerId && row.transactionDate && row.itemName &&
                                 duplicateKeys.has(`${row.transactionDate}|${row.partnerId}|${row.itemName}`) && (
                                 <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-[8px] px-1 py-0">중복</Badge>
                               )}
