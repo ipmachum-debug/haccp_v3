@@ -31,6 +31,7 @@ import {
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle,
   Download, ArrowLeft, RefreshCw, Search, Package, Building2, X, ChevronRight,
+  Sparkles, Wand2, Zap, ShieldCheck,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
@@ -63,6 +64,8 @@ type ParsedRow = {
   amount: number;
   taxAmount: number;
   totalAmount: number;
+  taxRate: number;      // 실제 적용 세율 (10 = 과세, 0 = 면세)
+  isTaxFree: boolean;   // 면세 여부 (UI 뱃지용)
   unit: string;
   memo: string;
   status: RowStatus;
@@ -280,15 +283,58 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
       const quantity = parseFloat(getValue('quantity')) || 0;
       const unitPrice = parseFloat(getValue('unitPrice').replace(/,/g, '')) || 0;
       let amount = parseFloat(getValue('amount').replace(/,/g, '')) || 0;
-      let taxAmount = parseFloat(getValue('taxAmount').replace(/,/g, '')) || 0;
+      // 부가세 컬럼: 입력 유무를 구분해야 '명시적 0' (= 면세) 판정 가능
+      const rawTaxAmount = getValue('taxAmount').replace(/,/g, '').trim();
+      const taxAmountExplicit = rawTaxAmount !== '';
+      let taxAmount = parseFloat(rawTaxAmount) || 0;
       let totalAmount = parseFloat(getValue('totalAmount').replace(/,/g, '')) || 0;
       const unit = getValue('unit') || 'EA';
       const memo = getValue('memo');
 
-      // 자동 계산
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 금액 자동계산 / 역산 / 과세·비과세 감지 (2026-04-21)
+      // 규칙:
+      //  (1) 수량×단가 있으면 → 공급가 계산
+      //  (2) 합계만 있고 공급가 없으면 → 부가세 명시 0 이면 면세(합계=공급가), 아니면 과세 역산 (÷1.1)
+      //  (3) 공급가=합계 + 부가세 미입력/0 → 면세로 인식
+      //  (4) 과세: 부가세 = round(공급가 × 0.1), 합계 = 공급가 + 부가세
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+      // (1) 수량×단가 → 공급가 (기본 경로)
       if (!amount && quantity && unitPrice) amount = quantity * unitPrice;
-      if (!taxAmount && amount) taxAmount = Math.round(amount * 0.1);
-      if (!totalAmount && amount) totalAmount = amount + taxAmount;
+
+      // (2) 공급가 없이 합계만 있으면 역산
+      if (!amount && totalAmount) {
+        if (taxAmountExplicit && taxAmount === 0) {
+          // 부가세=0 명시 → 면세
+          amount = totalAmount;
+        } else {
+          // 과세 역산
+          amount = Math.round(totalAmount / 1.1);
+          if (!taxAmount) taxAmount = totalAmount - amount;
+        }
+      }
+
+      // (3) 면세 판정: 공급가 = 합계 이거나, 부가세=0 명시
+      //     (단, 합계 미입력 상태에서 부가세 비움은 과세로 가정)
+      const looksLikeTaxFree =
+        amount > 0 &&
+        (
+          (taxAmountExplicit && taxAmount === 0) ||
+          (totalAmount > 0 && totalAmount === amount && !taxAmount)
+        );
+
+      // (4) 부가세/합계 자동 계산
+      if (looksLikeTaxFree) {
+        taxAmount = 0;
+        if (!totalAmount) totalAmount = amount;
+      } else {
+        if (!taxAmount && amount) taxAmount = Math.round(amount * 0.1);
+        if (!totalAmount && amount) totalAmount = amount + taxAmount;
+      }
+
+      const isTaxFree = looksLikeTaxFree || (amount > 0 && taxAmount === 0 && totalAmount === amount);
+      const taxRate = isTaxFree ? 0 : 10;
 
       // 거래처 퍼지 매칭
       let partnerId: number | null = null;
@@ -364,6 +410,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         amount,
         taxAmount,
         totalAmount,
+        taxRate,
+        isTaxFree,
         unit,
         memo,
         status,
@@ -554,6 +602,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
           unitPrice: r.unitPrice,
           amount: r.amount,
           taxAmount: r.taxAmount,
+          taxRate: r.taxRate,
           memo: r.memo || undefined,
           unit: r.unit || undefined,
         }));
@@ -603,6 +652,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
             unitPrice: r.unitPrice,
             amount: r.amount,
             taxAmount: r.taxAmount,
+            taxRate: r.taxRate,
             unit: r.unit || undefined,
             memo: r.memo || undefined,
           };
@@ -637,6 +687,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         ['거래일자', '거래처', '품목명', 'SKU', '수량', '단가', '공급가액', '부가세', '합계', '단위', '비고'],
         ['2026-03-05', '(주)골든푸드', '돈육(삼겹살)', '10001', '100', '15000', '1500000', '150000', '1650000', 'kg', ''],
         ['2026-03-05', '한솔농산', '고춧가루', '', '50', '8000', '400000', '40000', '440000', 'kg', '국내산 (SKU 미입력 시 품명 퍼지매칭)'],
+        ['2026-03-05', '농협하나로', '쌀 20kg', '', '10', '55000', '550000', '0', '550000', '포', '면세품 (부가세=0 기재)'],
       ];
       const ws = XLSX.utils.aoa_to_sheet(templateData);
       const wb = XLSX.utils.book_new();
@@ -661,6 +712,13 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         ['- 공급가액/부가세/합계 : 비워두면 수량×단가로 자동 계산'],
         ['- 단위 : 기본 EA'],
         ['- 비고 : 자유 메모'],
+        [],
+        ['■ 금액 자동계산 규칙 (과세/비과세 자동 판정)'],
+        ['1) 수량+단가만 입력 → 공급가=수량×단가, 부가세=공급가×10%, 합계=공급가+부가세'],
+        ['2) 합계만 입력 → 공급가=round(합계÷1.1), 부가세=합계-공급가 (과세 가정)'],
+        ['3) 합계=공급가 로 입력 → 면세로 자동 판정 (세율 0%, 부가세 0원)'],
+        ['4) 부가세 열에 명시적으로 0 입력 → 면세로 자동 판정 (세율 0%)'],
+        ['※ 비과세(면세) 거래는 부가세 컬럼에 "0" 을 직접 기재하세요 (빈칸은 과세로 간주)'],
         [],
         ['■ 매칭 파이프라인 (업로드 후 자동 실행)'],
         ['1) SKU 완전일치 → 즉시 확정'],
@@ -690,6 +748,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         ['거래일자', '거래처', '품목명', 'SKU', '수량', '단가', '공급가액', '부가세', '합계', '포장규격(단위)', '비고'],
         ['2026-03-05', '맛나식품(주)', '돈까스 세트', '30001', '200', '5000', '1000000', '100000', '1100000', 'box', ''],
         ['2026-03-05', '학교급식센터', '불고기 도시락', '', '500', '3500', '1750000', '175000', '1925000', 'pack', '3월분 (SKU 미입력 시 품명 퍼지매칭)'],
+        ['2026-03-05', '유치원', '생우유', '', '100', '2000', '200000', '0', '200000', 'box', '면세품 (부가세=0 기재)'],
       ];
       const ws = XLSX.utils.aoa_to_sheet(templateData);
       const wb = XLSX.utils.book_new();
@@ -714,6 +773,13 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         ['- 공급가액/부가세/합계 : 비워두면 수량×단가로 자동 계산'],
         ['- 포장규격(단위) : 기본 EA'],
         ['- 비고 : 자유 메모'],
+        [],
+        ['■ 금액 자동계산 규칙 (과세/비과세 자동 판정)'],
+        ['1) 수량+단가만 입력 → 공급가=수량×단가, 부가세=공급가×10%, 합계=공급가+부가세'],
+        ['2) 합계만 입력 → 공급가=round(합계÷1.1), 부가세=합계-공급가 (과세 가정)'],
+        ['3) 합계=공급가 로 입력 → 면세로 자동 판정 (세율 0%, 부가세 0원)'],
+        ['4) 부가세 열에 명시적으로 0 입력 → 면세로 자동 판정 (세율 0%)'],
+        ['※ 비과세(면세) 거래는 부가세 컬럼에 "0" 을 직접 기재하세요 (빈칸은 과세로 간주)'],
         [],
         ['■ 매칭 파이프라인 (업로드 후 자동 실행)'],
         ['1) SKU 완전일치 → 즉시 확정'],
@@ -803,6 +869,38 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 </Button>
               </div>
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
+
+              {/* AI 기능 안내 배너 */}
+              <div className="max-w-md mx-auto rounded-xl border border-violet-200/70 bg-gradient-to-br from-violet-50 via-sky-50 to-emerald-50 dark:from-violet-950/30 dark:via-sky-950/20 dark:to-emerald-950/20 p-3 text-left shadow-sm">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Sparkles className="h-4 w-4 text-violet-600" />
+                  <span className="text-xs font-semibold bg-gradient-to-r from-violet-600 to-sky-600 bg-clip-text text-transparent">
+                    AI 매칭 엔진이 자동으로 분석합니다
+                  </span>
+                  <Badge variant="outline" className="ml-auto h-4 px-1.5 text-[9px] border-violet-300 text-violet-700 bg-white/60">
+                    AI
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                  <div className="flex items-start gap-1.5">
+                    <Zap className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                    <span><strong>SKU 완전일치</strong><br /><span className="text-muted-foreground">코드 정규화 후 1:1 매칭</span></span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Wand2 className="h-3 w-3 text-sky-500 mt-0.5 shrink-0" />
+                    <span><strong>퍼지 매칭</strong><br /><span className="text-muted-foreground">오타/띄어쓰기 자동 보정</span></span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <Sparkles className="h-3 w-3 text-violet-500 mt-0.5 shrink-0" />
+                    <span><strong>AI 재매칭</strong><br /><span className="text-muted-foreground">GPT-4o 로 품명 유사도 분석</span></span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <ShieldCheck className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
+                    <span><strong>중복 감지</strong><br /><span className="text-muted-foreground">기존 거래와 충돌 사전 차단</span></span>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-muted/50 rounded-lg p-3 text-left text-xs text-muted-foreground max-w-md mx-auto space-y-0.5">
                 <p className="font-medium text-foreground text-xs mb-1.5">필수 열:</p>
                 <p>- <strong>거래일자</strong>: 2026-03-05 또는 20260305 형식</p>
@@ -811,7 +909,9 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 <p>- <strong>수량</strong>, <strong>단가</strong>: 숫자</p>
                 <p className="mt-2 font-medium text-foreground text-xs mb-1">선택 열:</p>
                 <p>- <strong>SKU</strong>: 품목 코드 (있으면 매칭 100% 확실)</p>
-                <p className="mt-1.5 text-[10px]">공급가액/부가세/합계는 수량 x 단가로 자동 계산됩니다.</p>
+                <p className="mt-1.5 text-[10px]"><strong>금액 자동 계산:</strong> 수량×단가 → 공급가액/부가세/합계 자동 산출</p>
+                <p className="text-[10px]"><strong>합계만 입력한 경우:</strong> 공급가액 = 합계 ÷ 1.1 로 역산 (과세 가정)</p>
+                <p className="text-[10px]"><strong>비과세(면세) 처리:</strong> 공급가액=합계 또는 부가세=0 입력 시 자동 판정 (세율 0%)</p>
                 <p className="text-[10px]">
                   같은 거래처·거래일자는 자동으로 하나의 {isPurchase ? '입고전표' : '명세서'}로 묶여 표시됩니다.
                 </p>
