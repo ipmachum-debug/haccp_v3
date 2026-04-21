@@ -1,9 +1,9 @@
 import { getDb, withTransaction } from "../../db";
 import { accountingPurchases } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, sql } from "drizzle-orm";
-import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
-import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
+import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
 import { formatLocalDate } from "../../utils/timezone";
+import { publishEvent } from "../../platform/event-bus";
 
 /**
  * 매입 POST 로직 (트랜잭션 + 멱등성 보장)
@@ -299,6 +299,33 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     await conn.execute(
       `UPDATE accounting_purchases SET status = 'approved', posted_at = NOW(), posted_by = ? WHERE id = ? AND tenant_id = ?`,
       [userId, purchaseId, tenantId]
+    );
+
+    // (E) domain_events — purchase.posted 발행 (outbox 패턴, 같은 트랜잭션)
+    await publishEvent(
+      {
+        tenantId,
+        eventType: "purchase.posted",
+        aggregateType: "Purchase",
+        aggregateId: purchaseId,
+        payload: {
+          purchaseId,
+          partnerId: (purchase as any).partnerId ?? null,
+          materialId: resolvedMaterialId,
+          itemName: purchase.itemName ?? null,
+          quantity: Number(qty),
+          unit: purchase.unit ?? "EA",
+          supplyAmount,
+          taxAmount,
+          totalAmount,
+          lotId,
+          lotNumber,
+          journalEntryId,
+          transactionDate: entryDate,
+        },
+        createdBy: userId,
+      },
+      conn,
     );
 
     console.log(`[POST] 매입 전표 ID ${purchaseId} 승인 완료 (LOT: ${lotNumber})`);

@@ -1,9 +1,12 @@
 // financialReports 라우터
 // P3: 시산표, 재무상태표, 손익계산서
 // P4-3: Excel 내보내기
-import { tenantRequiredProcedure, router } from "../../_core/trpc";
+import { tenantRequiredProcedure, router, requireCapability } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+
+// Capability 기반 procedure — ERP_ACCOUNTING:READ 필요 (admin/super_admin 은 bypass)
+const accountingReadProcedure = requireCapability("ERP_ACCOUNTING", "READ");
 
 function getEffectiveTenantId(ctx: any): number {
   const tenantId = ctx.tenantId;
@@ -14,8 +17,8 @@ function getEffectiveTenantId(ctx: any): number {
 }
 
 export const financialReportsRouter = router({
-  // 시산표 (Trial Balance)
-  trialBalance: tenantRequiredProcedure
+  // 시산표 (Trial Balance) — capability-gated
+  trialBalance: accountingReadProcedure
     .input(
       z.object({
         startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
