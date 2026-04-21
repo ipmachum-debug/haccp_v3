@@ -63,6 +63,18 @@ interface FinishedProductItem {
 
 const SHIP_METHODS = ["차량배송", "택배(아이스박스)"];
 
+/**
+ * 수량 표시 포맷 — 소수점 1자리 고정
+ * 이유: "1.000" 표기는 "1,000"(천 단위) 로 오인되어 혼동 유발
+ * 편집 input 은 원본 유지, 표시(td / print) 시에만 적용
+ */
+const formatQuantity = (q: string | number): string => {
+  if (q === '' || q === null || q === undefined) return '';
+  const n = Number(q);
+  if (isNaN(n)) return String(q);
+  return n.toFixed(1);
+};
+
 const emptyItem = (): FinishedProductItem => ({
   shipDate: '', productName: '', lotNumber: '', quantity: '',
   packagingStatus: '\u25CB', labelStatus: '\u25CB',
@@ -107,7 +119,7 @@ function generatePrintHTML(items: FinishedProductItem[], year: number, month: nu
       <td>${item.shipDate}</td>
       <td class="td-left">${item.productName}</td>
       <td>${item.lotNumber}</td>
-      <td class="td-right">${item.quantity}</td>
+      <td class="td-right">${formatQuantity(item.quantity)}</td>
       <td class="${markClass(item.packagingStatus)}">${item.packagingStatus}</td>
       <td class="${markClass(item.labelStatus)}">${item.labelStatus}</td>
       <td>${item.shipMethod || '택배(아이스박스)'}</td>
@@ -298,7 +310,7 @@ function FinishedProductDocument({
               <td className={tdCls}>{item.shipDate}</td>
               <td className={`${bCls} px-1 py-0.5 text-[9px] text-left`}>{item.productName}</td>
               <td className={tdCls}>{item.lotNumber}</td>
-              <td className={`${bCls} px-1 py-0.5 text-[9px] text-right`}>{item.quantity}</td>
+              <td className={`${bCls} px-1 py-0.5 text-[9px] text-right`}>{formatQuantity(item.quantity)}</td>
               <td className={`${tdCls} ${markColor(item.packagingStatus)}`}>{item.packagingStatus}</td>
               <td className={`${tdCls} ${markColor(item.labelStatus)}`}>{item.labelStatus}</td>
               <td className={`${tdCls} text-[8px]`}>{item.shipMethod || '택배'}</td>
