@@ -7,7 +7,7 @@ import {
   calculateBatchRequirements,
   deductInventoryByMfReport,
   generateIngredientLabel
-} from "./db/mfReportAPI";
+} from "./db/production/mfReportAPI";
 
 /**
  * 품목제조보고 시스템 통합 테스트

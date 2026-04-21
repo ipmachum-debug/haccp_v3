@@ -22,6 +22,7 @@ export const apLedgerRouter = router({
           occurredAt: z.string(),
           apEntryType: z.enum(["bill", "payment", "credit", "adjust"]),
           amount: z.string(),
+          dueDate: z.string().optional(), // Phase B: 지급 만기일 (미지정 시 자동 계산)
           refType: z.string().optional(),
           refId: z.number().optional(),
           memo: z.string().optional(),
@@ -30,11 +31,20 @@ export const apLedgerRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const tenantId = getEffectiveTenantId(ctx);
-        const { createApLedgerEntry } = await import("../../partners");
+        const { createApLedgerEntry, resolveDueDate } = await import("../../partners");
+        const { dueDate, ...rest } = input;
+        // Phase B: payment_terms_days 기반 자동 만기일 계산 (dueDate 명시 없을 때)
+        const resolvedDueDate = await resolveDueDate(
+          tenantId,
+          input.supplierPartnerId,
+          input.occurredAt,
+          dueDate,
+        );
         const id = await createApLedgerEntry({
-          ...input,
+          ...rest,
           tenantId,
           occurredAt: new Date(input.occurredAt),
+          dueDate: resolvedDueDate ?? undefined,
           createdBy: ctx.user.id
         });
         return { id };

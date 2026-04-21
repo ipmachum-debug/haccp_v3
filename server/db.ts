@@ -1,8 +1,7 @@
 /**
  * db.ts - Barrel file (re-export hub)
  *
- * 기존 9,119줄의 모놀리식 파일을 도메인별 모듈로 분리했습니다.
- * 이 파일은 하위 호환성을 위해 모든 도메인 모듈을 re-export합니다.
+ * v2-rebuild: 도메인별 서브디렉토리 구조로 재편
  *
  * 기존 import 예시:
  *   import { getDb, createBatch, getAllUsers } from '../db';
@@ -10,52 +9,39 @@
  *
  * 새로운 import 방식 (권장):
  *   import { getDb } from '../db/connection';
- *   import { createBatch } from '../db/batchFunctions';
- *   import { getAllUsers } from '../db/userManagement';
+ *   import { createBatch } from '../db/production/batchFunctions';
+ *   import { getAllUsers } from '../db/system/userManagement';
  *
- * 도메인 모듈 목록:
- *   - connection.ts: DB 연결 (getDb, getRawConnection)
- *   - userManagement.ts: 사용자 CRUD, 권한 관리
- *   - batchFunctions.ts: 배치 CRUD, 코드 생성, 보고서, 완료 처리
- *   - productAndCcp.ts: 제품, 레시피, CCP 템플릿/인스턴스/이탈
- *   - inventoryFunctions.ts: 재고, 원재료, LOT, 입출고
- *   - ccpScheduleFunctions.ts: CCP 점검 일정
- *   - notificationFunctions.ts: 알림 CRUD, 통계
- *   - checklistAndInspection.ts: 체크리스트, 검사 시스템
- *   - auditApprovalSupplier.ts: 감사로그, 승인, 거래처, 평가
- *   - dashboardAndAnalytics.ts: 대시보드, 통계, 원가, 수익성, 예측
- *   - equipmentGroupsTenant.ts: 설비, 사용자그룹, 생산일정, 테넌트
+ * 도메인 디렉토리:
+ *   - production/: 배치, 생산, 원가, BOM, 레시피
+ *   - haccp/: CCP, 검사, 체크리스트, 설비, HACCP 통합
+ *   - accounting/: 회계, 분개, 재무보고서, 원장
+ *   - inventory/: 재고, LOT, 입출고, 수불부
+ *   - ai/: AI 엔진, 규칙, 지식베이스, 예측
+ *   - system/: 대시보드, 알림, 감사, 사용자, 설정
  */
 
-// DB 연결
+// ── 인프라 (루트) ──
 export { getDb, getRawConnection, withTransaction } from './db/connection';
 
-// 사용자 관리
-export * from './db/userManagement';
+// ── production ──
+export * from './db/production/batchFunctions';
+export * from './db/production/productAndCcp';
+export * from './db/production/costAnalysis';
+export * from './db/production/productionAnalytics';
 
-// 배치 관리
-export * from './db/batchFunctions';
+// ── haccp ──
+export * from './db/haccp/ccpScheduleFunctions';
+export * from './db/haccp/checklistAndInspection';
+export * from './db/haccp/equipmentGroupsTenant';
 
-// 제품, 레시피, CCP
-export * from './db/productAndCcp';
+// ── inventory ──
+export * from './db/inventory/inventoryFunctions';
+export * from './db/inventory/inventoryForecastAPI';
 
-// 재고, 원재료, LOT
-export * from './db/inventoryFunctions';
-
-// CCP 점검 일정
-export * from './db/ccpScheduleFunctions';
-
-// 알림
-export * from './db/notificationFunctions';
-
-// 체크리스트, 검사
-export * from './db/checklistAndInspection';
-
-// 감사로그, 승인, 거래처, 평가
-export * from './db/auditApprovalSupplier';
-
-// 대시보드, 통계, 분석
-export * from './db/dashboardAndAnalytics';
-
-// 설비, 사용자그룹, 생산일정, 테넌트
-export * from './db/equipmentGroupsTenant';
+// ── system ──
+export * from './db/system/userManagement';
+export * from './db/system/notificationFunctions';
+export * from './db/system/auditApprovalSupplier';
+// dashboardAndAnalytics barrel skipped (duplicate exports with costAnalysis + dashboardStats)
+export * from './db/system/dashboardStats';

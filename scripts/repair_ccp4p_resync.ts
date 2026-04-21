@@ -8,8 +8,10 @@
  *       이 스크립트로 기존 불완전 레코드를 재동기화
  */
 
-// DB 환경변수 설정 (서버 코드 import 전에 필요)
-process.env.DATABASE_URL = 'mysql://root:G0ld3n!T1004%23Sec@127.0.0.1:3306/haccp_tenant_db?charset=utf8mb4';
+// DATABASE_URL 은 실행 전 env 로 주입 필요 (보안: 하드코딩 제거 2026-04-19)
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL 환경변수 미설정. 실행 예: DATABASE_URL=mysql://... npx tsx scripts/repair_ccp4p_resync.ts');
+}
 
 import { getRawConnection } from '../server/db/connection';
 import { syncCcpRowsToFormRows } from '../server/db/ccpFormRecords';

@@ -66,7 +66,7 @@ export default function BankAccountTab() {
       utils.bankAccount.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -77,7 +77,7 @@ export default function BankAccountTab() {
       utils.bankAccount.list.invalidate();
       handleCloseDialog();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });
@@ -87,7 +87,7 @@ export default function BankAccountTab() {
       toast.success("계좌가 비활성화되었습니다");
       utils.bankAccount.list.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`오류: ${error.message}`);
     },
   });

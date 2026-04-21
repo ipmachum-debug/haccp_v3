@@ -183,7 +183,7 @@ export async function receiveMetalDetectorSignal(
         `INSERT INTO h_notifications
          (tenant_id, user_id, title, message, type, priority, is_read, created_at)
          SELECT tenant_id, id, '금속검출 이상 감지!', ?, 'ccp_alert', 'critical', 0, NOW()
-         FROM users WHERE tenant_id = ? AND role IN ('admin', 'super_admin') AND status = 'approved'`,
+         FROM users WHERE tenant_id = ? AND role IN ('admin', 'super_admin') AND approval_status = 'approved'`,
         [`금속검출기 이상 감지: ${params.productName || ""}. 즉시 확인 필요.`, tenantId]
       );
     } catch { /* 알림 실패 무시 */ }
@@ -336,6 +336,7 @@ async function createEvent(
     description?: string;
   }
 ): Promise<number> {
+  // @ts-expect-error - library type issue
   const [result] = await conn.execute<any>(
     `INSERT INTO iot_events
      (tenant_id, device_id, event_type, batch_id, ccp_instance_id, sensor_data_id,
@@ -361,6 +362,7 @@ async function evaluateRules(
 ): Promise<string[]> {
   const triggered: string[] = [];
 
+  // @ts-expect-error - library type issue
   const [rules] = await conn.execute<any[]>(
     `SELECT * FROM iot_rules
      WHERE tenant_id = ? AND is_active = 1

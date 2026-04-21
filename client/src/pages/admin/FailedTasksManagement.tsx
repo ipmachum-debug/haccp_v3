@@ -13,8 +13,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { RefreshCw, Trash2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function FailedTasksManagement() {
+  const L = useIndustryLabel();
   const utils = trpc.useUtils();
 
   // 실패한 작업 목록 조회
@@ -26,7 +28,7 @@ export default function FailedTasksManagement() {
       toast.success("작업이 성공적으로 재시도되었습니다.");
       utils.system.getFailedBatchCompletionRetries.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`재시도 실패: ${error.message}`);
     },
   });
@@ -37,7 +39,7 @@ export default function FailedTasksManagement() {
       toast.success("재시도 작업이 삭제되었습니다.");
       utils.system.getFailedBatchCompletionRetries.invalidate();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -120,7 +122,7 @@ export default function FailedTasksManagement() {
               <TableHeader>
                 <TableRow>
                   <TableHead>작업 ID</TableHead>
-                  <TableHead>배치 ID</TableHead>
+                  <TableHead>{L("batch")} ID</TableHead>
                   <TableHead>작업 유형</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>재시도 횟수</TableHead>

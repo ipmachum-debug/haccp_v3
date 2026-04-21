@@ -123,9 +123,9 @@ export default function Home() {
     <div className="container mx-auto py-8">
       {/* 헤더 */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">HACCP 식품 안전 관리 시스템</h1>
+        <h1 className="text-3xl font-bold mb-2">Millio AI | 제조기반 올인원 AI ERP</h1>
         <p className="text-muted-foreground">
-          HACCP 기초관리 기록서를 작성하고 관리합니다
+          공장의 모든 데이터를 하나로. 생산·재고·품질·HACCP·회계 통합 운영 허브입니다.
         </p>
       </div>
 

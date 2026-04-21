@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
-import { hCapaRecords } from "../../../drizzle/schema_main";
+import { hCapaRecords } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getEffectiveSiteId, getEffectiveTenantId } from "./_helpers";
 
@@ -25,8 +25,8 @@ export const capaRecordRouter = router({
       // ✅ P0 FIX: siteId 강제
       const effectiveSiteId = getEffectiveSiteId(input, ctx);
       const conditions = [eq(hCapaRecords.siteId, effectiveSiteId)];
-      if (input.startDate) conditions.push(sql`${hCapaRecords.issueDate} >= ${input.startDate}`);
-      if (input.endDate) conditions.push(sql`${hCapaRecords.issueDate} <= ${input.endDate}`);
+      if (input.startDate) conditions.push(sql`${hCapaRecords.capaDate} >= ${input.startDate}`);
+      if (input.endDate) conditions.push(sql`${hCapaRecords.capaDate} <= ${input.endDate}`);
       if (input.status) conditions.push(eq(hCapaRecords.status, input.status));
       if (input.priority) conditions.push(eq(hCapaRecords.priority, input.priority));
 
@@ -34,7 +34,7 @@ export const capaRecordRouter = router({
         .select()
         .from(hCapaRecords)
         .where(and(...conditions))
-        .orderBy(desc(hCapaRecords.issueDate));
+        .orderBy(desc(hCapaRecords.capaDate));
 
       return records;
     }),

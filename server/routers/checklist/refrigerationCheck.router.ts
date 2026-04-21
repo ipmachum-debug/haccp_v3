@@ -5,10 +5,10 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
-import { hRefrigerationChecks } from "../../../drizzle/schema_main";
+import { hRefrigerationChecks } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getEffectiveSiteId, getEffectiveTenantId } from "./_helpers";
-import { triggerRefrigerationAlert } from "../../db/temperatureAlertTrigger";
+import { triggerRefrigerationAlert } from "../../db/system/temperatureAlertTrigger";
 
 export const refrigerationCheckRouter = router({
   list: tenantRequiredProcedure

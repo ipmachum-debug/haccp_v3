@@ -1,5 +1,5 @@
 import {mysqlTable, serial, varchar, bigint, timestamp, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 백업 메타데이터 테이블

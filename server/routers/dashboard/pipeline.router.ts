@@ -12,7 +12,7 @@ export const pipelineRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await getPipelineStatus(db, input.siteId, input.workDate, ctx.tenantId ?? undefined);
+        return await getPipelineStatus(db, input.siteId, input.workDate, ctx.tenantId);
       }),
     
     // 원료 재고 사전 체크
@@ -21,7 +21,7 @@ export const pipelineRouter = router({
       .query(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await checkMaterialAvailability(db, input.batchId, input.siteId, ctx.tenantId ?? undefined);
+        return await checkMaterialAvailability(db, input.batchId, input.siteId, ctx.tenantId);
       }),
     
     // 일일 마감 (기존 - siteId 기반)
@@ -30,7 +30,7 @@ export const pipelineRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("데이터베이스 연결 실패");
-        return await runDailyClosing(db, input.siteId, input.workDate, ctx.tenantId ?? undefined);
+        return await runDailyClosing(db, input.siteId, input.workDate, ctx.tenantId);
       }),
     
     // 수동 일일 마감 실행 (전체 활성 테넌트 대상 - 관리자 전용)

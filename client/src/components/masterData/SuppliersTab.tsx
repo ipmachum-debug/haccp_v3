@@ -28,8 +28,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Upload, FileSpreadsheet, Search, ArrowUpDown, ChevronLeft, ChevronRight, Download } from "lucide-react";
-import SupplierBulkUploadModal from "@/components/SupplierBulkUploadModal";
-import TemplateCustomizer from "@/components/TemplateCustomizer";
+import SupplierBulkUploadModal from "@/components/masterData/SupplierBulkUploadModal";
+import TemplateCustomizer from "@/components/checklist/TemplateCustomizer";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
@@ -65,7 +65,7 @@ export default function SuppliersTab() {
       setSupplierDialogOpen(false);
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 추가 실패: ${error.message}`);
     },
   });
@@ -75,7 +75,7 @@ export default function SuppliersTab() {
       toast.success("거래처가 삭제되었습니다");
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 삭제 실패: ${error.message}`);
     },
   });
@@ -86,7 +86,7 @@ export default function SuppliersTab() {
       setEditingSupplier(null);
       refetchSuppliers();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`거래처 수정 실패: ${error.message}`);
     },
   });

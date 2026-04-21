@@ -3,7 +3,7 @@
  * HACCP AI Assistant 기반 테이블
  */
 
-import { tenants } from "../schema_main";
+import { tenants } from "./schema_main";
 import {
   bigint,
   datetime,

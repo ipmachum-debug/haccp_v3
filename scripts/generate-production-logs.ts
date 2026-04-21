@@ -14,7 +14,7 @@ import mysql from 'mysql2/promise';
 const DB_CONFIG = {
   host: 'localhost',
   user: 'root',
-  password: 'G0ld3n!T1004#Sec',
+  password: process.env.DB_PASSWORD || '',
   database: 'haccp_tenant_db',
   charset: 'utf8mb4',
 };

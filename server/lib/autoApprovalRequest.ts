@@ -240,7 +240,7 @@ export async function finalApproveRequest(
 
       if (batchId) {
         try {
-          const { postProductionComplete } = await import("./productionCompletePost");
+          const { postProductionComplete } = await import("./production/productionCompletePost");
           const { hBatches } = await import("../../drizzle/schema");
           const { eq: drizzleEq } = await import("drizzle-orm");
           const [batch] = await db.select().from(hBatches).where(drizzleEq(hBatches.id, batchId)).limit(1);
@@ -265,6 +265,66 @@ export async function finalApproveRequest(
             inventoryTriggered: false
           };
         }
+      }
+    }
+
+
+    // === batch_production 승인 시 배치 상태를 completed로 전환 + CCP-1B/2B 자동 승인 ===
+    if (reqData?.reference_type === 'batch' && reqData?.reference_id) {
+      const batchId = Number(reqData.reference_id);
+      try {
+        const rawConn = await (await import("../db")).getRawConnection();
+        
+        // 1) 배치 상태를 completed로 변경 (planned_date 기준 17:00)
+        await rawConn.execute(
+          `UPDATE h_batches SET status='completed',
+            end_time=CONCAT(planned_date, ' 17:00:00'),
+            completed_at=CONCAT(planned_date, ' 17:00:00')
+           WHERE id=? AND tenant_id=? AND status IN ('planned','in_progress')`,
+          [batchId, tenantId]
+        );
+        console.log(`[finalApprove] 배치 #${batchId} 상태 → completed`);
+        
+        // 2) 해당 배치의 CCP-1B/2B form_records를 approved로 변경하고 승인요청 생성
+        const [draftRecords] = await rawConn.execute(
+          `SELECT fr.id, fr.ccp_type, fr.work_date, fr.product_name, b.batch_code
+           FROM h_ccp_form_records fr
+           JOIN h_batches b ON b.id = fr.batch_id
+           WHERE fr.batch_id=? AND fr.tenant_id=? AND fr.status='draft' AND fr.ccp_type IN ('CCP-1B','CCP-2B')`,
+          [batchId, tenantId]
+        ) as any[];
+        
+        for (const rec of (draftRecords as any[])) {
+          // form_record를 approved로 변경
+          await rawConn.execute(
+            `UPDATE h_ccp_form_records SET status='approved' WHERE id=? AND tenant_id=?`,
+            [rec.id, tenantId]
+          );
+          // 승인요청 생성
+          const ccpTitle = `[CCP-${rec.ccp_type}] ${rec.work_date} ${rec.product_name}`;
+          const [arResult] = await rawConn.execute(
+            `INSERT INTO h_approval_requests
+             (site_id, tenant_id, request_type, reference_type, reference_id,
+              title, description, status, priority, requested_by, requested_at,
+              reviewed_by, reviewed_at, review_comments, approved_by, approved_at)
+             VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
+                     ?, ?, 'approved', 'medium', ?, CONCAT(?, ' 17:00:00'),
+                     ?, CONCAT(?, ' 17:00:00'), '검토 완료', ?, CONCAT(?, ' 17:30:00'))`,
+            [tenantId, tenantId, rec.id,
+             ccpTitle, `CCP 기록지 작성 완료 - ${rec.product_name}`,
+             approverId, rec.work_date,
+             approverId, rec.work_date,
+             approverId, rec.work_date]
+          ) as any;
+          const newArId = arResult.insertId;
+          await rawConn.execute(
+            `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
+            [newArId, rec.id, tenantId]
+          );
+          console.log(`[finalApprove] CCP ${rec.ccp_type} form_record #${rec.id} → approved (AR #${newArId})`);
+        }
+      } catch (batchErr: any) {
+        console.error(`[finalApprove] 배치 #${batchId} 완료처리 실패:`, batchErr);
       }
     }
 

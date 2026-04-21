@@ -1,0 +1,74 @@
+name: Claude PR Review
+
+# PR 이 열릴 때 자동으로 @claude 멘션 코멘트를 남겨
+# 설치된 Claude Code GitHub App 이 리뷰를 시작하게 한다.
+#
+# 트리거 범위:
+#   - opened / reopened 만 (synchronize 제외 — 푸시마다 리뷰 달리면 노이즈)
+#   - draft PR 제외
+#   - dependabot / bot PR 제외
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  request-claude-review:
+    name: Claude 리뷰 요청
+    if: >
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: PR 에 @claude 리뷰 요청 코멘트 남기기
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+
+            // 이미 수동으로 @claude 멘션이 있으면 중복 요청 안 함
+            if (prBody.includes('@claude')) {
+              console.log('PR 본문에 이미 @claude 멘션 존재 — 자동 요청 생략');
+              return;
+            }
+
+            const reviewPrompt = [
+              '@claude 이 PR 을 리뷰해줘. Millio AI (멀티테넌트 ERP) 프로젝트 컨텍스트 기준으로:',
+              '',
+              '### 🔐 보안 & 데이터 격리 (가장 중요)',
+              '- **테넌트 격리 위반**: `WHERE tenant_id = ?` 누락, `getEffectiveTenantId(ctx)` 미사용',
+              '- **SQL Injection**: 문자열 concat 된 쿼리',
+              '- **인증 우회**: `publicProcedure` 인데 민감 데이터 접근',
+              '',
+              '### 💰 회계 도메인 규칙',
+              '- **하드코딩된 계정 코드**: `WHERE code=\'1010\'` → `resolveSystemAccount()` 사용',
+              '- **XOR 제약 위반**: productId 와 materialId 둘 다 세팅 (accounting_sales)',
+              '- **복식부기 원칙**: 차변/대변 균형, deprecated 테이블 (`accounting_accounts_v2`, `accounting_categories`) 참조',
+              '',
+              '### 🧹 코드 품질',
+              '- **`any` 타입 신규 추가** (현재 2,208개 감소 중 — 늘리지 말 것)',
+              '- **초대형 파일 경향** (50KB+ TSX, 400줄+ 라우터)',
+              '- **N+1 쿼리** (루프 내 await db 쿼리)',
+              '- **조용한 catch** (`catch(e) {}` — 로그 없이 무시)',
+              '',
+              '### ✅ 출력 형식',
+              '- 한국어로 간결하게, 중요도 순서로 🚨(critical) / ⚠️(warn) / 💡(suggest) 표시',
+              '- 이슈가 없으면 "통과" 한 줄만',
+              '- 파일 경로 + 라인 번호 포함',
+              '',
+              '---',
+              '_이 리뷰 요청은 Claude PR Review 워크플로우가 자동 생성했어. 사람 리뷰는 별도로 진행해._'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: reviewPrompt
+            });
+
+            console.log(`@claude 리뷰 요청 코멘트 추가됨 — PR #${context.payload.pull_request.number}`);

@@ -121,6 +121,31 @@ export async function getProcessGroupsForProduct(args: {
   const conn = await getRawConnection();
   const { productId, tenantId } = args;
 
+  const toInfo = (r: any, source: "BOM" | "MANUAL" | "ALWAYS"): ProcessGroupInfo => ({
+    id:              Number(r.id),
+    name:            r.name,
+    ccp_type:        r.ccp_type,
+    temperature_min: r.temperature_min != null ? Number(r.temperature_min) : null,
+    temperature_max: r.temperature_max != null ? Number(r.temperature_max) : null,
+    time_min:        r.time_min        != null ? Number(r.time_min)        : null,
+    time_max:        r.time_max        != null ? Number(r.time_max)        : null,
+    pressure_min:    r.pressure_min    != null ? Number(r.pressure_min)    : null,
+    pressure_max:    r.pressure_max    != null ? Number(r.pressure_max)    : null,
+    mapping_source:  source,
+    ingredient_count: r.ingredient_count != null ? Number(r.ingredient_count) : undefined,
+    equip_group_mode: r.equip_group_mode ?? "sequential",
+    equip_interval_min: r.equip_interval_min != null ? Number(r.equip_interval_min) : undefined,
+    equip_batch_size: r.equip_batch_size != null ? Number(r.equip_batch_size) : 1,
+  });
+
+  // ★ 방어 코드: 설비 운영 컬럼(equip_group_mode 등)이 DB에 없으면 폴백 쿼리 사용
+  const hasEquipCols = await checkEquipColumns(conn);
+
+  // 설비 컬럼 포함 여부에 따라 SELECT 절 결정
+  const equipSelect = hasEquipCols
+    ? `g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,`
+    : `'sequential' AS equip_group_mode, 10 AS equip_interval_min, 1 AS equip_batch_size,`;
+
   // ── 1. BOM 기반 (CCP-4P 제외: 별도로 항상 추가)
   const [bomRows] = await conn.execute<any[]>(
     `SELECT DISTINCT
@@ -128,7 +153,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
-       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
+       ${equipSelect}
        COUNT(i.id) AS ingredient_count
      FROM h_mf_reports r
      JOIN h_mf_report_versions v
@@ -156,7 +181,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
-       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
+       ${equipSelect}
        NULL AS ingredient_count
      FROM ccp_process_group_products gp
      JOIN ccp_process_groups g
@@ -177,7 +202,7 @@ export async function getProcessGroupsForProduct(args: {
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
        g.pressure_min, g.pressure_max,
-       g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,
+       ${equipSelect}
        NULL AS ingredient_count
      FROM ccp_process_groups g
      WHERE g.tenant_id = ?
@@ -186,23 +211,6 @@ export async function getProcessGroupsForProduct(args: {
      ORDER BY g.sort_order, g.id`,
     [tenantId],
   );
-
-  const toInfo = (r: any, source: "BOM" | "MANUAL" | "ALWAYS"): ProcessGroupInfo => ({
-    id:              Number(r.id),
-    name:            r.name,
-    ccp_type:        r.ccp_type,
-    temperature_min: r.temperature_min != null ? Number(r.temperature_min) : null,
-    temperature_max: r.temperature_max != null ? Number(r.temperature_max) : null,
-    time_min:        r.time_min        != null ? Number(r.time_min)        : null,
-    time_max:        r.time_max        != null ? Number(r.time_max)        : null,
-    pressure_min:    r.pressure_min    != null ? Number(r.pressure_min)    : null,
-    pressure_max:    r.pressure_max    != null ? Number(r.pressure_max)    : null,
-    mapping_source:  source,
-    ingredient_count: r.ingredient_count != null ? Number(r.ingredient_count) : undefined,
-    equip_group_mode: r.equip_group_mode ?? "sequential",
-    equip_interval_min: r.equip_interval_min != null ? Number(r.equip_interval_min) : undefined,
-    equip_batch_size: r.equip_batch_size != null ? Number(r.equip_batch_size) : 1,
-  });
 
   const bomInfos    = (bomRows    as any[]).map(r => toInfo(r, "BOM"));
   const manualInfos = (manualRows as any[]).map(r => toInfo(r, "MANUAL"));
@@ -217,7 +225,26 @@ export async function getProcessGroupsForProduct(args: {
   const uniqueMetal = metalInfos.filter(g => !seenIds.has(g.id));
 
   // 순서: BOM → 수동 → 금속검출
-  return [...bomInfos, ...uniqueManual, ...uniqueMetal];
+  const result = [...bomInfos, ...uniqueManual, ...uniqueMetal];
+  console.log(`[ccp-batch] getProcessGroupsForProduct(${productId}): ${result.length}건 (BOM=${bomInfos.length}, MANUAL=${uniqueManual.length}, METAL=${uniqueMetal.length})`);
+  return result;
+}
+
+/**
+ * ccp_process_groups 테이블에 equip_group_mode 컬럼이 있는지 확인
+ * 없으면 false → SELECT에서 기본값 리터럴 사용
+ */
+let _equipColsChecked: boolean | null = null;
+async function checkEquipColumns(conn: any): Promise<boolean> {
+  if (_equipColsChecked !== null) return _equipColsChecked;
+  try {
+    await conn.execute(`SELECT equip_group_mode FROM ccp_process_groups LIMIT 0`);
+    _equipColsChecked = true;
+  } catch {
+    console.warn("[ccp-batch] ccp_process_groups에 equip_group_mode 컬럼 없음 → 기본값 사용");
+    _equipColsChecked = false;
+  }
+  return _equipColsChecked;
 }
 
 /**
@@ -442,8 +469,9 @@ export async function autoCreateCcpInstancesForBatch(args: {
   if (productId) {
     try {
       groups = await getProcessGroupsForProduct({ productId, tenantId });
-    } catch (err) {
-      console.error("[ccp-batch] 공정그룹 조회 실패:", err);
+    } catch (err: any) {
+      console.error(`[ccp-batch] ★ 공정그룹 조회 실패 (productId=${productId}, tenantId=${tenantId}):`, err?.message || err);
+      console.error("[ccp-batch] SQL 오류 시 ccp_process_groups 테이블 스키마를 확인하세요 (equip_group_mode, equip_interval_min, equip_batch_size 컬럼 필요)");
     }
   }
 
@@ -476,11 +504,13 @@ export async function autoCreateCcpInstancesForBatch(args: {
 
   const instanceIds: number[] = [];
   const createdGroups: ProcessGroupInfo[] = [];
+  const skippedGroups: ProcessGroupInfo[] = [];  // ★ 2026-04-15: 이미 존재하는 그룹도 별도 추적
 
   for (const group of groups) {
     // ── 3. dedup: 이미 이 공정그룹 인스턴스가 있으면 skip
     if (existingGroupIds.has(group.id)) {
       console.log(`[ccp-batch] 건너뜀(중복): group="${group.name}" batchId=${batchId}`);
+      skippedGroups.push(group);
       continue;
     }
 
@@ -533,5 +563,10 @@ export async function autoCreateCcpInstancesForBatch(args: {
     }
   }
 
-  return { instanceIds, groups: createdGroups };
+  // ★ 2026-04-15: 모든 그룹 반환 (신규 + 기존)
+  //   form_records 생성 로직이 existingGroups 를 포함해야 form_record 가 누락되지 않음
+  //   이전 버그: 배치 재생성 / recovery 후 instance 만 존재하면 groups=[] 반환 → form_record 생성 스킵
+  const allGroups = [...createdGroups, ...skippedGroups];
+  console.log(`[ccp-batch] 리턴: new instances=${instanceIds.length}, all groups=${allGroups.length} (created=${createdGroups.length}, existing=${skippedGroups.length})`);
+  return { instanceIds, groups: allGroups };
 }

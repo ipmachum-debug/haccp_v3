@@ -1,5 +1,5 @@
 import { useState } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +48,7 @@ export default function AccountingMonthlyClose() {
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "월 집계 생성 실패",
         description: error.message,
@@ -66,7 +66,7 @@ export default function AccountingMonthlyClose() {
       });
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "월 마감 확정 실패",
         description: error.message,
@@ -86,7 +86,7 @@ export default function AccountingMonthlyClose() {
       setReopenReason("");
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "월 마감 재오픈 실패",
         description: error.message,
@@ -107,7 +107,7 @@ export default function AccountingMonthlyClose() {
       }
       refetch();
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({
         title: "PDF 생성 실패",
         description: error.message,

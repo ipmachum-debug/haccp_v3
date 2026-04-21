@@ -2,14 +2,14 @@
 
 ## 개요
 
-이 문서는 HACCP v3 시스템을 외부 서버(haccpone.co.kr)에 배포하는 방법을 설명합니다.
+이 문서는 HACCP v3 시스템을 외부 서버(millioai.com)에 배포하는 방법을 설명합니다.
 
 ## 사전 요구사항
 
 ### 로컬 환경
 - Node.js 22.x
 - pnpm
-- SSH 접근 권한 (haccpone.co.kr)
+- SSH 접근 권한 (millioai.com)
 
 ### 서버 환경
 - Ubuntu 22.04 이상
@@ -26,13 +26,13 @@
 로컬에서 서버로 SSH 접근이 가능해야 합니다:
 
 ```bash
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 ```
 
 비밀번호 없이 접속하려면 SSH 키를 등록하세요:
 
 ```bash
-ssh-copy-id root@haccpone.co.kr
+ssh-copy-id root@millioai.com
 ```
 
 ### 2. 서버 환경 설정
@@ -68,14 +68,27 @@ FLUSH PRIVILEGES;
 
 ### 4. 환경 변수 설정
 
+⚠️ **production 필수 변수** (2026-04-19 보안 강화):
+`JWT_SECRET` / `SESSION_SECRET` 이 **미설정 또는 32자 미만이면 서버가 부팅 실패**합니다.
+`DATABASE_URL` 도 필수.
+
+```bash
+# 32자 이상 랜덤 시크릿 생성 (openssl)
+openssl rand -base64 48
+# 또는
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+```
+
 서버의 `/var/www/haccp_v3/.env` 파일을 생성하고 다음 내용을 입력합니다:
 
 ```env
+# ── 필수 (production 에서 반드시) ────────────────────
 # 데이터베이스
 DATABASE_URL=mysql://haccp_user:your_password@localhost:3306/haccp_v3
 
-# JWT 시크릿
-JWT_SECRET=your_jwt_secret_key_here
+# JWT/세션 시크릿 (32자 이상 랜덤 값 — openssl rand -base64 48)
+JWT_SECRET=REPLACE_WITH_32CHAR_PLUS_RANDOM_VALUE
+SESSION_SECRET=REPLACE_WITH_32CHAR_PLUS_RANDOM_VALUE
 
 # OAuth 설정
 OAUTH_SERVER_URL=https://api.manus.im
@@ -93,7 +106,7 @@ VITE_FRONTEND_FORGE_API_KEY=your_frontend_api_key
 VITE_FRONTEND_FORGE_API_URL=https://api.manus.im
 
 # 앱 정보
-VITE_APP_TITLE=HACCP 식품 안전 관리 시스템
+VITE_APP_TITLE=Millio AI | 제조기반 올인원 AI ERP
 VITE_APP_LOGO=/logo.png
 
 # 애널리틱스
@@ -119,13 +132,13 @@ sudo nano /etc/nginx/sites-available/haccp_v3
 server {
     listen 80;
     listen [::]:80;
-    server_name haccpone.co.kr www.haccpone.co.kr;
+    server_name millioai.com www.millioai.com;
 
     # SSL 설정 (Let's Encrypt)
     # listen 443 ssl http2;
     # listen [::]:443 ssl http2;
-    # ssl_certificate /etc/letsencrypt/live/haccpone.co.kr/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/haccpone.co.kr/privkey.pem;
+    # ssl_certificate /etc/letsencrypt/live/millioai.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/millioai.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -155,7 +168,7 @@ Let's Encrypt를 사용하여 SSL 인증서를 설정합니다:
 
 ```bash
 sudo apt-get install certbot python3-certbot-nginx
-sudo certbot --nginx -d haccpone.co.kr -d www.haccpone.co.kr
+sudo certbot --nginx -d millioai.com -d www.millioai.com
 ```
 
 ## 배포 실행
@@ -194,10 +207,10 @@ tar -czf haccp_v3.tar.gz \
   dist/ package.json pnpm-lock.yaml drizzle/ drizzle.config.ts server/ shared/ storage/
 
 # 3. 서버로 전송
-scp haccp_v3.tar.gz root@haccpone.co.kr:/tmp/
+scp haccp_v3.tar.gz root@millioai.com:/tmp/
 
 # 4. 서버에 접속
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 
 # 5. 서버에서 배포
 cd /var/www/haccp_v3
@@ -212,25 +225,25 @@ pm2 restart haccp_v3
 ### 1. 서버 상태 확인
 
 ```bash
-ssh root@haccpone.co.kr "pm2 status"
+ssh root@millioai.com "pm2 status"
 ```
 
 ### 2. 로그 확인
 
 ```bash
-ssh root@haccpone.co.kr "pm2 logs haccp_v3"
+ssh root@millioai.com "pm2 logs haccp_v3"
 ```
 
 ### 3. 웹사이트 접속
 
-브라우저에서 https://haccpone.co.kr 접속하여 정상 작동 확인
+브라우저에서 https://millioai.com 접속하여 정상 작동 확인
 
 ## 롤백
 
 배포 중 문제가 발생하면 이전 버전으로 롤백할 수 있습니다:
 
 ```bash
-ssh root@haccpone.co.kr
+ssh root@millioai.com
 
 # 백업 디렉토리 확인
 ls -la /var/www/ | grep haccp_v3_backup
@@ -245,10 +258,49 @@ pm2 restart haccp_v3
 
 ## 문제 해결
 
-### PM2 프로세스가 시작되지 않음
+### 🔥 502 Bad Gateway — 서버 부팅 실패
+
+**가장 흔한 원인 (2026-04-19 이후 보안 강화):**
+- production 에서 `JWT_SECRET` / `SESSION_SECRET` env 미설정 → `throw` 로 부팅 중단
+- `DATABASE_URL` 미설정 / Pool 초기화 실패
+- `ecosystem.config.*` 가 env 를 주입 못 함
+
+**복구 절차 (실제 2026-04-19 복구 사례):**
 
 ```bash
-ssh root@haccpone.co.kr
+# 1. SSH 접속 후 로그 확인
+ssh root@millioai.com
+cd /var/www/haccp_v3
+pm2 logs haccp_v3 --lines 200 --err
+# → "JWT_SECRET 환경변수 필수" 같은 메시지가 보이면 env 누락
+
+# 2. .env 필수 변수 존재 확인
+grep -E "^(DATABASE_URL|JWT_SECRET|SESSION_SECRET)=" .env
+# → 없거나 32자 미만이면 아래 명령으로 생성해서 추가
+#   openssl rand -base64 48
+
+# 3. PM2 에 .env 강제 주입 + 재시작
+#    ⚠️ pm2 --update-env 단독으로는 .env 파일을 자동 로드하지 않음
+#    반드시 아래처럼 export 로 env 를 현재 셸에 주입한 뒤 재시작
+export $(grep -v '^#' .env | xargs)
+pm2 restart ecosystem.config.cjs --update-env
+pm2 save
+
+# 4. 정상 확인
+curl -I http://localhost:3000/
+# → HTTP/1.1 200 OK
+pm2 status
+# → haccp_v3 online
+```
+
+**주의:** `ecosystem.config.js` (구버전, 하드코딩 자격정보 포함) 는 2026-04-19 에
+삭제되었습니다. 운영 서버는 `ecosystem.config.cjs` 를 사용하며,
+이 파일은 `process.env.*` 를 참조하도록 되어 있어 `.env` 파일이 반드시 필요합니다.
+
+### PM2 프로세스가 시작되지 않음 (일반)
+
+```bash
+ssh root@millioai.com
 cd /var/www/haccp_v3
 pm2 logs haccp_v3 --lines 100
 ```
@@ -256,6 +308,18 @@ pm2 logs haccp_v3 --lines 100
 ### 데이터베이스 연결 오류
 
 `.env` 파일의 `DATABASE_URL` 설정을 확인하세요.
+
+### startup migration 관련 오류 (production)
+
+2026-04-19 이후 production 은 기본적으로 `runStartupMigrations` 를 실행하지 **않습니다**
+(배포 재현성 / 스키마 drift 방지).
+
+스키마 변경 후 마이그레이션이 필요하면:
+```bash
+# 임시 강제 실행
+RUN_STARTUP_MIGRATIONS=true pm2 restart ecosystem.config.cjs --update-env
+# 완료 확인 후 .env 에서 제거하거나 false 로 설정
+```
 
 ### 포트 충돌
 

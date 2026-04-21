@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════
-# HACCP-ONE 자동 백업 스크립트
+# Millio AI 자동 백업 스크립트
 # crontab: 0 2 * * * /home/root/haccp_v3/scripts/backup.sh
 # ═══════════════════════════════════════════════════════
 
@@ -84,3 +84,32 @@ DB_COUNT=$(ls -1 "${BACKUP_DIR}/db/"*.sql.gz 2>/dev/null | wc -l)
 log "═══ 백업 완료 ═══"
 log "   전체 크기: ${TOTAL_SIZE}, DB 백업 ${DB_COUNT}개 보관 중"
 log ""
+
+# ── 6. 상태 JSON 기록 (헬스체크 API 용) ──
+# GitHub Actions 가 /api/system/backup-health 를 호출하면 이 파일을 읽어 응답함.
+LATEST_FILE=$(ls -t "${BACKUP_DIR}/db/"*.sql.gz 2>/dev/null | head -1 || true)
+STATUS_FILE="${BACKUP_DIR}/backup_status.json"
+
+if [ -n "${LATEST_FILE}" ]; then
+  LATEST_SIZE=$(stat -c %s "${LATEST_FILE}" 2>/dev/null || echo 0)
+  LATEST_MTIME=$(stat -c %Y "${LATEST_FILE}" 2>/dev/null || echo 0)
+  LATEST_BASENAME=$(basename "${LATEST_FILE}")
+else
+  LATEST_SIZE=0
+  LATEST_MTIME=0
+  LATEST_BASENAME=""
+fi
+
+cat > "${STATUS_FILE}" <<EOF
+{
+  "last_run_at": "$(date -Iseconds)",
+  "last_run_status": "ok",
+  "latest_backup_file": "${LATEST_BASENAME}",
+  "latest_backup_size_bytes": ${LATEST_SIZE},
+  "latest_backup_mtime_epoch": ${LATEST_MTIME},
+  "total_backups_kept": ${DB_COUNT},
+  "total_dir_size_human": "${TOTAL_SIZE}",
+  "retention_days": ${RETENTION_DAYS}
+}
+EOF
+log "   상태 파일 기록: ${STATUS_FILE}"

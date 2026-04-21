@@ -13,12 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 /**
  * 실패 작업 관리 페이지
  * h_batch_completion_retries 테이블의 실패 작업을 조회하고 재시도할 수 있습니다.
  */
 export default function FailedTasks() {
+  const L = useIndustryLabel();
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
 
   // 실패 작업 목록 조회
@@ -31,7 +33,7 @@ export default function FailedTasks() {
       refetch();
       setSelectedTaskId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`재시도 실패: ${error.message}`);
     },
   });
@@ -43,7 +45,7 @@ export default function FailedTasks() {
       refetch();
       setSelectedTaskId(null);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`삭제 실패: ${error.message}`);
     },
   });
@@ -66,7 +68,7 @@ export default function FailedTasks() {
         <Card>
           <CardHeader>
             <CardTitle>실패 작업 관리</CardTitle>
-            <CardDescription>배치 완료 중 실패한 작업을 관리합니다</CardDescription>
+            <CardDescription>{L("batch")} 완료 중 실패한 작업을 관리합니다</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex items-center justify-center py-8">
@@ -119,7 +121,7 @@ export default function FailedTasks() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>배치 ID</TableHead>
+                    <TableHead>{L("batch")} ID</TableHead>
                     <TableHead>작업 유형</TableHead>
                     <TableHead>에러 메시지</TableHead>
                     <TableHead>재시도 횟수</TableHead>

@@ -20,7 +20,7 @@ export const checklistRouter = router({
           return await getChecklistTemplates({
             category: input?.category as any,
             tenantId: tenantId
-          }, tenantId);
+          });
         }),
       // 템플릿 상세 조회
       getById: tenantRequiredProcedure
@@ -53,7 +53,7 @@ export const checklistRouter = router({
           return await createChecklistTemplate({
             ...input,
             category: input.category as any
-          }, tenantId);
+          });
         }),
       // 템플릿 수정
       update: workerProcedure
@@ -83,7 +83,7 @@ export const checklistRouter = router({
           return await updateChecklistTemplate(id, {
             ...data,
             category: data.category as any
-          }, tenantId);
+          });
         }),
       // 템플릿 삭제
       delete: workerProcedure
@@ -152,7 +152,7 @@ export const checklistRouter = router({
             ccpRecordId: undefined,
             scheduledDate: input.checkDate,
             createdBy: 0, // 사용자 ID는 추후 ctx.user.id로 대체
-          }, tenantId);
+          });
         }),
       // 인스턴스 항목 업데이트
       updateItem: workerProcedure

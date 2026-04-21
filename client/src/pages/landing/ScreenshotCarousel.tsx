@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion as _motion, AnimatePresence } from "framer-motion";
 const motion = _motion as any;
+// LandingPage는 public 이라 useIndustryLabel 사용 금지
+// (industry.getCurrentIndustry 는 auth 필요 → 401 발동 → login 리다이렉트 루프)
 import {
   ChevronLeft, ChevronRight, Factory, ShieldCheck, Package,
   BarChart3, Sparkles, CheckCircle2, TrendingUp, AlertTriangle,
@@ -271,7 +273,7 @@ function AIScreen() {
               </div>
               <div className="flex items-center gap-1.5">
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span>원료 유효기한 경고: <strong>1건</strong></span>
+                <span>원재료 유효기한 경고: <strong>1건</strong></span>
               </div>
             </div>
           </div>
@@ -390,7 +392,7 @@ export default function ScreenshotCarousel({ lang = "ko" }: { lang?: "ko" | "en"
               <div className="w-3 h-3 rounded-full bg-emerald-300" />
             </div>
             <div className="ml-3 bg-white rounded-md px-3 py-1 text-xs text-stone-400 border border-stone-100 min-w-[180px]">
-              app.haccpone.com
+              app.millioai.com
             </div>
           </div>
           {/* Tab indicators */}

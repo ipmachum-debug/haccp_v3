@@ -8,15 +8,19 @@ import subprocess
 import sys
 import os
 
-# Configuration
+# Configuration — 자격정보는 env 로 주입 (보안: 하드코딩 제거 2026-04-19)
 TENANT_ID = 2
-CREATED_BY = 4  # admin user id (danjimall@naver.com)
-SSH_HOST = "49.50.130.101"
-SSH_PORT = "2222"
-SSH_PASS = "golden1004!"
-MYSQL_USER = "root"
-MYSQL_PASS = "G0ld3n!T1004#Sec"
-MYSQL_DB = "haccp_tenant_db"
+CREATED_BY = 4  # admin user id
+SSH_HOST = os.environ.get("SSH_HOST", "")
+SSH_PORT = os.environ.get("SSH_PORT", "2222")
+SSH_PASS = os.environ.get("SSH_PASS", "")
+MYSQL_USER = os.environ.get("DB_USER", "root")
+MYSQL_PASS = os.environ.get("DB_PASSWORD", "")
+MYSQL_DB = os.environ.get("DB_NAME", "haccp_tenant_db")
+
+if not SSH_PASS or not MYSQL_PASS:
+    sys.stderr.write("환경변수 SSH_PASS / DB_PASSWORD 미설정\n")
+    sys.exit(1)
 
 # Partner name -> id mapping
 PARTNER_MAP = {

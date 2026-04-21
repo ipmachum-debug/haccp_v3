@@ -9,6 +9,7 @@ import {
   Play, Quote, ChevronLeft, ChevronRight, Sparkles, Check,
   ArrowUp, ArrowDown, Home
 } from "lucide-react";
+import { MillioMark } from "@/components/brand/MillioMark";
 import ScreenshotCarousel from "./ScreenshotCarousel";
 
 // ─── i18n ───
@@ -24,97 +25,108 @@ const translations = {
       demo: "무료 체험 시작",
     },
     hero: {
-      badge: "100+ 식품 제조업체가 신뢰하는 플랫폼",
-      headline1: "식품 제조 관리,",
-      headline2: "이제 진짜 바뀔 시간입니다",
-      sub: "엑셀과 수기 HACCP 관리에서 벗어나세요. HACCPONE은 생산관리, HACCP 기록, 재고관리, LOT 추적, 회계까지 하나의 클라우드 플랫폼으로 통합합니다.",
-      cta1: "무료 체험 시작하기",
-      cta2: "데모 영상 보기",
-      trust: "100+ 식품 제조업체가 HACCPONE으로 운영 중",
-      trustRating: "4.9/5 고객 만족도",
+      badge: "AI 기반 제조 ERP · 2026",
+      tagline: "만드는 사람을 위한 ERP",
+      headline1: "공장의 모든 데이터,",
+      headline2: "AI가 하나로 연결합니다",
+      sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 만드는 사람을 위한 AI 기반 제조 ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
+      cta1: "30일 무료로 시작",
+      cta2: "1분 데모 보기",
+      trust: "100+ 제조업체가 Millio AI로 공장을 운영 중",
+      trustRating: "4.9 / 5 고객 만족도",
       bullets: [
-        "30분 내 초기 설정 완료",
-        "검증된 HACCP 자동 기록 시스템",
-        "30일 무료 체험, 언제든 해지 가능",
+        "30분 설치, 당일 운영 시작",
+        "식품 HACCP 자동 기록 · 인증 준비까지 원스톱",
+        "화장품 GMP · 일반 제조 업종 확장 로드맵",
+      ],
+    },
+    stats: {
+      items: [
+        { value: "95%", label: "감사 준비 시간 절감" },
+        { value: "50%", label: "업무 시간 절감" },
+        { value: "0건", label: "기록 누락 사고" },
+        { value: "30분", label: "설치 완료" },
       ],
     },
     problem: {
-      badge: "현실을 직시하세요",
-      headline: "매일 같은 일을 반복하고 있진 않으신가요?",
-      sub: "식품 제조업체 대표님들이 공통으로 겪는 문제들입니다.",
-      quote: "생산일지를 엑셀에 입력하고, HACCP 체크리스트를 수기로 쓰고, 재고는 또 다른 파일에 기록하고... 매일 같은 일의 반복이었어요. 실수가 나도 어디서 잘못된 건지 찾기가 어려웠습니다.",
-      quoteAuthor: "— 식품 제조업체 대표",
+      badge: "이런 경험, 있으시죠?",
+      headline: "엑셀 20개, 파일 서버 3개, 그리고 매일 야근.",
+      sub: "제조업 대표님들이 공통으로 겪는 운영 병목입니다.",
+      quote: "생산일지는 엑셀에, 품질·HACCP 기록은 수기로, 재고는 또 다른 파일에... 매일 같은 일의 반복이었어요. 실수가 나도 어디서 잘못된 건지 찾기까지 하루가 꼬박 걸렸습니다.",
+      quoteAuthor: "— 제조업 대표",
       cards: [
-        { icon: "FileText", title: "엑셀 기반 생산 관리", desc: "생산 데이터가 여러 파일에 분산되어 실시간 관리가 어렵습니다." },
-        { icon: "ShieldCheck", title: "수기 HACCP 기록", desc: "체크리스트와 CCP 기록을 수기로 관리하면서 누락과 오류가 발생합니다." },
-        { icon: "Package", title: "재고 오류와 불일치", desc: "원료수불과 생산 기록이 분리되어 재고 불일치가 발생합니다." },
-        { icon: "TrendingUp", title: "LOT 추적 불가능", desc: "문제 발생 시 제품 생산 이력과 원료 LOT을 추적하기 어렵습니다." },
+        { icon: "FileText", title: "흩어진 생산 기록", desc: "엑셀 · 수기 · 단말기에 분산. 실시간 파악 불가, 의사결정이 늦어집니다." },
+        { icon: "ShieldCheck", title: "수기 품질·HACCP 기록", desc: "종이 기록은 누락과 오류의 온상. 감사 때마다 며칠씩 서류 정리." },
+        { icon: "Package", title: "재고 불일치 반복", desc: "원료수불과 생산이 따로 도는 시스템. 장부와 실재고가 항상 어긋납니다." },
+        { icon: "TrendingUp", title: "LOT 추적 불가", desc: "문제가 터지면 역추적에 반나절. 회수 범위를 특정 못 해 비용이 폭증합니다." },
       ],
     },
     solution: {
       badge: "이렇게 해결됩니다",
-      headline: "HACCPONE, 3단계면 충분합니다",
-      sub: "복잡한 도입 과정 없이, 오늘 바로 시작할 수 있습니다.",
+      headline: "3단계면 공장이 달라집니다",
+      sub: "복잡한 SI 없이, 오늘 바로. 모든 것이 자동으로 연결됩니다.",
       steps: [
-        { num: "1", title: "시스템 설정", desc: "30분 내 초기 설정을 완료하세요. 기존 엑셀 데이터도 마이그레이션해 드립니다.", color: "amber" },
-        { num: "2", title: "운영 시작", desc: "직관적인 UI로 별도 교육 없이도 바로 사용할 수 있습니다. 생산관리부터 시작하세요.", color: "orange" },
-        { num: "3", title: "자동화 확인", desc: "생산-재고-HACCP-회계가 자동으로 연결되는 것을 확인하세요. 업무 시간이 50% 줄어듭니다.", color: "rose" },
+        { num: "1", title: "30분 설치", desc: "클라우드 가입 후 30분이면 초기 설정 완료. 기존 엑셀 · ERP 데이터는 마이그레이션팀이 옮겨드립니다.", color: "amber" },
+        { num: "2", title: "당일 운영", desc: "별도 교육 없이 직관적 UI. PC · 모바일 동일 경험. 생산 현장부터 사무실까지 즉시 적용.", color: "orange" },
+        { num: "3", title: "AI 자동화 체감", desc: "생산 → 재고 → 품질 → 회계가 자동 연결. AI 비서 '하나'가 이상을 먼저 알려줍니다.", color: "rose" },
       ],
     },
     features: {
-      badge: "주요 기능",
-      headline: "필요한 모든 것, 하나의 플랫폼에서",
-      sub: "식품 제조 운영에 필요한 핵심 기능을 하나의 통합 시스템에서 제공합니다.",
+      badge: "Core 기능",
+      headline: "제조 현장에 필요한 모든 것,\n단 하나의 플랫폼으로",
+      sub: "식품 HACCP을 시작으로 제조업 전반을 커버하는 올인원 모듈. 업종에 따라 단계적으로 확장됩니다.",
       items: [
-        { icon: "Factory", title: "배치 생산관리", desc: "제품 생산을 배치 단위로 관리. 투입 원료, 생산량, 생산 기록을 체계적으로 추적합니다." },
-        { icon: "ShieldCheck", title: "HACCP 모니터링", desc: "CCP 관리와 HACCP 체크리스트를 디지털로 기록하고 관리합니다. 모든 기록은 자동 저장됩니다." },
-        { icon: "Package", title: "LOT 기반 재고", desc: "원료 입고부터 생산, 출고까지 모든 재고 흐름을 LOT 단위로 추적합니다." },
-        { icon: "BarChart3", title: "회계 자동 연동", desc: "매입, 매출, 원료 사용 데이터 기반으로 회계 데이터를 자동 생성합니다." },
-        { icon: "FileText", title: "문서 자동화", desc: "HACCP 기록지, 체크리스트, 생산 기록 등을 자동 생성하고 출력합니다." },
-        { icon: "Users", title: "거래처 관리", desc: "원료 공급업체와 거래처 정보, 발주와 거래 내역을 시스템에서 관리합니다." },
-        { icon: "Lock", title: "전자 승인", desc: "문서 검토와 승인을 전자적으로 처리하여 업무 효율을 높입니다." },
-        { icon: "Globe", title: "멀티테넌트 SaaS", desc: "조직별 독립된 데이터 관리와 사용자 권한 제어를 제공합니다." },
+        { icon: "Factory", title: "배치 생산관리", desc: "제품 · 배치 · 레시피 · 원가를 한 화면에서. 투입부터 산출까지 자동 추적합니다." },
+        { icon: "ShieldCheck", title: "HACCP · GMP 특화", desc: "CCP · 체크리스트 · 인증 서류 자동 생성. 식품 · 화장품 제조의 킬러 기능." },
+        { icon: "Package", title: "LOT 추적 + FEFO", desc: "입고부터 출고까지 LOT 단위로. 회수 시뮬레이션으로 범위를 즉시 특정합니다." },
+        { icon: "BarChart3", title: "회계 자동 연동", desc: "매입 · 매출 · 원가가 분개까지 자동. 전표 · 재무보고서 · 세금계산서 원클릭." },
+        { icon: "FileText", title: "문서 · 인쇄 자동화", desc: "기록지 · 체크리스트 · 거래명세표 · 견적서를 클릭 한 번에 PDF · Excel." },
+        { icon: "Users", title: "거래처 · 발주 관리", desc: "공급사 신용도 · 발주 · 수금까지 한 라인. AP/AR 원장도 자동 분개 연결." },
+        { icon: "Lock", title: "전자 결재 + 감사로그", desc: "다단계 승인 · 위임 · 변경이력 완벽 추적. 감사 대응 시간 95% 절감." },
+        { icon: "Globe", title: "AI 비서 '하나'", desc: "자연어 질의로 재고 · 매출 · 이상 탐지 즉시 응답. 대표 전용 맞춤 리포트." },
       ],
     },
     dashboard: {
       badge: "미리 보기",
-      headline: "모든 데이터를 한 화면에서",
-      sub: "생산 현황, 재고 상태, HACCP 기록, 주요 지표를 한눈에 확인할 수 있도록 설계된 대시보드입니다.",
+      headline: "한 화면에서 공장 전체가 보입니다",
+      sub: "생산 · 재고 · 품질 · 회계 · AI 리스크 요약까지. 대표의 아침 10분이면 공장이 파악됩니다.",
     },
     testimonials: {
       badge: "고객 후기",
       headline: "실제 사용자의 이야기",
       items: [
-        { text: "엑셀로 하던 생산 기록을 HACCPONE으로 전환한 후, 기록 누락이 거의 사라졌습니다. 감사 때도 자료를 바로 출력할 수 있어 너무 편합니다.", author: "김OO 대표", company: "디저트 제조업체", rating: 5 },
+        { text: "엑셀로 하던 생산 기록을 Millio AI로 전환한 후, 기록 누락이 거의 사라졌습니다. 감사 때도 자료를 바로 출력할 수 있어 너무 편합니다.", author: "김OO 대표", company: "디저트 제조업체", rating: 5 },
         { text: "가장 좋은 건 생산하면 재고가 자동으로 계산되는 거예요. 예전에는 매번 수기로 원료수불을 맞춰야 했는데 이제 그럴 필요가 없어요.", author: "이OO 공장장", company: "HMR 제조업체", rating: 5 },
         { text: "직원들이 별도 교육 없이도 바로 사용할 수 있었습니다. UI가 정말 직관적이에요. 도입 후 업무 시간이 확실히 줄었습니다.", author: "박OO 대표", company: "식품 가공업체", rating: 5 },
         { text: "HACCP 인증 심사 때 필요한 서류를 시스템에서 바로 출력할 수 있어서 준비 시간이 대폭 줄었습니다. 심사관도 인상적이라고 하더군요.", author: "최OO 품질관리팀장", company: "육가공 업체", rating: 5 },
-        { text: "여러 시스템을 쓰다가 HACCPONE 하나로 통합했는데, 월 비용도 절약되고 데이터가 한곳에 모이니까 관리가 훨씬 수월합니다.", author: "정OO 대표", company: "프랜차이즈 본사", rating: 5 },
+        { text: "여러 시스템을 쓰다가 Millio AI 하나로 통합했는데, 월 비용도 절약되고 데이터가 한곳에 모이니까 관리가 훨씬 수월합니다.", author: "정OO 대표", company: "프랜차이즈 본사", rating: 5 },
       ],
     },
     industries: {
-      badge: "산업별 활용",
-      headline: "다양한 식품 제조 산업에서 사용됩니다",
+      badge: "업종 확장 로드맵",
+      headline: "식품에서 시작, 제조업 전반으로",
+      sub: "현재 식품 제조 HACCP에 특화되어 운영 중이며, 제조업 공통 기반(ERP/재고/회계) 위에 업종별 규정 모듈을 단계적으로 확장합니다.",
       items: [
-        { icon: "CakeSlice", title: "디저트 / 베이커리 제조", desc: "디저트, 베이커리 제조업체의 생산과 HACCP 관리에 최적화되어 있습니다." },
-        { icon: "UtensilsCrossed", title: "HMR 제조", desc: "가정간편식(HMR) 생산 공장의 생산 관리와 재고 관리에 활용됩니다." },
-        { icon: "Beef", title: "육가공", desc: "육가공 공장의 HACCP 관리와 LOT 추적을 지원합니다." },
-        { icon: "ChefHat", title: "식품 가공", desc: "다양한 식품 가공 업체에서 생산과 품질 관리를 위해 사용됩니다." },
-        { icon: "Truck", title: "프랜차이즈", desc: "다점포 프랜차이즈의 중앙 식품 관리와 품질 표준화를 지원합니다." },
-        { icon: "Building2", title: "클라우드 키친", desc: "공유 주방 운영의 원료 관리와 HACCP 기록을 효율적으로 관리합니다." },
+        { icon: "ChefHat", title: "식품 제조 (HACCP)", desc: "현재 제공 중. 디저트 · 베이커리 · HMR · 육가공. CCP 4대 모듈과 인증 서류 자동 생성." },
+        { icon: "ShieldCheck", title: "화장품 제조 (GMP)", desc: "확장 예정. 원료 · 공정 · 품질 관리 규정 반영. GMP 실사 대응 기록 자동 준비." },
+        { icon: "CakeSlice", title: "건강기능식품", desc: "확장 예정. HACCP + GMP 동시 적용. 기능성 원료 추적과 이력 관리." },
+        { icon: "Package", title: "의약품 · 의료기기", desc: "검토 중. LOT · 유효기간 · 공정 검증 이력 자동화." },
+        { icon: "Factory", title: "일반 제조 · 부품", desc: "기반 제공. BOM · 생산 · 재고 · 발주. 업종 특화 체크리스트는 단계적 확장." },
+        { icon: "Building2", title: "섬유 · 의류 · 기타", desc: "기반 제공. 생산 · 재고 · 거래처 · 회계 공통 모듈 즉시 사용 가능." },
       ],
+      note: "Phase 1 (현재) — 식품 제조 HACCP 특화. Phase 2 — 화장품/건기식 GMP. Phase 3 — 일반 제조 전업종 템플릿. Phase 4 — 해외 진출.",
     },
     pricing: {
       badge: "요금제",
-      headline: "합리적인 요금으로 시작하세요",
-      sub: "사업 규모에 맞는 요금제를 선택하세요. 모든 요금제에 30일 무료 체험이 포함됩니다.",
+      headline: "공장 규모에 맞게, 부담 없이 시작하세요",
+      sub: "모든 플랜은 30일 무료. 신용카드 없이, 언제든 해지 가능합니다.",
       guarantee: "30일 무료 체험 · 언제든 해지 가능 · 모든 요금 부가세 별도",
       plans: [
         {
           name: "Starter",
           price: "99,000",
           unit: "원/월 (부가세 별도)",
-          desc: "소규모 식품 제조업체를 위한 기본 플랜",
+          desc: "소규모 제조업체를 위한 기본 플랜",
           features: [
             "사용자 3명",
             "제품 20개",
@@ -172,29 +184,29 @@ const translations = {
       headline: "궁금한 점이 있으신가요?",
       items: [
         { q: "도입까지 얼마나 걸리나요?", a: "초기 설정은 30분 내로 완료됩니다. 기존 엑셀 데이터가 있다면 마이그레이션도 지원해 드립니다. 대부분의 고객님이 당일 바로 사용을 시작하십니다." },
-        { q: "직원들이 사용하기 어렵지 않나요?", a: "HACCPONE은 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
+        { q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI는 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
         { q: "기존에 사용하던 엑셀 데이터는 어떻게 하나요?", a: "품목 마스터, 거래처 정보, 재고 데이터 등 기존 엑셀 데이터를 시스템으로 마이그레이션하는 것을 도와드립니다." },
-        { q: "HACCP 인증 심사에 도움이 되나요?", a: "네, HACCPONE에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다." },
+        { q: "HACCP 인증 심사에 도움이 되나요?", a: "네, Millio AI에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다." },
         { q: "무료 체험 기간에 제한되는 기능이 있나요?", a: "없습니다. 30일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다." },
       ],
     },
     cta: {
-      headline: "지금 시작하면, 내일이 달라집니다",
-      sub: "30일 무료 체험으로 HACCPONE을 직접 경험해 보세요. 신용카드 없이 시작할 수 있습니다.",
+      headline: "오늘 시작하면, 내일 공장이 바뀝니다",
+      sub: "30일 무료. 30분 설치. 신용카드 없이 시작하세요.",
       btn1: "무료 체험 시작",
-      btn2: "상담 요청",
+      btn2: "1:1 상담 요청",
     },
     footer: {
-      desc: "식품 제조 운영을 위한 올인원 클라우드 플랫폼",
+      desc: "AI 기반 제조 ERP — 만드는 사람을 위한 ERP.",
       product: "제품",
-      productLinks: ["기능", "요금", "보안", "업데이트"],
+      productLinks: ["기능", "요금", "로드맵", "업데이트"],
       company: "회사",
       companyLinks: ["소개", "블로그", "채용", "연락처"],
       support: "지원",
       supportLinks: ["문서", "가이드", "FAQ", "문의"],
       legal: "법적 고지",
       legalLinks: ["이용약관", "개인정보처리방침", "환불정책", "SLA 정책", "데이터 보안", "서비스 이용 정책", "데이터 처리 계약", "보안 백서", "데이터 소유권"],
-      copyright: "HACCPONE. All rights reserved.",
+      copyright: "Millio AI. All rights reserved.",
     },
   },
   en: {
@@ -208,85 +220,96 @@ const translations = {
       demo: "Start Free Trial",
     },
     hero: {
-      badge: "Trusted by 100+ Food Manufacturers",
-      headline1: "Food Manufacturing Management",
-      headline2: "That Actually Works",
-      sub: "Move beyond spreadsheets and manual HACCP records. HACCPONE integrates production management, HACCP monitoring, inventory control, lot traceability, and accounting into a single cloud platform.",
-      cta1: "Start Free Trial",
-      cta2: "Watch Demo",
-      trust: "100+ food manufacturers run on HACCPONE",
-      trustRating: "4.9/5 Customer Satisfaction",
+      badge: "Manufacturing ERP powered by AI · 2026",
+      tagline: "ERP for the people who make things.",
+      headline1: "Every factory data point,",
+      headline2: "Connected by AI.",
+      sub: "Production · Inventory · Quality · Lot tracking · Accounting — all in one. Millio AI is Manufacturing ERP powered by AI, built for the people who make things. Currently specialized for food manufacturing HACCP, expanding to cosmetics GMP, nutraceuticals, and general manufacturing.",
+      cta1: "Start 30-Day Free Trial",
+      cta2: "Watch 1-Min Demo",
+      trust: "100+ manufacturers run their factories on Millio AI",
+      trustRating: "4.9 / 5 Customer Satisfaction",
       bullets: [
-        "Complete setup in 30 minutes",
-        "Proven automated HACCP recording system",
-        "30-day free trial, cancel anytime",
+        "30-min setup, same-day operations",
+        "Food HACCP auto-records, audit-ready",
+        "Cosmetics GMP & general manufacturing roadmap",
+      ],
+    },
+    stats: {
+      items: [
+        { value: "95%", label: "Audit Prep Time Saved" },
+        { value: "50%", label: "Work Hours Reduced" },
+        { value: "0", label: "Missed Records" },
+        { value: "30 min", label: "Setup Time" },
       ],
     },
     problem: {
-      badge: "Face the Reality",
-      headline: "Are You Stuck in the Same Routine Every Day?",
-      sub: "These are the common challenges food manufacturers face daily.",
-      quote: "Entering production logs in Excel, filling HACCP checklists by hand, recording inventory in yet another file... it was the same routine every day. When mistakes happened, finding what went wrong was nearly impossible.",
-      quoteAuthor: "— Food Manufacturer CEO",
+      badge: "Sound Familiar?",
+      headline: "20 spreadsheets, 3 file servers, and late nights every day.",
+      sub: "These are the common bottlenecks manufacturing leaders face.",
+      quote: "Production logs in Excel, quality and HACCP records on paper, inventory in yet another file... Every day the same grind. When something went wrong, it took a full day to find the cause.",
+      quoteAuthor: "— Manufacturing CEO",
       cards: [
-        { icon: "FileText", title: "Spreadsheet Management", desc: "Production data scattered across files makes real-time monitoring impossible." },
-        { icon: "ShieldCheck", title: "Manual HACCP Records", desc: "Paper-based logs increase the risk of missing records and human errors." },
-        { icon: "Package", title: "Inventory Discrepancies", desc: "Disconnected production and material tracking leads to inventory mismatches." },
-        { icon: "TrendingUp", title: "No Lot Traceability", desc: "Tracing product history and raw material lots becomes impossible during incidents." },
+        { icon: "FileText", title: "Scattered Records", desc: "Data fragmented across Excel, paper, and terminals. No real-time view, slow decisions." },
+        { icon: "ShieldCheck", title: "Manual Quality/HACCP Logs", desc: "Paper records mean missed data. Every audit takes days of document hunting." },
+        { icon: "Package", title: "Inventory Mismatches", desc: "Separate receiving and production systems. Books and actual stock never align." },
+        { icon: "TrendingUp", title: "No Lot Traceability", desc: "When issues hit, tracing takes half a day. Recall scope is impossible to pin down." },
       ],
     },
     solution: {
       badge: "Here's How It Works",
-      headline: "3 Simple Steps to Transform Your Operations",
-      sub: "No complex onboarding. Start today and see results immediately.",
+      headline: "3 Steps to Transform Your Factory",
+      sub: "No complex SI. Start today. Everything auto-connects.",
       steps: [
-        { num: "1", title: "Quick Setup", desc: "Complete initial setup in 30 minutes. We'll help migrate your existing Excel data.", color: "amber" },
-        { num: "2", title: "Start Operating", desc: "Intuitive UI requires no training. Start with production management right away.", color: "orange" },
-        { num: "3", title: "See Automation", desc: "Watch production, inventory, HACCP, and accounting connect automatically. Save 50% of work time.", color: "rose" },
+        { num: "1", title: "30-Min Setup", desc: "Sign up and complete initial config in 30 minutes. Our migration team moves your existing Excel and ERP data.", color: "amber" },
+        { num: "2", title: "Same-Day Ops", desc: "Intuitive UI, no training required. Same experience on PC and mobile. Shop floor to office, instant adoption.", color: "orange" },
+        { num: "3", title: "Feel the AI", desc: "Production → Inventory → Quality → Accounting auto-connect. AI assistant 'Hana' spots anomalies before you do.", color: "rose" },
       ],
     },
     features: {
       badge: "Core Features",
-      headline: "Everything You Need, All in One",
-      sub: "Core features for food manufacturing operations, delivered in a unified platform.",
+      headline: "Everything a factory needs,\nin a single platform",
+      sub: "Starting with food HACCP, expanding across manufacturing — modules built on a common ERP/inventory/accounting core.",
       items: [
-        { icon: "Factory", title: "Batch Production", desc: "Manage production by batch. Track raw material inputs, outputs, and records systematically." },
-        { icon: "ShieldCheck", title: "HACCP Monitoring", desc: "Digitally manage CCP monitoring and HACCP checklists. All records auto-saved securely." },
-        { icon: "Package", title: "Lot-Based Inventory", desc: "Track all inventory flow from receiving to production and shipment using lot-based management." },
-        { icon: "BarChart3", title: "Accounting Integration", desc: "Auto-generate accounting data based on purchasing, production, and sales transactions." },
-        { icon: "FileText", title: "Document Automation", desc: "Auto-generate HACCP reports, inspection logs, production records, and compliance docs." },
-        { icon: "Users", title: "Supplier Management", desc: "Manage suppliers, partners, purchase orders, and transaction histories in one system." },
-        { icon: "Lock", title: "Approval Workflow", desc: "Process document reviews and approvals electronically for improved efficiency." },
-        { icon: "Globe", title: "Multi-Tenant SaaS", desc: "Independent data management and user permission controls per organization." },
+        { icon: "Factory", title: "Batch Production", desc: "Product · batch · recipe · cost in one view. Auto-track inputs to outputs." },
+        { icon: "ShieldCheck", title: "HACCP · GMP Specialty", desc: "CCP · checklists · cert documents auto-generated. Killer feature for food and cosmetics." },
+        { icon: "Package", title: "LOT + FEFO Tracking", desc: "Lot-level flow from receiving to shipment. Recall simulation pinpoints scope instantly." },
+        { icon: "BarChart3", title: "Accounting Auto-Sync", desc: "Purchases · sales · costs auto-posted as journal entries. Reports and invoices in one click." },
+        { icon: "FileText", title: "Document Automation", desc: "Logs · checklists · invoices · quotations — PDF and Excel in one click." },
+        { icon: "Users", title: "Partner & PO Management", desc: "Supplier credit · POs · collections in one flow. AP/AR ledgers auto-posted." },
+        { icon: "Lock", title: "Approvals + Audit Log", desc: "Multi-stage approvals · delegation · change history fully tracked. 95% less audit prep." },
+        { icon: "Globe", title: "AI Assistant 'Hana'", desc: "Natural-language queries on inventory · sales · anomalies. Exec-tailored reports." },
       ],
     },
     dashboard: {
       badge: "Preview",
-      headline: "See Everything in One Dashboard",
-      sub: "Monitor production, inventory, HACCP logs, and operational data in a single unified view.",
+      headline: "Your whole factory in one screen",
+      sub: "Production · inventory · quality · accounting · AI risk summary. Ten minutes each morning and you know the factory.",
     },
     testimonials: {
       badge: "Testimonials",
       headline: "Hear From Our Customers",
       items: [
-        { text: "After switching from Excel to HACCPONE, record gaps virtually disappeared. During audits, I can print everything instantly. It's incredibly convenient.", author: "CEO Kim", company: "Dessert Manufacturer", rating: 5 },
+        { text: "After switching from Excel to Millio AI, record gaps virtually disappeared. During audits, I can print everything instantly. It's incredibly convenient.", author: "CEO Kim", company: "Dessert Manufacturer", rating: 5 },
         { text: "The best part is automatic inventory calculation when we produce. We used to manually reconcile raw materials every time. Now it's all automated.", author: "Plant Manager Lee", company: "HMR Manufacturer", rating: 5 },
         { text: "Our staff started using it immediately without any training. The UI is truly intuitive. Work hours definitely decreased after adoption.", author: "CEO Park", company: "Food Processor", rating: 5 },
         { text: "During HACCP certification audits, we can print all required documents directly from the system. Preparation time dropped dramatically. Even the auditor was impressed.", author: "QA Manager Choi", company: "Meat Processor", rating: 5 },
-        { text: "We consolidated multiple systems into HACCPONE alone. Monthly costs decreased and having all data in one place makes management much easier.", author: "CEO Jung", company: "Franchise HQ", rating: 5 },
+        { text: "We consolidated multiple systems into Millio AI alone. Monthly costs decreased and having all data in one place makes management much easier.", author: "CEO Jung", company: "Franchise HQ", rating: 5 },
       ],
     },
     industries: {
-      badge: "Industries",
-      headline: "Built for Food Manufacturing Industries",
+      badge: "Industry Roadmap",
+      headline: "From food, expanding across manufacturing",
+      sub: "Currently specialized for food manufacturing HACCP. Built on a shared manufacturing ERP/inventory/accounting core, we're adding industry-specific regulation modules in phases.",
       items: [
-        { icon: "CakeSlice", title: "Dessert & Bakery", desc: "Optimized for dessert, bakery, and confectionery manufacturers." },
-        { icon: "UtensilsCrossed", title: "HMR / Ready Meals", desc: "Manage production and inventory for ready-to-eat meal manufacturers." },
-        { icon: "Beef", title: "Meat Processing", desc: "Track HACCP compliance and lot traceability in meat processing plants." },
-        { icon: "ChefHat", title: "Food Processing", desc: "Suitable for various food processing and manufacturing businesses." },
-        { icon: "Truck", title: "Franchise", desc: "Centralized food management and quality standardization for multi-location franchises." },
-        { icon: "Building2", title: "Cloud Kitchen", desc: "Efficient raw material and HACCP record management for shared kitchen operations." },
+        { icon: "ChefHat", title: "Food (HACCP)", desc: "Live today. Dessert · bakery · HMR · meat. Four CCP modules with auto-generated audit docs." },
+        { icon: "ShieldCheck", title: "Cosmetics (GMP)", desc: "Coming. Raw material · process · QA regulations built-in. GMP inspection records auto-prepared." },
+        { icon: "CakeSlice", title: "Nutraceuticals", desc: "Coming. HACCP + GMP combined. Functional-ingredient traceability end-to-end." },
+        { icon: "Package", title: "Pharma · MedDevice", desc: "Under review. LOT · expiry · process validation automation." },
+        { icon: "Factory", title: "General Manufacturing", desc: "Core available. BOM · production · inventory · POs. Industry-specific checklists phased." },
+        { icon: "Building2", title: "Textile · Apparel · Other", desc: "Core available. Production · inventory · partners · accounting usable immediately." },
       ],
+      note: "Phase 1 (now) — Food HACCP. Phase 2 — Cosmetics / Nutraceuticals GMP. Phase 3 — General manufacturing templates. Phase 4 — Global expansion.",
     },
     pricing: {
       badge: "Pricing",
@@ -325,29 +348,29 @@ const translations = {
       headline: "Got Questions?",
       items: [
         { q: "How long does setup take?", a: "Initial setup completes in 30 minutes. If you have existing Excel data, we'll help migrate it. Most customers start using the system the same day." },
-        { q: "Is it difficult for staff to use?", a: "HACCPONE is designed with an intuitive UI that requires no training. It works the same way on mobile devices too." },
+        { q: "Is it difficult for staff to use?", a: "Millio AI is designed with an intuitive UI that requires no training. It works the same way on mobile devices too." },
         { q: "What about our existing Excel data?", a: "We help migrate your item master, supplier info, inventory data, and other existing Excel data into the system." },
-        { q: "Does it help with HACCP certification audits?", a: "Yes. All HACCP data and checklists recorded in HACCPONE are automatically formatted and printable for certification audits." },
+        { q: "Does it help with HACCP certification audits?", a: "Yes. All HACCP data and checklists recorded in Millio AI are automatically formatted and printable for certification audits." },
         { q: "Are features limited during the free trial?", a: "No. During the 30-day free trial, you have unlimited access to all features in your selected plan." },
       ],
     },
     cta: {
-      headline: "Start Today, See Results Tomorrow",
-      sub: "Try HACCPONE free for 30 days. No credit card required.",
+      headline: "Start today. Tomorrow your factory is different.",
+      sub: "30 days free. 30-minute setup. No credit card required.",
       btn1: "Start Free Trial",
       btn2: "Talk to Sales",
     },
     footer: {
-      desc: "All-in-one cloud platform for food manufacturing operations",
+      desc: "Manufacturing ERP powered by AI — ERP for the people who make things.",
       product: "Product",
-      productLinks: ["Features", "Pricing", "Security", "Updates"],
+      productLinks: ["Features", "Pricing", "Roadmap", "Updates"],
       company: "Company",
       companyLinks: ["About", "Blog", "Careers", "Contact"],
       support: "Support",
       supportLinks: ["Docs", "Guides", "FAQ", "Contact"],
       legal: "Legal",
       legalLinks: ["Terms of Service", "Privacy Policy", "Refund Policy", "SLA", "Data Security", "Acceptable Use", "DPA", "Security Whitepaper", "Data Ownership"],
-      copyright: "HACCPONE. All rights reserved.",
+      copyright: "Millio AI. All rights reserved.",
     },
   },
 };
@@ -529,13 +552,23 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <div className="flex items-center justify-between h-16 lg:h-20">
             {/* Logo - links to home */}
-            <a href="/" onClick={(e) => { e.preventDefault(); scrollToTop(); }} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer">
-              <div className="w-9 h-9 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-200/50">
-                <ShieldCheck className="w-5 h-5 text-white" />
+            <a
+              href="/"
+              onClick={(e) => { e.preventDefault(); scrollToTop(); }}
+              className="group flex items-center gap-2.5 cursor-pointer"
+            >
+              <div className="relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/30 to-blue-200/30 rounded-2xl blur-md group-hover:blur-lg transition-all" />
+                <MillioMark className="relative w-11 h-11 group-hover:scale-105 transition-transform" />
               </div>
-              <span className="text-xl font-bold tracking-tight text-[#1a1a2e]">
-                HACCP<span className="text-orange-500">ONE</span>
-              </span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-[22px] font-bold tracking-tight text-[#1a1a2e] font-serif">
+                  Millio<span className="bg-gradient-to-r from-orange-500 to-amber-500 bg-clip-text text-transparent"> AI</span>
+                </span>
+                <span className="text-[10px] text-stone-400 font-semibold tracking-[0.2em] uppercase -mt-0.5">
+                  Manufacturing · AI
+                </span>
+              </div>
             </a>
 
             {/* Desktop nav */}
@@ -561,7 +594,7 @@ export default function LandingPage() {
               <a href="/login" className="text-[15px] font-medium text-stone-500 hover:text-[#1a1a2e] transition-colors px-4 py-2">
                 {t.nav.login}
               </a>
-              <a href="/register" className="text-sm font-semibold px-6 py-2.5 bg-[#1a1a2e] text-white rounded-full hover:bg-[#2a2a3e] transition-all shadow-lg shadow-stone-900/10">
+              <a href="/signup" className="text-sm font-semibold px-6 py-2.5 bg-[#1a1a2e] text-white rounded-full hover:bg-[#2a2a3e] transition-all shadow-lg shadow-stone-900/10">
                 {t.nav.demo}
               </a>
             </div>
@@ -627,8 +660,18 @@ export default function LandingPage() {
                 </span>
               </motion.h1>
 
+              {/* Tagline — emotional anchor */}
+              {t.hero.tagline && (
+                <motion.p
+                  variants={fadeUp}
+                  className="mt-5 text-base sm:text-lg font-serif italic text-stone-700"
+                >
+                  &ldquo;{t.hero.tagline}&rdquo;
+                </motion.p>
+              )}
+
               {/* Sub */}
-              <motion.p variants={fadeUp} className="mt-6 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
+              <motion.p variants={fadeUp} className="mt-5 text-base sm:text-lg text-stone-500 leading-relaxed max-w-lg">
                 {t.hero.sub}
               </motion.p>
 
@@ -646,7 +689,7 @@ export default function LandingPage() {
 
               {/* CTAs */}
               <motion.div variants={fadeUp} className="mt-8 flex flex-col sm:flex-row items-start gap-3">
-                <a href="/register" className="w-full sm:w-auto px-7 py-3.5 bg-[#1a1a2e] text-white font-semibold rounded-full hover:bg-[#2a2a3e] transition-all shadow-xl shadow-stone-900/10 hover:shadow-2xl flex items-center justify-center gap-2 text-[15px]">
+                <a href="/signup" className="w-full sm:w-auto px-7 py-3.5 bg-[#1a1a2e] text-white font-semibold rounded-full hover:bg-[#2a2a3e] transition-all shadow-xl shadow-stone-900/10 hover:shadow-2xl flex items-center justify-center gap-2 text-[15px]">
                   {t.hero.cta1} <ArrowRight className="w-4 h-4" />
                 </a>
                 <a href="/login?demo=true" className="w-full sm:w-auto px-7 py-3.5 bg-gradient-to-r from-orange-400 to-amber-500 text-white font-semibold rounded-full hover:from-orange-500 hover:to-amber-600 transition-all shadow-lg shadow-orange-200/40 flex items-center justify-center gap-2 text-[15px]">
@@ -680,6 +723,30 @@ export default function LandingPage() {
               </div>
             </motion.div>
           </div>
+        </div>
+      </section>
+
+      {/* ══════ STATS (우와 임팩트) ══════ */}
+      <section className="py-12 lg:py-16 bg-gradient-to-b from-[#FBF8F3] to-white border-y border-stone-100">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8">
+          <motion.div
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true, margin: "-80px" }}
+            variants={stagger}
+            className="grid grid-cols-2 lg:grid-cols-4 gap-6 lg:gap-10"
+          >
+            {t.stats.items.map((stat, i) => (
+              <motion.div key={i} variants={fadeUp} className="text-center">
+                <div className="text-4xl lg:text-6xl font-serif font-bold bg-gradient-to-br from-orange-500 via-amber-500 to-rose-500 bg-clip-text text-transparent tracking-tight">
+                  {stat.value}
+                </div>
+                <div className="mt-2 text-sm lg:text-base font-medium text-stone-500">
+                  {stat.label}
+                </div>
+              </motion.div>
+            ))}
+          </motion.div>
         </div>
       </section>
 
@@ -841,7 +908,7 @@ export default function LandingPage() {
                   <div className="w-3 h-3 rounded-full bg-emerald-400" />
                 </div>
                 <div className="ml-3 flex-1 bg-white/10 rounded-md px-3 py-1 text-xs text-stone-400">
-                  app.haccpone.com/dashboard
+                  app.millioai.com/dashboard
                 </div>
               </div>
               <div className="rounded-xl bg-white overflow-hidden">
@@ -850,10 +917,8 @@ export default function LandingPage() {
                   {/* Sidebar */}
                   <div className="w-52 bg-[#1a1a2e] p-4 hidden md:block">
                     <div className="flex items-center gap-2 mb-8">
-                      <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-amber-500 rounded-lg flex items-center justify-center">
-                        <ShieldCheck className="w-4 h-4 text-white" />
-                      </div>
-                      <span className="text-sm font-bold text-white">HACCPONE</span>
+                      <MillioMark className="w-7 h-7" />
+                      <span className="text-sm font-bold text-white">Millio AI</span>
                     </div>
                     {[
                       { icon: BarChart3, label: lang === "ko" ? "대시보드" : "Dashboard", active: true },
@@ -958,6 +1023,11 @@ export default function LandingPage() {
             <motion.h2 variants={fadeUp} className="text-3xl sm:text-4xl lg:text-[2.75rem] font-serif font-bold text-[#1a1a2e] tracking-tight leading-tight">
               {t.industries.headline}
             </motion.h2>
+            {t.industries.sub && (
+              <motion.p variants={fadeUp} className="mt-4 text-lg text-stone-500 max-w-3xl mx-auto">
+                {t.industries.sub}
+              </motion.p>
+            )}
           </motion.div>
 
           <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -974,6 +1044,33 @@ export default function LandingPage() {
               );
             })}
           </motion.div>
+
+          {t.industries.note && (
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, margin: "-80px" }}
+              variants={fadeUp}
+              className="mt-12 text-center"
+            >
+              <div className="inline-block max-w-3xl px-6 py-4 bg-white border border-amber-100 rounded-2xl">
+                <p className="text-sm text-stone-500 leading-relaxed">
+                  <span className="font-semibold text-amber-600">🗺️ Roadmap</span>
+                  <span className="mx-2 text-stone-300">|</span>
+                  {t.industries.note}
+                </p>
+              </div>
+              <div className="mt-5">
+                <a
+                  href="/roadmap"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1a1a2e] text-white rounded-full font-semibold text-sm hover:bg-[#2a2a3e] transition-all shadow-lg"
+                >
+                  {lang === "ko" ? "전체 로드맵 보기" : "View Full Roadmap"}
+                  <ArrowRight className="w-4 h-4" />
+                </a>
+              </div>
+            </motion.div>
+          )}
         </div>
       </section>
 
@@ -1023,7 +1120,7 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <a href="/register" className={`mt-8 w-full py-3.5 rounded-full font-semibold text-sm transition-all duration-300 block text-center ${
+                <a href="/signup" className={`mt-8 w-full py-3.5 rounded-full font-semibold text-sm transition-all duration-300 block text-center ${
                   plan.popular
                     ? "bg-gradient-to-r from-orange-400 to-amber-500 text-white hover:from-orange-500 hover:to-amber-600 shadow-lg shadow-orange-500/20"
                     : "bg-[#1a1a2e] text-white hover:bg-[#2a2a3e]"
@@ -1071,7 +1168,7 @@ export default function LandingPage() {
                 {t.cta.sub}
               </p>
               <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-                <a href="/register" className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-orange-400 to-amber-500 text-white font-semibold rounded-full hover:from-orange-500 hover:to-amber-600 transition-all shadow-xl shadow-orange-500/20 flex items-center justify-center gap-2 text-[15px]">
+                <a href="/signup" className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-orange-400 to-amber-500 text-white font-semibold rounded-full hover:from-orange-500 hover:to-amber-600 transition-all shadow-xl shadow-orange-500/20 flex items-center justify-center gap-2 text-[15px]">
                   {t.cta.btn1} <ArrowRight className="w-4 h-4" />
                 </a>
                 <a href="/login?demo=true" className="w-full sm:w-auto px-8 py-4 bg-white/10 text-white font-semibold rounded-full border border-orange-400/40 hover:bg-white/15 hover:border-orange-400/60 transition-all flex items-center justify-center gap-2 text-[15px]">
@@ -1092,13 +1189,19 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-10">
             {/* Brand + Company Info */}
             <div className="md:col-span-5">
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-9 h-9 bg-gradient-to-br from-orange-400 to-amber-500 rounded-xl flex items-center justify-center">
-                  <ShieldCheck className="w-5 h-5 text-white" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-orange-400/30 to-blue-400/20 rounded-2xl blur-md" />
+                  <MillioMark className="relative w-11 h-11" />
                 </div>
-                <span className="text-lg font-bold text-white">
-                  HACCP<span className="text-orange-400">ONE</span>
-                </span>
+                <div className="flex flex-col leading-tight">
+                  <span className="text-xl font-bold text-white font-serif tracking-tight">
+                    Millio<span className="text-orange-400"> AI</span>
+                  </span>
+                  <span className="text-[10px] text-stone-500 font-semibold tracking-[0.2em] uppercase -mt-0.5">
+                    Manufacturing · AI
+                  </span>
+                </div>
               </div>
               <p className="text-sm leading-relaxed mb-6">{t.footer.desc}</p>
               
@@ -1120,7 +1223,7 @@ export default function LandingPage() {
             {/* Links */}
             <div className="md:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-6">
               {[
-                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "#industries", "#testimonials"] },
+                { title: t.footer.product, links: t.footer.productLinks, hrefs: ["#features", "#pricing", "/roadmap", "#testimonials"] },
                 { title: t.footer.company, links: t.footer.companyLinks, hrefs: ["#", "#", "#", "#"] },
                 { title: t.footer.support, links: t.footer.supportLinks, hrefs: ["#", "#", "/faq", "/support"] },
                 { title: t.footer.legal, links: t.footer.legalLinks, hrefs: ["/legal/terms", "/legal/privacy", "/legal/refund", "/legal/sla", "/legal/security", "/legal/aup", "/legal/dpa", "/legal/security-whitepaper", "/legal/data-ownership"] },

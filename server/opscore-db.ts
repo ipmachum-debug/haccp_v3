@@ -1,7 +1,7 @@
 /**
- * GOGOGOPICK (OPSCORE) Database Connection for HACCP-ONE
+ * GOGOGOPICK (OPSCORE) Database Connection for Millio AI
  * 
- * HACCP-ONE에서 GOGOGOPICK DB에 접속하여 양방향 동기화를 수행합니다.
+ * Millio AI에서 GOGOGOPICK DB에 접속하여 양방향 동기화를 수행합니다.
  */
 
 import mysql, { Pool } from "mysql2/promise";

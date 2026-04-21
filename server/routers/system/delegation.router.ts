@@ -29,7 +29,7 @@ export const delegationRouter = router({
       LEFT JOIN h_employees e2 ON d.delegatee_id = e2.id AND e2.tenant_id = d.tenant_id
       LEFT JOIN users u1 ON e1.user_id = u1.id
       LEFT JOIN users u2 ON e2.user_id = u2.id
-      WHERE d.tenant_id = ${ctx.tenantId!}
+      WHERE d.tenant_id = ${ctx.tenantId}
         AND d.is_active = 1
         AND (d.end_date IS NULL OR d.end_date >= CURDATE())
       ORDER BY d.created_at DESC
@@ -64,7 +64,7 @@ export const delegationRouter = router({
         FROM h_delegation_records d
         LEFT JOIN h_employees e1 ON d.delegator_id = e1.id AND e1.tenant_id = d.tenant_id
         LEFT JOIN h_employees e2 ON d.delegatee_id = e2.id AND e2.tenant_id = d.tenant_id
-        WHERE d.tenant_id = ${ctx.tenantId!}
+        WHERE d.tenant_id = ${ctx.tenantId}
         ORDER BY d.created_at DESC
         LIMIT ${input?.limit || 50}
       `);
@@ -108,7 +108,7 @@ export const delegationRouter = router({
         INSERT INTO h_delegation_records
           (tenant_id, delegator_id, delegatee_id, delegation_type, start_date, end_date, reason, is_active)
         VALUES
-          (${ctx.tenantId!}, ${input.delegatorId}, ${input.delegateeId},
+          (${ctx.tenantId}, ${input.delegatorId}, ${input.delegateeId},
            ${input.delegationType}, ${input.startDate}, ${input.endDate || null},
            ${input.reason || null}, 1)
       `);
@@ -127,7 +127,7 @@ export const delegationRouter = router({
 
       await db.execute(sql`
         UPDATE h_delegation_records SET is_active = 0
-        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId!}
+        WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
       `);
 
       return { success: true, message: "위임이 종료되었습니다." };
@@ -146,7 +146,7 @@ export const delegationRouter = router({
         SELECT d.delegatee_id, e.name as delegatee_name
         FROM h_delegation_records d
         LEFT JOIN h_employees e ON d.delegatee_id = e.id AND e.tenant_id = d.tenant_id
-        WHERE d.tenant_id = ${ctx.tenantId!}
+        WHERE d.tenant_id = ${ctx.tenantId}
           AND d.delegator_id = ${input.employeeId}
           AND d.is_active = 1
           AND d.start_date <= CURDATE()

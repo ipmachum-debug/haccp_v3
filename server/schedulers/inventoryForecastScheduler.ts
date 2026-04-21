@@ -1,7 +1,7 @@
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
-import { checkLowStockPrediction, createLowStockNotifications } from "../api/inventoryForecast";
+import { checkLowStockPrediction, createLowStockNotifications } from "../db/inventory/inventoryForecastAPI";
 
 /**
  * 재고 예측 알림 스케줄러

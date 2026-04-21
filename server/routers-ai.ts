@@ -7,26 +7,26 @@
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "./_core/trpc";
 import { invokeLLM } from "./_core/llm";
-import { ENV } from "./_core/env";
-import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/rulesEngine";
-import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/standardChecklist";
+import { ENV, findApiKeyWithDiagnostics } from "./_core/env";
+import { evaluateAllRules, saveAlerts, getAIDashboardSummary, updateAlertStatus, SYSTEM_RULES } from "./db/ai/rulesEngine";
+import { parseStandardToCheckItems, createTemplateFromStandard, generateCorrectiveActionDraft, generateInspectionSummary, gatherAuditDocuments } from "./db/ai/standardChecklist";
 import { getRawConnection } from "./db";
-import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/aiActionEngine";
-import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/aiContextLayer";
-import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/knowledgeBase";
+import { processUserQuery, classifyIntent, classifyIntentAI } from "./db/ai/aiActionEngine";
+import { getDailyOverview, getBatchSummary, getCcpEventSummary, getChecklistStatus, getDeviationHistory, getEquipmentHealth, getProductionAnalysis, getAuditReadiness } from "./db/ai/aiContextLayer";
+import { uploadDocument, listDocuments, getDocument, deleteDocument, searchKnowledge, reindexDocument, getKBStats } from "./db/ai/knowledgeBase";
 
 import { toKSTDate, todayKST } from "./utils/timezone";
 
 // ============================================================================
-// HACCP-ONE 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
+// Millio AI 시스템 컨텍스트 (대폭 업그레이드된 시스템 매뉴얼)
 // ============================================================================
-const SYSTEM_PROMPT = `당신은 HACCP-ONE 시스템의 AI 어시스턴트 "하나"입니다.
-HACCP-ONE은 식품 제조업체를 위한 통합 HACCP 관리 및 ERP 시스템입니다.
+const SYSTEM_PROMPT = `당신은 Millio AI 시스템의 AI 어시스턴트 "하나"입니다.
+Millio AI는 식품 제조업체를 위한 통합 HACCP 관리 및 ERP 시스템입니다.
 항상 친절하고 전문적으로 답변하며, 초보 사용자도 쉽게 따라할 수 있도록 단계별로 안내합니다.
 답변은 마크다운 형식으로 작성하되, 핵심 내용을 먼저 요약하고 상세 설명을 이어서 제공합니다.
 
 ## 당신의 역할
-1. **시스템 사용법 안내**: 사용자가 HACCP-ONE의 기능을 쉽게 사용할 수 있도록 단계별로 안내합니다.
+1. **시스템 사용법 안내**: 사용자가 Millio AI의 기능을 쉽게 사용할 수 있도록 단계별로 안내합니다.
 2. **HACCP 관련 질문 답변**: 식품 안전, HACCP 원칙, CCP 관리 등에 대한 전문적인 답변을 제공합니다.
 3. **업무 지원**: 보고서 작성, 데이터 분석, 업무 프로세스 개선에 대한 조언을 제공합니다.
 4. **트러블슈팅**: 시스템 사용 중 발생하는 문제에 대한 해결 방법을 안내합니다.
@@ -38,7 +38,7 @@ HACCP-ONE은 식품 제조업체를 위한 통합 HACCP 관리 및 ERP 시스템
 - 관련 팁이나 주의사항은 💡 또는 ⚠️ 이모지로 표시
 - 관련된 다른 기능이 있으면 "관련 기능" 섹션으로 추가 안내
 
-## HACCP-ONE 시스템 전체 메뉴 구조 및 상세 사용법
+## Millio AI 시스템 전체 메뉴 구조 및 상세 사용법
 
 ### 📌 WORK 탭 (생산/재고/판매 관리)
 
@@ -259,7 +259,7 @@ Q: 유통기한이 임박한 원재료를 확인하려면?
 A: 재고 관리에서 "유통기한 임박" 필터를 사용하거나, 대시보드의 유통기한 알림을 확인하세요.
 
 Q: 여러 사용자가 동시에 사용할 수 있나요?
-A: 네, HACCP-ONE은 다중 사용자를 지원합니다. 관리자가 사용자 계정을 생성하고 권한을 설정할 수 있습니다.
+A: 네, Millio AI는 다중 사용자를 지원합니다. 관리자가 사용자 계정을 생성하고 권한을 설정할 수 있습니다.
 
 Q: 데이터를 엑셀로 내보낼 수 있나요?
 A: 대부분의 목록 화면에서 "엑셀 다운로드" 버튼을 통해 데이터를 엑셀 파일로 내보낼 수 있습니다.
@@ -318,6 +318,25 @@ async function saveConversationMessage(tenantId: number, convId: string, userId:
 
 export const aiRouter = router({
   // ============================================================================
+  // AI 환경 진단 (forgeApiKey 로드 상태 확인)
+  // ★ 2026-04-15: 프로덕션 디버깅용 — 클라이언트에서 호출하여 즉시 상태 확인
+  // ============================================================================
+  diagnostics: tenantRequiredProcedure.query(async () => {
+    const diag = findApiKeyWithDiagnostics();
+    return {
+      cwd: process.cwd(),
+      nodeEnv: process.env.NODE_ENV || "(unset)",
+      forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL || "(OpenAI 기본)",
+      hasKey: diag.key.length > 0,
+      keyLength: diag.key.length,
+      keyPrefix: diag.key ? diag.key.slice(0, 7) + "***" : "",
+      source: diag.source,
+      processEnv: diag.processEnv,
+      checkedPaths: diag.checked,
+    };
+  }),
+
+  // ============================================================================
   // AI 채팅 (스마트 챗봇 - Action Engine 기반)
   // ============================================================================
   chat: tenantRequiredProcedure
@@ -349,7 +368,27 @@ export const aiRouter = router({
         if (intent === "general") {
           // 일반 질문: 기존 시스템 매뉴얼 기반 응답 (SYSTEM_PROMPT 사용)
           if (!ENV.forgeApiKey) {
-            return { success: false, response: "AI 서비스가 아직 설정되지 않았습니다.", conversationId: convId };
+            // ★ 2026-04-15: 진단 정보를 응답에 포함 (root cause 즉시 확인 가능)
+            const diag = findApiKeyWithDiagnostics();
+            const checkedLines = diag.checked
+              .map((c) => `  - ${c.path} (exists=${c.exists}, hasKey=${c.hasKey})`)
+              .join("\n");
+            const diagMsg =
+              `⚠️ AI 서비스가 설정되지 않았습니다.\n\n` +
+              `**진단 정보 (서버 관리자용):**\n` +
+              `\`\`\`\n` +
+              `cwd: ${process.cwd()}\n` +
+              `process.env.OPENAI_API_KEY: ${diag.processEnv.OPENAI ? "설정됨" : "❌ 빈값"}\n` +
+              `process.env.BUILT_IN_FORGE_API_KEY: ${diag.processEnv.BUILT_IN_FORGE ? "설정됨" : "❌ 빈값"}\n` +
+              `process.env.FORGE_API_KEY: ${diag.processEnv.FORGE ? "설정됨" : "❌ 빈값"}\n` +
+              `\n.env 파일 검색:\n${checkedLines || "  (없음)"}\n` +
+              `\`\`\`\n\n` +
+              `**해결 방법:**\n` +
+              `1. .env 파일에 \`OPENAI_API_KEY=sk-...\` 설정\n` +
+              `2. \`pm2 restart haccpone --update-env\` 실행\n` +
+              `3. 또는 환경변수 직접 설정 후 재시작`;
+            console.error("[AI Chat] forgeApiKey 미설정:", JSON.stringify(diag, null, 2));
+            return { success: false, response: diagMsg, conversationId: convId };
           }
 
           const recentHistory = history.slice(-20);
@@ -402,8 +441,15 @@ export const aiRouter = router({
 
         return { success: true, response: assistantMessage, conversationId: convId };
       } catch (error: any) {
-        console.error("[AI Chat Error]", error?.message || error);
-        return { success: false, response: "AI 응답 생성 중 오류가 발생했습니다.", conversationId: convId };
+        // ★ 2026-04-15: 에러를 swallow 하지 말고 프론트로 노출 (디버깅 가능)
+        const errMsg = error?.message || String(error);
+        console.error("[AI Chat Error]", errMsg, error?.stack);
+        return {
+          success: false,
+          response: `AI 오류: ${errMsg}`,
+          conversationId: convId,
+          error: errMsg,
+        };
       }
     }),
 
@@ -751,7 +797,7 @@ export const aiRouter = router({
           input.standardId,
           input.templateName,
           input.category,
-          input.items,
+          input.items as any,
           ctx.user?.id
         );
         return { success: true, ...result };
@@ -1085,7 +1131,7 @@ export const aiRouter = router({
       try {
         const result = await uploadDocument(ctx.tenantId, {
           ...input,
-          createdBy: ctx.userId,
+          createdBy: ctx.user.id,
         });
 
         // 감사 로그
@@ -1098,7 +1144,7 @@ export const aiRouter = router({
               ctx.tenantId,
               JSON.stringify({ title: input.title, docType: input.docType, contentLength: input.content.length }),
               JSON.stringify(result),
-              ctx.userId,
+              ctx.user.id,
             ]
           );
         } catch {}
@@ -1179,7 +1225,7 @@ export const aiRouter = router({
     .mutation(async ({ ctx, input }) => {
       try {
         const result = await reindexDocument(ctx.tenantId, input.documentId);
-        return { success: true, ...result };
+        return { success: true, ...(result as any) };
       } catch (error: any) {
         return { success: false, error: error?.message, chunksUpdated: 0 };
       }
@@ -1260,7 +1306,7 @@ export const aiRouter = router({
           })),
           yieldDeviation: riskData?.yieldDeviation ?? null,
           ccpDeviationCount: riskData?.ccpDeviationCount ?? 0,
-          checklistMissing: riskData?.checklistMissing ?? 0,
+          checklistMissing: riskData?.checklistMissingCount ?? 0,
         };
       } catch (error: any) {
         return {
@@ -1313,7 +1359,7 @@ export const aiRouter = router({
       description: z.string().optional(),
       ruleType: z.enum(["threshold", "missing", "overdue", "anomaly", "recurrence"]),
       entityType: z.enum(["ccp", "checklist", "equipment", "batch", "lot", "inspection", "hygiene", "calibration", "document", "training"]),
-      conditions: z.record(z.any()),
+      conditions: z.record(z.string(), z.any()),
       severity: z.enum(["low", "medium", "high", "critical"]),
       notifyRoles: z.array(z.string()).optional(),
     }))
@@ -1348,7 +1394,7 @@ export const aiRouter = router({
       ruleId: z.number(),
       name: z.string().optional(),
       description: z.string().optional(),
-      conditions: z.record(z.any()).optional(),
+      conditions: z.record(z.string(), z.any()).optional(),
       severity: z.enum(["low", "medium", "high", "critical"]).optional(),
       notifyRoles: z.array(z.string()).optional(),
       isActive: z.boolean().optional(),
@@ -1421,7 +1467,7 @@ export const aiRouter = router({
   /** AI 이상탐지 (CCP/체크리스트/설비 패턴 분석) */
   detectAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { detectAnomalies } = await import("./db/aiAnomalyDetection");
+      const { detectAnomalies } = await import("./db/ai/aiAnomalyDetection");
       return detectAnomalies(ctx.tenantId);
     }),
 
@@ -1431,7 +1477,7 @@ export const aiRouter = router({
   getPredictions: tenantRequiredProcedure
     .input(z.object({ focus: z.string().optional() }).optional())
     .query(async ({ ctx, input }) => {
-      const { generatePredictions } = await import("./db/aiPrediction");
+      const { generatePredictions } = await import("./db/ai/aiPrediction");
       return generatePredictions(ctx.tenantId, input?.focus);
     }),
 
@@ -1451,13 +1497,13 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateHaccpPlan } = await import("./db/aiHaccpPlan");
+      const { generateHaccpPlan } = await import("./db/ai/aiHaccpPlan");
       return generateHaccpPlan(ctx.tenantId, input);
     }),
 
   generateHaccpPlanAuto: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      const { generateHaccpPlanFromExistingData } = await import("./db/aiHaccpPlan");
+      const { generateHaccpPlanFromExistingData } = await import("./db/ai/aiHaccpPlan");
       return generateHaccpPlanFromExistingData(ctx.tenantId);
     }),
 
@@ -1473,20 +1519,20 @@ export const aiRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateFinancialNarrative } = await import("./db/aiReportNarrative");
+      const { generateFinancialNarrative } = await import("./db/ai/aiReportNarrative");
       return generateFinancialNarrative(ctx.tenantId, { startDate: input.startDate, endDate: input.endDate }, input.type);
     }),
 
   generateHaccpNarrative: tenantRequiredProcedure
     .input(z.object({ period: z.enum(["weekly", "monthly"]).optional() }).optional())
     .mutation(async ({ ctx, input }) => {
-      const { generateHaccpNarrative } = await import("./db/aiReportNarrative");
+      const { generateHaccpNarrative } = await import("./db/ai/aiReportNarrative");
       return generateHaccpNarrative(ctx.tenantId, input?.period);
     }),
 
   generateExecutiveSummary: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      const { generateExecutiveSummary } = await import("./db/aiReportNarrative");
+      const { generateExecutiveSummary } = await import("./db/ai/aiReportNarrative");
       return generateExecutiveSummary(ctx.tenantId);
     }),
 
@@ -1500,7 +1546,7 @@ export const aiRouter = router({
       }).optional()
     )
     .mutation(async ({ ctx, input }) => {
-      const { generateAuditPackage } = await import("./db/aiAuditPackage");
+      const { generateAuditPackage } = await import("./db/ai/aiAuditPackage");
       return generateAuditPackage(ctx.tenantId, input?.auditType);
     }),
 
@@ -1509,7 +1555,7 @@ export const aiRouter = router({
   // ============================================================================
   analyzeSupplierRisk: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { analyzeSupplierRisk } = await import("./db/aiSupplierRisk");
+      const { analyzeSupplierRisk } = await import("./db/ai/aiSupplierRisk");
       return analyzeSupplierRisk(ctx.tenantId);
     }),
 
@@ -1518,7 +1564,7 @@ export const aiRouter = router({
   // ============================================================================
   getTrainingRecommendations: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { generateTrainingRecommendations } = await import("./db/aiTrainingRecommendation");
+      const { generateTrainingRecommendations } = await import("./db/ai/aiTrainingRecommendation");
       return generateTrainingRecommendations(ctx.tenantId);
     }),
 
@@ -1650,7 +1696,7 @@ export const aiRouter = router({
   /** 비용 이상탐지 (월별 비용 패턴 기반) */
   detectExpenseAnomalies: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { detectExpenseAnomalies } = await import("./db/aiExpenseAnomaly");
+      const { detectExpenseAnomalies } = await import("./db/ai/aiExpenseAnomaly");
       return detectExpenseAnomalies(ctx.tenantId);
     }),
 
@@ -1660,7 +1706,7 @@ export const aiRouter = router({
   forecastCashFlow: tenantRequiredProcedure
     .input(z.object({ days: z.number().min(7).max(90).default(30) }).optional())
     .query(async ({ ctx, input }) => {
-      const { forecastCashFlow } = await import("./db/aiCashFlowForecast");
+      const { forecastCashFlow } = await import("./db/ai/aiCashFlowForecast");
       return forecastCashFlow(ctx.tenantId, input?.days || 30);
     }),
 
@@ -1669,7 +1715,7 @@ export const aiRouter = router({
   // ============================================================================
   analyzePaymentRisk: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { analyzePaymentRisk } = await import("./db/aiPaymentRiskAnalysis");
+      const { analyzePaymentRisk } = await import("./db/ai/aiPaymentRiskAnalysis");
       return analyzePaymentRisk(ctx.tenantId);
     }),
 
@@ -1682,14 +1728,14 @@ export const aiRouter = router({
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
-      const { validateJournalEntries } = await import("./db/aiJournalValidation");
+      const { validateJournalEntries } = await import("./db/ai/aiJournalValidation");
       return validateJournalEntries(ctx.tenantId, input?.startDate, input?.endDate);
     }),
 
   // ── AI 브리핑 (로그인 시 플로팅 메시지) ──
   briefing: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { generateAIBriefing } = await import("./db/aiBriefing");
+      const { generateAIBriefing } = await import("./db/ai/aiBriefing");
       return generateAIBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
     }),
 });

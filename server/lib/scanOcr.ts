@@ -177,6 +177,41 @@ CCP(중요관리점) 모니터링 기록을 읽습니다. 온도, 시간, 압력
   "inspector": "작성자", "remarks": "전체비고", "signature": "서명"
 }`,
   },
+  // ── ERP 전용 OCR ──
+  business_registration: {
+    label: "사업자등록증",
+    systemPrompt: `사업자등록증 OCR 전문가입니다.
+상호(법인명), 대표자, 사업자등록번호, 개업일, 업태, 종목, 사업장소재지를 정확히 추출하세요.
+사업자번호는 XXX-XX-XXXXX 형식으로 통일하세요.`,
+    jsonSchema: `{
+  "companyName": "상호(법인명)", "representative": "대표자",
+  "bizNo": "XXX-XX-XXXXX", "openDate": "YYYY-MM-DD",
+  "bizType": "업태", "bizItem": "종목", "address": "사업장소재지"
+}`,
+  },
+  quotation_doc: {
+    label: "견적서",
+    systemPrompt: `견적서/발주서 OCR 전문가입니다.
+공급자, 공급받는자, 품목별 수량/단가/금액, 공급가액, 세액, 합계금액, 유효기간을 추출하세요.`,
+    jsonSchema: `{
+  "docDate": "YYYY-MM-DD", "docNumber": "문서번호",
+  "supplierName": "공급자 상호", "supplierBizNo": "사업자번호",
+  "customerName": "공급받는자",
+  "items": [{ "itemName": "품명", "spec": "규격", "quantity": 숫자, "unit": "단위", "unitPrice": 숫자, "amount": 숫자 }],
+  "subtotal": 숫자, "taxAmount": 숫자, "totalAmount": 숫자,
+  "validUntil": "YYYY-MM-DD (유효기간)", "remarks": "비고"
+}`,
+  },
+  receipt: {
+    label: "영수증",
+    systemPrompt: `영수증/간이영수증 OCR 전문가입니다.
+상호, 날짜, 품목별 금액, 합계, 결제수단을 추출하세요.`,
+    jsonSchema: `{
+  "storeName": "상호", "date": "YYYY-MM-DD",
+  "items": [{ "itemName": "품명", "amount": 숫자 }],
+  "totalAmount": 숫자, "paymentMethod": "카드/현금/계좌이체"
+}`,
+  },
 };
 
 const DEFAULT_PROMPT: PromptConfig = {

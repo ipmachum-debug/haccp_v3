@@ -45,22 +45,22 @@ export const systemRouter = router({
       } as const;
     }),
   
-  // 모든 시스템 설정 조회
+  // 모든 시스템 설정 조회 (테넌트 격리)
   getSettings: adminProcedure
-    .query(async () => {
+    .query(async ({ ctx }) => {
       const { getSystemSettings } = await import("../db");
-      return await getSystemSettings();
+      return await getSystemSettings(ctx.tenantId);
     }),
-  
-  // 특정 설정 값 조회
+
+  // 특정 설정 값 조회 (테넌트 격리)
   getSetting: adminProcedure
     .input(z.object({ key: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const { getSystemSetting } = await import("../db");
-      return await getSystemSetting(input.key);
+      return await getSystemSetting(input.key, ctx.tenantId);
     }),
-  
-  // 시스템 설정 업데이트
+
+  // 시스템 설정 업데이트 (테넌트 격리)
   updateSetting: adminProcedure
     .input(
       z.object({
@@ -75,14 +75,15 @@ export const systemRouter = router({
         input.key,
         input.value,
         input.description || "",
-        ctx.user.id
+        ctx.user.id,
+        ctx.tenantId
       );
     }),
   
   // 배치 완료 재시도 작업 목록 조회 (실패한 작업만)
   getFailedBatchCompletionRetries: adminProcedure
     .query(async () => {
-      const { getFailedRetryTasks } = await import("../db/batchCompletionRetries");
+      const { getFailedRetryTasks } = await import("../db/production/batchCompletionRetries");
       return await getFailedRetryTasks();
     }),
   
@@ -90,7 +91,7 @@ export const systemRouter = router({
   retryBatchCompletionTask: adminProcedure
     .input(z.object({ taskId: z.number() }))
     .mutation(async ({ input }) => {
-      const { getPendingRetryTasks, updateRetryTaskStatus } = await import("../db/batchCompletionRetries");
+      const { getPendingRetryTasks, updateRetryTaskStatus } = await import("../db/production/batchCompletionRetries");
       const { notifyOwner } = await import("./notification");
       
       // 작업 조회
@@ -145,7 +146,7 @@ export const systemRouter = router({
   deleteBatchCompletionRetry: adminProcedure
     .input(z.object({ taskId: z.number() }))
     .mutation(async ({ input }) => {
-      const { deleteRetryTask } = await import("../db/batchCompletionRetries");
+      const { deleteRetryTask } = await import("../db/production/batchCompletionRetries");
       await deleteRetryTask(input.taskId);
       return {
         success: true,

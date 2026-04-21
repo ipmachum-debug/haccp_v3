@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   FileText, CheckCircle, Sparkles, Loader2,
 } from "lucide-react";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // ============================================================================
 // Tab 4: 시정조치 AI
 // ============================================================================
 export function CorrectiveActionTab() {
+  const L = useIndustryLabel();
   const [deviationType, setDeviationType] = useState("CCP 온도 이탈");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
@@ -69,7 +71,7 @@ export function CorrectiveActionTab() {
                   <SelectItem value="CCP 압력 이탈">CCP 압력 이탈</SelectItem>
                   <SelectItem value="금속검출 부적합">금속검출 부적합</SelectItem>
                   <SelectItem value="위생점검 불량">위생점검 불량</SelectItem>
-                  <SelectItem value="원재료 검사 부적합">원재료 검사 부적합</SelectItem>
+                  <SelectItem value="원재료 검사 부적합">{L("material")} 검사 부적합</SelectItem>
                   <SelectItem value="출하검사 부적합">출하검사 부적합</SelectItem>
                   <SelectItem value="보관온도 이상">보관온도 이상</SelectItem>
                   <SelectItem value="기타">기타</SelectItem>

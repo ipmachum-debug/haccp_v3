@@ -93,21 +93,21 @@ docker-compose down
 `.env.production` 파일을 생성하고 다음 변수를 설정하세요:
 
 ```env
-# 데이터베이스 연결
-DATABASE_URL=mysql://root:Golden1004!@#@49.50.130.101:3306/haccp_db
+# 데이터베이스 연결 — 실제 값은 배포 서버 .env 에만 저장 (문서에 비밀번호 금지)
+DATABASE_URL=mysql://USER:PASSWORD@HOST:3306/haccp_db
 
-# JWT 시크릿 (반드시 변경하세요!)
-JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
+# JWT 시크릿 (반드시 32자 이상 랜덤 값으로 변경)
+JWT_SECRET=change-to-random-32char-plus-secret
 
 # 서버 설정
 PORT=3000
 NODE_ENV=production
 
-# MySQL 설정 (docker-compose 사용 시)
-MYSQL_ROOT_PASSWORD=Golden1004!@#
+# MySQL 설정 (docker-compose 사용 시) — 실제 값 코드에 커밋 금지
+MYSQL_ROOT_PASSWORD=CHANGE_ME
 MYSQL_DATABASE=haccp_db
 MYSQL_USER=haccp_user
-MYSQL_PASSWORD=Golden1004!
+MYSQL_PASSWORD=CHANGE_ME
 ```
 
 ## 📊 배포 후 확인

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { getDb } from "./db";
-import { createPurchase, createSale, updatePurchase, updateSale } from "./db/haccpIntegration";
+import { createPurchase, createSale, updatePurchase, updateSale } from "./db/haccp/haccpIntegration";
 
 import { todayKST } from "./utils/timezone";
 

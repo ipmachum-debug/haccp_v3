@@ -19,7 +19,7 @@ export const subscriptionRouter = router({
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
-    const tenantId = ctx.tenantId!;
+    const tenantId = ctx.tenantId;
 
     // 테넌트 정보
     const { tenants } = await import("../../../drizzle/schema");
@@ -83,7 +83,7 @@ export const subscriptionRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const { tenants } = await import("../../../drizzle/schema");
 
       // 현재 플랜 확인
@@ -147,7 +147,7 @@ export const subscriptionRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const customerKey = `tenant_${tenantId}`;
 
       const { issueBillingKey } = await import("../../services/payment/tossPayments");
@@ -182,9 +182,9 @@ export const subscriptionRouter = router({
 
     const { tenants } = await import("../../../drizzle/schema");
     const [tenant] = await db.select({
-      cardCompany: tenants.cardCompany,
-      cardNumber: tenants.cardNumber,
-    } as any).from(tenants).where(eq(tenants.id, ctx.tenantId!)).limit(1);
+      cardCompany: (tenants as any).cardCompany,
+      cardNumber: (tenants as any).cardNumber,
+    } as any).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
 
     if (!tenant || !(tenant as any).cardNumber) {
       return { registered: false, cardCompany: null, cardNumber: null };
@@ -209,7 +209,7 @@ export const subscriptionRouter = router({
       const [rows] = await db.execute(sql`
         SELECT id, order_id, amount, tax_amount, status, plan, paid_at, canceled_at, receipt_url
         FROM subscription_payments
-        WHERE tenant_id = ${ctx.tenantId!}
+        WHERE tenant_id = ${ctx.tenantId}
         ORDER BY created_at DESC
         LIMIT ${input?.limit || 12}
       `);
@@ -239,7 +239,7 @@ export const subscriptionRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
-      const tenantId = ctx.tenantId!;
+      const tenantId = ctx.tenantId;
       const { tenants } = await import("../../../drizzle/schema");
       const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
       if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "테넌트를 찾을 수 없습니다" });

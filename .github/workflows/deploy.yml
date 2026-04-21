@@ -1,0 +1,232 @@
+name: Deploy to Production
+
+# 트리거 (하이브리드):
+#   1. GitHub Release 생성 시 (태그 기반) → 자동 배포
+#   2. Actions UI 에서 'Run workflow' 버튼 → 수동 배포 (confirm 입력 필수)
+#
+# 흐름:
+#   [validate] 빌드/타입체크 사전 검증 (Actions 러너)
+#     ↓ 통과
+#   [deploy]   운영 서버 /api/system/deploy 호출 (Bearer 토큰)
+#     ↓ 실패 시
+#   [issue]    자동 Issue 생성 + 알림
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '운영 배포를 확정하려면 "DEPLOY" 입력'
+        required: true
+        default: ''
+
+jobs:
+  # ───────────────────────────────────────────
+  # 1. 사전 검증 — Actions 러너에서 빌드 테스트
+  # ───────────────────────────────────────────
+  validate:
+    name: 빌드 & 타입체크 (pre-flight)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 수동 실행 확인
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ inputs.confirm }}" != "DEPLOY" ]; then
+            echo "::error::confirm input 이 'DEPLOY' 가 아닙니다. 배포 중단."
+            exit 1
+          fi
+          echo "✅ 수동 배포 확정"
+
+      - name: npm install
+        run: npm install
+
+      - name: 빌드 검증
+        run: npm run build
+
+      - name: 빌드 산출물 확인
+        run: |
+          if [ ! -f "dist/index.js" ]; then
+            echo "::error::dist/index.js 생성 실패"
+            exit 1
+          fi
+          SIZE=$(du -h dist/index.js | cut -f1)
+          echo "✅ dist/index.js 생성 (${SIZE})"
+          {
+            echo "## ✅ 사전 빌드 검증 통과"
+            echo ""
+            echo "- **dist/index.js**: ${SIZE}"
+            echo "- **Node**: $(node --version)"
+            echo "- **npm**: $(npm --version)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ───────────────────────────────────────────
+  # 2. 운영 배포 — 서버 API 호출
+  # ───────────────────────────────────────────
+  deploy:
+    name: 운영 서버 배포
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+
+    steps:
+      - name: 배포 API 호출
+        id: deploy
+        run: |
+          set +e
+
+          if [ -z "${DEPLOY_URL}" ] || [ -z "${DEPLOY_TOKEN}" ]; then
+            echo "::error::DEPLOY_URL 또는 DEPLOY_TOKEN 시크릿 미설정"
+            exit 1
+          fi
+
+          echo "=== 운영 배포 API 호출 ==="
+          echo "URL: ${DEPLOY_URL}"
+          echo "Trigger: ${{ github.event_name }}"
+          echo
+
+          RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=$(curl -sS -X POST \
+            -o "${RESPONSE_FILE}" -w "%{http_code}" \
+            -H "Authorization: Bearer ${DEPLOY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --max-time 600 \
+            "${DEPLOY_URL}")
+
+          CURL_EXIT=$?
+
+          echo "HTTP Status: ${HTTP_CODE}"
+          echo
+          echo "=== Response Body (tail 4KB) ==="
+          tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+          echo
+
+          if [ "${CURL_EXIT}" -ne 0 ]; then
+            echo "::error::curl 실패 (exit=${CURL_EXIT}) — 서버 다운 또는 배포 중 타임아웃"
+            {
+              echo "## 🚨 배포 실패 — curl 에러"
+              echo ""
+              echo "- **exit code**: ${CURL_EXIT}"
+              echo "- **URL**: \`${DEPLOY_URL}\`"
+              echo "- **가능 원인**: 10분 초과, 네트워크 차단, 서버 다운"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✅ 배포 성공"
+            {
+              echo "## ✅ 운영 배포 성공"
+              echo ""
+              echo "- **HTTP**: ${HTTP_CODE}"
+              echo "- **트리거**: ${{ github.event_name }}"
+              if [ "${{ github.event_name }}" = "release" ]; then
+                echo "- **릴리즈**: \`${{ github.event.release.tag_name }}\`"
+              fi
+              echo ""
+              echo "### 응답 요약"
+              echo '```json'
+              tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${HTTP_CODE}" = "409" ]; then
+            echo "::warning::다른 배포가 진행 중 (409 Conflict) — 재시도 필요"
+          fi
+
+          echo "::error::배포 실패 (HTTP ${HTTP_CODE})"
+
+          echo "HTTP_CODE=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 🚨 운영 배포 실패"
+            echo ""
+            echo "- **HTTP Status**: ${HTTP_CODE}"
+            echo "- **트리거**: ${{ github.event_name }}"
+            echo ""
+            echo "### 서버 응답 (tail 4KB)"
+            echo '```json'
+            tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit 1
+
+      - name: 실패 시 GitHub Issue 자동 생성
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const trigger = context.eventName === 'release'
+              ? `Release: \`${context.payload.release?.tag_name || 'unknown'}\``
+              : `수동 실행 (workflow_dispatch)`;
+            const httpCode = '${{ steps.deploy.outputs.HTTP_CODE }}' || 'N/A';
+
+            const body = [
+              '## 🚨 운영 배포 실패',
+              '',
+              `- **발생 시각 (KST)**: ${today}`,
+              `- **트리거**: ${trigger}`,
+              `- **HTTP Status**: ${httpCode}`,
+              `- **커밋 SHA**: \`${context.sha.slice(0,7)}\``,
+              `- **워크플로우 로그**: [${context.runId}](${runUrl})`,
+              '',
+              '### 긴급 대응 절차',
+              '',
+              '1. **워크플로우 로그 확인** — 위 링크에서 `stderr` / `stdout` 확인',
+              '2. **서버 배포 로그 확인**',
+              '   ```bash',
+              '   ssh root@49.50.130.101',
+              '   tail -100 /root/haccp_v3/logs/deploy.log',
+              '   ```',
+              '3. **PM2 프로세스 상태**',
+              '   ```bash',
+              '   pm2 list',
+              '   pm2 logs haccpone --lines 50',
+              '   ```',
+              '4. **롤백 (필요 시)**',
+              '   ```bash',
+              '   cd /root/haccp_v3',
+              '   git log --oneline -10           # 이전 커밋 확인',
+              '   git reset --hard <이전_커밋>    # 강제 되돌리기',
+              '   npm run build && pm2 restart haccpone --update-env',
+              '   ```',
+              '',
+              '### 가능한 원인',
+              '',
+              '1. **git pull 충돌** — 서버에 로컬 커밋 존재 (ff-only 실패)',
+              '2. **npm install 실패** — 의존성 누락, 네트워크 이슈',
+              '3. **빌드 실패** — 타입 에러, esbuild 오류 (사전 검증은 Actions 러너에서만 돌아감)',
+              '4. **PM2 재시작 실패** — 포트 충돌, 환경변수 누락',
+              '5. **타임아웃 (10분)** — 빌드 시간 초과',
+              '',
+              '---',
+              '*이 이슈는 `Deploy to Production` 워크플로우가 자동 생성했습니다.*'
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 [자동알림] 운영 배포 실패 - ${today.split(' ')[0]}`,
+              body: body,
+              labels: ['bug', 'critical', 'deploy', 'automated']
+            });

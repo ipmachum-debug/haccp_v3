@@ -117,7 +117,7 @@ export function renderChecklistItems(data: any, title: string, doc?: any) {
 // ============================================================================
 // 용수관리 점검표 전용 렌더러 (checkItems: {category, subCategory, question, result})
 // ============================================================================
-export function renderWaterManagementCheck(data: any, title: string, checkItems: any[]) {
+export function renderWaterManagementCheck(data: any, title: string, checkItems: any[], doc?: any) {
   // 카테고리별 그룹핑
   const groups: Record<string, any[]> = {};
   checkItems.forEach((item: any) => {

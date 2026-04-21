@@ -17,9 +17,9 @@ export const matchingRulesRouter = router({
     // 매칭 규칙 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
       const db = await getDb();
-      const { matchingRules } = await import("../../../drizzle/schema_main");
+      const { matchingRules } = await import("../../../drizzle/schema/schema_main");
       const rules = await db.select().from(matchingRules)
-        .where(eq(matchingRules.tenantId, ctx.tenantId ?? undefined))
+        .where(eq(matchingRules.tenantId, ctx.tenantId))
         .orderBy(matchingRules.priority);
 
       // JSON 필드를 파싱하여 반환
@@ -64,7 +64,7 @@ export const matchingRulesRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        const { matchingRules } = await import("../../../drizzle/schema_main");
+        const { matchingRules } = await import("../../../drizzle/schema/schema_main");
 
         // conditions JSON 구성
         const conditions: Record<string, any> = { name: input.name };
@@ -81,7 +81,7 @@ export const matchingRulesRouter = router({
         if (input.actionMemo) actions.memo = input.actionMemo;
 
         const [newRule] = await db.insert(matchingRules).values({
-          tenantId: ctx.tenantId ?? undefined,
+          tenantId: ctx.tenantId,
           userId: ctx.user.id,
           ruleType: input.ruleType,
           priority: input.priority,
@@ -114,12 +114,12 @@ export const matchingRulesRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        const { matchingRules } = await import("../../../drizzle/schema_main");
+        const { matchingRules } = await import("../../../drizzle/schema/schema_main");
         const { id, ...data } = input;
 
         // 기존 규칙 조회
         const existing = await db.select().from(matchingRules).where(
-          and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
+          and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId as any) )
         ).limit(1);
         if (!existing.length) {
           throw new Error("규칙을 찾을 수 없습니다.");
@@ -164,7 +164,7 @@ export const matchingRulesRouter = router({
 
         if (Object.keys(dataToUpdate).length > 0) {
           await db.update(matchingRules).set(dataToUpdate).where(
-            and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
+            and(eq(matchingRules.id, id) as any, eq(matchingRules.tenantId, ctx.tenantId as any) )
           );
         }
 
@@ -176,9 +176,9 @@ export const matchingRulesRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
-        const { matchingRules } = await import("../../../drizzle/schema_main");
+        const { matchingRules } = await import("../../../drizzle/schema/schema_main");
         await db.delete(matchingRules).where(
-          and(eq(matchingRules.id, input.id) as any, eq(matchingRules.tenantId, ctx.tenantId ?? undefined as any) )
+          and(eq(matchingRules.id, input.id) as any, eq(matchingRules.tenantId, ctx.tenantId as any) )
         );
         return { success: true };
       }),
@@ -186,17 +186,17 @@ export const matchingRulesRouter = router({
     // 매칭 통계 조회
     stats: tenantRequiredProcedure.query(async ({ ctx }) => {
       const db = await getDb();
-      const { matchingRules, bankTransactions } = await import("../../../drizzle/schema_main");
+      const { matchingRules, bankTransactions } = await import("../../../drizzle/schema/schema_main");
       const { sql } = await import("drizzle-orm");
 
       const rules = await db.select().from(matchingRules)
-        .where(eq(matchingRules.tenantId, ctx.tenantId ?? undefined));
+        .where(eq(matchingRules.tenantId, ctx.tenantId));
 
       const [unmatchedResult] = await db
         .select({ count: sql<number>`count(*)` })
         .from(bankTransactions)
         .where(and(
-          eq(bankTransactions.tenantId, ctx.tenantId ?? undefined),
+          eq(bankTransactions.tenantId, ctx.tenantId),
           eq(bankTransactions.matchingStatus, "unmatched")
         ));
 
@@ -204,7 +204,7 @@ export const matchingRulesRouter = router({
         .select({ count: sql<number>`count(*)` })
         .from(bankTransactions)
         .where(and(
-          eq(bankTransactions.tenantId, ctx.tenantId ?? undefined),
+          eq(bankTransactions.tenantId, ctx.tenantId),
           eq(bankTransactions.matchingStatus, "matched")
         ));
 

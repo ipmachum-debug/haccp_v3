@@ -6,13 +6,13 @@ export const productionDashboardRouter = router({
     getActiveBatches: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const tenantId = ctx.tenantId;
-        const { getActiveBatches } = await import("../../db/productionDashboard");
+        const { getActiveBatches } = await import("../../db/production/productionDashboard");
         return await getActiveBatches(tenantId ?? undefined);
       }),
     // 배치 상태별 통계 조회
     getBatchStats: tenantRequiredProcedure
       .query(async ({ ctx }) => {
-        const { getBatchStats } = await import("../../db/productionDashboard");
-        return await getBatchStats(ctx.tenantId ?? undefined);
+        const { getBatchStats } = await import("../../db/production/productionDashboard");
+        return await getBatchStats(ctx.tenantId);
       })
 });

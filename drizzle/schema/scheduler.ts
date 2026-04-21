@@ -1,5 +1,5 @@
 import {mysqlTable, varchar, text, timestamp,  bigint, int} from "drizzle-orm/mysql-core";
-import { tenants } from '../schema_main';
+import { tenants } from './schema_main';
 
 /**
  * 스케줄러 실행 로그 테이블

@@ -18,12 +18,23 @@ export const partnersRouter = router({
           fax: z.string().optional(),
           email: z.string().optional(),
           bankName: z.string().optional(),
-          bankAccount: z.string().optional()
+          bankAccount: z.string().optional(),
+          // Phase B (2026-04-14): 거래처 고도화
+          grade: z.string().optional(), // VIP/일반/주의 등
+          paymentTermsDays: z.number().int().optional(), // 지급 조건 (일)
+          creditLimit: z.number().nonnegative().optional(), // 여신 한도
+          defaultDiscountRate: z.number().min(0).max(100).optional(), // 기본 할인율
         })
       )
       .mutation(async ({ input, ctx }) => {
         const { createPartner } = await import("../../partners");
-        const id = await createPartner({ ...input, tenantId: ctx.tenantId ?? undefined });
+        const { creditLimit, defaultDiscountRate, ...rest } = input;
+        const id = await createPartner({
+          ...rest,
+          tenantId: ctx.tenantId,
+          creditLimit: creditLimit !== undefined ? creditLimit.toString() : undefined,
+          defaultDiscountRate: defaultDiscountRate !== undefined ? defaultDiscountRate.toString() : undefined,
+        } as any);
         return { id };
       }),
 
@@ -39,7 +50,7 @@ export const partnersRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const { getAllPartners } = await import("../../partners");
-        return await getAllPartners(input, ctx.tenantId ?? undefined);
+        return await getAllPartners(input, ctx.tenantId);
       }),
 
     // 거래처 상세 조회
@@ -47,7 +58,7 @@ export const partnersRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getPartnerById } = await import("../../partners");
-        return await getPartnerById(input.id, ctx.tenantId ?? undefined);
+        return await getPartnerById(input.id, ctx.tenantId);
       }),
 
     // 거래처 수정
@@ -65,13 +76,21 @@ export const partnersRouter = router({
           fax: z.string().optional(),
           email: z.string().optional(),
           bankName: z.string().optional(),
-          bankAccount: z.string().optional()
+          bankAccount: z.string().optional(),
+          // Phase B (2026-04-14): 거래처 고도화
+          grade: z.string().optional(),
+          paymentTermsDays: z.number().int().optional(),
+          creditLimit: z.number().nonnegative().optional(),
+          defaultDiscountRate: z.number().min(0).max(100).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const { updatePartner } = await import("../../partners");
-        const { id, ...data } = input;
-        await updatePartner(id, data);
+        const { id, creditLimit, defaultDiscountRate, ...rest } = input;
+        const data: any = { ...rest };
+        if (creditLimit !== undefined) data.creditLimit = creditLimit.toString();
+        if (defaultDiscountRate !== undefined) data.defaultDiscountRate = defaultDiscountRate.toString();
+        await updatePartner(id, data, ctx.tenantId);
         return { success: true };
       }),
 
@@ -101,7 +120,7 @@ export const partnersRouter = router({
       }))
       .query(async ({ input, ctx }) => {
         const { getRawConnection } = await import("../../db");
-        const tenantId = ctx.tenantId ?? undefined;
+        const tenantId = ctx.tenantId;
         const conn = await getRawConnection();
         let where = "tenant_id = ? AND is_active = 1";
         const params: any[] = [tenantId];

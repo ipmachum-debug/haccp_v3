@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { getDb } from "../db";
-import { hBatchSchedules, hBatches, tenants } from "../../drizzle/schema_main";
+import { hBatchSchedules, hBatches, tenants } from "../../drizzle/schema/schema_main";
 import { and, gte, lte, isNull, eq } from "drizzle-orm";
 import { notifyOwner } from "./notification";
 
@@ -49,17 +49,17 @@ async function checkAndNotifyUpcomingBatches() {
           scheduleId: hBatchSchedules.id,
           batchId: hBatchSchedules.batchId,
           batchCode: hBatches.batchCode,
-          startTime: hBatchSchedules.startTime,
-          startNotifiedAt: hBatchSchedules.startNotifiedAt,
+          scheduledDate: hBatchSchedules.scheduledDate,
+          status: hBatchSchedules.status,
         })
         .from(hBatchSchedules)
         .innerJoin(hBatches, eq(hBatchSchedules.batchId, hBatches.id))
         .where(
           and(
             eq(hBatchSchedules.tenantId, tenantId),
-            gte(hBatchSchedules.startTime, now),
-            lte(hBatchSchedules.startTime, oneHourLater),
-            isNull(hBatchSchedules.startNotifiedAt)
+            gte(hBatchSchedules.scheduledDate, now),
+            lte(hBatchSchedules.scheduledDate, oneHourLater),
+            eq(hBatchSchedules.status, "planned")
           )
         );
 
@@ -76,15 +76,15 @@ async function checkAndNotifyUpcomingBatches() {
           // 알림 발송
           await notifyOwner({
             title: `배치 시작 예정 [${tenant.name}]`,
-            content: `배치 ${schedule.batchCode}이(가) 1시간 이내에 시작 예정입니다. 시작 시간: ${schedule.startTime ? schedule.startTime.toLocaleString("ko-KR") : "미정"}`,
+            content: `배치 ${schedule.batchCode}이(가) 1시간 이내에 시작 예정입니다. 예정 시간: ${schedule.scheduledDate ? new Date(schedule.scheduledDate).toLocaleString("ko-KR") : "미정"}`,
           });
 
-          // 알림 발송 시각 기록 (테넌트별)
+          // 알림 발송 시각 기록 - status를 notified로 변경
           await db
             .update(hBatchSchedules)
             .set({
-              startNotifiedAt: now,
-            })
+              status: "notified",
+            } as any)
             .where(
               and(
                 eq(hBatchSchedules.id, schedule.scheduleId),

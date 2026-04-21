@@ -9,9 +9,9 @@ import sgMail from '@sendgrid/mail';
 
 // SendGrid API 키 설정
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || '';
-const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@haccp-one.com';
+const SENDGRID_FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || 'noreply@millioai.com';
 const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL || 'dduckdanji@naver.com';
-const APP_URL = process.env.VITE_APP_URL || 'https://haccpone.com';
+const APP_URL = process.env.VITE_APP_URL || 'https://millioai.com';
 
 // SendGrid 초기화
 if (SENDGRID_API_KEY) {
@@ -60,7 +60,7 @@ export async function sendClientAdminApprovalRequest(userData: {
   businessNumber?: string;
   createdAt: Date;
 }): Promise<boolean> {
-  const subject = '[HACCP-ONE] 새로운 클라이언트 관리자 승인 요청';
+  const subject = '[Millio AI] 새로운 클라이언트 관리자 승인 요청';
   const text = `
 안녕하세요, 슈퍼관리자님.
 
@@ -75,7 +75,7 @@ export async function sendClientAdminApprovalRequest(userData: {
 승인 페이지: ${APP_URL}/super-admin/user-approval
 
 감사합니다.
-HACCP-ONE 시스템
+Millio AI 시스템
   `;
 
   const html = text.replace(/\n/g, '<br>');
@@ -90,11 +90,11 @@ export async function sendClientAdminApprovalComplete(
   userEmail: string,
   userName: string
 ): Promise<boolean> {
-  const subject = '[HACCP-ONE] 계정이 승인되었습니다';
+  const subject = '[Millio AI] 계정이 승인되었습니다';
   const text = `
 안녕하세요, ${userName}님.
 
-HACCP-ONE 시스템 계정이 승인되었습니다.
+Millio AI 시스템 계정이 승인되었습니다.
 
 이제 시스템의 모든 기능을 사용하실 수 있습니다.
 
@@ -109,7 +109,7 @@ HACCP-ONE 시스템 계정이 승인되었습니다.
 문의 사항이 있으시면 언제든지 연락주세요.
 
 감사합니다.
-HACCP-ONE 시스템
+Millio AI 시스템
   `;
 
   const html = text.replace(/\n/g, '<br>');
@@ -129,7 +129,7 @@ export async function sendEmployeeApprovalRequest(
     createdAt: Date;
   }
 ): Promise<boolean> {
-  const subject = '[HACCP-ONE] 새로운 직원 승인 요청';
+  const subject = '[Millio AI] 새로운 직원 승인 요청';
   const text = `
 안녕하세요, 관리자님.
 
@@ -143,7 +143,7 @@ export async function sendEmployeeApprovalRequest(
 승인 페이지: ${APP_URL}/admin/employee-management
 
 감사합니다.
-HACCP-ONE 시스템
+Millio AI 시스템
   `;
 
   const html = text.replace(/\n/g, '<br>');
@@ -159,7 +159,7 @@ export async function sendEmployeeApprovalComplete(
   userName: string,
   companyName: string
 ): Promise<boolean> {
-  const subject = '[HACCP-ONE] 계정이 승인되었습니다';
+  const subject = '[Millio AI] 계정이 승인되었습니다';
   const text = `
 안녕하세요, ${userName}님.
 
@@ -170,7 +170,7 @@ ${companyName} 관리자가 귀하의 계정을 승인했습니다.
 로그인: ${APP_URL}/login
 
 감사합니다.
-HACCP-ONE 시스템
+Millio AI 시스템
   `;
 
   const html = text.replace(/\n/g, '<br>');
@@ -186,7 +186,7 @@ export async function sendApprovalRejection(
   userName: string,
   reason?: string
 ): Promise<boolean> {
-  const subject = '[HACCP-ONE] 계정 승인이 거부되었습니다';
+  const subject = '[Millio AI] 계정 승인이 거부되었습니다';
   const text = `
 안녕하세요, ${userName}님.
 
@@ -197,7 +197,7 @@ export async function sendApprovalRejection(
 문의 사항이 있으시면 관리자에게 연락주세요.
 
 감사합니다.
-HACCP-ONE 시스템
+Millio AI 시스템
   `;
 
   const html = text.replace(/\n/g, '<br>');

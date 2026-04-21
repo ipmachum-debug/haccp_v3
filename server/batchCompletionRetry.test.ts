@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { getDb } from "./db";
-import { hBatchCompletionRetries } from "../drizzle/schema_main";
+import { hBatchCompletionRetries } from "../drizzle/schema/schema_main";
 import { eq } from "drizzle-orm";
 import {
   getPendingRetryTasks,
@@ -8,7 +8,7 @@ import {
   incrementRetryCount,
   addRetryTask,
   deleteRetryTask
-} from "./db/batchCompletionRetries";
+} from "./db/production/batchCompletionRetries";
 
 describe("배치 완료 재시도 로직 테스트", () => {
   let testBatchId: number;

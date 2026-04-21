@@ -10,7 +10,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { getDailyLedger } = await import("../../db/materialLedger");
+        const { getDailyLedger } = await import("../../db/accounting/materialLedger");
         return getDailyLedger(input.date, tenantId);
       }),
     
@@ -27,7 +27,7 @@ export const materialLedgerRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { upsertDailyLedger } = await import("../../db/materialLedger");
+        const { upsertDailyLedger } = await import("../../db/accounting/materialLedger");
         return upsertDailyLedger(input, tenantId);
       }),
     
@@ -36,7 +36,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { deleteDailyLedger } = await import("../../db/materialLedger");
+        const { deleteDailyLedger } = await import("../../db/accounting/materialLedger");
         return deleteDailyLedger(input.id, tenantId);
       }),
     
@@ -45,7 +45,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { getMonthlyLedger } = await import("../../db/materialLedger");
+        const { getMonthlyLedger } = await import("../../db/accounting/materialLedger");
         return getMonthlyLedger(input.yearMonth, tenantId);
       }),
     
@@ -54,7 +54,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { aggregateMonthlyLedger } = await import("../../db/materialLedger");
+        const { aggregateMonthlyLedger } = await import("../../db/accounting/materialLedger");
         return aggregateMonthlyLedger(input.yearMonth, tenantId);
       }),
     
@@ -63,7 +63,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { getApprovalStatus } = await import("../../db/materialLedger");
+        const { getApprovalStatus } = await import("../../db/accounting/materialLedger");
         return getApprovalStatus(input.yearMonth, tenantId);
       }),
     
@@ -72,7 +72,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { submitForApproval } = await import("../../db/materialLedger");
+        const { submitForApproval } = await import("../../db/accounting/materialLedger");
         return submitForApproval(input.yearMonth, ctx.user.id, tenantId);
       }),
     
@@ -81,7 +81,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { approveMonthlyClose } = await import("../../db/materialLedger");
+        const { approveMonthlyClose } = await import("../../db/accounting/materialLedger");
         return approveMonthlyClose(input.yearMonth, ctx.user.id, tenantId);
       }),
     
@@ -90,7 +90,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string(), reason: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { rejectMonthlyClose } = await import("../../db/materialLedger");
+        const { rejectMonthlyClose } = await import("../../db/accounting/materialLedger");
         return rejectMonthlyClose(input.yearMonth, ctx.user.id, input.reason, tenantId);
       }),
     
@@ -99,7 +99,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ closeDate: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { autoUpdateFromDailyClose } = await import("../../db/materialLedger");
+        const { autoUpdateFromDailyClose } = await import("../../db/accounting/materialLedger");
         return autoUpdateFromDailyClose(input.closeDate, tenantId);
       }),
 
@@ -107,16 +107,127 @@ export const materialLedgerRouter = router({
       .input(z.object({ yearMonth: z.string() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { generateMonthlyExcel } = await import("../../db/materialLedgerExcel");
+        const { generateMonthlyExcel } = await import("../../db/accounting/materialLedgerExcel");
         const buffer = await generateMonthlyExcel(input.yearMonth, tenantId);
         return { base64: buffer.toString("base64"), filename: `원료수불부_${input.yearMonth}.xlsx` };
+      }),
+
+    // 기간별 원재료 사용 보고서 (주간/월간/커스텀) - 인쇄용 구조화 데이터
+    getUsageReport: tenantRequiredProcedure
+      .input(z.object({
+        start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        type: z.enum(["week", "month", "custom"]).optional().default("custom"),
+      }))
+      .query(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { getMaterialUsageReport } = await import("../../db/accounting/materialUsageReport");
+        return getMaterialUsageReport(input.start, input.end, tenantId, input.type);
+      }),
+
+    // ── 보고서 저장/관리 (material_usage_reports 테이블) ──
+    listReports: tenantRequiredProcedure
+      .input(z.object({
+        reportType: z.enum(["week", "month", "custom"]).optional(),
+        status: z.string().optional(),
+        startFrom: z.string().optional(),
+        startTo: z.string().optional(),
+        limit: z.number().min(1).max(500).optional().default(100),
+      }).optional())
+      .query(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { listMaterialUsageReports } = await import("../../db/accounting/materialUsageReport");
+        return listMaterialUsageReports({ tenantId, ...(input || {}) });
+      }),
+
+    getReportById: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { getSavedMaterialUsageReport } = await import("../../db/accounting/materialUsageReport");
+        return getSavedMaterialUsageReport(input.id, tenantId);
+      }),
+
+    createReport: tenantRequiredProcedure
+      .input(z.object({
+        type: z.enum(["week", "month", "custom"]),
+        start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        title: z.string().optional(),
+        notes: z.string().optional(),
+        autoSubmit: z.boolean().optional().default(false),
+        siteId: z.number().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { createMaterialUsageReport } = await import("../../db/accounting/materialUsageReport");
+        return createMaterialUsageReport({
+          tenantId,
+          userId: ctx.user.id,
+          ...input,
+        });
+      }),
+
+    submitReportForReview: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { submitReportForReview } = await import("../../db/accounting/materialUsageReport");
+        return submitReportForReview(input.id, ctx.user.id, tenantId);
+      }),
+
+    reviewReport: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { reviewReport } = await import("../../db/accounting/materialUsageReport");
+        return reviewReport(input.id, ctx.user.id, tenantId);
+      }),
+
+    approveReport: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { approveReport } = await import("../../db/accounting/materialUsageReport");
+        return approveReport(input.id, ctx.user.id, tenantId);
+      }),
+
+    rejectReport: tenantRequiredProcedure
+      .input(z.object({ id: z.number(), reason: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { rejectReport } = await import("../../db/accounting/materialUsageReport");
+        return rejectReport(input.id, ctx.user.id, input.reason, tenantId);
+      }),
+
+    markReportPrinted: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { markReportPrinted } = await import("../../db/accounting/materialUsageReport");
+        return markReportPrinted(input.id, ctx.user.id, tenantId);
+      }),
+
+    deleteReport: tenantRequiredProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { deleteReport } = await import("../../db/accounting/materialUsageReport");
+        return deleteReport(input.id, tenantId);
+      }),
+
+    autoGenerateLastWeek: tenantRequiredProcedure
+      .mutation(async ({ ctx }) => {
+        const tenantId = requireTenantId(ctx);
+        const { autoGenerateLastWeekReport } = await import("../../db/accounting/materialUsageReport");
+        return autoGenerateLastWeekReport(tenantId, ctx.user.id);
       }),
     // 대시보드 요약 통계 (yearMonth 지정 가능)
     getDashboard: tenantRequiredProcedure
       .input(z.object({ yearMonth: z.string().optional() }).optional())
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { getDashboardSummary } = await import("../../db/materialLedger");
+        const { getDashboardSummary } = await import("../../db/accounting/materialLedger");
         return getDashboardSummary(tenantId, input?.yearMonth);
       }),
     // 체크리스트 연동 - 해당 일자의 원재료 입고/사용 요약
@@ -124,7 +235,7 @@ export const materialLedgerRouter = router({
       .input(z.object({ date: z.string() }))
       .query(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { getMaterialChecklistData } = await import("../../db/materialLedger");
+        const { getMaterialChecklistData } = await import("../../db/accounting/materialLedger");
         return getMaterialChecklistData(input.date, tenantId);
       }),
     // 회계 연동 - 원재료 거래를 회계에 동기화
@@ -138,7 +249,7 @@ export const materialLedgerRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = requireTenantId(ctx);
-        const { syncToAccounting } = await import("../../db/materialLedger");
+        const { syncToAccounting } = await import("../../db/accounting/materialLedger");
         return syncToAccounting(
           tenantId, input.type, input.date,
           input.materialName, input.quantity, input.unitPrice, ctx.user.id

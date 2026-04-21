@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -114,6 +114,11 @@ function PurchasesManagementContent() {
     isActive: 1,
     limit: 500,
   });
+  const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({
+    itemType: "subsidiary" as any,
+    isActive: 1,
+    limit: 500,
+  });
 
   // 모든 매입 가능 품목 통합
   const allPurchaseItems = [
@@ -128,6 +133,10 @@ function PurchasesManagementContent() {
     ...(externalItems?.items ?? []).map((item: any) => ({
       ...item,
       _displayType: "외부제품",
+    })),
+    ...(subsidiaryItems?.items ?? []).map((item: any) => ({
+      ...item,
+      _displayType: "부자재",
     })),
   ];
 
@@ -157,7 +166,7 @@ function PurchasesManagementContent() {
         },
       ]);
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -220,22 +229,48 @@ function PurchasesManagementContent() {
     );
   };
 
-  const handleItemMasterSelect = (selectedMasterItem: any) => {
+  const handleItemMasterSelect = async (selectedMasterItem: any) => {
     if (!materialSearchItemId) return;
 
-    setItems(
-      items.map((item) => {
-        if (item.id !== materialSearchItemId) return item;
+    // Phase B: 거래처별 단가 조회
+    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    if (selectedPartnerId && selectedMasterItem.id) {
+      try {
+        const price = await utils.partnerPrice.resolvePrice.fetch({
+          partnerId: Number(selectedPartnerId),
+          targetType: "material",
+          materialId: selectedMasterItem.id,
+        });
+        if (price && price.unitPrice > 0) {
+          resolvedUnitPrice = price.unitPrice;
+          toast({
+            title: "거래처 단가 자동 적용",
+            description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
+          });
+        }
+      } catch {
+        // 단가 없음 → defaultUnitPrice 사용
+      }
+    }
 
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== materialSearchItemId) return item;
+        const quantity = item.quantity;
+        const amount = quantity * resolvedUnitPrice;
+        const taxAmount = item.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
         return {
           ...item,
           itemMasterId: selectedMasterItem.id,
           itemType: selectedMasterItem.itemType,
           itemName: selectedMasterItem.itemName || "",
-          unitPrice: selectedMasterItem.defaultUnitPrice || 0,
+          unitPrice: resolvedUnitPrice,
           packagingUnit: selectedMasterItem.baseUnit || "kg",
+          amount,
+          taxAmount,
+          totalAmount: amount + taxAmount,
         };
-      })
+      }),
     );
 
     setMaterialSearchItemId(null);
@@ -267,7 +302,9 @@ function PurchasesManagementContent() {
           transactionDate,
           partnerId: Number(selectedPartnerId),
           itemName: item.itemName,
-          materialId: item.itemMasterId,
+          // ★ 2026-04-13 수정: itemMasterId 를 올바른 필드로 전달
+          //   createPurchase 가 itemMasterId → legacyMaterialId 자동 매핑
+          itemMasterId: item.itemMasterId,
           quantity: item.quantity,
           packagingSize: item.packagingSize,
           unitPrice: item.unitPrice,

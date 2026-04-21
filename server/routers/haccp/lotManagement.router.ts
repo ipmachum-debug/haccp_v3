@@ -26,19 +26,19 @@ export const lotManagementRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const pool = await getRawConnection();
-        const { createMaterialReceivingWithLot } = await import("../../db/visualInspection");
+        const { createMaterialReceivingWithLot } = await import("../../db/haccp/visualInspection");
         
         // 거래처 ID → 이름 조회 (마스터 거래처 연동)
         let supplierName = input.supplierName;
         if (input.partnerId && !supplierName) {
           const [partnerRows] = await pool.execute(
             `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`,
-            [input.partnerId, ctx.tenantId ?? undefined]
+            [input.partnerId, ctx.tenantId]
           );
           supplierName = (partnerRows as any[])?.[0]?.company_name || supplierName;
         }
         
-        const result = await createMaterialReceivingWithLot(db, pool, ctx.tenantId ?? undefined, {
+        const result = await createMaterialReceivingWithLot(db, pool, ctx.tenantId, {
           ...input,
           supplierName,
           userId: ctx.user.id,
@@ -55,7 +55,7 @@ export const lotManagementRouter = router({
                 total_amount, status, notes, source_type, source_id, created_by, created_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'material_receipt', ?, ?, NOW())`,
               [
-                ctx.tenantId ?? undefined, receiptDate,
+                ctx.tenantId, receiptDate,
                 input.partnerId || null,
                 input.materialCode + (supplierName ? ` (${supplierName})` : ''),
                 input.quantity, input.unit, input.unitPrice,
@@ -87,8 +87,8 @@ export const lotManagementRouter = router({
         const db = await getDb();
         if (!db) return [];
         try {
-          const { getMaterialLotHistory } = await import("../../db/visualInspection");
-          return await getMaterialLotHistory(db, ctx.tenantId ?? undefined, input);
+          const { getMaterialLotHistory } = await import("../../db/haccp/visualInspection");
+          return await getMaterialLotHistory(db, ctx.tenantId, input);
         } catch (err) {
           console.error('[lotManagement.getLotHistory]', err);
           return [];
@@ -102,7 +102,7 @@ export const lotManagementRouter = router({
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
         const pool = await getRawConnection();
-        const { backfillMaterialReceivingLots } = await import("../../db/visualInspection");
-        return await backfillMaterialReceivingLots(db, pool, ctx.tenantId ?? undefined, ctx.user.id);
+        const { backfillMaterialReceivingLots } = await import("../../db/haccp/visualInspection");
+        return await backfillMaterialReceivingLots(db, pool, ctx.tenantId, ctx.user.id);
       }),
 });

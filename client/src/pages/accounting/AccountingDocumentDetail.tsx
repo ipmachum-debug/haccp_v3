@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
-import DashboardLayout from "@/components/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +48,7 @@ export default function AccountingDocumentDetail() {
       refetch();
       setStatusForm({ status: "uploaded", comment: "" });
     },
-    onError: (error: any) => {
+    onError: (error: { message: string }) => {
       toast.error(`상태 변경 실패: ${error.message}`);
     },
   });
