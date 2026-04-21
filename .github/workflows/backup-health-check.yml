@@ -13,6 +13,9 @@ jobs:
     name: 서버 백업 파일 점검
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      issues: write      # 실패 시 Issue 자동 생성
+      contents: read     # 기본 권한
 
     steps:
       - name: SSH 로 서버 백업 상태 확인
