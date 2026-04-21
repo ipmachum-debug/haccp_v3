@@ -46,7 +46,9 @@ type ParsedRow = {
   partnerId: number | null;
   partnerMatchScore: number;
   itemName: string;
+  skuCode: string;  // Phase 8+: 엑셀 SKU 컬럼 원본
   itemMasterId: number | null;
+  itemType: ItemMasterRow['itemType'] | null;  // 매칭된 품목 타입 (4종 중 하나)
   itemMatchScore: number;
   itemMatchResults: FuzzyMatchResult[];
   quantity: number;
@@ -63,6 +65,7 @@ const EXPECTED_FIELDS = [
   { key: 'transactionDate', label: '거래일자', aliases: ['날짜', '일자', '매출일자', '매출일', '출고일', '출고일자', 'date', '거래날짜'] },
   { key: 'partnerName', label: '거래처', aliases: ['거래처명', '고객사', '고객', '업체명', '업체', '수요처', 'customer', 'partner', '거래처이름'] },
   { key: 'itemName', label: '품목명', aliases: ['품목', '품명', '상품명', '제품명', 'item', 'product', '출고제품'] },
+  { key: 'skuCode', label: 'SKU', aliases: ['sku코드', 'sku', 'skuCode', 'SKU', '상품코드', '품목코드', 'itemcode'] },
   { key: 'quantity', label: '수량', aliases: ['수량(EA)', '출고수량', 'qty', 'quantity', '갯수', '개수'] },
   { key: 'unitPrice', label: '단가', aliases: ['단가(원)', '매출단가', '출고단가', '판매단가', 'price', 'unit price'] },
   { key: 'amount', label: '공급가액', aliases: ['금액', '공급가', '매출금액', 'amount', '합계금액', '공급가액(원)'] },
@@ -100,6 +103,7 @@ function SalesBulkUploadContent() {
 
   const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: UploadError[] } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isAiMatching, setIsAiMatching] = useState(false);
 
   // ─── 데이터 조회 ───
   const { data: allPartners } = trpc.partners.search.useQuery(
@@ -122,6 +126,8 @@ function SalesBulkUploadContent() {
 
   const utils = trpc.useUtils();
   const bulkMutation = trpc.haccpIntegration.bulkCreateSales.useMutation();
+  const aiMatchMutation = (trpc as any).aiSkuMatch?.matchBatch?.useMutation?.();
+  const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 1: 파일 업로드
@@ -207,6 +213,7 @@ function SalesBulkUploadContent() {
 
       const partnerName = getValue('partnerName');
       const itemName = getValue('itemName');
+      const skuCode = getValue('skuCode');  // Phase 8+: SKU 컬럼
       const quantity = parseFloat(getValue('quantity')) || 0;
       const unitPrice = parseFloat(getValue('unitPrice').replace(/,/g, '')) || 0;
       let amount = parseFloat(getValue('amount').replace(/,/g, '')) || 0;
@@ -229,14 +236,32 @@ function SalesBulkUploadContent() {
         }
       }
 
-      // 품목 매칭
+      // 품목 매칭 — SKU 코드 우선, 없으면 품명 퍼지
       let itemMasterId: number | null = null;
+      let itemType: ItemMasterRow['itemType'] | null = null;
       let itemMatchScore = 0;
       let itemMatchResults: FuzzyMatchResult[] = [];
-      if (itemName && allItems.length > 0) {
+
+      // (1) SKU 코드 완전일치 시도 (Phase 8+)
+      if (skuCode && allItems.length > 0) {
+        const skuNormalized = skuCode.toLowerCase().replace(/[\s\-_]/g, '');
+        const skuExactMatch = allItems.find((i) => {
+          const code = String(i.itemCode || '').toLowerCase().replace(/[\s\-_]/g, '');
+          return code === skuNormalized;
+        });
+        if (skuExactMatch) {
+          itemMasterId = skuExactMatch.id;
+          itemType = skuExactMatch.itemType;
+          itemMatchScore = 1.0;
+        }
+      }
+
+      // (2) SKU 매칭 실패 시 품명 퍼지 매칭
+      if (!itemMasterId && itemName && allItems.length > 0) {
         itemMatchResults = fuzzyMatchItem(itemName, allItems, 5);
         if (itemMatchResults.length > 0 && itemMatchResults[0].score >= 0.7) {
           itemMasterId = itemMatchResults[0].item.id;
+          itemType = (itemMatchResults[0].item as ItemMasterRow).itemType;
           itemMatchScore = itemMatchResults[0].score;
         }
       }
@@ -264,7 +289,9 @@ function SalesBulkUploadContent() {
         partnerId,
         partnerMatchScore,
         itemName,
+        skuCode,
         itemMasterId,
+        itemType,
         itemMatchScore,
         itemMatchResults,
         quantity,
@@ -280,6 +307,8 @@ function SalesBulkUploadContent() {
 
     setParsedRows(rows);
     setStep('review');
+    // 중복 검사 비동기 실행 (UI 차단하지 않음)
+    setTimeout(() => { void runDuplicateCheck(); }, 100);
   }, [excelRawRows, excelHeaders, headerMapping, partners, allItems]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -296,7 +325,8 @@ function SalesBulkUploadContent() {
     setParsedRows(prev => prev.map(row => {
       if (row.id !== rowId) return row;
       if (type === 'item') {
-        const updated = { ...row, itemMasterId: selected.id, itemMatchScore: 1.0 };
+        const itemRow = selected as ItemMasterRow;
+        const updated = { ...row, itemMasterId: selected.id, itemType: itemRow.itemType, itemMatchScore: 1.0 };
         if (updated.partnerId && updated.transactionDate && updated.quantity > 0 && updated.unitPrice > 0) {
           updated.status = 'matched';
           updated.statusMessage = '매칭 완료';
@@ -320,6 +350,123 @@ function SalesBulkUploadContent() {
     setParsedRows(prev => prev.filter(r => r.id !== rowId));
   };
 
+  /**
+   * 업로드 직전 중복 검사 (거래처+날짜+품목명 조합이 이미 존재하는지)
+   */
+  const checkDuplicatesFn = (trpc as any).haccpIntegration.checkSalesDuplicates;
+  const runDuplicateCheck = async () => {
+    try {
+      const candidates = parsedRows
+        .filter((r) => r.partnerId && r.transactionDate && r.itemName)
+        .map((r) => ({ transactionDate: r.transactionDate, partnerId: r.partnerId!, itemName: r.itemName }));
+      if (candidates.length === 0) {
+        setDuplicateKeys(new Set());
+        return;
+      }
+      // tRPC query (not mutation) - fetch directly
+      const result: Array<{ transactionDate: string; partnerId: number; itemName: string; isDuplicate: boolean }> =
+        await (checkDuplicatesFn?.fetch?.({ candidates }) ?? utils.haccpIntegration.checkSalesDuplicates?.fetch?.({ candidates }) ?? []);
+      const keys = new Set<string>();
+      for (const r of result || []) {
+        if (r.isDuplicate) keys.add(`${r.transactionDate}|${r.partnerId}|${r.itemName}`);
+      }
+      setDuplicateKeys(keys);
+    } catch (err) {
+      console.warn("[checkDuplicates]", err);
+    }
+  };
+
+  /**
+   * AI 재매칭: 매칭 점수 0.7~0.9 구간 (warning) 행만 LLM으로 재검증
+   * - 거래처별로 묶어서 배치 호출 (거래처 이력 활용)
+   */
+  const handleAiRematch = async () => {
+    if (!aiMatchMutation) {
+      toast({ title: "AI 매칭 비활성화", description: "서버 배포 후 이용 가능합니다.", variant: "destructive" });
+      return;
+    }
+    const targets = parsedRows.filter(
+      (r) => r.status === 'warning' && r.itemName &&
+        (!r.itemMasterId || (r.itemMatchScore >= 0.7 && r.itemMatchScore < 0.9))
+    );
+    if (targets.length === 0) {
+      toast({ title: "AI 재매칭 대상 없음", description: "의심 구간(warning) 행이 없습니다." });
+      return;
+    }
+
+    setIsAiMatching(true);
+    try {
+      // 거래처별 그룹화 (거래처 이력 컨텍스트 활용)
+      const byPartner = new Map<number | null, typeof targets>();
+      for (const r of targets) {
+        const key = r.partnerId ?? null;
+        if (!byPartner.has(key)) byPartner.set(key, []);
+        byPartner.get(key)!.push(r);
+      }
+
+      const rowIndexToUpdate = new Map<number, { itemMasterId: number; itemType: ItemMasterRow['itemType']; score: number; reason: string }>();
+
+      for (const [partnerId, rows] of Array.from(byPartner.entries())) {
+        const payload = rows.map((r) => ({
+          rowIndex: r.rowIndex,
+          itemName: r.itemName,
+          skuCode: r.skuCode || undefined,
+          candidates: (r.itemMatchResults || []).slice(0, 5).map((m) => ({
+            skuId: (m.item as ItemMasterRow).id,
+            skuCode: (m.item as ItemMasterRow).itemCode,
+            skuName: (m.item as ItemMasterRow).itemName,
+            itemName: (m.item as ItemMasterRow).itemName,
+            itemType: (m.item as ItemMasterRow).itemType,
+            score: m.score,
+          })),
+        }));
+
+        const results: Array<{ rowIndex: number; recommendedSkuId: number | null; confidence: number; reason: string; needsManualReview: boolean }> =
+          await aiMatchMutation.mutateAsync({ partnerId, rows: payload });
+
+        for (const res of results) {
+          if (res.recommendedSkuId && res.confidence >= 70) {
+            const item = allItems.find((i) => i.id === res.recommendedSkuId);
+            if (item) {
+              rowIndexToUpdate.set(res.rowIndex, {
+                itemMasterId: item.id,
+                itemType: item.itemType,
+                score: res.confidence / 100,
+                reason: res.reason,
+              });
+            }
+          }
+        }
+      }
+
+      if (rowIndexToUpdate.size === 0) {
+        toast({ title: "AI 매칭 결과 없음", description: "신뢰도 70 이상 추천이 없습니다." });
+        return;
+      }
+
+      setParsedRows((prev) =>
+        prev.map((r) => {
+          const upd = rowIndexToUpdate.get(r.rowIndex);
+          if (!upd) return r;
+          return {
+            ...r,
+            itemMasterId: upd.itemMasterId,
+            itemType: upd.itemType,
+            itemMatchScore: upd.score,
+            status: upd.score >= 0.9 ? 'matched' : 'warning',
+            statusMessage: `AI 추천: ${upd.reason}`,
+          };
+        })
+      );
+      toast({ title: "AI 재매칭 완료", description: `${rowIndexToUpdate.size}건 자동 매칭되었습니다.` });
+    } catch (e) {
+      const err = e as Error;
+      toast({ title: "AI 재매칭 오류", description: err.message, variant: "destructive" });
+    } finally {
+      setIsAiMatching(false);
+    }
+  };
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 4: 업로드
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -328,18 +475,38 @@ function SalesBulkUploadContent() {
   const errorRows = parsedRows.filter(r => r.status === 'error');
 
   const handleBulkUpload = async () => {
+    // 매칭된 item_master → legacy FK 조회 맵 구성
+    //   own_product → legacyProductId (h_products_v2.id)
+    //   raw_material/subsidiary/external_product → legacyMaterialId (h_materials.id)
+    const itemLegacyMap = new Map<number, { productId?: number; materialId?: number }>();
+    for (const it of allItems) {
+      const legacyP = (it as any).legacyProductId as number | null;
+      const legacyM = (it as any).legacyMaterialId as number | null;
+      if (it.itemType === 'own_product' && legacyP) {
+        itemLegacyMap.set(it.id, { productId: legacyP });
+      } else if (legacyM) {
+        itemLegacyMap.set(it.id, { materialId: legacyM });
+      }
+    }
+
     const uploadItems = readyRows
       .filter(r => r.partnerId && r.itemName && r.quantity > 0 && r.unitPrice > 0)
-      .map(r => ({
-        transactionDate: r.transactionDate,
-        partnerId: r.partnerId!,
-        itemName: r.itemName,
-        quantity: r.quantity,
-        unitPrice: r.unitPrice,
-        amount: r.amount,
-        taxAmount: r.taxAmount,
-        memo: r.memo || undefined,
-      }));
+      .map(r => {
+        const legacy = r.itemMasterId ? itemLegacyMap.get(r.itemMasterId) : undefined;
+        return {
+          transactionDate: r.transactionDate,
+          partnerId: r.partnerId!,
+          itemName: r.itemName,
+          // itemType 에 따라 productId 또는 materialId 중 하나만 전송 (XOR)
+          productId: legacy?.productId,
+          materialId: legacy?.materialId,
+          quantity: r.quantity,
+          unitPrice: r.unitPrice,
+          amount: r.amount,
+          taxAmount: r.taxAmount,
+          memo: r.memo || undefined,
+        };
+      });
 
     if (uploadItems.length === 0) {
       toast({ title: "등록 가능한 데이터가 없습니다.", variant: "destructive" });
@@ -568,11 +735,60 @@ function SalesBulkUploadContent() {
             </Card>
           </div>
 
+          {/* 거래처 + 날짜 그룹화 프리뷰 (Phase 8+) */}
+          {(() => {
+            const groups = new Map<string, { partnerId: number | null; partnerName: string; date: string; count: number }>();
+            for (const r of readyRows) {
+              if (!r.partnerId || !r.transactionDate) continue;
+              const key = `${r.partnerId}|${r.transactionDate}`;
+              if (!groups.has(key)) {
+                groups.set(key, { partnerId: r.partnerId, partnerName: r.partnerName, date: r.transactionDate, count: 0 });
+              }
+              groups.get(key)!.count++;
+            }
+            if (groups.size === 0) return null;
+            return (
+              <Card className="p-3 bg-blue-50/40 border-blue-200 space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <FileSpreadsheet className="h-4 w-4 text-blue-600" />
+                  <span className="font-medium text-blue-900 dark:text-blue-200">
+                    명세서 그룹화 예상: <strong>{groups.size}개 명세서</strong> × 평균 <strong>{(readyRows.length / groups.size).toFixed(1)}개 품목</strong>
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-2">
+                    (거래처 {new Set(Array.from(groups.values()).map(g => g.partnerId)).size}곳, 날짜 {new Set(Array.from(groups.values()).map(g => g.date)).size}일)
+                  </span>
+                </div>
+                {duplicateKeys.size > 0 && (
+                  <div className="flex items-center gap-2 text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span>중복 가능성: <strong>{duplicateKeys.size}건</strong> — 동일 거래처+날짜+품목 조합이 이미 등록되어 있습니다 (테이블에 "중복" 뱃지 표시).</span>
+                  </div>
+                )}
+              </Card>
+            );
+          })()}
+
           <div className="flex items-center justify-between">
             <Button variant="outline" size="sm" onClick={() => setStep('mapping')}>
               <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매핑 수정
             </Button>
             <div className="flex gap-2">
+              {parsedRows.some(r => r.status === 'warning') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAiRematch}
+                  disabled={isAiMatching}
+                  className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                  title="매칭 유사도 70~90% 구간을 AI가 재검증합니다"
+                >
+                  {isAiMatching ? (
+                    <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> AI 매칭 중...</>
+                  ) : (
+                    <><Search className="h-3.5 w-3.5 mr-1" /> AI 재매칭</>
+                  )}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => { setStep('upload'); setParsedRows([]); setExcelHeaders([]); setExcelRawRows([]); }}>
                 <RefreshCw className="h-3.5 w-3.5 mr-1" /> 파일 다시 선택
               </Button>
@@ -614,10 +830,16 @@ function SalesBulkUploadContent() {
                     }>
                       <TableCell className="text-xs text-center text-muted-foreground">{row.rowIndex}</TableCell>
                       <TableCell className="text-center">
-                        {row.status === 'matched' ? <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">완료</Badge> :
-                         row.status === 'warning' ? <Badge className="bg-amber-100 text-amber-700 text-[10px]">확인</Badge> :
-                         row.status === 'error' ? <Badge className="bg-red-100 text-red-700 text-[10px]">오류</Badge> :
-                         <Badge variant="secondary" className="text-[10px]">대기</Badge>}
+                        <div className="flex flex-col items-center gap-0.5">
+                          {row.status === 'matched' ? <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">완료</Badge> :
+                           row.status === 'warning' ? <Badge className="bg-amber-100 text-amber-700 text-[10px]">확인</Badge> :
+                           row.status === 'error' ? <Badge className="bg-red-100 text-red-700 text-[10px]">오류</Badge> :
+                           <Badge variant="secondary" className="text-[10px]">대기</Badge>}
+                          {row.partnerId && row.transactionDate && row.itemName &&
+                            duplicateKeys.has(`${row.transactionDate}|${row.partnerId}|${row.itemName}`) && (
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-[9px] px-1 py-0">중복</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs">{row.transactionDate}</TableCell>
                       <TableCell className="text-xs">
@@ -645,6 +867,14 @@ function SalesBulkUploadContent() {
                           <span className="truncate">{row.itemName || '-'}</span>
                           {row.itemMasterId && row.itemMatchScore < 1 && (
                             <span className="text-[9px] text-muted-foreground">({Math.round(row.itemMatchScore * 100)}%)</span>
+                          )}
+                          {row.itemType && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                              {row.itemType === 'own_product' ? '자사' :
+                               row.itemType === 'raw_material' ? '원재료' :
+                               row.itemType === 'subsidiary' ? '부자재' :
+                               row.itemType === 'external_product' ? '외부' : ''}
+                            </Badge>
                           )}
                         </button>
                       </TableCell>

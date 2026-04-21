@@ -82,6 +82,12 @@ export const accountingSales = mysqlTable("accounting_sales", {
   //   - 재고 차감 (FEFO) + COGS 분개에 사용
   //   - 제품 수불부 / 매출 원가 집계에 사용
   productId: bigint("product_id", { mode: "number" }), // 제품 FK (h_products.id)
+  // ★ 2026-04-21 추가: 원재료/부자재/외부제품 매출 지원 (Phase 8+)
+  //   - productId 와 동시 설정 불가 (XOR 관계)
+  //   - 원재료 외부 납품 / 부자재 판매 / 외부제품(사입) 재판매 케이스
+  //   - FEFO 차감 시 material_id 기준 LOT 조회
+  //   - COGS 분개 대변: INVENTORY_RAW (vs 제품은 INVENTORY_GOODS)
+  materialId: bigint("material_id", { mode: "number" }), // 원재료/부자재/외부제품 FK (h_materials.id)
   // category 필드 제거 - 실제 DB에 없음
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(), // 수량
   unit: varchar("unit", { length: 20 }).notNull(), // 단위
@@ -115,9 +121,10 @@ export const accountingSales = mysqlTable("accounting_sales", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
-  transactionDateIdx: index("transaction_date_idx").on(table.transactionDate),
-  partnerIdIdx: index("partner_id_idx").on(table.partnerId),
-  sourceIdx: index("source_idx").on(table.sourceType, table.sourceId),
-  tenantIdIdx: index("tenant_id_idx").on(table.tenantId),
-  productIdIdx: index("idx_sales_product_id").on(table.productId),
+  salesTransactionDateIdx: index("sales_transaction_date_idx").on(table.transactionDate),
+  salesPartnerIdIdx: index("sales_partner_id_idx").on(table.partnerId),
+  salesSourceIdx: index("sales_source_idx").on(table.sourceType, table.sourceId),
+  salesTenantIdIdx: index("sales_tenant_id_idx").on(table.tenantId),
+  salesProductIdIdx: index("idx_sales_product_id").on(table.productId),
+  salesMaterialIdIdx: index("idx_sales_material_id").on(table.materialId),
 }));
