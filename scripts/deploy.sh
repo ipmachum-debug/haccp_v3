@@ -28,22 +28,27 @@ log "PM2_NAME: ${PM2_NAME}"
 log "BRANCH: ${DEPLOY_BRANCH}"
 log "현재 커밋: $(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 
-# ── 1. Git pull (fast-forward only, 안전) ──
+# ── 1. Git fetch + hard sync ──
+# 운영 서버는 항상 origin 과 정확히 일치해야 한다.
+# 로컬 변경(자동 생성된 lock 파일 등)은 버리고 origin 기준으로 강제 동기화.
 log "1. git fetch origin ${DEPLOY_BRANCH}"
 git fetch origin "${DEPLOY_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"
+
+# 변경된 파일 있으면 로그에 기록 (디버깅용)
+DIRTY_FILES=$(git status --short | head -20)
+if [ -n "${DIRTY_FILES}" ]; then
+  log "   ⚠️ 로컬 변경 감지 — origin 기준으로 덮어쓰기:"
+  echo "${DIRTY_FILES}" | tee -a "${LOG_FILE}"
+fi
 
 log "   git checkout ${DEPLOY_BRANCH}"
 git checkout "${DEPLOY_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"
 
-log "   git pull --ff-only origin ${DEPLOY_BRANCH}"
-if ! git pull --ff-only origin "${DEPLOY_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"; then
-  log "   ❌ fast-forward 실패 — 로컬에 병합되지 않은 커밋 존재 가능성"
-  log "   현재 상태: $(git status --short | head -10)"
-  exit 1
-fi
+log "   git reset --hard origin/${DEPLOY_BRANCH}"
+git reset --hard "origin/${DEPLOY_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"
 
 NEW_COMMIT=$(git rev-parse --short HEAD)
-log "   ✅ 업데이트 완료 (새 커밋: ${NEW_COMMIT})"
+log "   ✅ 동기화 완료 (새 커밋: ${NEW_COMMIT})"
 
 # ── 2. 의존성 설치 ──
 log "2. npm install (package-lock 기반, devDeps 포함 — 빌드 필요)"
