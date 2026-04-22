@@ -51,12 +51,25 @@ export const expenseItems = mysqlTable("expense_items", {
 
 /**
  * 비용 분개 (Expense Journal Entries)
- * 비용전표 확정 시 자동 생성
+ *
+ * ⚠️ 테이블 역할이 시간이 지나며 확장됨:
+ *   - 초기: 비용전표(expense_vouchers) 확정 시 분개만 저장
+ *   - 현재: 매출/매입/생산/급여/출고 등 모든 자동 분개도 이 테이블 사용
+ *   → voucher_id 는 비용전표 분개에서만 의미 있음
+ *   → 매출/매입/생산 분개는 voucher_id = NULL 이 정상
+ *
+ * 2026-04-22: voucher_id NOT NULL 제약이 현실과 어긋나 매출/매입
+ *   자동 승인 분개가 전부 INSERT 실패하던 버그 발견.
+ *   ALTER TABLE 로 NULL 허용 전환 (migrations/0047) 과 동시에
+ *   이 스키마에서도 .notNull() 제거.
+ *
+ * 장기 리팩토링 TODO: source_type + source_id 범용 참조 필드로 분리
+ *   (예: source_type='sale', source_id=7064 / source_type='expense_voucher', source_id=131)
  */
 export const expenseJournalEntries = mysqlTable("expense_journal_entries", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
   tenantId: int("tenant_id").notNull().references(() => tenants.id),
-  voucherId: bigint("voucher_id", { mode: "number" }).notNull(),
+  voucherId: bigint("voucher_id", { mode: "number" }),  // NULL 허용 (비용전표 분개 전용)
   entryDate: varchar("entry_date", { length: 10 }).notNull(),
   description: varchar("description", { length: 500 }),
   totalDebit: decimal("total_debit", { precision: 15, scale: 2 }).notNull().default("0.00"),
