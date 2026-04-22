@@ -1,0 +1,25 @@
+-- ============================================================================
+-- 2026-04-22: expense_journal_entries.voucher_id NOT NULL 제약 제거
+-- ============================================================================
+--
+-- 배경:
+--   이 테이블이 원래 "비용전표(expense_vouchers) 분개" 전용이었으나
+--   시간이 지나며 매출/매입/생산/급여/출고 등 모든 자동 분개도 여기에 저장.
+--   매출/매입/생산 분개는 voucher_id 가 의미 없어서 NULL 로 INSERT 해야 하는데,
+--   기존 NOT NULL 제약 때문에 `Column 'voucher_id' cannot be null` 에러 발생.
+--
+-- 증상:
+--   postProductSale, purchasePost, materialOutboundPost, productionCompletePost,
+--   payroll.router, hrManagement.router 등 17개 코드 경로에서 자동 분개
+--   INSERT 시도 → 모두 실패.
+--
+-- 해결:
+--   운영 서버에서 2026-04-22 10:50:00 KST 에 ALTER 실행 완료.
+--   이 migration 은 신규 환경 / 로컬 개발 환경 배포 시 동일 상태 재현용.
+--
+-- 장기:
+--   voucher_id 는 비용전표 분개에서만 사용됨. 다른 분개 타입을
+--   표현하려면 source_type + source_id 범용 참조 필드 리팩토링 필요.
+-- ============================================================================
+
+ALTER TABLE expense_journal_entries MODIFY voucher_id BIGINT NULL;
