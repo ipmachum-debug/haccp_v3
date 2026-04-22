@@ -5,12 +5,15 @@
  *   1. 셀러 CRUD (플랫폼 × 셀러 계정 관리)
  *   2. 매출 항목 입력 (플랫폼 × 셀러 × 결제수단 × 월)
  *   3. 분기/월별 조회 + 집계
- *   4. 분기 확정 → 자동 분개 생성 (향후)
+ *   4. 분기 확정 → 자동 분개 생성 (Phase 3, 2026-04-22)
+ *   5. 분기 확정 해제 (역분개)
  */
 
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
-import { getRawConnection } from "../../db";
+import { getRawConnection, withTransaction } from "../../db";
+import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
+import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
 export const b2cPlatformRouter = router({
   // ─── 셀러 관리 ──────────────────────────────────────────
@@ -365,5 +368,293 @@ export const b2cPlatformRouter = router({
         seller_count: number;
         entry_count: number;
       }>;
+    }),
+
+  // ─── 분기 확정 (Phase 3, 2026-04-22) ─────────────────────
+
+  /**
+   * 분기 확정 — 자동 분개 생성
+   *
+   * 동작:
+   *   1. 해당 분기의 draft 상태 entries 조회 (플랫폼별)
+   *   2. 각 플랫폼별로 분개 1건 생성:
+   *        차) 외상매출금 (partner=해당 플랫폼)  총매출 (부가세 포함)
+   *        (대) 제품매출                         공급가액
+   *        (대) 부가세예수금                     부가세
+   *   3. 각 entry.status='confirmed', journal_entry_id=생성된 분개 ID
+   *
+   * 멱등성:
+   *   이미 confirmed 상태는 skip. 새로 추가된 draft 만 처리.
+   *
+   * 에러:
+   *   - 대상 entries 0건 → 아무것도 안 함
+   *   - 시스템 계정 누락 → resolveSystemAccount 내부에서 에러
+   */
+  confirmQuarter: tenantRequiredProcedure
+    .input(z.object({
+      periodYear: z.number().int().min(2020).max(2100),
+      periodQuarter: z.number().int().min(1).max(4),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const startMonth = (input.periodQuarter - 1) * 3 + 1;
+      const endMonth = startMonth + 2;
+      const entryDate = `${input.periodYear}-${String(endMonth).padStart(2, "0")}-${String(
+        new Date(input.periodYear, endMonth, 0).getDate(),
+      ).padStart(2, "0")}`;
+
+      const conn0 = await getRawConnection();
+
+      // 플랫폼별 draft 집계
+      const [platformSums] = await conn0.execute(
+        `SELECT
+           e.platform_partner_id,
+           p.company_name AS platform_name,
+           SUM(e.gross_amount) AS sum_gross,
+           SUM(e.supply_amount) AS sum_supply,
+           SUM(e.vat_amount) AS sum_vat,
+           COUNT(*) AS entry_count
+         FROM b2c_sales_entries e
+         JOIN partners p ON p.id = e.platform_partner_id AND p.tenant_id = e.tenant_id
+         WHERE e.tenant_id = ?
+           AND e.period_year = ?
+           AND e.period_month BETWEEN ? AND ?
+           AND e.status = 'draft'
+         GROUP BY e.platform_partner_id, p.company_name`,
+        [ctx.tenantId, input.periodYear, startMonth, endMonth],
+      );
+
+      const platforms = platformSums as Array<{
+        platform_partner_id: number;
+        platform_name: string;
+        sum_gross: string;
+        sum_supply: string;
+        sum_vat: string;
+        entry_count: number;
+      }>;
+
+      if (platforms.length === 0) {
+        return {
+          success: true,
+          confirmedCount: 0,
+          journalEntries: [],
+          message: "확정할 draft 매출이 없습니다.",
+        };
+      }
+
+      // 시스템 계정 조회
+      const receivableAcc = await resolveSystemAccount(
+        ctx.tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금",
+      );
+      const salesAcc = await resolveSystemAccount(
+        ctx.tenantId, SYSTEM_ACCOUNTS.SALES_REVENUE, "4010", "제품매출",
+      );
+      const vatAcc = await resolveSystemAccount(
+        ctx.tenantId, SYSTEM_ACCOUNTS.VAT_OUTPUT, "2350", "부가세예수금",
+      );
+
+      const userId = ctx.user.id as number;
+
+      // 트랜잭션 내부에서 각 플랫폼별 분개 생성
+      const results = await withTransaction(async (conn) => {
+        const journalEntries: Array<{
+          platformPartnerId: number;
+          platformName: string;
+          journalEntryId: number;
+          grossAmount: number;
+        }> = [];
+
+        for (const plt of platforms) {
+          const gross = Number(plt.sum_gross);
+          const supply = Number(plt.sum_supply);
+          const vat = Number(plt.sum_vat);
+
+          const description = `[B2C 정산] ${plt.platform_name} ${input.periodYear}Q${input.periodQuarter}`;
+
+          // 1. 분개 헤더
+          const [jeResult] = await conn.execute(
+            `INSERT INTO expense_journal_entries
+               (tenant_id, voucher_id, entry_date, description,
+                total_debit, total_credit, posted_by, posted_at)
+             VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
+            [ctx.tenantId, entryDate, description, gross, gross, userId],
+          );
+          const journalEntryId = Number((jeResult as { insertId: number }).insertId);
+
+          let sortOrder = 0;
+
+          // 2-1. 차변: 외상매출금
+          await insertJournalLine(conn, {
+            tenantId: ctx.tenantId,
+            journalEntryId,
+            accountId: receivableAcc.id,
+            accountCode: receivableAcc.code,
+            accountName: receivableAcc.name,
+            debitAmount: gross,
+            creditAmount: 0,
+            description: `외상매출금: ${plt.platform_name} Q${input.periodQuarter}`,
+            sortOrder: sortOrder++,
+            partnerId: plt.platform_partner_id,
+          });
+
+          // 2-2. 대변: 제품매출 (공급가)
+          await insertJournalLine(conn, {
+            tenantId: ctx.tenantId,
+            journalEntryId,
+            accountId: salesAcc.id,
+            accountCode: salesAcc.code,
+            accountName: salesAcc.name,
+            debitAmount: 0,
+            creditAmount: supply,
+            description: `매출: ${plt.platform_name} Q${input.periodQuarter}`,
+            sortOrder: sortOrder++,
+          });
+
+          // 2-3. 대변: 부가세예수금 (VAT > 0 일 때만)
+          if (vat > 0) {
+            await insertJournalLine(conn, {
+              tenantId: ctx.tenantId,
+              journalEntryId,
+              accountId: vatAcc.id,
+              accountCode: vatAcc.code,
+              accountName: vatAcc.name,
+              debitAmount: 0,
+              creditAmount: vat,
+              description: `매출 부가세: ${plt.platform_name} Q${input.periodQuarter}`,
+              sortOrder: sortOrder++,
+            });
+          }
+
+          // 3. b2c_sales_entries 확정
+          await conn.execute(
+            `UPDATE b2c_sales_entries
+                SET status = 'confirmed',
+                    confirmed_at = NOW(),
+                    confirmed_by = ?,
+                    journal_entry_id = ?
+              WHERE tenant_id = ?
+                AND platform_partner_id = ?
+                AND period_year = ?
+                AND period_month BETWEEN ? AND ?
+                AND status = 'draft'`,
+            [
+              userId,
+              journalEntryId,
+              ctx.tenantId,
+              plt.platform_partner_id,
+              input.periodYear,
+              startMonth,
+              endMonth,
+            ],
+          );
+
+          journalEntries.push({
+            platformPartnerId: plt.platform_partner_id,
+            platformName: plt.platform_name,
+            journalEntryId,
+            grossAmount: gross,
+          });
+        }
+
+        return journalEntries;
+      }, `b2cQuarterConfirm:${input.periodYear}Q${input.periodQuarter}`);
+
+      const totalConfirmed = platforms.reduce((s, p) => s + p.entry_count, 0);
+      const totalGross = results.reduce((s, r) => s + r.grossAmount, 0);
+
+      return {
+        success: true,
+        confirmedCount: totalConfirmed,
+        journalEntries: results,
+        totalGross,
+        message: `${input.periodYear}Q${input.periodQuarter} ${platforms.length}개 플랫폼 / ${totalConfirmed}건 / ₩${totalGross.toLocaleString()} 확정 완료`,
+      };
+    }),
+
+  /**
+   * 분기 확정 해제 — 분개 삭제 + status='draft' 복구
+   *
+   * 동작:
+   *   1. 해당 분기의 confirmed entries 에 연결된 journal_entry_id 수집
+   *   2. expense_journal_lines + expense_journal_entries 삭제
+   *   3. entries.status='draft', journal_entry_id=NULL, confirmed_at=NULL
+   *
+   * 안전장치:
+   *   - 매출 기록 자체는 유지 (수정 가능하도록)
+   *   - 연결된 분개만 되돌림
+   */
+  unconfirmQuarter: tenantRequiredProcedure
+    .input(z.object({
+      periodYear: z.number().int().min(2020).max(2100),
+      periodQuarter: z.number().int().min(1).max(4),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const startMonth = (input.periodQuarter - 1) * 3 + 1;
+      const endMonth = startMonth + 2;
+
+      const conn0 = await getRawConnection();
+      const [jeRows] = await conn0.execute(
+        `SELECT DISTINCT journal_entry_id
+           FROM b2c_sales_entries
+          WHERE tenant_id = ?
+            AND period_year = ?
+            AND period_month BETWEEN ? AND ?
+            AND status = 'confirmed'
+            AND journal_entry_id IS NOT NULL`,
+        [ctx.tenantId, input.periodYear, startMonth, endMonth],
+      );
+      const journalIds = (jeRows as Array<{ journal_entry_id: number }>).map(r => r.journal_entry_id);
+
+      if (journalIds.length === 0) {
+        return {
+          success: true,
+          removedJournals: 0,
+          removedLines: 0,
+          updatedEntries: 0,
+          message: "확정된 분개가 없습니다.",
+        };
+      }
+
+      const result = await withTransaction(async (conn) => {
+        const placeholders = journalIds.map(() => "?").join(",");
+
+        // 1. 분개 라인 삭제
+        const [linesRes] = await conn.execute(
+          `DELETE FROM expense_journal_lines
+             WHERE tenant_id = ? AND journal_entry_id IN (${placeholders})`,
+          [ctx.tenantId, ...journalIds],
+        );
+        const removedLines = (linesRes as { affectedRows: number }).affectedRows;
+
+        // 2. 분개 헤더 삭제
+        const [jeRes] = await conn.execute(
+          `DELETE FROM expense_journal_entries
+             WHERE tenant_id = ? AND id IN (${placeholders})`,
+          [ctx.tenantId, ...journalIds],
+        );
+        const removedJournals = (jeRes as { affectedRows: number }).affectedRows;
+
+        // 3. entries draft 복구
+        const [updRes] = await conn.execute(
+          `UPDATE b2c_sales_entries
+              SET status = 'draft',
+                  confirmed_at = NULL,
+                  confirmed_by = NULL,
+                  journal_entry_id = NULL
+            WHERE tenant_id = ?
+              AND period_year = ?
+              AND period_month BETWEEN ? AND ?
+              AND status = 'confirmed'`,
+          [ctx.tenantId, input.periodYear, startMonth, endMonth],
+        );
+        const updatedEntries = (updRes as { affectedRows: number }).affectedRows;
+
+        return { removedJournals, removedLines, updatedEntries };
+      }, `b2cQuarterUnconfirm:${input.periodYear}Q${input.periodQuarter}`);
+
+      return {
+        success: true,
+        ...result,
+        message: `${input.periodYear}Q${input.periodQuarter} 확정 해제: 분개 ${result.removedJournals}건 + 라인 ${result.removedLines}줄 + 항목 ${result.updatedEntries}건 복구`,
+      };
     }),
 });

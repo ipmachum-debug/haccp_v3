@@ -107,6 +107,28 @@ function B2cPlatformContent() {
     onError: (e: any) => toast({ title: "저장 실패", description: e.message, variant: "destructive" }),
   });
 
+  // 분기 확정 / 해제 (Phase 3, 2026-04-22)
+  const confirmQuarterMutation = (trpc as any).b2cPlatform.confirmQuarter.useMutation({
+    onSuccess: (data: any) => {
+      toast({
+        title: "분기 확정 완료",
+        description: data.message || `분개 ${data.journalEntries?.length || 0}건 생성됨`,
+      });
+      matrixQuery.refetch();
+      summaryQuery.refetch();
+    },
+    onError: (e: any) => toast({ title: "확정 실패", description: e.message, variant: "destructive" }),
+  });
+
+  const unconfirmQuarterMutation = (trpc as any).b2cPlatform.unconfirmQuarter.useMutation({
+    onSuccess: (data: any) => {
+      toast({ title: "확정 해제 완료", description: data.message });
+      matrixQuery.refetch();
+      summaryQuery.refetch();
+    },
+    onError: (e: any) => toast({ title: "해제 실패", description: e.message, variant: "destructive" }),
+  });
+
   // 분기 시작/종료 월
   const quarterMonths = useMemo(() => {
     const start = (periodQuarter - 1) * 3 + 1;
@@ -165,6 +187,27 @@ function B2cPlatformContent() {
     );
   }, [summaryQuery.data]);
 
+  // 분기 확정 가능 여부 (Phase 3, 2026-04-22)
+  const { hasDraftEntries, hasConfirmedEntries, confirmedPlatformCount } = useMemo(() => {
+    const entries = (matrixQuery.data || []) as any[];
+    let draft = 0;
+    let confirmed = 0;
+    const confirmedPlatforms = new Set<number>();
+    for (const e of entries) {
+      if (e.status === "confirmed") {
+        confirmed++;
+        confirmedPlatforms.add(e.platform_partner_id);
+      } else if (e.status === "draft") {
+        draft++;
+      }
+    }
+    return {
+      hasDraftEntries: draft > 0,
+      hasConfirmedEntries: confirmed > 0,
+      confirmedPlatformCount: confirmedPlatforms.size,
+    };
+  }, [matrixQuery.data]);
+
   return (
     <div className="space-y-6">
       {/* 페이지 헤더 */}
@@ -181,6 +224,38 @@ function B2cPlatformContent() {
           </div>
         </div>
         <div className="flex gap-2">
+          {/* 분기 확정 — 분기 모드일 때만 노출 */}
+          {periodMode === "quarter" && (
+            <>
+              {hasDraftEntries && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={confirmQuarterMutation.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`${periodYear}년 ${periodQuarter}분기를 확정하고 회계 분개를 생성할까요?\n\n확정 후에는 매출 항목 수정이 제한됩니다.`)) return;
+                    confirmQuarterMutation.mutate({ periodYear, periodQuarter });
+                  }}
+                >
+                  {confirmQuarterMutation.isPending ? "확정 중..." : `분기 확정 (${periodYear}Q${periodQuarter})`}
+                </Button>
+              )}
+              {hasConfirmedEntries && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-amber-400 text-amber-700 hover:bg-amber-50"
+                  disabled={unconfirmQuarterMutation.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`${periodYear}년 ${periodQuarter}분기 확정을 해제하고 분개를 삭제할까요?\n\n매출 항목은 draft 상태로 복구됩니다.`)) return;
+                    unconfirmQuarterMutation.mutate({ periodYear, periodQuarter });
+                  }}
+                >
+                  {unconfirmQuarterMutation.isPending ? "해제 중..." : "확정 해제"}
+                </Button>
+              )}
+            </>
+          )}
           <Button variant="outline" size="sm">
             <FileSpreadsheet className="h-4 w-4 mr-1" /> 엑셀 내보내기
           </Button>
@@ -247,6 +322,24 @@ function B2cPlatformContent() {
               <span className="font-bold text-emerald-700">
                 ₩{totalGross.toLocaleString()}
               </span>
+              {/* 확정 상태 표시 (Phase 3) */}
+              {periodMode === "quarter" && (hasDraftEntries || hasConfirmedEntries) && (
+                <>
+                  {hasConfirmedEntries && hasDraftEntries ? (
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[10px]">
+                      🔸 일부 확정됨 ({confirmedPlatformCount}개 플랫폼)
+                    </Badge>
+                  ) : hasConfirmedEntries ? (
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-[10px]">
+                      ✅ 확정됨 ({confirmedPlatformCount}개 플랫폼)
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300 text-[10px]">
+                      📝 입력 중 (draft)
+                    </Badge>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </CardContent>
