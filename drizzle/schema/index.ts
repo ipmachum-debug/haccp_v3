@@ -4,6 +4,8 @@
 
 // 기존 스키마 파일에서 모든 export 가져오기
 export * from "./schema_main";
+// B2C 플랫폼 정산 모듈 (Phase 2, 2026-04-22)
+export * from "./b2cPlatform";
 // auth.ts에서 hUserWidgetSettings만 export (나머지는 schema_main에 있음)
 export { hUserWidgetSettings } from "./auth";
 export * from "./part2";
