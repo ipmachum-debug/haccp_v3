@@ -70,11 +70,19 @@ export const dashboardRouter = router({
       })
   }),
     // 배치 진행 현황
-    batchProgress: tenantRequiredProcedure.query(async ({ ctx }) => {
-      const tenantId = ctx.tenantId;
-      const { getBatchProgress } = await import("../../db");
-      return await getBatchProgress(tenantId);
-    }),
+    batchProgress: tenantRequiredProcedure
+      .input(
+        z
+          .object({
+            dateRange: z.enum(["today", "thisMonth", "all"]).optional(),
+          })
+          .optional(),
+      )
+      .query(async ({ input, ctx }) => {
+        const tenantId = ctx.tenantId;
+        const { getBatchProgress } = await import("../../db");
+        return await getBatchProgress(tenantId, input?.dateRange ?? "today");
+      }),
     // CCP 이탈 알림
     ccpDeviations: tenantRequiredProcedure
       .input(
