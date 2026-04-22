@@ -152,10 +152,13 @@ export default function Dashboard() {
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
   });
-  const { data: batchProgress } = trpc.dashboard.batchProgress.useQuery(undefined, {
-    staleTime: 2 * 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-  });
+  const { data: batchProgress } = trpc.dashboard.batchProgress.useQuery(
+    { dateRange: "today" },
+    {
+      staleTime: 2 * 60 * 1000,
+      gcTime: 5 * 60 * 1000,
+    },
+  );
   const { data: lowStockMaterials } = trpc.inventory.getLowStock.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

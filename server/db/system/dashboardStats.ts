@@ -1,6 +1,6 @@
 import { getDb } from "../connection";
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
-import { toKSTDate } from "../../utils/timezone";
+import { toKSTDate, todayKST } from "../../utils/timezone";
 
 import {
   hBatches,
@@ -213,8 +213,17 @@ async function getInspectionStatistics(filters?: {
 
 /**
  * 배치 진행 현황 조회
+ *
+ * @param tenantId 테넌트 필터
+ * @param dateRange 기간 필터 (기본: 'today')
+ *   - 'today': planned_date = 오늘 KST (대시보드 "오늘 생산 배치" 카드용)
+ *   - 'thisMonth': planned_date 가 이번달 KST
+ *   - 'all': 전체 누적
  */
-export async function getBatchProgress(tenantId?: number) {
+export async function getBatchProgress(
+  tenantId?: number,
+  dateRange: "today" | "thisMonth" | "all" = "today",
+) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hBatches } = await import("../../../drizzle/schema");
@@ -223,6 +232,19 @@ export async function getBatchProgress(tenantId?: number) {
   //   'planned','in_progress','paused','completed','failed','cancelled','shipped','archived'
   //   이전 코드는 'running','finished' 라는 존재하지 않는 값을 조회해서 항상 0 반환 → 빈 차트
   //   클라이언트의 { planned, running, finished, shipped } 키 형식은 유지하되 실제 enum 값으로 매핑.
+  // ★ 2026-04-22 버그 수정: dateRange 필터 추가 — 이전 코드는 날짜 조건 없이
+  //   전체 누적을 반환해서 "오늘 생산 배치" 카드가 누적값을 표시하는 문제가 있었음.
+  const today = todayKST();
+  const conditions: any[] = [];
+  if (tenantId) conditions.push(eq(hBatches.tenantId, tenantId));
+  if (dateRange === "today") {
+    conditions.push(sql`${hBatches.plannedDate} = ${today}`);
+  } else if (dateRange === "thisMonth") {
+    const monthStart = `${today.slice(0, 7)}-01`;
+    conditions.push(sql`${hBatches.plannedDate} >= ${monthStart}`);
+    conditions.push(sql`${hBatches.plannedDate} <= ${today}`);
+  }
+
   const batches = await db
     .select({
       total: sql<number>`COUNT(*)`,
@@ -233,7 +255,7 @@ export async function getBatchProgress(tenantId?: number) {
       failed: sql<number>`SUM(CASE WHEN status IN ('failed','cancelled') THEN 1 ELSE 0 END)`,
     })
     .from(hBatches)
-    .where(tenantId ? eq(hBatches.tenantId, tenantId) : undefined);
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
 
   // MySQL SUM 결과가 string 으로 올 수 있으므로 Number 로 캐스팅
   const row = (batches[0] || {}) as any;
