@@ -409,7 +409,21 @@ export async function createProductOutbound(params: {
   };
 }
 
-/* ───────── 제품 출고 이력 조회 ───────── */
+/* ───────── 제품 출고 이력 조회 — UNION 뷰 (2026-04-22) ─────────
+ *
+ * 배경:
+ *   매출 승인 (productSalePost) 이 h_product_outbound 에 INSERT 하지 않고
+ *   h_inventory_transactions (reference_type='SALE') 에만 기록하는 구조.
+ *   UI 가 h_product_outbound 만 보면 매출 기반 출고가 전부 누락됨.
+ *
+ * 해결:
+ *   두 소스를 UNION:
+ *     소스 1: h_product_outbound (정방향 출고 등록 UI 에서 생성)
+ *     소스 2: h_inventory_transactions reference_type='SALE' + transaction_type='usage'
+ *             (매출 승인 시 productSalePost 가 자동 생성)
+ *
+ *   매출 취소 (accounting_sales.status='cancelled') 는 소스 2 에서 제외.
+ */
 export async function getProductOutboundHistory(params: {
   limit?: number;
   batchId?: number;
@@ -422,34 +436,120 @@ export async function getProductOutboundHistory(params: {
   await ensureProductOutboundTable();
   const conn = await getRawConnection();
 
-  let where = `WHERE o.tenant_id = ?`;
-  const values: any[] = [tenantId];
-
-  if (params.batchId) { where += ` AND o.batch_id = ?`; values.push(params.batchId); }
-  if (params.partnerId) { where += ` AND o.partner_id = ?`; values.push(params.partnerId); }
-  if (params.releaseType) { where += ` AND o.release_type = ?`; values.push(params.releaseType); }
-  // release_date가 VARCHAR이므로 다양한 형식 대응 (YYYY-MM-DD, YYYY.MM.DD 등)
-  if (params.startDate) { where += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?`; values.push(params.startDate); }
-  if (params.endDate) { where += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?`; values.push(params.endDate); }
-  if (params.search) { where += ` AND (o.product_name LIKE ? OR o.partner_name LIKE ? OR o.lot_number LIKE ?)`; const s = `%${params.search}%`; values.push(s, s, s); }
+  // ── 소스 1: h_product_outbound (정방향 경로) ──
+  const params1: any[] = [tenantId];
+  let where1 = `WHERE o.tenant_id = ?`;
+  if (params.batchId) { where1 += ` AND o.batch_id = ?`; params1.push(params.batchId); }
+  if (params.partnerId) { where1 += ` AND o.partner_id = ?`; params1.push(params.partnerId); }
+  if (params.releaseType) { where1 += ` AND o.release_type = ?`; params1.push(params.releaseType); }
+  if (params.startDate) { where1 += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') >= ?`; params1.push(params.startDate); }
+  if (params.endDate) { where1 += ` AND REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '') <= ?`; params1.push(params.endDate); }
+  if (params.search) {
+    where1 += ` AND (o.product_name LIKE ? OR o.partner_name LIKE ? OR o.lot_number LIKE ?)`;
+    const s = `%${params.search}%`;
+    params1.push(s, s, s);
+  }
 
   const limit = Math.min(Math.max(parseInt(String(params.limit || 50), 10), 1), 2000);
 
+  const source1 = `
+    SELECT
+      CONCAT('P', o.id) AS uid,
+      o.id AS id,
+      o.batch_id,
+      o.lot_id,
+      o.product_name,
+      CAST(o.quantity AS DECIMAL(15,3)) AS quantity,
+      o.unit,
+      CAST(COALESCE(o.unit_price, 0) AS DECIMAL(15,2)) AS unit_price,
+      CAST(COALESCE(o.total_amount, 0) AS DECIMAL(15,2)) AS total_amount,
+      o.partner_id,
+      o.partner_name,
+      o.release_date,
+      o.release_type,
+      o.lot_number,
+      o.notes,
+      o.status,
+      o.created_at,
+      b.batch_code,
+      b.product_id,
+      'outbound' AS source
+    FROM h_product_outbound o
+    LEFT JOIN h_batches b ON o.batch_id = b.id
+    ${where1}
+  `;
+
+  // ── 소스 2: h_inventory_transactions (매출 경로) ──
+  const params2: any[] = [tenantId];
+  let where2 = `
+    WHERE it.tenant_id = ?
+      AND it.reference_type = 'SALE'
+      AND it.transaction_type = 'usage'
+      AND s.status != 'cancelled'
+  `;
+  if (params.batchId) { where2 += ` AND lot.batch_id = ?`; params2.push(params.batchId); }
+  if (params.partnerId) { where2 += ` AND s.partner_id = ?`; params2.push(params.partnerId); }
+  // releaseType 필터는 매출 경로에선 'sale' 고정이라 필터가 'sale' 이거나 없으면 포함
+  if (params.releaseType && params.releaseType !== "sale") {
+    where2 += ` AND 1=0`; // 다른 release_type 필터면 매출은 제외
+  }
+  if (params.startDate) {
+    where2 += ` AND s.transaction_date >= ?`;
+    params2.push(params.startDate);
+  }
+  if (params.endDate) {
+    where2 += ` AND s.transaction_date <= ?`;
+    params2.push(params.endDate);
+  }
+  if (params.search) {
+    where2 += ` AND (s.item_name LIKE ? OR p.company_name LIKE ? OR lot.lot_number LIKE ?)`;
+    const s = `%${params.search}%`;
+    params2.push(s, s, s);
+  }
+
+  const source2 = `
+    SELECT
+      CONCAT('S', it.id) AS uid,
+      it.id AS id,
+      lot.batch_id AS batch_id,
+      it.lot_id,
+      s.item_name AS product_name,
+      CAST(it.quantity AS DECIMAL(15,3)) AS quantity,
+      it.unit,
+      CAST(COALESCE(it.unit_cost, 0) AS DECIMAL(15,2)) AS unit_price,
+      CAST(COALESCE(it.amount, 0) AS DECIMAL(15,2)) AS total_amount,
+      s.partner_id,
+      p.company_name AS partner_name,
+      s.transaction_date AS release_date,
+      'sale' AS release_type,
+      lot.lot_number,
+      it.notes,
+      s.status,
+      it.created_at,
+      b2.batch_code,
+      lot.product_id,
+      'sale' AS source
+    FROM h_inventory_transactions it
+    INNER JOIN accounting_sales s ON s.id = it.source_id AND s.tenant_id = it.tenant_id
+    LEFT JOIN h_inventory_lots lot ON lot.id = it.lot_id
+    LEFT JOIN partners p ON p.id = s.partner_id AND p.tenant_id = s.tenant_id
+    LEFT JOIN h_batches b2 ON lot.batch_id = b2.id
+    ${where2}
+  `;
+
   const [rows] = await conn.query(
-    `SELECT o.id, o.batch_id, o.lot_id, o.product_name, o.quantity, o.unit, o.unit_price, o.total_amount,
-            o.partner_id, o.partner_name, o.release_date, o.release_type, o.lot_number,
-            o.notes, o.status, o.created_at,
-            b.batch_code, b.product_id
-     FROM h_product_outbound o
-     LEFT JOIN h_batches b ON o.batch_id = b.id
-     ${where}
-     ORDER BY o.release_date DESC, o.created_at DESC
+    `${source1}
+     UNION ALL
+     ${source2}
+     ORDER BY release_date DESC, created_at DESC
      LIMIT ${limit}`,
-    values
+    [...params1, ...params2],
   );
 
   return (rows as any[]).map(r => ({
     id: r.id,
+    uid: r.uid,                              // 'P123' or 'S456' (소스 구분 ID)
+    source: r.source,                        // 'outbound' or 'sale'
     batchId: r.batch_id,
     lotId: r.lot_id,
     batchCode: r.batch_code,
