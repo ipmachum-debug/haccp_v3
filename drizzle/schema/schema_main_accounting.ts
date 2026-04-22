@@ -101,6 +101,12 @@ export const partners = mysqlTable("partners", {
   creditLimit: decimal("credit_limit", { precision: 15, scale: 2 }), // 여신 한도
   defaultDiscountRate: decimal("default_discount_rate", { precision: 5, scale: 2 }), // 기본 할인율 %
   isActive: tinyint("is_active").default(1).notNull(),
+  // ★ 2026-04-22 Phase 2: B2C 플랫폼 정산 모듈 대응
+  //   b2b          — 일반 B2B 거래처 (기본)
+  //   b2c_platform — B2C 전자상거래 플랫폼 (옥션/지마켓/스마트스토어/쿠팡/11번가/카카오 등)
+  //                  이 파트너의 매출은 분기별 플랫폼 정산 모듈에서 관리
+  //   b2c_direct   — B2C 직접 판매 (자사몰·오프라인 매장 등, 향후 확장용)
+  customerType: mysqlEnum("customer_type", ["b2b", "b2c_platform", "b2c_direct"]).default("b2b").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

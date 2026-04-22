@@ -434,6 +434,8 @@ function Router() {
       <Route path="/dashboard/accounting/financial-reports" component={lazy(() => import("@/pages/accounting/FinancialReports"))} />
       <Route path="/dashboard/accounting/journal-entries" component={lazy(() => import("@/pages/accounting/JournalEntries"))} />
       <Route path="/dashboard/accounting/vat-management" component={lazy(() => import("@/pages/accounting/VatManagement"))} />
+      {/* Phase 2 (2026-04-22): B2C 플랫폼 정산 모듈 — 킬러 피처 */}
+      <Route path="/dashboard/accounting/b2c-platform" component={lazy(() => import("@/pages/accounting/B2cPlatformSettlement"))} />
       <Route path="/dashboard/accounting/cash-flow" component={lazy(() => import("@/pages/accounting/CashFlowDashboard"))} />
       <Route path="/dashboard/accounting/fixed-assets" component={lazy(() => import("@/pages/accounting/FixedAssetManagement"))} />
       <Route path="/dashboard/accounting/budget" component={lazy(() => import("@/pages/accounting/BudgetManagement"))} />

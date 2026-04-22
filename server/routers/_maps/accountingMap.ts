@@ -42,6 +42,7 @@ import {
   changeLogRouter,
   aiErpRouter,
   aiSkuMatchRouter,
+  b2cPlatformRouter,
 } from "../accounting";
 
 export const accountingRouterMap = {
@@ -83,4 +84,6 @@ export const accountingRouterMap = {
   aiErp: aiErpRouter,
   aiSkuMatch: aiSkuMatchRouter,
   popbillSettings: popbillSettingsRouter,
+  // Phase 2 (2026-04-22): B2C 플랫폼 정산 — 킬러 피처
+  b2cPlatform: b2cPlatformRouter,
 } as const;
