@@ -23,12 +23,17 @@
  *
  *   # 미리보기
  *   DRY_RUN=true npx tsx scripts/clone-accounts-from-tenant.ts 2 1
+ *
+ *   # INSERT 만 (UPDATE 단계 skip) — 같은 code 가 tenant 별로 다른 의미일 때 안전
+ *   # 예: 5100 이 tenant 1=급여, tenant 2=세금과공과 처럼 완전히 다른 경우
+ *   INSERT_ONLY=true npx tsx scripts/clone-accounts-from-tenant.ts 2 1
  */
 
 import { getRawConnection } from "../server/db/connection";
 
 const DRY_RUN = process.env.DRY_RUN === "true";
 const DEACTIVATE_UNIQUE = process.env.DEACTIVATE_UNIQUE === "true";
+const INSERT_ONLY = process.env.INSERT_ONLY === "true";
 
 async function getAdminUserId(tenantId: number): Promise<number> {
   const conn = await getRawConnection();
@@ -121,7 +126,11 @@ async function clone(sourceTenantId: number, targetTenantId: number) {
 
   console.log(`\n[계획]`);
   console.log(`  신규 INSERT: ${plan.toInsert.length}개`);
-  console.log(`  UPDATE (이름/카테고리/system_code 차이): ${plan.toUpdate.length}개`);
+  if (INSERT_ONLY) {
+    console.log(`  UPDATE: ${plan.toUpdate.length}개 ⚠️  INSERT_ONLY=true → 전부 skip`);
+  } else {
+    console.log(`  UPDATE (이름/카테고리/system_code 차이): ${plan.toUpdate.length}개`);
+  }
   console.log(`  Target 고유 계정: ${plan.targetUnique.length}개`);
   const unused = plan.targetUnique.filter(u => u.usage_count === 0).length;
   const used = plan.targetUnique.length - unused;
@@ -161,7 +170,8 @@ async function clone(sourceTenantId: number, targetTenantId: number) {
     return;
   }
 
-  if (plan.toInsert.length === 0 && plan.toUpdate.length === 0 && !DEACTIVATE_UNIQUE) {
+  const effectiveUpdates = INSERT_ONLY ? 0 : plan.toUpdate.length;
+  if (plan.toInsert.length === 0 && effectiveUpdates === 0 && !DEACTIVATE_UNIQUE) {
     console.log(`\n→ 변경 사항 없음. skip.`);
     return;
   }
@@ -183,17 +193,21 @@ async function clone(sourceTenantId: number, targetTenantId: number) {
     console.log(`  ✅ INSERT 완료: ${plan.toInsert.length}개`);
   }
 
-  // 2. UPDATE
+  // 2. UPDATE (INSERT_ONLY 면 skip)
   if (plan.toUpdate.length > 0) {
-    for (const row of plan.toUpdate) {
-      await conn.execute(
-        `UPDATE accounting_accounts
-            SET name = ?, category = ?, system_code = ?
-          WHERE tenant_id = ? AND code = ?`,
-        [row.s_name, row.s_cat, row.s_sys, targetTenantId, row.t_code],
-      );
+    if (INSERT_ONLY) {
+      console.log(`  ⏭  UPDATE skip: ${plan.toUpdate.length}개 (INSERT_ONLY=true)`);
+    } else {
+      for (const row of plan.toUpdate) {
+        await conn.execute(
+          `UPDATE accounting_accounts
+              SET name = ?, category = ?, system_code = ?
+            WHERE tenant_id = ? AND code = ?`,
+          [row.s_name, row.s_cat, row.s_sys, targetTenantId, row.t_code],
+        );
+      }
+      console.log(`  ✅ UPDATE 완료: ${plan.toUpdate.length}개`);
     }
-    console.log(`  ✅ UPDATE 완료: ${plan.toUpdate.length}개`);
   }
 
   // 3. 비활성화 (옵션)
