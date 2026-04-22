@@ -18,7 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench } from "lucide-react";
+import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw } from "lucide-react";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type ItemType = "raw_material" | "own_product" | "external_product" | "subsidiary";
@@ -178,6 +178,21 @@ function ItemMasterContent() {
     },
   });
 
+  const backfillMutation = trpc.product.backfillItemMaster.useMutation({
+    onSuccess: (data: { total: number; inserted: number; linked: number; updated: number; errors: number }) => {
+      const { total, inserted, linked, updated, errors } = data;
+      const summary = `총 ${total}건 · 신규 ${inserted} · 연결 ${linked} · 갱신 ${updated}${errors ? ` · 실패 ${errors}` : ""}`;
+      toast({
+        title: "제품 마스터 동기화 완료",
+        description: summary,
+        variant: errors > 0 ? "destructive" : "default",
+      });
+      refetchItems();
+    },
+    onError: (err: { message: string }) =>
+      toast({ title: "동기화 실패", description: err.message, variant: "destructive" }),
+  });
+
   const createSkuMutation = trpc.productSku.create.useMutation({
     onSuccess: () => {
       toast({ title: "SKU가 등록되었습니다." });
@@ -259,6 +274,18 @@ function ItemMasterContent() {
                 <FileText className="h-4 w-4" />
                 템플릿
               </Button>
+              {activeTab === "own_product" && (
+                <Button
+                  variant="outline"
+                  onClick={() => backfillMutation.mutate()}
+                  disabled={backfillMutation.isPending}
+                  className="flex items-center gap-2"
+                  title="제품 마스터(h_products_v2)에 있지만 품목 마스터에 누락된 자사제품을 복구합니다"
+                >
+                  <RefreshCw className={`h-4 w-4 ${backfillMutation.isPending ? "animate-spin" : ""}`} />
+                  {backfillMutation.isPending ? "동기화 중..." : "제품에서 동기화"}
+                </Button>
+              )}
               <Button onClick={() => setIsCreateOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 {ITEM_TYPE_LABELS[activeTab as ItemType]} 등록
