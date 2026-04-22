@@ -40,6 +40,8 @@
  *   - approved 인데 [매출] 분개도 없는 건 → 재고 차감까지 복잡. 별도 스크립트
  */
 
+import "dotenv/config";
+
 import { getRawConnection, withTransaction } from "../server/db";
 import { resolveSystemAccount, insertJournalLine } from "../server/db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../drizzle/schema/accountingAccounts";
@@ -51,7 +53,7 @@ interface Args {
   all: boolean;
   bankAccountId?: number;
   maxDays: number;
-  userId: number;
+  userId?: number;   // 미지정 시 해당 tenant 의 첫 admin 자동 조회
 }
 
 function parseArgs(): Args {
@@ -60,7 +62,7 @@ function parseArgs(): Args {
   let all = false;
   let bankAccountId: number | undefined;
   let maxDays = 90;
-  let userId = 1;
+  let userId: number | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -76,11 +78,28 @@ function parseArgs(): Args {
 
   if (!all && !tenantId) {
     console.error("Usage: npx tsx scripts/backfill-received-sales-journals.ts --tenant <id> | --all");
-    console.error("옵션: --bank-account <id>, --max-days <N> (기본 90), --user <id> (기본 1)");
+    console.error("옵션: --bank-account <id>, --max-days <N> (기본 90), --user <id> (미지정: 해당 tenant 의 첫 admin)");
     console.error("환경: DRY_RUN=true");
     process.exit(1);
   }
   return { tenantId, all, bankAccountId, maxDays, userId };
+}
+
+/** 사용자 ID 결정 — CLI --user 우선, 없으면 해당 tenant 의 첫 admin */
+async function resolveUserId(tenantId: number, cliUserId: number | undefined): Promise<number> {
+  if (cliUserId) return cliUserId;
+  const conn = await getRawConnection();
+  const [rows] = await conn.execute(
+    `SELECT id FROM users
+       WHERE tenant_id = ? AND role IN ('admin', 'super_admin') AND is_active = 1
+       ORDER BY id ASC LIMIT 1`,
+    [tenantId],
+  );
+  const row = (rows as Array<{ id: number }>)[0];
+  if (!row) {
+    throw new Error(`tenant ${tenantId} 에 admin/super_admin 사용자 없음 — --user <id> 로 명시 필요`);
+  }
+  return row.id;
 }
 
 interface SaleToBackfill {
@@ -262,7 +281,9 @@ async function processTenant(tenantId: number, opts: Args) {
   }
 
   const bankAccountId = await resolveBankAccount(tenantId, opts);
+  const userId = await resolveUserId(tenantId, opts.userId);
   console.log(`기본 은행계좌: ${bankAccountId ?? "없음 (CASH 로 fallback)"}`);
+  console.log(`실행 user_id: ${userId}${opts.userId ? "" : " (자동 조회 — 첫 admin)"}`);
   console.log(`총 금액: ${targets.reduce((s, t) => s + Number(t.total_amount), 0).toLocaleString()} 원\n`);
 
   // 상위 5건 미리보기
@@ -283,7 +304,7 @@ async function processTenant(tenantId: number, opts: Args) {
 
   for (const sale of targets) {
     try {
-      const r = await backfillOne(sale, tenantId, opts.userId, bankAccountId);
+      const r = await backfillOne(sale, tenantId, userId, bankAccountId);
       success++;
       console.log(`  ✅ SALE-${sale.id}: JE ${r.journalEntryId}, AR ${r.arLedgerId ?? "skip"}, Bank ${r.bankTransactionId ?? "skip"}`);
     } catch (e: any) {

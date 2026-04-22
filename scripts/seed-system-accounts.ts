@@ -24,6 +24,8 @@
  *   - 멱등성 보장 — 여러 번 실행해도 안전
  */
 
+import "dotenv/config";
+
 import { getRawConnection } from "../server/db/connection";
 import { ensureSystemAccounts } from "../server/db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../drizzle/schema/accountingAccounts";

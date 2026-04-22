@@ -29,6 +29,8 @@
  *   INSERT_ONLY=true npx tsx scripts/clone-accounts-from-tenant.ts 2 1
  */
 
+import "dotenv/config";
+
 import { getRawConnection } from "../server/db/connection";
 
 const DRY_RUN = process.env.DRY_RUN === "true";
