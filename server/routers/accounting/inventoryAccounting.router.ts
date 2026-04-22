@@ -153,28 +153,26 @@ export const inventoryAccountingRouter = router({
       return { success: true, message: "제품 출고/판매가 취소되었습니다." };
     }),
 
-  // ─── 매출 상태 전환 (2026-04-14 추가) ────────────────────
+  // ─── 매출 상태 전환 (2026-04-14 추가, 2026-04-22 분개/AR/은행거래 연동 확장) ─────
   // 매출 수금 완료 (approved → received): 실제 대금 수금 시점
+  //   - 입금 분개 생성 (차변 보통예금/현금 / 대변 외상매출금)
+  //   - ar_ledger 에 payment 엔트리
+  //   - bank_transactions 에 deposit 엔트리 (은행계좌 있을 때)
+  // 상세: server/lib/accounting/productSaleReceive.ts
   saleMarkReceived: tenantRequiredProcedure
-    .input(z.object({ saleId: z.number() }))
-    .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      const pool = await getRawConnection();
-      const [rows]: any = await pool.execute(
-        `SELECT status FROM accounting_sales WHERE id = ? AND tenant_id = ? FOR UPDATE`,
-        [input.saleId, ctx.tenantId],
-      );
-      const current = rows?.[0];
-      if (!current) throw new Error(`매출 전표 #${input.saleId} 없음`);
-      if (current.status === "cancelled") throw new Error("취소된 전표는 수금 처리할 수 없습니다.");
-      if (current.status === "received") return { success: true, message: "이미 수금 완료 상태입니다." };
-      if (current.status !== "approved") {
-        throw new Error(`승인(approved) 상태만 수금 처리 가능. 현재: ${current.status}`);
-      }
-      await pool.execute(
-        `UPDATE accounting_sales SET status = 'received' WHERE id = ? AND tenant_id = ?`,
-        [input.saleId, ctx.tenantId],
-      );
-      return { success: true, message: "매출이 수금 완료 처리되었습니다." };
+    .input(z.object({
+      saleId: z.number(),
+      bankAccountId: z.number().optional(),      // 미지정 시 기본 계좌 자동 선택
+      receivedDate: z.string().optional(),       // YYYY-MM-DD (미지정: 오늘)
+      memo: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }: { input: { saleId: number; bankAccountId?: number; receivedDate?: string; memo?: string }, ctx: any }) => {
+      const { markSaleReceived } = await import("../../lib/accounting/productSaleReceive");
+      return await markSaleReceived(input.saleId, ctx.user.id, ctx.tenantId, {
+        bankAccountId: input.bankAccountId,
+        receivedDate: input.receivedDate,
+        memo: input.memo,
+      });
     }),
 
   // 매출 복구 (cancelled → pending)
