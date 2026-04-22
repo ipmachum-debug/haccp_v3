@@ -195,31 +195,21 @@ export async function markSaleReceived(
       arLedgerId = Number((arResult as { insertId: number }).insertId);
     }
 
-    // 5. bank_transactions INSERT (은행계좌 있을 때만)
-    let bankTransactionId: number | null = null;
-    if (bankAccountId) {
-      const [btResult] = await conn.execute(
-        `INSERT INTO bank_transactions
-           (tenant_id, bank_account_id, tx_date, amount,
-            description, transaction_type, counterparty_text,
-            accounting_account_id, match_status,
-            matched_by, matched_at, matched_partner_id,
-            matched_ledger_type, matched_ledger_id,
-            approval_status, approved_by, approved_at, created_by)
-         VALUES (?, ?, ?, ?, ?, 'deposit', ?, ?, 'matched',
-                 ?, NOW(), ?, 'ar', ?, 'approved', ?, NOW(), ?)`,
-        [
-          tenantId, bankAccountId, `${receivedDate} 00:00:00`, totalAmount,
-          `[수금] ${docId} ${sale.item_name ?? ""}`.trim(),
-          sale.item_name ?? null,
-          receivableAcc.id,
-          userId, sale.partner_id ?? null,
-          arLedgerId ?? saleId,
-          userId, userId,
-        ],
-      );
-      bankTransactionId = Number((btResult as { insertId: number }).insertId);
-    }
+    // 5. bank_transactions 는 생성하지 않음 (관심사 분리 원칙, 2026-04-22 수정)
+    //
+    // 배경:
+    //   이전 구현은 수금 처리 시 bank_transactions INSERT 를 같이 했음.
+    //   그러나 이는 "가짜 통장거래" 를 생성하는 것으로 회계 시스템 기본
+    //   원칙 위반:
+    //     - bank_transactions = 실제 은행 CSV/API 에서 수집된 데이터만
+    //     - 매출 수금 = AR 원장의 payment 엔트리로만 기록
+    //     - 둘의 매칭은 사용자가 통장 업로드 시 별도 매칭 엔진에서 수행
+    //
+    //   특히 B2C 다건 매출 (하루 1,000건+) 의 경우 통장 입금은 플랫폼별
+    //   주/월 정산으로 N:1 매칭되므로 1:1 생성은 불가능.
+    //
+    //   향후 플랫폼 정산 모듈 (별도 PR) 에서 통장 입금 ↔ AR 다건 매칭 처리.
+    const bankTransactionId: number | null = null;
 
     // 6. 매출 상태 전환
     await conn.execute(
@@ -231,8 +221,7 @@ export async function markSaleReceived(
 
     console.log(
       `[markSaleReceived] #${saleId} 수금 완료 ` +
-      `(금액: ${totalAmount}, JE: ${journalEntryId}, ` +
-      `AR: ${arLedgerId ?? "skip"}, Bank: ${bankTransactionId ?? "skip"})`,
+      `(금액: ${totalAmount}, JE: ${journalEntryId}, AR: ${arLedgerId ?? "skip"})`,
     );
 
     return {

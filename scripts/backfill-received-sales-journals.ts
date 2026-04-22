@@ -236,31 +236,10 @@ async function backfillOne(
       arLedgerId = Number((arResult as { insertId: number }).insertId);
     }
 
-    // 4. bank_transactions (은행계좌 있을 때만)
-    let bankTransactionId: number | null = null;
-    if (bankAccountId) {
-      const [btResult] = await conn.execute(
-        `INSERT INTO bank_transactions
-           (tenant_id, bank_account_id, tx_date, amount,
-            description, transaction_type, counterparty_text,
-            accounting_account_id, match_status,
-            matched_by, matched_at, matched_partner_id,
-            matched_ledger_type, matched_ledger_id,
-            approval_status, approved_by, approved_at, created_by)
-         VALUES (?, ?, ?, ?, ?, 'deposit', ?, ?, 'matched',
-                 ?, NOW(), ?, 'ar', ?, 'approved', ?, NOW(), ?)`,
-        [
-          tenantId, bankAccountId, `${receivedDate} 00:00:00`, totalAmount,
-          `[수금] ${docId} ${sale.item_name ?? ""} (backfill)`.trim(),
-          sale.item_name ?? null,
-          receivableAcc.id,
-          userId, sale.partner_id ?? null,
-          arLedgerId ?? sale.id,
-          userId, userId,
-        ],
-      );
-      bankTransactionId = Number((btResult as { insertId: number }).insertId);
-    }
+    // 4. bank_transactions 는 생성하지 않음 (관심사 분리 원칙, 2026-04-22 수정)
+    //    사유: productSaleReceive.ts 의 동일 주석 참조.
+    //    통장거래는 실제 은행 CSV 업로드로만 생성. 매칭은 별도 UI 에서.
+    const bankTransactionId: number | null = null;
 
     return { journalEntryId, arLedgerId, bankTransactionId };
   }, `backfillSaleReceived:${sale.id}`);
