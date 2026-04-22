@@ -29,6 +29,8 @@
  *   npx tsx scripts/apply-food-account-groups.ts 2
  */
 
+import "dotenv/config";
+
 import { getRawConnection } from "../server/db/connection";
 
 const DRY_RUN = process.env.DRY_RUN === "true";
