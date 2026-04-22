@@ -126,26 +126,21 @@ export const productRouter = router({
           isActive: input.isActive ?? 1,
         });
         const newProductId = Number(result[0].insertId);
-        
-        // item_master 테이블에도 동기화 생성
-        try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          await db.insert(itemMaster).values({
-            tenantId: ctx.tenantId,
-            itemCode: input.productCode,
-            itemName: input.productName,
-            itemType: 'own_product',
-            category: input.category || null,
-            baseUnit: input.unit || 'kg',
-            shelfLifeDays: shelfLifeDays || null,
-            description: input.description || null,
-            legacyProductId: newProductId,
-            isActive: input.isActive ?? 1,
-          });
-        } catch (syncErr) {
-          console.error('item_master 동기화 생성 실패:', syncErr);
-        }
-        
+
+        // item_master 테이블에도 동기화 (upsert — UNIQUE 충돌 시 기존 행 연결)
+        const { syncProductToItemMaster } = await import("../../db/production/itemMasterSync.js");
+        await syncProductToItemMaster(db, {
+          tenantId: ctx.tenantId,
+          productId: newProductId,
+          productCode: input.productCode,
+          productName: input.productName,
+          category: input.category,
+          unit: input.unit,
+          shelfLifeDays,
+          description: input.description,
+          isActive: input.isActive ?? 1,
+        });
+
         return { success: true, id: newProductId };
       }),
     update: adminProcedure
@@ -170,23 +165,23 @@ export const productRouter = router({
         const updateData: any = { ...rest };
         if (shelfLifeDays !== undefined) updateData.shelfLifeDays = shelfLifeDays;
         await db.update(hProductsV2).set(updateData).where(eq(hProductsV2.id, id));
-        
-        // item_master 테이블 동기화 (legacyProductId로 연결)
-        try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          const syncData: any = {};
-          if (rest.productName) syncData.itemName = rest.productName;
-          if (rest.category) syncData.category = rest.category;
-          if (rest.unit) syncData.baseUnit = rest.unit;
-          if (rest.productCode) syncData.itemCode = rest.productCode;
-          if (shelfLifeDays !== undefined) syncData.shelfLifeDays = shelfLifeDays;
-          if (Object.keys(syncData).length > 0) {
-            await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyProductId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
-            );
-          }
-        } catch (syncErr) {
-          console.error('item_master 동기화 실패:', syncErr);
+
+        // item_master 테이블 동기화 (legacyProductId 우선, 없으면 itemCode 로 연결/신규)
+        // 최신 값으로 동기화하기 위해 DB 에서 현재 값을 읽은 후 sync 호출
+        const [current] = await db.select().from(hProductsV2).where(eq(hProductsV2.id, id)).limit(1);
+        if (current) {
+          const { syncProductToItemMaster } = await import("../../db/production/itemMasterSync.js");
+          await syncProductToItemMaster(db, {
+            tenantId: ctx.tenantId,
+            productId: id,
+            productCode: current.productCode,
+            productName: current.productName,
+            category: current.category,
+            unit: current.unit,
+            shelfLifeDays: current.shelfLifeDays,
+            description: current.description,
+            isActive: current.isActive,
+          });
         }
 
         // h_products (v1) 동기화 제거 — h_products_v2로 통합 완료
@@ -237,16 +232,10 @@ export const productRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
         await db.update(hProductsV2).set({ isActive: 0 } as any).where(and(eq(hProductsV2.id, input.id), eq(hProductsV2.tenantId, ctx.tenantId as any) ));
-        
-        // item_master 동기화 (비활성화)
-        try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          await db.update(itemMaster).set({ isActive: 0 }).where(
-            and(eq(itemMaster.legacyProductId, input.id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
-          );
-        } catch (syncErr) {
-          console.error('item_master 동기화 실패:', syncErr);
-        }
+
+        // item_master 비활성화 동기화
+        const { deactivateLinkedItemMaster } = await import("../../db/production/itemMasterSync.js");
+        await deactivateLinkedItemMaster(db, ctx.tenantId, input.id);
         
         return { success: true };
       }),
@@ -323,25 +312,20 @@ export const productRouter = router({
                 shelfLifeDays: shelfLifeDays || null,
                 description: product.description || null,
               });
-              
-              // item_master 동기화
-              try {
-                const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-                await db.insert(itemMaster).values({
-                  tenantId: ctx.tenantId,
-                  itemCode: productCode,
-                  itemName: product.productName.trim(),
-                  itemType: 'own_product',
-                  category: product.category || null,
-                  baseUnit: product.unit || 'kg',
-                  shelfLifeDays: shelfLifeDays || null,
-                  description: product.description || null,
-                  legacyProductId: Number(insertResult[0].insertId),
-                  isActive: 1,
-                });
-              } catch (syncErr) {
-                console.error('item_master 동기화 실패 (bulkCreate):', syncErr);
-              }
+
+              // item_master 동기화 (upsert — UNIQUE 충돌 시 기존 행 연결)
+              const { syncProductToItemMaster } = await import("../../db/production/itemMasterSync.js");
+              await syncProductToItemMaster(db, {
+                tenantId: ctx.tenantId,
+                productId: Number(insertResult[0].insertId),
+                productCode,
+                productName: product.productName.trim(),
+                category: product.category,
+                unit: product.unit,
+                shelfLifeDays,
+                description: product.description,
+                isActive: 1,
+              });
               results.insertCount++;
             }
             results.successCount++;
@@ -364,4 +348,57 @@ export const productRouter = router({
         
         return results;
       }),
+
+    /**
+     * 제품 마스터(h_products_v2) → 품목 마스터(item_master) 일괄 동기화.
+     * 과거 sync 가 실패했거나 레거시 마이그레이션으로 누락된 제품을 복구하는 관리자 도구.
+     * 테넌트 단위로만 동작하며, 각 행마다 upsert (기존 행이 있으면 갱신).
+     */
+    backfillItemMaster: adminProcedure.mutation(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      const { hProductsV2 } = await import("../../../drizzle/schema/schema_main.js");
+      const { syncProductToItemMaster } = await import("../../db/production/itemMasterSync.js");
+
+      const rows = await db
+        .select()
+        .from(hProductsV2)
+        .where(eq(hProductsV2.tenantId, ctx.tenantId as any));
+
+      const summary = {
+        total: rows.length,
+        inserted: 0,
+        linked: 0,
+        updated: 0,
+        errors: 0,
+        errorDetails: [] as Array<{ productCode: string; message: string }>,
+      };
+
+      for (const r of rows) {
+        try {
+          const action = await syncProductToItemMaster(db, {
+            tenantId: ctx.tenantId,
+            productId: r.id,
+            productCode: r.productCode,
+            productName: r.productName,
+            category: r.category,
+            unit: r.unit,
+            shelfLifeDays: r.shelfLifeDays,
+            description: r.description,
+            isActive: r.isActive,
+          });
+          if (action === "inserted") summary.inserted++;
+          else if (action === "linked") summary.linked++;
+          else if (action === "updated") summary.updated++;
+        } catch (e: any) {
+          summary.errors++;
+          summary.errorDetails.push({
+            productCode: r.productCode,
+            message: e?.message ?? String(e),
+          });
+        }
+      }
+
+      return summary;
+    }),
 });
