@@ -28,6 +28,14 @@
 - npm install / build / deploy / rsync dist
 - `git fetch / pull / log / status` (읽기 전용)
 
+⚠️ **DB 작업 시 주의 (2026-04-22 추가)**:
+- **상태 필드 (`status`, `approval_status` 등) 변경은 가능하면 앱 로직 경유**
+  - 이유: 상태 변경 시 파생 작업(분개 생성/재고 차감/LOT 관리)이 앱에 구현됨
+  - DB 만 바꾸면 "유령 상태" 발생 (UI 는 완료, 장부는 0)
+  - 예시 사고: 2026-04-22 7183/7184 매출이 과거 Genspark 가 `status='approved'` 로 직접 INSERT 해서 분개·재고 없는 유령 상태로 존재
+  - **안전**: `status='pending'` 으로 INSERT → UI 에서 승인 버튼 → 정식 로직 경유
+  - enum 외 값 (`'completed'` 등) 은 MySQL 모드에 따라 예측 불가
+
 ❌ **절대 금지 (딱 3개)**:
 1. `git commit` — 코드 수정을 서버에서 커밋 (2026-04-22 사고 원인)
 2. `git push / push -f` — 서버에서 origin 으로 직접 push
