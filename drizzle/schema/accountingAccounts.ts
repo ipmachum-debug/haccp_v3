@@ -77,8 +77,8 @@ export const SYSTEM_ACCOUNTS = {
   SERVICE_REVENUE: "SERVICE_REVENUE",     // 서비스매출
   
   // 비용 (Expenses) - 세부는 사용자 정의
-  COST_OF_GOODS: "COST_OF_GOODS",
-  WIP: "WIP",         // 매출원가
+  COST_OF_GOODS: "COST_OF_GOODS",   // 매출원가
+  WIP: "WIP",                       // 재공품 (제조 중간 재고, 월말 평가용)
 } as const;
 
 export type SystemAccountCode = typeof SYSTEM_ACCOUNTS[keyof typeof SYSTEM_ACCOUNTS];

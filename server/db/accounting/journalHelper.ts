@@ -444,6 +444,8 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
     { systemCode: SYSTEM_ACCOUNTS.SERVICE_REVENUE, code: "4020", name: "서비스매출", category: "revenue" },
     // 비용
     { systemCode: SYSTEM_ACCOUNTS.COST_OF_GOODS, code: "5010", name: "매출원가", category: "expenses" },
+    // 재고 자산 (제조 중간 단계)
+    { systemCode: SYSTEM_ACCOUNTS.WIP, code: "1430", name: "재공품", category: "assets" },
   ];
 
   for (const seed of systemAccountSeeds) {
