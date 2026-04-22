@@ -88,7 +88,7 @@ export async function createPurchaseFromReceipt(tenantId: number, transactionId:
       quantity,
       unitPrice,
       totalAmount,
-      "completed",
+      "pending",  // ← 2026-04-22 fix: "completed" 는 enum 외 값. pending 으로 들어가 승인 플로우 경유
       `재고 입고 자동 생성 (Lot ID: ${transaction.lot_id})${transaction.notes ? ` - ${transaction.notes}` : ""}`,
       "inventory_receipt",
       transactionId,
@@ -193,7 +193,7 @@ export async function createSaleFromUsage(tenantId: number, transactionId: numbe
       transaction.lot_unit || transaction.sales_unit || transaction.unit || "EA",
       unitPrice,
       totalAmount,
-      "completed",
+      "pending",  // ← 2026-04-22 fix: "completed" 는 enum 외 값. pending 으로 들어가 승인 플로우 경유
       `재고 출고 자동 생성 (Lot ID: ${transaction.lot_id})${transaction.notes ? ` - ${transaction.notes}` : ""}`,
       "inventory_usage",
       transactionId,
