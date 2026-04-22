@@ -1,5 +1,5 @@
 import { tenants } from './schema_main';
-import {mysqlTable, bigint, varchar, decimal, text, timestamp, date, mysqlEnum, index, int} from "drizzle-orm/mysql-core";
+import {mysqlTable, bigint, varchar, decimal, text, timestamp, date, mysqlEnum, index, int, tinyint} from "drizzle-orm/mysql-core";
 // import { users } from "./schema";
 // import { partners } from "./schema_main";
 
@@ -109,6 +109,14 @@ export const accountingSales = mysqlTable("accounting_sales", {
   // 메모 및 상태
   notes: text("notes"), // 메모
   status: mysqlEnum("status", ["pending", "approved", "received", "cancelled"]).default("pending"), // 상태
+
+  // ★ 2026-04-22 추가: 회계 연동 제외 플래그 (B2C 전자상거래 대응)
+  //   - 1 = 이 매출은 분기별 플랫폼 정산 모듈에서 별도 관리
+  //   - productSalePost 에서 재고 차감은 실행 (HACCP 법적 의무)
+  //   - 그러나 매출/COGS 분개 생성은 skip
+  //   - saleMarkReceived 는 차단 (수금은 플랫폼 정산으로)
+  //   - 엑셀 일괄업로드 시 "B2C 전자상거래 (회계 제외)" 체크박스로 설정
+  accountingExcluded: tinyint("accounting_excluded").default(0).notNull(),
 
   // 확정/취소 정보
   postedAt: timestamp("posted_at"), // 확정 일시

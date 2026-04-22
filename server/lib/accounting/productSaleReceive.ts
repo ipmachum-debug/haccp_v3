@@ -58,16 +58,28 @@ export async function markSaleReceived(
   // 트랜잭션 외부: 사전 조회 (빠른 실패)
   const conn0 = await getRawConnection();
   const [saleRows] = await conn0.execute(
-    `SELECT id, status, partner_id, total_amount, transaction_date, item_name
+    `SELECT id, status, partner_id, total_amount, transaction_date, item_name,
+            accounting_excluded
        FROM accounting_sales WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [saleId, tenantId],
   );
   const sale = (saleRows as Array<{
     id: number; status: string; partner_id: number | null;
     total_amount: string; transaction_date: string; item_name: string | null;
+    accounting_excluded: number;
   }>)[0];
 
   if (!sale) throw new Error(`매출 전표 #${saleId} 없음`);
+
+  // ★ 2026-04-22: 회계 제외 매출은 수금 처리 차단
+  //   B2C 전자상거래 매출은 플랫폼 정산 모듈에서 분기별로 관리
+  if (sale.accounting_excluded === 1) {
+    throw new Error(
+      "이 매출은 회계 제외 처리된 B2C 전자상거래 매출입니다. " +
+      "수금은 [플랫폼 정산] 메뉴에서 분기별 정산서 입력으로 처리해주세요.",
+    );
+  }
+
   if (sale.status === "cancelled") {
     throw new Error("취소된 전표는 수금 처리할 수 없습니다.");
   }

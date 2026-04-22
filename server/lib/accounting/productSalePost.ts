@@ -281,99 +281,111 @@ export async function postProductSale(
     // COGS 가 0 이면 supplyAmount 를 fallback 으로 사용 (제품 원가 미설정 케이스)
     const cogsAmount = totalCogs > 0 ? Math.round(totalCogs) : 0;
 
-    // (B) 매출 분개 (Entry 1) — 차변 AR / 대변 매출 + VAT_OUTPUT
-    const [salesJeResult] = await conn.execute(
-      `INSERT INTO expense_journal_entries
-         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
-      [
-        tenantId,
-        entryDate,
-        `[매출] ${docId} ${sale.itemName || ""}`,
-        totalAmount,
-        totalAmount,
-        userId,
-      ],
-    );
-    const salesEntryId = Number((salesJeResult as any).insertId);
+    // ★ 2026-04-22: 회계 연동 제외 플래그 (B2C 전자상거래)
+    //   - 재고 차감 / LOT / 수불부 / inventory_transactions 는 위에서 모두 실행됨 (HACCP 의무)
+    //   - 그러나 (B) 매출 분개 + (C) COGS 분개는 skip
+    //   - 별도 플랫폼 정산 모듈에서 분기별 매출 인식
+    const accountingExcluded = Number((sale as any).accountingExcluded ?? 0) === 1;
 
-    let sortOrder = 0;
-    // 차변: 외상매출금 (총액)
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId: salesEntryId,
-      accountId: receivableAcc.id,
-      accountCode: receivableAcc.code,
-      accountName: receivableAcc.name,
-      debitAmount: totalAmount, creditAmount: 0,
-      description: `매출: ${sale.itemName || ""} (${docId})`,
-      sortOrder: sortOrder++,
-      partnerId: (sale as any).partnerId || null,
-    });
-    // 대변: 매출 (공급가)
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId: salesEntryId,
-      accountId: salesRevenueAcc.id,
-      accountCode: salesRevenueAcc.code,
-      accountName: salesRevenueAcc.name,
-      debitAmount: 0, creditAmount: supplyAmount,
-      description: `매출: ${sale.itemName || ""} (${docId})`,
-      sortOrder: sortOrder++,
-    });
-    // 대변: 부가세예수금 (세액 있을 때만)
-    if (vatAcc && taxAmount > 0) {
-      await insertJournalLine(conn, {
-        tenantId, journalEntryId: salesEntryId,
-        accountId: vatAcc.id,
-        accountCode: vatAcc.code,
-        accountName: vatAcc.name,
-        debitAmount: 0, creditAmount: taxAmount,
-        description: `매출 부가세: ${sale.itemName || ""} (${docId})`,
-        sortOrder: sortOrder++,
-      });
-    }
-
-    // (C) ★ COGS 분개 (Entry 2) — 차변 매출원가 / 대변 제품재고
-    //     이전 버전에서 누락되어 있던 P0 버그 수정
-    //     cogsAmount 가 0 보다 클 때만 생성 (레거시/제품 없음 케이스 graceful)
-    if (cogsAmount > 0) {
-      const [cogsJeResult] = await conn.execute(
+    if (!accountingExcluded) {
+      // (B) 매출 분개 (Entry 1) — 차변 AR / 대변 매출 + VAT_OUTPUT
+      const [salesJeResult] = await conn.execute(
         `INSERT INTO expense_journal_entries
            (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
          VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
         [
           tenantId,
           entryDate,
-          `[매출원가] ${docId} ${sale.itemName || ""}`,
-          cogsAmount,
-          cogsAmount,
+          `[매출] ${docId} ${sale.itemName || ""}`,
+          totalAmount,
+          totalAmount,
           userId,
         ],
       );
-      const cogsEntryId = Number((cogsJeResult as any).insertId);
+      const salesEntryId = Number((salesJeResult as any).insertId);
 
-      let cogsSortOrder = 0;
-      // 차변: 매출원가
+      let sortOrder = 0;
+      // 차변: 외상매출금 (총액)
       await insertJournalLine(conn, {
-        tenantId, journalEntryId: cogsEntryId,
-        accountId: cogsAcc.id,
-        accountCode: cogsAcc.code,
-        accountName: cogsAcc.name,
-        debitAmount: cogsAmount, creditAmount: 0,
-        description: `매출원가: ${sale.itemName || ""} (${docId})`,
-        sortOrder: cogsSortOrder++,
+        tenantId, journalEntryId: salesEntryId,
+        accountId: receivableAcc.id,
+        accountCode: receivableAcc.code,
+        accountName: receivableAcc.name,
+        debitAmount: totalAmount, creditAmount: 0,
+        description: `매출: ${sale.itemName || ""} (${docId})`,
+        sortOrder: sortOrder++,
+        partnerId: (sale as any).partnerId || null,
       });
-      // 대변: 제품재고(완제품 매출) vs 원재료재고(원재료/부자재/외부제품 매출)
-      const creditInventoryAcc = isProductSale ? inventoryGoodsAcc! : inventoryRawAcc!;
-      const creditLabel = isProductSale ? "제품재고" : "원재료재고";
+      // 대변: 매출 (공급가)
       await insertJournalLine(conn, {
-        tenantId, journalEntryId: cogsEntryId,
-        accountId: creditInventoryAcc.id,
-        accountCode: creditInventoryAcc.code,
-        accountName: creditInventoryAcc.name,
-        debitAmount: 0, creditAmount: cogsAmount,
-        description: `${creditLabel} 감소: ${sale.itemName || ""} (${docId})`,
-        sortOrder: cogsSortOrder++,
+        tenantId, journalEntryId: salesEntryId,
+        accountId: salesRevenueAcc.id,
+        accountCode: salesRevenueAcc.code,
+        accountName: salesRevenueAcc.name,
+        debitAmount: 0, creditAmount: supplyAmount,
+        description: `매출: ${sale.itemName || ""} (${docId})`,
+        sortOrder: sortOrder++,
       });
+      // 대변: 부가세예수금 (세액 있을 때만)
+      if (vatAcc && taxAmount > 0) {
+        await insertJournalLine(conn, {
+          tenantId, journalEntryId: salesEntryId,
+          accountId: vatAcc.id,
+          accountCode: vatAcc.code,
+          accountName: vatAcc.name,
+          debitAmount: 0, creditAmount: taxAmount,
+          description: `매출 부가세: ${sale.itemName || ""} (${docId})`,
+          sortOrder: sortOrder++,
+        });
+      }
+
+      // (C) ★ COGS 분개 (Entry 2) — 차변 매출원가 / 대변 제품재고
+      //     cogsAmount 가 0 보다 클 때만 생성 (레거시/제품 없음 케이스 graceful)
+      if (cogsAmount > 0) {
+        const [cogsJeResult] = await conn.execute(
+          `INSERT INTO expense_journal_entries
+             (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
+           VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
+          [
+            tenantId,
+            entryDate,
+            `[매출원가] ${docId} ${sale.itemName || ""}`,
+            cogsAmount,
+            cogsAmount,
+            userId,
+          ],
+        );
+        const cogsEntryId = Number((cogsJeResult as any).insertId);
+
+        let cogsSortOrder = 0;
+        // 차변: 매출원가
+        await insertJournalLine(conn, {
+          tenantId, journalEntryId: cogsEntryId,
+          accountId: cogsAcc.id,
+          accountCode: cogsAcc.code,
+          accountName: cogsAcc.name,
+          debitAmount: cogsAmount, creditAmount: 0,
+          description: `매출원가: ${sale.itemName || ""} (${docId})`,
+          sortOrder: cogsSortOrder++,
+        });
+        // 대변: 제품재고(완제품 매출) vs 원재료재고(원재료/부자재/외부제품 매출)
+        const creditInventoryAcc = isProductSale ? inventoryGoodsAcc! : inventoryRawAcc!;
+        const creditLabel = isProductSale ? "제품재고" : "원재료재고";
+        await insertJournalLine(conn, {
+          tenantId, journalEntryId: cogsEntryId,
+          accountId: creditInventoryAcc.id,
+          accountCode: creditInventoryAcc.code,
+          accountName: creditInventoryAcc.name,
+          debitAmount: 0, creditAmount: cogsAmount,
+          description: `${creditLabel} 감소: ${sale.itemName || ""} (${docId})`,
+          sortOrder: cogsSortOrder++,
+        });
+      }
+    } else {
+      console.log(
+        `[postProductSale] SALE-${saleId} accountingExcluded=1 — 분개 생성 skip ` +
+        `(재고 차감만 수행, 분기별 플랫폼 정산에서 별도 인식)`,
+      );
     }
 
     // (D) accounting_sales 상태 전환: pending → approved (승인됨)
