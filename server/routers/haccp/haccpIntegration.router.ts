@@ -465,7 +465,11 @@ export const haccpIntegrationRouter = router({
           taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0, 미지정이면 DB default(10)
           unit: z.string().optional(),
           memo: z.string().optional(),
-        }))
+        })),
+        // ★ 2026-04-22: B2C 전자상거래 매출은 회계 연동 제외
+        //   - 재고 차감만 수행, 분개/수금 처리 skip
+        //   - 플랫폼 정산 모듈에서 분기별 별도 인식
+        accountingExcluded: z.boolean().default(false),
       }))
       .mutation(async ({ input, ctx }) => {
         const { createSale } = await import("../../db/haccp/haccpIntegration");
@@ -477,6 +481,7 @@ export const haccpIntegrationRouter = router({
           try {
             await createSale({
               ...input.items[i],
+              accountingExcluded: input.accountingExcluded,
               createdBy: ctx.user.id,
             }, ctx.tenantId);
             successCount++;

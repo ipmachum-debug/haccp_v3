@@ -730,6 +730,10 @@ function SalesListContent() {
                       const statusLabel = STATUS_LABELS[group.dominantStatus] || group.dominantStatus;
                       const statusColor = STATUS_COLORS[group.dominantStatus] || "";
                       const isMultiItem = group.items.length > 1;
+                      // ★ 2026-04-22: B2C 회계 제외 매출은 수금 버튼 숨김 (플랫폼 정산으로 처리)
+                      const groupAllExcluded = group.items.every(
+                        (it: any) => it.accountingExcluded === 1 || it.accountingExcluded === true
+                      );
 
                       return group.items.map((sale: SaleRow, itemIdx: number) => {
                         const isFirst = itemIdx === 0;
@@ -810,7 +814,7 @@ function SalesListContent() {
                                         <CheckCircle className="h-3.5 w-3.5" />
                                       </Button>
                                     )}
-                                    {availableGroupActions.includes("markReceived") && (
+                                    {availableGroupActions.includes("markReceived") && !groupAllExcluded && (
                                       <Button size="sm" variant="default"
                                         onClick={() => handleGroupAction(group, "markReceived")}
                                         disabled={markReceivedMutation.isPending}
@@ -818,6 +822,11 @@ function SalesListContent() {
                                         className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
                                         <DollarSign className="h-3.5 w-3.5" />
                                       </Button>
+                                    )}
+                                    {groupAllExcluded && (
+                                      <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[9px]" title="B2C 전자상거래 — 수금은 [플랫폼 정산] 메뉴 이용">
+                                        회계제외
+                                      </Badge>
                                     )}
                                     {availableGroupActions.includes("restore") && (
                                       <Button size="sm" variant="outline"

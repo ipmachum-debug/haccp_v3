@@ -175,6 +175,12 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
   const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
   const [isAiMatching, setIsAiMatching] = useState(false);
 
+  // ★ 2026-04-22: B2C 전자상거래 (회계 제외) 체크박스 (매출 모드 전용)
+  //   - 체크 시 이 업로드의 모든 매출이 accounting_excluded=1 로 INSERT
+  //   - 재고 차감은 그대로 (HACCP), 매출 분개는 skip
+  //   - 수금 처리도 차단 → [플랫폼 정산] 메뉴로 안내
+  const [accountingExcluded, setAccountingExcluded] = useState(false);
+
   // ─── 리셋 ───
   const resetAll = useCallback(() => {
     setStep('upload');
@@ -665,7 +671,10 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
 
       setIsUploading(true);
       try {
-        const result = await bulkSaleMutation.mutateAsync({ items: uploadItems });
+        const result = await bulkSaleMutation.mutateAsync({
+          items: uploadItems,
+          accountingExcluded,  // ★ 2026-04-22: B2C 회계 제외 플래그 전달
+        });
         setUploadResult(result);
         utils.haccpIntegration.getAllSales.invalidate();
         setStep('result');
@@ -1066,6 +1075,36 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                   </Card>
                 );
               })()}
+
+              {/* ★ 2026-04-22: B2C 전자상거래 (회계 제외) 체크박스 — 매출 모드 전용 */}
+              {!isPurchase && (
+                <Card className="p-3 bg-amber-50/40 border-amber-300">
+                  <label className="flex items-start gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={accountingExcluded}
+                      onChange={(e) => setAccountingExcluded(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 text-amber-600 rounded"
+                    />
+                    <div className="flex-1 text-xs">
+                      <div className="font-semibold text-amber-900 mb-1">
+                        🛒 B2C 전자상거래 (회계 제외)
+                      </div>
+                      <div className="text-amber-800 leading-relaxed">
+                        체크 시 이 업로드 매출은 <strong>재고 차감</strong>만 처리되고,
+                        <strong>회계 분개(매출/부가세/수금)</strong>는 생성하지 않습니다.
+                        <br />
+                        → 부가세 신고용 매출은 <strong>[플랫폼 정산]</strong> 메뉴에서
+                        분기/월별로 별도 입력해주세요.
+                        <br />
+                        <span className="text-amber-700">
+                          (이지어드민·스마트스토어·쿠팡·옥션·지마켓 등 중계 플랫폼 매출에 적용)
+                        </span>
+                      </div>
+                    </div>
+                  </label>
+                </Card>
+              )}
 
               {/* 액션 바 */}
               <div className="flex items-center justify-between">

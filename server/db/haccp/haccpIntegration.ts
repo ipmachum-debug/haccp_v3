@@ -252,6 +252,7 @@ export async function createSale(params: {
   unit?: string;
   memo?: string;
   accountCategoryId?: number;
+  accountingExcluded?: boolean;  // ★ 2026-04-22: B2C 전자상거래 (회계 제외, 재고만 차감)
   createdBy: number;
 }, tenantId?: number) {
   const db = await getDb();
@@ -279,11 +280,8 @@ export async function createSale(params: {
     taxRate: (params.taxRate ?? 10).toFixed(2),
     sourceType: "manual",
     notes: params.memo ?? null,
-    // ★ 2026-04-21 수정: pending 으로 변경
-    //   이전: "approved" — 상태만 approved 지만 재고/LOT/분개 실제 반영 없음 ("반쪽 승인")
-    //   현재: "pending" — 승인 버튼(productSalePost) 실행 시 재고 차감 + LOT 차감 + 매출 분개
-    //   관련: bulkCreateSales, SalesBulkUpload.tsx, productSalePost.ts
     status: "pending",
+    accountingExcluded: params.accountingExcluded ? 1 : 0,  // ★ 2026-04-22: B2C 회계 제외 플래그
     createdBy: params.createdBy,
   } as any);
 
@@ -515,6 +513,7 @@ export async function getAllSales(filters?: {
       status: accountingSales.status,
       memo: accountingSales.notes,
       proofType: accountingSales.evidenceType,
+      accountingExcluded: accountingSales.accountingExcluded,  // ★ 2026-04-22: B2C 회계 제외 플래그
       createdAt: accountingSales.createdAt
     })
     .from(accountingSales)
