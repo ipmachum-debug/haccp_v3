@@ -249,7 +249,17 @@ export default function InventoryManagement() {
 
           {/* ━━━ 조정 ━━━ */}
           <TabsContent value="adjustment" className="mt-0">
-            <AdjustmentTab isMat={isMat} />
+            <AdjustmentTab
+              view={
+                inventoryView === "material"
+                  ? "material"
+                  : inventoryView === "subsidiary"
+                  ? "subsidiary"
+                  : inventoryView === "external"
+                  ? "external"
+                  : "product"
+              }
+            />
           </TabsContent>
         </Tabs>
 

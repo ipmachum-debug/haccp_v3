@@ -1,7 +1,7 @@
 // inventory 라우터 - routers.ts에서 분리됨
 import { adminProcedure, tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
-import { eq, lt, or, and } from "drizzle-orm";
+import { eq, lt, or, and, inArray } from "drizzle-orm";
 import { hInventoryLots, hInventoryTransactions } from "../../../drizzle/schema";
 import { getDb } from "../../db";
 
@@ -627,8 +627,37 @@ export const inventoryRouter = router({
           eq(hInventoryLots.tenantId, ctx.tenantId as any),
           eq(hInventoryLots.status, "available"),
         ];
-        if (input.productId) conditions.push(eq(hInventoryLots.productId, input.productId));
-        if (input.materialId) conditions.push(eq(hInventoryLots.materialId, input.materialId));
+        if (input.productId) {
+          // 제품: h_inventory_lots.product_id 는 항상 h_products_v2.id 기반 → 직접 매칭
+          conditions.push(eq(hInventoryLots.productId, input.productId));
+        }
+        if (input.materialId) {
+          // 원재료/부자재/외주제품: h_inventory_lots.material_id 는
+          //   - 신규 데이터: item_master.id
+          //   - 레거시 원재료: h_materials.id
+          // UI 에서 MaterialCombobox 는 item_master.id 를 반환하므로,
+          // 레거시 h_materials.id 도 함께 매칭하기 위해 legacyMaterialId 로 확장.
+          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
+          const [imRow] = await db
+            .select({ legacyMaterialId: itemMaster.legacyMaterialId })
+            .from(itemMaster)
+            .where(
+              and(
+                eq(itemMaster.id, input.materialId),
+                eq(itemMaster.tenantId, ctx.tenantId as any),
+              ),
+            )
+            .limit(1);
+
+          const materialIds = [input.materialId];
+          if (imRow?.legacyMaterialId) materialIds.push(imRow.legacyMaterialId);
+
+          conditions.push(
+            materialIds.length === 1
+              ? eq(hInventoryLots.materialId, materialIds[0])
+              : inArray(hInventoryLots.materialId, materialIds),
+          );
+        }
 
         const lots = await db.select().from(hInventoryLots).where(and(...conditions));
 
