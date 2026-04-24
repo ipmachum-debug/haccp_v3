@@ -594,7 +594,163 @@ export const inventoryRouter = router({
         
         return { success: true, message: `재고가 조정되었습니다. (${oldQty} → ${finalQty})` };
       }),
-    
+
+    /**
+     * 제품 단위 재고 조정 (+/-) — LOT 자동 배분.
+     *
+     * 2026-04-22 추가: 기존 adjustStock 은 LOT 을 직접 선택해야 했으나,
+     * 사용자가 특정 LOT 을 고르기보다는 "제품 단위로 +/- 수량 조정" 하고 싶어함.
+     * B 방식 (생성 시간 순서 FEFO):
+     *   - 증가(+): 최신 LOT 1개에 추가 (createdAt DESC first)
+     *   - 감소(-): 가장 오래된 LOT 부터 cascade 차감 (createdAt ASC, FEFO)
+     *
+     * 활성 LOT 이 전혀 없으면 throw — 수동 입고 또는 생산 완료 경로 이용.
+     */
+    adjustStockByProduct: workerProcedure
+      .input(
+        z.object({
+          productId: z.number().optional(),
+          materialId: z.number().optional(),
+          quantityChange: z.number(), // 양수=증가, 음수=감소
+          reason: z.string().min(1),
+        }).refine(
+          (v) => (v.productId && !v.materialId) || (!v.productId && v.materialId),
+          { message: "productId 또는 materialId 중 하나만 지정해야 합니다" },
+        ),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        if (input.quantityChange === 0) throw new Error("조정 수량은 0 이 될 수 없습니다");
+
+        const conditions = [
+          eq(hInventoryLots.tenantId, ctx.tenantId as any),
+          eq(hInventoryLots.status, "available"),
+        ];
+        if (input.productId) conditions.push(eq(hInventoryLots.productId, input.productId));
+        if (input.materialId) conditions.push(eq(hInventoryLots.materialId, input.materialId));
+
+        const lots = await db.select().from(hInventoryLots).where(and(...conditions));
+
+        if (lots.length === 0) {
+          throw new Error(
+            "활성 LOT 없음 — 재고 증가는 수동 입고/생산 완료로, 감소는 기존 LOT 고갈 상태에서 불가.",
+          );
+        }
+
+        // 정렬: 증가 → 최신 먼저, 감소 → 오래된 먼저
+        const sorted = [...lots].sort((a, b) => {
+          const aT = new Date(a.createdAt).getTime();
+          const bT = new Date(b.createdAt).getTime();
+          return input.quantityChange > 0 ? bT - aT : aT - bT;
+        });
+
+        const affected: Array<{
+          lotId: number;
+          lotNumber: string;
+          changeQty: number;
+          newAvailable: number;
+        }> = [];
+
+        if (input.quantityChange > 0) {
+          // 증가: 최신 LOT 에 전량 추가
+          const target = sorted[0];
+          const newAvail = parseFloat(target.availableQuantity) + input.quantityChange;
+          const newTotal = parseFloat(target.quantity) + input.quantityChange;
+
+          await db
+            .update(hInventoryLots)
+            .set({
+              availableQuantity: newAvail.toFixed(3),
+              quantity: newTotal.toFixed(3),
+            })
+            .where(
+              and(
+                eq(hInventoryLots.id, target.id),
+                eq(hInventoryLots.tenantId, ctx.tenantId as any),
+              ),
+            );
+
+          await db.insert(hInventoryTransactions).values({
+            tenantId: ctx.tenantId,
+            lotId: target.id,
+            transactionType: "adjustment",
+            quantity: input.quantityChange.toFixed(3),
+            unit: target.unit,
+            transactionDate: new Date() as any,
+            notes: input.reason,
+            createdBy: ctx.user.id,
+          } as any);
+
+          affected.push({
+            lotId: target.id,
+            lotNumber: target.lotNumber,
+            changeQty: input.quantityChange,
+            newAvailable: newAvail,
+          });
+        } else {
+          // 감소: 오래된 LOT 부터 cascade
+          let remaining = Math.abs(input.quantityChange);
+          const totalAvail = sorted.reduce(
+            (s, l) => s + parseFloat(l.availableQuantity),
+            0,
+          );
+          if (totalAvail + 0.001 < remaining) {
+            throw new Error(
+              `재고 부족: 요청 ${remaining.toFixed(3)}, 가용 ${totalAvail.toFixed(3)}`,
+            );
+          }
+
+          for (const lot of sorted) {
+            if (remaining <= 0.001) break;
+            const avail = parseFloat(lot.availableQuantity);
+            const take = Math.min(remaining, avail);
+            const newAvail = avail - take;
+            const newTotal = parseFloat(lot.quantity) - take;
+
+            await db
+              .update(hInventoryLots)
+              .set({
+                availableQuantity: newAvail.toFixed(3),
+                quantity: newTotal.toFixed(3),
+                ...(newAvail <= 0.001 ? { status: "used" as const } : {}),
+              })
+              .where(
+                and(
+                  eq(hInventoryLots.id, lot.id),
+                  eq(hInventoryLots.tenantId, ctx.tenantId as any),
+                ),
+              );
+
+            await db.insert(hInventoryTransactions).values({
+              tenantId: ctx.tenantId,
+              lotId: lot.id,
+              transactionType: "adjustment",
+              quantity: (-take).toFixed(3),
+              unit: lot.unit,
+              transactionDate: new Date() as any,
+              notes: input.reason,
+              createdBy: ctx.user.id,
+            } as any);
+
+            affected.push({
+              lotId: lot.id,
+              lotNumber: lot.lotNumber,
+              changeQty: -take,
+              newAvailable: newAvail,
+            });
+            remaining -= take;
+          }
+        }
+
+        return {
+          success: true,
+          affectedLots: affected,
+          totalChange: input.quantityChange,
+          message: `${affected.length}개 LOT 조정 완료 (${input.quantityChange > 0 ? "+" : ""}${input.quantityChange})`,
+        };
+      }),
+
     // 재고 예측 (과거 사용 패턴 분석)
     getForecast: tenantRequiredProcedure
       .input(
