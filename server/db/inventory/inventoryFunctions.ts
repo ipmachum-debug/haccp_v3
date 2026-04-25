@@ -960,8 +960,12 @@ export async function getInventoryTrend(params: {
     sql`${dateExpr} >= ${startDate}`,
     sql`${dateExpr} <= ${endDate}`,
     eq(hInventoryTransactions.tenantId, params.tenantId),
-    // 원재료 LOT 만: 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 추이에서 제외 (PR-F)
+    // 진짜 원재료 LOT 만 (PR-H 2026-04-25):
+    //   PR #64 의 material_id NOT NULL 필터만으로는 historical dirty data
+    //   (product_id, material_id 둘 다 채워진 매출 차감 LOT) 가 통과해서
+    //   원재료 추이/회전율에 매출이 잘못 합산됨. product_id IS NULL 조건 추가로 해결.
     sql`${hInventoryLots.materialId} IS NOT NULL`,
+    sql`${hInventoryLots.productId} IS NULL`,
   ];
 
   if (params.materialId) {
@@ -1032,8 +1036,9 @@ export async function getInventoryTurnoverAnalysis(params: {
       eq(hInventoryTransactions.tenantId, params.tenantId),
       sql`${dateExpr} >= ${startDate}`,
       sql`${dateExpr} <= ${endDate}`,
-      // 원재료 LOT 만: 제품 LOT 매출 차감을 원재료 회전율에서 제외 (PR-F)
+      // 진짜 원재료 LOT 만 (PR-H): dirty data (product_id+material_id 동시 채워진 LOT) 제외
       sql`${hInventoryLots.materialId} IS NOT NULL`,
+      sql`${hInventoryLots.productId} IS NULL`,
     ))
     .groupBy(hInventoryLots.materialId);
 
