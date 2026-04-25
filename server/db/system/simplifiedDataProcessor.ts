@@ -314,63 +314,115 @@ async function ensureProduct(
   name: string,
   userId: number
 ): Promise<number> {
-  // 기존 제품 조회
-  const [rows] = await conn.execute(
-    `SELECT id FROM h_item_master
-     WHERE tenant_id = ? AND item_name = ? AND item_type = 'finished_product'
+  // 정상 시스템의 진실 source 는 h_products_v2 (batch.product_id 와 일치).
+  // 과거에 h_item_master 만 사용해서 batch/lot 의 product_id 와 정합성 깨지는 사고가
+  // 있어서 (2026-04-25 옵션 A 로 82건 정정), h_products_v2 우선 조회/등록 으로 변경.
+  // h_item_master 도 동기화 (legacy_product_id) — 다른 모듈 호환성 유지.
+  const [v2Rows] = await conn.execute(
+    `SELECT id FROM h_products_v2
+     WHERE tenant_id = ? AND product_name = ? AND is_active = 1
      LIMIT 1`,
     [tenantId, name]
   );
-  const existing = getFirstRow<{ id: number }>(rows);
-  if (existing) return existing.id;
+  const v2Existing = getFirstRow<{ id: number }>(v2Rows);
+  if (v2Existing) {
+    // h_item_master 에 legacy_product_id 매핑 보강 (없으면 추가)
+    await conn.execute(
+      `INSERT IGNORE INTO h_item_master
+         (tenant_id, item_code, item_name, item_type, base_unit,
+          legacy_product_id, created_by, created_at)
+       SELECT tenant_id, product_code, product_name, 'finished_product', COALESCE(unit, 'kg'),
+              id, ?, NOW()
+         FROM h_products_v2 WHERE id = ?`,
+      [userId, v2Existing.id]
+    );
+    return v2Existing.id;
+  }
 
-  // 자동 코드 생성
+  // 자동 코드 생성 (h_products_v2 기준 카운트 — tenant 격리)
   const [countRows] = await conn.execute(
-    `SELECT COUNT(*) as cnt FROM h_item_master
-     WHERE tenant_id = ? AND item_type = 'finished_product'`,
+    `SELECT COUNT(*) as cnt FROM h_products_v2 WHERE tenant_id = ?`,
     [tenantId]
   );
   const cnt = getFirstRow<{ cnt: number }>(countRows)?.cnt ?? 0;
   const code = `FP-${String(cnt + 1).padStart(4, "0")}`;
 
+  // h_products_v2 INSERT (정상 진실 source)
   const [insertResult] = await conn.execute(
-    `INSERT INTO h_item_master (tenant_id, item_code, item_name, item_type, base_unit, created_by, created_at)
-     VALUES (?, ?, ?, 'finished_product', 'kg', ?, NOW())`,
-    [tenantId, code, name, userId]
+    `INSERT INTO h_products_v2
+       (tenant_id, product_code, product_name, unit, is_active, created_at)
+     VALUES (?, ?, ?, 'kg', 1, NOW())`,
+    [tenantId, code, name]
   );
-  return getInsertId(insertResult);
+  const productId = getInsertId(insertResult);
+
+  // h_item_master 동기화 (다른 모듈에서 item_master 사용)
+  await conn.execute(
+    `INSERT INTO h_item_master
+       (tenant_id, item_code, item_name, item_type, base_unit,
+        legacy_product_id, created_by, created_at)
+     VALUES (?, ?, ?, 'finished_product', 'kg', ?, ?, NOW())`,
+    [tenantId, code, name, productId, userId]
+  );
+
+  return productId;
 }
 
-/** 원료 조회 또는 자동 등록 */
+/** 원료 조회 또는 자동 등록
+ *  진실 source 는 h_materials (h_inventory_lots.material_id 와 일치).
+ *  h_item_master 동기화 (legacy_material_id) — 다른 모듈 호환성. */
 async function ensureMaterial(
   conn: PoolConnection,
   tenantId: number,
   name: string,
   userId: number
 ): Promise<number> {
-  const [rows] = await conn.execute(
-    `SELECT id FROM h_item_master
-     WHERE tenant_id = ? AND item_name = ? AND item_type = 'raw_material'
+  const [matRows] = await conn.execute(
+    `SELECT id FROM h_materials
+     WHERE tenant_id = ? AND material_name = ? AND is_active = 1
      LIMIT 1`,
     [tenantId, name]
   );
-  const existing = getFirstRow<{ id: number }>(rows);
-  if (existing) return existing.id;
+  const matExisting = getFirstRow<{ id: number }>(matRows);
+  if (matExisting) {
+    await conn.execute(
+      `INSERT IGNORE INTO h_item_master
+         (tenant_id, item_code, item_name, item_type, base_unit,
+          legacy_material_id, created_by, created_at)
+       SELECT tenant_id, material_code, material_name, 'raw_material', COALESCE(unit, 'kg'),
+              id, ?, NOW()
+         FROM h_materials WHERE id = ?`,
+      [userId, matExisting.id]
+    );
+    return matExisting.id;
+  }
 
   const [countRows] = await conn.execute(
-    `SELECT COUNT(*) as cnt FROM h_item_master
-     WHERE tenant_id = ? AND item_type = 'raw_material'`,
+    `SELECT COUNT(*) as cnt FROM h_materials WHERE tenant_id = ?`,
     [tenantId]
   );
   const cnt = getFirstRow<{ cnt: number }>(countRows)?.cnt ?? 0;
   const code = `RM-${String(cnt + 1).padStart(4, "0")}`;
 
+  // h_materials INSERT (진실 source)
   const [insertResult] = await conn.execute(
-    `INSERT INTO h_item_master (tenant_id, item_code, item_name, item_type, base_unit, created_by, created_at)
-     VALUES (?, ?, ?, 'raw_material', 'kg', ?, NOW())`,
-    [tenantId, code, name, userId]
+    `INSERT INTO h_materials
+       (tenant_id, material_code, material_name, unit, kind, is_active, created_at)
+     VALUES (?, ?, ?, 'kg', 'RAW', 1, NOW())`,
+    [tenantId, code, name]
   );
-  return getInsertId(insertResult);
+  const materialId = getInsertId(insertResult);
+
+  // h_item_master 동기화
+  await conn.execute(
+    `INSERT INTO h_item_master
+       (tenant_id, item_code, item_name, item_type, base_unit,
+        legacy_material_id, created_by, created_at)
+     VALUES (?, ?, ?, 'raw_material', 'kg', ?, ?, NOW())`,
+    [tenantId, code, name, materialId, userId]
+  );
+
+  return materialId;
 }
 
 /** 거래처 조회 또는 자동 등록 */

@@ -1,8 +1,30 @@
 #!/usr/bin/env python3
 """
+⚠️  DEPRECATED — 재실행 금지 (2026-04-25)
+═══════════════════════════════════════════════════════════════════════
+이 스크립트는 일회성 데이터 임포트로 이미 운영DB(tenant 2)에 반영됨.
+재실행 시 중복 데이터 + product_id 정합성 깨짐 위험.
+
+[발견된 버그]
+- line 188: `INSERT INTO h_products` (구 v1 테이블, 현 시스템은 h_products_v2 사용)
+- line 186: `next_product_id = 43` (작성 시점 가정값, 실제 max id 와 무관)
+- line 211/554: PRODUCT_MAP[name] 사용 — batch.product_id, lot.product_id 둘 다 v1 ID
+- 그 후 migrate-products-v1-to-v2.ts 가 batch.product_id 만 v2 ID 로 정정하면서
+  h_inventory_lots 의 product_id 와 미스매치 발생 (운영 사고)
+- 2026-04-25 옵션 A 일괄 UPDATE 로 82건 정정 완료
+
+[향후 임포트 작성 시 가이드]
+docs/architecture/05-data-import-guide.md 참조.
+요약:
+  1. PRODUCT_MAP 은 hardcoded 가 아닌 DB 조회로 빌드 (이름 → h_products_v2.id)
+  2. 신규 제품은 h_products_v2 INSERT 후 lastInsertId 받아서 사용
+  3. batch.product_id 와 h_inventory_lots.product_id 는 반드시 동일 source
+  4. 임포트 후 scripts/check-lot-product-mismatch.ts 로 검증
+═══════════════════════════════════════════════════════════════════════
+
 생산 데이터 임포트 스크립트 (2026-03-20 ~ 2026-04-03)
 - 43개 생산 기록, 22개 제품, 41개 원재료
-- 배치 생성, CCP 기록지(h_ccp_instances + h_ccp_form_records + h_ccp_form_rows), 
+- 배치 생성, CCP 기록지(h_ccp_instances + h_ccp_form_records + h_ccp_form_rows),
   원료 소모, 재고 트랜잭션, 제품 LOT 생성
 
 CCP 공정 시간 (사용자 지정):
