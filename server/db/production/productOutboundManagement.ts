@@ -917,7 +917,10 @@ export async function getProductTurnoverAnalysis(params: {
      LEFT JOIN item_master im ON im.legacy_product_id = b.product_id AND im.item_type = 'own_product'
      LEFT JOIN (
        SELECT source_id as batch_id,
-              SUM(CASE WHEN DATE(COALESCE(transaction_date, created_at)) >= ? AND DATE(COALESCE(transaction_date, created_at)) <= ? THEN ABS(quantity) ELSE 0 END) as total_outbound,
+              -- KST 변환: created_at(UTC) 의 -1일 어긋남 방지 (PR-G)
+              SUM(CASE WHEN DATE(CONVERT_TZ(COALESCE(transaction_date, created_at), '+00:00', '+09:00')) >= ?
+                        AND DATE(CONVERT_TZ(COALESCE(transaction_date, created_at), '+00:00', '+09:00')) <= ?
+                       THEN ABS(quantity) ELSE 0 END) as total_outbound,
               SUM(ABS(quantity)) as all_outbound
        FROM h_inventory_transactions
        WHERE tenant_id = ? AND transaction_type = 'usage' AND source_type = 'BATCH'
