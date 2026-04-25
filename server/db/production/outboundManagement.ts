@@ -326,10 +326,12 @@ export async function getConsumptionSummary(params: {
   const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
 
   // UNION ALL: h_inventory_transactions (usage) + h_batch_inputs (중복 제외)
+  // PR-I (2026-04-25): 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 소모
+  //   화면에서 제외 + KST 변환 (UTC -1일 어긋남 방지). PR-H 와 동일한 패턴.
   const [rows]: any = await db.execute(sql.raw(`
     (
       SELECT
-        DATE(COALESCE(t.transaction_date, t.created_at)) AS txDate,
+        DATE(CONVERT_TZ(COALESCE(t.transaction_date, t.created_at), '+00:00', '+09:00')) AS txDate,
         COALESCE(m1.material_name, m2.material_name) AS materialName,
         COALESCE(m1.id, m2.id) AS materialId,
         ABS(t.quantity) AS quantity,
@@ -350,6 +352,10 @@ export async function getConsumptionSummary(params: {
         AND t.tenant_id = ${tenantId}
         AND COALESCE(t.transaction_date, t.created_at) >= '${startDate}'
         AND COALESCE(t.transaction_date, t.created_at) < '${endDate}'
+        -- PR-I: 제품 LOT 매출 차감 제외 (원재료 소모 화면이므로)
+        --   lot 매칭 실패 (l.id IS NULL) 도 포함 (lot_id 0 등 비정상 케이스 보존)
+        --   매칭된 lot 중 product_id 가 채워진 것만 제외
+        AND (l.id IS NULL OR l.product_id IS NULL)
     )
     UNION ALL
     (
