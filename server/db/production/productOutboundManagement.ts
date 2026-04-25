@@ -180,9 +180,11 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
   }
 
   // 3. SKU 실적 조회 (batchLifecycle.completeBatch 와 동일 쿼리)
+  //    kg_per_sales_unit: SKU 의 sales_unit (pack/box/개) → kg 환산 계수
+  //    (배치 수량은 보통 kg, SKU 수량은 갯수 → 차이 비교 시 환산 필요)
   const [skuRows]: any = await conn.execute(
     `SELECT pso.sku_id, pso.quantity,
-            ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price
+            ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit
        FROM production_sku_output pso
        JOIN product_skus ps ON pso.sku_id = ps.id
       WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
@@ -196,11 +198,13 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
 
   // 4-A. SKU 분기 (멀티 LOT)
   if ((skuRows as any[]).length > 0) {
-    let skuTotal = 0;
+    let skuTotalInBatchUnit = 0; // batch 단위 (보통 kg) 로 환산한 SKU 합
     for (const sku of skuRows as any[]) {
       const skuQty = parseFloat(String(sku.quantity || "0"));
       if (skuQty <= 0) continue;
-      skuTotal += skuQty;
+      // batch 단위로 환산하여 합산 (차이 비교용)
+      const kgPerUnit = parseFloat(String(sku.kg_per_sales_unit || "1")) || 1;
+      skuTotalInBatchUnit += skuQty * kgPerUnit;
 
       const lotNumber = `${batchCode}-${sku.sku_code || sku.sku_id}`;
       const salesUnit = sku.sales_unit || "box";
@@ -237,13 +241,15 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
       created.push({ lotId, lotNumber, quantity: skuQty, unit: salesUnit, skuId: Number(sku.sku_id) });
     }
 
-    // SKU 합 vs batch quantity 차이 검증 (운영 가시성 — 5% 초과 시 경고 로그)
+    // SKU 합 (batch 단위 환산) vs batch quantity 차이 검증
+    //   환산: SKU.quantity × kg_per_sales_unit = batch 단위 (보통 kg)
+    //   환산 후에도 ±5% 초과면 진짜 데이터 불일치 가능성 → 경고
     const batchQty = parseFloat(String(batch.actual_quantity ?? batch.planned_quantity ?? "0"));
     let warning: string | undefined;
-    if (batchQty > 0 && skuTotal > 0) {
-      const diffPct = Math.abs(skuTotal - batchQty) / batchQty * 100;
+    if (batchQty > 0 && skuTotalInBatchUnit > 0) {
+      const diffPct = Math.abs(skuTotalInBatchUnit - batchQty) / batchQty * 100;
       if (diffPct > 5) {
-        warning = `배치#${batchId} SKU 합(${skuTotal}) vs 배치 수량(${batchQty}) 차이 ${diffPct.toFixed(1)}%`;
+        warning = `배치#${batchId} SKU 합(${skuTotalInBatchUnit.toFixed(2)} 환산) vs 배치 수량(${batchQty}) 차이 ${diffPct.toFixed(1)}%`;
         console.warn(`[ensureBatchLots] ${warning}`);
       }
     }
