@@ -955,6 +955,9 @@ export async function getInventoryTrend(params: {
     sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
     sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
     eq(hInventoryTransactions.tenantId, params.tenantId),
+    // 원재료 LOT 만: 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 추이에서 제외
+    // 이 필터 없으면 매출 1건이 원재료 추이의 '소모' 로 잘못 합산됨 (PR-F 수정)
+    sql`${hInventoryLots.materialId} IS NOT NULL`,
   ];
 
   if (params.materialId) {
@@ -1023,6 +1026,8 @@ export async function getInventoryTurnoverAnalysis(params: {
       eq(hInventoryTransactions.tenantId, params.tenantId),
       sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
       sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
+      // 원재료 LOT 만: 제품 LOT 매출 차감을 원재료 회전율에서 제외 (PR-F)
+      sql`${hInventoryLots.materialId} IS NOT NULL`,
     ))
     .groupBy(hInventoryLots.materialId);
 
