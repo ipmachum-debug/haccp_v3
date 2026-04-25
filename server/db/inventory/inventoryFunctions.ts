@@ -951,12 +951,16 @@ export async function getInventoryTrend(params: {
   const { hInventoryTransactions, hInventoryLots } = await import("../../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
+  // KST 변환: created_at 은 UTC timestamp 라 GROUP BY 시 -1일 어긋남.
+  //   DATE(CONVERT_TZ(..., '+00:00', '+09:00')) 로 KST 자정 기준 그룹핑.
+  //   transaction_date (date 타입) 는 자정이라 영향 무시할 수 있지만 일관성 위해 함께 적용.
+  const dateExpr = sql`DATE(CONVERT_TZ(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}), '+00:00', '+09:00'))`;
+
   const conditions = [
-    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
-    sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
+    sql`${dateExpr} >= ${startDate}`,
+    sql`${dateExpr} <= ${endDate}`,
     eq(hInventoryTransactions.tenantId, params.tenantId),
-    // 원재료 LOT 만: 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 추이에서 제외
-    // 이 필터 없으면 매출 1건이 원재료 추이의 '소모' 로 잘못 합산됨 (PR-F 수정)
+    // 원재료 LOT 만: 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 추이에서 제외 (PR-F)
     sql`${hInventoryLots.materialId} IS NOT NULL`,
   ];
 
@@ -966,7 +970,7 @@ export async function getInventoryTrend(params: {
 
   const trend = await db
     .select({
-      date: sql<string>`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`,
+      date: sql<string>`${dateExpr}`,
       receiptQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'receipt' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
       usageQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'usage' THEN ABS(${hInventoryTransactions.quantity}) ELSE 0 END)`,
       adjustmentQuantity: sql<number>`SUM(CASE WHEN ${hInventoryTransactions.transactionType} = 'adjustment' THEN ${hInventoryTransactions.quantity} ELSE 0 END)`,
@@ -975,8 +979,8 @@ export async function getInventoryTrend(params: {
     .from(hInventoryTransactions)
     .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(...conditions))
-    .groupBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`)
-    .orderBy(sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}))`);
+    .groupBy(dateExpr)
+    .orderBy(dateExpr);
 
   return trend.map((row) => {
     const receipt = Number(row.receiptQuantity) || 0;
@@ -1013,7 +1017,9 @@ export async function getInventoryTurnoverAnalysis(params: {
   const { hInventoryTransactions, hMaterials, hInventoryLots } = await import("../../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
-  // 1. 기간 내 사용량 조회 - tenant_id 직접 필터 + transaction_date 기준 + ABS
+  // 1. 기간 내 사용량 조회 - tenant_id + KST 변환 + ABS
+  // KST 변환: created_at(UTC timestamp) 가 UTC 자정 부근일 때 -1일 어긋남 방지 (PR-G)
+  const dateExpr = sql`DATE(CONVERT_TZ(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}), '+00:00', '+09:00'))`;
   const usageData = await db
     .select({
       materialId: hInventoryLots.materialId,
@@ -1024,8 +1030,8 @@ export async function getInventoryTurnoverAnalysis(params: {
     .where(and(
       eq(hInventoryTransactions.transactionType, "usage"),
       eq(hInventoryTransactions.tenantId, params.tenantId),
-      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) >= ${startDate}`,
-      sql`DATE(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt})) <= ${endDate}`,
+      sql`${dateExpr} >= ${startDate}`,
+      sql`${dateExpr} <= ${endDate}`,
       // 원재료 LOT 만: 제품 LOT 매출 차감을 원재료 회전율에서 제외 (PR-F)
       sql`${hInventoryLots.materialId} IS NOT NULL`,
     ))
