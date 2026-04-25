@@ -135,6 +135,167 @@ export async function createProductLotFromBatch(params: {
   return { lotId, lotNumber, isNew: true };
 }
 
+/* ───────── 배치 LOT 보장 (idempotent) ─────────
+ * 배치가 'completed' 인데 h_inventory_lots 에 LOT 가 없으면 생성.
+ * SKU 실적 (production_sku_output) 이 있으면 SKU 별로 멀티 LOT,
+ * 없으면 단일 fallback LOT (COALESCE(actual_quantity, planned_quantity)).
+ * 이미 LOT 가 있으면 skip.
+ * batchLifecycle.completeBatch() 의 SKU LOT 생성 분기와 동일 패턴.
+ */
+export async function ensureBatchLots(batchId: number, tenantId: number): Promise<{
+  created: Array<{ lotId: number; lotNumber: string; quantity: number; unit: string; skuId: number | null }>;
+  skipped: boolean;
+  reason?: string;
+  warning?: string;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  const conn = await getRawConnection();
+
+  // 1. 배치 정보 조회
+  const [batchRows]: any = await conn.execute(
+    `SELECT b.id, b.tenant_id, b.batch_code, b.product_id, b.status,
+            b.actual_quantity, b.planned_quantity, b.end_time, b.created_at,
+            COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) AS product_name
+       FROM h_batches b
+       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+       LEFT JOIN item_master im ON im.legacy_product_id = b.product_id
+                               AND im.item_type = 'own_product'
+                               AND im.tenant_id = b.tenant_id
+      WHERE b.id = ? AND b.tenant_id = ?
+      LIMIT 1`,
+    [batchId, tenantId],
+  );
+  const batch = (batchRows as any[])[0];
+  if (!batch) return { created: [], skipped: true, reason: "batch_not_found" };
+
+  // 2. 이미 LOT 가 있으면 skip
+  const [lotCount]: any = await conn.execute(
+    `SELECT COUNT(*) AS cnt FROM h_inventory_lots
+       WHERE batch_id = ? AND tenant_id = ?`,
+    [batchId, tenantId],
+  );
+  if (Number((lotCount as any[])[0]?.cnt || 0) > 0) {
+    return { created: [], skipped: true, reason: "lots_already_exist" };
+  }
+
+  // 3. SKU 실적 조회 (batchLifecycle.completeBatch 와 동일 쿼리)
+  const [skuRows]: any = await conn.execute(
+    `SELECT pso.sku_id, pso.quantity,
+            ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price
+       FROM production_sku_output pso
+       JOIN product_skus ps ON pso.sku_id = ps.id
+      WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
+    [batchId, tenantId],
+  );
+
+  const created: Array<{ lotId: number; lotNumber: string; quantity: number; unit: string; skuId: number | null }> = [];
+  const productionDate = batch.end_time || batch.created_at || new Date();
+  const batchCode = batch.batch_code || `B${batchId}`;
+  const productName = batch.product_name || "제품";
+
+  // 4-A. SKU 분기 (멀티 LOT)
+  if ((skuRows as any[]).length > 0) {
+    let skuTotal = 0;
+    for (const sku of skuRows as any[]) {
+      const skuQty = parseFloat(String(sku.quantity || "0"));
+      if (skuQty <= 0) continue;
+      skuTotal += skuQty;
+
+      const lotNumber = `${batchCode}-${sku.sku_code || sku.sku_id}`;
+      const salesUnit = sku.sales_unit || "box";
+      const skuName = sku.sku_name || "";
+
+      const [insertResult]: any = await conn.execute(
+        `INSERT INTO h_inventory_lots
+           (tenant_id, batch_id, product_id, sku_id, sku_name, lot_number,
+            quantity, available_quantity, unit, unit_price,
+            production_date, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available', NOW(), NOW())`,
+        [
+          tenantId, batchId, batch.product_id, sku.sku_id, skuName, lotNumber,
+          String(skuQty), String(skuQty), salesUnit,
+          sku.unit_price ? String(sku.unit_price) : "0",
+          productionDate,
+        ],
+      );
+      const lotId = Number((insertResult as any).insertId);
+
+      // 입고 트랜잭션 기록
+      await db.insert(hInventoryTransactions).values({
+        tenantId,
+        lotId,
+        transactionType: "inbound",
+        quantity: String(skuQty),
+        unit: salesUnit,
+        notes: `LOT 보강 생성 (배치: ${batchCode}, SKU: ${skuName}, ${productName})`,
+        createdBy: 1,
+        performedBy: 1,
+        transactionDate: todayKST(),
+      } as any);
+
+      created.push({ lotId, lotNumber, quantity: skuQty, unit: salesUnit, skuId: Number(sku.sku_id) });
+    }
+
+    // SKU 합 vs batch quantity 차이 검증 (운영 가시성 — 5% 초과 시 경고 로그)
+    const batchQty = parseFloat(String(batch.actual_quantity ?? batch.planned_quantity ?? "0"));
+    let warning: string | undefined;
+    if (batchQty > 0 && skuTotal > 0) {
+      const diffPct = Math.abs(skuTotal - batchQty) / batchQty * 100;
+      if (diffPct > 5) {
+        warning = `배치#${batchId} SKU 합(${skuTotal}) vs 배치 수량(${batchQty}) 차이 ${diffPct.toFixed(1)}%`;
+        console.warn(`[ensureBatchLots] ${warning}`);
+      }
+    }
+
+    return { created, skipped: false, warning };
+  }
+
+  // 4-B. SKU 없음 → 단일 fallback LOT
+  const fallbackQty = parseFloat(String(batch.actual_quantity ?? batch.planned_quantity ?? "0"));
+  if (fallbackQty <= 0) {
+    return { created: [], skipped: true, reason: "no_quantity" };
+  }
+
+  const lotNumber = `PROD-${batchCode}`;
+  // unit 폴백: item_master.base_unit → 'kg'
+  const [unitRow]: any = await conn.execute(
+    `SELECT base_unit FROM item_master
+      WHERE tenant_id = ? AND legacy_product_id = ? LIMIT 1`,
+    [tenantId, batch.product_id],
+  );
+  const unit = (unitRow as any[])[0]?.base_unit || "kg";
+
+  const [insertResult]: any = await conn.execute(
+    `INSERT INTO h_inventory_lots
+       (tenant_id, batch_id, product_id, lot_number,
+        quantity, available_quantity, unit,
+        production_date, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'available', NOW(), NOW())`,
+    [
+      tenantId, batchId, batch.product_id, lotNumber,
+      String(fallbackQty), String(fallbackQty), unit,
+      productionDate,
+    ],
+  );
+  const lotId = Number((insertResult as any).insertId);
+
+  await db.insert(hInventoryTransactions).values({
+    tenantId,
+    lotId,
+    transactionType: "inbound",
+    quantity: String(fallbackQty),
+    unit,
+    notes: `LOT 보강 생성 (배치: ${batchCode}, ${productName})`,
+    createdBy: 1,
+    performedBy: 1,
+    transactionDate: todayKST(),
+  } as any);
+
+  created.push({ lotId, lotNumber, quantity: fallbackQty, unit, skuId: null });
+  return { created, skipped: false };
+}
+
 /* ───────── 제품 출고 가능 재고 조회 (LOT 기반, FEFO) ───────── */
 export async function getProductAvailableForRelease(tenantId: number) {
   await ensureProductOutboundTable();

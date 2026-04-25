@@ -396,17 +396,53 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
   // ★ 상태 전환 시 타임스탬프 자동 설정
   const updateData: any = { status, updatedAt: new Date() };
   const now = new Date();
+
+  // status='completed' 경로 보강:
+  //   completeBatch() 를 거치지 않고 이 함수로 직접 'completed' 가 되는 경우
+  //   (예: 승인 후 status 드롭다운 변경) 에 actual_quantity 가 NULL 로 남고
+  //   h_inventory_lots 에 LOT 가 만들어지지 않아 재고 조정/출고에서 보이지 않음.
+  //   여기서 actual_quantity NULL fallback + LOT 자동 생성으로 재발 방지.
+  let batchRow: any = null;
+  let shouldEnsureLot = false;
   if (status === "in_progress") {
     updateData.startTime = now;
   } else if (status === "completed") {
     updateData.endTime = now;
     updateData.completedAt = now;
+
+    const rows = await db.select().from(hBatches).where(and(...conditions)).limit(1);
+    batchRow = rows[0];
+    if (batchRow) {
+      // actual_quantity NULL → planned_quantity 폴백
+      if (batchRow.actualQuantity == null && batchRow.plannedQuantity != null) {
+        updateData.actualQuantity = String(batchRow.plannedQuantity);
+      }
+      shouldEnsureLot = true;
+    }
   }
 
   await db
     .update(hBatches)
     .set(updateData)
     .where(and(...conditions));
+
+  // LOT 자동 생성 (status='completed' & 누락 시에만)
+  // ensureBatchLots: SKU 실적 있으면 SKU별 멀티 LOT, 없으면 단일 fallback LOT.
+  // 이미 LOT 가 있으면 내부에서 skip. 멱등.
+  if (shouldEnsureLot && batchRow && batchRow.tenantId && batchRow.productId) {
+    try {
+      const { ensureBatchLots } = await import("./productOutboundManagement");
+      const result = await ensureBatchLots(batchId, batchRow.tenantId);
+      if (result.created.length > 0) {
+        console.log(
+          `[updateBatchStatus] LOT 자동 생성 (배치#${batchId}, ${result.created.length}건)`,
+        );
+      }
+    } catch (e) {
+      console.error(`[updateBatchStatus] LOT 자동 생성 실패 (배치#${batchId}):`, e);
+      // LOT 생성 실패해도 status update 자체는 유지 (이미 커밋됨)
+    }
+  }
 }
 
 export async function deleteBatch(batchId: number, tenantId?: number) {
