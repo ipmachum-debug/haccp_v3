@@ -353,9 +353,11 @@ export async function getConsumptionSummary(params: {
         AND COALESCE(t.transaction_date, t.created_at) >= '${startDate}'
         AND COALESCE(t.transaction_date, t.created_at) < '${endDate}'
         -- PR-I: 제품 LOT 매출 차감 제외 (원재료 소모 화면이므로)
-        --   lot 매칭 실패 (l.id IS NULL) 도 포함 (lot_id 0 등 비정상 케이스 보존)
-        --   매칭된 lot 중 product_id 가 채워진 것만 제외
         AND (l.id IS NULL OR l.product_id IS NULL)
+        -- PR-J: lot 매칭 실패한 SALE 매출 차감도 명시적으로 제외
+        --   PR-I 의 lot 기반 필터로는 lot_id 가 잘못된 값이라 LEFT JOIN 실패한
+        --   매출 차감 트랜잭션이 통과되던 문제 해결.
+        AND (t.reference_type IS NULL OR t.reference_type != 'SALE')
     )
     UNION ALL
     (
