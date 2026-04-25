@@ -79,7 +79,10 @@ async function main() {
        b.end_time,
        (SELECT COUNT(*) FROM production_sku_output pso
           WHERE pso.batch_id = b.id AND pso.tenant_id = b.tenant_id) AS sku_count,
-       (SELECT COALESCE(SUM(pso.quantity), 0) FROM production_sku_output pso
+       -- SKU 합을 batch 단위(보통 kg)로 환산: quantity × kg_per_sales_unit
+       (SELECT COALESCE(SUM(pso.quantity * COALESCE(ps.kg_per_sales_unit, 1)), 0)
+          FROM production_sku_output pso
+          JOIN product_skus ps ON pso.sku_id = ps.id
           WHERE pso.batch_id = b.id AND pso.tenant_id = b.tenant_id) AS sku_total
      FROM h_batches b
      WHERE b.tenant_id = ?
@@ -116,13 +119,12 @@ async function main() {
   console.log("\n--- 백필 미리보기 (상위 10건) ---");
   for (const r of (rows as any[]).slice(0, 10)) {
     const skuCnt = Number(r.sku_count);
-    const skuTot = parseFloat(String(r.sku_total));
+    const skuTot = parseFloat(String(r.sku_total)); // 이미 batch 단위(kg)로 환산됨
     const batchQty = parseFloat(String(r.qty));
     const diffPct = batchQty > 0 ? Math.abs(skuTot - batchQty) / batchQty * 100 : 0;
-    // 단위 차이 가능성 (sku.quantity 는 박스 갯수, batch.quantity 는 kg) 으로
-    // 차이가 크게 나올 수 있음 — 정상 데이터일 수도 있음
+    // kg_per_sales_unit 환산 후에도 ±5% 초과면 진짜 데이터 차이 가능성
     const skuTag = skuCnt > 0
-      ? `SKU×${skuCnt}=${skuTot}${diffPct > 5 ? ` ⚠배치(${batchQty})와 ${diffPct.toFixed(1)}% 차이 (단위차이?)` : ""}`
+      ? `SKU×${skuCnt}≈${skuTot.toFixed(1)}kg${diffPct > 5 ? ` ⚠배치(${batchQty})와 ${diffPct.toFixed(1)}% 차이` : ""}`
       : `단일 ${batchQty}`;
     console.log(`  batch#${r.batch_id} ${r.batch_code} → ${skuTag}`);
   }
