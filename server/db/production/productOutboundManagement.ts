@@ -646,7 +646,7 @@ export async function getProductOutboundHistory(params: {
     WHERE it.tenant_id = ?
       AND it.reference_type = 'SALE'
       AND it.transaction_type = 'usage'
-      AND s.status != 'cancelled'
+      AND s.status NOT IN ('pending', 'cancelled')
   `;
   if (params.batchId) { where2 += ` AND lot.batch_id = ?`; params2.push(params.batchId); }
   if (params.partnerId) { where2 += ` AND s.partner_id = ?`; params2.push(params.partnerId); }
@@ -797,10 +797,18 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
 
 /* ───────── 제품 출고 추이 (일별) ───────── */
 /**
- * 실제 출고 데이터를 3개 소스에서 통합 조회:
- * 1. h_product_outbound (직접 출고 기록 - 있는 경우)
- * 2. h_inventory_transactions (transaction_type='usage', product 관련)
- * 3. accounting_sales (매출 전표)
+ * 출고 추이 = 출고 이력의 일별 집계.
+ * getProductOutboundHistory 와 동일한 2 소스 사용 (불일치 방지):
+ *   소스 1: h_product_outbound (정방향 출고 등록)
+ *   소스 2: h_inventory_transactions(reference_type='SALE') INNER JOIN accounting_sales
+ *           (매출 승인 시 productSalePost 가 자동 생성, status='pending' 매출 제외)
+ *
+ * 이전 버그 (수정됨):
+ *   - 소스 2 가 reference_type 필터 없이 모든 'usage' 트랜잭션 (생산투입/조정/폐기 포함)
+ *     을 합산해서 추이 화면에 비매출 건수 혼입 (4/14 의 165건 = 152 usage + 13 이중)
+ *   - 소스 3 (accounting_sales 단독) 이 같은 매출을 한 번 더 카운트 → 이중
+ *   - status enum 'confirmed','paid' 가 운영 enum (pending/approved/received/cancelled)
+ *     에 존재하지 않아 일부 매출만 잡히는 부작용
  */
 export async function getProductOutboundTrend(params: {
   startDate: string;
@@ -808,7 +816,6 @@ export async function getProductOutboundTrend(params: {
 }, tenantId: number) {
   const conn = await getRawConnection();
 
-  // 3개 소스를 UNION ALL로 통합하여 일별 집계
   const [rows] = await conn.execute(
     `SELECT
       trend_date as date,
@@ -818,7 +825,7 @@ export async function getProductOutboundTrend(params: {
       SUM(amount) as total_amount,
       SUM(tx_count) as transaction_count
     FROM (
-      -- 소스 1: h_product_outbound (직접 출고)
+      -- 소스 1: h_product_outbound (정방향 출고 등록)
       SELECT
         DATE(REPLACE(REPLACE(o.release_date, '.', '-'), ' ', '')) as trend_date,
         CASE WHEN o.release_type IN ('sale', 'delivery') THEN o.quantity ELSE 0 END as sale_qty,
@@ -833,40 +840,30 @@ export async function getProductOutboundTrend(params: {
 
       UNION ALL
 
-      -- 소스 2: h_inventory_transactions (usage - 제품/원재료 출고)
-      SELECT
-        DATE(COALESCE(t.transaction_date, t.created_at)) as trend_date,
-        ABS(t.quantity) as sale_qty,
-        0 as sample_qty,
-        0 as return_qty,
-        ABS(COALESCE(t.amount, 0)) as amount,
-        1 as tx_count
-      FROM h_inventory_transactions t
-      WHERE t.tenant_id = ? AND t.transaction_type = 'usage'
-        AND DATE(COALESCE(t.transaction_date, t.created_at)) >= ?
-        AND DATE(COALESCE(t.transaction_date, t.created_at)) <= ?
-
-      UNION ALL
-
-      -- 소스 3: accounting_sales (매출 전표 - confirmed)
+      -- 소스 2: 매출 경로 (productSalePost 가 SALE tx 생성)
+      --        accounting_sales INNER JOIN 으로 status='pending' 매출과 고아 tx 제거
       SELECT
         DATE(s.transaction_date) as trend_date,
-        COALESCE(s.quantity, 0) as sale_qty,
+        ABS(it.quantity) as sale_qty,
         0 as sample_qty,
         0 as return_qty,
-        COALESCE(s.total_amount, 0) as amount,
+        ABS(COALESCE(it.amount, 0)) as amount,
         1 as tx_count
-      FROM accounting_sales s
-      WHERE s.tenant_id = ? AND s.status IN ('confirmed', 'received', 'paid')
-        AND DATE(s.transaction_date) >= ?
-        AND DATE(s.transaction_date) <= ?
+      FROM h_inventory_transactions it
+      INNER JOIN accounting_sales s
+              ON s.id = it.source_id AND s.tenant_id = it.tenant_id
+      WHERE it.tenant_id = ?
+        AND it.reference_type = 'SALE'
+        AND it.transaction_type = 'usage'
+        AND s.status NOT IN ('pending', 'cancelled')
+        AND s.transaction_date >= ?
+        AND s.transaction_date <= ?
     ) combined
     GROUP BY trend_date
     ORDER BY trend_date`,
     [
       tenantId, params.startDate, params.endDate,  // h_product_outbound
-      tenantId, params.startDate, params.endDate,  // h_inventory_transactions
-      tenantId, params.startDate, params.endDate,  // accounting_sales
+      tenantId, params.startDate, params.endDate,  // sale path
     ]
   );
 
