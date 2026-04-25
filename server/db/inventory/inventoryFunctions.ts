@@ -966,6 +966,11 @@ export async function getInventoryTrend(params: {
     //   원재료 추이/회전율에 매출이 잘못 합산됨. product_id IS NULL 조건 추가로 해결.
     sql`${hInventoryLots.materialId} IS NOT NULL`,
     sql`${hInventoryLots.productId} IS NULL`,
+    // PR-K (2026-04-25): SALE 매출 차감을 lot 데이터와 무관하게 명시적으로 제외.
+    //   PR #66 의 lot 기반 필터로는 lot 매칭 실패 (l.id IS NULL) 한 SALE 트랜잭션이
+    //   통과되던 문제 해결. 또 backfill 된 SALE tx 의 transaction_date 가 과거로
+    //   설정되어 매출이 옛날 날짜에 합산되던 케이스도 함께 차단.
+    sql`(${hInventoryTransactions.referenceType} IS NULL OR ${hInventoryTransactions.referenceType} != 'SALE')`,
   ];
 
   if (params.materialId) {
@@ -1039,6 +1044,8 @@ export async function getInventoryTurnoverAnalysis(params: {
       // 진짜 원재료 LOT 만 (PR-H): dirty data (product_id+material_id 동시 채워진 LOT) 제외
       sql`${hInventoryLots.materialId} IS NOT NULL`,
       sql`${hInventoryLots.productId} IS NULL`,
+      // PR-K: SALE 매출 차감 명시적 제외 (lot 데이터 무관, backfill tx 도 차단)
+      sql`(${hInventoryTransactions.referenceType} IS NULL OR ${hInventoryTransactions.referenceType} != 'SALE')`,
     ))
     .groupBy(hInventoryLots.materialId);
 
