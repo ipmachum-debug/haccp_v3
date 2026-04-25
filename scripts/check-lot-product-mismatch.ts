@@ -134,6 +134,27 @@ async function main() {
     }
   }
 
+  // 4. dirty LOT: product_id 와 material_id 둘 다 채워짐 (PR-H 추가 검사)
+  //    제품 LOT 인데 material_id 가 잘못 채워져서 원재료 추이/회전율에 합산되던 케이스.
+  //    PR-H 코드 fix 로 화면 영향은 차단됐지만 데이터 정리는 별개.
+  const [dirtyLotRows]: any = await conn.execute(
+    `SELECT l.tenant_id, COUNT(*) AS cnt
+       FROM h_inventory_lots l
+      WHERE l.product_id IS NOT NULL
+        AND l.material_id IS NOT NULL
+        ${tenantFilter}
+      GROUP BY l.tenant_id`,
+  );
+  console.log("\n[4] dirty LOT: product_id 와 material_id 둘 다 채워짐 (제품 LOT 의 잘못된 material_id)");
+  if ((dirtyLotRows as any[]).length === 0) {
+    console.log("  ✓ 0건");
+  } else {
+    for (const r of dirtyLotRows as any[]) {
+      console.log(`  ⚠ tenant=${r.tenant_id}: ${r.cnt}건 (PR-H 코드 fix 로 화면 영향 차단됨, 데이터 정리는 운영자 결정)`);
+      totalIssues += Number(r.cnt);
+    }
+  }
+
   console.log("\n═══════════════════════════════════════════════════════════════");
   if (totalIssues === 0) {
     console.log("✓ 정합성 OK");
