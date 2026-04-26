@@ -92,20 +92,16 @@ export async function autoIssueMaterialsForBatch(
 
     // 2. h_batch_inputs에서 투입 계획 조회 (배치 생성 시 MF report에서 자동 생성됨)
     //
-    // ⚠️ PR-K1 (2026-04-26): h_batch_inputs.material_id 는 두 PK 공간 혼재
-    //    - 과거 데이터(2,313건): h_materials.id 사용
-    //    - 신규/현재 미차감(32건 100%): item_master.id 사용
-    //    → 폴백 LEFT JOIN 으로 양쪽 모두 매칭. COALESCE 로 컬럼 통합.
-    //    (구조적 통일은 PR-K3 영역, 본 PR 은 functional bug fix)
+    // PR-K3 (2026-04-26): canonical PK 통일 마이그레이션 완료 후
+    //   - h_batch_inputs.material_id 2,745행 모두 h_materials.id 로 통일됨
+    //   - PR-K1 의 item_master 폴백 LEFT JOIN + COALESCE 가 불필요해짐 → 제거
+    //   - 단일 LEFT JOIN h_materials 로 단순화 (마이그 전 형태로 복귀하되 의미 변화)
     const [batchInputRows]: any = await db.execute(sql`
       SELECT bi.id, bi.material_id, bi.planned_quantity, bi.actual_quantity,
              bi.unit, bi.inventory_deducted, bi.process_group_id,
-             COALESCE(m.material_name, im.item_name)         AS material_name,
-             COALESCE(m.material_code, im.item_code)         AS material_code,
-             COALESCE(m.unit_price,    im.default_unit_price) AS unit_price
+             m.material_name, m.material_code, m.unit_price
       FROM h_batch_inputs bi
-      LEFT JOIN h_materials m  ON m.id  = bi.material_id AND m.tenant_id  = bi.tenant_id
-      LEFT JOIN item_master  im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id
+      LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
       WHERE bi.batch_id = ${batchId} AND bi.tenant_id = ${tenantId}
       ORDER BY bi.id
     `);
