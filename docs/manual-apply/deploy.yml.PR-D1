@@ -1,0 +1,350 @@
+name: Deploy to Production
+
+# 트리거 (하이브리드):
+#   1. GitHub Release 생성 시 (태그 기반) → 자동 배포
+#   2. Actions UI 에서 'Run workflow' 버튼 → 수동 배포 (confirm 입력 필수)
+#
+# 흐름 (PR-D1 2026-04-27, OOM 근본 해결):
+#   [build]    Actions 러너에서 빌드 → dist.tar.gz 를 Release 자산으로 업로드
+#                                       (만약 release 트리거가 아니면 임시 release 생성)
+#     ↓
+#   [deploy]   /api/system/deploy 호출 (release_tag 전달)
+#                서버는 자산만 다운로드 → 압축 해제 → pm2 reload
+#                서버에서 npm install / npm run build 실행 안 함 (메모리 안전)
+#     ↓ 실패 시
+#   [issue]    자동 Issue 생성 + 알림
+#
+# 이전 흐름의 문제:
+#   서버에서 git pull → npm install → npm run build 를 실행하면서 8GB RAM 으로는
+#   vite/esbuild 가 OOM Kill 을 유발 → MySQL/PM2 동반 사망 → SSH 끊김.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '운영 배포를 확정하려면 "DEPLOY" 입력'
+        required: true
+        default: ''
+      target_tag:
+        description: '배포할 release tag (workflow_dispatch 시 필수, 예: v0.8.3). 비우면 latest 사용.'
+        required: false
+        default: ''
+
+jobs:
+  # ───────────────────────────────────────────
+  # 1. 빌드 — Actions 러너에서 dist 산출 후 Release 자산 업로드
+  # ───────────────────────────────────────────
+  build:
+    name: 빌드 + Release 자산 업로드
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # release 자산 업로드 필요
+    outputs:
+      release_tag: ${{ steps.resolve_tag.outputs.tag }}
+      asset_name: ${{ steps.pack.outputs.asset_name }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 수동 실행 확인
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ inputs.confirm }}" != "DEPLOY" ]; then
+            echo "::error::confirm input 이 'DEPLOY' 가 아닙니다. 배포 중단."
+            exit 1
+          fi
+          echo "✅ 수동 배포 확정"
+
+      - name: 배포 대상 tag 결정
+        id: resolve_tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [ -n "${{ inputs.target_tag }}" ]; then
+            TAG="${{ inputs.target_tag }}"
+          else
+            # latest release 가져오기
+            TAG=$(gh release view --json tagName --jq .tagName 2>/dev/null || echo "")
+            if [ -z "$TAG" ]; then
+              echo "::error::release 가 하나도 없음. 먼저 'gh release create vX.Y.Z' 로 release 생성 필요."
+              exit 1
+            fi
+          fi
+          echo "📌 배포 대상 tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: npm install
+        run: npm install
+
+      - name: 빌드
+        run: npm run build
+
+      - name: 빌드 산출물 확인
+        run: |
+          if [ ! -f "dist/index.js" ]; then
+            echo "::error::dist/index.js 생성 실패"
+            exit 1
+          fi
+          if [ ! -d "dist/public" ]; then
+            echo "::error::dist/public 생성 실패"
+            exit 1
+          fi
+          INDEX_SIZE=$(du -h dist/index.js | cut -f1)
+          PUBLIC_SIZE=$(du -sh dist/public | cut -f1)
+          echo "✅ dist/index.js: ${INDEX_SIZE}"
+          echo "✅ dist/public: ${PUBLIC_SIZE}"
+
+      - name: dist.tar.gz 생성 + 체크섬
+        id: pack
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          ASSET_NAME="dist-${TAG}-${SHORT_SHA}.tar.gz"
+
+          # dist 디렉터리만 패키징 (server bundle + public 정적 자원)
+          tar -czf "${ASSET_NAME}" dist/
+          SIZE=$(du -h "${ASSET_NAME}" | cut -f1)
+          SHA256=$(sha256sum "${ASSET_NAME}" | cut -d' ' -f1)
+
+          # build_meta.json — 디버깅/감사 추적용
+          cat > build_meta.json <<EOF
+          {
+            "release_tag": "${TAG}",
+            "commit_sha": "$(git rev-parse HEAD)",
+            "short_sha": "${SHORT_SHA}",
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "asset_name": "${ASSET_NAME}",
+            "asset_size_bytes": $(stat -c%s "${ASSET_NAME}"),
+            "sha256": "${SHA256}",
+            "node_version": "$(node --version)",
+            "npm_version": "$(npm --version)"
+          }
+          EOF
+
+          echo "📦 자산: ${ASSET_NAME} (${SIZE})"
+          echo "🔐 SHA256: ${SHA256}"
+          echo "asset_name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 📦 빌드 산출물"
+            echo ""
+            echo "| 항목 | 값 |"
+            echo "|------|-----|"
+            echo "| 자산 이름 | \`${ASSET_NAME}\` |"
+            echo "| 크기 | ${SIZE} |"
+            echo "| SHA256 | \`${SHA256}\` |"
+            echo "| 대상 release | \`${TAG}\` |"
+            echo "| Commit | \`${SHORT_SHA}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release 자산 업로드 (clobber)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          ASSET_NAME="${{ steps.pack.outputs.asset_name }}"
+
+          # release 가 없으면 (workflow_dispatch + tag 입력) 만들지 못함 — 명시적으로 요구
+          if ! gh release view "$TAG" &>/dev/null; then
+            echo "::error::release '${TAG}' 가 존재하지 않습니다. GitHub UI 또는 'gh release create ${TAG}' 로 먼저 생성해 주세요."
+            exit 1
+          fi
+
+          # 기존 동명 자산이 있으면 덮어쓰기 (--clobber)
+          gh release upload "$TAG" "$ASSET_NAME" build_meta.json --clobber
+
+          echo "✅ '${TAG}' 에 자산 업로드 완료"
+
+  # ───────────────────────────────────────────
+  # 2. 운영 배포 — 서버 API 호출 (서버는 자산만 다운로드)
+  # ───────────────────────────────────────────
+  deploy:
+    name: 운영 서버 배포
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+      DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+      ASSET_NAME: ${{ needs.build.outputs.asset_name }}
+      EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
+
+    steps:
+      - name: 배포 API 호출
+        id: deploy
+        run: |
+          set +e
+
+          if [ -z "${DEPLOY_URL}" ] || [ -z "${DEPLOY_TOKEN}" ]; then
+            echo "::error::DEPLOY_URL 또는 DEPLOY_TOKEN 시크릿 미설정"
+            exit 1
+          fi
+
+          echo "=== 운영 배포 API 호출 ==="
+          echo "URL:    ${DEPLOY_URL}"
+          echo "Tag:    ${RELEASE_TAG}"
+          echo "Asset:  ${ASSET_NAME}"
+          echo "SHA256: ${EXPECTED_SHA256}"
+          echo
+
+          # POST body 에 release 정보 전달 → 서버는 이 정보로 자산 다운로드
+          BODY=$(jq -n \
+            --arg tag "${RELEASE_TAG}" \
+            --arg asset "${ASSET_NAME}" \
+            --arg sha256 "${EXPECTED_SHA256}" \
+            '{release_tag: $tag, asset_name: $asset, expected_sha256: $sha256}')
+
+          RESPONSE_FILE=$(mktemp)
+          HTTP_CODE=$(curl -sS -X POST \
+            -o "${RESPONSE_FILE}" -w "%{http_code}" \
+            -H "Authorization: Bearer ${DEPLOY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --max-time 300 \
+            -d "${BODY}" \
+            "${DEPLOY_URL}")
+
+          CURL_EXIT=$?
+
+          echo "HTTP Status: ${HTTP_CODE}"
+          echo
+          echo "=== Response Body (tail 4KB) ==="
+          tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+          echo
+
+          if [ "${CURL_EXIT}" -ne 0 ]; then
+            echo "::error::curl 실패 (exit=${CURL_EXIT})"
+            {
+              echo "## 🚨 배포 실패 — curl 에러"
+              echo ""
+              echo "- **exit code**: ${CURL_EXIT}"
+              echo "- **URL**: \`${DEPLOY_URL}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✅ 배포 성공"
+            {
+              echo "## ✅ 운영 배포 성공"
+              echo ""
+              echo "- **HTTP**: ${HTTP_CODE}"
+              echo "- **Tag**: \`${RELEASE_TAG}\`"
+              echo "- **Asset**: \`${ASSET_NAME}\`"
+              echo "- **SHA256**: \`${EXPECTED_SHA256}\`"
+              echo ""
+              echo "### 응답 요약"
+              echo '```json'
+              tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ "${HTTP_CODE}" = "409" ]; then
+            echo "::warning::다른 배포가 진행 중 (409 Conflict)"
+          fi
+
+          echo "::error::배포 실패 (HTTP ${HTTP_CODE})"
+          echo "HTTP_CODE=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## 🚨 운영 배포 실패"
+            echo ""
+            echo "- **HTTP Status**: ${HTTP_CODE}"
+            echo "- **Tag**: \`${RELEASE_TAG}\`"
+            echo ""
+            echo "### 서버 응답 (tail 4KB)"
+            echo '```json'
+            tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: 실패 시 GitHub Issue 자동 생성
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const trigger = context.eventName === 'release'
+              ? `Release: \`${context.payload.release?.tag_name || 'unknown'}\``
+              : `수동 실행 (workflow_dispatch)`;
+            const httpCode = '${{ steps.deploy.outputs.HTTP_CODE }}' || 'N/A';
+            const tag = '${{ env.RELEASE_TAG }}' || 'N/A';
+
+            const body = [
+              '## 🚨 운영 배포 실패',
+              '',
+              `- **발생 시각 (KST)**: ${today}`,
+              `- **트리거**: ${trigger}`,
+              `- **Tag**: \`${tag}\``,
+              `- **HTTP Status**: ${httpCode}`,
+              `- **커밋 SHA**: \`${context.sha.slice(0,7)}\``,
+              `- **워크플로우 로그**: [${context.runId}](${runUrl})`,
+              '',
+              '### 긴급 대응 절차',
+              '',
+              '1. **워크플로우 로그 확인** — 위 링크에서 build/deploy job 의 stderr 확인',
+              '2. **서버 배포 로그 확인**',
+              '   ```bash',
+              '   ssh root@49.50.130.101',
+              '   tail -100 /root/haccp_v3/logs/deploy.log',
+              '   ```',
+              '3. **PM2 프로세스 상태**',
+              '   ```bash',
+              '   pm2 list',
+              '   pm2 logs haccpone --lines 50',
+              '   ```',
+              '4. **수동 재배포 (자산은 이미 release 에 올라가 있음)**',
+              '   ```bash',
+              '   curl -X POST https://millioai.com/api/system/deploy \\',
+              '     -H "Authorization: Bearer $DEPLOY_TOKEN" \\',
+              '     -H "Content-Type: application/json" \\',
+              `     -d '{"release_tag":"${tag}"}'`,
+              '   ```',
+              '5. **롤백 (이전 dist 백업 활용)**',
+              '   ```bash',
+              '   cd /root/haccp_v3',
+              '   ls -lt dist.bak.*  # 백업 목록',
+              '   rm -rf dist && mv dist.bak.YYYYMMDD_HHMMSS dist',
+              '   pm2 reload haccpone',
+              '   ```',
+              '',
+              '### 가능한 원인',
+              '',
+              '1. **Release 자산 미업로드** — build job 실패. 자산 직접 확인 필요.',
+              '2. **GITHUB_TOKEN 만료/누락** — 서버 .env 확인',
+              '3. **SHA256 불일치** — 자산 손상 또는 동시 업로드 충돌',
+              '4. **PM2 reload 실패** — 새 dist 의 코드 에러',
+              '5. **타임아웃** — 자산 다운로드 5분 초과',
+              '',
+              '---',
+              '*이 이슈는 `Deploy to Production` 워크플로우가 자동 생성했습니다.*'
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 [자동알림] 운영 배포 실패 - ${today.split(' ')[0]}`,
+              body: body,
+              labels: ['bug', 'critical', 'deploy', 'automated']
+            });
