@@ -343,8 +343,8 @@ export async function getConsumptionSummary(params: {
     (
       SELECT
         DATE(CONVERT_TZ(COALESCE(t.transaction_date, t.created_at), '+00:00', '+09:00')) AS txDate,
-        COALESCE(m1.material_name, m2.material_name, m3.material_name) AS materialName,
-        COALESCE(m1.id, m2.id, m3.id) AS materialId,
+        COALESCE(m1.material_name, m2.material_name, m3.material_name, im.item_name) AS materialName,
+        COALESCE(m1.id, m2.id, m3.id, im.id) AS materialId,
         ABS(t.quantity) AS quantity,
         t.unit,
         COALESCE(t.unit_cost, 0) AS unitCost,
@@ -366,6 +366,15 @@ export async function getConsumptionSummary(params: {
        AND bi.tenant_id = t.tenant_id
        AND t.source_type IN ('BATCH','batch_completion')
       LEFT JOIN h_materials m3 ON m3.id = bi.material_id
+      -- PR-W6 (2026-04-26): h_batch_inputs row 가 없는 orphan 트랜잭션 fallback.
+      --   notes 에 "원재료 #<ID> 자동출고 (재고미등록)" 형태로 material_id 가 기록됨.
+      --   해당 ID 는 레거시 시스템 item_master.id (예: 198→찹쌀) 에 매핑되므로
+      --   notes 파싱 → item_master 조회로 원재료명 복원.
+      LEFT JOIN item_master im
+        ON im.tenant_id = t.tenant_id
+       AND im.is_active = 1
+       AND t.notes LIKE '원재료 #%자동출고%'
+       AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
       WHERE t.transaction_type = 'usage'
         AND t.tenant_id = ${tenantId}
         AND COALESCE(t.transaction_date, t.created_at) >= '${startDate}'
