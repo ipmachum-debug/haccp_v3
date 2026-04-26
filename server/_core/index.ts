@@ -594,8 +594,16 @@ async function startServer() {
   });
 
   // ── 자동 배포 (Bearer 토큰 인증, GitHub Actions 용) ──
-  // GitHub Actions 에서 POST 로 호출하면 scripts/deploy.sh 를 실행하여
-  // git pull → npm install → npm run build → pm2 restart 를 수행한다.
+  // PR-D1 (2026-04-27): Release 자산 기반 배포로 전환.
+  //   이전: 서버에서 git pull → npm install → npm run build → pm2 restart (8GB OOM 발생)
+  //   현재: GitHub Actions 가 dist.tar.gz 를 Release 자산으로 업로드 →
+  //         서버는 자산 다운로드 → atomic swap → pm2 reload (메모리 안전)
+  //
+  // POST body (JSON):
+  //   - release_tag        (필수)  배포할 release tag, 예: "v0.8.3"
+  //   - asset_name         (필수)  자산 파일명, 예: "dist-v0.8.3-abc1234.tar.gz"
+  //   - expected_sha256    (선택)  자산 SHA256. 있으면 다운로드 후 체크섬 검증
+  //
   // 동시 배포 방지를 위해 in-memory 락 사용.
   let deployInProgress = false;
   app.post("/api/system/deploy", async (req, res) => {
@@ -611,6 +619,40 @@ async function startServer() {
         return res.status(401).json({ ok: false, error: "invalid token" });
       }
 
+      // body 파싱 (release_tag/asset_name 필수)
+      const body: any = req.body || {};
+      const releaseTag = typeof body.release_tag === "string" ? body.release_tag.trim() : "";
+      const assetName = typeof body.asset_name === "string" ? body.asset_name.trim() : "";
+      const expectedSha256 = typeof body.expected_sha256 === "string" ? body.expected_sha256.trim() : "";
+
+      if (!releaseTag) {
+        return res.status(400).json({
+          ok: false,
+          error: "release_tag 필수 (예: { release_tag: 'v0.8.3', asset_name: 'dist-v0.8.3-abc1234.tar.gz' })",
+        });
+      }
+      if (!assetName) {
+        return res.status(400).json({ ok: false, error: "asset_name 필수" });
+      }
+
+      // 입력값 형식 안전성 검사 (커맨드 인젝션 방지)
+      if (!/^[A-Za-z0-9._+\-]{1,64}$/.test(releaseTag)) {
+        return res.status(400).json({ ok: false, error: "release_tag 형식 부적합" });
+      }
+      if (!/^[A-Za-z0-9._+\-]{1,128}$/.test(assetName)) {
+        return res.status(400).json({ ok: false, error: "asset_name 형식 부적합" });
+      }
+      if (expectedSha256 && !/^[a-fA-F0-9]{64}$/.test(expectedSha256)) {
+        return res.status(400).json({ ok: false, error: "expected_sha256 형식 부적합 (64자 hex)" });
+      }
+
+      if (!process.env.GITHUB_TOKEN) {
+        return res.status(503).json({
+          ok: false,
+          error: "GITHUB_TOKEN 미설정 (서버 .env 확인 필요 — Release 자산 다운로드용)",
+        });
+      }
+
       if (deployInProgress) {
         return res.status(409).json({ ok: false, error: "다른 배포가 진행 중입니다" });
       }
@@ -623,27 +665,36 @@ async function startServer() {
       const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT_PATH || "/root/haccp_v3/scripts/deploy.sh";
       const startedAt = new Date().toISOString();
 
-      console.log(`[deploy] 배포 시작 (script: ${DEPLOY_SCRIPT})`);
+      console.log(`[deploy] 시작 — tag=${releaseTag}, asset=${assetName}`);
       try {
         const { stdout, stderr } = await execAsync(`bash ${DEPLOY_SCRIPT}`, {
-          timeout: 10 * 60 * 1000, // 10분
+          timeout: 5 * 60 * 1000, // 5분 (자산 다운로드만 하므로 충분)
           maxBuffer: 10 * 1024 * 1024, // 10MB
-          env: { ...process.env }, // PM2/npm PATH 유지
+          env: {
+            ...process.env,
+            RELEASE_TAG: releaseTag,
+            ASSET_NAME: assetName,
+            EXPECTED_SHA256: expectedSha256,
+          },
         });
 
-        console.log("[deploy] 배포 성공");
+        console.log("[deploy] 성공");
         return res.status(200).json({
           ok: true,
+          release_tag: releaseTag,
+          asset_name: assetName,
           started_at: startedAt,
           finished_at: new Date().toISOString(),
-          stdout: stdout.slice(-5000), // 마지막 5KB
+          stdout: stdout.slice(-5000),
           stderr: stderr.slice(-2000),
         });
       } catch (err: any) {
-        console.error("[deploy] 배포 실패:", err.message);
+        console.error("[deploy] 실패:", err.message);
         return res.status(500).json({
           ok: false,
           error: "deploy script failed",
+          release_tag: releaseTag,
+          asset_name: assetName,
           started_at: startedAt,
           finished_at: new Date().toISOString(),
           code: err.code,
