@@ -237,7 +237,7 @@ export async function getOutboundHistory(params?: {
         t.id,
         t.lot_id AS lotId,
         l.lot_number AS lotNumber,
-        COALESCE(m1.material_name, m2.material_name) AS materialName,
+        COALESCE(m1.material_name, m2.material_name, m3.material_name) AS materialName,
         ABS(t.quantity) AS quantity,
         t.unit,
         t.reference_type AS referenceType,
@@ -253,6 +253,13 @@ export async function getOutboundHistory(params?: {
       LEFT JOIN h_materials m1 ON m1.id = l.material_id
       LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
       LEFT JOIN h_materials m2 ON m2.id = inv.material_id
+      -- PR-W5: lot_id=0 (재고미등록) 케이스 fallback
+      LEFT JOIN h_batch_inputs bi
+        ON bi.id = t.source_line_id
+       AND bi.batch_id = t.source_id
+       AND bi.tenant_id = t.tenant_id
+       AND t.source_type IN ('BATCH','batch_completion')
+      LEFT JOIN h_materials m3 ON m3.id = bi.material_id
       WHERE ${txnConditions.join(' AND ')}
     )
     UNION ALL
@@ -328,12 +335,16 @@ export async function getConsumptionSummary(params: {
   // UNION ALL: h_inventory_transactions (usage) + h_batch_inputs (중복 제외)
   // PR-I (2026-04-25): 제품 LOT 매출 차감 (lot.product_id IS NOT NULL) 을 원재료 소모
   //   화면에서 제외 + KST 변환 (UTC -1일 어긋남 방지). PR-H 와 동일한 패턴.
+  // PR-W5 (2026-04-26): "재고미등록" (lot_id=0) 트랜잭션의 원재료명이 NULL 로 표시되던 문제 수정.
+  //   autoIssueMaterialsForBatch 가 LOT 매칭 실패 시 lot_id=0 + inventory_id=NULL 로 트랜잭션을
+  //   기록하지만, source_id(batch_id) + source_line_id(bi.id) 는 정확히 채움.
+  //   bi 와 LEFT JOIN 하여 bi.material_id → h_materials 로 fallback 하면 원재료명 복원 가능.
   const [rows]: any = await db.execute(sql.raw(`
     (
       SELECT
         DATE(CONVERT_TZ(COALESCE(t.transaction_date, t.created_at), '+00:00', '+09:00')) AS txDate,
-        COALESCE(m1.material_name, m2.material_name) AS materialName,
-        COALESCE(m1.id, m2.id) AS materialId,
+        COALESCE(m1.material_name, m2.material_name, m3.material_name) AS materialName,
+        COALESCE(m1.id, m2.id, m3.id) AS materialId,
         ABS(t.quantity) AS quantity,
         t.unit,
         COALESCE(t.unit_cost, 0) AS unitCost,
@@ -348,6 +359,13 @@ export async function getConsumptionSummary(params: {
       LEFT JOIN h_materials m1 ON m1.id = l.material_id
       LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
       LEFT JOIN h_materials m2 ON m2.id = inv.material_id
+      -- PR-W5: lot_id=0 (재고미등록) 케이스 fallback — bi 통해 실제 material 매칭
+      LEFT JOIN h_batch_inputs bi
+        ON bi.id = t.source_line_id
+       AND bi.batch_id = t.source_id
+       AND bi.tenant_id = t.tenant_id
+       AND t.source_type IN ('BATCH','batch_completion')
+      LEFT JOIN h_materials m3 ON m3.id = bi.material_id
       WHERE t.transaction_type = 'usage'
         AND t.tenant_id = ${tenantId}
         AND COALESCE(t.transaction_date, t.created_at) >= '${startDate}'
