@@ -179,6 +179,38 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     );
     const lotId = (lotResult as any).insertId;
 
+    // (A-2) h_inventory 마스터 동시 UPSERT (PR-K2)
+    // ★ 2026-04-26 추가:
+    //   - docs/architecture/06-material-pipeline.md H2 발견: h_inventory 마스터 0행 →
+    //     autoMaterialIssue.ts:140 SELECT 가 0행 반환 → garbage 경로 진입.
+    //   - 매입 확정마다 (tenant_id, material_id) 단위 +qty 누적으로 마스터 동기 유지.
+    //   - 전제: 운영 DB 에 ALTER TABLE h_inventory ADD UNIQUE KEY uk_inv_material
+    //     (tenant_id, material_id) + 96자재 1회 백필 적용 완료 후 머지.
+    //     (수동 SQL 기록: scripts/migrations-manual/2026-04-26-k2-h-inventory.sql)
+    if (resolvedMaterialId) {
+      try {
+        await conn.execute(
+          `INSERT INTO h_inventory
+             (tenant_id, material_id, item_name, unit,
+              total_quantity, available_quantity, reserved_quantity,
+              created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 0, NOW(), NOW())
+           ON DUPLICATE KEY UPDATE
+             total_quantity = total_quantity + VALUES(total_quantity),
+             available_quantity = available_quantity + VALUES(available_quantity),
+             updated_at = NOW()`,
+          [
+            tenantId, resolvedMaterialId,
+            purchase.itemName || null,
+            purchase.unit || "EA",
+            qty, qty,
+          ]
+        );
+      } catch (invErr) {
+        console.error(`[purchasePost] h_inventory UPSERT 실패 (계속):`, invErr);
+      }
+    }
+
     // (B) 재고 원장 생성
     await conn.execute(
       `INSERT INTO h_inventory_transactions
