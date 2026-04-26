@@ -1,0 +1,74 @@
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+========================================
+PR-W3 백필 (DRY-RUN)
+tenant_id = 2
+========================================
+
+[backup] 백업 테이블 생성 (트랜잭션 외부, DDL)...
+[backup] w3_tx_backup_2026_04_26: 4000 행 보존
+
+────────────────────────────────────────
+[S1] transaction_date 백필
+────────────────────────────────────────
+[S1 BEFORE] BATCH+batch_completion 트랜잭션:
+┌─────────┬───────┬──────────┐
+│ (index) │ total │ mismatch │
+├─────────┼───────┼──────────┤
+│ 0       │ 381   │ '381'    │
+└─────────┴───────┴──────────┘
+[S1] transaction_date UPDATE: 381 행
+[S1 AFTER] 잔존 mismatch: 0 (목표 0)
+[S1] 가짜 4/20·4/22·4/26(KST) 잔존:
+┌─────────┐
+│ (index) │
+├─────────┤
+└─────────┘
+
+────────────────────────────────────────
+[S2] source_type NULL 복구
+────────────────────────────────────────
+[S2-a] usage + ref=batch  → BATCH: 301행
+[S2-b] receipt + ref=batch → BATCH: 45행
+[S2-c] receipt + ref=PURCHASE → accounting_purchases: 14행
+[S2-d] ref=fefo_split → fefo_split: 7행
+[S2-e] ref=historical_correction → historical_correction: 8행
+[S2-f] inbound + LOT 보강 → lot_reinforcement: 48행
+[S2-g] outbound + 제품출고 B2C → SALE_LEGACY: 414행
+
+[S2] 합계 복구: 837행
+[S2 AFTER] 잔존 NULL:
+(전부 복구됨)
+
+────────────────────────────────────────
+[FINAL] source_type 최종 분포
+────────────────────────────────────────
+┌─────────┬─────────────────────────┬──────────────────┬──────┐
+│ (index) │ source_type             │ transaction_type │ cnt  │
+├─────────┼─────────────────────────┼──────────────────┼──────┤
+│ 0       │ 'accounting_purchases'  │ 'receipt'        │ 122  │
+│ 1       │ 'BATCH'                 │ 'receipt'        │ 45   │
+│ 2       │ 'BATCH'                 │ 'usage'          │ 798  │
+│ 3       │ 'batch_completion'      │ 'usage'          │ 2313 │
+│ 4       │ 'excel_import'          │ 'receipt'        │ 100  │
+│ 5       │ 'fefo_split'            │ 'usage'          │ 7    │
+│ 6       │ 'historical_correction' │ 'receipt'        │ 8    │
+│ 7       │ 'lot_reinforcement'     │ 'inbound'        │ 48   │
+│ 8       │ 'SALE'                  │ 'usage'          │ 145  │
+│ 9       │ 'SALE_LEGACY'           │ 'outbound'       │ 414  │
+└─────────┴─────────────────────────┴──────────────────┴──────┘
+
+[FINAL] 4/20·4/22·4/26 KST 트랜잭션 (실제 배치 완료일이 있어야 함):
+┌─────────┬──────────────────────────┬──────────────────┬─────┐
+│ (index) │ d                        │ transaction_type │ cnt │
+├─────────┼──────────────────────────┼──────────────────┼─────┤
+│ 0       │ 2026-04-21T15:00:00.000Z │ 'usage'          │ 2   │
+│ 1       │ 2026-04-24T15:00:00.000Z │ 'inbound'        │ 48  │
+└─────────┴──────────────────────────┴──────────────────┴─────┘
+
+[DRY-RUN] ROLLBACK — UPDATE 변경 없음 (백업 테이블만 보존)
+
+========================================
+PR-W3 백필 완료 (DRY-RUN)
+========================================
+

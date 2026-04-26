@@ -923,7 +923,7 @@ export async function getProductTurnoverAnalysis(params: {
                        THEN ABS(quantity) ELSE 0 END) as total_outbound,
               SUM(ABS(quantity)) as all_outbound
        FROM h_inventory_transactions
-       WHERE tenant_id = ? AND transaction_type = 'usage' AND source_type = 'BATCH'
+       WHERE tenant_id = ? AND transaction_type = 'usage' AND source_type IN ('BATCH','batch_completion')
        GROUP BY source_id
      ) outbound ON b.id = outbound.batch_id
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')

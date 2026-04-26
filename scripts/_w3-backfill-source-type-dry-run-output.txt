@@ -1,0 +1,52 @@
+[dotenv@17.2.3] injecting env (15) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+
+=== PR-W3: source_type NULL 복구 (DRY-RUN) ===
+
+[Step 1] DDL — 백업 테이블 생성
+  → 백업: 837건
+
+[BEFORE] NULL source_type 분포:
+┌─────────┬──────────────────┬─────────────────────────┬─────┐
+│ (index) │ transaction_type │ reference_type          │ cnt │
+├─────────┼──────────────────┼─────────────────────────┼─────┤
+│ 0       │ 'outbound'       │ null                    │ 414 │
+│ 1       │ 'usage'          │ 'batch'                 │ 301 │
+│ 2       │ 'inbound'        │ null                    │ 48  │
+│ 3       │ 'receipt'        │ 'batch'                 │ 45  │
+│ 4       │ 'receipt'        │ 'PURCHASE'              │ 14  │
+│ 5       │ 'receipt'        │ 'historical_correction' │ 8   │
+│ 6       │ 'usage'          │ 'fefo_split'            │ 7   │
+└─────────┴──────────────────┴─────────────────────────┴─────┘
+(a) outbound → SALE: 414
+(b) usage 'batch' → batch_completion: 301
+(c) receipt 'batch' → batch_completion: 45
+(d) inbound → lot_reinforcement: 48
+(e) receipt 'PURCHASE' → accounting_purchases: 14
+(f) receipt 'historical_correction' → historical_correction: 8
+(g) usage 'fefo_split' → fefo_split: 7
+
+[TOTAL] 837건 정정 (예상: 837)
+
+[AFTER] 잔존 NULL source_type:
+  (empty — 목표 달성 ✅)
+
+[VERIFY] 전체 source_type x transaction_type:
+┌─────────┬─────────────────────────┬──────────────────┬──────┐
+│ (index) │ source_type             │ transaction_type │ cnt  │
+├─────────┼─────────────────────────┼──────────────────┼──────┤
+│ 0       │ 'accounting_purchases'  │ 'receipt'        │ 122  │
+│ 1       │ 'BATCH'                 │ 'usage'          │ 497  │
+│ 2       │ 'batch_completion'      │ 'receipt'        │ 45   │
+│ 3       │ 'batch_completion'      │ 'usage'          │ 2614 │
+│ 4       │ 'excel_import'          │ 'receipt'        │ 100  │
+│ 5       │ 'fefo_split'            │ 'usage'          │ 7    │
+│ 6       │ 'historical_correction' │ 'receipt'        │ 8    │
+│ 7       │ 'lot_reinforcement'     │ 'inbound'        │ 48   │
+│ 8       │ 'SALE'                  │ 'usage'          │ 145  │
+│ 9       │ 'SALE'                  │ 'outbound'       │ 414  │
+└─────────┴─────────────────────────┴──────────────────┴──────┘
+
+[DRY-RUN] ROLLBACK
+
+=== W3 source_type 백필 완료 ===
+

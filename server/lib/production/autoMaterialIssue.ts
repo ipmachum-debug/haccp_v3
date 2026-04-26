@@ -33,6 +33,28 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
   return name.includes("정제수") || name.includes("purified water");
 }
 
+/**
+ * PR-W3 (2026-04-26): 배치 자동출고 트랜잭션 일자 결정 헬퍼
+ *
+ * 우선순위:
+ *   1. batch.completed_at (실제 완료일) — 가장 정확
+ *   2. batch.planned_date (계획일) — 완료일 미설정 시
+ *   3. 오늘 KST — 위 둘 다 없을 때 폴백
+ *
+ * 반환 형식: YYYY-MM-DD (KST 기준 날짜만)
+ *
+ * 효과:
+ *   - 4/9 배치를 4/26 에 재처리해도 transaction_date 는 4/9 로 기록
+ *   - material_ledger_daily 와 일별 그래프의 일자 정합성 회복
+ */
+function resolveBatchTransactionDate(batch: { completed_at?: any; planned_date?: any }): string {
+  const candidate = batch?.completed_at ?? batch?.planned_date ?? null;
+  const d = candidate ? new Date(candidate) : new Date();
+  // KST(UTC+9) 변환 후 YYYY-MM-DD
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  return kst.toISOString().split("T")[0];
+}
+
 interface AutoIssueResult {
   success: boolean;
   issuedMaterials: Array<{
@@ -69,8 +91,15 @@ export async function autoIssueMaterialsForBatch(
 
   try {
     // 1. 배치 정보 조회
+    //
+    // PR-W3 (2026-04-26): transaction_date 부정합 버그 수정
+    //   기존: 자동출고 시점의 NOW() (KST) 를 transaction_date 로 사용 → 재처리/지연
+    //         처리 시 실제 배치 일자와 무관한 일자로 기록되어 일별 그래프 왜곡 발생
+    //   수정: batch.completed_at (1순위) → batch.planned_date (2순위) → 오늘 (폴백) 사용
+    //   효과: 재고원장과 material_ledger_daily 의 일자 정합성 복구
     const [batchRows]: any = await db.execute(sql`
       SELECT b.id, b.tenant_id, b.product_id, b.planned_quantity, b.status,
+             b.completed_at, b.planned_date,
              p.product_name
       FROM h_batches b
       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
@@ -119,8 +148,8 @@ export async function autoIssueMaterialsForBatch(
       return result;
     }
 
-    const transactionDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000)
-      .toISOString().split('T')[0];
+    // PR-W3: 배치 일자 우선 (completed_at → planned_date → 오늘 폴백)
+    const transactionDate = resolveBatchTransactionDate(batch);
 
     // 3. 각 원재료별 출고 처리
     for (const input of batchInputs) {
