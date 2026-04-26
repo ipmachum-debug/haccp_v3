@@ -1,0 +1,97 @@
+name: Auto Release on Main
+
+# main 에 push (PR 머지 포함) 될 때마다 자동으로 patch 버전을 올려서
+# Release 를 publish 한다. 이 Release publish 가 deploy.yml 의 트리거가 되어
+# Actions 빌드 + 자산 업로드 + 운영 배포까지 모두 자동 진행된다.
+#
+# 스킵 조건 (커밋 메시지 기준):
+#   - "[no-release]" 가 들어있으면 release 안 만듦 (문서/설정 변경 등)
+#   - "[skip ci]" / "[ci skip]" 가 들어있으면 안 만듦 (관례)
+#   - 머지 커밋에 위 마커가 들어있으면 함께 적용됨
+#
+# 안전장치:
+#   - permissions: contents:write 만 (별도 PAT 불필요, 빌트인 GITHUB_TOKEN 사용)
+#   - tag 충돌 시 release 생성 실패 → 워크플로 fail (수동 개입 필요)
+#   - timeout 5분 (충분히 짧음, 무한 대기 방어)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # gh release create 가 tag + release 생성
+
+jobs:
+  release:
+    name: Patch 버전 자동 release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      !contains(github.event.head_commit.message, '[no-release]') &&
+      !contains(github.event.head_commit.message, '[skip ci]') &&
+      !contains(github.event.head_commit.message, '[ci skip]')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tag 조회 위해 전체 히스토리 필요
+
+      - name: 다음 버전 계산
+        id: ver
+        run: |
+          set -eu
+
+          LATEST=$(git tag -l 'v*' --sort=-v:refname | head -n1 || true)
+
+          if [ -z "$LATEST" ]; then
+            NEXT="v0.1.0"
+            REASON="첫 release (기존 태그 없음)"
+          else
+            VER="${LATEST#v}"
+            MAJOR=$(echo "$VER" | cut -d. -f1)
+            MINOR=$(echo "$VER" | cut -d. -f2)
+            PATCH=$(echo "$VER" | cut -d. -f3)
+
+            # 비표준 형식 방어 — patch 가 숫자가 아니면 fail
+            if ! [[ "$PATCH" =~ ^[0-9]+$ ]]; then
+              echo "::error::최신 태그 '$LATEST' 의 patch 부분이 숫자가 아닙니다 (수동 개입 필요)"
+              exit 1
+            fi
+
+            NEXT="v${MAJOR}.${MINOR}.$((PATCH+1))"
+            REASON="$LATEST → $NEXT (patch +1)"
+          fi
+
+          echo "next=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 🏷️ 다음 버전"
+            echo ""
+            echo "- **이전**: \`${LATEST:-(없음)}\`"
+            echo "- **신규**: \`$NEXT\`"
+            echo "- **사유**: $REASON"
+            echo "- **커밋**: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release 생성 (자동 release notes)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          NEXT="${{ steps.ver.outputs.next }}"
+
+          # 동일 태그가 이미 있으면 (수동 생성됐던 경우) 그냥 종료
+          if gh release view "$NEXT" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::notice::Release $NEXT 가 이미 존재. 스킵."
+            exit 0
+          fi
+
+          gh release create "$NEXT" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "$NEXT" \
+            --generate-notes \
+            --notes "_자동 생성됨 — \`auto-release.yml\` (커밋 \`${{ github.sha }}\`)_"
+
+          echo "✅ Release $NEXT 생성 — deploy.yml 자동 트리거됨"
