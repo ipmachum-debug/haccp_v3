@@ -278,7 +278,7 @@ export async function getOutboundHistory(params?: {
       WHERE ${biConditions.join(' AND ')}
         AND NOT EXISTS (
           SELECT 1 FROM h_inventory_transactions tx
-          WHERE tx.source_type = 'BATCH'
+          WHERE tx.source_type IN ('BATCH','batch_completion')
             AND tx.source_id = bi.batch_id
             AND tx.source_line_id = bi.id
             AND tx.transaction_type = 'usage'
@@ -384,7 +384,7 @@ export async function getConsumptionSummary(params: {
         AND COALESCE(bi.input_time, b.start_time, b.created_at) < '${endDate}'
         AND NOT EXISTS (
           SELECT 1 FROM h_inventory_transactions tx
-          WHERE tx.source_type = 'BATCH'
+          WHERE tx.source_type IN ('BATCH','batch_completion')
             AND tx.source_id = bi.batch_id
             AND tx.source_line_id = bi.id
             AND tx.transaction_type = 'usage'
