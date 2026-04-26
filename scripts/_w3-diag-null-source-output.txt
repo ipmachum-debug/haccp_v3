@@ -1,0 +1,4 @@
+[dotenv@17.2.3] injecting env (15) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+=== h_inventory_transactions 컬럼 ===
+id, lot_id, inventory_id, transaction_type, quantity, unit, unit_cost, amount, transaction_date, reference_type, reference_id, source_id, source_line_id, action_type, source_type, purpose, performed_by, notes, created_by, created_at, updated_at, tenant_id
+[ERR] Unknown column 'material_id' in 'field list'
