@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers } from "lucide-react";
+import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers, ClipboardCheck } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import type { RouterOutput } from "@/lib/trpcTypes";
@@ -34,6 +34,7 @@ import { PredictionTab } from "@/components/inventory/PredictionTab";
 import { ReleaseTab } from "./_inventoryManagement/ReleaseTab";
 import { ReceiptTab } from "./_inventoryManagement/ReceiptTab";
 import { AdjustmentTab } from "./_inventoryManagement/AdjustmentTab";
+import { InventoryCountTab } from "./_inventoryManagement/InventoryCountTab";
 import { SubsidiaryStockView } from "./_inventoryManagement/SubsidiaryStockView";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
@@ -148,7 +149,7 @@ export default function InventoryManagement() {
                 <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />재고 조정</TabsTrigger>
               </TabsList>
             ) : (
-              <TabsList className="inline-flex w-auto min-w-full sm:grid sm:w-full sm:grid-cols-8 h-9">
+              <TabsList className={`inline-flex w-auto min-w-full sm:grid sm:w-full ${isMat ? "sm:grid-cols-8" : "sm:grid-cols-9"} h-9`}>
                 <TabsTrigger value="current" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Package className="h-3.5 w-3.5" />현황</TabsTrigger>
                 <TabsTrigger value="release" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackageMinus className="h-3.5 w-3.5" />{isMat ? "소모" : "출고"}</TabsTrigger>
                 <TabsTrigger value="receipt" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><PackagePlus className="h-3.5 w-3.5" />입고</TabsTrigger>
@@ -157,6 +158,9 @@ export default function InventoryManagement() {
                 <TabsTrigger value="prediction" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><AlertCircle className="h-3.5 w-3.5" />예측</TabsTrigger>
                 <TabsTrigger value="purchase" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Calendar className="h-3.5 w-3.5" />발주</TabsTrigger>
                 <TabsTrigger value="adjustment" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><Settings className="h-3.5 w-3.5" />조정</TabsTrigger>
+                {!isMat && (
+                  <TabsTrigger value="count" className="text-xs gap-1 whitespace-nowrap data-[state=active]:font-semibold"><ClipboardCheck className="h-3.5 w-3.5" />실사</TabsTrigger>
+                )}
               </TabsList>
             )}
           </div>
@@ -261,6 +265,13 @@ export default function InventoryManagement() {
               }
             />
           </TabsContent>
+
+          {/* ━━━ 실사 (제품만) ━━━ */}
+          {!isMat && (
+            <TabsContent value="count" className="mt-0">
+              <InventoryCountTab />
+            </TabsContent>
+          )}
         </Tabs>
 
         <LotTraceabilityModal open={lotModalOpen} onOpenChange={setLotModalOpen} />

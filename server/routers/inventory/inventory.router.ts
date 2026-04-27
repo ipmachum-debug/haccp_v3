@@ -788,6 +788,331 @@ export const inventoryRouter = router({
         };
       }),
 
+    /**
+     * 재고 실사 — 제품별 현재 가용 합계 + 활성 LOT 목록 조회.
+     *
+     * 2026-04-27 (PR #5): 실사 입력 그리드의 baseline.
+     * 클라이언트는 이 결과를 그리드로 표시 후 사용자가 "실사 수량" 입력 →
+     * 차이를 계산해서 bulkApplyInventoryCount 로 일괄 적용.
+     */
+    getProductInventorySnapshot: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        // 활성 product LOT 만 집계 (제품 LOT 만 — material LOT 제외)
+        const lots = await db
+          .select()
+          .from(hInventoryLots)
+          .where(
+            and(
+              eq(hInventoryLots.tenantId, ctx.tenantId as any),
+              eq(hInventoryLots.status, "available"),
+            ),
+          );
+
+        // product_id 별 그룹
+        const byProduct = new Map<number, {
+          productId: number;
+          totalAvailable: number;
+          unit: string;
+          lots: Array<{ id: number; lotNumber: string; available: number; unit: string; expiryDate: any; createdAt: any }>;
+        }>();
+        for (const l of lots as any[]) {
+          if (!l.productId) continue; // 원재료 LOT 제외
+          const pid = Number(l.productId);
+          if (!byProduct.has(pid)) {
+            byProduct.set(pid, {
+              productId: pid,
+              totalAvailable: 0,
+              unit: l.unit || "kg",
+              lots: [],
+            });
+          }
+          const g = byProduct.get(pid)!;
+          const avail = parseFloat(l.availableQuantity || "0");
+          g.totalAvailable += avail;
+          g.lots.push({
+            id: Number(l.id),
+            lotNumber: l.lotNumber,
+            available: avail,
+            unit: l.unit || g.unit,
+            expiryDate: l.expiryDate,
+            createdAt: l.createdAt,
+          });
+        }
+
+        // 제품 정보 조인
+        const { hProductsV2 } = await import("../../../drizzle/schema");
+        const productIds = Array.from(byProduct.keys());
+        const products =
+          productIds.length > 0
+            ? await db
+                .select()
+                .from(hProductsV2)
+                .where(
+                  and(
+                    eq(hProductsV2.tenantId, ctx.tenantId as any),
+                    eq(hProductsV2.isActive, 1),
+                  ),
+                )
+            : [];
+        const productMap = new Map<number, any>();
+        for (const p of products as any[]) productMap.set(Number(p.id), p);
+
+        // 활성 LOT 없는 제품도 포함 (실사 결과 0으로 입력 가능하도록)
+        const allActiveProducts = await db
+          .select()
+          .from(hProductsV2)
+          .where(
+            and(
+              eq(hProductsV2.tenantId, ctx.tenantId as any),
+              eq(hProductsV2.isActive, 1),
+            ),
+          );
+
+        const result = (allActiveProducts as any[]).map((p: any) => {
+          const g = byProduct.get(Number(p.id));
+          return {
+            productId: Number(p.id),
+            productCode: p.productCode,
+            productName: p.productName,
+            unit: g?.unit || p.unit || "kg",
+            currentAvailable: g?.totalAvailable ?? 0,
+            activeLots: g?.lots ?? [],
+            lotCount: g?.lots.length ?? 0,
+          };
+        });
+
+        // 가용 수량 많은 순으로 정렬 (실사 입력하기 편하게)
+        result.sort((a, b) => (b.currentAvailable || 0) - (a.currentAvailable || 0));
+
+        return result;
+      }),
+
+    /**
+     * 재고 실사 일괄 적용 — 제품별 실사 수량을 받아 자동 차감/증가.
+     *
+     * 동작 (사용자 결정, 2026-04-27):
+     *   - 입력: items: [{ productId, actualQty, reason? }]
+     *   - 각 제품에 대해 (실사 - 현재) 만큼 adjustStockByProduct 호출
+     *   - 감소(실사 < 현재): 가장 오래된 LOT 부터 cascade 차감 (선생산 자동 차감)
+     *   - 증가(실사 > 현재): 최신 LOT 에 가산 (활성 LOT 없으면 skip + warning)
+     *   - 동일(실사 == 현재): skip (no-op)
+     *   - 활성 LOT 없는 제품에 +qty 시도 → skip + 결과 warning
+     *
+     * 트랜잭션:
+     *   - 각 제품 단위로 adjustStockByProduct 의 Drizzle 트랜잭션 실행 (개별)
+     *   - 어느 한 제품 실패해도 다른 제품은 계속 처리 (배치 작업 패턴)
+     *   - 실패 케이스는 errors 배열에 누적
+     */
+    bulkApplyInventoryCount: workerProcedure
+      .input(
+        z.object({
+          items: z.array(z.object({
+            productId: z.number(),
+            actualQty: z.number().min(0),
+            reason: z.string().optional(),
+          })).min(1),
+          defaultReason: z.string().min(1).default("정기 재고 실사"),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+
+        type ItemResult = {
+          productId: number;
+          productCode?: string;
+          productName?: string;
+          before: number;
+          after: number;
+          diff: number;
+          status: "applied" | "skipped" | "failed";
+          message?: string;
+          affectedLots?: Array<{ lotNumber: string; changeQty: number; newAvailable: number }>;
+        };
+        const results: ItemResult[] = [];
+
+        // 제품 마스터 조회 (이름 표시용)
+        const { hProductsV2 } = await import("../../../drizzle/schema");
+        const products = await db
+          .select()
+          .from(hProductsV2)
+          .where(eq(hProductsV2.tenantId, ctx.tenantId as any));
+        const productMap = new Map<number, any>();
+        for (const p of products as any[]) productMap.set(Number(p.id), p);
+
+        for (const item of input.items) {
+          const product = productMap.get(item.productId);
+
+          // 현재 가용 합계 계산
+          const lots = await db
+            .select()
+            .from(hInventoryLots)
+            .where(
+              and(
+                eq(hInventoryLots.tenantId, ctx.tenantId as any),
+                eq(hInventoryLots.productId, item.productId),
+                eq(hInventoryLots.status, "available"),
+              ),
+            );
+          const before = (lots as any[]).reduce(
+            (s, l) => s + parseFloat(l.availableQuantity || "0"),
+            0,
+          );
+
+          const diff = item.actualQty - before;
+          const baseInfo = {
+            productId: item.productId,
+            productCode: product?.productCode,
+            productName: product?.productName,
+            before,
+            after: item.actualQty,
+            diff,
+          };
+
+          // 동일 → skip
+          if (Math.abs(diff) < 0.001) {
+            results.push({
+              ...baseInfo,
+              status: "skipped",
+              message: "차이 없음 — 적용 skip",
+            });
+            continue;
+          }
+
+          // 활성 LOT 없는데 +qty → skip
+          if (lots.length === 0 && diff > 0) {
+            results.push({
+              ...baseInfo,
+              status: "skipped",
+              message: "활성 LOT 없음 — 생산 완료/수동 입고로 LOT 먼저 생성",
+            });
+            continue;
+          }
+
+          // 적용 — adjustStockByProduct 와 동일 로직 (B 방식 FEFO)
+          //   증가: 최신 LOT 에 추가
+          //   감소: 가장 오래된 LOT 부터 cascade
+          try {
+            const sorted = [...(lots as any[])].sort((a, b) => {
+              const aT = new Date(a.createdAt).getTime();
+              const bT = new Date(b.createdAt).getTime();
+              return diff > 0 ? bT - aT : aT - bT;
+            });
+
+            const reason = item.reason || input.defaultReason;
+            const affected: Array<{ lotNumber: string; changeQty: number; newAvailable: number }> = [];
+
+            if (diff > 0) {
+              // 증가 — 최신 LOT 에 전량 추가
+              const target = sorted[0];
+              const newAvail = parseFloat(target.availableQuantity) + diff;
+              const newTotal = parseFloat(target.quantity) + diff;
+              await db
+                .update(hInventoryLots)
+                .set({
+                  availableQuantity: newAvail.toFixed(3),
+                  quantity: newTotal.toFixed(3),
+                })
+                .where(
+                  and(
+                    eq(hInventoryLots.id, target.id),
+                    eq(hInventoryLots.tenantId, ctx.tenantId as any),
+                  ),
+                );
+              await db.insert(hInventoryTransactions).values({
+                tenantId: ctx.tenantId,
+                lotId: target.id,
+                materialId: target.materialId,
+                transactionType: "adjustment",
+                quantity: diff.toFixed(3),
+                unit: target.unit,
+                transactionDate: new Date() as any,
+                notes: `[실사] ${reason}`,
+                createdBy: ctx.user.id,
+              } as any);
+              affected.push({
+                lotNumber: target.lotNumber,
+                changeQty: diff,
+                newAvailable: newAvail,
+              });
+            } else {
+              // 감소 — 가장 오래된 LOT 부터 cascade
+              let remaining = Math.abs(diff);
+              if (before + 0.001 < remaining) {
+                results.push({
+                  ...baseInfo,
+                  status: "failed",
+                  message: `재고 부족: 요청 ${remaining}, 가용 ${before.toFixed(3)}`,
+                });
+                continue;
+              }
+              for (const lot of sorted) {
+                if (remaining <= 0.001) break;
+                const avail = parseFloat(lot.availableQuantity);
+                const take = Math.min(remaining, avail);
+                const newAvail = avail - take;
+                const newTotal = parseFloat(lot.quantity) - take;
+                await db
+                  .update(hInventoryLots)
+                  .set({
+                    availableQuantity: newAvail.toFixed(3),
+                    quantity: newTotal.toFixed(3),
+                    ...(newAvail <= 0.001 ? { status: "used" as const } : {}),
+                  })
+                  .where(
+                    and(
+                      eq(hInventoryLots.id, lot.id),
+                      eq(hInventoryLots.tenantId, ctx.tenantId as any),
+                    ),
+                  );
+                await db.insert(hInventoryTransactions).values({
+                  tenantId: ctx.tenantId,
+                  lotId: lot.id,
+                  materialId: lot.materialId,
+                  transactionType: "adjustment",
+                  quantity: (-take).toFixed(3),
+                  unit: lot.unit,
+                  transactionDate: new Date() as any,
+                  notes: `[실사] ${reason}`,
+                  createdBy: ctx.user.id,
+                } as any);
+                affected.push({
+                  lotNumber: lot.lotNumber,
+                  changeQty: -take,
+                  newAvailable: newAvail,
+                });
+                remaining -= take;
+              }
+            }
+
+            results.push({
+              ...baseInfo,
+              status: "applied",
+              message: `${affected.length}개 LOT 조정`,
+              affectedLots: affected,
+            });
+          } catch (e: any) {
+            results.push({
+              ...baseInfo,
+              status: "failed",
+              message: e?.message ?? String(e),
+            });
+          }
+        }
+
+        const summary = {
+          total: results.length,
+          applied: results.filter((r) => r.status === "applied").length,
+          skipped: results.filter((r) => r.status === "skipped").length,
+          failed: results.filter((r) => r.status === "failed").length,
+        };
+
+        return { results, summary };
+      }),
+
     // 재고 예측 (과거 사용 패턴 분석)
     getForecast: tenantRequiredProcedure
       .input(
