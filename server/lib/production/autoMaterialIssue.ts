@@ -195,13 +195,14 @@ export async function autoIssueMaterialsForBatch(
                   const amount = alloc.quantity * alloc.unitCost;
                   
                   // h_inventory_transactions에 출고 기록
+                  // PR-§5.2-2: material_id 직접 작성 (canonical h_materials.id)
                   await db.execute(sql`
-                    INSERT INTO h_inventory_transactions 
-                    (inventory_id, lot_id, transaction_type, quantity, unit, unit_cost, amount,
-                     transaction_date, source_type, source_id, source_line_id, 
+                    INSERT INTO h_inventory_transactions
+                    (inventory_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
+                     transaction_date, source_type, source_id, source_line_id,
                      action_type, purpose, performed_by, created_by, tenant_id)
-                    VALUES 
-                    (${inventoryId}, ${alloc.lotId}, 'usage', ${alloc.quantity.toString()}, ${unit},
+                    VALUES
+                    (${inventoryId}, ${alloc.lotId}, ${materialId}, 'usage', ${alloc.quantity.toString()}, ${unit},
                      ${alloc.unitCost.toString()}, ${amount.toString()},
                      ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
                      'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId})
@@ -250,14 +251,15 @@ export async function autoIssueMaterialsForBatch(
         // 로트 할당이 안 되었으면 로트 없이 거래 기록만 생성
         if (lotAllocations.length === 0) {
           try {
+            // PR-§5.2-2: 재고미등록(lot_id=0) 케이스도 material_id 는 채움 — 4단 fallback 의존성 제거
             await db.execute(sql`
-              INSERT INTO h_inventory_transactions 
-              (lot_id, transaction_type, quantity, unit, unit_cost, amount,
+              INSERT INTO h_inventory_transactions
+              (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
                transaction_date, source_type, source_id, source_line_id,
                action_type, purpose, performed_by, created_by, tenant_id,
                reference_type, reference_id, notes)
-              VALUES 
-              (0, 'usage', ${requiredQuantity.toString()}, ${unit},
+              VALUES
+              (0, ${materialId}, 'usage', ${requiredQuantity.toString()}, ${unit},
                ${unitPrice.toString()}, ${materialCost.toString()},
                ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
                'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
