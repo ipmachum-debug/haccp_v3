@@ -342,6 +342,9 @@ export async function getConsumptionSummary(params: {
   // PR-W7 (2026-04-27): 세부 행에서 raw notes ("원재료 #147 자동출고 (재고미등록)") 가
   //   사용자에게 그대로 노출되어 혼란을 줌. notes 자동 패턴이면 정제하고,
   //   isLotMissing 플래그를 함께 내려보내 클라이언트가 "재고미등록" 뱃지로 표시하게 함.
+  // PR-MS (2026-04-27): matchSource 디버그 필드 추가 — 4단 fallback (m1/m2/m3/im) 중
+  //   어느 분기로 원재료명이 매칭됐는지 추적. 운영 대시보드에서 fallback 의존도 측정 +
+  //   §5.2 (h_inventory_transactions.material_id 컬럼 추가) 작업의 baseline.
   const [rows]: any = await db.execute(sql.raw(`
     (
       SELECT
@@ -368,6 +371,16 @@ export async function getConsumptionSummary(params: {
           WHEN t.lot_id = 0 AND t.notes LIKE '%재고미등록%' THEN 1
           ELSE 0
         END AS isLotMissing,
+        -- PR-MS: 4단 fallback 중 어느 분기로 원재료명이 매칭됐는지 추적.
+        --   m1=정상 LOT, m2=inventory fallback, m3=batch_inputs fallback,
+        --   im=notes 파싱 fallback (가장 fragile), none=매칭 실패.
+        CASE
+          WHEN m1.id IS NOT NULL THEN 'm1'
+          WHEN m2.id IS NOT NULL THEN 'm2'
+          WHEN m3.id IS NOT NULL THEN 'm3'
+          WHEN im.id IS NOT NULL THEN 'im'
+          ELSE 'none'
+        END AS matchSource,
         'transaction' AS dataSource
       FROM h_inventory_transactions t
       LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
@@ -417,6 +430,8 @@ export async function getConsumptionSummary(params: {
         CONCAT('배치 ', COALESCE(b.batch_code, b.id), ' 투입') AS notes,
         -- PR-W7: batch_input 분기는 항상 정상 LOT 매칭 (h_materials JOIN 성공)
         0 AS isLotMissing,
+        -- PR-MS: batch_input 분기는 항상 m1 (정상 매칭) 으로 분류
+        'm1' AS matchSource,
         'batch_input' AS dataSource
       FROM h_batch_inputs bi
       JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
@@ -452,10 +467,20 @@ export async function getConsumptionSummary(params: {
       lotNumber: string | null;
       notes: string | null;
       isLotMissing: boolean;  // PR-W7: 재고미등록 (lot_id=0 자동출고) 식별 플래그
+      matchSource: "m1" | "m2" | "m3" | "im" | "none";  // PR-MS: 매칭 단계 추적
     }>;
     totalQuantity: number;
     totalAmount: number;
   }>();
+
+  // PR-MS: 월간 매칭 분포 집계 — 운영 대시보드 / fallback 의존도 모니터링용
+  const matchSourceStats: Record<"m1" | "m2" | "m3" | "im" | "none", number> = {
+    m1: 0,
+    m2: 0,
+    m3: 0,
+    im: 0,
+    none: 0,
+  };
 
   // 원재료별 월간 합계
   const materialTotals = new Map<number, {
@@ -484,6 +509,12 @@ export async function getConsumptionSummary(params: {
       dailyMap.set(dateStr, { date: dateStr, items: [], totalQuantity: 0, totalAmount: 0 });
     }
     const dayGroup = dailyMap.get(dateStr)!;
+    // PR-MS: matchSource 정규화 (예상치 못한 값은 'none' 으로)
+    const validSources = ["m1", "m2", "m3", "im", "none"] as const;
+    const matchSource = (validSources.includes(row.matchSource) ? row.matchSource : "none") as
+      | "m1" | "m2" | "m3" | "im" | "none";
+    matchSourceStats[matchSource]++;
+
     dayGroup.items.push({
       materialId: matId,
       materialName: row.materialName || '알 수 없음',
@@ -496,6 +527,8 @@ export async function getConsumptionSummary(params: {
       notes: row.notes || null,
       // PR-W7: MySQL 의 0/1 → JS boolean 변환
       isLotMissing: Number(row.isLotMissing) === 1,
+      // PR-MS: 매칭 분기 추적
+      matchSource,
     });
     dayGroup.totalQuantity += qty;
     dayGroup.totalAmount += amt;
@@ -569,6 +602,9 @@ export async function getConsumptionSummary(params: {
     grandTotalQuantity,
     grandTotalAmount,
     totalRecords,
+    // PR-MS: 4단 fallback 의존도 분포. m2~im 의 비율이 높을수록 데이터 정합성
+    //   문제가 누적되고 있다는 신호. UI 에서 작은 칩으로 표시.
+    matchSourceStats,
   };
 }
 
