@@ -270,15 +270,121 @@ export async function getBatchProgress(
 }
 
 /**
- * CCP 이탈 알림 조회 (CCP 테이블이 없으므로 빈 배열 반환)
+ * CCP 이탈 알림 조회 (h_ccp_deviations 기반)
+ *
+ * 2026-04-27 구현 (이전 세션 미해결):
+ *   기존엔 "CCP 테이블이 아직 구현되지 않음" 으로 빈 배열 반환했으나,
+ *   h_ccp_deviations 테이블은 이미 존재하고 운영 데이터도 누적 중이었음.
+ *   대시보드 KPI / 알림 카드 / MobileQuickCheck 모두 빈 배열 받아 "경고 없음" 표시.
+ *
+ * 반환 필드 (클라이언트 호환):
+ *   - ccpType: h_ccp_instances.ccp_type ('CCP-1B' 등) 우선, 없으면 deviationType
+ *   - description: 한국어 요약 ("온도 이탈: 한계 X, 실제 Y")
+ *   - message: 시정조치 또는 배치 정보
+ *   - severity, batchCode, productName, isResolved 등
+ *
+ * 정렬: 미해결 우선 → 최신 일자.
+ *
+ * 후속 (별도 PR 가능): h_ccp_form_rows.is_deviation=1 인 행도 통합.
  */
 export async function getCcpDeviations(filters?: {
   startDate?: string;
   endDate?: string;
   limit?: number;
 }, tenantId?: number) {
-  // CCP 테이블이 아직 구현되지 않음
-  return [];
+  if (!tenantId) return [];
+  const { getRawConnection } = await import("../connection");
+  const conn = await getRawConnection();
+  if (!conn) return [];
+
+  const limit = filters?.limit && filters.limit > 0 ? filters.limit : 50;
+  const conditions: string[] = ["d.tenant_id = ?"];
+  const params: any[] = [tenantId];
+  if (filters?.startDate) {
+    conditions.push("d.deviation_date >= ?");
+    params.push(filters.startDate);
+  }
+  if (filters?.endDate) {
+    conditions.push("d.deviation_date <= ?");
+    params.push(filters.endDate);
+  }
+
+  const [rows]: any = await conn.execute(
+    `
+    SELECT
+      d.id,
+      d.deviation_type,
+      d.severity,
+      d.deviation_date,
+      d.critical_limit,
+      d.actual_value,
+      d.corrective_action,
+      d.resolved_at,
+      d.resolved_by,
+      d.batch_id,
+      d.ccp_instance_id,
+      ci.ccp_type AS instance_ccp_type,
+      b.batch_code AS batch_code,
+      b.product_id AS batch_product_id,
+      p.product_name AS product_name
+    FROM h_ccp_deviations d
+    LEFT JOIN h_ccp_instances ci ON ci.id = d.ccp_instance_id AND ci.tenant_id = d.tenant_id
+    LEFT JOIN h_batches b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = d.tenant_id
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY
+      CASE WHEN d.resolved_at IS NULL THEN 0 ELSE 1 END,
+      d.deviation_date DESC,
+      d.id DESC
+    LIMIT ?
+    `,
+    [...params, limit],
+  );
+
+  // deviation_type → 한국어 라벨
+  const typeLabel: Record<string, string> = {
+    temperature: "온도",
+    time: "시간",
+    pressure: "압력",
+    visual: "육안",
+    metal: "금속검출",
+    ph: "pH",
+    moisture: "수분",
+  };
+
+  return (rows as any[]).map((r: any) => {
+    const koreanType = typeLabel[r.deviation_type] || r.deviation_type || "기타";
+    const ccpType = r.instance_ccp_type || r.deviation_type || "CCP";
+    const description =
+      `${koreanType} 이탈` +
+      (r.critical_limit && r.actual_value
+        ? ` (한계: ${r.critical_limit}, 실제: ${r.actual_value})`
+        : "");
+    const message =
+      r.corrective_action ||
+      [r.batch_code ? `배치 ${r.batch_code}` : null, r.product_name]
+        .filter(Boolean)
+        .join(" · ") ||
+      "확인 필요";
+    return {
+      id: Number(r.id),
+      ccpType,
+      type: ccpType, // 클라이언트 호환 (deviation.type fallback)
+      deviationType: r.deviation_type,
+      description,
+      message,
+      severity: r.severity,
+      deviationDate: r.deviation_date,
+      batchId: r.batch_id ? Number(r.batch_id) : null,
+      batchCode: r.batch_code,
+      productName: r.product_name,
+      criticalLimit: r.critical_limit,
+      actualValue: r.actual_value,
+      correctiveAction: r.corrective_action,
+      resolvedAt: r.resolved_at,
+      isResolved: !!r.resolved_at,
+    };
+  });
 }
 
 /**
