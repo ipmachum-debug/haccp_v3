@@ -42,6 +42,18 @@ export const haccpIntegrationRouter = router({
         return await getSaleById(input.id, ctx.tenantId);
       }),
 
+    /**
+     * 매출에 차감된 LOT 사후 조회.
+     * h_inventory_transactions 에서 source_type='SALE', source_id=saleId 인 행을 가져와
+     * LOT 번호, 수량, 단가, 소비기한, 차감 시각을 함께 반환.
+     */
+    getSaleLotTrace: tenantRequiredProcedure
+      .input(z.object({ saleId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getSaleLotTrace } = await import("../../db/haccp/haccpIntegration");
+        return await getSaleLotTrace(input.saleId, ctx.tenantId);
+      }),
+
     generatePurchasePdf: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
