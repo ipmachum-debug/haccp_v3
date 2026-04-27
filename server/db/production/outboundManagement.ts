@@ -402,6 +402,10 @@ export async function getConsumptionSummary(params: {
         ON im.tenant_id = t.tenant_id
        AND im.is_active = 1
        AND t.notes LIKE '원재료 #%자동출고%'
+       -- REGEXP 가드: notes 의 # 이후 첫 토큰이 숫자가 아닐 때 (예: 매출 분개 메모)
+       --   CAST 가 0 반환 + STRICT_TRANS_TABLES 에서는 truncation warning 발생.
+       --   숫자만 추출 후 CAST 하도록 보호.
+       AND SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) REGEXP '^[0-9]+$'
        AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
       WHERE t.transaction_type = 'usage'
         AND t.tenant_id = ${tenantId}

@@ -85,6 +85,9 @@ LEFT JOIN item_master im
   ON im.tenant_id = t.tenant_id
  AND im.is_active = 1
  AND t.notes LIKE '원재료 #%자동출고%'
+ -- REGEXP 가드: 한글/특수문자 등 비숫자 문자열 truncation 방지
+ -- (STRICT_TRANS_TABLES 환경에서 ERROR 1292 발생 회피)
+ AND SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) REGEXP '^[0-9]+$'
  AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
 WHERE t.tenant_id = 2
   AND t.material_id IS NULL
@@ -116,6 +119,9 @@ LEFT JOIN item_master im
   ON im.tenant_id = t.tenant_id
  AND im.is_active = 1
  AND t.notes LIKE '원재료 #%자동출고%'
+ -- REGEXP 가드: 한글/특수문자 등 비숫자 문자열 truncation 방지
+ -- (STRICT_TRANS_TABLES 환경에서 ERROR 1292 발생 회피)
+ AND SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) REGEXP '^[0-9]+$'
  AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
 SET t.material_id = COALESCE(
   l.material_id,
