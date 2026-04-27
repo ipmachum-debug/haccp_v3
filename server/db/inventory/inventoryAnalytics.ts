@@ -50,7 +50,7 @@ export async function calculateInventoryTurnover(
       COALESCE(lot_stock.total_qty, 1) as avg_inventory
     FROM h_materials m
     LEFT JOIN (
-      SELECT material_id, SUM(ABS(quantity)) as total_qty
+      SELECT material_id, SUM(ABS(COALESCE(actual_quantity, planned_quantity))) as total_qty
       FROM h_batch_inputs
       WHERE tenant_id = ${Number(tenantId)}
         AND COALESCE(input_time, created_at) >= ${start}
