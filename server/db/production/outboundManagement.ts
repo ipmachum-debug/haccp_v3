@@ -347,12 +347,16 @@ export async function getConsumptionSummary(params: {
   // PR-MS (2026-04-27): matchSource 디버그 필드 추가 — 4단 fallback (m1/m2/m3/im) 중
   //   어느 분기로 원재료명이 매칭됐는지 추적. 운영 대시보드에서 fallback 의존도 측정 +
   //   §5.2 (h_inventory_transactions.material_id 컬럼 추가) 작업의 baseline.
+  // PR-§5.2-3 (2026-04-27): t.material_id 직접 매칭 우선순위 추가 ('direct').
+  //   PR-§5.2-1 (백필) + PR-§5.2-2 (INSERT 사이트) 으로 신규 트랜잭션은 모두
+  //   material_id 가 채워지므로 direct 매칭이 가장 신뢰. m1~im fallback 은
+  //   백필 못한 행 + 미래 안전망용 defense-in-depth 로 유지.
   const [rows]: any = await db.execute(sql.raw(`
     (
       SELECT
         DATE(CONVERT_TZ(COALESCE(t.transaction_date, t.created_at), '+00:00', '+09:00')) AS txDate,
-        COALESCE(m1.material_name, m2.material_name, m3.material_name, im.item_name) AS materialName,
-        COALESCE(m1.id, m2.id, m3.id, im.id) AS materialId,
+        COALESCE(md.material_name, m1.material_name, m2.material_name, m3.material_name, im.item_name) AS materialName,
+        COALESCE(md.id, m1.id, m2.id, m3.id, im.id) AS materialId,
         ABS(t.quantity) AS quantity,
         t.unit,
         COALESCE(t.unit_cost, 0) AS unitCost,
@@ -373,10 +377,11 @@ export async function getConsumptionSummary(params: {
           WHEN t.lot_id = 0 AND t.notes LIKE '%재고미등록%' THEN 1
           ELSE 0
         END AS isLotMissing,
-        -- PR-MS: 4단 fallback 중 어느 분기로 원재료명이 매칭됐는지 추적.
-        --   m1=정상 LOT, m2=inventory fallback, m3=batch_inputs fallback,
-        --   im=notes 파싱 fallback (가장 fragile), none=매칭 실패.
+        -- PR-§5.2-3: matchSource — direct 가 최상위 우선순위.
+        --   direct = h_inventory_transactions.material_id 직접 매칭 (가장 신뢰)
+        --   m1~im = 기존 4단 fallback (백필 데이터 + defense-in-depth)
         CASE
+          WHEN md.id IS NOT NULL THEN 'direct'
           WHEN m1.id IS NOT NULL THEN 'm1'
           WHEN m2.id IS NOT NULL THEN 'm2'
           WHEN m3.id IS NOT NULL THEN 'm3'
@@ -385,6 +390,8 @@ export async function getConsumptionSummary(params: {
         END AS matchSource,
         'transaction' AS dataSource
       FROM h_inventory_transactions t
+      -- PR-§5.2-3: material_id 직접 JOIN (canonical, 신규 트랜잭션 + 백필된 기존 행)
+      LEFT JOIN h_materials md ON md.id = t.material_id AND md.tenant_id = t.tenant_id
       LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
       LEFT JOIN h_materials m1 ON m1.id = l.material_id
       LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
@@ -432,8 +439,9 @@ export async function getConsumptionSummary(params: {
         CONCAT('배치 ', COALESCE(b.batch_code, b.id), ' 투입') AS notes,
         -- PR-W7: batch_input 분기는 항상 정상 LOT 매칭 (h_materials JOIN 성공)
         0 AS isLotMissing,
-        -- PR-MS: batch_input 분기는 항상 m1 (정상 매칭) 으로 분류
-        'm1' AS matchSource,
+        -- PR-§5.2-3: batch_input 분기는 h_materials JOIN 성공이므로 'direct' 로 분류
+        --   (원래 m1 이었으나 'direct' 가 더 정확한 의미. 운영 분포 통계에서 m1 카운트 감소)
+        'direct' AS matchSource,
         'batch_input' AS dataSource
       FROM h_batch_inputs bi
       JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
@@ -469,14 +477,17 @@ export async function getConsumptionSummary(params: {
       lotNumber: string | null;
       notes: string | null;
       isLotMissing: boolean;  // PR-W7: 재고미등록 (lot_id=0 자동출고) 식별 플래그
-      matchSource: "m1" | "m2" | "m3" | "im" | "none";  // PR-MS: 매칭 단계 추적
+      // PR-§5.2-3: matchSource 에 'direct' 추가 (t.material_id 직접 매칭 — 가장 신뢰)
+      matchSource: "direct" | "m1" | "m2" | "m3" | "im" | "none";
     }>;
     totalQuantity: number;
     totalAmount: number;
   }>();
 
   // PR-MS: 월간 매칭 분포 집계 — 운영 대시보드 / fallback 의존도 모니터링용
-  const matchSourceStats: Record<"m1" | "m2" | "m3" | "im" | "none", number> = {
+  // PR-§5.2-3: 'direct' 카테고리 추가
+  const matchSourceStats: Record<"direct" | "m1" | "m2" | "m3" | "im" | "none", number> = {
+    direct: 0,
     m1: 0,
     m2: 0,
     m3: 0,
@@ -512,9 +523,10 @@ export async function getConsumptionSummary(params: {
     }
     const dayGroup = dailyMap.get(dateStr)!;
     // PR-MS: matchSource 정규화 (예상치 못한 값은 'none' 으로)
-    const validSources = ["m1", "m2", "m3", "im", "none"] as const;
+    // PR-§5.2-3: 'direct' 추가
+    const validSources = ["direct", "m1", "m2", "m3", "im", "none"] as const;
     const matchSource = (validSources.includes(row.matchSource) ? row.matchSource : "none") as
-      | "m1" | "m2" | "m3" | "im" | "none";
+      | "direct" | "m1" | "m2" | "m3" | "im" | "none";
     matchSourceStats[matchSource]++;
 
     dayGroup.items.push({

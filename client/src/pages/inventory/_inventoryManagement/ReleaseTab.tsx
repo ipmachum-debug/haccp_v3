@@ -342,11 +342,14 @@ export function ReleaseTab() {
               </div>
 
               {/* PR-MS: 매칭 분포 (4단 fallback 의존도 모니터링) */}
+              {/* PR-§5.2-3: 'direct' 카테고리 추가 (t.material_id 직접 매칭) */}
               {summary.matchSourceStats && summary.totalRecords > 0 && (() => {
                 const s = summary.matchSourceStats;
                 const total = summary.totalRecords;
+                // direct + m1 = "신뢰 매칭", m2/m3/im/none = "fallback 의존도"
                 const fallbackTotal = (s.m2 || 0) + (s.m3 || 0) + (s.im || 0) + (s.none || 0);
                 const fallbackPct = total > 0 ? (fallbackTotal / total) * 100 : 0;
+                const directPct = total > 0 ? ((s.direct || 0) / total) * 100 : 0;
                 const chip = (label: string, value: number, color: string, hint: string) => {
                   if (value === 0) return null;
                   const pct = (value / total * 100).toFixed(1);
@@ -361,14 +364,18 @@ export function ReleaseTab() {
                   <div className="border rounded-lg overflow-hidden">
                     <div className="bg-muted/30 px-3 py-2 border-b flex items-center justify-between">
                       <h4 className="text-xs font-semibold text-muted-foreground">원재료명 매칭 분포 (디버그)</h4>
-                      {fallbackPct > 0 && (
-                        <span className={`text-[10px] ${fallbackPct > 10 ? "text-amber-700" : "text-muted-foreground"}`}>
-                          fallback 의존도 {fallbackPct.toFixed(1)}%
-                        </span>
-                      )}
+                      <div className="flex items-center gap-3 text-[10px]">
+                        <span className="text-emerald-700">direct {directPct.toFixed(1)}%</span>
+                        {fallbackPct > 0 && (
+                          <span className={fallbackPct > 10 ? "text-amber-700" : "text-muted-foreground"}>
+                            fallback {fallbackPct.toFixed(1)}%
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="px-3 py-2 flex flex-wrap gap-1.5">
-                      {chip("m1 정상", s.m1, "border-emerald-300 bg-emerald-50 text-emerald-800", "h_inventory_lots → h_materials (정상 LOT 매칭)")}
+                      {chip("direct ★", s.direct, "border-emerald-400 bg-emerald-100 text-emerald-900 font-bold", "h_inventory_transactions.material_id 직접 매칭 (PR-§5.2, 가장 신뢰)")}
+                      {chip("m1 lot", s.m1, "border-emerald-300 bg-emerald-50 text-emerald-800", "h_inventory_lots → h_materials (정상 LOT 매칭, 백필)")}
                       {chip("m2 inv", s.m2, "border-blue-300 bg-blue-50 text-blue-800", "h_inventory → h_materials fallback (LOT 없지만 inventory 있음)")}
                       {chip("m3 bi", s.m3, "border-amber-300 bg-amber-50 text-amber-800", "h_batch_inputs → h_materials fallback (lot_id=0 재고미등록)")}
                       {chip("im 파싱", s.im, "border-orange-300 bg-orange-50 text-orange-800", "notes 파싱 → item_master fallback (orphan, fragile)")}
@@ -470,8 +477,8 @@ export function ReleaseTab() {
                                                 재고미등록
                                               </Badge>
                                             ) : null}
-                                            {/* PR-MS: m1 (정상) 외 fallback 일 때만 작은 표시 — 데이터 정합성 신호 */}
-                                            {item.matchSource && item.matchSource !== "m1" && (
+                                            {/* PR-MS / PR-§5.2-3: direct/m1 (정상) 외 fallback 일 때만 칩 표시 */}
+                                            {item.matchSource && item.matchSource !== "direct" && item.matchSource !== "m1" && (
                                               <span
                                                 className={`text-[8px] font-mono px-1 py-0 h-3 rounded ${
                                                   item.matchSource === "im"
