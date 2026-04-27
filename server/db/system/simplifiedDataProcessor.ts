@@ -509,12 +509,13 @@ async function processPurchase(
   );
 
   // 입고 트랜잭션 기록
+  // PR-§5.2-2: material_id 직접 작성
   await conn.execute(
     `INSERT INTO h_inventory_transactions
-     (tenant_id, lot_id, transaction_type, quantity, unit, reference_type, reference_id,
+     (tenant_id, lot_id, material_id, transaction_type, quantity, unit, reference_type, reference_id,
       notes, created_by, transaction_date)
-     VALUES (?, ?, 'receipt', ?, 'kg', 'PURCHASE', ?, '단순임포트 입고', ?, ?)`,
-    [tenantId, lotId, params.qty, purchaseId, userId, params.date]
+     VALUES (?, ?, ?, 'receipt', ?, 'kg', 'PURCHASE', ?, '단순임포트 입고', ?, ?)`,
+    [tenantId, lotId, params.materialId, params.qty, purchaseId, userId, params.date]
   );
 
   // 수불부 기록 (입고)

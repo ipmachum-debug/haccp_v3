@@ -81,10 +81,12 @@ export async function cancelMaterialOutbound(
     if (originalTx.actionType !== "POST") continue;
 
     try {
+      // PR-§5.2-2: 원본 트랜잭션의 material_id 승계
       await db.insert(hInventoryTransactions).values({
         tenantId,
         inventoryId: originalTx.inventoryId,
         lotId: originalTx.lotId,
+        materialId: originalTx.materialId,
         transactionType: "adjustment", // 조정
         quantity: (-parseFloat(originalTx.quantity || "0")).toString(), // 부호 반대
         unit: originalTx.unit,

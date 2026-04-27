@@ -236,12 +236,13 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     // ★ PR-W3 (2026-04-26): source_type 누락 수정
     //   기존: source_type 컬럼을 INSERT 안 함 → NULL 저장 → 14건 NULL 누적
     //   수정: 'accounting_purchases' 명시 (기존 매입승인 트랜잭션과 동일 표기)
+    // ★ PR-§5.2-2 (2026-04-27): material_id 직접 작성 (resolvedMaterialId)
     await conn.execute(
       `INSERT INTO h_inventory_transactions
-         (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+         (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
           reference_type, source_type, source_id, unit_cost, amount, created_by)
-       VALUES (?, ?, 'receipt', ?, ?, ?, 'PURCHASE', 'accounting_purchases', ?, ?, ?, ?)`,
-      [tenantId, lotId, qty, purchase.unit || "EA", purchase.transactionDate,
+       VALUES (?, ?, ?, 'receipt', ?, ?, ?, 'PURCHASE', 'accounting_purchases', ?, ?, ?, ?)`,
+      [tenantId, lotId, resolvedMaterialId ?? null, qty, purchase.unit || "EA", purchase.transactionDate,
        purchaseId, purchase.unitPrice?.toString() || "0", purchase.totalAmount?.toString() || "0", userId]
     );
 

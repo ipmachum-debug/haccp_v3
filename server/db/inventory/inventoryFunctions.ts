@@ -157,8 +157,10 @@ export async function createInventoryLot(data: {
   const lotId = result.insertId;
 
   // 2. 재고 거래 내역 생성 (receipt)
+  // PR-§5.2-2: material_id 직접 작성
   await db.insert(hInventoryTransactions).values({
     lotId: Number(lotId),
+    materialId: data.materialId,
     transactionType: "receipt",
     quantity: data.quantity,
     unit: data.unit,
@@ -236,8 +238,10 @@ export async function addMaterialInputToBatch(data: {
     .where(eq(hInventoryLots.id, data.lotId));
 
   // 4. 재고 거래 내역 생성
+  // PR-§5.2-2: material_id 직접 작성
   await db.insert(hInventoryTransactions).values({
     lotId: data.lotId,
+    materialId: data.materialId,
     transactionType: "usage",
     quantity: data.quantity,
     unit: data.unit,
@@ -632,8 +636,10 @@ export async function receiveMaterial(params: {
     const lotId = lot.insertId;
 
     // 2. hInventoryTransactions에 입고 거래 생성
+    // PR-§5.2-2: material_id 직접 작성
     await tx.insert(hInventoryTransactions).values({
       lotId,
+      materialId: params.materialId,
       transactionType: "receipt",
       quantity: params.quantity.toString(),
       unit: params.unit,
@@ -723,8 +729,10 @@ export async function deductLotQuantity(params: {
       .where(eq(hInventoryLots.id, params.lotId));
 
     // 3. 수불 거래 생성 (사용)
+    // PR-§5.2-2: material_id 직접 작성 (LOT 의 material_id 승계)
     await tx.insert(hInventoryTransactions).values({
       lotId: params.lotId,
+      materialId: lot.materialId,
       transactionType: "usage",
       quantity: params.quantity.toString(),
       unit: lot.unit,

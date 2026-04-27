@@ -661,12 +661,13 @@ export async function createMaterialReceivingWithLot(
   const lotId = Number((lotResult as any)[0]?.insertId || 0);
 
   // 4. h_inventory_transactions에 입고 기록
+  // PR-§5.2-2: material_id 직접 작성
   await db.execute(sql`
     INSERT INTO h_inventory_transactions
-      (tenant_id, inventory_id, lot_id, transaction_type, quantity, unit, unit_cost,
+      (tenant_id, inventory_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost,
        transaction_date, reference_type, source_type, action_type, notes, created_by)
     VALUES
-      (${tenantId}, ${inventoryId}, ${lotId}, 'receipt', ${params.quantity}, ${params.unit},
+      (${tenantId}, ${inventoryId}, ${lotId}, ${params.materialId}, 'receipt', ${params.quantity}, ${params.unit},
        ${params.unitPrice || null}, ${receiptDate}, 'material_receiving', 'inbound', 'receipt',
        ${params.notes || `원재료 입고 - ${lotNumber}`}, ${params.userId})
   `);

@@ -85,10 +85,12 @@ export async function postMaterialOutbound(
   // 4. 재고 원장 생성 (각 LOT별로)
   for (const allocation of allocations) {
     try {
+      // PR-§5.2-2: material_id 직접 작성 (원본 outbound 문서의 materialId 승계)
       await db.insert(hInventoryTransactions).values({
         tenantId,
         inventoryId: outbound.inventoryId,
         lotId: allocation.lotId,
+        materialId: (outbound as any).materialId ?? null,
         transactionType: "usage", // 원재료 사용
         quantity: (-allocation.quantity).toString(), // 음수 (출고)
         unit: outbound.unit,

@@ -159,14 +159,16 @@ export async function createInboundReceipt(params: {
     const lotId = (lotResult as any).insertId;
 
     // (B) 재고 거래 내역 기록 (양수 quantity, type='receipt')
+    // PR-§5.2-2: material_id 직접 작성
     await conn.execute(
       `INSERT INTO h_inventory_transactions
-         (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+         (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
           reference_type, reference_id, notes, created_by)
-       VALUES (?, ?, 'receipt', ?, ?, ?, 'inbound_receipt', ?, ?, ?)`,
+       VALUES (?, ?, ?, 'receipt', ?, ?, ?, 'inbound_receipt', ?, ?, ?)`,
       [
         tenantId ?? null,
         lotId,
+        params.materialId,
         params.quantity.toString(),
         params.unit,
         receiptDate.toISOString().slice(0, 10),
