@@ -3,19 +3,28 @@ import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, ArrowLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Download, ArrowLeft, Package } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 export default function SaleDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
-  
+  const saleIdNum = id ? parseInt(id) : NaN;
+
   const { data: _saleRaw, isLoading } = trpc.haccpIntegration.getSaleById.useQuery(
-    { id: parseInt(id!) },
+    { id: saleIdNum },
     { enabled: !!id }
   );
   const sale = _saleRaw as any;
+
+  // 차감된 LOT 추적 (사후 조회)
+  const { data: lotTrace } = trpc.haccpIntegration.getSaleLotTrace.useQuery(
+    { saleId: saleIdNum },
+    { enabled: !!id && !isNaN(saleIdNum) },
+  );
+  const lotRows = (lotTrace as any[]) ?? [];
 
   const downloadPdfMutation = trpc.haccpIntegration.generateSalePDF.useMutation({
     onSuccess: (data: any) => {
@@ -154,6 +163,91 @@ export default function SaleDetail() {
                   </tfoot>
                 </table>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* 차감된 LOT 추적 (HACCP 추적성 / 거래처 LOT 확인) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                차감된 LOT
+                {lotRows.length > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    {lotRows.length}건
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {lotRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">
+                  이 매출에 연결된 차감 기록이 없습니다.
+                  {sale.status !== "approved" && sale.status !== "received" && (
+                    <span className="ml-2 text-amber-700">
+                      (매출이 아직 승인되지 않아 LOT 차감이 발생하지 않았을 수 있습니다)
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-xs text-muted-foreground">
+                        <th className="text-left py-2 px-2">품목</th>
+                        <th className="text-left py-2 px-2">LOT 번호</th>
+                        <th className="text-right py-2 px-2">차감수량</th>
+                        <th className="text-right py-2 px-2">단가</th>
+                        <th className="text-right py-2 px-2">금액</th>
+                        <th className="text-left py-2 px-2">생산일</th>
+                        <th className="text-left py-2 px-2">소비기한</th>
+                        <th className="text-left py-2 px-2">차감일</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lotRows.map((r: any) => {
+                        const itemName = r.productName || r.materialName || "-";
+                        const itemCode = r.productCode || r.materialCode || "";
+                        return (
+                          <tr key={r.txId} className="border-b hover:bg-muted/30">
+                            <td className="py-2 px-2">
+                              <div className="font-medium">{itemName}</div>
+                              {itemCode && (
+                                <div className="text-[10px] text-muted-foreground font-mono">
+                                  {itemCode}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 px-2 font-mono text-xs">
+                              {r.lotNumber || (
+                                <span className="text-muted-foreground italic">LOT 없음</span>
+                              )}
+                            </td>
+                            <td className="text-right py-2 px-2 tabular-nums">
+                              {r.quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })} {r.unit}
+                            </td>
+                            <td className="text-right py-2 px-2 tabular-nums">
+                              {r.unitCost > 0 ? `₩${r.unitCost.toLocaleString()}` : "-"}
+                            </td>
+                            <td className="text-right py-2 px-2 tabular-nums">
+                              {r.amount > 0 ? `₩${r.amount.toLocaleString()}` : "-"}
+                            </td>
+                            <td className="py-2 px-2 text-xs">
+                              {r.productionDate ? String(r.productionDate).slice(0, 10) : "-"}
+                            </td>
+                            <td className="py-2 px-2 text-xs">
+                              {r.expiryDate ? String(r.expiryDate).slice(0, 10) : "-"}
+                            </td>
+                            <td className="py-2 px-2 text-xs text-muted-foreground">
+                              {r.transactionDate ? String(r.transactionDate).slice(0, 10) : "-"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
 

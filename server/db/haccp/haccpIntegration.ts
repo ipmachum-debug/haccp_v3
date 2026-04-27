@@ -614,6 +614,81 @@ export async function getSaleById(id: number, tenantId?: number) {
 }
 
 /**
+ * 매출에 차감된 LOT 추적 (사후 조회)
+ *
+ * 2026-04-27 (이전 세션 미완 작업):
+ *   매출 승인 시 productSalePost / productSaleCancel / autoMaterialIssue 등에서
+ *   FEFO 차감으로 h_inventory_transactions 에 source_type='SALE', source_id=saleId
+ *   기록을 남김. 사후에 어느 LOT 이 차감됐는지 확인하는 화면이 없어 추적이 어려웠음.
+ *
+ * 반환:
+ *   해당 매출 ID 에 차감된 모든 LOT 건별 상세 (LOT 번호, 수량, 단가, 소비기한, 시각).
+ *   상품/원재료 모두 지원.
+ */
+export async function getSaleLotTrace(saleId: number, tenantId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const { sql } = await import("drizzle-orm");
+
+  // h_inventory_transactions 에서 source_type='SALE' + source_id=saleId 조회
+  // LOT / 제품 / 원재료 정보 left join (제품 매출이면 product 매핑, 원재료 매출이면 material 매핑)
+  const result: any = await db.execute(sql`
+    SELECT
+      t.id              AS tx_id,
+      t.lot_id          AS lot_id,
+      t.material_id     AS material_id,
+      t.quantity        AS quantity,
+      t.unit            AS unit,
+      t.unit_cost       AS unit_cost,
+      t.amount          AS amount,
+      t.transaction_date AS transaction_date,
+      t.notes           AS notes,
+      t.created_at      AS created_at,
+      l.lot_number      AS lot_number,
+      l.expiry_date     AS expiry_date,
+      l.production_date AS production_date,
+      l.product_id      AS lot_product_id,
+      p.product_name    AS product_name,
+      p.product_code    AS product_code,
+      m.material_name   AS material_name,
+      m.material_code   AS material_code
+    FROM h_inventory_transactions t
+    LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
+    LEFT JOIN h_products_v2 p ON p.id = l.product_id AND p.tenant_id = t.tenant_id
+    LEFT JOIN h_materials m ON m.id = t.material_id AND m.tenant_id = t.tenant_id
+    WHERE t.tenant_id = ${tenantId}
+      AND t.transaction_type = 'usage'
+      AND (t.source_type = 'SALE' OR t.reference_type = 'SALE')
+      AND t.source_id = ${saleId}
+    ORDER BY t.id ASC
+  `);
+
+  const rows = (Array.isArray(result?.[0]) ? result[0] : result) as any[];
+
+  return (rows || []).map((r: any) => ({
+    txId: Number(r.tx_id),
+    lotId: r.lot_id ? Number(r.lot_id) : null,
+    lotNumber: r.lot_number || null,
+    productId: r.lot_product_id ? Number(r.lot_product_id) : null,
+    productName: r.product_name || null,
+    productCode: r.product_code || null,
+    materialId: r.material_id ? Number(r.material_id) : null,
+    materialName: r.material_name || null,
+    materialCode: r.material_code || null,
+    quantity: Math.abs(parseFloat(r.quantity || "0")),
+    unit: r.unit || "",
+    unitCost: parseFloat(r.unit_cost || "0"),
+    amount: Math.abs(parseFloat(r.amount || "0")),
+    transactionDate: r.transaction_date,
+    productionDate: r.production_date,
+    expiryDate: r.expiry_date,
+    notes: r.notes,
+    createdAt: r.created_at,
+  }));
+}
+
+/**
  * 매입 거래명세서 PDF 생성 (HTML 형식)
  */
 export async function generatePurchasePdf(id: number, tenantId: number): Promise<string> {
