@@ -425,7 +425,15 @@ export function ReleaseTab() {
                                             ) : (
                                               <span className="text-muted-foreground">{item.sourceType || "수동"}</span>
                                             )}
-                                            {item.lotNumber && <span className="font-mono text-muted-foreground">{item.lotNumber}</span>}
+                                            {/* PR-W7: LOT 번호 또는 재고미등록 뱃지 (둘 중 하나만 표시) */}
+                                            {item.lotNumber ? (
+                                              <span className="font-mono text-muted-foreground">{item.lotNumber}</span>
+                                            ) : item.isLotMissing ? (
+                                              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 bg-amber-100 text-amber-800 border-amber-300">
+                                                재고미등록
+                                              </Badge>
+                                            ) : null}
+                                            {/* PR-W7: 사용자 메모만 표시 (자동출고 raw notes 는 백엔드에서 NULL 처리됨) */}
                                             {item.notes && <span className="text-muted-foreground truncate max-w-[200px]">{item.notes}</span>}
                                           </div>
                                           <span className="font-mono whitespace-nowrap">
