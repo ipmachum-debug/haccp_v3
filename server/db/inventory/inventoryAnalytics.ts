@@ -59,14 +59,18 @@ export async function calculateInventoryTurnover(
       GROUP BY material_id
     ) batch_usage ON m.id = batch_usage.material_id
     LEFT JOIN (
-      SELECT l.material_id, SUM(ABS(t.quantity)) as total_qty
+      -- 2026-04-27 (§5.2 후속): JOIN h_inventory_lots 의존성 제거.
+      -- t.material_id 가 직접 채워진 후 (PR #89), lot_id=0 트랜잭션도 포함되어 회전율 계산 정확도 향상.
+      -- product 트랜잭션은 t.material_id IS NULL 이라 자연 제외됨.
+      SELECT t.material_id, SUM(ABS(t.quantity)) as total_qty
       FROM h_inventory_transactions t
-      JOIN h_inventory_lots l ON t.lot_id = l.id
       WHERE t.tenant_id = ${Number(tenantId)}
         AND t.transaction_type = 'usage'
+        AND t.material_id IS NOT NULL
+        AND (t.reference_type IS NULL OR t.reference_type != 'SALE')
         AND COALESCE(t.transaction_date, t.created_at) >= ${start}
         AND COALESCE(t.transaction_date, t.created_at) <= ${end}
-      GROUP BY l.material_id
+      GROUP BY t.material_id
     ) txn_usage ON m.id = txn_usage.material_id
     LEFT JOIN (
       SELECT material_id, SUM(available_quantity) as total_qty
