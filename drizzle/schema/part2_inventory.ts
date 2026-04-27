@@ -70,6 +70,12 @@ export const hInventoryTransactions = mysqlTable("h_inventory_transactions", {
   tenantId: int('tenant_id').notNull().references(() => tenants.id),
   lotId: bigint("lot_id", { mode: "number" }).notNull(),
   inventoryId: bigint("inventory_id", { mode: "number" }), // 재고 마스터 ID
+  // PR-§5.2 (2026-04-27): material_id 직접 컬럼 추가.
+  //   기존에는 lot/inventory/batch_inputs/notes 4단 fallback 으로 매칭했으나
+  //   notes 파싱 의존성이 fragile + SELECT 쿼리 복잡. 이 컬럼이 모든 경로의
+  //   원천(canonical) 이 됨. 백필 + 신규 INSERT 시 항상 채우는 게 목표.
+  //   값 의미: h_materials.id (canonical) — item_master.id 가 들어가지 않음.
+  materialId: bigint("material_id", { mode: "number" }),
   transactionType: mysqlEnum("transaction_type", [
     "receipt",
     "usage",
