@@ -85,6 +85,8 @@ function B2cPlatformContent() {
   const [addSellerOpen, setAddSellerOpen] = useState(false);
   const [addSellerForPlatformId, setAddSellerForPlatformId] = useState<number | null>(null);
   const [addPlatformOpen, setAddPlatformOpen] = useState(false);
+  const [editSellerOpen, setEditSellerOpen] = useState(false);
+  const [editSellerData, setEditSellerData] = useState<{ id: number; sellerCode: string; sellerName: string | null } | null>(null);
   const [editEntryOpen, setEditEntryOpen] = useState(false);
   const [editEntryData, setEditEntryData] = useState<any>(null);
 
@@ -151,6 +153,31 @@ function B2cPlatformContent() {
       if (selectedPlatformId) setSelectedPlatformId(null);
     },
     onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+  });
+
+  // 셀러 수정 / 비활성화 (PR-§b2c-seller-edit)
+  const updateSellerMutation = (trpc as any).b2cPlatform.updateSeller.useMutation({
+    onSuccess: () => {
+      toast({ title: "셀러 수정됨" });
+      platformsQuery.refetch();
+      matrixQuery.refetch();
+      summaryQuery.refetch();
+      setEditSellerOpen(false);
+      setEditSellerData(null);
+    },
+    onError: (e: any) => toast({ title: "수정 실패", description: e.message, variant: "destructive" }),
+  });
+
+  const deactivateSellerMutation = (trpc as any).b2cPlatform.deactivateSeller.useMutation({
+    onSuccess: () => {
+      toast({ title: "셀러 비활성화됨" });
+      platformsQuery.refetch();
+      matrixQuery.refetch();
+      summaryQuery.refetch();
+      setEditSellerOpen(false);
+      setEditSellerData(null);
+    },
+    onError: (e: any) => toast({ title: "비활성화 실패", description: e.message, variant: "destructive" }),
   });
 
   // 분기 시작/종료 월
@@ -451,26 +478,45 @@ function B2cPlatformContent() {
                     <span className="text-[10px] text-muted-foreground">셀러 없음 →</span>
                   )}
                   {(p.sellers ?? []).map((s: any) => (
-                    <button
+                    <div
                       key={s.id}
-                      className="px-2 py-0.5 rounded bg-violet-50 hover:bg-violet-100 border border-violet-200 text-[11px] transition-colors"
-                      title={`${s.seller_code}${s.seller_name ? ` (${s.seller_name})` : ""} — 매출 입력`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditEntryData({
-                          platformPartnerId: p.platform_id,
-                          sellerId: s.id,
-                          paymentMethod: "",
-                          periodMonth: periodMode === "month" ? periodMonth : quarterMonths[0],
-                        });
-                        setEditEntryOpen(true);
-                      }}
+                      className="group relative inline-flex items-center rounded bg-violet-50 hover:bg-violet-100 border border-violet-200 text-[11px] transition-colors"
                     >
-                      <span className="font-mono font-medium">{s.seller_code}</span>
-                      {s.seller_name && (
-                        <span className="text-muted-foreground ml-1">{s.seller_name}</span>
-                      )}
-                    </button>
+                      <button
+                        className="px-2 py-0.5"
+                        title={`${s.seller_code}${s.seller_name ? ` (${s.seller_name})` : ""} — 매출 입력`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditEntryData({
+                            platformPartnerId: p.platform_id,
+                            sellerId: s.id,
+                            paymentMethod: "",
+                            periodMonth: periodMode === "month" ? periodMonth : quarterMonths[0],
+                          });
+                          setEditEntryOpen(true);
+                        }}
+                      >
+                        <span className="font-mono font-medium">{s.seller_code}</span>
+                        {s.seller_name && (
+                          <span className="text-muted-foreground ml-1">{s.seller_name}</span>
+                        )}
+                      </button>
+                      <button
+                        className="px-1 py-0.5 border-l border-violet-200 text-violet-600 hover:bg-violet-200 rounded-r"
+                        title="셀러 수정 / 삭제"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditSellerData({
+                            id: s.id,
+                            sellerCode: s.seller_code,
+                            sellerName: s.seller_name,
+                          });
+                          setEditSellerOpen(true);
+                        }}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
                   ))}
                   <button
                     className="px-2 py-0.5 rounded border border-dashed border-violet-300 text-[11px] text-violet-700 hover:bg-violet-50 transition-colors"
@@ -679,6 +725,23 @@ function B2cPlatformContent() {
         onOpenChange={setAddPlatformOpen}
         onSubmit={(name) => createPlatformMutation.mutate({ name })}
         isPending={createPlatformMutation.isPending}
+      />
+
+      {/* 셀러 수정/삭제 다이얼로그 (PR-§b2c-seller-edit) */}
+      <EditSellerDialog
+        open={editSellerOpen}
+        onOpenChange={(o) => {
+          setEditSellerOpen(o);
+          if (!o) setEditSellerData(null);
+        }}
+        seller={editSellerData}
+        onUpdate={(payload) => updateSellerMutation.mutate(payload)}
+        onDelete={(id) => {
+          if (confirm("이 셀러를 비활성화하시겠습니까?\n(매출 항목은 유지됩니다. 다시 활성화하려면 DB 직접 수정 필요)")) {
+            deactivateSellerMutation.mutate({ id });
+          }
+        }}
+        isPending={updateSellerMutation.isPending || deactivateSellerMutation.isPending}
       />
 
       {/* 매출 항목 입력 다이얼로그 */}
@@ -971,6 +1034,89 @@ function AddPlatformDialog({
           >
             {isPending ? "추가 중..." : "추가"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 셀러 수정 / 삭제 다이얼로그 (PR-§b2c-seller-edit)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function EditSellerDialog({
+  open,
+  onOpenChange,
+  seller,
+  onUpdate,
+  onDelete,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  seller: { id: number; sellerCode: string; sellerName: string | null } | null;
+  onUpdate: (payload: { id: number; sellerCode: string; sellerName: string }) => void;
+  onDelete: (id: number) => void;
+  isPending: boolean;
+}) {
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+
+  // open 시 seller 값으로 초기화
+  React.useEffect(() => {
+    if (open && seller) {
+      setCode(seller.sellerCode);
+      setName(seller.sellerName ?? "");
+    }
+  }, [open, seller]);
+
+  if (!seller) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>셀러 수정</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <Label className="text-xs">셀러 코드 *</Label>
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="sokooryceo"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">셀러 이름 (표시용)</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="소구려"
+            />
+          </div>
+        </div>
+        <DialogFooter className="flex justify-between">
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={isPending}
+            onClick={() => onDelete(seller.id)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1" /> 삭제 (비활성화)
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
+            <Button
+              disabled={!code.trim() || isPending}
+              onClick={() => {
+                if (!code.trim()) return;
+                onUpdate({ id: seller.id, sellerCode: code.trim(), sellerName: name.trim() });
+              }}
+            >
+              {isPending ? "저장 중..." : "저장"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
