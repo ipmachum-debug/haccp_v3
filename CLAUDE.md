@@ -64,6 +64,14 @@
 - [ ] 데이터/운영 작업인가? → Genspark 서버 직접 실행 OK
 - [ ] 긴급 hotfix 인가? → 1시간 이내 PR 올릴 것
 
+### 실측 운영 사이클 (PR / 배포 / 기획 / 사고대응)
+
+📘 **[`docs/workflow/pr-deployment-cycle.md`](./docs/workflow/pr-deployment-cycle.md)** — 새 세션 시작 시 페이스 회복용 운영 매뉴얼
+- PR 라이프사이클 / 머지 권한 분담 / PR 본문 표준 구조
+- 다중 PR 분할 패턴 / 기획 옵션 제시 패턴
+- 운영 안전 룰 (코드 / DB / 인프라) / 의존 PR 처리
+- 검증 결과 보고 형식 / 사고 대응 패턴
+
 ---
 
 ## 🚨 아키텍처 규칙
