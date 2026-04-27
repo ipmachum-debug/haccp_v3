@@ -516,9 +516,11 @@ export const inventoryRouter = router({
           ));
         
         // 거래 내역 기록 (h_inventory_transactions)
+        // PR-§5.2-2: material_id 직접 작성 (lot.materialId — 상단 LOT SELECT 결과)
         await db.insert(hInventoryTransactions).values({
           tenantId: ctx.tenantId,
           lotId: input.lotId,
+          materialId: lot.materialId,
           transactionType: "usage",
           quantity: input.quantity.toString(),
           unit: lot.unit,
@@ -580,9 +582,11 @@ export const inventoryRouter = router({
           ));
         
         // 재고 조정 거래 내역 기록
+        // PR-§5.2-2: material_id 직접 작성 (lot.materialId — 상단 LOT SELECT 결과)
         await db.insert(hInventoryTransactions).values({
           tenantId: ctx.tenantId,
           lotId: input.lotId,
+          materialId: lot.materialId,
           transactionType: "adjustment",
           quantity: diff.toString(),
           unit: lot.unit,
@@ -700,9 +704,11 @@ export const inventoryRouter = router({
               ),
             );
 
+          // PR-§5.2-2: material_id 직접 작성 (target.materialId — LOT 자체 필드)
           await db.insert(hInventoryTransactions).values({
             tenantId: ctx.tenantId,
             lotId: target.id,
+            materialId: target.materialId,
             transactionType: "adjustment",
             quantity: input.quantityChange.toFixed(3),
             unit: target.unit,
@@ -751,9 +757,11 @@ export const inventoryRouter = router({
                 ),
               );
 
+            // PR-§5.2-2: material_id 직접 작성 (lot.materialId — LOT 자체 필드)
             await db.insert(hInventoryTransactions).values({
               tenantId: ctx.tenantId,
               lotId: lot.id,
+              materialId: lot.materialId,
               transactionType: "adjustment",
               quantity: (-take).toFixed(3),
               unit: lot.unit,

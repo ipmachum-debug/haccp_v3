@@ -349,12 +349,13 @@ export async function recoverLotVsTxBalance(
     try {
       await withTransaction(async (tx: PoolConnection) => {
         // 항상 양수 quantity + 적절한 transaction_type
+        // PR-§5.2-2: material_id 직접 작성 (lot.material_id — 위 SELECT 에서 끌어옴)
         await tx.execute(
           `INSERT INTO h_inventory_transactions
-             (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+             (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
               reference_type, source_type, notes, created_by)
-           VALUES (?, ?, ?, ?, ?, ?, 'RECOVERY', 'recovery_script', ?, ?)`,
-          [tid, lotId, txType, absQty, lot.unit || "EA", today, note, 1],
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'RECOVERY', 'recovery_script', ?, ?)`,
+          [tid, lotId, lot.material_id ?? null, txType, absQty, lot.unit || "EA", today, note, 1],
         );
       }, `recoverLotVsTxBalance:LOT-${lotId}`);
 

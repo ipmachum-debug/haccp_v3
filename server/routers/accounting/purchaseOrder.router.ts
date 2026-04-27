@@ -473,8 +473,9 @@ export const purchaseOrderRouter = router({
               const purchaseId = p.id;
 
               // (1) 원본 receipt 거래 → LOT 역차감
+              // PR-§5.2-2: SELECT 에 material_id 추가 → 역거래에 그대로 승계
               const [txRows]: any = await conn.execute(
-                `SELECT id, lot_id, quantity FROM h_inventory_transactions
+                `SELECT id, lot_id, quantity, material_id FROM h_inventory_transactions
                  WHERE tenant_id = ? AND UPPER(reference_type) = 'PURCHASE'
                    AND source_id = ? AND transaction_type = 'receipt'
                  LIMIT 1`,
@@ -497,12 +498,13 @@ export const purchaseOrderRouter = router({
                 );
 
                 // 역거래 기록
+                // PR-§5.2-2: material_id 직접 작성 — 원본 receipt 트랜잭션의 material_id 그대로 승계
                 await conn.execute(
                   `INSERT INTO h_inventory_transactions
-                     (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+                     (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
                       reference_type, source_type, source_id, notes, created_by)
-                   VALUES (?, ?, 'usage', ?, 'EA', CURDATE(), 'PO_DELETE', 'PO_DELETE', ?, ?, ?)`,
-                  [ctx.tenantId, lotId, cancelQty, purchaseId,
+                   VALUES (?, ?, ?, 'usage', ?, 'EA', CURDATE(), 'PO_DELETE', 'PO_DELETE', ?, ?, ?)`,
+                  [ctx.tenantId, lotId, origTx.material_id ?? null, cancelQty, purchaseId,
                    `[발주삭제] PO-${input.id}`, ctx.user.id],
                 );
               }

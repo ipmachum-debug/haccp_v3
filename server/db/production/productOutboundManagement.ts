@@ -120,6 +120,7 @@ export async function createProductLotFromBatch(params: {
   const lotId = (insertResult as any)[0]?.insertId || (insertResult as any).insertId;
 
   // 입고 트랜잭션 기록
+  // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 입고* 트랜잭션이므로 material_id 는 NULL.
   await db.insert(hInventoryTransactions).values({
     tenantId,
     lotId,
@@ -226,6 +227,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
       const lotId = Number((insertResult as any).insertId);
 
       // 입고 트랜잭션 기록
+      // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 보강* 트랜잭션이므로 material_id 는 NULL.
       await db.insert(hInventoryTransactions).values({
         tenantId,
         lotId,
@@ -286,6 +288,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
   );
   const lotId = Number((insertResult as any).insertId);
 
+  // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 보강 (fallback)* 트랜잭션이므로 material_id 는 NULL.
   await db.insert(hInventoryTransactions).values({
     tenantId,
     lotId,
@@ -450,6 +453,7 @@ export async function createProductOutbound(params: {
     );
 
     // 출고 트랜잭션 기록
+    // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 출고* 트랜잭션이므로 material_id 는 NULL.
     if (db) {
       await db.insert(hInventoryTransactions).values({
         tenantId,
@@ -775,6 +779,7 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
     );
 
     // 복원 트랜잭션 기록
+    // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 환입* 트랜잭션이므로 material_id 는 NULL.
     const db = await getDb();
     if (db) {
       await db.insert(hInventoryTransactions).values({

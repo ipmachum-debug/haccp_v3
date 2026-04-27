@@ -69,12 +69,13 @@ export const purchaseReturnRouter = router({
                WHERE id = ? AND tenant_id = ?`,
               [input.returnQty, input.returnQty, lotRows[0].id, tenantId],
             );
+            // PR-§5.2-2: material_id 직접 작성 (purchase.material_id — 위 SELECT 에서 가져옴)
             await conn.execute(
               `INSERT INTO h_inventory_transactions
-                 (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+                 (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
                   reference_type, source_id, notes, created_by)
-               VALUES (?, ?, 'usage', ?, ?, CURDATE(), 'RETURN', ?, ?, ?)`,
-              [tenantId, lotRows[0].id, input.returnQty, purchase.unit || "EA",
+               VALUES (?, ?, ?, 'usage', ?, ?, CURDATE(), 'RETURN', ?, ?, ?)`,
+              [tenantId, lotRows[0].id, purchase.material_id ?? null, input.returnQty, purchase.unit || "EA",
                input.purchaseId, `[반품] ${input.reason}`, ctx.user.id],
             );
           }

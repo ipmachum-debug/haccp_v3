@@ -509,12 +509,13 @@ async function processPurchase(
   );
 
   // 입고 트랜잭션 기록
+  // PR-§5.2-2: material_id 직접 작성 (params.materialId — 임포트 입고의 원재료)
   await conn.execute(
     `INSERT INTO h_inventory_transactions
-     (tenant_id, lot_id, transaction_type, quantity, unit, reference_type, reference_id,
+     (tenant_id, lot_id, material_id, transaction_type, quantity, unit, reference_type, reference_id,
       notes, created_by, transaction_date)
-     VALUES (?, ?, 'receipt', ?, 'kg', 'PURCHASE', ?, '단순임포트 입고', ?, ?)`,
-    [tenantId, lotId, params.qty, purchaseId, userId, params.date]
+     VALUES (?, ?, ?, 'receipt', ?, 'kg', 'PURCHASE', ?, '단순임포트 입고', ?, ?)`,
+    [tenantId, lotId, params.materialId, params.qty, purchaseId, userId, params.date]
   );
 
   // 수불부 기록 (입고)
@@ -697,6 +698,7 @@ async function createProductLot(
   const lotId = getInsertId(lotResult);
 
   // 입고 트랜잭션
+  // PR-§5.2-2 노트: 본 INSERT 는 *제품 생산완료 입고* 트랜잭션이므로 material_id 는 NULL.
   await conn.execute(
     `INSERT INTO h_inventory_transactions
      (tenant_id, lot_id, transaction_type, quantity, unit,
@@ -853,6 +855,7 @@ async function createOutbound(
   const outboundId = getInsertId(outResult);
 
   // 출고 트랜잭션
+  // PR-§5.2-2 노트: 본 INSERT 는 *제품 출고* 트랜잭션이므로 material_id 는 NULL.
   await conn.execute(
     `INSERT INTO h_inventory_transactions
      (tenant_id, lot_id, transaction_type, quantity, unit, notes, created_by, transaction_date)
