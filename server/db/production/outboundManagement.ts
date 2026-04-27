@@ -122,14 +122,16 @@ export async function createOutboundRecord(params: {
     );
 
     // (C) 재고 거래 내역 기록 (양수 quantity, type='usage')
+    // PR-§5.2-2: material_id 직접 작성 (params.materialId — 출고 시점에 명시적으로 받음)
     await conn.execute(
       `INSERT INTO h_inventory_transactions
-         (tenant_id, lot_id, transaction_type, quantity, unit,
+         (tenant_id, lot_id, material_id, transaction_type, quantity, unit,
           reference_type, reference_id, notes, created_by)
-       VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'usage', ?, ?, ?, ?, ?, ?)`,
       [
         tenantId ?? null,
         params.lotId,
+        params.materialId,
         params.quantity.toString(),
         params.unit,
         params.batchId ? "batch" : "outbound",

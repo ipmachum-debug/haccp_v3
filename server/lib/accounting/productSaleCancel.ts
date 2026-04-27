@@ -143,6 +143,8 @@ export async function cancelProductSale(
       );
 
       // 재고 원장에 복구 기록 (return 타입, 양수 quantity, 감사 추적)
+      // PR-§5.2-2 노트: 본 INSERT 는 *제품 LOT 환입* 트랜잭션이므로 material_id 는 NULL.
+      //   (productSalePost 와 동일 정책 — 제품 트랜잭션은 SELECT 4단 fallback 미적용 영역)
       await conn.execute(
         `INSERT INTO h_inventory_transactions
            (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,

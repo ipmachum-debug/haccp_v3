@@ -450,13 +450,15 @@ export async function completeBatch(params: {
       try {
         if (pool) {
           const txnDate = resolveBatchTransactionDate(existingBatch);
+          // PR-§5.2-2: material_id 직접 작성 (input.materialId — h_batch_inputs 의 material_id)
           await pool.execute(
             `INSERT INTO h_inventory_transactions
-             (lot_id, transaction_type, quantity, unit, unit_cost, amount,
+             (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
               transaction_date, source_type, source_id, action_type, purpose, tenant_id)
-             VALUES (?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, 'AUTO_ISSUE', 'production', ?)`,
+             VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, 'AUTO_ISSUE', 'production', ?)`,
             [
-              lotId || 0, qty, input.unit || 'kg', unitCost, qty * unitCost,
+              lotId || 0, input.materialId || null,
+              qty, input.unit || 'kg', unitCost, qty * unitCost,
               txnDate, batchId, tenantId || existingBatch.tenantId
             ]
           );

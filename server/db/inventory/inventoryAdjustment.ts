@@ -110,8 +110,10 @@ export async function adjustInventory(params: {
     })
     .where(eq(hInventoryLots.id, params.lotId));
   // 재고 거래 내역 기록
+  // PR-§5.2-2: material_id 직접 작성 (params.materialId — 조정 폼에서 명시)
   await db.insert(hInventoryTransactions).values({
     lotId: params.lotId,
+    materialId: params.materialId,
     transactionType: "adjustment",
     quantity: Math.abs(params.quantityChange).toString(),
     unit: params.unit,

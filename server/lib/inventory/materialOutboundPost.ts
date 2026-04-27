@@ -2,7 +2,7 @@ import { getDb, getRawConnection } from "../../db";
 
 import { hInventoryTransactions } from "../../../drizzle/schema/part2";
 import { allocateLotsFEFO, saveLotAllocations } from "./fefoLotAllocation";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
@@ -82,13 +82,39 @@ export async function postMaterialOutbound(
     tenantId
   );
 
+  // PR-§5.2-2: material_id 결정 — outbound.inventoryId 로 h_inventory.material_id 1회 조회
+  let materialIdForTx: number | null = null;
+  try {
+    const invRows: any = await db.execute(sql`
+      SELECT material_id FROM h_inventory
+      WHERE id = ${outbound.inventoryId} AND tenant_id = ${tenantId}
+      LIMIT 1
+    `);
+    const row = Array.isArray(invRows?.[0]) ? invRows[0][0] : invRows?.[0];
+    materialIdForTx = row?.material_id ? Number(row.material_id) : null;
+  } catch {
+    // 조회 실패 시 null 유지 (LOT 의 material_id 로 추가 fallback 시도)
+  }
+
   // 4. 재고 원장 생성 (각 LOT별로)
   for (const allocation of allocations) {
+    // PR-§5.2-2: inventory 에서 못 가져왔으면 LOT 단위로 fallback
+    let materialIdForRow = materialIdForTx;
+    if (materialIdForRow === null) {
+      try {
+        const lotRows: any = await db.execute(sql`
+          SELECT material_id FROM h_inventory_lots WHERE id = ${allocation.lotId} LIMIT 1
+        `);
+        const r = Array.isArray(lotRows?.[0]) ? lotRows[0][0] : lotRows?.[0];
+        materialIdForRow = r?.material_id ? Number(r.material_id) : null;
+      } catch { /* null 유지 */ }
+    }
     try {
       await db.insert(hInventoryTransactions).values({
         tenantId,
         inventoryId: outbound.inventoryId,
         lotId: allocation.lotId,
+        materialId: materialIdForRow,  // PR-§5.2-2: direct material_id
         transactionType: "usage", // 원재료 사용
         quantity: (-allocation.quantity).toString(), // 음수 (출고)
         unit: outbound.unit,

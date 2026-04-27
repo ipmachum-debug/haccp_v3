@@ -171,13 +171,14 @@ export async function cancelPurchase(
 
       // B-3. 재고 원장에 취소 기록 (usage 타입, 양수 quantity)
       //      ★ INV_NEGATIVE_TX 규칙 준수: quantity 는 항상 양수, 방향은 type 으로
+      // PR-§5.2-2: material_id 직접 작성 (purchase.materialId — 매입 시점 결정값)
       await conn.execute(
         `INSERT INTO h_inventory_transactions
-           (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+           (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
             reference_type, source_type, source_id, unit_cost, amount, notes, created_by)
-         VALUES (?, ?, 'usage', ?, ?, ?, 'PURCHASE_CANCEL', 'PURCHASE_CANCEL', ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, 'usage', ?, ?, ?, 'PURCHASE_CANCEL', 'PURCHASE_CANCEL', ?, ?, ?, ?, ?)`,
         [
-          tenantId, lotId,
+          tenantId, lotId, materialId,
           cancelQty,
           purchase.unit || "EA",
           cancelDate,

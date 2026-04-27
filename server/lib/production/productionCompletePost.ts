@@ -83,6 +83,10 @@ export async function postProductionComplete(
     );
 
     // (B) 재고 원장 생성
+    // PR-§5.2-2 노트: 본 INSERT 는 *제품 입고* (BATCH/receipt) 트랜잭션이므로
+    //   material_id 는 NULL 로 둔다 (h_materials.id 기반 컬럼 — 원재료 전용).
+    //   productId 는 inventory_id 자리에 그대로 유지. SELECT 측에서 본 행은
+    //   getConsumptionSummary 가 PR-I/J 필터로 이미 제외함.
     await conn.execute(
       `INSERT INTO h_inventory_transactions
          (tenant_id, inventory_id, lot_id, transaction_type, quantity, unit,

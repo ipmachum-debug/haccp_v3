@@ -76,6 +76,9 @@ export async function cancelProductionComplete(
         tenantId,
         inventoryId: originalTx.inventoryId,
         lotId: originalTx.lotId,
+        // PR-§5.2-2: 원본 트랜잭션의 material_id 그대로 승계
+        //   (productionComplete 의 receipt 는 제품이라 보통 NULL — 그대로 승계)
+        materialId: (originalTx as any).materialId ?? null,
         transactionType: "adjustment",
         quantity: (-parseFloat(originalTx.quantity || "0")).toString(),
         unit: originalTx.unit,

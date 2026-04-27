@@ -234,6 +234,9 @@ export async function postProductSale(
         );
 
         // 재고 원장에 usage 기록 (양수 quantity + transaction_type='usage')
+        // PR-§5.2-2 노트: 본 INSERT 는 *제품 판매* (SALE/usage) 트랜잭션이므로
+        //   material_id 는 NULL 로 둔다 (h_materials.id 기반 컬럼 — 원재료 전용).
+        //   본 행은 getConsumptionSummary 의 PR-I/J 필터로 이미 SELECT 제외됨.
         await conn.execute(
           `INSERT INTO h_inventory_transactions
              (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,

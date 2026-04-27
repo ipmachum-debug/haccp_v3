@@ -85,6 +85,8 @@ export async function cancelMaterialOutbound(
         tenantId,
         inventoryId: originalTx.inventoryId,
         lotId: originalTx.lotId,
+        // PR-§5.2-2: 원본 트랜잭션의 material_id 그대로 승계 (역거래도 동일 원재료)
+        materialId: (originalTx as any).materialId ?? null,
         transactionType: "adjustment", // 조정
         quantity: (-parseFloat(originalTx.quantity || "0")).toString(), // 부호 반대
         unit: originalTx.unit,

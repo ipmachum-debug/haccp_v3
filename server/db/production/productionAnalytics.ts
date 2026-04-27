@@ -661,8 +661,10 @@ export async function approvePurchaseOrderSuggestion(params: {
     .$returningId();
 
   // 4. 거래 내역 기록
+  // PR-§5.2-2: material_id 직접 작성 (params.materialId — 발주 제안의 material_id)
   await db.insert(hInventoryTransactions).values({
     lotId: newLot.id,
+    materialId: params.materialId,
     transactionType: "receipt",
     quantity: params.quantity.toString(),
     unit: material.unit || "kg",
