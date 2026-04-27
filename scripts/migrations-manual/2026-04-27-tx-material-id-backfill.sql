@@ -85,6 +85,7 @@ LEFT JOIN item_master im
   ON im.tenant_id = t.tenant_id
  AND im.is_active = 1
  AND t.notes LIKE '원재료 #%자동출고%'
+ AND SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) REGEXP '^[0-9]+$'  -- 숫자 가드
  AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
 WHERE t.tenant_id = 2
   AND t.material_id IS NULL
@@ -101,9 +102,27 @@ ORDER BY source;
 --     (h_materials canonical 우선이므로 legacyMaterialId 가 있으면 그 값 사용)
 --   - 한 번에 전체 UPDATE — tenant_id=2 만 대상 (운영 단일 테넌트)
 --
+-- ⚠️ STRICT 모드 안전성 (2026-04-27 운영 적용 시 발견):
+--   MySQL 의 sql_mode 에 STRICT_TRANS_TABLES 가 켜져 있으면
+--   `CAST(SUBSTRING_INDEX(...) AS UNSIGNED)` 가 한글 회사명 같은
+--   비숫자 문자열에서 ERROR 1292 (Truncated incorrect INTEGER value) 로 실패함.
+--   notes 가 '원재료 #<ID> 자동출고' 외의 텍스트(예: 회사명, 메모)인 행에서
+--   LEFT JOIN ON 절이 평가되며 발생.
+--
+--   해결:
+--   (1) JOIN 조건에 REGEXP '^[0-9]+$' 가드 추가 → 숫자만일 때만 CAST 호출
+--   (2) 세션 sql_mode 에서 STRICT_TRANS_TABLES / STRICT_ALL_TABLES 일시 해제
+--       (idempotent + STRICT 환경 모두 안전, 세션 종료 시 자동 복원)
+--
 -- 실행 시간 추정:
 --   tx 행 수 약 4,000 건 가정 → 1~2 초
 
+-- 4-0. 세션 sql_mode 에서 STRICT 모드 일시 해제 (방어)
+SET @prev_sql_mode := @@SESSION.sql_mode;
+SET SESSION sql_mode = REPLACE(REPLACE(@@SESSION.sql_mode,
+  'STRICT_TRANS_TABLES',''), 'STRICT_ALL_TABLES','');
+
+-- 4-1. UPDATE — REGEXP 가드 추가
 UPDATE h_inventory_transactions t
 LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
 LEFT JOIN h_inventory inv ON inv.id = t.inventory_id
@@ -116,6 +135,7 @@ LEFT JOIN item_master im
   ON im.tenant_id = t.tenant_id
  AND im.is_active = 1
  AND t.notes LIKE '원재료 #%자동출고%'
+ AND SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) REGEXP '^[0-9]+$'  -- 숫자 가드
  AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
 SET t.material_id = COALESCE(
   l.material_id,
@@ -126,6 +146,9 @@ SET t.material_id = COALESCE(
 )
 WHERE t.tenant_id = 2
   AND t.material_id IS NULL;
+
+-- 4-2. 세션 sql_mode 복원
+SET SESSION sql_mode = @prev_sql_mode;
 
 
 -- ---------------------------------------------------------------------
@@ -178,4 +201,36 @@ GROUP BY material_id;
 --   - PR fix/tx-material-id-column 머지 (스키마 sync — 운영 무영향)
 --   - 별도 PR 로 INSERT 사이트 수정 (모든 INSERT 에 material_id 작성)
 --   - 별도 PR 로 SELECT 단순화 (matchSource 'direct' 추가 + 4단 fallback 정리)
+-- =====================================================================
+
+-- =====================================================================
+-- 📌 운영 적용 결과 (2026-04-27, tenant_id=2)
+-- =====================================================================
+-- Step 3 (dry-run baseline):
+--   m1 (lot 직접)        2,908   72.7%
+--   m3 (batch_inputs)      324    8.1%
+--   im (notes 파싱)        116    2.9%
+--   none (매칭 실패)       652   16.3%
+--   합계                 4,000  100.0%
+--
+-- Step 4 (UPDATE):
+--   Rows matched: 4,000   Changed: 3,348   Warnings: 927
+--
+-- Step 5-1 (백필 후 NULL 잔존):
+--   total=4,000   still_null=652   null_pct=16.30%
+--
+-- Step 5-2 (분포):
+--   h_materials.id 매칭                        3,348
+--   NULL                                         652
+--   h_materials 미매칭 (legacy or orphan)          0  ✅
+--
+-- NULL 652건 분해 — 모두 "제품(완제품) 트랜잭션":
+--   SALE_LEGACY/outbound        414   제품 LOT 판매 (PR-I/J 에서 SELECT 제외 대상)
+--   SALE/usage                  145   제품 LOT 판매
+--   lot_reinforcement/inbound    48   제품 LOT 보강 생성
+--   BATCH/receipt                45   배치 완성 → 제품 입고
+--   원재료 트랜잭션 매칭률      100%   (3,348/3,348)
+--
+-- 결론: null_pct 16.30% 는 모두 제품 트랜잭션이며 getConsumptionSummary
+--       에서 이미 제외하는 행. 원재료 매칭은 100% — PR 2 진행 OK.
 -- =====================================================================
