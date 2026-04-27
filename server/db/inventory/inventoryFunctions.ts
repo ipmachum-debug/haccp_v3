@@ -956,7 +956,7 @@ export async function getInventoryTrend(params: {
   const endDate = params.endDate || todayKST();
   const startDate = params.startDate || toKSTDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
-  const { hInventoryTransactions, hInventoryLots } = await import("../../../drizzle/schema");
+  const { hInventoryTransactions } = await import("../../../drizzle/schema");
   const { sql, and, eq } = await import("drizzle-orm");
 
   // KST 변환: created_at 은 UTC timestamp 라 GROUP BY 시 -1일 어긋남.
@@ -964,25 +964,23 @@ export async function getInventoryTrend(params: {
   //   transaction_date (date 타입) 는 자정이라 영향 무시할 수 있지만 일관성 위해 함께 적용.
   const dateExpr = sql`DATE(CONVERT_TZ(COALESCE(${hInventoryTransactions.transactionDate}, ${hInventoryTransactions.createdAt}), '+00:00', '+09:00'))`;
 
+  // 2026-04-27 (§5.2 후속): 기존엔 LEFT JOIN h_inventory_lots 후 lots.material_id IS NOT NULL
+  // 로 원재료 트랜잭션을 식별했으나, lot_id=0 (재고미등록 자동출고) 트랜잭션이 JOIN 매칭
+  // 실패로 추이에서 제외되는 문제 발생.
+  // §5.2-2 (PR #89) 이후 t.material_id 가 직접 채워지므로 JOIN 의존성 제거 가능.
+  // product 트랜잭션은 t.material_id IS NULL 이라 자연 제외됨.
   const conditions = [
     sql`${dateExpr} >= ${startDate}`,
     sql`${dateExpr} <= ${endDate}`,
     eq(hInventoryTransactions.tenantId, params.tenantId),
-    // 진짜 원재료 LOT 만 (PR-H 2026-04-25):
-    //   PR #64 의 material_id NOT NULL 필터만으로는 historical dirty data
-    //   (product_id, material_id 둘 다 채워진 매출 차감 LOT) 가 통과해서
-    //   원재료 추이/회전율에 매출이 잘못 합산됨. product_id IS NULL 조건 추가로 해결.
-    sql`${hInventoryLots.materialId} IS NOT NULL`,
-    sql`${hInventoryLots.productId} IS NULL`,
-    // PR-K (2026-04-25): SALE 매출 차감을 lot 데이터와 무관하게 명시적으로 제외.
-    //   PR #66 의 lot 기반 필터로는 lot 매칭 실패 (l.id IS NULL) 한 SALE 트랜잭션이
-    //   통과되던 문제 해결. 또 backfill 된 SALE tx 의 transaction_date 가 과거로
-    //   설정되어 매출이 옛날 날짜에 합산되던 케이스도 함께 차단.
+    // 원재료 트랜잭션만 — material_id 직접 매칭 (canonical h_materials.id)
+    sql`${hInventoryTransactions.materialId} IS NOT NULL`,
+    // SALE 매출 차감 명시 제외 (PR-K 호환)
     sql`(${hInventoryTransactions.referenceType} IS NULL OR ${hInventoryTransactions.referenceType} != 'SALE')`,
   ];
 
   if (params.materialId) {
-    conditions.push(eq(hInventoryLots.materialId, params.materialId));
+    conditions.push(eq(hInventoryTransactions.materialId, params.materialId));
   }
 
   const trend = await db
@@ -994,7 +992,6 @@ export async function getInventoryTrend(params: {
       transactionCount: sql<number>`COUNT(*)`
     })
     .from(hInventoryTransactions)
-    .leftJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
     .where(and(...conditions))
     .groupBy(dateExpr)
     .orderBy(dateExpr);
