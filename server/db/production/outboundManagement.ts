@@ -339,6 +339,9 @@ export async function getConsumptionSummary(params: {
   //   autoIssueMaterialsForBatch 가 LOT 매칭 실패 시 lot_id=0 + inventory_id=NULL 로 트랜잭션을
   //   기록하지만, source_id(batch_id) + source_line_id(bi.id) 는 정확히 채움.
   //   bi 와 LEFT JOIN 하여 bi.material_id → h_materials 로 fallback 하면 원재료명 복원 가능.
+  // PR-W7 (2026-04-27): 세부 행에서 raw notes ("원재료 #147 자동출고 (재고미등록)") 가
+  //   사용자에게 그대로 노출되어 혼란을 줌. notes 자동 패턴이면 정제하고,
+  //   isLotMissing 플래그를 함께 내려보내 클라이언트가 "재고미등록" 뱃지로 표시하게 함.
   const [rows]: any = await db.execute(sql.raw(`
     (
       SELECT
@@ -352,7 +355,19 @@ export async function getConsumptionSummary(params: {
         t.source_type AS sourceType,
         t.source_id AS sourceId,
         l.lot_number AS lotNumber,
-        t.notes,
+        -- PR-W7: 자동출고 raw notes 는 그룹 헤더의 원재료명과 isLotMissing 뱃지로
+        --   대체되므로 클라이언트로 내려보내지 않음 (NULL).
+        --   사용자가 직접 입력한 메모는 보존.
+        CASE
+          WHEN t.notes LIKE '원재료 #%자동출고%' THEN NULL
+          ELSE t.notes
+        END AS notes,
+        -- PR-W7: lot_id=0 (재고미등록) 인 자동출고 트랜잭션을 클라이언트가 식별할 수 있도록
+        --   별도 플래그로 내려보냄.
+        CASE
+          WHEN t.lot_id = 0 AND t.notes LIKE '%재고미등록%' THEN 1
+          ELSE 0
+        END AS isLotMissing,
         'transaction' AS dataSource
       FROM h_inventory_transactions t
       LEFT JOIN h_inventory_lots l ON l.id = t.lot_id AND t.lot_id > 0
@@ -400,6 +415,8 @@ export async function getConsumptionSummary(params: {
         bi.batch_id AS sourceId,
         b.batch_code AS lotNumber,
         CONCAT('배치 ', COALESCE(b.batch_code, b.id), ' 투입') AS notes,
+        -- PR-W7: batch_input 분기는 항상 정상 LOT 매칭 (h_materials JOIN 성공)
+        0 AS isLotMissing,
         'batch_input' AS dataSource
       FROM h_batch_inputs bi
       JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
@@ -434,6 +451,7 @@ export async function getConsumptionSummary(params: {
       sourceId: number | null;
       lotNumber: string | null;
       notes: string | null;
+      isLotMissing: boolean;  // PR-W7: 재고미등록 (lot_id=0 자동출고) 식별 플래그
     }>;
     totalQuantity: number;
     totalAmount: number;
@@ -476,6 +494,8 @@ export async function getConsumptionSummary(params: {
       sourceId: row.sourceId ? Number(row.sourceId) : null,
       lotNumber: row.lotNumber || null,
       notes: row.notes || null,
+      // PR-W7: MySQL 의 0/1 → JS boolean 변환
+      isLotMissing: Number(row.isLotMissing) === 1,
     });
     dayGroup.totalQuantity += qty;
     dayGroup.totalAmount += amt;
