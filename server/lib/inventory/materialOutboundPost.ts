@@ -2,7 +2,7 @@ import { getDb, getRawConnection } from "../../db";
 
 import { hInventoryTransactions } from "../../../drizzle/schema/part2";
 import { allocateLotsFEFO, saveLotAllocations } from "./fefoLotAllocation";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
@@ -82,15 +82,44 @@ export async function postMaterialOutbound(
     tenantId
   );
 
+  // PR-§5.2-2 (part 2): material_id 결정 강화
+  //   1순위: outbound.materialId (있을 경우 — 일반적으로 없음, h_material_outbounds 스키마는 inventory_id 기반)
+  //   2순위: outbound.inventoryId → h_inventory.material_id (1회 조회)
+  //   3순위: allocation.lotId → h_inventory_lots.material_id (LOT 단위 fallback)
+  let materialIdForTx: number | null = (outbound as any).materialId ?? null;
+  if (materialIdForTx === null && outbound.inventoryId) {
+    try {
+      const invRows: any = await db.execute(sql`
+        SELECT material_id FROM h_inventory
+        WHERE id = ${outbound.inventoryId} AND tenant_id = ${tenantId}
+        LIMIT 1
+      `);
+      const row = Array.isArray(invRows?.[0]) ? invRows[0][0] : invRows?.[0];
+      materialIdForTx = row?.material_id ? Number(row.material_id) : null;
+    } catch {
+      // 조회 실패 시 null 유지 (LOT fallback 으로 진행)
+    }
+  }
+
   // 4. 재고 원장 생성 (각 LOT별로)
   for (const allocation of allocations) {
+    // LOT 단위 fallback: inventory 에서 못 가져왔으면 LOT 의 material_id 조회
+    let materialIdForRow = materialIdForTx;
+    if (materialIdForRow === null) {
+      try {
+        const lotRows: any = await db.execute(sql`
+          SELECT material_id FROM h_inventory_lots WHERE id = ${allocation.lotId} LIMIT 1
+        `);
+        const r = Array.isArray(lotRows?.[0]) ? lotRows[0][0] : lotRows?.[0];
+        materialIdForRow = r?.material_id ? Number(r.material_id) : null;
+      } catch { /* null 유지 */ }
+    }
     try {
-      // PR-§5.2-2: material_id 직접 작성 (원본 outbound 문서의 materialId 승계)
       await db.insert(hInventoryTransactions).values({
         tenantId,
         inventoryId: outbound.inventoryId,
         lotId: allocation.lotId,
-        materialId: (outbound as any).materialId ?? null,
+        materialId: materialIdForRow,  // PR-§5.2-2 (part 2): h_inventory → LOT 다단 fallback
         transactionType: "usage", // 원재료 사용
         quantity: (-allocation.quantity).toString(), // 음수 (출고)
         unit: outbound.unit,

@@ -234,6 +234,8 @@ export async function postProductSale(
         );
 
         // 재고 원장에 usage 기록 (양수 quantity + transaction_type='usage')
+        // PR-§5.2-2 (part 2): material_id NULL — 제품 판매(SALE/usage). h_materials 와 무관.
+        //   getConsumptionSummary 의 PR-I/J 필터가 SALE/usage 를 원재료 소비에서 제외.
         await conn.execute(
           `INSERT INTO h_inventory_transactions
              (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,

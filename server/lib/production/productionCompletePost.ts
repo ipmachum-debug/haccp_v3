@@ -83,6 +83,9 @@ export async function postProductionComplete(
     );
 
     // (B) 재고 원장 생성
+    // PR-§5.2-2 (part 2): material_id NULL — 이건 제품 입고(BATCH/receipt) 트랜잭션이며
+    //   inventory_id 가 batch.productId(제품 마스터) 를 가리킴. material_id 컬럼은 h_materials 전용.
+    //   백필 분석 결과 NULL 잔존 652건 중 BATCH/receipt 45건이 이 경로에서 생성됨 — 정상.
     await conn.execute(
       `INSERT INTO h_inventory_transactions
          (tenant_id, inventory_id, lot_id, transaction_type, quantity, unit,

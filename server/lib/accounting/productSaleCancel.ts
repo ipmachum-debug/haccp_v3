@@ -143,6 +143,7 @@ export async function cancelProductSale(
       );
 
       // 재고 원장에 복구 기록 (return 타입, 양수 quantity, 감사 추적)
+      // PR-§5.2-2 (part 2): material_id NULL — 제품 판매 취소(SALE_CANCEL/return). productSalePost 와 동일 정책.
       await conn.execute(
         `INSERT INTO h_inventory_transactions
            (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
