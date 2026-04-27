@@ -10,7 +10,11 @@ name: Auto Release on Main
 #   - 머지 커밋에 위 마커가 들어있으면 함께 적용됨
 #
 # 안전장치:
-#   - permissions: contents:write 만 (별도 PAT 불필요, 빌트인 GITHUB_TOKEN 사용)
+#   - permissions: contents:write (빌트인 토큰은 release 생성에만 사용)
+#   - 실제 release publish 는 PAT_TOKEN 으로 → release.published 이벤트가
+#     deploy.yml 트리거 가능 (GitHub 의 token-scoped event 정책 우회).
+#     ※ 이 정책 때문에 PR-D2 (2026-04-27) 이전에는 v0.8.4~v0.8.6 이 published
+#       됐어도 deploy.yml 이 안 돌았음. 반드시 PAT_TOKEN 사용 유지.
 #   - tag 충돌 시 release 생성 실패 → 워크플로 fail (수동 개입 필요)
 #   - timeout 5분 (충분히 짧음, 무한 대기 방어)
 
@@ -74,9 +78,15 @@ jobs:
             echo "- **커밋**: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Release 생성 (자동 release notes)
+      - name: Release 생성 (PAT 사용 — release.published 트리거 가능)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PR-D2 (2026-04-27): GITHUB_TOKEN 으로 만든 release 는 보안 정책상
+          #   다른 워크플로(release.published) 를 트리거하지 못함.
+          #   PAT_TOKEN (Personal Access Token, contents:write 권한) 을 사용해야
+          #   deploy.yml 이 자동으로 실행됨.
+          # PAT_TOKEN 이 secrets 에 없으면 빌트인 GITHUB_TOKEN 으로 fallback —
+          #   release 는 생성되지만 deploy.yml 은 수동 트리거가 필요해짐.
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           NEXT="${{ steps.ver.outputs.next }}"
@@ -85,6 +95,13 @@ jobs:
           if gh release view "$NEXT" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "::notice::Release $NEXT 가 이미 존재. 스킵."
             exit 0
+          fi
+
+          # PAT_TOKEN 사용 여부 로깅 (보안: 토큰 값은 노출하지 않음)
+          if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "::notice::PAT_TOKEN 사용 — deploy.yml 자동 트리거 활성화"
+          else
+            echo "::warning::PAT_TOKEN 미설정 — GITHUB_TOKEN fallback. deploy.yml 은 수동 트리거 필요"
           fi
 
           gh release create "$NEXT" \
