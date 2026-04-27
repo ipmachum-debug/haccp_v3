@@ -341,6 +341,43 @@ export function ReleaseTab() {
                 <StatCard icon={Calendar} label="소모 일수" value={summary.dailyGroups.length.toLocaleString()} color="slate" sub="일" />
               </div>
 
+              {/* PR-MS: 매칭 분포 (4단 fallback 의존도 모니터링) */}
+              {summary.matchSourceStats && summary.totalRecords > 0 && (() => {
+                const s = summary.matchSourceStats;
+                const total = summary.totalRecords;
+                const fallbackTotal = (s.m2 || 0) + (s.m3 || 0) + (s.im || 0) + (s.none || 0);
+                const fallbackPct = total > 0 ? (fallbackTotal / total) * 100 : 0;
+                const chip = (label: string, value: number, color: string, hint: string) => {
+                  if (value === 0) return null;
+                  const pct = (value / total * 100).toFixed(1);
+                  return (
+                    <div className={`px-2 py-1 rounded border text-[10px] ${color}`} title={hint}>
+                      <span className="font-mono font-semibold">{label}</span>
+                      <span className="text-muted-foreground ml-1">{value.toLocaleString()} ({pct}%)</span>
+                    </div>
+                  );
+                };
+                return (
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="bg-muted/30 px-3 py-2 border-b flex items-center justify-between">
+                      <h4 className="text-xs font-semibold text-muted-foreground">원재료명 매칭 분포 (디버그)</h4>
+                      {fallbackPct > 0 && (
+                        <span className={`text-[10px] ${fallbackPct > 10 ? "text-amber-700" : "text-muted-foreground"}`}>
+                          fallback 의존도 {fallbackPct.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    <div className="px-3 py-2 flex flex-wrap gap-1.5">
+                      {chip("m1 정상", s.m1, "border-emerald-300 bg-emerald-50 text-emerald-800", "h_inventory_lots → h_materials (정상 LOT 매칭)")}
+                      {chip("m2 inv", s.m2, "border-blue-300 bg-blue-50 text-blue-800", "h_inventory → h_materials fallback (LOT 없지만 inventory 있음)")}
+                      {chip("m3 bi", s.m3, "border-amber-300 bg-amber-50 text-amber-800", "h_batch_inputs → h_materials fallback (lot_id=0 재고미등록)")}
+                      {chip("im 파싱", s.im, "border-orange-300 bg-orange-50 text-orange-800", "notes 파싱 → item_master fallback (orphan, fragile)")}
+                      {chip("none", s.none, "border-red-300 bg-red-50 text-red-800", "매칭 실패 — 데이터 결함")}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* 원재료별 월간 소계 */}
               {summary.materialTotals.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
@@ -433,6 +470,29 @@ export function ReleaseTab() {
                                                 재고미등록
                                               </Badge>
                                             ) : null}
+                                            {/* PR-MS: m1 (정상) 외 fallback 일 때만 작은 표시 — 데이터 정합성 신호 */}
+                                            {item.matchSource && item.matchSource !== "m1" && (
+                                              <span
+                                                className={`text-[8px] font-mono px-1 py-0 h-3 rounded ${
+                                                  item.matchSource === "im"
+                                                    ? "bg-orange-100 text-orange-700"
+                                                    : item.matchSource === "none"
+                                                    ? "bg-red-100 text-red-700"
+                                                    : "bg-blue-100 text-blue-700"
+                                                }`}
+                                                title={
+                                                  item.matchSource === "m2"
+                                                    ? "inventory fallback"
+                                                    : item.matchSource === "m3"
+                                                    ? "batch_inputs fallback"
+                                                    : item.matchSource === "im"
+                                                    ? "notes 파싱 fallback (fragile)"
+                                                    : "매칭 실패"
+                                                }
+                                              >
+                                                {item.matchSource}
+                                              </span>
+                                            )}
                                             {/* PR-W7: 사용자 메모만 표시 (자동출고 raw notes 는 백엔드에서 NULL 처리됨) */}
                                             {item.notes && <span className="text-muted-foreground truncate max-w-[200px]">{item.notes}</span>}
                                           </div>
