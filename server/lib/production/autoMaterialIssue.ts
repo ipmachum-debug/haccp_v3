@@ -172,18 +172,52 @@ export async function autoIssueMaterialsForBatch(
         try {
           // h_inventory에서 해당 원재료의 재고 확인
           const [invRows]: any = await db.execute(sql`
-            SELECT id, total_quantity, available_quantity 
-            FROM h_inventory 
+            SELECT id, total_quantity, available_quantity
+            FROM h_inventory
             WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
             LIMIT 1
           `);
-          
+
           const inventory = (invRows as any[])?.[0];
-          
+
           if (inventory) {
             const inventoryId = Number(inventory.id);
-            const availableQty = parseFloat(inventory.available_quantity?.toString() || "0");
-            
+            let availableQty = parseFloat(inventory.available_quantity?.toString() || "0");
+
+            // [lot0-trace] G2 자동 보정 (Phase 1, 2026-04-27):
+            // h_inventory 마스터의 available_quantity 가 LOT 합계와 어긋난 경우
+            // (마스터 < 요청량 BUT LOT 합계 ≥ 요청량) → LOT 합계로 재검증 후 마스터 동기화.
+            // 진단 결과 E 케이스 51건의 유력 원인 (마스터-LOT mismatch).
+            if (availableQty < requiredQuantity) {
+              const [lotSumRows]: any = await db.execute(sql`
+                SELECT COALESCE(SUM(available_quantity), 0) as total_lot_qty
+                FROM h_inventory_lots
+                WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
+                  AND COALESCE(status, 'available') = 'available'
+                  AND available_quantity > 0
+              `);
+              const lotTotalQty = parseFloat(
+                (lotSumRows as any[])?.[0]?.total_lot_qty?.toString() || "0"
+              );
+
+              if (lotTotalQty >= requiredQuantity) {
+                console.warn(
+                  `[lot0-trace] master_lot_mismatch_recovery material=${materialId}/${materialName} ` +
+                  `master=${availableQty} lot_sum=${lotTotalQty} required=${requiredQuantity} ` +
+                  `batch=${batchId} input=${input.id}`
+                );
+                // 마스터 동기화: 마스터에 LOT 합계 반영하여 향후 일관성 유지
+                await db.execute(sql`
+                  UPDATE h_inventory
+                  SET available_quantity = ${lotTotalQty.toString()},
+                      total_quantity = GREATEST(total_quantity, ${lotTotalQty.toString()}),
+                      last_updated = NOW()
+                  WHERE id = ${inventoryId}
+                `);
+                availableQty = lotTotalQty;
+              }
+            }
+
             if (availableQty >= requiredQuantity) {
               // FEFO 로트 할당 시도
               try {
@@ -235,21 +269,42 @@ export async function autoIssueMaterialsForBatch(
                   WHERE id = ${inventoryId}
                 `);
               } catch (fefoErr: any) {
+                console.warn(
+                  `[lot0-trace] fefo_throw material=${materialId}/${materialName} ` +
+                  `batch=${batchId} input=${input.id} required=${requiredQuantity} ` +
+                  `err="${fefoErr.message}"`
+                );
                 result.warnings.push(`${materialName}: FEFO 할당 실패, 직접 출고 기록 생성 (${fefoErr.message})`);
               }
             } else {
+              console.warn(
+                `[lot0-trace] master_short material=${materialId}/${materialName} ` +
+                `batch=${batchId} input=${input.id} master=${availableQty} required=${requiredQuantity}`
+              );
               result.warnings.push(`${materialName}: 재고 부족 (가용: ${availableQty}, 필요: ${requiredQuantity}). 출고 기록만 생성합니다.`);
             }
           } else {
             // 재고 레코드가 없는 경우 - 출고 기록만 생성 (재고 시스템 미구축 상태 대응)
+            console.warn(
+              `[lot0-trace] no_master material=${materialId}/${materialName} ` +
+              `batch=${batchId} input=${input.id} required=${requiredQuantity}`
+            );
             result.warnings.push(`${materialName}: 재고 레코드 없음. 출고 기록만 생성합니다.`);
           }
         } catch (invErr: any) {
+          console.warn(
+            `[lot0-trace] inventory_query_error material=${materialId}/${materialName} ` +
+            `batch=${batchId} input=${input.id} err="${invErr.message}"`
+          );
           result.warnings.push(`${materialName}: 재고 조회 실패 (${invErr.message}). 출고 기록만 생성합니다.`);
         }
 
         // 로트 할당이 안 되었으면 로트 없이 거래 기록만 생성
         if (lotAllocations.length === 0) {
+          console.warn(
+            `[lot0-trace] fallback_lot0_insert material=${materialId}/${materialName} ` +
+            `batch=${batchId} input=${input.id} required=${requiredQuantity}`
+          );
           try {
             // PR-§5.2-2: 재고미등록(lot_id=0) 케이스도 material_id 는 채움 — 4단 fallback 의존성 제거
             await db.execute(sql`

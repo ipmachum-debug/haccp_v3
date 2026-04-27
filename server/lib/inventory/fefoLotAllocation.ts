@@ -70,6 +70,10 @@ export async function allocateLotsFEFO(
 
     // 찾은 LOT들의 inventory_id를 자동 수정 (향후 정상 동작하도록)
     if (availableLots.length > 0) {
+      console.warn(
+        `[lot0-trace] fefo_inventory_id_recovery material=${materialId} inventory=${inventoryId} ` +
+        `tenant=${tenantId} recovered_lots=${availableLots.length}`
+      );
       await db.execute(sql`
         UPDATE h_inventory_lots
         SET inventory_id = ${inventoryId}
@@ -80,6 +84,10 @@ export async function allocateLotsFEFO(
   }
 
   if (availableLots.length === 0) {
+    console.warn(
+      `[lot0-trace] fefo_no_lots inventory=${inventoryId} material=${materialId ?? "n/a"} ` +
+      `tenant=${tenantId} requested=${requestedQuantity}${unit}`
+    );
     throw new Error(`재고 ID ${inventoryId}에 사용 가능한 LOT가 없습니다.`);
   }
 
@@ -104,6 +112,11 @@ export async function allocateLotsFEFO(
   // 3. 재고 부족 체크
   if (remaining > 0.001) {
     const totalAvailable = availableLots.reduce((sum, lot) => sum + Number(lot.availableQuantity), 0);
+    console.warn(
+      `[lot0-trace] fefo_short inventory=${inventoryId} material=${materialId ?? "n/a"} ` +
+      `tenant=${tenantId} requested=${requestedQuantity}${unit} lot_total=${totalAvailable.toFixed(3)}${unit} ` +
+      `lot_count=${availableLots.length}`
+    );
     throw new Error(
       `재고 부족: 요청 ${requestedQuantity}${unit}, 가용 ${totalAvailable.toFixed(3)}${unit}`
     );
