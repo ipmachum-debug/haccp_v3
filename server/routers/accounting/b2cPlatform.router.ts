@@ -16,12 +16,12 @@ import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/jou
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
 export const b2cPlatformRouter = router({
-  // ─── 셀러 관리 ──────────────────────────────────────────
+  // ─── 플랫폼 관리 ──────────────────────────────────────────
 
-  /** 플랫폼 (b2c_platform 타입 파트너) 목록 + 각 플랫폼의 셀러 */
+  /** 플랫폼 (b2c_platform 타입 파트너) 목록 + 각 플랫폼의 셀러 임베디드 */
   listPlatforms: tenantRequiredProcedure.query(async ({ ctx }) => {
     const conn = await getRawConnection();
-    const [rows] = await conn.execute(
+    const [platformRows] = await conn.execute(
       `SELECT
          p.id AS platform_id,
          p.company_name AS platform_name,
@@ -34,13 +34,107 @@ export const b2cPlatformRouter = router({
        ORDER BY p.company_name ASC`,
       [ctx.tenantId, ctx.tenantId, ctx.tenantId],
     );
-    return rows as Array<{
+    const platforms = platformRows as Array<{
       platform_id: number;
       platform_name: string;
       seller_count: number;
       entry_count: number;
     }>;
+
+    // 각 플랫폼의 셀러 뱃지 데이터를 한 번에 조회 (N+1 방지)
+    const [sellerRows] = await conn.execute(
+      `SELECT id, platform_partner_id, seller_code, seller_name
+         FROM b2c_sellers
+        WHERE tenant_id = ? AND is_active = 1
+        ORDER BY platform_partner_id, seller_code`,
+      [ctx.tenantId],
+    );
+    const sellers = sellerRows as Array<{
+      id: number;
+      platform_partner_id: number;
+      seller_code: string;
+      seller_name: string | null;
+    }>;
+
+    // 플랫폼별로 셀러 리스트 임베디드
+    const sellersByPlatform = new Map<number, typeof sellers>();
+    for (const s of sellers) {
+      const arr = sellersByPlatform.get(s.platform_partner_id) ?? [];
+      arr.push(s);
+      sellersByPlatform.set(s.platform_partner_id, arr);
+    }
+
+    return platforms.map(p => ({
+      ...p,
+      sellers: sellersByPlatform.get(p.platform_id) ?? [],
+    }));
   }),
+
+  /** 플랫폼 추가 (partners 에 INSERT + customer_type='b2c_platform') */
+  createPlatform: tenantRequiredProcedure
+    .input(z.object({
+      name: z.string().min(1).max(255),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const conn = await getRawConnection();
+
+      // 중복 검사
+      const [existing] = await conn.execute(
+        `SELECT id FROM partners
+           WHERE tenant_id = ? AND company_name = ? AND is_active = 1 LIMIT 1`,
+        [ctx.tenantId, input.name],
+      );
+      if ((existing as Array<{ id: number }>).length > 0) {
+        throw new Error(`"${input.name}" 거래처가 이미 존재합니다.`);
+      }
+
+      const [result] = await conn.execute(
+        `INSERT INTO partners
+           (tenant_id, partner_type, company_name, customer_type, is_active)
+         VALUES (?, 'customer', ?, 'b2c_platform', 1)`,
+        [ctx.tenantId, input.name],
+      );
+      return {
+        id: (result as { insertId: number }).insertId,
+        name: input.name,
+      };
+    }),
+
+  /** 플랫폼 삭제 (soft: customer_type='b2b' 로 되돌리거나 is_active=0) */
+  deletePlatform: tenantRequiredProcedure
+    .input(z.object({
+      platformPartnerId: z.number(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const conn = await getRawConnection();
+
+      // 안전장치: 해당 플랫폼에 매출 항목이 있으면 삭제 불가
+      const [entriesRows] = await conn.execute(
+        `SELECT COUNT(*) as cnt FROM b2c_sales_entries
+           WHERE tenant_id = ? AND platform_partner_id = ?`,
+        [ctx.tenantId, input.platformPartnerId],
+      );
+      const cnt = (entriesRows as Array<{ cnt: number }>)[0]?.cnt ?? 0;
+      if (cnt > 0) {
+        throw new Error(
+          `매출 항목 ${cnt}건이 존재하여 삭제할 수 없습니다. 먼저 항목을 삭제하거나 확정 해제하세요.`,
+        );
+      }
+
+      // 셀러도 비활성화
+      await conn.execute(
+        `UPDATE b2c_sellers SET is_active = 0
+           WHERE tenant_id = ? AND platform_partner_id = ?`,
+        [ctx.tenantId, input.platformPartnerId],
+      );
+      // partners 의 customer_type 을 b2b 로 되돌림 (거래처 자체는 유지)
+      await conn.execute(
+        `UPDATE partners SET customer_type = 'b2b'
+           WHERE tenant_id = ? AND id = ?`,
+        [ctx.tenantId, input.platformPartnerId],
+      );
+      return { success: true };
+    }),
 
   /** 특정 플랫폼의 셀러 목록 */
   listSellers: tenantRequiredProcedure

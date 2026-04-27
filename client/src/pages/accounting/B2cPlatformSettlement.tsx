@@ -83,6 +83,8 @@ function B2cPlatformContent() {
 
   const [selectedPlatformId, setSelectedPlatformId] = useState<number | null>(null);
   const [addSellerOpen, setAddSellerOpen] = useState(false);
+  const [addSellerForPlatformId, setAddSellerForPlatformId] = useState<number | null>(null);
+  const [addPlatformOpen, setAddPlatformOpen] = useState(false);
   const [editEntryOpen, setEditEntryOpen] = useState(false);
   const [editEntryData, setEditEntryData] = useState<any>(null);
 
@@ -129,6 +131,28 @@ function B2cPlatformContent() {
     onError: (e: any) => toast({ title: "해제 실패", description: e.message, variant: "destructive" }),
   });
 
+  // 플랫폼 추가 / 삭제 (PR-§b2c-ux-v2)
+  const createPlatformMutation = (trpc as any).b2cPlatform.createPlatform.useMutation({
+    onSuccess: () => {
+      toast({ title: "플랫폼 추가됨" });
+      platformsQuery.refetch();
+      summaryQuery.refetch();
+      setAddPlatformOpen(false);
+    },
+    onError: (e: any) => toast({ title: "추가 실패", description: e.message, variant: "destructive" }),
+  });
+
+  const deletePlatformMutation = (trpc as any).b2cPlatform.deletePlatform.useMutation({
+    onSuccess: () => {
+      toast({ title: "플랫폼 삭제됨" });
+      platformsQuery.refetch();
+      summaryQuery.refetch();
+      matrixQuery.refetch();
+      if (selectedPlatformId) setSelectedPlatformId(null);
+    },
+    onError: (e: any) => toast({ title: "삭제 실패", description: e.message, variant: "destructive" }),
+  });
+
   // 분기 시작/종료 월
   const quarterMonths = useMemo(() => {
     const start = (periodQuarter - 1) * 3 + 1;
@@ -136,6 +160,25 @@ function B2cPlatformContent() {
   }, [periodQuarter]);
 
   const monthsToShow = periodMode === "quarter" ? quarterMonths : [periodMonth];
+
+  // PR-§b2c-ux-v2: platforms 쿼리 (셀러 임베디드) + summary 쿼리 (기간별 totals) 병합
+  const platformCards = useMemo(() => {
+    const platforms = (platformsQuery.data ?? []) as Array<{
+      platform_id: number;
+      platform_name: string;
+      seller_count: number;
+      entry_count: number;
+      sellers: Array<{ id: number; seller_code: string; seller_name: string | null }>;
+    }>;
+    const summaryMap = new Map<number, any>();
+    for (const s of (summaryQuery.data ?? [])) {
+      summaryMap.set(s.platform_id, s);
+    }
+    return platforms.map(p => ({
+      ...p,
+      ...(summaryMap.get(p.platform_id) ?? { total_gross: 0, total_commission: 0 }),
+    }));
+  }, [platformsQuery.data, summaryQuery.data]);
 
   // 매트릭스 데이터 그룹화: platform → seller → payment_method → month
   const grouped = useMemo(() => {
@@ -345,54 +388,126 @@ function B2cPlatformContent() {
         </CardContent>
       </Card>
 
-      {/* 플랫폼별 요약 카드 */}
-      {summaryQuery.isLoading ? (
+      {/* 플랫폼별 요약 카드 (PR-§b2c-ux-v2: 셀러 뱃지 임베디드 + 추가/삭제) */}
+      {platformsQuery.isLoading ? (
         <div className="text-center py-8 text-muted-foreground">불러오는 중...</div>
-      ) : (summaryQuery.data || []).length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <Store className="h-10 w-10 mx-auto mb-2 opacity-40" />
-            <p className="text-sm">아직 등록된 B2C 플랫폼이 없습니다.</p>
-            <p className="text-xs mt-1">
-              거래처 관리에서 customer_type='b2c_platform' 로 등록해주세요.
-            </p>
-          </CardContent>
-        </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(summaryQuery.data || []).map((p: any) => (
+          {platformCards.map((p: any) => (
             <Card
               key={p.platform_id}
-              className={`cursor-pointer transition-all hover:shadow ${selectedPlatformId === p.platform_id ? "border-violet-500 ring-2 ring-violet-200" : ""
+              className={`transition-all hover:shadow ${selectedPlatformId === p.platform_id ? "border-violet-500 ring-2 ring-violet-200" : ""
                 }`}
-              onClick={() => setSelectedPlatformId(p.platform_id)}
             >
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
+              <CardContent className="p-3 space-y-2">
+                {/* 헤더: 플랫폼명 + 삭제 + 분기 뱃지 */}
+                <div className="flex items-start justify-between gap-2">
+                  <button
+                    className="text-left flex-1 cursor-pointer"
+                    onClick={() => setSelectedPlatformId(p.platform_id)}
+                    title="이 플랫폼 상세 보기 (하단)"
+                  >
                     <div className="font-semibold">{p.platform_name}</div>
                     <div className="text-xs text-muted-foreground">
                       셀러 {p.seller_count}명 · 항목 {p.entry_count}건
                     </div>
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[9px]">
+                      {periodYear} Q{periodQuarter}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-red-600"
+                      title="플랫폼 삭제 (매출 항목 0건일 때만)"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`"${p.platform_name}" 플랫폼을 삭제하시겠습니까?\n(매출 항목 0건일 때만 삭제 가능)`)) {
+                          deletePlatformMutation.mutate({ platformPartnerId: p.platform_id });
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <Badge variant="outline" className="text-[9px]">
-                    {periodYear} Q{periodQuarter}
-                  </Badge>
                 </div>
-                <div className="flex items-baseline gap-1">
+
+                {/* 합계 */}
+                <div>
                   <span className="text-lg font-bold">
                     ₩{Number(p.total_gross || 0).toLocaleString()}
                   </span>
+                  {Number(p.total_commission || 0) > 0 && (
+                    <span className="text-[10px] text-muted-foreground ml-2">
+                      수수료 ₩{Number(p.total_commission || 0).toLocaleString()}
+                    </span>
+                  )}
                 </div>
-                {Number(p.total_commission || 0) > 0 && (
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    수수료 ₩{Number(p.total_commission || 0).toLocaleString()}
-                  </div>
-                )}
+
+                {/* 셀러 뱃지 + 추가 버튼 */}
+                <div className="flex flex-wrap gap-1.5 pt-1 border-t">
+                  {(p.sellers ?? []).length === 0 && (
+                    <span className="text-[10px] text-muted-foreground">셀러 없음 →</span>
+                  )}
+                  {(p.sellers ?? []).map((s: any) => (
+                    <button
+                      key={s.id}
+                      className="px-2 py-0.5 rounded bg-violet-50 hover:bg-violet-100 border border-violet-200 text-[11px] transition-colors"
+                      title={`${s.seller_code}${s.seller_name ? ` (${s.seller_name})` : ""} — 매출 입력`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditEntryData({
+                          platformPartnerId: p.platform_id,
+                          sellerId: s.id,
+                          paymentMethod: "",
+                          periodMonth: periodMode === "month" ? periodMonth : quarterMonths[0],
+                        });
+                        setEditEntryOpen(true);
+                      }}
+                    >
+                      <span className="font-mono font-medium">{s.seller_code}</span>
+                      {s.seller_name && (
+                        <span className="text-muted-foreground ml-1">{s.seller_name}</span>
+                      )}
+                    </button>
+                  ))}
+                  <button
+                    className="px-2 py-0.5 rounded border border-dashed border-violet-300 text-[11px] text-violet-700 hover:bg-violet-50 transition-colors"
+                    title="셀러 추가"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAddSellerForPlatformId(p.platform_id);
+                      setAddSellerOpen(true);
+                    }}
+                  >
+                    <Plus className="h-3 w-3 inline -mt-0.5" /> 셀러
+                  </button>
+                </div>
               </CardContent>
             </Card>
           ))}
+
+          {/* 플랫폼 추가 카드 (그리드 끝) */}
+          <button
+            className="border-2 border-dashed border-violet-300 rounded-lg flex flex-col items-center justify-center min-h-[120px] text-violet-700 hover:bg-violet-50 transition-colors"
+            onClick={() => setAddPlatformOpen(true)}
+          >
+            <Plus className="h-6 w-6 mb-1" />
+            <span className="text-sm font-medium">플랫폼 추가</span>
+            <span className="text-[10px] text-muted-foreground mt-0.5">옥션 / 11번가 / 커스텀</span>
+          </button>
         </div>
+      )}
+
+      {/* 플랫폼이 0개일 때 안내 */}
+      {!platformsQuery.isLoading && platformCards.length === 0 && (
+        <Card>
+          <CardContent className="py-6 text-center text-muted-foreground">
+            <Store className="h-8 w-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">등록된 B2C 플랫폼이 없습니다. 위 "플랫폼 추가" 카드로 시작하세요.</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* 선택된 플랫폼 상세 — 매출 입력 표 */}
@@ -543,16 +658,27 @@ function B2cPlatformContent() {
         </Card>
       )}
 
-      {/* 셀러 추가 다이얼로그 */}
+      {/* 셀러 추가 다이얼로그 (PR-§b2c-ux-v2: 카드별 platform_id 사용) */}
       <AddSellerDialog
         open={addSellerOpen}
-        onOpenChange={setAddSellerOpen}
-        platformPartnerId={selectedPlatformId}
+        onOpenChange={(o) => {
+          setAddSellerOpen(o);
+          if (!o) setAddSellerForPlatformId(null);
+        }}
+        platformPartnerId={addSellerForPlatformId ?? selectedPlatformId}
         onAdded={() => {
           matrixQuery.refetch();
           platformsQuery.refetch();
           summaryQuery.refetch();
         }}
+      />
+
+      {/* 플랫폼 추가 다이얼로그 (PR-§b2c-ux-v2) */}
+      <AddPlatformDialog
+        open={addPlatformOpen}
+        onOpenChange={setAddPlatformOpen}
+        onSubmit={(name) => createPlatformMutation.mutate({ name })}
+        isPending={createPlatformMutation.isPending}
       />
 
       {/* 매출 항목 입력 다이얼로그 */}
@@ -781,3 +907,73 @@ function EditEntryDialog({
     </Dialog>
   );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 플랫폼 추가 다이얼로그 (PR-§b2c-ux-v2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function AddPlatformDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  isPending,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSubmit: (name: string) => void;
+  isPending: boolean;
+}) {
+  const [name, setName] = useState("");
+
+  // 자주 쓰는 플랫폼 빠른 선택 (커스텀도 가능)
+  const presets = ["옥션", "지마켓", "11번가", "스마트스토어", "쿠팡", "카카오쇼핑"];
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) setName(""); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>B2C 플랫폼 추가</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <Label className="text-xs">플랫폼명 *</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="옥션, 지마켓, 커스텀..."
+              autoFocus
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              partners 에 거래처로 등록됩니다 (customer_type='b2c_platform').
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => (
+              <button
+                key={p}
+                className="px-2 py-1 rounded border border-violet-200 bg-violet-50 hover:bg-violet-100 text-[11px] text-violet-800"
+                onClick={() => setName(p)}
+                type="button"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
+          <Button
+            disabled={!name.trim() || isPending}
+            onClick={() => {
+              const trimmed = name.trim();
+              if (!trimmed) return;
+              onSubmit(trimmed);
+            }}
+          >
+            {isPending ? "추가 중..." : "추가"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
