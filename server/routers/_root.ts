@@ -25,6 +25,9 @@ import { dashboardRouter, pipelineRouter } from "./dashboard";
 // ── haccp ── (2026-04-19: 도메인 맵으로 분리)
 import { haccpRouterMap } from "./_maps/haccpMap";
 
+// ── industry ── (2026-04-28: Layer 4 industry 통합 맵 — Phase 2 cosmetic PoC)
+import { industryRouterMap } from "./_maps/industryMap";
+
 // ── inventory ──
 import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inventory";
 
@@ -69,6 +72,9 @@ export const appRouter = router({
 
   // ── haccp ── (2026-04-19 분해: _maps/haccpMap.ts)
   ...haccpRouterMap,
+
+  // ── industry ── (2026-04-28: Layer 4 cosmetic PoC — _maps/industryMap.ts)
+  ...industryRouterMap,
 
   // ── inventory ──
   inventory: inventoryRouter,
