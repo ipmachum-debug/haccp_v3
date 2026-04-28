@@ -222,17 +222,58 @@ jobs:
             '{release_tag: $tag, asset_name: $asset, expected_sha256: $sha256}')
 
           RESPONSE_FILE=$(mktemp)
-          HTTP_CODE=$(curl -sS -X POST \
-            -o "${RESPONSE_FILE}" -w "%{http_code}" \
-            -H "Authorization: Bearer ${DEPLOY_TOKEN}" \
-            -H "Content-Type: application/json" \
-            --max-time 300 \
-            -d "${BODY}" \
-            "${DEPLOY_URL}")
 
-          CURL_EXIT=$?
+          # 2026-04-28: 502/503/504 retry + 409 success 분류 추가.
+          #   배경: v0.8.33 false-neg 사고 — v0.8.32 PM2 reload 중 v0.8.33 호출 시
+          #         nginx 가 502 반환 → GitHub Actions 가 fail 마킹했으나 실제 배포는 성공.
+          #   대응:
+          #     - 5xx (nginx upstream 장애): 최대 2회 retry (15초 간격)
+          #     - 409 (이미 진행 중, deployInProgress 가드): success 로 분류 — 이전 호출이
+          #       처리 중이라는 의미. 본 워크플로우의 deploy job 은 끝난 것으로 간주.
+          #     - 4xx (영구 에러): retry 안 함 (즉시 fail)
+          #   서버 endpoint (server/_core/index.ts:609) 의 deployInProgress 가드가 동시 호출
+          #   안전 보장 → retry 시 deploy 중복 실행 위험 없음.
+          MAX_ATTEMPTS=3
+          RETRY_DELAY=15
+          HTTP_CODE=""
+          CURL_EXIT=0
 
-          echo "HTTP Status: ${HTTP_CODE}"
+          for attempt in $(seq 1 ${MAX_ATTEMPTS}); do
+            echo "=== 시도 ${attempt}/${MAX_ATTEMPTS} ==="
+            HTTP_CODE=$(curl -sS -X POST \
+              -o "${RESPONSE_FILE}" -w "%{http_code}" \
+              -H "Authorization: Bearer ${DEPLOY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              --max-time 300 \
+              -d "${BODY}" \
+              "${DEPLOY_URL}")
+            CURL_EXIT=$?
+
+            echo "HTTP Status: ${HTTP_CODE} (curl exit: ${CURL_EXIT})"
+
+            # 성공 케이스 — 더 이상 retry 안 함
+            if [ "${CURL_EXIT}" -eq 0 ] && [[ "${HTTP_CODE}" =~ ^(200|409)$ ]]; then
+              break
+            fi
+
+            # 마지막 시도면 retry 안 함
+            if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+              break
+            fi
+
+            # retry 가능한 케이스만 재시도
+            #   - curl exit != 0 (네트워크 / connection 실패)
+            #   - HTTP 502/503/504 (upstream 일시 장애 / PM2 reload 윈도우)
+            if [ "${CURL_EXIT}" -ne 0 ] || [[ "${HTTP_CODE}" =~ ^(502|503|504)$ ]]; then
+              echo "::warning::시도 ${attempt}/${MAX_ATTEMPTS} 실패 (HTTP=${HTTP_CODE}) — ${RETRY_DELAY}초 후 재시도"
+              sleep "${RETRY_DELAY}"
+            else
+              # 4xx (401/400 등) — 영구 에러, retry 무의미
+              echo "영구 에러 (HTTP ${HTTP_CODE}) — retry 중단"
+              break
+            fi
+          done
+
           echo
           echo "=== Response Body (tail 4KB) ==="
           tail -c 4096 "${RESPONSE_FILE}" | python3 -m json.tool 2>/dev/null || tail -c 4096 "${RESPONSE_FILE}"
@@ -245,8 +286,24 @@ jobs:
               echo ""
               echo "- **exit code**: ${CURL_EXIT}"
               echo "- **URL**: \`${DEPLOY_URL}\`"
+              echo "- **시도**: ${MAX_ATTEMPTS}"
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
+          fi
+
+          # 409 = 이전 호출이 처리 중 (deployInProgress 가드). 본 워크플로우의 deploy 작업은 끝.
+          # 운영 git HEAD 검증은 별도 단계로 수행 (수동 또는 후속 PR).
+          if [ "${HTTP_CODE}" = "409" ]; then
+            echo "✅ 배포 already-in-progress (HTTP 409) — 이전 호출이 처리 중, success 로 분류"
+            {
+              echo "## ✅ 배포 already-in-progress (HTTP 409)"
+              echo ""
+              echo "- **의미**: 이전 호출이 처리 중 (deployInProgress 가드)"
+              echo "- **Tag**: \`${RELEASE_TAG}\`"
+              echo "- **Asset**: \`${ASSET_NAME}\`"
+              echo "- **시도**: ${MAX_ATTEMPTS}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
 
           if [ "${HTTP_CODE}" = "200" ]; then
@@ -267,9 +324,7 @@ jobs:
             exit 0
           fi
 
-          if [ "${HTTP_CODE}" = "409" ]; then
-            echo "::warning::다른 배포가 진행 중 (409 Conflict)"
-          fi
+          # 409 처리는 위에서 success 로 분류됨 (이번 PR — 502 retry 와 함께 변경).
 
           echo "::error::배포 실패 (HTTP ${HTTP_CODE})"
           echo "HTTP_CODE=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
