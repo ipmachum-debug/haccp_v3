@@ -306,7 +306,10 @@ export async function autoIssueMaterialsForBatch(
             `batch=${batchId} input=${input.id} required=${requiredQuantity}`
           );
           try {
-            // PR-§5.2-2: 재고미등록(lot_id=0) 케이스도 material_id 는 채움 — 4단 fallback 의존성 제거
+            // 2026-04-28 (근본 작업 A): sentinel lot_id=0 → NULL 로 전환.
+            // 의미: "LOT 매칭 실패" 를 sentinel 0 대신 NULL 로 표현. usage 트랜잭션의
+            // "실제 LOT 참조" invariant 위배를 NULL 로 명시 (코드/DB 레벨에서 자명).
+            // PR-§5.2-2 의 material_id 직접 채우기는 그대로 유지 (4단 fallback 의존성 제거).
             await db.execute(sql`
               INSERT INTO h_inventory_transactions
               (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
@@ -314,7 +317,7 @@ export async function autoIssueMaterialsForBatch(
                action_type, purpose, performed_by, created_by, tenant_id,
                reference_type, reference_id, notes)
               VALUES
-              (0, ${materialId}, 'usage', ${requiredQuantity.toString()}, ${unit},
+              (NULL, ${materialId}, 'usage', ${requiredQuantity.toString()}, ${unit},
                ${unitPrice.toString()}, ${materialCost.toString()},
                ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
                'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
