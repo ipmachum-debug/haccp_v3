@@ -1,7 +1,26 @@
+import type { PoolConnection } from "mysql2/promise";
+import { drizzle } from "drizzle-orm/mysql2";
 import { getDb } from "../../db";
 
 import { hInventoryLots } from "../../../drizzle/schema/part2";
 import { and, eq, gte, sql } from "drizzle-orm";
+
+/**
+ * Drizzle 인스턴스 해석 — 같은 트랜잭션에서 사용하려면 conn 전달.
+ *
+ * - conn 제공: PoolConnection 위에 Drizzle wrap → 같은 트랜잭션 안에서 쿼리
+ * - conn 미제공: 기존 동작 (별도 connection)
+ *
+ * 트리거: PR #117 F-2 단일 트랜잭션 엔진 / PR #124 TransactionContext
+ */
+async function resolveDrizzle(conn?: PoolConnection) {
+  if (conn) {
+    return drizzle(conn) as any;
+  }
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  return db;
+}
 
 /**
  * FEFO (First Expired, First Out) 로트 할당 함수
@@ -13,6 +32,10 @@ import { and, eq, gte, sql } from "drizzle-orm";
  * @param unit 단위
  * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
  * @param materialId 원재료 ID (inventoryId로 LOT를 못 찾을 때 폴백용)
+ * @param conn (선택) PoolConnection — 단일 트랜잭션 안에서 호출 시 전달.
+ *             postWithinTransaction 의 ctx.conn 을 그대로 넘김.
+ *             미제공 시 기존 동작 (별도 connection — 트랜잭션 보장 X).
+ *             F-2 단일 트랜잭션 엔진 (PR #124) 통합용.
  * @returns 할당된 LOT 목록 [{ lotId, quantity, unitCost }]
  */
 export async function allocateLotsFEFO(
@@ -20,10 +43,10 @@ export async function allocateLotsFEFO(
   requestedQuantity: number,
   unit: string,
   tenantId: number,
-  materialId?: number
+  materialId?: number,
+  conn?: PoolConnection,
 ): Promise<Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }>> {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  const db = await resolveDrizzle(conn);
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
   let availableLots = await db
@@ -135,6 +158,7 @@ export async function allocateLotsFEFO(
  * @param unit 단위
  * @param createdBy 생성자 ID
  * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
+ * @param conn (선택) PoolConnection — 단일 트랜잭션 통합용 (F-2)
  */
 export async function saveLotAllocations(
   docType: "PURCHASE" | "SALE" | "MATERIAL_ISSUE" | "BATCH" | "OTHER",
@@ -143,10 +167,10 @@ export async function saveLotAllocations(
   allocations: Array<{ lotId: number; quantity: number; unitCost: number }>,
   unit: string,
   createdBy: number,
-  tenantId: number
+  tenantId: number,
+  conn?: PoolConnection,
 ): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+  const db = await resolveDrizzle(conn);
 
   const { docLineLots } = await import("../../../drizzle/schema/schema_inventory_accounting");
 
