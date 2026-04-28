@@ -33,6 +33,7 @@ import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
+import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures";
@@ -663,13 +664,13 @@ function DashboardLayoutContent({
 
     // ── 가끔 쓰는 메뉴 (하단 배치) ──
 
-    // 📇 기준정보
-    { icon: Building2, label: "거래처", path: "/dashboard/accounting/partners", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: "/dashboard/accounting/communication-log", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Shield, label: "신용관리", path: "/dashboard/accounting/partner-credit", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: DollarSign, label: "단가표", path: "/dashboard/accounting/partner-prices", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: BookOpen, label: "계정 과목", path: "/dashboard/accounting/accounts", roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Building2, label: "고정자산", path: "/dashboard/accounting/fixed-assets", roles: ["super_admin", "admin"], group: "기준정보" },
+    // 📇 기준정보 — 2026-04-28: ROUTES 상수 사용 (App.tsx 라우트와 단일 source)
+    { icon: Building2, label: "거래처", path: ROUTES.ACCOUNTING_PARTNERS, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: MessageSquare, label: "커뮤니케이션 로그", path: ROUTES.ACCOUNTING_COMMUNICATION_LOG, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: Shield, label: "신용관리", path: ROUTES.ACCOUNTING_PARTNER_CREDIT, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: DollarSign, label: "단가표", path: ROUTES.ACCOUNTING_PARTNER_PRICES, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: BookOpen, label: "계정 과목", path: ROUTES.ACCOUNTING_ACCOUNTS, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: Building2, label: "고정자산", path: ROUTES.ACCOUNTING_FIXED_ASSETS, roles: ["super_admin", "admin"], group: "기준정보" },
 
     // 🔄 반복·이력
     { icon: RotateCcw, label: "반복 거래", path: "/dashboard/accounting/recurring", roles: ["super_admin", "admin"], group: "마감" },

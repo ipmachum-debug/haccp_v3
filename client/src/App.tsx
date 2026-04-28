@@ -6,6 +6,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { FEATURES } from "@/lib/featureFlags";
+import { ROUTES } from "@/lib/routePaths";
 
 // Lazy load pages
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
@@ -405,7 +406,7 @@ function Router() {
       <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/accounting/BankAccountManagement"))} />
       <Route path="/dashboard/accounting/bank-transactions" component={lazy(() => import("@/pages/accounting/BankTransactionManagement"))} />
       <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/BankMatchingRuleManagement"))} />
-      <Route path="/dashboard/accounting/partners" component={lazy(() => import("@/pages/accounting/PartnersQuery"))} />
+      <Route path={ROUTES.ACCOUNTING_PARTNERS} component={lazy(() => import("@/pages/accounting/PartnersQuery"))} />
       <Route path="/dashboard/accounting/purchases/create" component={lazy(() => import("@/pages/accounting/PurchasesManagement"))} />
       <Route path="/dashboard/accounting/purchases/list" component={lazy(() => import("@/pages/accounting/PurchasesList"))} />
       <Route path="/dashboard/accounting/purchases/:id" component={lazy(() => import("@/pages/accounting/PurchaseDetail"))} />
@@ -413,7 +414,7 @@ function Router() {
       <Route path="/dashboard/accounting/purchase-orders" component={lazy(() => import("@/pages/accounting/PurchaseOrderList"))} />
       <Route path="/dashboard/accounting/purchase-orders/create" component={lazy(() => import("@/pages/accounting/PurchaseOrderCreate"))} />
       {/* Phase B (2026-04-14): 거래처별 단가표 */}
-      <Route path="/dashboard/accounting/partner-prices" component={lazy(() => import("@/pages/accounting/PartnerPricesManagement"))} />
+      <Route path={ROUTES.ACCOUNTING_PARTNER_PRICES} component={lazy(() => import("@/pages/accounting/PartnerPricesManagement"))} />
       {/* Phase C (2026-04-14): 견적서 */}
       <Route path="/dashboard/accounting/quotations" component={lazy(() => import("@/pages/accounting/QuotationList"))} />
       <Route path="/dashboard/accounting/quotations/create" component={lazy(() => import("@/pages/accounting/QuotationCreate"))} />
@@ -425,7 +426,7 @@ function Router() {
       <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/accounting/BankAccountManagement"))} />
       <Route path="/dashboard/accounting/bank-matching" component={lazy(() => import("@/pages/accounting/BankTransactionMatching"))} />
       <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/MatchingRulesManagement"))} />
-      <Route path="/dashboard/accounting/accounts" component={lazy(() => import("@/pages/accounting/AccountingAccounts"))} />
+      <Route path={ROUTES.ACCOUNTING_ACCOUNTS} component={lazy(() => import("@/pages/accounting/AccountingAccounts"))} />
       <Route path="/dashboard/accounting/daily-close" component={lazy(() => import("@/pages/accounting/AccountingDailyClose"))} />
       <Route path="/dashboard/accounting/closing-management" component={lazy(() => import("@/pages/accounting/ClosingManagement"))} />
       <Route path="/dashboard/accounting/material-ledger" component={lazy(() => import("@/pages/accounting/MaterialLedger"))} />
@@ -437,9 +438,9 @@ function Router() {
       {/* Phase 2 (2026-04-22): B2C 플랫폼 정산 모듈 — 킬러 피처 */}
       <Route path="/dashboard/accounting/b2c-platform" component={lazy(() => import("@/pages/accounting/B2cPlatformSettlement"))} />
       <Route path="/dashboard/accounting/cash-flow" component={lazy(() => import("@/pages/accounting/CashFlowDashboard"))} />
-      <Route path="/dashboard/accounting/fixed-assets" component={lazy(() => import("@/pages/accounting/FixedAssetManagement"))} />
+      <Route path={ROUTES.ACCOUNTING_FIXED_ASSETS} component={lazy(() => import("@/pages/accounting/FixedAssetManagement"))} />
       <Route path="/dashboard/accounting/budget" component={lazy(() => import("@/pages/accounting/BudgetManagement"))} />
-      <Route path="/dashboard/accounting/partner-credit" component={lazy(() => import("@/pages/accounting/PartnerCreditManagement"))} />
+      <Route path={ROUTES.ACCOUNTING_PARTNER_CREDIT} component={lazy(() => import("@/pages/accounting/PartnerCreditManagement"))} />
       <Route path="/dashboard/accounting/recurring" component={lazy(() => import("@/pages/accounting/RecurringTransactions"))} />
       <Route path="/dashboard/accounting/change-log" component={lazy(() => import("@/pages/accounting/ChangeLogViewer"))} />
       <Route path="/dashboard/accounting/payroll" component={lazy(() => import("@/pages/accounting/PayrollManagement"))} />
@@ -451,7 +452,7 @@ function Router() {
       <Route path="/accounting/monthly-summary/:year/:month" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummaryDetail"))} />
       <Route path="/accounting/documents" component={lazy(() => import("@/pages/accounting/AccountingDocuments"))} />
       <Route path="/accounting/documents/:id" component={lazy(() => import("@/pages/accounting/AccountingDocumentDetail"))} />
-      <Route path="/dashboard/accounting/communication-log" component={lazy(() => import("@/pages/accounting/CommunicationLog"))} />
+      <Route path={ROUTES.ACCOUNTING_COMMUNICATION_LOG} component={lazy(() => import("@/pages/accounting/CommunicationLog"))} />
       <Route path="/dashboard/accounting/notice-board" component={lazy(() => import("@/pages/accounting/AccountingNoticeBoard"))} />
       <Route path="/dashboard/accounting/expense" component={lazy(() => import("@/pages/accounting/ExpenseManagement"))} />
       <Route path="/dashboard/inspection/material" component={MaterialInspection} />

@@ -549,6 +549,27 @@ WHERE tenant_id = ?
 - UI: shadcn/ui 컴포넌트 (`client/src/components/ui/`)
 - 스타일: Tailwind CSS
 
+### 라우트 path — 단일 source 원칙 (2026-04-28)
+신규 라우트 추가 또는 기존 라우트 path 변경 시 **반드시** `client/src/lib/routePaths.ts` 의 `ROUTES` 상수 사용:
+
+```typescript
+// ✅ 올바른 방식
+import { ROUTES } from "@/lib/routePaths";
+<Route path={ROUTES.ACCOUNTING_PARTNERS} component={...} />              // App.tsx
+{ ..., path: ROUTES.ACCOUNTING_PARTNERS, ... }                          // DashboardLayout.tsx
+
+// ❌ 잘못된 방식 (drift 보장)
+<Route path="/dashboard/accounting/partners" component={...} />
+{ ..., path: "/dashboard/accounting/partners", ... }
+```
+
+이유: App.tsx 의 `<Route>` 와 DashboardLayout 의 메뉴가 path 문자열을 각자 hardcoded 하면
+drift 발생 (2026-04-07 d1d212a 에서 "커뮤니케이션 로그" 메뉴 누락 사고). ROUTES 상수를
+단일 source 로 두면 한 군데 수정 → 양쪽 자동 동기화 + TypeScript 가 컴파일 타임 보증.
+
+기존 라우트는 점진 이주 중 (Strangler Fig). 본인이 건드리는 라우트가 아직 hardcoded 면
+ROUTES 로 함께 이주 권장.
+
 ---
 
 ## 알려진 문제 및 기술 부채
