@@ -68,5 +68,11 @@ module.exports = {
     min_uptime: '10s',
     listen_timeout: 10000,
     kill_timeout: 5000,
+    // 2026-04-28: 배포 시 502 윈도우 단축 (PR #107 머지 후 1초 502 사고)
+    // 신 인스턴스가 server.listen 완료 후 process.send('ready') 호출하면
+    // PM2 가 그 시점에 구 인스턴스 종료 → 502 윈도우 8초 → 1~2초로 단축.
+    // 진짜 zero-downtime 은 nginx upstream retry 설정으로 보완 권장
+    // (docs/operations/nginx-upstream-retry.md 참조).
+    wait_ready: true,
   }]
 };

@@ -736,7 +736,16 @@ async function startServer() {
 
   server.listen(port, '0.0.0.0', async () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
-    
+
+    // PM2 wait_ready 신호: 신 인스턴스가 listen 완료 후 PM2 에 ready 통지.
+    // ecosystem.config.cjs 의 wait_ready: true 와 함께 동작 — PM2 가 이 신호를
+    // 받기 전에는 구 인스턴스를 종료하지 않음 → reload 시 502 윈도우 단축.
+    // (fork mode + instances:1 이라 진짜 zero-downtime 은 안 되지만, listen 즉시
+    //  신호 보내 8초 → 1~2초로 단축 효과)
+    if (typeof process.send === "function") {
+      process.send("ready");
+    }
+
     // DB 사전 초기화 (스케줄러보다 먼저 실행)
     try {
       const { getDb } = await import("../db");
