@@ -177,6 +177,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # 동시 deploy 직렬화 (2026-04-28 v0.8.26 false negative 사고):
+    #   PR 두 개가 6초 차로 머지되면 v0.8.25 PM2 reload 중 v0.8.26 deploy API 가
+    #   nginx 502 를 받아 GitHub Actions 가 fail 마킹 (실제로는 양쪽 모두 성공).
+    #   build job 은 격리 환경이라 병렬 OK, deploy job 만 직렬화하여 운영 서버
+    #   PM2 reload 충돌 방지. cancel-in-progress=false → 모든 release 순차 배포 보장.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     permissions:
       contents: read
       issues: write
