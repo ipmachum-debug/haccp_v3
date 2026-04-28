@@ -371,13 +371,26 @@ export function ReleaseTab() {
                             fallback {fallbackPct.toFixed(1)}%
                           </span>
                         )}
+                        {/* Phase 3 (2026-04-28): 재고미등록(lot_id=0) 카운트 별도 강조 */}
+                        {(s.m3 || 0) > 0 && (
+                          <span
+                            className="text-amber-800 dark:text-amber-300 font-medium cursor-help"
+                            title={
+                              "lot_id=0 (재고미등록) 자동출고 트랜잭션\n" +
+                              "Phase 1 (PR #103): 마스터-LOT mismatch 자동 복구 적용 중\n" +
+                              "Phase 2 (예정): 가장 오래된 활성 LOT 으로 자동 백필 예정"
+                            }
+                          >
+                            재고미등록 {s.m3.toLocaleString()}건
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="px-3 py-2 flex flex-wrap gap-1.5">
                       {chip("direct ★", s.direct, "border-emerald-400 bg-emerald-100 text-emerald-900 font-bold", "h_inventory_transactions.material_id 직접 매칭 (PR-§5.2, 가장 신뢰)")}
                       {chip("m1 lot", s.m1, "border-emerald-300 bg-emerald-50 text-emerald-800", "h_inventory_lots → h_materials (정상 LOT 매칭, 백필)")}
                       {chip("m2 inv", s.m2, "border-blue-300 bg-blue-50 text-blue-800", "h_inventory → h_materials fallback (LOT 없지만 inventory 있음)")}
-                      {chip("m3 bi", s.m3, "border-amber-300 bg-amber-50 text-amber-800", "h_batch_inputs → h_materials fallback (lot_id=0 재고미등록)")}
+                      {chip("m3 bi", s.m3, "border-amber-300 bg-amber-50 text-amber-800", "h_batch_inputs → h_materials fallback (lot_id=0 재고미등록)\nPhase 1 자동복구 / Phase 2 백필 대상")}
                       {chip("im 파싱", s.im, "border-orange-300 bg-orange-50 text-orange-800", "notes 파싱 → item_master fallback (orphan, fragile)")}
                       {chip("none", s.none, "border-red-300 bg-red-50 text-red-800", "매칭 실패 — 데이터 결함")}
                     </div>
@@ -470,10 +483,19 @@ export function ReleaseTab() {
                                               <span className="text-muted-foreground">{item.sourceType || "수동"}</span>
                                             )}
                                             {/* PR-W7: LOT 번호 또는 재고미등록 뱃지 (둘 중 하나만 표시) */}
+                                            {/* Phase 3 (2026-04-28): 재고미등록 배지에 자동복구/백필 안내 추가 */}
                                             {item.lotNumber ? (
                                               <span className="font-mono text-muted-foreground">{item.lotNumber}</span>
                                             ) : item.isLotMissing ? (
-                                              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 bg-amber-100 text-amber-800 border-amber-300">
+                                              <Badge
+                                                variant="secondary"
+                                                className="text-[9px] px-1 py-0 h-4 bg-amber-100 text-amber-800 border-amber-300 cursor-help"
+                                                title={
+                                                  "이 트랜잭션은 LOT 매칭 없이 자동출고됨 (lot_id=0).\n" +
+                                                  "Phase 1 (PR #103): 마스터-LOT mismatch 자동 복구 적용 중\n" +
+                                                  "Phase 2 (예정): 가장 오래된 활성 LOT 으로 자동 백필 예정"
+                                                }
+                                              >
                                                 재고미등록
                                               </Badge>
                                             ) : null}
