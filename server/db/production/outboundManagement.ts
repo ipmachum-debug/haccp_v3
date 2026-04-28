@@ -373,8 +373,11 @@ export async function getConsumptionSummary(params: {
         END AS notes,
         -- PR-W7: lot_id=0 (재고미등록) 인 자동출고 트랜잭션을 클라이언트가 식별할 수 있도록
         --   별도 플래그로 내려보냄.
+        -- 2026-04-28 (근본 작업 A): lot_id sentinel 0 → NULL 전환에 따라 둘 다 매칭.
+        --   기존 데이터 (백필 전) 는 lot_id=0, 신규 INSERT 는 lot_id IS NULL.
+        --   마이그레이션 SQL 적용 후엔 모두 NULL 통일됨.
         CASE
-          WHEN t.lot_id = 0 AND t.notes LIKE '%재고미등록%' THEN 1
+          WHEN (t.lot_id = 0 OR t.lot_id IS NULL) AND t.notes LIKE '%재고미등록%' THEN 1
           ELSE 0
         END AS isLotMissing,
         -- PR-§5.2-3: matchSource — direct 가 최상위 우선순위.

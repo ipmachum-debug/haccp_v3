@@ -68,7 +68,13 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
 export const hInventoryTransactions = mysqlTable("h_inventory_transactions", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
   tenantId: int('tenant_id').notNull().references(() => tenants.id),
-  lotId: bigint("lot_id", { mode: "number" }).notNull(),
+  // 2026-04-28: NOT NULL → NULL 변경.
+  //   기존: notnull + sentinel `lot_id=0` 으로 "재고미등록(LOT 매칭 실패)" 표현
+  //   문제: sentinel 0 이 도메인 invariant 위배 — usage 트랜잭션은 실제 LOT 참조여야 함.
+  //         FK 제약 불가, lot_id=0 vs 정상 조회 분기 코드 곳곳에 누적.
+  //   변경: NULL 허용 → "LOT 매칭 실패" = lot_id IS NULL 로 표현 (의미가 자명).
+  //   마이그레이션: scripts/migrations-manual/2026-04-28-lot-id-nullable.sql
+  lotId: bigint("lot_id", { mode: "number" }),
   inventoryId: bigint("inventory_id", { mode: "number" }), // 재고 마스터 ID
   // PR-§5.2 (2026-04-27): material_id 직접 컬럼 추가.
   //   기존에는 lot/inventory/batch_inputs/notes 4단 fallback 으로 매칭했으나
