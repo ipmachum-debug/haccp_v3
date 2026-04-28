@@ -13,6 +13,7 @@ on:
       - 'package.json'
       - 'tsconfig.json'
       - '.github/workflows/architecture-check.yml'
+      - 'scripts/verify-core-purity.sh'
 
 jobs:
   dep-cruise:
@@ -34,21 +35,32 @@ jobs:
       - name: dependency-cruiser 실행
         run: npm run arch:check
 
+      - name: 코어 침투 검증 (PR #118 Part III, 7장 인사이트)
+        # PR #118 외부 실사 자료의 "모듈 침투 검증" 을 우리 5계층 구조에 맞게 적용:
+        # - 미래 코어 디렉토리 (server/{core-erp, core-mes, shared-kernel, platform})
+        #   에서 industry 모듈 import 검출
+        # - 현재 평탄 코어 화이트리스트 (server/_core, server/utils/schedulerLock.ts 등)
+        # - dynamic import 는 lazy loading 패턴으로 false positive 가능 → 제외
+        # - 자세한 사항: scripts/verify-core-purity.sh 의 docstring
+        run: bash scripts/verify-core-purity.sh
+
       - name: 위반 시 가이드 출력
         if: failure()
         run: |
           {
             echo "## 🚨 레이어 의존 규칙 위반"
             echo ""
-            echo "이 PR 은 \`.dependency-cruiser.cjs\` 의 의존 규칙을 위반했어."
+            echo "이 PR 은 \`.dependency-cruiser.cjs\` 또는 \`scripts/verify-core-purity.sh\` 의 의존 규칙을 위반했어."
             echo ""
             echo "### 다음을 확인해줘"
             echo "- \`docs/architecture/00-layers.md\` — 5계층 정의"
             echo "- \`docs/architecture/01-dependency-rules.md\` — 금지/허용 규칙"
             echo "- \`docs/architecture/ADR-002-no-core-to-industry.md\` — core↔industry 규칙"
+            echo "- \`docs/architecture/control-point-abstraction-design.md\` — ControlPoint 추상화 (PR #119)"
             echo ""
             echo "### 로컬에서 재현"
             echo "\`\`\`bash"
-            echo "npm run arch:check"
+            echo "npm run arch:check                 # dependency-cruiser"
+            echo "bash scripts/verify-core-purity.sh # 코어 침투 검증 (npm install 필요)"
             echo "\`\`\`"
           } >> "$GITHUB_STEP_SUMMARY"
