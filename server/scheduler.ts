@@ -10,17 +10,23 @@ import { initChecklistScheduler } from "./checklistScheduler";
 import { checkHealthCertificateReminders, resetExpiredCertificateReminders } from "./schedulers/healthCertificateReminder";
 
 import { todayKST } from "./utils/timezone";
+import { withSchedulerLock } from "./utils/schedulerLock";
 
 /**
  * 재고 회전율 알림 스케줄러
  * 매일 오전 9시에 자동으로 실행되어 임계값 이하의 회전율을 가진 원재료에 대해 알림을 생성합니다.
  */
 export function initScheduler() {
+  // 2026-04-28 (근본 작업 E): 모든 cron 에 withSchedulerLock 래핑.
+  //   현재 fork mode + instances:1 에서는 lock 항상 획득 성공 (효과 미발휘).
+  //   향후 cluster mode (instances:2) 전환 시 자동으로 중복 실행 차단.
+  //   다중 서버 (HA) 환경에서도 동일 동작.
+
   // 매일 오전 9시에 실행 (cron: 0 9 * * *)
-  cron.schedule("0 9 * * *", async () => {
+  cron.schedule("0 9 * * *", () => withSchedulerLock("daily_morning_alerts", async () => {
     const timestamp = new Date().toISOString();
     console.log(`[Scheduler] ${timestamp} - 재고 회전율 알림 체크 시작`);
-    
+
     try {
       const result = await checkAndCreateTurnoverAlerts();
       console.log(`[Scheduler] ${timestamp} - 재고 회전율 알림 체크 완료:`, result);
@@ -48,36 +54,36 @@ export function initScheduler() {
     } catch (error) {
       console.error(`[Scheduler] ${timestamp} - 소비기한 만료 알람 생성 실패:`, error);
     }
-  });
+  }));
 
   // 매일 오후 1시에 검사 부적합 알림 자동 생성
-  cron.schedule("0 13 * * *", async () => {
+  cron.schedule("0 13 * * *", () => withSchedulerLock("daily_inspection_alerts", async () => {
     const timestamp = new Date().toISOString();
     console.log(`[Scheduler] ${timestamp} - 검사 부적합 알림 체크 시작`);
-    
+
     try {
       const result = await checkAndCreateInspectionFailureAlerts();
       console.log(`[Scheduler] ${timestamp} - 검사 부적합 알림 체크 완료:`, result);
     } catch (error) {
       console.error(`[Scheduler] ${timestamp} - 검사 부적합 알림 체크 실패:`, error);
     }
-  });
+  }));
 
   // 매일 오전 10시에 재고 예측 및 자동 발주 알림 자동 생성
-  cron.schedule("0 10 * * *", async () => {
+  cron.schedule("0 10 * * *", () => withSchedulerLock("daily_reorder_alerts", async () => {
     const timestamp = new Date().toISOString();
     console.log(`[Scheduler] ${timestamp} - 재고 예측 및 자동 발주 알림 체크 시작`);
-    
+
     try {
       const result = await checkAndCreateReorderAlerts();
       console.log(`[Scheduler] ${timestamp} - 재고 예측 및 자동 발주 알림 체크 완료:`, result);
     } catch (error) {
       console.error(`[Scheduler] ${timestamp} - 재고 예측 및 자동 발주 알림 체크 실패:`, error);
     }
-  });
+  }));
 
   // CCP 점검 시간 알림 (매 10분마다 체크)
-  cron.schedule("*/10 * * * *", async () => {
+  cron.schedule("*/10 * * * *", () => withSchedulerLock("ccp_reminders_10min", async () => {
     try {
       const result = await checkCcpInspectionReminders();
       if (result.notificationCount > 0) {
@@ -86,10 +92,10 @@ export function initScheduler() {
     } catch (error) {
       console.error("[Scheduler] CCP 점검 알림 실패:", error);
     }
-  });
+  }));
 
   // 미작성 CCP 점검 알림 (매 30분마다 체크)
-  cron.schedule("*/30 * * * *", async () => {
+  cron.schedule("*/30 * * * *", () => withSchedulerLock("ccp_overdue_30min", async () => {
     try {
       const result = await checkOverdueCcpInspections();
       if (result.alertCount > 0) {
@@ -98,7 +104,7 @@ export function initScheduler() {
     } catch (error) {
       console.error("[Scheduler] 미작성 CCP 경고 실패:", error);
     }
-  });
+  }));
 
   console.log("[Scheduler] 재고 회전율 알림 스케줄러 초기화 완료 (매일 오전 9시 실행)");
   console.log("[Scheduler] 검사 부적합 알림 스케줄러 초기화 완료 (매일 오후 1시 실행)");
@@ -114,30 +120,30 @@ export function initScheduler() {
   // initChecklistScheduler();
 
   // 건강진단서 만료 알림 (매일 오전 8시)
-  cron.schedule("0 8 * * *", async () => {
+  cron.schedule("0 8 * * *", () => withSchedulerLock("daily_health_cert_reminders", async () => {
     const timestamp = new Date().toISOString();
     console.log(`[Scheduler] ${timestamp} - 건강진단서 만료 알림 체크 시작`);
-    
+
     try {
       const result = await checkHealthCertificateReminders();
       console.log(`[Scheduler] ${timestamp} - 건강진단서 만료 알림 완료: ${result.notificationCount}건`);
     } catch (error) {
       console.error(`[Scheduler] ${timestamp} - 건강진단서 만료 알림 실패:`, error);
     }
-  });
+  }));
 
   // 건강진단서 알림 플래그 초기화 (매주 월요일 오전 1시)
-  cron.schedule("0 1 * * 1", async () => {
+  cron.schedule("0 1 * * 1", () => withSchedulerLock("weekly_health_cert_reset", async () => {
     const timestamp = new Date().toISOString();
     console.log(`[Scheduler] ${timestamp} - 건강진단서 알림 플래그 초기화 시작`);
-    
+
     try {
       await resetExpiredCertificateReminders();
       console.log(`[Scheduler] ${timestamp} - 건강진단서 알림 플래그 초기화 완료`);
     } catch (error) {
       console.error(`[Scheduler] ${timestamp} - 건강진단서 알림 플래그 초기화 실패:`, error);
     }
-  });
+  }));
 
   console.log("[Scheduler] 건강진단서 만료 알림 스케줄러 초기화 완료 (매일 오전 8시 실행)");
   console.log("[Scheduler] 건강진단서 알림 플래그 초기화 스케줄러 초기화 완료 (매주 월요일 오전 1시 실행)");
