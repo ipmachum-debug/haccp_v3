@@ -34,6 +34,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../../db";
 import { postWithinTransaction } from "../_core";
 import type { TransactionContext } from "../_core";
+import { allocateLotsFEFO } from "../inventory/fefoLotAllocation";
 
 /** v1 과 동일 result 타입 (호환성) */
 export interface AutoIssueResultV2 {
@@ -116,13 +117,25 @@ async function fetchBatchAndInputs(batchId: number): Promise<{
 }
 
 /**
- * 한 원재료 input 처리 — 단일 트랜잭션 안에서 호출됨.
+ * 한 원재료 input 처리 — 단일 트랜잭션 안에서 호출됨 (F2-2-c).
  *
- * 간소화 (F2-2-a):
- *   - LOT 가용량 합계 확인만 (raw SQL FOR UPDATE 미적용 — F2-2-b)
- *   - 충분 시: 단순 차감 + tx INSERT + 도메인 이벤트
- *   - 부족 시: lot_id=NULL fallback (v1 과 같은 의미, 트랜잭션 안에서 처리)
- *   - DB 에러: throw → 전체 rollback (postWithinTransaction)
+ * 정식 통합 (F2-2-c):
+ *   1. h_inventory FOR UPDATE 락 (race condition 차단)
+ *   2. allocateLotsFEFO(..., ctx.conn) 호출 — 같은 트랜잭션 안에서 LOT 할당
+ *   3. 각 LOT 별 차감 (h_inventory_lots) + tx INSERT (lot_id 정상)
+ *   4. h_inventory 차감
+ *   5. h_batch_inputs 업데이트
+ *   6. 도메인 이벤트 발행
+ *
+ * Fallback (FEFO 실패 시):
+ *   - allocateLotsFEFO throw → catch 후 lot_id=NULL INSERT
+ *   - v1 과 의미 동일하지만 같은 트랜잭션 안 (부분 차감 차단)
+ *   - 사용 사례: LOT 자체 없는 원재료 (차조 / 삶은팥 등 4건 — Phase 2 백필 후 잔존)
+ *   - warning 로 보고, batch 전체는 commit
+ *
+ * DB 에러 (allocateLotsFEFO 외):
+ *   - throw → 전체 rollback (postWithinTransaction)
+ *   - 부분 차감 영구 차단
  */
 async function processOneInput(
   ctx: TransactionContext,
@@ -139,51 +152,151 @@ async function processOneInput(
   const transactionDate = resolveBatchTransactionDate(batch);
   const tenantId = ctx.tenantId;
 
-  // (F2-2-a 단순화): LOT 가용량 합계만 확인 — FEFO 할당은 F2-2-b 에서.
-  // 합계 ≥ 요청량 이면 lot_id=NULL 으로 우선 INSERT (다음 PR 에서 정식 LOT 할당).
-  // 정상 운영 시 사용처 0 이라 데이터 영향 없음 — 본 함수 자체가 호출되지 않음.
-  const [lotSumRows]: any = await ctx.conn.execute(
-    `SELECT COALESCE(SUM(available_quantity), 0) as total_qty
-     FROM h_inventory_lots
+  // 1. h_inventory FOR UPDATE 락 — race condition 차단
+  const [invRows]: any = await ctx.conn.execute(
+    `SELECT id, total_quantity, available_quantity
+     FROM h_inventory
      WHERE material_id = ? AND tenant_id = ?
-       AND COALESCE(status, 'available') = 'available'
-       AND available_quantity > 0`,
+     LIMIT 1
+     FOR UPDATE`,
     [materialId, tenantId],
   );
-  const lotTotal = parseFloat(
-    (lotSumRows as any[])?.[0]?.total_qty?.toString() || "0",
-  );
+  const inventory = (invRows as any[])?.[0];
 
-  // 출고 기록 INSERT (v1 호환 — material_id 직접, lot_id NULL)
-  // F2-2-b 에서 allocateLotsFEFO 통합 후 정식 LOT 매칭.
-  const materialCost = requiredQuantity * unitPrice;
-  await ctx.conn.execute(
-    `INSERT INTO h_inventory_transactions
-     (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
-      transaction_date, source_type, source_id, source_line_id,
-      action_type, purpose, performed_by, created_by, tenant_id,
-      reference_type, reference_id, notes)
-     VALUES
-     (NULL, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, ?, 'AUTO_ISSUE', 'production',
-      ?, ?, ?, 'batch', ?, ?)`,
-    [
-      materialId,
-      requiredQuantity.toString(),
-      unit,
-      unitPrice.toString(),
-      materialCost.toString(),
-      transactionDate,
-      ctx.sourceId,
-      input.id,
-      ctx.userId ?? null,
-      ctx.userId ?? null,
-      tenantId,
-      ctx.sourceId,
-      `${materialName} 자동출고 v2 (F2-2-a — LOT 통합 전)`,
-    ],
-  );
+  let lotAllocations: Array<{ lotId: number; quantity: number; unitCost: number }> = [];
+  let issuedQuantity = requiredQuantity;
+  let materialCost = requiredQuantity * unitPrice;
+  let fallbackToNull = false;
 
-  // h_batch_inputs 업데이트
+  if (inventory) {
+    const inventoryId = Number(inventory.id);
+
+    // 2. allocateLotsFEFO(..., ctx.conn) — 같은 트랜잭션 (F2-2-b 통합)
+    try {
+      const allocations = await allocateLotsFEFO(
+        inventoryId,
+        requiredQuantity,
+        unit,
+        tenantId,
+        materialId,
+        ctx.conn,
+      );
+
+      // 3. 각 LOT 별 차감 + tx INSERT (lot_id 정상)
+      let totalAllocated = 0;
+      let totalCost = 0;
+      for (const alloc of allocations) {
+        const amount = alloc.quantity * alloc.unitCost;
+
+        // tx INSERT (lot_id = alloc.lotId — 정상)
+        await ctx.conn.execute(
+          `INSERT INTO h_inventory_transactions
+           (inventory_id, lot_id, material_id, transaction_type, quantity, unit,
+            unit_cost, amount, transaction_date, source_type, source_id, source_line_id,
+            action_type, purpose, performed_by, created_by, tenant_id)
+           VALUES
+           (?, ?, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, ?, 'AUTO_ISSUE', 'production',
+            ?, ?, ?)`,
+          [
+            inventoryId,
+            alloc.lotId,
+            materialId,
+            alloc.quantity.toString(),
+            unit,
+            alloc.unitCost.toString(),
+            amount.toString(),
+            transactionDate,
+            ctx.sourceId,
+            input.id,
+            ctx.userId ?? null,
+            ctx.userId ?? null,
+            tenantId,
+          ],
+        );
+
+        // LOT 차감 (h_inventory_lots)
+        await ctx.conn.execute(
+          `UPDATE h_inventory_lots
+           SET available_quantity = GREATEST(available_quantity - ?, 0)
+           WHERE id = ?`,
+          [alloc.quantity, alloc.lotId],
+        );
+
+        totalAllocated += alloc.quantity;
+        totalCost += amount;
+        lotAllocations.push({
+          lotId: alloc.lotId,
+          quantity: alloc.quantity,
+          unitCost: alloc.unitCost,
+        });
+      }
+
+      issuedQuantity = totalAllocated;
+      materialCost = totalCost;
+
+      // 4. h_inventory 차감 (총 재고)
+      await ctx.conn.execute(
+        `UPDATE h_inventory
+         SET total_quantity = GREATEST(total_quantity - ?, 0),
+             available_quantity = GREATEST(available_quantity - ?, 0),
+             last_updated = NOW()
+         WHERE id = ?`,
+        [issuedQuantity.toString(), issuedQuantity.toString(), inventoryId],
+      );
+    } catch (fefoErr: any) {
+      // FEFO 실패 (LOT 0건 또는 가용량 부족) — fallback (lot_id=NULL)
+      // v1 과 의미 동일. 같은 트랜잭션 안이라 다른 원재료 영향 없음.
+      console.warn(
+        `[autoIssueV2] FEFO 실패 → lot_id=NULL fallback ` +
+        `material=${materialId}/${materialName} batch=${ctx.sourceId} ` +
+        `err="${fefoErr.message}"`,
+      );
+      result.warnings.push(
+        `${materialName}: FEFO 할당 실패, lot_id=NULL fallback (${fefoErr.message})`,
+      );
+      fallbackToNull = true;
+    }
+  } else {
+    // h_inventory 자체 없음 — fallback
+    result.warnings.push(`${materialName}: 재고 레코드 없음. lot_id=NULL fallback`);
+    fallbackToNull = true;
+  }
+
+  // Fallback INSERT — FEFO 실패 또는 inventory 부재
+  if (fallbackToNull) {
+    await ctx.conn.execute(
+      `INSERT INTO h_inventory_transactions
+       (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
+        transaction_date, source_type, source_id, source_line_id,
+        action_type, purpose, performed_by, created_by, tenant_id,
+        reference_type, reference_id, notes)
+       VALUES
+       (NULL, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, ?, 'AUTO_ISSUE', 'production',
+        ?, ?, ?, 'batch', ?, ?)`,
+      [
+        materialId,
+        requiredQuantity.toString(),
+        unit,
+        unitPrice.toString(),
+        (requiredQuantity * unitPrice).toString(),
+        transactionDate,
+        ctx.sourceId,
+        input.id,
+        ctx.userId ?? null,
+        ctx.userId ?? null,
+        tenantId,
+        ctx.sourceId,
+        `${materialName} 자동출고 v2 (재고미등록 fallback)`,
+      ],
+    );
+  }
+
+  // 5. h_batch_inputs UPDATE — 효과적 단가 (LOT 가중평균 또는 폴백)
+  const effectiveUnitPrice = isWater
+    ? 0
+    : lotAllocations.length > 0 && issuedQuantity > 0
+      ? materialCost / issuedQuantity
+      : unitPrice;
   await ctx.conn.execute(
     `UPDATE h_batch_inputs
      SET inventory_deducted = 1,
@@ -194,16 +307,16 @@ async function processOneInput(
          input_by = ?
      WHERE id = ? AND tenant_id = ?`,
     [
-      requiredQuantity.toString(),
-      unitPrice.toFixed(2),
-      materialCost.toFixed(2),
+      issuedQuantity.toString(),
+      effectiveUnitPrice.toFixed(2),
+      (isWater ? 0 : materialCost).toFixed(2),
       ctx.userId ?? null,
       input.id,
       tenantId,
     ],
   );
 
-  // 도메인 이벤트 발행 (commit 시 outbox INSERT)
+  // 6. 도메인 이벤트 발행 (commit 시 outbox INSERT)
   ctx.emit({
     tenantId: ctx.tenantId,
     eventType: "batch.material_consumed",
@@ -213,9 +326,10 @@ async function processOneInput(
       batchId: ctx.sourceId,
       materialId,
       materialName,
-      quantity: requiredQuantity,
+      quantity: issuedQuantity,
       unit,
-      lotAllocated: lotTotal >= requiredQuantity ? "pending_v2b" : "fallback_null",
+      lotMatched: !fallbackToNull,
+      lotCount: lotAllocations.length,
     },
     createdBy: ctx.userId ?? null,
   });
@@ -224,17 +338,11 @@ async function processOneInput(
     materialId,
     materialName,
     requiredQuantity,
-    issuedQuantity: requiredQuantity,
+    issuedQuantity,
     unit,
-    lotAllocations: [], // F2-2-b 에서 채움
+    lotAllocations,
   });
-  result.totalCost += materialCost;
-
-  if (lotTotal < requiredQuantity) {
-    result.warnings.push(
-      `${materialName}: LOT 가용량(${lotTotal}) < 요청(${requiredQuantity}) — lot_id=NULL fallback (F2-2-a)`,
-    );
-  }
+  result.totalCost += isWater ? 0 : materialCost;
 }
 
 /**
