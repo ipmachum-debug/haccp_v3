@@ -79,6 +79,7 @@ export const SYSTEM_ACCOUNTS = {
   // 비용 (Expenses) - 세부는 사용자 정의
   COST_OF_GOODS: "COST_OF_GOODS",   // 매출원가
   WIP: "WIP",                       // 재공품 (제조 중간 재고, 월말 평가용)
+  PRODUCTION_LOSS: "PRODUCTION_LOSS", // 제조손실 (CCP 이탈 / 부적합품 폐기 등 — 식품 HACCP F-3)
 } as const;
 
 export type SystemAccountCode = typeof SYSTEM_ACCOUNTS[keyof typeof SYSTEM_ACCOUNTS];
