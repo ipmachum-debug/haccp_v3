@@ -13,10 +13,16 @@
  *      a. console.warn (감사 로그)
  *      b. h_notifications INSERT (관리자 알림)
  *
- * 미구현 (다음 사이클 — F-3 본격):
- *   - LOT HOLD (h_inventory_lots.status='reserved' 또는 'on_hold' enum 추가)
- *   - 손실 분개 자동 생성
- *   - 시정조치 워크플로 자동 트리거 (h_corrective_actions INSERT)
+ * F-3 본격 4단계 (이 파일):
+ *   1. 이탈 감지 + 알림 (#132 CP-3-bc)
+ *   2. LOT HOLD 자동 (#133 CP-3-d) — ENABLE_CCP_LOT_HOLD
+ *   3. 손실 분개 자동 (#134 CP-3-e) — ENABLE_CCP_AUTO_JOURNAL
+ *   4. 시정조치 자동 (#PR CP-3-f)   — ENABLE_CCP_CAR ← 폐쇄 루프 완성
+ *
+ * 미구현 (다음 사이클):
+ *   - 관리자 알림 매핑 (작업자 → QA/관리자 role 분기) — CP-3-g
+ *   - IoT 신호 통합 (sensor → ccpRecords 자동) — CP-3-h
+ *   - 멱등성 UNIQUE 제약 (중복 CAR 방지)
  *
  * ============================================================================
  * 환경변수:
@@ -109,6 +115,18 @@ function severityToPriority(
   }
 }
 
+/** Deviation severity 정렬용 — 더 심각한 것이 큰 값 */
+function severityRank(severity: DeviationSeverity): number {
+  switch (severity) {
+    case "critical":
+      return 3;
+    case "major":
+      return 2;
+    case "minor":
+      return 1;
+  }
+}
+
 /** Deviation → 알림 메시지 생성 */
 function formatDeviationMessage(
   deviation: Deviation,
@@ -129,7 +147,7 @@ function formatDeviationMessage(
       `  • 한계: ${limitDesc}\n` +
       `  • 측정값: ${measurementDesc}\n` +
       `  • 시각: ${measurement.measuredAt.toISOString()}\n` +
-      `\n자동 시정조치 / LOT HOLD 는 다음 사이클 (F-3 본격 구현) 에서 추가 예정.`,
+      `\n자동 LOT HOLD / 손실분개 / 시정조치는 env flag 활성 시 자동 진행.`,
   };
 }
 
@@ -243,6 +261,8 @@ export async function triggerCcpEvaluator(params: {
   lossJournalEntryId?: number;
   /** 손실 분개 총액 */
   lossTotal?: number;
+  /** F-3 본격 마지막 단계 (CP-3-f): 자동 시정조치 요청 ID (있을 때) */
+  correctiveActionRequestId?: number;
   reason?: string;
 }> {
   const { recordId, tenantId, operatorId } = params;
@@ -316,6 +336,9 @@ export async function triggerCcpEvaluator(params: {
   // 4. 각 ccp_limits → ControlPoint → 평가
   let deviationCount = 0;
   let notificationsCreated = 0;
+  // CP-3-f: 가장 심각한 deviation 1건을 추적 — 시정조치 1건 생성 시 사용
+  let worstDeviation: Deviation | undefined = undefined;
+  let worstControlPointCode: string | undefined = undefined;
 
   for (const limitRow of limits) {
     const controlPoint = mapCcpLimitToControlPoint(limitRow);
@@ -325,6 +348,14 @@ export async function triggerCcpEvaluator(params: {
 
     if (result.type === "deviation") {
       deviationCount++;
+      // 더 심각한 것을 worst 로 갱신 (critical > major > minor)
+      if (
+        !worstDeviation ||
+        severityRank(result.deviation.severity) > severityRank(worstDeviation.severity)
+      ) {
+        worstDeviation = result.deviation;
+        worstControlPointCode = controlPoint.code;
+      }
       const { title, message } = formatDeviationMessage(
         result.deviation,
         controlPoint.code,
@@ -398,7 +429,7 @@ export async function triggerCcpEvaluator(params: {
               `\n조치:\n` +
               `  - LOT 안전 검사 후 정상이면 status 복원 ('available')\n` +
               `  - 부적합 시 폐기 처리 (status='disposed')\n` +
-              `  - 손실 분개 / 시정조치 워크플로는 다음 사이클에서 자동화 예정`,
+              `  - 손실 분개 / 시정조치는 ENABLE_CCP_AUTO_JOURNAL / ENABLE_CCP_CAR 활성 시 자동`,
             referenceType: "ccp_record",
             referenceId: recordId,
             priority: "urgent",
@@ -460,7 +491,7 @@ export async function triggerCcpEvaluator(params: {
                 `  • 출처: ccp_record #${recordId}\n` +
                 `\n조치:\n` +
                 `  - 회계 페이지에서 분개 검토\n` +
-                `  - LOT 안전 검사 / 폐기 결정 (시정조치는 다음 사이클)`,
+                `  - LOT 안전 검사 / 폐기 결정 (시정조치는 ENABLE_CCP_CAR 활성 시 자동)`,
               referenceType: "journal_entry",
               referenceId: lossResult.journalEntryId,
               priority: "urgent",
@@ -484,12 +515,88 @@ export async function triggerCcpEvaluator(params: {
     }
   }
 
+  // 8. F-3 본격 마지막 단계 (CP-3-f): 자동 시정조치 요청 (CAR)
+  //    - 별도 env flag (ENABLE_CCP_CAR) — 점진 활성화 4번째 단계
+  //    - deviation 발생 + record.batchId 있을 때만 (LOT HOLD 실패해도 CAR 는 별개)
+  //    - CAR 1건 / record (가장 심각한 deviation 기준)
+  let correctiveActionRequestId: number | undefined = undefined;
+  if (
+    deviationCount > 0 &&
+    record.batchId &&
+    worstDeviation &&
+    worstControlPointCode
+  ) {
+    try {
+      const { postCcpCorrectiveAction, isCcpCarEnabled } = await import(
+        "./ccp.correctiveAction"
+      );
+      if (isCcpCarEnabled(tenantId)) {
+        const carResult = await postCcpCorrectiveAction({
+          batchId: Number(record.batchId),
+          ccpRecordId: recordId,
+          tenantId,
+          operatorId,
+          deviation: worstDeviation,
+          controlPointCode: worstControlPointCode,
+          productName: record.productName,
+          lotsHeld,
+          lossJournalEntryId,
+          lossTotal,
+        });
+
+        if (carResult.posted && carResult.requestId) {
+          correctiveActionRequestId = carResult.requestId;
+
+          // 4번째 알림 — 시정조치 자동 등록
+          try {
+            await db.insert(hNotifications).values({
+              tenantId,
+              userId: operatorId,
+              notificationType: "ccp_corrective_action",
+              title:
+                `[자동 시정조치] 배치 #${record.batchId} — CAR #${carResult.requestId} 등록`,
+              message:
+                `CCP 이탈에 대한 시정조치 요청이 자동 등록되었습니다.\n` +
+                `  • CAR ID: #${carResult.requestId}\n` +
+                `  • 배치: #${record.batchId}\n` +
+                `  • CCP: ${worstControlPointCode}\n` +
+                `  • 심각도: ${worstDeviation.severity}\n` +
+                `  • 출처: ccp_record #${recordId}\n` +
+                `\n조치:\n` +
+                `  - 시정조치 페이지(/corrective-actions)에서 즉시조치 / 근본원인 / 시정 / 검증 4단계 진행\n` +
+                `  - 담당자 지정 후 status 'investigating' 으로 전환`,
+              referenceType: "corrective_action_request",
+              referenceId: carResult.requestId,
+              priority: severityToPriority(worstDeviation.severity),
+              isRead: 0,
+              isResolved: 0,
+            });
+            notificationsCreated++;
+          } catch (notifErr: any) {
+            console.warn(
+              `[ccpEvaluator] CAR 알림 INSERT 실패 — requestId=${carResult.requestId}: ` +
+              `${notifErr?.message ?? notifErr}`,
+            );
+          }
+        }
+      }
+    } catch (carErr: any) {
+      console.warn(
+        `[ccpEvaluator] CAR 생성 실패 (안전 무시) — recordId=${recordId}: ` +
+        `${carErr?.message ?? carErr}`,
+      );
+    }
+  }
+
   if (deviationCount > 0) {
     console.warn(
       `[ccpEvaluator] recordId=${recordId} 이탈 ${deviationCount}건, ` +
       `알림 ${notificationsCreated}건, LOT HOLD ${lotsHeld}건` +
       (lossJournalEntryId
         ? `, 손실분개 #${lossJournalEntryId} (${(lossTotal ?? 0).toLocaleString("ko-KR")}원)`
+        : "") +
+      (correctiveActionRequestId
+        ? `, 시정조치 #${correctiveActionRequestId}`
         : ""),
     );
   }
@@ -501,5 +608,6 @@ export async function triggerCcpEvaluator(params: {
     lotsHeld,
     lossJournalEntryId,
     lossTotal,
+    correctiveActionRequestId,
   };
 }

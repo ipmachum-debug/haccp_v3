@@ -52,7 +52,7 @@ export async function createCorrectiveActionRequest(data: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const requestNumber = await generateRequestNumber();
+  const requestNumber = await generateRequestNumber(tenantId);
 
   const [result] = await db.insert(hCorrectiveActionRequests).values({
       tenantId,
@@ -199,6 +199,8 @@ export async function createCorrectiveActionFromCcpDeviation(data: {
   batchId: number;
   problemDescription: string;
   detectedBy: number;
+  /** 우선순위 (deviation severity 기반 — CP-3-f). 미지정 시 "high" 기본값 */
+  priority?: "low" | "medium" | "high" | "critical";
 }, tenantId?: number) {
   return createCorrectiveActionRequest({
     sourceType: "ccp_deviation",
@@ -208,6 +210,6 @@ export async function createCorrectiveActionFromCcpDeviation(data: {
     problemDescription: data.problemDescription,
     occurredAt: new Date(),
     detectedBy: data.detectedBy,
-    priority: "high", // CCP 이탈은 높은 우선순위
-  });
+    priority: data.priority ?? "high", // CCP 이탈은 기본 높은 우선순위
+  }, tenantId);
 }
