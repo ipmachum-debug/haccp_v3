@@ -174,9 +174,9 @@ function formatMeasurement(value: number | boolean | string, unit?: string): str
 async function holdAffectedLots(
   batchId: number,
   tenantId: number,
-): Promise<number> {
+): Promise<{ count: number; lotIds: number[] }> {
   const db = await getDb();
-  if (!db) return 0;
+  if (!db) return { count: 0, lotIds: [] };
 
   // 1. batch 가 사용한 LOT id 수집
   const txnRows = await db
@@ -197,7 +197,7 @@ async function holdAffectedLots(
   );
 
   if (lotIds.length === 0) {
-    return 0;
+    return { count: 0, lotIds: [] };
   }
 
   // 2. status='available' 인 것만 'reserved' 로 UPDATE (멱등성)
@@ -214,7 +214,7 @@ async function holdAffectedLots(
 
   // mysql2 의 UPDATE 결과는 affectedRows
   const affected = (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
-  return Number(affected) || 0;
+  return { count: Number(affected) || 0, lotIds };
 }
 
 /**
@@ -239,6 +239,10 @@ export async function triggerCcpEvaluator(params: {
   notificationsCreated: number;
   /** F-3 본격 첫 단계 (CP-3-d): 영향받은 LOT 자동 HOLD 카운트 */
   lotsHeld: number;
+  /** F-3 본격 두 번째 단계 (CP-3-e): 자동 손실 분개 ID (있을 때) */
+  lossJournalEntryId?: number;
+  /** 손실 분개 총액 */
+  lossTotal?: number;
   reason?: string;
 }> {
   const { recordId, tenantId, operatorId } = params;
@@ -360,6 +364,9 @@ export async function triggerCcpEvaluator(params: {
   //    - record.batchId 있고 deviation 발생 시만
   //    - 같은 batch 의 모든 deviation 합쳐서 1회만 호출 (멱등성)
   let lotsHeld = 0;
+  let heldLotIds: number[] = [];
+  let lossJournalEntryId: number | undefined = undefined;
+  let lossTotal: number | undefined = undefined;
   if (
     deviationCount > 0 &&
     record.batchId &&
@@ -367,7 +374,9 @@ export async function triggerCcpEvaluator(params: {
   ) {
     try {
       const batchIdNum = Number(record.batchId);
-      lotsHeld = await holdAffectedLots(batchIdNum, tenantId);
+      const holdResult = await holdAffectedLots(batchIdNum, tenantId);
+      lotsHeld = holdResult.count;
+      heldLotIds = holdResult.lotIds;
       if (lotsHeld > 0) {
         console.warn(
           `[ccpEvaluator] LOT HOLD 처리 — batchId=${batchIdNum} ` +
@@ -410,11 +419,78 @@ export async function triggerCcpEvaluator(params: {
     }
   }
 
+  // 7. F-3 본격 두 번째 단계 (CP-3-e): 자동 손실 분개
+  //    - 별도 env flag (ENABLE_CCP_AUTO_JOURNAL)
+  //    - LOT HOLD 성공 + heldLotIds 있을 때만
+  //    - 분개 실패 시 안전 무시 (LOT HOLD 는 이미 commit)
+  if (lotsHeld > 0 && heldLotIds.length > 0 && record.batchId) {
+    try {
+      const { postCcpLossJournal, isCcpAutoJournalEnabled } = await import(
+        "./ccp.lossJournal"
+      );
+      if (isCcpAutoJournalEnabled(tenantId)) {
+        const lossResult = await postCcpLossJournal({
+          batchId: Number(record.batchId),
+          lotIds: heldLotIds,
+          tenantId,
+          userId: operatorId,
+          ccpRecordId: recordId,
+        });
+
+        if (lossResult.posted && lossResult.journalEntryId) {
+          lossJournalEntryId = lossResult.journalEntryId;
+          lossTotal = lossResult.totalLoss;
+
+          // 손실 분개 알림 (3번째 알림)
+          try {
+            await db.insert(hNotifications).values({
+              tenantId,
+              userId: operatorId,
+              notificationType: "ccp_loss_journal",
+              title:
+                `[자동 손실분개] 배치 #${record.batchId} — ` +
+                `${lossResult.totalLoss.toLocaleString("ko-KR")}원 손실`,
+              message:
+                `CCP 이탈로 인해 자동 손실 분개가 생성되었습니다.\n` +
+                `  • 분개 ID: #${lossResult.journalEntryId}\n` +
+                `  • 영향 LOT: ${lossResult.lotCount}건\n` +
+                `  • 손실 총액: ${lossResult.totalLoss.toLocaleString("ko-KR")}원\n` +
+                `  • 차변: 제조손실 (PRODUCTION_LOSS)\n` +
+                `  • 대변: 원재료 (INVENTORY_RAW)\n` +
+                `  • 출처: ccp_record #${recordId}\n` +
+                `\n조치:\n` +
+                `  - 회계 페이지에서 분개 검토\n` +
+                `  - LOT 안전 검사 / 폐기 결정 (시정조치는 다음 사이클)`,
+              referenceType: "journal_entry",
+              referenceId: lossResult.journalEntryId,
+              priority: "urgent",
+              isRead: 0,
+              isResolved: 0,
+            });
+            notificationsCreated++;
+          } catch (notifErr: any) {
+            console.warn(
+              `[ccpEvaluator] 손실분개 알림 INSERT 실패 — entryId=${lossResult.journalEntryId}: ` +
+              `${notifErr?.message ?? notifErr}`,
+            );
+          }
+        }
+      }
+    } catch (journalErr: any) {
+      console.warn(
+        `[ccpEvaluator] 손실분개 실패 (안전 무시) — recordId=${recordId}: ` +
+        `${journalErr?.message ?? journalErr}`,
+      );
+    }
+  }
+
   if (deviationCount > 0) {
     console.warn(
       `[ccpEvaluator] recordId=${recordId} 이탈 ${deviationCount}건, ` +
-      `알림 ${notificationsCreated}건, LOT HOLD ${lotsHeld}건 ` +
-      `(env: ENABLE_CCP_EVAL${isCcpLotHoldEnabled(tenantId) ? "+LOT_HOLD" : ""})`,
+      `알림 ${notificationsCreated}건, LOT HOLD ${lotsHeld}건` +
+      (lossJournalEntryId
+        ? `, 손실분개 #${lossJournalEntryId} (${(lossTotal ?? 0).toLocaleString("ko-KR")}원)`
+        : ""),
     );
   }
 
@@ -423,5 +499,7 @@ export async function triggerCcpEvaluator(params: {
     deviationCount,
     notificationsCreated,
     lotsHeld,
+    lossJournalEntryId,
+    lossTotal,
   };
 }
