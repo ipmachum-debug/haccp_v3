@@ -212,6 +212,7 @@ export const healthCertificateRouter = router({
 
       const [result] = await db.insert(healthCertificates).values({
         ...input,
+        tenantId,                  // ← 2026-04-29 hotfix: NOT NULL 누락 사고
         status,
         createdBy: ctx.user.id,
       } as any);
@@ -537,6 +538,7 @@ export const healthCertificateRouter = router({
           }
 
           await db.insert(healthCertificates).values({
+            tenantId,                // ← 2026-04-29 hotfix: NOT NULL 누락 사고 (bulkUploadFromExcel)
             employeeId: employee.id,
             employeeName: row["직원명"],
             issueDate,
