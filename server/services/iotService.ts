@@ -39,9 +39,10 @@ export async function receiveSensorData(
   const conn = await getRawConnection();
   const eventsTriggered: string[] = [];
 
-  // 1. 디바이스 조회
+  // 1. 디바이스 조회 (CP-3-h: ccp_type 포함)
   const [deviceRows] = await conn.execute<any[]>(
-    `SELECT id, device_type, equipment_id, process_group_id, min_value, max_value, unit, status
+    `SELECT id, device_code, device_type, equipment_id, process_group_id,
+            min_value, max_value, unit, status, ccp_type
      FROM iot_devices
      WHERE tenant_id = ? AND device_code = ? AND status = 'active'
      LIMIT 1`,
@@ -104,6 +105,36 @@ export async function receiveSensorData(
   // 6. 룰 엔진 실행
   const ruleEvents = await evaluateRules(conn, tenantId, device, input.value, input.batchId, sensorDataId);
   eventsTriggered.push(...ruleEvents);
+
+  // 7. CP-3-h: IoT → CCP 브리지
+  //    device.ccp_type SET + ENABLE_CCP_IOT_BRIDGE 활성 시 자동으로
+  //    ccp_monitoring_records INSERT + triggerCcpEvaluator 호출.
+  //    실패는 안전 무시 (기존 IoT 흐름 보호).
+  if (device.ccp_type) {
+    try {
+      const { bridgeSensorDataToCcp } = await import("./iot/iotCcpBridge");
+      const bridgeResult = await bridgeSensorDataToCcp({
+        tenantId,
+        device: {
+          id: Number(device.id),
+          deviceCode: String(device.device_code),
+          deviceType: String(device.device_type),
+          ccpType: String(device.ccp_type),
+          unit: device.unit,
+        },
+        value: input.value,
+        batchId: input.batchId,
+        measuredAt,
+      });
+      if (bridgeResult.bridged && bridgeResult.ccpRecordId) {
+        eventsTriggered.push("ccp_bridged");
+      }
+    } catch (bridgeErr: any) {
+      console.warn(
+        `[receiveSensorData] CCP 브리지 실패 (안전 무시) — deviceId=${device.id}: ${bridgeErr?.message ?? bridgeErr}`,
+      );
+    }
+  }
 
   return { success: true, sensorDataId, isAnomaly, anomalyNote, eventsTriggered };
 }

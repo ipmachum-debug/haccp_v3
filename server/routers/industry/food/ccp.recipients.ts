@@ -33,17 +33,21 @@ const ALERT_ROLES = ["admin", "monitor", "inspector"] as const;
  *   - 같은 tenant_id
  *   - role ∈ {admin, monitor, inspector}
  *   - is_active = 1
- *   - + operatorId (작업자 — traceability)
+ *   - + operatorId (작업자 — traceability). operatorId ≤ 0 (system 호출 — IoT 등) 은 스킵.
  *
  * 폴백:
- *   - DB 실패 / 0건 → [operatorId] 만 반환 (알림 손실 방지)
+ *   - DB 실패 / 0건 → operatorId 가 양수면 [operatorId], 아니면 [] 반환
  */
 export async function getNotificationRecipients(
   tenantId: number,
   operatorId: number,
 ): Promise<number[]> {
+  // CP-3-h: operatorId ≤ 0 (예: IoT 자동 측정 → operatorId=0) 은 인적 작업자가 없음
+  const operatorIsValid = Number(operatorId) > 0;
+  const fallback = operatorIsValid ? [Number(operatorId)] : [];
+
   const db = await getDb();
-  if (!db) return [operatorId];
+  if (!db) return fallback;
 
   try {
     const rows = await db
@@ -59,13 +63,13 @@ export async function getNotificationRecipients(
       .limit(20);
 
     const ids = new Set<number>(rows.map((r) => Number(r.id)));
-    ids.add(Number(operatorId)); // operator 항상 포함 (중복은 Set 이 처리)
+    if (operatorIsValid) ids.add(Number(operatorId));
     return Array.from(ids);
   } catch (err: any) {
     console.warn(
-      `[ccpRecipients] 사용자 조회 실패 (operator 폴백) — tenant=${tenantId}: ` +
+      `[ccpRecipients] 사용자 조회 실패 (폴백) — tenant=${tenantId}: ` +
       `${err?.message ?? err}`,
     );
-    return [operatorId];
+    return fallback;
   }
 }
