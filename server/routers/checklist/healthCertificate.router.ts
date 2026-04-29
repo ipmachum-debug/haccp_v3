@@ -4,7 +4,7 @@ import { getDb } from "../../db";
 import { healthCertificates, hEmployees } from "../../../drizzle/schema";
 import { eq, desc, asc, and, lte, gte, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { storagePut } from "../../storage";
+import { storagePut, StorageNotConfiguredError } from "../../storage";
 import * as XLSX from "xlsx";
 
 import { todayKST } from "../../utils/timezone";
@@ -436,14 +436,25 @@ export const healthCertificateRouter = router({
       const tenantId = ctx.tenantId;
       const fileKey = `tenant-${tenantId}/health-certificates/${ctx.user.id}/${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${fileName}`;
 
-      const { url } = await storagePut(fileKey, buffer, mimeType);
+      try {
+        const { url } = await storagePut(fileKey, buffer, mimeType);
 
-      return {
-        success: true,
-        fileUrl: url,
-        fileKey,
-        fileName,
-      };
+        return {
+          success: true,
+          fileUrl: url,
+          fileKey,
+          fileName,
+        };
+      } catch (err) {
+        if (err instanceof StorageNotConfiguredError) {
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: err.userMessage,
+            cause: err,
+          });
+        }
+        throw err;
+      }
     }),
 
   /**
