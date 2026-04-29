@@ -100,6 +100,7 @@ const MobileQuickCheck = lazy(() => import("./pages/system/MobileQuickCheck"));
 const BatchScheduleCalendar = lazy(() => import("./pages/production/BatchScheduleCalendar"));
 const BatchSchedule = lazy(() => import("./pages/batch/BatchSchedule"));
 const CorrectiveActionList = lazy(() => import("./pages/haccp/CorrectiveActionList"));
+const CosmeticBmrList = lazy(() => import("./pages/cosmetic/CosmeticBmrList"));
 const SystemSettings = lazy(() => import("./pages/system/SystemSettings"));
 const OpscoreSync = lazy(() => import("./pages/system/OpscoreSync"));
 const CompanySettings = lazy(() => import("./pages/system/CompanySettings"));
@@ -482,6 +483,7 @@ function Router() {
       <Route path="/batch-schedule-calendar" component={BatchScheduleCalendar} />
       <Route path="/batch-schedule" component={BatchSchedule} />
       <Route path="/corrective-actions" component={CorrectiveActionList} />
+      <Route path="/dashboard/cosmetic/bmr" component={CosmeticBmrList} />
       <Route path="/system-settings" component={SystemSettings} />
       <Route path="/company-settings" component={CompanySettings} />
       <Route path="/account-categories" component={AccountCategoryManagement} />
