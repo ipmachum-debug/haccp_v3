@@ -31,10 +31,11 @@
  * ============================================================================
  */
 
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt, inArray } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { ccpLimits, ccpMonitoringRecords } from "../../../../drizzle/schema/ccpMonitoring";
 import { hNotifications } from "../../../../drizzle/schema/part2_system";
+import { hInventoryLots, hInventoryTransactions } from "../../../../drizzle/schema/part2_inventory";
 import { evaluateCcpRecord, mapCcpLimitToControlPoint } from "./ccp.evaluator";
 import type { Deviation, DeviationSeverity } from "../../../core-mes/quality";
 
@@ -63,6 +64,34 @@ export function isCcpEvalEnabled(tenantId: number): boolean {
   }
 
   const flag = process.env.ENABLE_CCP_EVAL?.toLowerCase().trim();
+  return flag === "true" || flag === "1" || flag === "yes";
+}
+
+/**
+ * tenant 가 LOT HOLD 활성화 대상인지 (CP-3-d / F-3 본격 첫 단계).
+ *
+ * ENABLE_CCP_EVAL 활성 + ENABLE_CCP_LOT_HOLD 별도 활성 모두 필요.
+ * 평가는 활성이지만 LOT HOLD 는 비활성으로 분리 운영 가능 (점진).
+ *
+ * 우선순위:
+ *   1. ENABLE_CCP_LOT_HOLD_TENANTS — 명시 tenant 목록
+ *   2. ENABLE_CCP_LOT_HOLD — 전체 활성
+ */
+export function isCcpLotHoldEnabled(tenantId: number): boolean {
+  const tenantsRaw = process.env.ENABLE_CCP_LOT_HOLD_TENANTS?.trim();
+  if (tenantsRaw) {
+    const enabled = tenantsRaw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .map((s) => Number(s))
+      .filter((n) => Number.isFinite(n));
+    if (enabled.length > 0) {
+      return enabled.includes(Number(tenantId));
+    }
+  }
+
+  const flag = process.env.ENABLE_CCP_LOT_HOLD?.toLowerCase().trim();
   return flag === "true" || flag === "1" || flag === "yes";
 }
 
@@ -128,6 +157,67 @@ function formatMeasurement(value: number | boolean | string, unit?: string): str
 }
 
 /**
+ * 영향받은 LOT 자동 HOLD — F-3 본격 첫 단계 (CP-3-d).
+ *
+ * 흐름:
+ *   1. h_inventory_transactions 에서 source_id=batchId AND lot_id IS NOT NULL
+ *   2. 그 lot_id 들이 currently 'available' 인 것만 'reserved' 로 UPDATE
+ *      (reserved = "예약됨" — F-3 의 HOLD 상태 활용. enum 'on_hold' 추가는 다음 PR)
+ *   3. 차감 완료된 LOT (available_quantity=0) 도 새 출고 차단 효과
+ *
+ * 멱등성:
+ *   - 이미 status='reserved' / 'used' / 'expired' 인 LOT 는 update 0
+ *   - 같은 batch 에 여러 deviation → 1번만 호출 (caller 측에서 보장)
+ *
+ * @returns 영향받은 LOT 수 (status 가 'available' → 'reserved' 로 변경된 수)
+ */
+async function holdAffectedLots(
+  batchId: number,
+  tenantId: number,
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  // 1. batch 가 사용한 LOT id 수집
+  const txnRows = await db
+    .select({ lotId: hInventoryTransactions.lotId })
+    .from(hInventoryTransactions)
+    .where(
+      and(
+        eq(hInventoryTransactions.sourceType, "BATCH"),
+        eq(hInventoryTransactions.sourceId, batchId),
+        eq(hInventoryTransactions.tenantId, tenantId),
+        // lot_id IS NOT NULL — Drizzle 의 inArray 는 NOT NULL 자동 처리
+        gt(hInventoryTransactions.lotId, 0),
+      ),
+    );
+
+  const lotIds = Array.from(
+    new Set(txnRows.map((r) => Number(r.lotId)).filter((id) => id > 0)),
+  );
+
+  if (lotIds.length === 0) {
+    return 0;
+  }
+
+  // 2. status='available' 인 것만 'reserved' 로 UPDATE (멱등성)
+  const result: any = await db
+    .update(hInventoryLots)
+    .set({ status: "reserved" })
+    .where(
+      and(
+        inArray(hInventoryLots.id, lotIds),
+        eq(hInventoryLots.tenantId, tenantId),
+        eq(hInventoryLots.status, "available"),
+      ),
+    );
+
+  // mysql2 의 UPDATE 결과는 affectedRows
+  const affected = (result as any)?.[0]?.affectedRows ?? (result as any)?.affectedRows ?? 0;
+  return Number(affected) || 0;
+}
+
+/**
  * CCP 측정 record 후처리 트리거 — 비동기, 에러 무시.
  *
  * 호출 방법 (ccpRecords 라우터에서):
@@ -147,6 +237,8 @@ export async function triggerCcpEvaluator(params: {
   evaluated: boolean;
   deviationCount: number;
   notificationsCreated: number;
+  /** F-3 본격 첫 단계 (CP-3-d): 영향받은 LOT 자동 HOLD 카운트 */
+  lotsHeld: number;
   reason?: string;
 }> {
   const { recordId, tenantId, operatorId } = params;
@@ -157,6 +249,7 @@ export async function triggerCcpEvaluator(params: {
       evaluated: false,
       deviationCount: 0,
       notificationsCreated: 0,
+      lotsHeld: 0,
       reason: "ENABLE_CCP_EVAL 미활성 (env)",
     };
   }
@@ -167,6 +260,7 @@ export async function triggerCcpEvaluator(params: {
       evaluated: false,
       deviationCount: 0,
       notificationsCreated: 0,
+      lotsHeld: 0,
       reason: "DB 연결 실패",
     };
   }
@@ -188,6 +282,7 @@ export async function triggerCcpEvaluator(params: {
       evaluated: false,
       deviationCount: 0,
       notificationsCreated: 0,
+      lotsHeld: 0,
       reason: `record not found: id=${recordId}`,
     };
   }
@@ -209,6 +304,7 @@ export async function triggerCcpEvaluator(params: {
       evaluated: true,
       deviationCount: 0,
       notificationsCreated: 0,
+      lotsHeld: 0,
       reason: `no ccp_limits for ${record.ccpType}`,
     };
   }
@@ -259,10 +355,66 @@ export async function triggerCcpEvaluator(params: {
     }
   }
 
+  // 6. F-3 본격 첫 단계 (CP-3-d): LOT HOLD 자동 처리
+  //    - 별도 env flag (ENABLE_CCP_LOT_HOLD) — 알림과 분리 운영 가능
+  //    - record.batchId 있고 deviation 발생 시만
+  //    - 같은 batch 의 모든 deviation 합쳐서 1회만 호출 (멱등성)
+  let lotsHeld = 0;
+  if (
+    deviationCount > 0 &&
+    record.batchId &&
+    isCcpLotHoldEnabled(tenantId)
+  ) {
+    try {
+      const batchIdNum = Number(record.batchId);
+      lotsHeld = await holdAffectedLots(batchIdNum, tenantId);
+      if (lotsHeld > 0) {
+        console.warn(
+          `[ccpEvaluator] LOT HOLD 처리 — batchId=${batchIdNum} ` +
+          `recordId=${recordId} 영향 LOT ${lotsHeld}건 'reserved'`,
+        );
+
+        // LOT HOLD 결과를 추가 알림으로 발송 (분리 — caller 가 관찰 용이)
+        try {
+          await db.insert(hNotifications).values({
+            tenantId,
+            userId: operatorId,
+            notificationType: "ccp_lot_hold",
+            title: `[자동 LOT HOLD] 배치 #${batchIdNum} — ${lotsHeld}건 예약 처리`,
+            message:
+              `CCP 이탈로 인해 영향 LOT 자동 HOLD 처리됨.\n` +
+              `  • 배치: #${batchIdNum}\n` +
+              `  • 영향 LOT: ${lotsHeld}건 (status='reserved')\n` +
+              `  • 출처 기록: ccp_record #${recordId}\n` +
+              `\n조치:\n` +
+              `  - LOT 안전 검사 후 정상이면 status 복원 ('available')\n` +
+              `  - 부적합 시 폐기 처리 (status='disposed')\n` +
+              `  - 손실 분개 / 시정조치 워크플로는 다음 사이클에서 자동화 예정`,
+            referenceType: "ccp_record",
+            referenceId: recordId,
+            priority: "urgent",
+            isRead: 0,
+            isResolved: 0,
+          });
+          notificationsCreated++;
+        } catch (notifErr: any) {
+          console.warn(
+            `[ccpEvaluator] LOT HOLD 알림 INSERT 실패 — batchId=${batchIdNum}: ${notifErr?.message ?? notifErr}`,
+          );
+        }
+      }
+    } catch (holdErr: any) {
+      console.warn(
+        `[ccpEvaluator] LOT HOLD 실패 (안전 무시) — recordId=${recordId}: ${holdErr?.message ?? holdErr}`,
+      );
+    }
+  }
+
   if (deviationCount > 0) {
     console.warn(
       `[ccpEvaluator] recordId=${recordId} 이탈 ${deviationCount}건, ` +
-      `알림 ${notificationsCreated}건 발송 (env: ENABLE_CCP_EVAL)`,
+      `알림 ${notificationsCreated}건, LOT HOLD ${lotsHeld}건 ` +
+      `(env: ENABLE_CCP_EVAL${isCcpLotHoldEnabled(tenantId) ? "+LOT_HOLD" : ""})`,
     );
   }
 
@@ -270,5 +422,6 @@ export async function triggerCcpEvaluator(params: {
     evaluated: true,
     deviationCount,
     notificationsCreated,
+    lotsHeld,
   };
 }
