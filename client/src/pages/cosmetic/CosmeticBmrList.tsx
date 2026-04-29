@@ -10,6 +10,7 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { Link } from "wouter";
 import {
   Card,
   CardContent,
@@ -29,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, FileCheck, AlertTriangle } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { CosmeticBmrDialog } from "./CosmeticBmrDialog";
 
 const STATUS_OPTIONS = [
   { value: null, label: "전체" },
@@ -65,8 +67,9 @@ type StatusFilter =
 
 export default function CosmeticBmrList() {
   const [filter, setFilter] = useState<StatusFilter>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const { data, isLoading } = trpc.cosmetic.bmr.list.useQuery(
+  const { data, isLoading, refetch } = trpc.cosmetic.bmr.list.useQuery(
     filter ? { status: filter } : undefined,
     { refetchInterval: 60_000 },
   );
@@ -86,9 +89,9 @@ export default function CosmeticBmrList() {
               화장품 GMP — 배치 제조 기록 lifecycle 관리 (Phase 2 첫 모듈)
             </p>
           </div>
-          <Button variant="default" disabled title="신규 등록 dialog 는 다음 PR">
+          <Button variant="default" onClick={() => setCreateOpen(true)}>
             <FileCheck className="w-4 h-4 mr-1" />
-            신규 BMR 등록 (Phase 2-2 예정)
+            신규 BMR 등록
           </Button>
         </div>
 
@@ -140,7 +143,7 @@ export default function CosmeticBmrList() {
                     : "등록된 BMR 0건"}
                 </p>
                 <p className="text-xs text-muted-foreground mt-2">
-                  신규 등록 기능은 Phase 2-2 PR 에서 추가됩니다 — 현재는 API (`trpc.cosmetic.bmr.create`) 로만 가능
+                  우측 상단 "신규 BMR 등록" 버튼으로 첫 BMR 을 작성하세요.
                 </p>
               </div>
             ) : (
@@ -158,8 +161,12 @@ export default function CosmeticBmrList() {
                 </TableHeader>
                 <TableBody>
                   {items.map((b) => (
-                    <TableRow key={b.id}>
-                      <TableCell className="font-mono text-sm">{b.bmrCode}</TableCell>
+                    <TableRow key={b.id} className="hover:bg-muted/40">
+                      <TableCell className="font-mono text-sm">
+                        <Link href={`/dashboard/cosmetic/bmr/${b.id}`} className="text-primary hover:underline">
+                          {b.bmrCode}
+                        </Link>
+                      </TableCell>
                       <TableCell className="text-right text-sm">#{b.productId}</TableCell>
                       <TableCell className="text-right">
                         {b.plannedQuantityKg.toLocaleString("ko-KR")}
@@ -193,10 +200,9 @@ export default function CosmeticBmrList() {
         {/* 향후 모듈 안내 */}
         <Card className="bg-muted/30 border-dashed">
           <CardHeader>
-            <CardTitle className="text-sm">향후 확장 (Phase 2-2 ~ 2-N)</CardTitle>
+            <CardTitle className="text-sm">향후 확장 (Phase 2-3 ~ 2-N)</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• Phase 2-2 — BMR 신규/수정 dialog + detail 페이지</p>
             <p>• Phase 2-3 — IPC (In-Process Control) 측정값 기록</p>
             <p>• Phase 2-4 — 처방 (Formula / Ingredient) 관리</p>
             <p>• Phase 2-5 — 라벨 / 전성분 (KFDA 규정)</p>
@@ -204,6 +210,14 @@ export default function CosmeticBmrList() {
           </CardContent>
         </Card>
       </div>
+
+      {/* 신규 BMR dialog */}
+      <CosmeticBmrDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        mode="create"
+        onSuccess={refetch}
+      />
     </DashboardLayout>
   );
 }
