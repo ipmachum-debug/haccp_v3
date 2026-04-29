@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   tinyint,
+  uniqueIndex,
   varchar
 } from "drizzle-orm/mysql-core";
 import { tenants } from './schema_main';
@@ -161,10 +162,20 @@ export const hCorrectiveActionRequests = mysqlTable("h_corrective_action_request
   
   // 예방 조치
   preventiveAction: text("preventive_action"),
-  
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => ({
+  // CP-3-g 후속 보강: 같은 (tenant, source_type, source_id) 조합은 1건만 허용.
+  // app-level 체크 (postCcpCorrectiveAction) 와 함께 이중 fence — race condition 시에도
+  // DB 가 강제로 거부. source_id IS NULL 인 행은 MySQL UNIQUE 의 표준 동작에 따라
+  // 여러 개 허용 (NULL은 unique 비교에서 distinct).
+  uniqCarSource: uniqueIndex("uniq_car_source").on(
+    table.tenantId,
+    table.sourceType,
+    table.sourceId,
+  ),
+}));
 
 /**
  * h_corrective_action_attachments - 시정 조치 첨부 파일

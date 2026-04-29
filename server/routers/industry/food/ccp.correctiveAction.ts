@@ -25,7 +25,8 @@
  * 멱등성 (CP-3-g 추가):
  *   같은 (tenant_id, source_type='ccp_deviation', source_id=ccpRecordId) 조합은
  *   1건만 등록. 재호출 시 기존 CAR id 를 existingRequestId 로 반환하고 신규는 스킵.
- *   schema-level UNIQUE 인덱스는 별도 마이그레이션 PR 에서 보강 예정.
+ *   schema-level UNIQUE 인덱스 (uniq_car_source) 는 후속 마이그레이션 PR 에서 추가됨 —
+ *   app-level + DB-level 이중 fence (race condition 시에도 DB 가 강제 거부).
  *
  * 트리거: PR #134 CP-3-e 손실분개 / 특허 [0016] F-3 IoT 폐쇄 루프 (마지막 단계)
  * ============================================================================
@@ -136,7 +137,8 @@ export async function postCcpCorrectiveAction(params: {
 
   // 2. CP-3-g 멱등성: 같은 (tenant, source_type='ccp_deviation', source_id=ccpRecordId)
   //    가 이미 존재하면 신규 생성 스킵 (중복 CAR 방지).
-  //    schema-level UNIQUE 인덱스는 별도 마이그레이션 PR 에서 보강 예정.
+  //    DB-level UNIQUE (uniq_car_source) 도 추가됨 — 이 SELECT 는 친절한 메시지를 위한
+  //    1차 fence, race condition 발생 시 DB 가 ER_DUP_ENTRY 로 마지막 방어.
   try {
     const db = await getDb();
     if (db) {
