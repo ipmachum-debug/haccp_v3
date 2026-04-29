@@ -903,8 +903,10 @@ export const batchCrudRouter = router({
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
           try {
-            const { autoIssueMaterialsForBatch } = await import('../../lib/production/autoMaterialIssue');
-            autoIssueResult = await autoIssueMaterialsForBatch(input.id, batch.createdBy || ctx.user.id) as any;
+            // 2026-04-29 (F2-2-d): dispatcher 경유 — env 기본값 v1 (운영 안전).
+            // USE_AUTO_ISSUE_V2 / USE_AUTO_ISSUE_V2_TENANTS 로 점진 v2 전환 가능.
+            const { autoIssueMaterialsDispatch } = await import('../../lib/production/autoMaterialIssueDispatcher');
+            autoIssueResult = await autoIssueMaterialsDispatch(input.id, batch.createdBy || ctx.user.id, ctx.tenantId) as any;
             if (!autoIssueResult?.success) {
               console.warn('[파이프라인] 원료 자동 출고 일부 실패:', autoIssueResult?.errors);
             }
