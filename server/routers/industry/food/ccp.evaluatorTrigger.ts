@@ -17,12 +17,15 @@
  *   1. 이탈 감지 + 알림 (#132 CP-3-bc)
  *   2. LOT HOLD 자동 (#133 CP-3-d) — ENABLE_CCP_LOT_HOLD
  *   3. 손실 분개 자동 (#134 CP-3-e) — ENABLE_CCP_AUTO_JOURNAL
- *   4. 시정조치 자동 (#PR CP-3-f)   — ENABLE_CCP_CAR ← 폐쇄 루프 완성
+ *   4. 시정조치 자동 (#138 CP-3-f) — ENABLE_CCP_CAR ← 폐쇄 루프 완성
+ *
+ * CP-3-g 보강:
+ *   - 알림 fanout: 작업자 → 작업자 + admin/inspector/monitor 전체 (ccp.recipients.ts)
+ *   - CAR 멱등성 (앱 레벨): (tenant, source_type, source_id) 중복 INSERT 방지
  *
  * 미구현 (다음 사이클):
- *   - 관리자 알림 매핑 (작업자 → QA/관리자 role 분기) — CP-3-g
  *   - IoT 신호 통합 (sensor → ccpRecords 자동) — CP-3-h
- *   - 멱등성 UNIQUE 제약 (중복 CAR 방지)
+ *   - schema-level UNIQUE 인덱스 (마이그레이션 별도 PR)
  *
  * ============================================================================
  * 환경변수:
@@ -339,6 +342,8 @@ export async function triggerCcpEvaluator(params: {
   // CP-3-f: 가장 심각한 deviation 1건을 추적 — 시정조치 1건 생성 시 사용
   let worstDeviation: Deviation | undefined = undefined;
   let worstControlPointCode: string | undefined = undefined;
+  // CP-3-g: 알림 수신자 — 첫 deviation 발생 시 lazy 해석 (관리자/QA + operator)
+  let recipients: number[] | undefined = undefined;
 
   for (const limitRow of limits) {
     const controlPoint = mapCcpLimitToControlPoint(limitRow);
@@ -356,6 +361,13 @@ export async function triggerCcpEvaluator(params: {
         worstDeviation = result.deviation;
         worstControlPointCode = controlPoint.code;
       }
+
+      // CP-3-g: 첫 deviation 시 recipients 해석 (admin/inspector/monitor + operator)
+      if (!recipients) {
+        const { getNotificationRecipients } = await import("./ccp.recipients");
+        recipients = await getNotificationRecipients(tenantId, operatorId);
+      }
+
       const { title, message } = formatDeviationMessage(
         result.deviation,
         controlPoint.code,
@@ -367,21 +379,23 @@ export async function triggerCcpEvaluator(params: {
         `${result.deviation.violatedLimit.label}`,
       );
 
-      // 5. h_notifications INSERT (관리자 알림)
+      // 5. h_notifications INSERT — 관리자/QA + operator 모두 fanout (CP-3-g)
       try {
-        await db.insert(hNotifications).values({
-          tenantId,
-          userId: operatorId, // PoC: 작업자에게 발송 (관리자 매핑은 다음 PR)
-          notificationType: "ccp_deviation",
-          title,
-          message,
-          referenceType: "ccp_record",
-          referenceId: recordId,
-          priority: severityToPriority(result.deviation.severity),
-          isRead: 0,
-          isResolved: 0,
-        });
-        notificationsCreated++;
+        await db.insert(hNotifications).values(
+          recipients.map((uid) => ({
+            tenantId,
+            userId: uid,
+            notificationType: "ccp_deviation",
+            title,
+            message,
+            referenceType: "ccp_record",
+            referenceId: recordId,
+            priority: severityToPriority(result.deviation.severity),
+            isRead: 0,
+            isResolved: 0,
+          })),
+        );
+        notificationsCreated += recipients.length;
       } catch (notifErr: any) {
         console.warn(
           `[ccpEvaluator] 알림 INSERT 실패 — recordId=${recordId}: ${notifErr?.message ?? notifErr}`,
@@ -414,12 +428,11 @@ export async function triggerCcpEvaluator(params: {
           `recordId=${recordId} 영향 LOT ${lotsHeld}건 'reserved'`,
         );
 
-        // LOT HOLD 결과를 추가 알림으로 발송 (분리 — caller 가 관찰 용이)
+        // LOT HOLD 결과를 추가 알림으로 발송 — recipients 전체 fanout (CP-3-g)
         try {
-          await db.insert(hNotifications).values({
+          const lotHoldBase = {
             tenantId,
-            userId: operatorId,
-            notificationType: "ccp_lot_hold",
+            notificationType: "ccp_lot_hold" as const,
             title: `[자동 LOT HOLD] 배치 #${batchIdNum} — ${lotsHeld}건 예약 처리`,
             message:
               `CCP 이탈로 인해 영향 LOT 자동 HOLD 처리됨.\n` +
@@ -430,13 +443,17 @@ export async function triggerCcpEvaluator(params: {
               `  - LOT 안전 검사 후 정상이면 status 복원 ('available')\n` +
               `  - 부적합 시 폐기 처리 (status='disposed')\n` +
               `  - 손실 분개 / 시정조치는 ENABLE_CCP_AUTO_JOURNAL / ENABLE_CCP_CAR 활성 시 자동`,
-            referenceType: "ccp_record",
+            referenceType: "ccp_record" as const,
             referenceId: recordId,
-            priority: "urgent",
-            isRead: 0,
-            isResolved: 0,
-          });
-          notificationsCreated++;
+            priority: "urgent" as const,
+            isRead: 0 as const,
+            isResolved: 0 as const,
+          };
+          const targets = recipients ?? [operatorId];
+          await db.insert(hNotifications).values(
+            targets.map((uid) => ({ ...lotHoldBase, userId: uid })),
+          );
+          notificationsCreated += targets.length;
         } catch (notifErr: any) {
           console.warn(
             `[ccpEvaluator] LOT HOLD 알림 INSERT 실패 — batchId=${batchIdNum}: ${notifErr?.message ?? notifErr}`,
@@ -472,12 +489,11 @@ export async function triggerCcpEvaluator(params: {
           lossJournalEntryId = lossResult.journalEntryId;
           lossTotal = lossResult.totalLoss;
 
-          // 손실 분개 알림 (3번째 알림)
+          // 손실 분개 알림 (3번째 알림) — recipients 전체 fanout (CP-3-g)
           try {
-            await db.insert(hNotifications).values({
+            const lossBase = {
               tenantId,
-              userId: operatorId,
-              notificationType: "ccp_loss_journal",
+              notificationType: "ccp_loss_journal" as const,
               title:
                 `[자동 손실분개] 배치 #${record.batchId} — ` +
                 `${lossResult.totalLoss.toLocaleString("ko-KR")}원 손실`,
@@ -492,13 +508,17 @@ export async function triggerCcpEvaluator(params: {
                 `\n조치:\n` +
                 `  - 회계 페이지에서 분개 검토\n` +
                 `  - LOT 안전 검사 / 폐기 결정 (시정조치는 ENABLE_CCP_CAR 활성 시 자동)`,
-              referenceType: "journal_entry",
+              referenceType: "journal_entry" as const,
               referenceId: lossResult.journalEntryId,
-              priority: "urgent",
-              isRead: 0,
-              isResolved: 0,
-            });
-            notificationsCreated++;
+              priority: "urgent" as const,
+              isRead: 0 as const,
+              isResolved: 0 as const,
+            };
+            const targets = recipients ?? [operatorId];
+            await db.insert(hNotifications).values(
+              targets.map((uid) => ({ ...lossBase, userId: uid })),
+            );
+            notificationsCreated += targets.length;
           } catch (notifErr: any) {
             console.warn(
               `[ccpEvaluator] 손실분개 알림 INSERT 실패 — entryId=${lossResult.journalEntryId}: ` +
@@ -547,12 +567,11 @@ export async function triggerCcpEvaluator(params: {
         if (carResult.posted && carResult.requestId) {
           correctiveActionRequestId = carResult.requestId;
 
-          // 4번째 알림 — 시정조치 자동 등록
+          // 4번째 알림 — 시정조치 자동 등록 — recipients 전체 fanout (CP-3-g)
           try {
-            await db.insert(hNotifications).values({
+            const carBase = {
               tenantId,
-              userId: operatorId,
-              notificationType: "ccp_corrective_action",
+              notificationType: "ccp_corrective_action" as const,
               title:
                 `[자동 시정조치] 배치 #${record.batchId} — CAR #${carResult.requestId} 등록`,
               message:
@@ -565,13 +584,17 @@ export async function triggerCcpEvaluator(params: {
                 `\n조치:\n` +
                 `  - 시정조치 페이지(/corrective-actions)에서 즉시조치 / 근본원인 / 시정 / 검증 4단계 진행\n` +
                 `  - 담당자 지정 후 status 'investigating' 으로 전환`,
-              referenceType: "corrective_action_request",
+              referenceType: "corrective_action_request" as const,
               referenceId: carResult.requestId,
               priority: severityToPriority(worstDeviation.severity),
-              isRead: 0,
-              isResolved: 0,
-            });
-            notificationsCreated++;
+              isRead: 0 as const,
+              isResolved: 0 as const,
+            };
+            const targets = recipients ?? [operatorId];
+            await db.insert(hNotifications).values(
+              targets.map((uid) => ({ ...carBase, userId: uid })),
+            );
+            notificationsCreated += targets.length;
           } catch (notifErr: any) {
             console.warn(
               `[ccpEvaluator] CAR 알림 INSERT 실패 — requestId=${carResult.requestId}: ` +
@@ -591,7 +614,8 @@ export async function triggerCcpEvaluator(params: {
   if (deviationCount > 0) {
     console.warn(
       `[ccpEvaluator] recordId=${recordId} 이탈 ${deviationCount}건, ` +
-      `알림 ${notificationsCreated}건, LOT HOLD ${lotsHeld}건` +
+      `알림 ${notificationsCreated}건 (수신자 ${recipients?.length ?? 1}명), ` +
+      `LOT HOLD ${lotsHeld}건` +
       (lossJournalEntryId
         ? `, 손실분개 #${lossJournalEntryId} (${(lossTotal ?? 0).toLocaleString("ko-KR")}원)`
         : "") +

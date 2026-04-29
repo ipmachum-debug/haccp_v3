@@ -22,18 +22,28 @@
  *   4. + 시정조치    (ENABLE_CCP_CAR)            ← 이 PR
  *   5. 운영 전체 활성
  *
+ * 멱등성 (CP-3-g 추가):
+ *   같은 (tenant_id, source_type='ccp_deviation', source_id=ccpRecordId) 조합은
+ *   1건만 등록. 재호출 시 기존 CAR id 를 existingRequestId 로 반환하고 신규는 스킵.
+ *   schema-level UNIQUE 인덱스는 별도 마이그레이션 PR 에서 보강 예정.
+ *
  * 트리거: PR #134 CP-3-e 손실분개 / 특허 [0016] F-3 IoT 폐쇄 루프 (마지막 단계)
  * ============================================================================
  */
 
+import { eq, and } from "drizzle-orm";
+import { getDb } from "../../../db";
+import { hCorrectiveActionRequests } from "../../../../drizzle/schema";
 import { createCorrectiveActionFromCcpDeviation } from "../../../db/haccp/correctiveAction";
 import type { Deviation, DeviationSeverity } from "../../../core-mes/quality";
 
 export interface CarResult {
-  /** CAR 생성 여부 (env 비활성 / 데이터 부족 시 false) */
+  /** CAR 신규 생성 여부 (env 비활성 / 데이터 부족 / 멱등성 단축 시 false) */
   posted: boolean;
   /** 생성된 h_corrective_action_requests.id (posted=true 시) */
   requestId?: number;
+  /** 멱등성 단축 시 기존 CAR id (이미 존재) */
+  existingRequestId?: number;
   reason?: string;
 }
 
@@ -124,7 +134,45 @@ export async function postCcpCorrectiveAction(params: {
     };
   }
 
-  // 2. problemDescription 자동 작성 — 운영자가 보는 첫 화면이라 충분히 상세하게
+  // 2. CP-3-g 멱등성: 같은 (tenant, source_type='ccp_deviation', source_id=ccpRecordId)
+  //    가 이미 존재하면 신규 생성 스킵 (중복 CAR 방지).
+  //    schema-level UNIQUE 인덱스는 별도 마이그레이션 PR 에서 보강 예정.
+  try {
+    const db = await getDb();
+    if (db) {
+      const [existing] = await db
+        .select({ id: hCorrectiveActionRequests.id })
+        .from(hCorrectiveActionRequests)
+        .where(
+          and(
+            eq(hCorrectiveActionRequests.tenantId, tenantId),
+            eq(hCorrectiveActionRequests.sourceType, "ccp_deviation"),
+            eq(hCorrectiveActionRequests.sourceId, ccpRecordId),
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        console.warn(
+          `[ccpCorrectiveAction] 멱등성 단축 — recordId=${ccpRecordId} ` +
+          `이미 CAR #${existing.id} 존재. 신규 생성 스킵.`,
+        );
+        return {
+          posted: false,
+          existingRequestId: Number(existing.id),
+          reason: `중복 — 기존 CAR #${existing.id} 존재`,
+        };
+      }
+    }
+  } catch (dupErr: any) {
+    // 중복 체크 실패 시 — 보수적으로 그냥 진행 (중복 가능성 < 알림 손실)
+    console.warn(
+      `[ccpCorrectiveAction] 멱등성 체크 실패 (계속 진행) — recordId=${ccpRecordId}: ` +
+      `${dupErr?.message ?? dupErr}`,
+    );
+  }
+
+  // 3. problemDescription 자동 작성 — 운영자가 보는 첫 화면이라 충분히 상세하게
   const limit = deviation.violatedLimit;
   const measurement = deviation.measurement;
   const limitDesc =
@@ -173,7 +221,7 @@ export async function postCcpCorrectiveAction(params: {
     `  3. 시정 조치 — 재발 방지 계획\n` +
     `  4. 효과 검증 — 후속 측정 결과 확인`;
 
-  // 3. CAR 생성
+  // 4. CAR 생성
   try {
     const requestId = await createCorrectiveActionFromCcpDeviation(
       {
