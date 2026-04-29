@@ -22,6 +22,7 @@ import {
   metalDetectionRouter,
   ccpMonitoringRouter,
   f3DashboardRouter,
+  f3TrendsRouter,
 } from "../haccp";
 
 export const haccpRouterMap = {
@@ -45,4 +46,5 @@ export const haccpRouterMap = {
   traceability: traceabilityRouter,
   metalDetection: metalDetectionRouter,
   f3Dashboard: f3DashboardRouter,
+  f3Trends: f3TrendsRouter,
 } as const;
