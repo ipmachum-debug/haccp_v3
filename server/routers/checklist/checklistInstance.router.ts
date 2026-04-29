@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../../db";
 import { 
   checklistInstances, 
@@ -9,7 +10,7 @@ import {
   checklistInstanceItems 
 } from "../../../drizzle/schema";
 import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
-import { storagePut } from "../../storage";
+import { storagePut, StorageNotConfiguredError } from "../../storage";
 import { invokeLLM } from "../../_core/llm";
 import { requireTenantId } from "../../helpers/tenantGuards";
 
@@ -233,7 +234,20 @@ export const checklistInstanceRouter = router({
 
       // S3 업로드
       const fileKey = `tenant-${tenantId}/checklist-attachments/${input.instanceId}/${Date.now()}-${input.file.name}`;
-      const { url, key } = await storagePut(fileKey, buffer, input.file.type);
+      let url: string;
+      let key: string;
+      try {
+        ({ url, key } = await storagePut(fileKey, buffer, input.file.type));
+      } catch (err) {
+        if (err instanceof StorageNotConfiguredError) {
+          throw new TRPCError({
+            code: "SERVICE_UNAVAILABLE",
+            message: err.userMessage,
+            cause: err,
+          });
+        }
+        throw err;
+      }
 
       // 기존 첨부파일에 추가
       const existingAttachments = (instance.attachments as any[]) || [];
@@ -258,6 +272,7 @@ export const checklistInstanceRouter = router({
         attachment: newAttachment,
       };
     }),
+
 
   /**
    * 인스턴스 제출

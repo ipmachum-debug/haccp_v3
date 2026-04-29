@@ -55,6 +55,72 @@ function detectBackend(): StorageBackend {
   return "none";
 }
 
+/**
+ * 사용자 친화 에러 메시지로 throw 되는 storage 백엔드 미설정 에러.
+ *
+ * 식별: `error.code === 'STORAGE_PROXY_NOT_CONFIGURED'` 으로 라우터 / 클라이언트가
+ * 일반 throw 와 구분 가능. UI 는 fallback 메시지 사용 권장.
+ *
+ * 운영자 자동 알림: 처음 throw 될 때 (per-process) h_notifications 에 INSERT —
+ * 동일 process 내 중복 알림 폭탄 방지 (in-memory cooldown 60 분).
+ */
+export class StorageNotConfiguredError extends Error {
+  readonly code = "STORAGE_PROXY_NOT_CONFIGURED";
+  readonly userMessage =
+    "파일 저장 서비스에 일시적인 장애가 발생했습니다. 잠시 후 다시 시도해 주세요. (운영팀에 자동 알림이 전송되었습니다)";
+  constructor() {
+    super(
+      "Storage backend not configured: set AWS_S3_BUCKET (+ AWS credentials) or BUILT_IN_FORGE_API_URL/KEY"
+    );
+    this.name = "StorageNotConfiguredError";
+  }
+}
+
+/** 운영자 알림 cooldown — 동일 process 에서 60 분 1회만 INSERT */
+const NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
+let lastNotifiedAt = 0;
+
+/**
+ * 운영자 (admin role) 에게 storage 미설정 알림 INSERT (best-effort).
+ *
+ * 실패해도 throw 하지 않음 — 원본 storage 에러 흐름을 방해하지 않기 위함.
+ */
+async function notifyAdminsStorageMisconfigured(
+  tenantId: number | undefined,
+  context: string,
+): Promise<void> {
+  const now = Date.now();
+  if (now - lastNotifiedAt < NOTIFY_COOLDOWN_MS) return;
+  lastNotifiedAt = now;
+
+  try {
+    const { getDb } = await import("./db/connection");
+    const db = await getDb();
+    if (!db) return;
+
+    const { sql } = await import("drizzle-orm");
+    await db.execute(sql`
+      INSERT INTO h_notifications (tenant_id, user_id, notification_type, title, message, priority, created_at)
+      SELECT u.tenant_id, u.id, 'storage_misconfigured',
+        ${"[운영경고] 파일 저장 서비스 인증 누락"},
+        ${`storagePut/storageGet 호출 시 storage 백엔드 (AWS_S3_BUCKET 또는 BUILT_IN_FORGE_API_*) 환경변수가 설정되지 않아 실패. context=${context}, tenantId=${tenantId ?? "unknown"}. 운영 .env 에 키 추가 후 'pm2 reload haccpone' 필요.`},
+        'urgent', NOW()
+      FROM users u WHERE u.role = 'admin' AND u.is_active = 1
+      LIMIT 10
+    `);
+  } catch (err) {
+    // best-effort — 알림 실패는 무시 (원본 에러는 caller 가 받음)
+    // eslint-disable-next-line no-console
+    console.error("[storage] 운영자 알림 INSERT 실패 (무시):", err);
+  }
+}
+
+/** relKey 에서 tenantId 추출 (`tenant-<id>/...` 패턴) — 알림 메타데이터용 */
+function extractTenantId(relKey: string): number | undefined {
+  const m = relKey.match(/^tenant-(\d+)\//);
+  return m ? Number(m[1]) : undefined;
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // AWS S3 백엔드
 // ────────────────────────────────────────────────────────────────────────
@@ -247,10 +313,15 @@ export async function storagePut(
       return await s3Put(relKey, data, contentType);
     case "forge":
       return await forgePut(relKey, data, contentType);
-    case "none":
-      throw new Error(
-        "Storage 백엔드 미설정 — AWS_S3_BUCKET 또는 BUILT_IN_FORGE_API_URL/KEY 중 하나 필요",
+    case "none": {
+      // 운영자 알림 (best-effort, fire-and-forget) + 사용자 친화 에러
+      const tenantId = extractTenantId(relKey);
+      void notifyAdminsStorageMisconfigured(
+        tenantId,
+        `storagePut(${relKey.slice(0, 60)})`,
       );
+      throw new StorageNotConfiguredError();
+    }
   }
 }
 
@@ -270,10 +341,15 @@ export async function storageGet(
       return await s3Get(relKey);
     case "forge":
       return await forgeGet(relKey);
-    case "none":
-      throw new Error(
-        "Storage 백엔드 미설정 — AWS_S3_BUCKET 또는 BUILT_IN_FORGE_API_URL/KEY 중 하나 필요",
+    case "none": {
+      // 운영자 알림 (best-effort, fire-and-forget) + 사용자 친화 에러
+      const tenantId = extractTenantId(relKey);
+      void notifyAdminsStorageMisconfigured(
+        tenantId,
+        `storageGet(${relKey.slice(0, 60)})`,
       );
+      throw new StorageNotConfiguredError();
+    }
   }
 }
 
