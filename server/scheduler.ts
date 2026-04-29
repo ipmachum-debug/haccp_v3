@@ -106,6 +106,26 @@ export function initScheduler() {
     }
   }));
 
+  // CP-3-j: CAR (시정조치) SLA 위반 일일 체크 (매일 오전 9:30)
+  // ENABLE_CCP_CAR_SLA_CHECK=true 일 때만 실제 동작 (env 미설정 시 no-op)
+  cron.schedule("30 9 * * *", () => withSchedulerLock("ccp_car_sla_daily", async () => {
+    try {
+      const { checkOpenCarSlaBreaches, isCcpCarSlaCheckEnabled } = await import(
+        "./schedulers/ccpCarSla"
+      );
+      if (!isCcpCarSlaCheckEnabled()) return; // env 미활성 — no-op
+      const result = await checkOpenCarSlaBreaches();
+      if (result.breached > 0) {
+        console.log(
+          `[Scheduler] CAR SLA 위반 ${result.breached}건 — 알림 ${result.alertsCreated}건 발송 ` +
+          `(중복 스킵 ${result.skippedDuplicate}건)`,
+        );
+      }
+    } catch (error) {
+      console.error("[Scheduler] CAR SLA 체크 실패:", error);
+    }
+  }));
+
   console.log("[Scheduler] 재고 회전율 알림 스케줄러 초기화 완료 (매일 오전 9시 실행)");
   console.log("[Scheduler] 검사 부적합 알림 스케줄러 초기화 완료 (매일 오후 1시 실행)");
   console.log("[Scheduler] 재고 예측 및 자동 발주 알림 스케줄러 초기화 완료 (매일 오전 10시 실행)");
