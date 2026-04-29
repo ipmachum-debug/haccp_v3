@@ -240,14 +240,15 @@ export async function finalApproveRequest(
 
       if (batchId) {
         try {
-          const { postProductionComplete } = await import("./productionCompletePost");
+          // 2026-04-29 (F2-3-b): dispatcher 경유 — env 기본 v1 (안전).
+          const { productionCompleteDispatch } = await import("./productionCompleteDispatcher");
           const { hBatches } = await import("../../../drizzle/schema");
           const { eq: drizzleEq } = await import("drizzle-orm");
           const [batch] = await db.select().from(hBatches).where(drizzleEq(hBatches.id, batchId)).limit(1);
           const actualQuantity = parseFloat(batch?.actualQuantity?.toString() || "0");
 
           if (actualQuantity > 0) {
-            await postProductionComplete(batchId, actualQuantity, approverId, tenantId);
+            await productionCompleteDispatch(batchId, actualQuantity, approverId, tenantId);
             console.log(`[finalApprove] 배치 #${batchId} 재고이동/회계연동 완료`);
             return {
               success: true,

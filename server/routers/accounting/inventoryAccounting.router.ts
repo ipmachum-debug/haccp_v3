@@ -4,7 +4,9 @@ import { postPurchase } from "../../lib/accounting/purchasePost";
 import { cancelPurchase } from "../../lib/accounting/purchaseCancel";
 import { postMaterialOutbound } from "../../lib/inventory/materialOutboundPost";
 import { cancelMaterialOutbound } from "../../lib/inventory/materialOutboundCancel";
-import { postProductionComplete } from "../../lib/production/productionCompletePost";
+// 2026-04-29 (F2-3-b): dispatcher 경유 — env 기본값 v1 (운영 안전).
+// USE_PRODUCTION_COMPLETE_V2 / USE_PRODUCTION_COMPLETE_V2_TENANTS 로 점진 v2 전환 가능.
+import { productionCompleteDispatch } from "../../lib/production/productionCompleteDispatcher";
 import { cancelProductionComplete } from "../../lib/production/productionCompleteCancel";
 import { postProductSale } from "../../lib/accounting/productSalePost";
 import { cancelProductSale } from "../../lib/accounting/productSaleCancel";
@@ -113,7 +115,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { batchId: number, actualQuantity: number }, ctx: any }) => {
-      await postProductionComplete(input.batchId, input.actualQuantity, ctx.user.id, ctx.tenantId);
+      await productionCompleteDispatch(input.batchId, input.actualQuantity, ctx.user.id, ctx.tenantId);
       return { success: true, message: "생산이 완료되었습니다." };
     }),
 
