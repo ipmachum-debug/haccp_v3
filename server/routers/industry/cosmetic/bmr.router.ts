@@ -2,65 +2,195 @@
  * 화장품 GMP — BMR (Batch Manufacturing Record) 라우터
  *
  * ============================================================================
- * Phase 2 (화장품 GMP) 시작점 — 5계층 구조 PoC
+ * Phase 2 (Cosmetic GMP) — Layer 4 industry/cosmetic 첫 본격 구현.
+ *
+ * lifecycle:
+ *   draft → approved → manufacturing → completed
+ *                  ↓ (어느 단계든)
+ *                  rejected
+ *
+ * 의존성 (.dependency-cruiser.cjs):
+ *   - core / shared-kernel / industry/cosmetic 만 import 허용
+ *   - food / 다른 industry cross-ref 금지 (ADR-002)
+ *
+ * 향후 확장 (별도 PR):
+ *   - h_cosmetic_bmr_ipc      — IPC 측정값
+ *   - h_cosmetic_bmr_ingredient — 처방
+ *   - h_cosmetic_bmr_label     — 전성분
+ *   - h_cosmetic_release       — QA 출고
+ *
+ * 참조:
+ *   - drizzle/schema/industry/cosmetic/bmr.ts
+ *   - server/db/industry/cosmetic/bmr.ts
+ *   - scripts/migrate-cosmetic-bmr-table.ts
+ *   - docs/architecture/00-layers.md
  * ============================================================================
- *
- * 위치: server/routers/industry/cosmetic/
- * 의존: core-erp / core-mes / shared-kernel / platform 만 허용 (ADR-002)
- *
- * dependency-cruiser 룰 (.dependency-cruiser.cjs):
- *   - core-cannot-use-industry        — core 가 cosmetic 참조 금지
- *   - industry-cannot-use-other-industry — food / cosmetic 간 cross-ref 금지
- *
- * 본 라우터의 역할 (이번 PR — 빈 PoC):
- *   - 5계층 구조 실증 (server/routers/industry/cosmetic/ 디렉토리 작동)
- *   - architecture-check.yml 의 dependency-cruiser 통과 검증
- *   - Phase 2 (화장품 GMP) 의 향후 BMR 모듈 시작점
- *
- * 향후 확장 (별도 PR 시리즈):
- *   - BMR 생성 / 조회 / 수정 / 승인 워크플로
- *   - 처방서 (Formula) 관리
- *   - 라벨 (Label) 관리
- *   - 전성분 표시 (KFDA 규정)
- *
- * 참조: docs/architecture/00-layers.md (Layer 4 industry — cosmetic)
- *       docs/architecture/industry-coupling-audit-2026-04-28.md (PR #114)
  */
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../../_core/trpc";
+import {
+  createCosmeticBmr,
+  getCosmeticBmrById,
+  listCosmeticBmrs,
+  updateCosmeticBmrDraft,
+  transitionBmrStatus,
+  deleteDraftBmr,
+} from "../../../db/industry/cosmetic/bmr";
+
+const STATUS = ["draft", "approved", "manufacturing", "completed", "rejected"] as const;
 
 export const cosmeticBmrRouter = router({
-  /**
-   * BMR 목록 조회 (Phase 2 시작점 — placeholder)
-   *
-   * 향후: h_cosmetic_bmr 테이블 (drizzle/schema/industry/cosmetic/bmr.ts) 조회
-   * 현재: 빈 배열 반환 (5계층 구조 작동 확인용)
-   */
+  /** BMR 목록 조회 */
   list: tenantRequiredProcedure
     .input(
       z
         .object({
-          status: z.enum(["draft", "approved", "manufacturing", "completed"]).optional(),
+          status: z.enum(STATUS).optional(),
         })
         .optional(),
     )
-    .query(async () => {
-      // Phase 2 (화장품 GMP) 미구현 — 빈 결과 반환.
-      // 향후 구현 시:
-      //   1. drizzle/schema/industry/cosmetic/bmr.ts 추가
-      //   2. server/db/industry/cosmetic/bmr.ts (CRUD 함수)
-      //   3. h_cosmetic_bmr 테이블 추가 (마이그레이션)
-      //   4. industryConfig.ts 의 cosmetic 모듈 활성화 시 노출
+    .query(async ({ ctx, input }) => {
+      const rows = await listCosmeticBmrs(input, ctx.tenantId);
       return {
-        items: [] as Array<{
-          id: number;
-          bmrCode: string;
-          productId: number;
-          status: "draft" | "approved" | "manufacturing" | "completed";
-          createdAt: Date;
-        }>,
-        total: 0,
-        message: "Phase 2 (화장품 GMP) 미구현 — 향후 별도 PR 시리즈로 추가 예정",
+        items: rows.map((r) => ({
+          id: Number(r.id),
+          bmrCode: String(r.bmrCode),
+          productId: Number(r.productId),
+          batchNumber: r.batchNumber ? String(r.batchNumber) : null,
+          plannedQuantityKg: Number(r.plannedQuantityKg ?? 0),
+          actualQuantityKg: r.actualQuantityKg ? Number(r.actualQuantityKg) : null,
+          status: r.status as (typeof STATUS)[number],
+          manufacturingDate: r.manufacturingDate,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        })),
+        total: rows.length,
       };
+    }),
+
+  /** BMR 단건 조회 */
+  getById: tenantRequiredProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const row = await getCosmeticBmrById(input.id, ctx.tenantId);
+      if (!row) return null;
+      return {
+        id: Number(row.id),
+        bmrCode: String(row.bmrCode),
+        productId: Number(row.productId),
+        batchNumber: row.batchNumber,
+        plannedQuantityKg: Number(row.plannedQuantityKg ?? 0),
+        actualQuantityKg: row.actualQuantityKg ? Number(row.actualQuantityKg) : null,
+        manufacturingDate: row.manufacturingDate,
+        status: row.status as (typeof STATUS)[number],
+        approvedBy: row.approvedBy,
+        approvedAt: row.approvedAt,
+        manufacturingStartedAt: row.manufacturingStartedAt,
+        completedBy: row.completedBy,
+        completedAt: row.completedAt,
+        rejectedBy: row.rejectedBy,
+        rejectedAt: row.rejectedAt,
+        rejectReason: row.rejectReason,
+        notes: row.notes,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      };
+    }),
+
+  /** 신규 BMR 생성 (status='draft') */
+  create: tenantRequiredProcedure
+    .input(
+      z.object({
+        productId: z.number().int().positive(),
+        plannedQuantityKg: z.number().positive(),
+        batchNumber: z.string().max(100).optional(),
+        manufacturingDate: z.string().optional(), // YYYY-MM-DD
+        notes: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return createCosmeticBmr(
+        {
+          productId: input.productId,
+          plannedQuantityKg: input.plannedQuantityKg,
+          batchNumber: input.batchNumber,
+          manufacturingDate: input.manufacturingDate,
+          notes: input.notes,
+          createdBy: Number(ctx.user.id),
+        },
+        ctx.tenantId,
+      );
+    }),
+
+  /** draft 상태에서만 수정 */
+  updateDraft: tenantRequiredProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        productId: z.number().int().positive().optional(),
+        plannedQuantityKg: z.number().positive().optional(),
+        batchNumber: z.string().max(100).nullable().optional(),
+        manufacturingDate: z.string().nullable().optional(),
+        notes: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...data } = input;
+      return updateCosmeticBmrDraft(id, data, ctx.tenantId);
+    }),
+
+  /** QA 승인 — draft → approved */
+  approve: tenantRequiredProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      return transitionBmrStatus(input.id, "approved", Number(ctx.user.id), ctx.tenantId);
+    }),
+
+  /** 제조 시작 — approved → manufacturing */
+  startManufacturing: tenantRequiredProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      return transitionBmrStatus(
+        input.id,
+        "manufacturing",
+        Number(ctx.user.id),
+        ctx.tenantId,
+      );
+    }),
+
+  /** 제조 완료 — manufacturing → completed */
+  markCompleted: tenantRequiredProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        actualQuantityKg: z.number().positive().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return transitionBmrStatus(input.id, "completed", Number(ctx.user.id), ctx.tenantId, {
+        actualQuantityKg: input.actualQuantityKg,
+      });
+    }),
+
+  /** 거절 — 어느 단계든 → rejected */
+  reject: tenantRequiredProcedure
+    .input(
+      z.object({
+        id: z.number().int().positive(),
+        reason: z.string().min(1).max(500),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return transitionBmrStatus(input.id, "rejected", Number(ctx.user.id), ctx.tenantId, {
+        rejectReason: input.reason,
+      });
+    }),
+
+  /** draft 삭제 */
+  deleteDraft: tenantRequiredProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      return deleteDraftBmr(input.id, ctx.tenantId);
     }),
 });
