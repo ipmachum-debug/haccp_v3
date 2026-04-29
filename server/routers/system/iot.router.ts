@@ -131,6 +131,8 @@ export const iotRouter = router({
       maxValue: z.number().optional(),
       unit: z.string().optional(),
       heartbeatIntervalSec: z.number().optional(),
+      // CP-3-h: CCP 매핑 (set 시 ENABLE_CCP_IOT_BRIDGE 활성 환경에서 자동 평가기 발화)
+      ccpType: z.string().max(10).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const conn = await getRawConnection();
@@ -146,17 +148,34 @@ export const iotRouter = router({
       const [result] = await conn.execute<any>(
         `INSERT INTO iot_devices
          (tenant_id, device_code, device_name, device_type, protocol, endpoint,
-          equipment_id, process_group_id, min_value, max_value, unit, heartbeat_interval_sec)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          equipment_id, process_group_id, min_value, max_value, unit, heartbeat_interval_sec, ccp_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           ctx.tenantId, input.deviceCode, input.deviceName, input.deviceType,
           input.protocol || "http", input.endpoint || null,
           input.equipmentId || null, input.processGroupId || null,
           input.minValue ?? null, input.maxValue ?? null, input.unit || null,
           input.heartbeatIntervalSec || 60,
+          input.ccpType?.trim() || null,
         ]
       );
       return { id: result.insertId, deviceCode: input.deviceCode };
+    }),
+
+  // CP-3-h: 기존 디바이스의 CCP 매핑 변경 — 운영자가 점진 활성화 시 사용
+  setDeviceCcpType: tenantRequiredProcedure
+    .input(z.object({
+      deviceId: z.number(),
+      ccpType: z.string().max(10).nullable(), // null 시 매핑 해제
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const conn = await getRawConnection();
+      const value = input.ccpType?.trim() || null;
+      await conn.execute(
+        `UPDATE iot_devices SET ccp_type = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+        [value, input.deviceId, ctx.tenantId],
+      );
+      return { success: true, ccpType: value };
     }),
 
   updateDeviceStatus: tenantRequiredProcedure

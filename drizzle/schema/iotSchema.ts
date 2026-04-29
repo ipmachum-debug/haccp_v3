@@ -41,6 +41,11 @@ export const iotDevices = mysqlTable("iot_devices", {
   maxValue: decimal("max_value", { precision: 10, scale: 2 }),
   unit: varchar("unit", { length: 20 }),  // °C, MPa, kg, mm 등
 
+  // CCP 매핑 (CP-3-h: F-3 IoT 폐쇄 루프 — IoT 신호 → ccp_monitoring_records 자동 생성)
+  // 이 필드가 set 되면 receiveSensorData() 가 ccp_monitoring_records INSERT + triggerCcpEvaluator 호출.
+  // 예: "CCP-1B" (가열), "CCP-4P" (금속검출). null 이면 일반 IoT (기존 동작).
+  ccpType: varchar("ccp_type", { length: 10 }),
+
   // 상태
   status: mysqlEnum("status", ["active", "inactive", "error", "maintenance"]).notNull().default("active"),
   lastHeartbeat: timestamp("last_heartbeat"),

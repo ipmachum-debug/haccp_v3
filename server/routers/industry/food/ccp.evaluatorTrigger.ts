@@ -23,8 +23,11 @@
  *   - 알림 fanout: 작업자 → 작업자 + admin/inspector/monitor 전체 (ccp.recipients.ts)
  *   - CAR 멱등성 (앱 레벨): (tenant, source_type, source_id) 중복 INSERT 방지
  *
+ * CP-3-h 추가 (이 트리거가 IoT 에서도 호출됨):
+ *   - server/services/iot/iotCcpBridge.ts 가 sensor → ccp_monitoring_records 후 본 트리거 호출
+ *   - operatorId=0 (system) 시 recipients 가 admin 만 + length=0 가능 → 알림 스킵 가드 추가
+ *
  * 미구현 (다음 사이클):
- *   - IoT 신호 통합 (sensor → ccpRecords 자동) — CP-3-h
  *   - schema-level UNIQUE 인덱스 (마이그레이션 별도 PR)
  *
  * ============================================================================
@@ -363,9 +366,16 @@ export async function triggerCcpEvaluator(params: {
       }
 
       // CP-3-g: 첫 deviation 시 recipients 해석 (admin/inspector/monitor + operator)
+      // CP-3-h 보강: operatorId=0 (IoT system) + 관리자 0명 시 recipients 가 빈 배열이 될 수 있음
       if (!recipients) {
         const { getNotificationRecipients } = await import("./ccp.recipients");
         recipients = await getNotificationRecipients(tenantId, operatorId);
+        if (recipients.length === 0) {
+          console.warn(
+            `[ccpEvaluator] 알림 수신자 0명 — tenant=${tenantId} operator=${operatorId} ` +
+            `(IoT system + 관리자 미등록?). 알림 fanout 스킵.`,
+          );
+        }
       }
 
       const { title, message } = formatDeviationMessage(
@@ -381,21 +391,23 @@ export async function triggerCcpEvaluator(params: {
 
       // 5. h_notifications INSERT — 관리자/QA + operator 모두 fanout (CP-3-g)
       try {
-        await db.insert(hNotifications).values(
-          recipients.map((uid) => ({
-            tenantId,
-            userId: uid,
-            notificationType: "ccp_deviation",
-            title,
-            message,
-            referenceType: "ccp_record",
-            referenceId: recordId,
-            priority: severityToPriority(result.deviation.severity),
-            isRead: 0,
-            isResolved: 0,
-          })),
-        );
-        notificationsCreated += recipients.length;
+        if (recipients.length > 0) {
+          await db.insert(hNotifications).values(
+            recipients.map((uid) => ({
+              tenantId,
+              userId: uid,
+              notificationType: "ccp_deviation",
+              title,
+              message,
+              referenceType: "ccp_record",
+              referenceId: recordId,
+              priority: severityToPriority(result.deviation.severity),
+              isRead: 0,
+              isResolved: 0,
+            })),
+          );
+          notificationsCreated += recipients.length;
+        }
       } catch (notifErr: any) {
         console.warn(
           `[ccpEvaluator] 알림 INSERT 실패 — recordId=${recordId}: ${notifErr?.message ?? notifErr}`,
@@ -449,11 +461,13 @@ export async function triggerCcpEvaluator(params: {
             isRead: 0 as const,
             isResolved: 0 as const,
           };
-          const targets = recipients ?? [operatorId];
-          await db.insert(hNotifications).values(
-            targets.map((uid) => ({ ...lotHoldBase, userId: uid })),
-          );
-          notificationsCreated += targets.length;
+          const targets = recipients ?? (operatorId > 0 ? [operatorId] : []);
+          if (targets.length > 0) {
+            await db.insert(hNotifications).values(
+              targets.map((uid) => ({ ...lotHoldBase, userId: uid })),
+            );
+            notificationsCreated += targets.length;
+          }
         } catch (notifErr: any) {
           console.warn(
             `[ccpEvaluator] LOT HOLD 알림 INSERT 실패 — batchId=${batchIdNum}: ${notifErr?.message ?? notifErr}`,
@@ -514,11 +528,13 @@ export async function triggerCcpEvaluator(params: {
               isRead: 0 as const,
               isResolved: 0 as const,
             };
-            const targets = recipients ?? [operatorId];
-            await db.insert(hNotifications).values(
-              targets.map((uid) => ({ ...lossBase, userId: uid })),
-            );
-            notificationsCreated += targets.length;
+            const targets = recipients ?? (operatorId > 0 ? [operatorId] : []);
+            if (targets.length > 0) {
+              await db.insert(hNotifications).values(
+                targets.map((uid) => ({ ...lossBase, userId: uid })),
+              );
+              notificationsCreated += targets.length;
+            }
           } catch (notifErr: any) {
             console.warn(
               `[ccpEvaluator] 손실분개 알림 INSERT 실패 — entryId=${lossResult.journalEntryId}: ` +
@@ -590,11 +606,13 @@ export async function triggerCcpEvaluator(params: {
               isRead: 0 as const,
               isResolved: 0 as const,
             };
-            const targets = recipients ?? [operatorId];
-            await db.insert(hNotifications).values(
-              targets.map((uid) => ({ ...carBase, userId: uid })),
-            );
-            notificationsCreated += targets.length;
+            const targets = recipients ?? (operatorId > 0 ? [operatorId] : []);
+            if (targets.length > 0) {
+              await db.insert(hNotifications).values(
+                targets.map((uid) => ({ ...carBase, userId: uid })),
+              );
+              notificationsCreated += targets.length;
+            }
           } catch (notifErr: any) {
             console.warn(
               `[ccpEvaluator] CAR 알림 INSERT 실패 — requestId=${carResult.requestId}: ` +
