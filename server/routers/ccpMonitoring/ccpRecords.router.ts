@@ -50,6 +50,33 @@ export const ccpRecordsRouter = router({
       });
       const recordId = result.insertId;
 
+      // 2026-04-29 (CP-3-c PoC): ControlPoint 평가기 트리거 — F-3 IoT 폐쇄 루프 첫 단계.
+      //   env flag (ENABLE_CCP_EVAL) 미설정 시 즉시 skip — 운영 안전.
+      //   활성화 시: 한계 이탈 감지 → h_notifications INSERT (관리자 알림).
+      //   LOT HOLD / 손실분개 / 시정조치는 다음 사이클 (F-3 본격).
+      import("../industry/food/ccp.evaluatorTrigger")
+        .then(({ triggerCcpEvaluator }) =>
+          triggerCcpEvaluator({
+            recordId: Number(recordId),
+            tenantId,
+            operatorId: ctx.user.id,
+          }),
+        )
+        .then((res) => {
+          if (res.evaluated && res.deviationCount > 0) {
+            console.warn(
+              `[ccpRecords→ccpEvaluator] recordId=${recordId} ` +
+              `이탈 ${res.deviationCount}건 알림 ${res.notificationsCreated}건`,
+            );
+          }
+        })
+        .catch((err: any) => {
+          console.warn(
+            `[ccpRecords→ccpEvaluator] PoC 평가 실패 (recordId=${recordId}, 무시):`,
+            err?.message ?? err,
+          );
+        });
+
       // P9-4: 실시간 온도 알림 트리거 (비동기, 에러 무시)
       triggerCcpTemperatureAlert({
         tenantId,
