@@ -46,6 +46,7 @@ import {
   Flag,
   XCircle,
   Pencil,
+  Download,
   Trash2,
 } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -343,6 +344,8 @@ export default function CosmeticBmrDetail() {
                 현재 상태에서는 추가 액션이 없습니다 (재오픈은 향후 PR 에서 추가 예정).
               </p>
             )}
+            {/* KFDA 신고서 PDF — Phase 2-9 */}
+            <KfdaPdfButton bmrId={bmr.id} bmrCode={bmr.bmrCode} />
           </CardContent>
         </Card>
 
@@ -503,5 +506,50 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-right">{value}</span>
     </div>
+  );
+}
+
+/**
+ * KFDA 신고서 PDF 다운로드 버튼 (Phase 2-9).
+ * trpc.cosmetic.kfdaReport.generateBmrReport 호출 → base64 → Blob 다운로드.
+ */
+function KfdaPdfButton({ bmrId, bmrCode }: { bmrId: number; bmrCode: string }) {
+  const [downloading, setDownloading] = useState(false);
+  const generateMutation = trpc.cosmetic.kfdaReport.generateBmrReport.useMutation();
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const result = await generateMutation.mutateAsync({ bmrId });
+      // base64 → Blob → download
+      const binary = atob(result.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: `KFDA 신고서 PDF 생성: ${bmrCode}` });
+    } catch (e: any) {
+      toast({
+        title: "PDF 생성 실패",
+        description: e?.message ?? String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <Button onClick={handleDownload} variant="outline" disabled={downloading}>
+      <Download className="w-4 h-4 mr-1" />
+      {downloading ? "PDF 생성 중..." : "KFDA 신고서 PDF"}
+    </Button>
   );
 }
