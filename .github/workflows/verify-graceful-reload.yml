@@ -1,0 +1,30 @@
+name: verify-graceful-reload
+
+on:
+  pull_request:
+    paths:
+      - "server/_core/index.ts"
+      - "ecosystem.config.cjs"
+      - "scripts/verify-graceful-reload.ts"
+      - ".github/workflows/verify-graceful-reload.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "server/_core/index.ts"
+      - "ecosystem.config.cjs"
+
+jobs:
+  verify:
+    name: Plan D graceful reload 회귀 검증
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: tsx 실행 — 주석 제외 + 다중 체크
+        run: npx -y tsx scripts/verify-graceful-reload.ts

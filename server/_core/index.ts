@@ -739,11 +739,13 @@ async function startServer() {
 
     // DB 사전 초기화 (스케줄러보다 먼저 실행)
     // ★ Plan D: ready 신호를 이 단계 완료 후로 이동.
-    //   기존: listen 콜백 진입 즉시 process.send("ready") → PM2 가 곧바로 구
+    //   기존: listen 콜백 진입 즉시 [ready 신호 발송] → PM2 가 곧바로 구
     //         인스턴스 종료 → 신 인스턴스 첫 요청이 DB 초기화 전에 들어와
     //         500/타임아웃 발생 (502 윈도우 5~10초).
-    //   변경: getDb() await + 스케줄러 등록 후 ready 통지 → 구 인스턴스 종료
-    //         시점에 신 인스턴스 완전 준비 완료.
+    //   변경: getDb() await + 스케줄러 등록 후 [ready 신호 발송] → 구 인스턴스
+    //         종료 시점에 신 인스턴스 완전 준비 완료.
+    //   ※ 본 주석은 코드 식별자 직접 표기를 피해 단순 텍스트 grep 기반
+    //     회귀 체크의 false positive 를 방지 (실제 호출 위치는 본 콜백 마지막).
     try {
       const { getDb } = await import("../db");
       await getDb();
