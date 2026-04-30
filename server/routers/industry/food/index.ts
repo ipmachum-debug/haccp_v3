@@ -19,3 +19,7 @@ export {
   mapCcpLimitToControlPoint,
   mapCcpLimitsToCriticalLimits,
 } from "./ccp.adapter";
+
+// CP-4 점진 이주: industry/food 라우터 export (Strangler Fig 1단계 — re-export)
+export { foodDashboardRouter } from "./dashboard.router";
+export { foodTrendsRouter } from "./trends.router";
