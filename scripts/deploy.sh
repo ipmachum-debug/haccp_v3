@@ -81,6 +81,83 @@ for cmd in curl jq tar sha256sum git pm2; do
   fi
 done
 
+# ── retry helper (Plan B-alt 2026-04-30) ──
+#   배경: v0.8.84-86 연속 배포 실패 — GitHub release CDN 자산 다운로드가
+#         암묵적 5분 timeout 을 초과하여 curl 실패. retry 없이 즉시 종료되어
+#         일시적 CDN/네트워크 장애에도 무방비.
+#   대응: curl 호출을 감싸는 retry helper.
+#     - timeout 명시 (--connect-timeout 30, --max-time 600)
+#     - exponential backoff (15s → 30s → 60s)
+#     - 최대 4회 시도 (성공 시 즉시 break)
+#     - curl 의 --retry 옵션과 동등하나, 로깅 + log() 포맷 + 4xx 즉시 중단 동작 추가
+#
+# 사용법: curl_retry <설명> [curl 옵션...]
+#   helper 가 'curl' 명령을 직접 호출하며, --connect-timeout / --max-time 을
+#   호출자 옵션 뒤에 추가하여 호출자 설정을 보존.
+# 예:
+#   curl_retry "release 메타정보 조회" -fsSL -H "..." "https://..."
+#   curl_retry "자산 다운로드"        -fsSL -H "..." -o "out.tar.gz" "https://..."
+#
+# 환경변수로 튜닝 가능:
+#   DEPLOY_CURL_MAX_ATTEMPTS    (기본 4)
+#   DEPLOY_CURL_BACKOFF_BASE    (기본 15초)
+#   DEPLOY_CURL_CONNECT_TIMEOUT (기본 30초)
+#   DEPLOY_CURL_MAX_TIME        (기본 600초 = 10분)
+curl_retry() {
+  local description="$1"
+  shift  # 나머지는 curl 옵션
+
+  local max_attempts="${DEPLOY_CURL_MAX_ATTEMPTS:-4}"
+  local backoff_base="${DEPLOY_CURL_BACKOFF_BASE:-15}"
+  local connect_timeout="${DEPLOY_CURL_CONNECT_TIMEOUT:-30}"
+  local max_time="${DEPLOY_CURL_MAX_TIME:-600}"
+
+  local attempt=1
+  local exit_code=0
+
+  while [ "${attempt}" -le "${max_attempts}" ]; do
+    # 시도별 안내는 stderr 로 (캡처되지 않도록).
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')]    [retry ${attempt}/${max_attempts}] ${description} (connect-timeout=${connect_timeout}s, max-time=${max_time}s)" >> "${LOG_FILE}"
+
+    # curl 호출 — 호출자 옵션을 그대로 통과시키고 timeout 만 추가.
+    curl --connect-timeout "${connect_timeout}" --max-time "${max_time}" "$@"
+    exit_code=$?
+
+    # 0 = 성공
+    if [ "${exit_code}" -eq 0 ]; then
+      if [ "${attempt}" -gt 1 ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ✅ ${description} retry ${attempt} 회차에서 성공" >> "${LOG_FILE}"
+      fi
+      return 0
+    fi
+
+    # 22 = HTTP 4xx (curl -f 와 함께) → 영구 에러, retry 무의미
+    if [ "${exit_code}" -eq 22 ]; then
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ❌ ${description} HTTP 4xx 영구 에러 (curl exit 22) — retry 중단" >> "${LOG_FILE}"
+      return 22
+    fi
+
+    # 마지막 시도였으면 retry 안 함
+    if [ "${attempt}" -ge "${max_attempts}" ]; then
+      echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ❌ ${description} ${max_attempts}회 모두 실패 (마지막 curl exit=${exit_code})" >> "${LOG_FILE}"
+      return "${exit_code}"
+    fi
+
+    # exponential backoff: 15s → 30s → 60s
+    local backoff=$(( backoff_base * (1 << (attempt - 1)) ))
+    case "${exit_code}" in
+      28)  echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ⚠️ timeout (curl exit 28) — ${backoff}초 후 재시도" >> "${LOG_FILE}" ;;
+      6|7) echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ⚠️ DNS/connection 실패 (curl exit ${exit_code}) — ${backoff}초 후 재시도" >> "${LOG_FILE}" ;;
+      *)   echo "[$(date '+%Y-%m-%d %H:%M:%S')]    ⚠️ 일시 장애 (curl exit ${exit_code}) — ${backoff}초 후 재시도" >> "${LOG_FILE}" ;;
+    esac
+    sleep "${backoff}"
+
+    attempt=$(( attempt + 1 ))
+  done
+
+  return "${exit_code}"
+}
+
 # ── 1. Git 코드 동기화 (메타데이터/소스용 — 빌드는 안 함) ──
 # 서버에서 실제로 실행되는 건 dist/index.js 이므로 git 동기화는 사실상 메타데이터(스크립트, docs) 용.
 # 그래도 서버에서 npx tsx scripts/_*.ts 로 진단 스크립트 돌릴 수 있으니 sync 는 해둔다.
@@ -104,13 +181,13 @@ log "2. Release 자산 다운로드"
 WORK_DIR=$(mktemp -d -p "${APP_DIR}" .deploy.tmp.XXXXXX)
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-# GitHub API 로 자산 ID 조회
+# GitHub API 로 자산 ID 조회 (retry/timeout helper 적용 — Plan B-alt)
 log "   → release '${RELEASE_TAG}' 메타정보 조회"
-RELEASE_JSON=$(curl -fsSL \
+RELEASE_JSON=$(curl_retry "release 메타정보 조회" -fsSL \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "Accept: application/vnd.github+json" \
   "https://api.github.com/repos/${GH_REPO}/releases/tags/${RELEASE_TAG}" 2>&1) || {
-    err "release '${RELEASE_TAG}' 조회 실패 (token 권한? tag 오타?)"
+    err "release '${RELEASE_TAG}' 조회 실패 (token 권한? tag 오타? 또는 retry 4회 모두 실패)"
     exit 3
 }
 
@@ -126,14 +203,15 @@ fi
 
 log "   → asset_id=${ASSET_ID}, size=${ASSET_SIZE} bytes"
 
-# 자산 다운로드 (octet-stream 으로 받아야 실제 파일이 옴)
-log "   → 다운로드 진행"
-curl -fsSL \
+# 자산 다운로드 (octet-stream 으로 받아야 실제 파일이 옴) — retry/timeout helper 적용 (Plan B-alt)
+#   v0.8.84-86 연속 timeout 실패 (CDN 자산 다운로드 5분 초과) 의 핵심 fix 지점.
+log "   → 다운로드 진행 (retry up to ${DEPLOY_CURL_MAX_ATTEMPTS:-4} attempts, max-time ${DEPLOY_CURL_MAX_TIME:-600}s)"
+curl_retry "자산 다운로드 (${ASSET_NAME})" -fsSL \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
   -H "Accept: application/octet-stream" \
   -o "${WORK_DIR}/${ASSET_NAME}" \
   "https://api.github.com/repos/${GH_REPO}/releases/assets/${ASSET_ID}" || {
-    err "자산 다운로드 실패"
+    err "자산 다운로드 실패 (retry 4회 모두 실패 — CDN 장기 장애 가능성)"
     exit 3
 }
 
