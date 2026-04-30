@@ -1,0 +1,163 @@
+name: Nightly Reload 502 Measurement
+
+# 매일 KST 04:00 (UTC 19:00 전날) 에 운영 health endpoint 의
+# 응답 안정성을 측정한다. 임계치 위반 시 GitHub Issue 자동 생성.
+#
+# Plan D (PR #183) graceful reload 효과의 지속적 모니터링.
+# PR #185 의 measure-reload-502.ts 를 활용 (--no-reload 모드).
+#
+# 안전성:
+#   - --no-reload 모드만 사용 (PM2 reload 명령 미실행)
+#   - read-only health 호출만, 운영 DB / 사용자 데이터 영향 0
+#   - 실패 시 자동 롤백 없음, Issue 만 생성
+
+on:
+  schedule:
+    - cron: '0 19 * * *'   # 매일 UTC 19:00 = KST 04:00 (저트래픽 시간)
+  workflow_dispatch:        # 수동 실행 버튼 (테스트용)
+    inputs:
+      duration:
+        description: '측정 지속 시간 (초)'
+        required: false
+        default: '30'
+      rps:
+        description: 'Target RPS'
+        required: false
+        default: '50'
+
+jobs:
+  measure-health:
+    name: 운영 Health 안정성 측정
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write      # 실패 시 Issue 자동 생성
+      contents: read
+
+    env:
+      HEALTH_URL: ${{ secrets.NIGHTLY_HEALTH_URL || 'https://millioai.com/api/health' }}
+      DURATION: ${{ github.event.inputs.duration || '30' }}
+      RPS: ${{ github.event.inputs.rps || '50' }}
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: tsx 글로벌 설치 (단독 실행용)
+        run: npm install -g tsx@4
+
+      - name: 측정 스크립트 실행 (baseline-only)
+        id: measure
+        run: |
+          set +e   # 임계치 위반 시 exit 1 → 우리 로직에서 핸들링
+          mkdir -p logs/reload-measurements
+
+          echo "=== Nightly Reload Measurement ==="
+          echo "URL      : ${HEALTH_URL}"
+          echo "Duration : ${DURATION}s"
+          echo "RPS      : ${RPS}"
+          echo
+
+          npx tsx scripts/measure-reload-502.ts \
+            --no-reload \
+            --duration "${DURATION}" \
+            --rps "${RPS}" \
+            --max-502-window 1000 \
+            --max-502-count 10 \
+            2>&1 | tee /tmp/measure.log
+
+          MEASURE_EXIT=${PIPESTATUS[0]}
+          echo "measure_exit=${MEASURE_EXIT}" >> "$GITHUB_OUTPUT"
+
+          # 결과 JSON 추출 (가장 최근 파일)
+          RESULT_FILE=$(ls -t logs/reload-measurements/*.json 2>/dev/null | head -1 || echo "")
+          if [ -n "${RESULT_FILE}" ]; then
+            echo "result_file=${RESULT_FILE}" >> "$GITHUB_OUTPUT"
+            echo "=== 결과 JSON ==="
+            cat "${RESULT_FILE}"
+          fi
+
+          exit ${MEASURE_EXIT}
+
+      - name: 결과 아티팩트 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reload-measurement-${{ github.run_id }}
+          path: |
+            logs/reload-measurements/*.json
+            /tmp/measure.log
+          retention-days: 30
+
+      - name: 임계치 위반 시 GitHub Issue 자동 생성
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const today = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+            // 측정 로그 본문 (있으면 첨부)
+            let measureLog = '';
+            try {
+              measureLog = fs.readFileSync('/tmp/measure.log', 'utf-8').slice(-3000);
+            } catch (e) {}
+
+            // 결과 JSON (있으면 본문에 임베드)
+            let resultJson = '';
+            try {
+              const dir = 'logs/reload-measurements';
+              const files = fs.readdirSync(dir)
+                .filter(f => f.endsWith('.json'))
+                .map(f => ({ f, m: fs.statSync(`${dir}/${f}`).mtimeMs }))
+                .sort((a, b) => b.m - a.m);
+              if (files.length > 0) {
+                resultJson = fs.readFileSync(`${dir}/${files[0].f}`, 'utf-8');
+              }
+            } catch (e) {}
+
+            const title = `[Nightly Reload] ${today} — 502 측정 임계치 위반 감지`;
+            const body = [
+              `## 🚨 Nightly Reload 502 측정 — 임계치 위반`,
+              ``,
+              `- **측정 시각 (KST)**: ${today}`,
+              `- **워크플로우**: \`${context.workflow}\` / Run [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+              `- **URL**: \`${process.env.HEALTH_URL}\``,
+              `- **Duration**: ${process.env.DURATION}s, **RPS**: ${process.env.RPS}`,
+              ``,
+              `### 임계치`,
+              `- 502 윈도우 ≤ 1000ms`,
+              `- 502 카운트 ≤ 10`,
+              `- non-200 비율 ≤ 1%`,
+              ``,
+              `### 측정 로그 (마지막 3KB)`,
+              '```',
+              measureLog || '(로그 없음)',
+              '```',
+              ``,
+              resultJson ? `### 결과 JSON\n\`\`\`json\n${resultJson}\n\`\`\`` : '',
+              ``,
+              `### 점검 권장 순서`,
+              `1. 운영 서버 PM2 상태 확인: \`pm2 describe haccpone\``,
+              `2. 최근 deploy / reload 이벤트 확인: \`pm2 logs haccpone --nostream | tail -100\``,
+              `3. PR #183 graceful reload 정적 invariant 확인: \`npx tsx scripts/verify-graceful-reload.ts\``,
+              `4. 수동 재측정: \`npm run measure:reload:baseline\``,
+              ``,
+              `---`,
+              `> 본 Issue 는 [\`nightly-reload-measurement.yml\`](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/blob/main/.github/workflows/nightly-reload-measurement.yml) 워크플로우에 의해 자동 생성됨.`,
+              `> 관련: PR #183 (Plan D), PR #184 (정적 회귀), PR #185 (동적 측정)`,
+            ].filter(Boolean).join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['ops', 'plan-d-regression', 'auto-generated'],
+            });
