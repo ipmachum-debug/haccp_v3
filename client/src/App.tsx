@@ -103,6 +103,8 @@ const CorrectiveActionList = lazy(() => import("./pages/haccp/CorrectiveActionLi
 const F3Dashboard = lazy(() => import("./pages/haccp/F3Dashboard"));
 const CosmeticBmrList = lazy(() => import("./pages/cosmetic/CosmeticBmrList"));
 const CosmeticBmrIngredient = lazy(() => import("./pages/cosmetic/CosmeticBmrIngredient"));
+const CosmeticLabelList = lazy(() => import("./pages/cosmetic/CosmeticLabelList"));
+const CosmeticLabelDetail = lazy(() => import("./pages/cosmetic/CosmeticLabelDetail"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -494,6 +496,8 @@ function Router() {
       <Route path="/dashboard/cosmetic/bmr" component={CosmeticBmrList} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
+      <Route path="/dashboard/cosmetic/label" component={CosmeticLabelList} />
+      <Route path="/dashboard/cosmetic/label/:id" component={CosmeticLabelDetail} />
       <Route path="/dashboard/haccp/f3-trends" component={DeviationTrends} />
       <Route path="/dashboard/cosmetic/bmr/:id/ipc" component={CosmeticBmrIpc} />
       <Route path="/dashboard/cosmetic/bmr/:id/ingredient" component={CosmeticBmrIngredient} />
