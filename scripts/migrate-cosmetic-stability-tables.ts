@@ -4,15 +4,10 @@
  * 실행: npx tsx scripts/migrate-cosmetic-stability-tables.ts
  */
 import mysql from "mysql2/promise";
+import { getDbConfigFromEnv } from "./_lib/db-env.js";
 
 async function migrate() {
-  const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || "localhost",
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER || "haccp_user",
-    password: process.env.DB_PASSWORD || "haccp_password",
-    database: process.env.DB_NAME || "haccp_v3",
-  });
+  const conn = await mysql.createConnection(getDbConfigFromEnv(process.env));
 
   console.log("=== 마이그레이션: 화장품 안정성시험 2 테이블 (Phase 2-8) ===\n");
 
