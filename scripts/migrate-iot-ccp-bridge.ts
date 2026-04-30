@@ -13,6 +13,7 @@
  *
  * 안전:
  *   - idempotent (이미 컬럼 존재 시 스킵)
+ *   - graceful skip (iot_devices 테이블 자체가 없으면 0 exit, 후속 단계 진행)
  *   - 기본값 NULL — 기존 동작과 호환
  */
 import mysql from "mysql2/promise";
@@ -27,6 +28,27 @@ async function migrate() {
   });
 
   console.log("=== 마이그레이션 시작: iot_devices.ccp_type 컬럼 추가 (CP-3-h) ===\n");
+
+  // 0. 테이블 존재 여부 확인 (graceful skip — F-3 IoT 모듈 미구축 환경 호환)
+  //    iot_devices 자체가 없으면 0 exit code 로 종료하여 runner 의 후속 단계를 막지 않음.
+  //    IoT 모듈이 추가된 환경에서 본 스크립트가 다시 실행되면 정상적으로 컬럼을 추가.
+  const [tableRows]: any = await conn.execute(
+    `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'iot_devices'`,
+  );
+
+  if ((tableRows as any[]).length === 0) {
+    console.log(
+      "⚠️  iot_devices 테이블이 존재하지 않음 — IoT 모듈 미구축 환경으로 판단, 스킵.",
+    );
+    console.log(
+      "   (F-3 IoT 폐쇄 루프 활성화 전에는 이 마이그레이션이 필요하지 않음)",
+    );
+    await conn.end();
+    console.log("=== 마이그레이션 스킵 완료 (graceful) ===");
+    return;
+  }
 
   // 1. 컬럼 존재 여부 확인 (idempotent)
   const [cols]: any = await conn.execute(
