@@ -12,10 +12,11 @@
  *   - 본 맵은 industry/* 의 라우터만 import
  *   - 각 industry 모듈은 다른 industry 의 라우터 직접 참조 금지
  */
-import { cosmeticBmrRouter } from "../industry/cosmetic";
+import { cosmeticBmrRouter, cosmeticBmrIpcRouter } from "../industry/cosmetic";
 
 export const industryRouterMap = {
   cosmetic: {
     bmr: cosmeticBmrRouter,
+    bmrIpc: cosmeticBmrIpcRouter,
   },
 } as const;
