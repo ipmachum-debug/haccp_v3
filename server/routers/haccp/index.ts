@@ -21,3 +21,4 @@ export { traceabilityRouter } from "./traceability.router";
 export { metalDetectionRouter } from "./metalDetection.router";
 export { ccpMonitoringRouter } from "./ccpMonitoringMerge.router";
 export { f3DashboardRouter } from "./f3Dashboard.router";
+export { f3TrendsRouter } from "./f3Trends.router";
