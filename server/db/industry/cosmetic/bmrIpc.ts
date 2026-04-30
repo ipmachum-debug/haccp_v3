@@ -89,7 +89,39 @@ export async function createIpc(
     notes: data.notes ?? null,
   } as any);
 
-  return { id: Number((result as any).insertId), passFail };
+  const id = Number((result as any).insertId);
+
+  // CP-3-style F-3 cosmetic (Phase 2-7): IPC fail 시 자동 알림
+  // env 미활성 시 no-op. catch 무시 — 메인 흐름 보호.
+  if (passFail === "fail") {
+    try {
+      const { dispatchIpcFailAlert, isCosmeticAlertEnabled } = await import(
+        "../../../services/cosmetic/cosmeticAlerts"
+      );
+      if (isCosmeticAlertEnabled(tenantId)) {
+        await dispatchIpcFailAlert(
+          {
+            id,
+            bmrId: data.bmrId,
+            measurementType: data.measurementType,
+            measurementLabel: data.measurementLabel,
+            measuredValue: data.measuredValue,
+            expectedMin: data.expectedMin,
+            expectedMax: data.expectedMax,
+            unit: data.unit,
+            measuredBy: data.measuredBy,
+          },
+          tenantId,
+        );
+      }
+    } catch (alertErr: any) {
+      console.warn(
+        `[cosmeticIpc.create] 알림 dispatch 실패 (안전 무시) — ipc=#${id}: ${alertErr?.message ?? alertErr}`,
+      );
+    }
+  }
+
+  return { id, passFail };
 }
 
 export async function listIpcByBmr(bmrId: number, tenantId: number) {
