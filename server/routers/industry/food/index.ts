@@ -30,3 +30,8 @@ export { foodCcpFormRouter } from "./ccpForm.router";
 export { foodCcpScheduleRouter } from "./ccpSchedule.router";
 export { foodCcpTemplateRouter } from "./ccpTemplate.router";
 export { foodCcpMonitoringRouter } from "./ccpMonitoring.router";
+
+// CP-4 5단계 — 부적합 / 시정 / 회수 3개 (re-export)
+export { foodNonconformingProductRouter } from "./nonconformingProduct.router";
+export { foodCorrectiveActionRouter } from "./correctiveAction.router";
+export { foodRecallSimulationRouter } from "./recallSimulation.router";
