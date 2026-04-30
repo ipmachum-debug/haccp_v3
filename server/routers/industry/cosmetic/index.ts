@@ -9,3 +9,4 @@ export { cosmeticBmrIpcRouter } from "./bmrIpc.router";
 export { cosmeticFormulaRouter } from "./formula.router";
 export { cosmeticBmrIngredientRouter } from "./bmrIngredient.router";
 export { cosmeticLabelRouter } from "./label.router";
+export { cosmeticReleaseRouter } from "./release.router";
