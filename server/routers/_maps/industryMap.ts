@@ -45,6 +45,14 @@ import {
   foodLotManagementRouter,
   foodMetalDetectionRouter,
   foodTraceabilityRouter,
+  foodHazardAnalysisRouter,
+  foodHaccpPlanVerificationRouter,
+  foodInternalAuditRouter,
+  foodSupplierAuditRouter,
+  foodNonconformingProductRouter,
+  foodCorrectiveActionRouter,
+  foodRecallSimulationRouter,
+  foodHaccpIntegrationRouter,
 } from "../industry/food";
 
 export const industryRouterMap = {
@@ -59,9 +67,13 @@ export const industryRouterMap = {
     kfdaReport: cosmeticKfdaReportRouter,
     dashboard: cosmeticDashboardRouter,
   },
-  // CP-4 식품 이주 1단계 — dashboard/trends re-export (haccpMap 과 양쪽 노출)
-  // CP-4 2단계 — CCP 핵심 5개 추가
-  // CP-4 3단계 — 검사 / LOT / 추적 6개 추가
+  // CP-4 식품 이주 1~6단계 누적 — 21개 라우터 100% 노출
+  //   1단계 (#164): dashboard / trends
+  //   2단계 (#166): CCP 핵심 5개 (ccp / ccpForm / ccpSchedule / ccpTemplate / ccpMonitoring)
+  //   3단계 (#167): 검사/LOT/추적 6개
+  //   4단계 (본 PR): 위해분석/검증/감사 4개
+  //   5단계 (본 PR): 부적합/시정/회수 3개
+  //   6단계 (본 PR): haccpIntegration (회계 의존 동적 import — ADR-002 위반 없음)
   food: {
     dashboard: foodDashboardRouter,
     trends: foodTrendsRouter,
@@ -76,5 +88,13 @@ export const industryRouterMap = {
     lotManagement: foodLotManagementRouter,
     metalDetection: foodMetalDetectionRouter,
     traceability: foodTraceabilityRouter,
+    hazardAnalysis: foodHazardAnalysisRouter,
+    haccpPlanVerification: foodHaccpPlanVerificationRouter,
+    internalAudit: foodInternalAuditRouter,
+    supplierAudit: foodSupplierAuditRouter,
+    nonconformingProduct: foodNonconformingProductRouter,
+    correctiveAction: foodCorrectiveActionRouter,
+    recallSimulation: foodRecallSimulationRouter,
+    haccpIntegration: foodHaccpIntegrationRouter,
   },
 } as const;
