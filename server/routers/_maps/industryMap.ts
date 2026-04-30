@@ -34,6 +34,11 @@ import {
 import {
   foodDashboardRouter,
   foodTrendsRouter,
+  foodCcpRouter,
+  foodCcpFormRouter,
+  foodCcpScheduleRouter,
+  foodCcpTemplateRouter,
+  foodCcpMonitoringRouter,
 } from "../industry/food";
 
 export const industryRouterMap = {
@@ -49,8 +54,14 @@ export const industryRouterMap = {
     dashboard: cosmeticDashboardRouter,
   },
   // CP-4 식품 이주 1단계 — dashboard/trends re-export (haccpMap 과 양쪽 노출)
+  // CP-4 2단계 — CCP 핵심 5개 추가
   food: {
     dashboard: foodDashboardRouter,
     trends: foodTrendsRouter,
+    ccp: foodCcpRouter,
+    ccpForm: foodCcpFormRouter,
+    ccpSchedule: foodCcpScheduleRouter,
+    ccpTemplate: foodCcpTemplateRouter,
+    ccpMonitoring: foodCcpMonitoringRouter,
   },
 } as const;
