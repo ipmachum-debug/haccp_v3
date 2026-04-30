@@ -292,6 +292,7 @@ const menuItems = [
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
+  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
