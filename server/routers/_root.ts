@@ -28,6 +28,9 @@ import { haccpRouterMap } from "./_maps/haccpMap";
 // ── industry ── (2026-04-28: Layer 4 industry 통합 맵 — Phase 2 cosmetic PoC)
 import { industryRouterMap } from "./_maps/industryMap";
 
+// ── core-mes ── (2026-04-30: Layer 2 cross-cutting 도메인 — Phase Y-2 진입점)
+import { coreMesRouterMap } from "./_maps/coreMesMap";
+
 // ── inventory ──
 import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inventory";
 
@@ -75,6 +78,9 @@ export const appRouter = router({
 
   // ── industry ── (2026-04-28: Layer 4 cosmetic PoC — _maps/industryMap.ts)
   ...industryRouterMap,
+
+  // ── core-mes ── (2026-04-30: Layer 2 cross-cutting — _maps/coreMesMap.ts)
+  ...coreMesRouterMap,
 
   // ── inventory ──
   inventory: inventoryRouter,
