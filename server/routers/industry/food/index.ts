@@ -38,3 +38,17 @@ export { foodFinishedProductInspectionRouter } from "./finishedProductInspection
 export { foodLotManagementRouter } from "./lotManagement.router";
 export { foodMetalDetectionRouter } from "./metalDetection.router";
 export { foodTraceabilityRouter } from "./traceability.router";
+
+// CP-4 4단계 — 위해분석 / 검증 / 감사 4개 (re-export)
+export { foodHazardAnalysisRouter } from "./hazardAnalysis.router";
+export { foodHaccpPlanVerificationRouter } from "./haccpPlanVerification.router";
+export { foodInternalAuditRouter } from "./internalAudit.router";
+export { foodSupplierAuditRouter } from "./supplierAudit.router";
+
+// CP-4 5단계 — 부적합 / 시정 / 회수 3개 (re-export)
+export { foodNonconformingProductRouter } from "./nonconformingProduct.router";
+export { foodCorrectiveActionRouter } from "./correctiveAction.router";
+export { foodRecallSimulationRouter } from "./recallSimulation.router";
+
+// CP-4 6단계 — haccpIntegration (re-export, 회계 의존은 동적 import 라 정적 ADR-002 위반 없음)
+export { foodHaccpIntegrationRouter } from "./haccpIntegration.router";

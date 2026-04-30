@@ -134,10 +134,9 @@ industryRouterMap 에 등록.
 
 ```
 ✅ 1단계: dashboard/trends re-export (PR #164)
-✅ 2단계: CCP 핵심 5개 (PR #166 — ccp/ccpForm/ccpSchedule/ccpTemplate/ccpMonitoring)
-✅ 3단계: 검사/LOT/추적 6개 (inspection/visualInspection/finishedProductInspection/lotManagement/metalDetection/traceability)
-⏳ 4단계: 위해분석/검증/감사 4개
-⏳ 5단계: 부적합/시정/회수 3개
-⏳ 6단계: haccpIntegration (회계)
+✅ 2단계: CCP 핵심 5개 (PR #166)
+✅ 3단계: 검사/LOT/추적 6개 (PR #167)
+✅ 4~6단계: 위해분석/검증/감사 4개 + 부적합/시정/회수 3개 + haccpIntegration
+            (Bundle PR — #168/#169/#170 통합으로 머지 1회 단순화)
 ⏳ 7단계: haccpMap 정리 + 클라이언트 일괄 전환
 ```
