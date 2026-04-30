@@ -20,6 +20,7 @@ import {
   cosmeticLabelRouter,
   cosmeticReleaseRouter,
   cosmeticStabilityRouter,
+  cosmeticKfdaReportRouter,
 } from "../industry/cosmetic";
 
 export const industryRouterMap = {
@@ -31,5 +32,6 @@ export const industryRouterMap = {
     label: cosmeticLabelRouter,
     release: cosmeticReleaseRouter,
     stability: cosmeticStabilityRouter,
+    kfdaReport: cosmeticKfdaReportRouter,
   },
 } as const;
