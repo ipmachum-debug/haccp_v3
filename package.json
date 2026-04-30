@@ -20,7 +20,9 @@
     "backup:schema": "./scripts/backup-to-remote.sh schema",
     "backup:data": "./scripts/backup-to-remote.sh data",
     "arch:check": "depcruise --config .dependency-cruiser.cjs server",
-    "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot server | dot -T svg > architecture-graph.svg"
+    "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot server | dot -T svg > architecture-graph.svg",
+    "measure:reload": "tsx scripts/measure-reload-502.ts",
+    "measure:reload:baseline": "tsx scripts/measure-reload-502.ts --no-reload --duration 10"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
