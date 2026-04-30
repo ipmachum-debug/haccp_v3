@@ -5,3 +5,4 @@
  * 자세한 사항은 bmr.router.ts 의 docstring 참조.
  */
 export { cosmeticBmrRouter } from "./bmr.router";
+export { cosmeticBmrIpcRouter } from "./bmrIpc.router";
