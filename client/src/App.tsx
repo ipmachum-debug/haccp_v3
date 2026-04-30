@@ -101,6 +101,7 @@ const BatchScheduleCalendar = lazy(() => import("./pages/production/BatchSchedul
 const BatchSchedule = lazy(() => import("./pages/batch/BatchSchedule"));
 const CorrectiveActionList = lazy(() => import("./pages/haccp/CorrectiveActionList"));
 const F3Dashboard = lazy(() => import("./pages/haccp/F3Dashboard"));
+const CosmeticBmrList = lazy(() => import("./pages/cosmetic/CosmeticBmrList"));
 const SystemSettings = lazy(() => import("./pages/system/SystemSettings"));
 const OpscoreSync = lazy(() => import("./pages/system/OpscoreSync"));
 const CompanySettings = lazy(() => import("./pages/system/CompanySettings"));
@@ -484,6 +485,7 @@ function Router() {
       <Route path="/batch-schedule" component={BatchSchedule} />
       <Route path="/corrective-actions" component={CorrectiveActionList} />
       <Route path="/dashboard/haccp/f3-dashboard" component={F3Dashboard} />
+      <Route path="/dashboard/cosmetic/bmr" component={CosmeticBmrList} />
       <Route path="/system-settings" component={SystemSettings} />
       <Route path="/company-settings" component={CompanySettings} />
       <Route path="/account-categories" component={AccountCategoryManagement} />
