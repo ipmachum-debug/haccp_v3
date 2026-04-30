@@ -801,50 +801,65 @@ async function startServer() {
   //   기존: server.close() 만 호출 → keep-alive idle 소켓 살아있어 콜백 지연
   //         → reload 시 502 윈도우 5~10초.
   //   변경:
-  //     1. closeIdleConnections() — idle 소켓 즉시 정리 (Node 18.2+)
-  //     2. server.close() — 활성 요청만 끝까지 응답
-  //     3. 8초 force-exit timer — 응답 늦은 요청은 closeAllConnections() 으로 강제 종료
-  const gracefulShutdown = async () => {
-    console.log("[Server] Shutting down gracefully...");
+  //     1. isShuttingDown 가드 — SIGTERM/SIGINT 재진입 방지 (idempotent)
+  //     2. closeIdleConnections() — idle 소켓 즉시 정리 (Node 18.2+ typeof guard)
+  //     3. server.close() — 활성 요청만 끝까지 응답 (Redis quit 와 병행)
+  //     4. 8초 force-exit timer — 응답 늦은 요청은 closeAllConnections() 으로 강제 종료
+  //     5. signal 인자 — 어느 신호인지 로그 (관측성)
+  let isShuttingDown = false;
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      console.log(`[Server] Shutdown already in progress (received ${signal} again)`);
+      return;
+    }
+    isShuttingDown = true;
+    console.log(`[Server] Shutting down gracefully (signal: ${signal})...`);
 
+    // 강제 종료 안전망: 8초 내 server.close 미완료 시 잔여 연결 정리 후 강제 exit
+    // (PM2 kill_timeout 10s 보다 짧게 — SIGKILL 도달 전에 정리)
+    const FORCE_EXIT_MS = 8000;
+    const forceExitTimer = setTimeout(() => {
+      console.error(`[Server] Graceful shutdown timeout (${FORCE_EXIT_MS}ms) — forcing exit`);
+      if (typeof (server as { closeAllConnections?: () => void }).closeAllConnections === "function") {
+        try {
+          (server as { closeAllConnections?: () => void }).closeAllConnections!();
+        } catch (err) {
+          console.error("[Server] closeAllConnections error:", err);
+        }
+      }
+      process.exit(1);
+    }, FORCE_EXIT_MS);
+    forceExitTimer.unref();
+
+    // 1) 새 연결 거부 + 활성 요청 끝까지 응답 후 종료
+    server.close(() => {
+      console.log("[Server] Closed gracefully");
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    });
+
+    // 2) Keep-alive idle 연결 즉시 정리 (502 윈도우 핵심 차단)
+    //    Node 18.2+ — typeof guard 로 fallback 안전.
+    if (typeof (server as { closeIdleConnections?: () => void }).closeIdleConnections === "function") {
+      try {
+        (server as { closeIdleConnections?: () => void }).closeIdleConnections!();
+        console.log("[Server] Idle connections closed");
+      } catch (err) {
+        console.error("[Server] closeIdleConnections error (non-fatal):", err);
+      }
+    }
+
+    // 3) Redis 정리는 server.close 와 병행 — Redis 응답 지연이 close 콜백 막지 않도록
     try {
       await redisClient.quit();
       console.log("[Redis] Disconnected");
     } catch (err) {
       console.error("[Redis] Error during disconnect:", err);
     }
-
-    // 1. Keep-alive idle 연결 즉시 정리 (502 윈도우의 핵심 원인 차단)
-    //    Node 18.2+ Server.closeIdleConnections() — 활성 요청 없는 소켓만 종료.
-    //    cast 사용 (TypeScript @types/node 일부 버전 미반영).
-    try {
-      (server as { closeIdleConnections?: () => void }).closeIdleConnections?.();
-      console.log("[Server] Idle connections closed");
-    } catch (err) {
-      console.error("[Server] closeIdleConnections error (non-fatal):", err);
-    }
-
-    // 2. 활성 요청 응답 대기 후 server.close() 콜백 호출
-    server.close(() => {
-      console.log("[Server] Closed gracefully");
-      process.exit(0);
-    });
-
-    // 3. 8초 후 강제 종료 — 응답 안 끝나는 요청 차단 (PM2 kill_timeout 보다 짧게)
-    const FORCE_EXIT_MS = 8000;
-    setTimeout(() => {
-      console.warn(`[Server] Graceful shutdown timeout (${FORCE_EXIT_MS}ms) — forcing exit`);
-      try {
-        (server as { closeAllConnections?: () => void }).closeAllConnections?.();
-      } catch (err) {
-        console.error("[Server] closeAllConnections error:", err);
-      }
-      process.exit(0);
-    }, FORCE_EXIT_MS).unref();
   };
-  
-  process.on("SIGTERM", gracefulShutdown);
-  process.on("SIGINT", gracefulShutdown);
+
+  process.on("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
+  process.on("SIGINT", () => { void gracefulShutdown("SIGINT"); });
 
   // 미처리 에러 Sentry 보고 + 서버 종료 방지
   process.on("uncaughtException", (err) => {
