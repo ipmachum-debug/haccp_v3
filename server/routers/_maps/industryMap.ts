@@ -19,6 +19,7 @@ import {
   cosmeticBmrIngredientRouter,
   cosmeticLabelRouter,
   cosmeticReleaseRouter,
+  cosmeticStabilityRouter,
 } from "../industry/cosmetic";
 
 export const industryRouterMap = {
@@ -29,5 +30,6 @@ export const industryRouterMap = {
     formula: cosmeticFormulaRouter,
     label: cosmeticLabelRouter,
     release: cosmeticReleaseRouter,
+    stability: cosmeticStabilityRouter,
   },
 } as const;
