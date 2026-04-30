@@ -134,10 +134,10 @@ industryRouterMap 에 등록.
 
 ```
 ✅ 1단계: dashboard/trends re-export (PR #164)
-✅ 2단계: CCP 핵심 5개 re-export (ccp/ccpForm/ccpSchedule/ccpTemplate/ccpMonitoring)
-⏳ 3단계: 검사/LOT/추적 6개
-⏳ 4단계: 위해분석/검증/감사 4개
-⏳ 5단계: 부적합/시정/회수 3개
-⏳ 6단계: haccpIntegration (회계)
+✅ 2단계: CCP 핵심 5개 (PR #166)
+✅ 3단계: 검사/LOT/추적 6개 (PR #167)
+✅ 4단계: 위해분석/검증/감사 4개 (PR #168)
+✅ 5단계: 부적합/시정/회수 3개 (PR #169)
+✅ 6단계: haccpIntegration (회계 의존 동적 import — ADR-002 위반 없음)
 ⏳ 7단계: haccpMap 정리 + 클라이언트 일괄 전환
 ```

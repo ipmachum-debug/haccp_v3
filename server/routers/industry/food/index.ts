@@ -30,3 +30,6 @@ export { foodCcpFormRouter } from "./ccpForm.router";
 export { foodCcpScheduleRouter } from "./ccpSchedule.router";
 export { foodCcpTemplateRouter } from "./ccpTemplate.router";
 export { foodCcpMonitoringRouter } from "./ccpMonitoring.router";
+
+// CP-4 6단계 — haccpIntegration (re-export, 회계 의존은 동적 import 라 정적 ADR-002 위반 없음)
+export { foodHaccpIntegrationRouter } from "./haccpIntegration.router";
