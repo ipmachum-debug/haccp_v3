@@ -66,11 +66,20 @@ module.exports = {
     watch: false,
     max_restarts: 10,
     min_uptime: '10s',
-    listen_timeout: 10000,
-    kill_timeout: 5000,
+    // ★ Plan D (2026-04-30): 502 윈도우 0초 수렴 (closeIdleConnections + ready DB pre-init 후)
+    //   listen_timeout 30000ms — DB pre-init + 스케줄러 등록 + ready 신호까지
+    //                             여유 확보 (기존 10000ms 는 DB 늦으면 부족)
+    //   kill_timeout 10000ms   — gracefulShutdown 의 force-exit timer (8000ms)
+    //                             보다 길게 → server.close() 콜백 / closeAllConnections()
+    //                             완료 시간 확보
+    listen_timeout: 30000,
+    kill_timeout: 10000,
     // 2026-04-28: 배포 시 502 윈도우 단축 (PR #107 머지 후 1초 502 사고)
     // 신 인스턴스가 server.listen 완료 후 process.send('ready') 호출하면
     // PM2 가 그 시점에 구 인스턴스 종료 → 502 윈도우 8초 → 1~2초로 단축.
+    // ★ Plan D 변경 후: ready 신호를 DB pre-init + 스케줄러 등록 후로 이동
+    //   (server/_core/index.ts) → 신 인스턴스 완전 준비 후에야 구 인스턴스
+    //   종료 시작 → 502 윈도우 0초 수렴.
     // 진짜 zero-downtime 은 nginx upstream retry 설정으로 보완 권장
     // (docs/operations/nginx-upstream-retry.md 참조).
     wait_ready: true,

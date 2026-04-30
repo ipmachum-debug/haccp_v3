@@ -737,21 +737,18 @@ async function startServer() {
   server.listen(port, '0.0.0.0', async () => {
     console.log(`Server running on http://0.0.0.0:${port}/`);
 
-    // PM2 wait_ready 신호: 신 인스턴스가 listen 완료 후 PM2 에 ready 통지.
-    // ecosystem.config.cjs 의 wait_ready: true 와 함께 동작 — PM2 가 이 신호를
-    // 받기 전에는 구 인스턴스를 종료하지 않음 → reload 시 502 윈도우 단축.
-    // (fork mode + instances:1 이라 진짜 zero-downtime 은 안 되지만, listen 즉시
-    //  신호 보내 8초 → 1~2초로 단축 효과)
-    if (typeof process.send === "function") {
-      process.send("ready");
-    }
-
     // DB 사전 초기화 (스케줄러보다 먼저 실행)
+    // ★ Plan D: ready 신호를 이 단계 완료 후로 이동.
+    //   기존: listen 콜백 진입 즉시 process.send("ready") → PM2 가 곧바로 구
+    //         인스턴스 종료 → 신 인스턴스 첫 요청이 DB 초기화 전에 들어와
+    //         500/타임아웃 발생 (502 윈도우 5~10초).
+    //   변경: getDb() await + 스케줄러 등록 후 ready 통지 → 구 인스턴스 종료
+    //         시점에 신 인스턴스 완전 준비 완료.
     try {
       const { getDb } = await import("../db");
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
-      
+
       // 자동 마이그레이션 — production 기본 비활성.
       // 배포 재현성/스키마 drift 방지를 위해 배포 파이프라인에서 명시적으로 돌리는 것이 원칙.
       // 비상 시 RUN_STARTUP_MIGRATIONS=true 로 강제 실행 가능.
@@ -767,7 +764,7 @@ async function startServer() {
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
     }
-    
+
     // 스케줄러 초기화
     initScheduler();
     // 알림 자동 삭제 스케줄러 초기화
@@ -789,25 +786,80 @@ async function startServer() {
     initInspectionReportScheduler();
     // 일일 마감 스케줄러 초기화 (매일 18:00)
     initDailyClosingScheduler();
+
+    // ★ Plan D: PM2 wait_ready 신호 — DB + 스케줄러 모두 준비 완료 후 통지.
+    // ecosystem.config.cjs 의 wait_ready: true + listen_timeout: 30000 과 함께 동작.
+    // 이 신호 직전까지 PM2 는 구 인스턴스 종료를 보류 → 502 윈도우 0초 수렴.
+    if (typeof process.send === "function") {
+      process.send("ready");
+      console.log("[PM2] 'ready' 신호 전송 완료 (DB + 스케줄러 준비 완료 후)");
+    }
   });
   
-  // Graceful shutdown: Redis 연결 정리
-  const gracefulShutdown = async () => {
-    console.log("[Server] Shutting down gracefully...");
+  // Graceful shutdown: Redis 연결 정리 + keep-alive idle 연결 정리
+  // ★ Plan D: 502 윈도우의 진짜 원인 — keep-alive idle 소켓 정리 누락.
+  //   기존: server.close() 만 호출 → keep-alive idle 소켓 살아있어 콜백 지연
+  //         → reload 시 502 윈도우 5~10초.
+  //   변경:
+  //     1. isShuttingDown 가드 — SIGTERM/SIGINT 재진입 방지 (idempotent)
+  //     2. closeIdleConnections() — idle 소켓 즉시 정리 (Node 18.2+ typeof guard)
+  //     3. server.close() — 활성 요청만 끝까지 응답 (Redis quit 와 병행)
+  //     4. 8초 force-exit timer — 응답 늦은 요청은 closeAllConnections() 으로 강제 종료
+  //     5. signal 인자 — 어느 신호인지 로그 (관측성)
+  let isShuttingDown = false;
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      console.log(`[Server] Shutdown already in progress (received ${signal} again)`);
+      return;
+    }
+    isShuttingDown = true;
+    console.log(`[Server] Shutting down gracefully (signal: ${signal})...`);
+
+    // 강제 종료 안전망: 8초 내 server.close 미완료 시 잔여 연결 정리 후 강제 exit
+    // (PM2 kill_timeout 10s 보다 짧게 — SIGKILL 도달 전에 정리)
+    const FORCE_EXIT_MS = 8000;
+    const forceExitTimer = setTimeout(() => {
+      console.error(`[Server] Graceful shutdown timeout (${FORCE_EXIT_MS}ms) — forcing exit`);
+      if (typeof (server as { closeAllConnections?: () => void }).closeAllConnections === "function") {
+        try {
+          (server as { closeAllConnections?: () => void }).closeAllConnections!();
+        } catch (err) {
+          console.error("[Server] closeAllConnections error:", err);
+        }
+      }
+      process.exit(1);
+    }, FORCE_EXIT_MS);
+    forceExitTimer.unref();
+
+    // 1) 새 연결 거부 + 활성 요청 끝까지 응답 후 종료
+    server.close(() => {
+      console.log("[Server] Closed gracefully");
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    });
+
+    // 2) Keep-alive idle 연결 즉시 정리 (502 윈도우 핵심 차단)
+    //    Node 18.2+ — typeof guard 로 fallback 안전.
+    if (typeof (server as { closeIdleConnections?: () => void }).closeIdleConnections === "function") {
+      try {
+        (server as { closeIdleConnections?: () => void }).closeIdleConnections!();
+        console.log("[Server] Idle connections closed");
+      } catch (err) {
+        console.error("[Server] closeIdleConnections error (non-fatal):", err);
+      }
+    }
+
+    // 3) Redis 정리는 server.close 와 병행 — Redis 응답 지연이 close 콜백 막지 않도록
     try {
       await redisClient.quit();
       console.log("[Redis] Disconnected");
     } catch (err) {
       console.error("[Redis] Error during disconnect:", err);
     }
-    server.close(() => {
-      console.log("[Server] Closed");
-      process.exit(0);
-    });
   };
-  
-  process.on("SIGTERM", gracefulShutdown);
-  process.on("SIGINT", gracefulShutdown);
+
+  process.on("SIGTERM", () => { void gracefulShutdown("SIGTERM"); });
+  process.on("SIGINT", () => { void gracefulShutdown("SIGINT"); });
 
   // 미처리 에러 Sentry 보고 + 서버 종료 방지
   process.on("uncaughtException", (err) => {
