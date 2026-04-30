@@ -102,6 +102,7 @@ const BatchSchedule = lazy(() => import("./pages/batch/BatchSchedule"));
 const CorrectiveActionList = lazy(() => import("./pages/haccp/CorrectiveActionList"));
 const F3Dashboard = lazy(() => import("./pages/haccp/F3Dashboard"));
 const CosmeticBmrList = lazy(() => import("./pages/cosmetic/CosmeticBmrList"));
+const CosmeticBmrIngredient = lazy(() => import("./pages/cosmetic/CosmeticBmrIngredient"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -495,6 +496,7 @@ function Router() {
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
       <Route path="/dashboard/haccp/f3-trends" component={DeviationTrends} />
       <Route path="/dashboard/cosmetic/bmr/:id/ipc" component={CosmeticBmrIpc} />
+      <Route path="/dashboard/cosmetic/bmr/:id/ingredient" component={CosmeticBmrIngredient} />
       <Route path="/dashboard/cosmetic/bmr/:id" component={CosmeticBmrDetail} />
       <Route path="/system-settings" component={SystemSettings} />
       <Route path="/company-settings" component={CompanySettings} />
