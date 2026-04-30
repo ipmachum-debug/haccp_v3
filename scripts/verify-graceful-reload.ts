@@ -150,46 +150,63 @@ if (!fs.existsSync(serverPath)) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Check 5: ecosystem.config.cjs timeout
+// Check 5~7: ecosystem.config.cjs (require() 기반 객체 검사)
 // ─────────────────────────────────────────────────────────────
+//   정규식 매칭이 아닌 require() 후 실제 객체 검사 — 주석 / 변수 보간 / 임의 표현
+//   모두 안전하게 검증 (Genspark 진단 반영).
 const ecoPath = path.resolve(process.cwd(), "ecosystem.config.cjs");
 if (!fs.existsSync(ecoPath)) {
   fail("ecosystem-exists", "ecosystem.config.cjs 없음");
 } else {
-  const eco = fs.readFileSync(ecoPath, "utf8");
-  const ecoLines = eco.split("\n");
-  const ecoIsComment = annotateCommentLines(ecoLines);
-  const ecoCode = ecoLines
-    .map((l, i) => (ecoIsComment[i] ? "" : l))
-    .join("\n");
+  // require() 기반 검사 — Node 가 실제 평가
+  let cfg: { apps?: Array<Record<string, unknown>> } | null = null;
+  try {
+    // tsx 환경에서 .cjs require — createRequire 사용
+    const { createRequire } = await import("node:module");
+    const require = createRequire(import.meta.url);
+    cfg = require(ecoPath);
+  } catch (err) {
+    fail(
+      "ecosystem-load",
+      `ecosystem.config.cjs require() 실패: ${(err as Error).message}`,
+    );
+  }
 
-  const listenMatch = ecoCode.match(/listen_timeout\s*:\s*(\d+)/);
-  const killMatch = ecoCode.match(/kill_timeout\s*:\s*(\d+)/);
-
-  if (!listenMatch) {
-    fail("ecosystem-listen-timeout", "listen_timeout 설정 미발견");
+  const app = cfg?.apps?.[0];
+  if (!app) {
+    fail("ecosystem-app-found", "ecosystem.config.cjs apps[0] 미발견");
   } else {
-    const v = Number(listenMatch[1]);
-    if (v < 30000) {
+    // listen_timeout
+    const listenT = app.listen_timeout;
+    if (typeof listenT !== "number" || listenT < 30000) {
       fail(
         "ecosystem-listen-timeout",
-        `listen_timeout=${v} (Plan D 요구: 30000+)`,
+        `listen_timeout=${String(listenT)} (Plan D 요구: 30000+, DB pre-init + 스케줄러 등록 후 ready 발송 시간 확보)`,
       );
     } else {
-      pass("ecosystem-listen-timeout", `listen_timeout=${v}`);
+      pass("ecosystem-listen-timeout", `listen_timeout=${listenT}`);
     }
-  }
-  if (!killMatch) {
-    fail("ecosystem-kill-timeout", "kill_timeout 설정 미발견");
-  } else {
-    const v = Number(killMatch[1]);
-    if (v < 10000) {
+
+    // kill_timeout
+    const killT = app.kill_timeout;
+    if (typeof killT !== "number" || killT < 10000) {
       fail(
         "ecosystem-kill-timeout",
-        `kill_timeout=${v} (Plan D 요구: 10000+, gracefulShutdown 8s force-exit 보다 길게)`,
+        `kill_timeout=${String(killT)} (Plan D 요구: 10000+, gracefulShutdown 8s force-exit timer 보다 길게 — SIGKILL 도달 차단)`,
       );
     } else {
-      pass("ecosystem-kill-timeout", `kill_timeout=${v}`);
+      pass("ecosystem-kill-timeout", `kill_timeout=${killT}`);
+    }
+
+    // wait_ready (Genspark 진단 추가) — PM2 가 ready 신호 기다리는지 확인
+    const waitR = app.wait_ready;
+    if (waitR !== true) {
+      fail(
+        "ecosystem-wait-ready",
+        `wait_ready=${String(waitR)} (Plan D 요구: true, false 시 PM2 가 ready 신호 무시 → 502 윈도우 재발)`,
+      );
+    } else {
+      pass("ecosystem-wait-ready", `wait_ready=${waitR}`);
     }
   }
 }
