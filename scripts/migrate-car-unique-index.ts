@@ -28,14 +28,11 @@
  *   - 운영 데이터 손실 0 (가장 오래된 1건만 keep, 나머지는 drop)
  */
 import mysql from "mysql2/promise";
+import { getDbConfigFromEnv } from "./_lib/db-env.js";
 
 async function migrate() {
   const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || "localhost",
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USER || "haccp_user",
-    password: process.env.DB_PASSWORD || "haccp_password",
-    database: process.env.DB_NAME || "haccp_v3",
+    ...getDbConfigFromEnv(process.env),
     multipleStatements: false,
   });
 
