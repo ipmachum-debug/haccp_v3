@@ -33,6 +33,12 @@
  */
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// ESM 호환: package.json 의 "type": "module" 환경에서 __dirname 미정의.
+// import.meta.url → 파일 경로 → 디렉토리 경로 변환.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 type MigrationStep = {
   name: string;
