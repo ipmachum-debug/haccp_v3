@@ -58,6 +58,12 @@ const STEPS: MigrationStep[] = [
     script: "scripts/migrate-car-unique-index.ts",
     description: "CAR (시정조치) UNIQUE 인덱스 강화",
   },
+  // Cross-cutting 도메인 (core-mes/quality) — Phase Y-2-0
+  {
+    name: "change-control",
+    script: "scripts/migrate-change-control-table.ts",
+    description: "Change Control (변경관리) — Phase Y-2-0-a",
+  },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {
     name: "cosmetic-bmr",
