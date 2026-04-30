@@ -6,3 +6,4 @@
  */
 export { cosmeticBmrRouter } from "./bmr.router";
 export { cosmeticBmrIpcRouter } from "./bmrIpc.router";
+export { cosmeticFormulaRouter } from "./formula.router";
