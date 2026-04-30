@@ -30,3 +30,9 @@ export { foodCcpFormRouter } from "./ccpForm.router";
 export { foodCcpScheduleRouter } from "./ccpSchedule.router";
 export { foodCcpTemplateRouter } from "./ccpTemplate.router";
 export { foodCcpMonitoringRouter } from "./ccpMonitoring.router";
+
+// CP-4 4단계 — 위해분석 / 검증 / 감사 4개 (re-export)
+export { foodHazardAnalysisRouter } from "./hazardAnalysis.router";
+export { foodHaccpPlanVerificationRouter } from "./haccpPlanVerification.router";
+export { foodInternalAuditRouter } from "./internalAudit.router";
+export { foodSupplierAuditRouter } from "./supplierAudit.router";
