@@ -42,18 +42,9 @@ import { cn } from "@/lib/utils";
 
 // 사이드바 favorite 메뉴 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
 type FavoriteItem = RouterOutput["favorites"]["list"][number];
-// 사이드바 MenuItem 타입 (FIXED: 사이드바 렌더링용)
-type MenuItem = {
-  label: string;
-  path: string;
-  icon: React.ComponentType<{ className?: string }>;
-  roles?: string[];
-  highlight?: boolean;
-  badge?: string;
-  group?: string;
-  /** 이 메뉴를 표시하려면 활성이어야 하는 업종 모듈 */
-  requireModule?: ModuleKey;
-};
+// 사이드바 MenuItem 타입 — Phase Y-3: lib/menuTypes 으로 이전 (scope 필드 강제).
+// 본 alias 는 Y-6 사이드바 자동 탭 도입까지 호환 유지.
+import type { MenuItem } from "@/lib/menuTypes";
 import {
   DndContext,
   closestCenter,
@@ -249,68 +240,73 @@ const childRoutes: Record<string, string[]> = {
   ],
 };
 
-const menuItems = [
+const menuItems: MenuItem[] = [
   // 슈퍼관리자 전용 메뉴 (WORK 탭)
-  { icon: Crown, label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work" },
-  { icon: UserCheck, label: "사용자 승인", path: "/dashboard/users/approval", roles: ["super_admin"], category: "work" },
-  { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
+  { icon: Crown, label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work", scope: { kind: "platform" } },
+  { icon: UserCheck, label: "사용자 승인", path: "/dashboard/users/approval", roles: ["super_admin"], category: "work", scope: { kind: "platform" } },
+  { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work", scope: { kind: "platform" } },
 
   // WORK 탭 고정 메뉴
-  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], scope: { kind: "common" } },
 
-  // 생산 (admin, worker)
-  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
-  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
-  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
+  // 생산 (식품 HACCP 전용 — 식품 배치 / 생산 일보 / 식품 기준서)
+  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], scope: { kind: "industry", industry: "food" } },
+  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], scope: { kind: "industry", industry: "food" } },
+  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], scope: { kind: "industry", industry: "food" } },
 
-  // 품질 (admin, worker, inspector, monitor) — 업종 모듈별 분기
-  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"] },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
+  // 품질 — 식품 HACCP 전용
+  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
+  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], scope: { kind: "industry", industry: "food" } },
+  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
 
-  // 재고 (admin, accountant, worker-읽기)
-  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"] },
+  // 재고 (cross-industry common)
+  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"], scope: { kind: "common" } },
 
-  // 알림
-  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+  // 알림 (cross-industry common)
+  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"], scope: { kind: "common" } },
 
-  // 승인 (admin, monitor, inspector)
-  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"] },
+  // 승인 (cross-industry common — 인사/회계/품질 모두 사용)
+  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"], scope: { kind: "common" } },
 
-  // 문서 출력 (admin, accountant, monitor)
-  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"] },
+  // 문서 출력 (cross-industry common — Y-5 에서 industry view filter 추가 검토)
+  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"], scope: { kind: "common" } },
 
-  // 마스터 데이터 (admin, accountant)
-  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"] },
-  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"] },
+  // 마스터 데이터 (cross-industry common — Y-5 에서 industry sub-tab 분리)
+  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], scope: { kind: "common" } },
+  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], scope: { kind: "common" } },
 
-  // 모바일 (worker, inspector)
-  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"] },
-  // HACCP 검증 & 감사 (admin, inspector, monitor) — 업종 모듈별 분기
-  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
-  { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp" },
-  { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
-  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
-  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
+  // 모바일 빠른 점검 — 식품 HACCP 일일 점검 (식품 전용)
+  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], scope: { kind: "industry", industry: "food" } },
+
+  // 부적합제품관리 — 현재 식품 잔재. Y-2 에서 core-mes/quality 추출 후 common 승격.
+  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], scope: { kind: "industry", industry: "food" } },
+  // 시정조치 (CAR) — 동일 (Y-2 후 common)
+  { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
+  // F-3 IoT 폐쇄 루프 — 식품 전용
+  { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
+  { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
+  // 화장품 GMP — Phase 2
+  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", scope: { kind: "industry", industry: "cosmetic" } },
+  // 감사관리 — 현재 식품 잔재 (Y-2 후 common 승격)
+  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], scope: { kind: "industry", industry: "food" } },
+  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", scope: { kind: "industry", industry: "food" } },
+  // 감사 리포트 — 현재 식품 위주 (Y-2 후 common)
+  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"], scope: { kind: "industry", industry: "food" } },
 
   // 사내공지관리 → WORK 탭으로 이동
 
-  // 시스템 (admin만)
-  { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
+  // 시스템 관리 (cross-industry common — 회사 정보 / 사용자 / 권한)
+  { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], scope: { kind: "common" } },
   // 서버 모니터링 → 슈퍼관리자 전용 (superAdminMenuItems에서 접근)
   // ★ GOGOGOPICK 연동은 feature flag 로 제어 (기본 비활성, 운영 연동 대기)
   //    .env 에 VITE_FEATURE_GOGOGOPICK=true 설정 시 노출
   ...(FEATURES.GOGOGOPICK_INTEGRATION
-    ? [{ icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true }]
+    ? [{ icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true, scope: { kind: "platform" } } satisfies MenuItem]
     : []),
 ];
 
@@ -624,77 +620,78 @@ function DashboardLayoutContent({
   };
   
   // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
-  const workMenuItems = [
-    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+  const workMenuItems: MenuItem[] = [
+    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"], scope: { kind: "common" } },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"], scope: { kind: "common" } },
     // AI 어시스턴트: 하단 고정 버튼으로 탭 무관 접근 가능 → 사이드바에서 제거
-    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
-    { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
-    { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
+    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"], scope: { kind: "common" } },
+    // 스캔 체크리스트 — HACCP 일일 점검 (식품 전용)
+    { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"], scope: { kind: "industry", industry: "food" } },
+    { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"], scope: { kind: "common" } },
   ];
   
   // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
   // 회계 탭 메뉴 정의 — Option A 대칭 구조 (2026-04-14 재구성)
   // 6개 그룹: 개요 / 매입·구매 / 매출·판매 / 자금·비용 / 기준정보 / 마감·문서
-  const accountingMenuItems = [
+  const accountingMenuItems: MenuItem[] = [
     // ── 매일 쓰는 메뉴 (상단 배치) ──
 
     // 📊 대시보드
-    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
+    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요", scope: { kind: "accounting" } },
 
     // 📥 매입·구매 (가장 빈번)
-    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
-    { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
-    { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
+    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매", scope: { kind: "accounting" } },
+    { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매", scope: { kind: "accounting" } },
+    { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매", scope: { kind: "accounting" } },
 
     // 📤 매출·판매
-    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
+    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매", scope: { kind: "accounting" } },
+    { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매", scope: { kind: "accounting" } },
+    { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매", scope: { kind: "accounting" } },
+    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매", scope: { kind: "accounting" } },
     // ★ 2026-04-22 Phase 2: B2C 플랫폼 정산 모듈 (Millio 킬러 피처)
-    { icon: Receipt, label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
+    { icon: Receipt, label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매", scope: { kind: "accounting" } },
 
     // 💳 자금·비용
-    { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
-    { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용" },
+    { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용", scope: { kind: "accounting" } },
+    { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용", scope: { kind: "accounting" } },
 
     // ── 주기적으로 쓰는 메뉴 (중단 배치) ──
 
     // 📒 회계·세무
-    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: Receipt, label: "부가세", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "회계·세무" },
+    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "회계·세무", scope: { kind: "accounting" } },
+    { icon: Receipt, label: "부가세", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "회계·세무", scope: { kind: "accounting" } },
+    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "회계·세무", scope: { kind: "accounting" } },
+    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "회계·세무", scope: { kind: "accounting" } },
+    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "회계·세무", scope: { kind: "accounting" } },
 
     // 👥 인사·급여
-    { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "인사·급여" },
-    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin"], group: "인사·급여" },
+    { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "인사·급여", scope: { kind: "accounting" } },
+    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin"], group: "인사·급여", scope: { kind: "accounting" } },
 
     // ── 가끔 쓰는 메뉴 (하단 배치) ──
 
     // 📇 기준정보 — 2026-04-28: ROUTES 상수 사용 (App.tsx 라우트와 단일 source)
-    { icon: Building2, label: "거래처", path: ROUTES.ACCOUNTING_PARTNERS, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: ROUTES.ACCOUNTING_COMMUNICATION_LOG, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Shield, label: "신용관리", path: ROUTES.ACCOUNTING_PARTNER_CREDIT, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: DollarSign, label: "단가표", path: ROUTES.ACCOUNTING_PARTNER_PRICES, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: BookOpen, label: "계정 과목", path: ROUTES.ACCOUNTING_ACCOUNTS, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Building2, label: "고정자산", path: ROUTES.ACCOUNTING_FIXED_ASSETS, roles: ["super_admin", "admin"], group: "기준정보" },
+    { icon: Building2, label: "거래처", path: ROUTES.ACCOUNTING_PARTNERS, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
+    { icon: MessageSquare, label: "커뮤니케이션 로그", path: ROUTES.ACCOUNTING_COMMUNICATION_LOG, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
+    { icon: Shield, label: "신용관리", path: ROUTES.ACCOUNTING_PARTNER_CREDIT, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
+    { icon: DollarSign, label: "단가표", path: ROUTES.ACCOUNTING_PARTNER_PRICES, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
+    { icon: BookOpen, label: "계정 과목", path: ROUTES.ACCOUNTING_ACCOUNTS, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
+    { icon: Building2, label: "고정자산", path: ROUTES.ACCOUNTING_FIXED_ASSETS, roles: ["super_admin", "admin"], group: "기준정보", scope: { kind: "accounting" } },
 
     // 🔄 반복·이력
-    { icon: RotateCcw, label: "반복 거래", path: "/dashboard/accounting/recurring", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
+    { icon: RotateCcw, label: "반복 거래", path: "/dashboard/accounting/recurring", roles: ["super_admin", "admin"], group: "마감", scope: { kind: "accounting" } },
+    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감", scope: { kind: "accounting" } },
+    { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감", scope: { kind: "accounting" } },
+    { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감", scope: { kind: "accounting" } },
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
-  const superAdminMenuItems = [
+  const superAdminMenuItems: MenuItem[] = [
     // 일반 WORK 탭 메뉴 (슈퍼관리자도 접근 가능)
-    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
-    { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
+    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"], scope: { kind: "common" } },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"], scope: { kind: "common" } },
+    { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"], scope: { kind: "platform" } },
   ];
   
   // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
