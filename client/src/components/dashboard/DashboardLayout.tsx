@@ -298,6 +298,8 @@ const menuItems = [
   { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  // Phase Y-2-0-c: Change Control (변경관리) — cross-cutting core-mes 도메인 (industry view filter)
+  { icon: GitBranch, label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
