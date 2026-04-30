@@ -30,3 +30,11 @@ export { foodCcpFormRouter } from "./ccpForm.router";
 export { foodCcpScheduleRouter } from "./ccpSchedule.router";
 export { foodCcpTemplateRouter } from "./ccpTemplate.router";
 export { foodCcpMonitoringRouter } from "./ccpMonitoring.router";
+
+// CP-4 3단계 — 검사 / LOT / 추적 6개 (re-export)
+export { foodInspectionRouter } from "./inspection.router";
+export { foodVisualInspectionRouter } from "./visualInspection.router";
+export { foodFinishedProductInspectionRouter } from "./finishedProductInspection.router";
+export { foodLotManagementRouter } from "./lotManagement.router";
+export { foodMetalDetectionRouter } from "./metalDetection.router";
+export { foodTraceabilityRouter } from "./traceability.router";
