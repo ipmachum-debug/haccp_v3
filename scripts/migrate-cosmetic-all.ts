@@ -13,6 +13,14 @@
  *   --only=NAME[,..] : 특정 스크립트만 실행 (basename match)
  *   --skip=NAME[,..] : 특정 스크립트만 제외
  *
+ * 환경 변수 (자동 감지):
+ *   DATABASE_URL                       — Drizzle / 운영 표준 (mysql://user:pass@host:port/db)
+ *   DB_HOST / DB_USER / DB_PASSWORD / DB_NAME / DB_PORT — 개별 변수 (자식 스크립트 호환)
+ *
+ *   본 runner 는 DATABASE_URL 만 설정된 환경 (운영 .env) 에서도 자동 동작:
+ *   - DATABASE_URL 파싱 → DB_* 개별 변수로 자식 spawn env 에 주입
+ *   - 이미 DB_* 가 설정된 경우 그대로 사용 (override 안 함)
+ *
  * 안전:
  *   - 각 단계 실패 시 후속 단계 중단 (--continue-on-error 미지원, 의도적)
  *   - DB 변경은 각 스크립트 내부에서 처리 (이 runner 는 스폰만)
@@ -116,6 +124,59 @@ function pickSteps(only: string[] | null, skip: string[]): MigrationStep[] {
   return steps;
 }
 
+/**
+ * DATABASE_URL → DB_HOST / DB_USER / DB_PASSWORD / DB_NAME / DB_PORT 변환.
+ *
+ * 자식 마이그레이션 스크립트들이 process.env.DB_HOST 등 개별 변수를 읽기 때문에,
+ * 운영 환경 (.env 에 DATABASE_URL 만 존재) 에서도 자동 동작하도록 변환.
+ *
+ * 이미 DB_* 가 설정된 경우 override 하지 않음 (사용자 명시 우선).
+ *
+ * @returns 자식 spawn 에 주입할 추가 env (DB_*). 변환 불필요 시 빈 객체.
+ */
+function deriveDbEnvFromDatabaseUrl(env: NodeJS.ProcessEnv): Record<string, string> {
+  const url = env.DATABASE_URL?.trim();
+  if (!url) return {};
+
+  // 이미 모든 DB_* 가 설정되어 있으면 변환 생략 (사용자 명시 우선)
+  const allSet =
+    env.DB_HOST && env.DB_USER && env.DB_PASSWORD !== undefined && env.DB_NAME;
+  if (allSet) return {};
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    console.warn(
+      `[runner] DATABASE_URL 파싱 실패 (형식 확인 필요): ${url.replace(/:[^:@]*@/, ":***@")}`,
+    );
+    return {};
+  }
+
+  const out: Record<string, string> = {};
+  if (!env.DB_HOST && parsed.hostname) out.DB_HOST = parsed.hostname;
+  if (!env.DB_PORT && parsed.port) out.DB_PORT = parsed.port;
+  if (!env.DB_USER && parsed.username) out.DB_USER = decodeURIComponent(parsed.username);
+  if (env.DB_PASSWORD === undefined && parsed.password)
+    out.DB_PASSWORD = decodeURIComponent(parsed.password);
+  if (!env.DB_NAME && parsed.pathname) {
+    const dbName = parsed.pathname.replace(/^\//, "").split("?")[0];
+    if (dbName) out.DB_NAME = dbName;
+  }
+
+  if (Object.keys(out).length > 0) {
+    const masked = { ...out };
+    if (masked.DB_PASSWORD) masked.DB_PASSWORD = "***";
+    console.log(
+      `[runner] DATABASE_URL → DB_* 자동 변환:`,
+      Object.entries(masked)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" "),
+    );
+  }
+  return out;
+}
+
 async function main() {
   const { dryRun, only, skip } = parseArgs(process.argv.slice(2));
   const steps = pickSteps(only, skip);
@@ -126,6 +187,10 @@ async function main() {
   console.log(`총 단계: ${steps.length} / ${STEPS.length}`);
   if (dryRun) console.log("모드: DRY-RUN (실제 실행 없음)");
   console.log("");
+
+  // DATABASE_URL → DB_* 변환 (자식 스크립트 호환)
+  const derivedDbEnv = deriveDbEnvFromDatabaseUrl(process.env);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, ...derivedDbEnv };
 
   const results: Array<{
     name: string;
@@ -151,7 +216,7 @@ async function main() {
     const result = spawnSync("npx", ["tsx", step.script], {
       stdio: "inherit",
       cwd: path.resolve(__dirname, ".."),
-      env: process.env,
+      env: childEnv,
     });
     const durationMs = Date.now() - t0;
     const ok = result.status === 0;
