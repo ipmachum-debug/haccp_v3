@@ -12,3 +12,4 @@ export { cosmeticLabelRouter } from "./label.router";
 export { cosmeticReleaseRouter } from "./release.router";
 export { cosmeticStabilityRouter } from "./stability.router";
 export { cosmeticKfdaReportRouter } from "./kfdaReport.router";
+export { cosmeticDashboardRouter } from "./dashboard.router";

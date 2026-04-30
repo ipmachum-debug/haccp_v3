@@ -21,6 +21,7 @@ import {
   cosmeticReleaseRouter,
   cosmeticStabilityRouter,
   cosmeticKfdaReportRouter,
+  cosmeticDashboardRouter,
 } from "../industry/cosmetic";
 
 export const industryRouterMap = {
@@ -33,5 +34,6 @@ export const industryRouterMap = {
     release: cosmeticReleaseRouter,
     stability: cosmeticStabilityRouter,
     kfdaReport: cosmeticKfdaReportRouter,
+    dashboard: cosmeticDashboardRouter,
   },
 } as const;
