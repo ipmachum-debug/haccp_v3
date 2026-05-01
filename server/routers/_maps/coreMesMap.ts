@@ -51,6 +51,8 @@ export const coreMesRouterMap = {
    * KGMP §6 / ISO 22716 §7 / ISO 13485 §6.2 모두 적용.
    */
   training: trainingRouter,
+
+  /**
    * Calibration (검교정/설비 자격) — Phase Y-4
    *
    * 단일 테이블 h_calibrations + measurements JSON + nextDueDate 자동 계산.
