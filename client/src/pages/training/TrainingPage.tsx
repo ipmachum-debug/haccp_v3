@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
+import { FriendlyErrorBox } from "@/components/ui/FriendlyErrorBox";
 import { toast } from "@/hooks/use-toast";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import type { IndustryKey } from "@/lib/menuTypes";
@@ -151,7 +152,7 @@ export default function TrainingPage({ industry }: Props) {
             {listQuery.isLoading ? (
               <div className="text-center py-8 text-muted-foreground">로딩 중...</div>
             ) : listQuery.error ? (
-              <div className="text-center py-8 text-red-500">오류: {listQuery.error.message}</div>
+              <FriendlyErrorBox message={listQuery.error.message} />
             ) : !listQuery.data || listQuery.data.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">등록된 교육이 없습니다.</div>
             ) : (
