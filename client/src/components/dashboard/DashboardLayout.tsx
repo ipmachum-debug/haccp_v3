@@ -293,6 +293,8 @@ const menuItems = [
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // Phase Y-3: Training (식품 진입) — KGMP §6 / 식품안전관리법
   { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  // Phase Y-4: Calibration (식품 진입) — 온도계 / 금속검출기 / pH meter 검교정
+  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
   { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
@@ -310,6 +312,8 @@ const menuItems = [
   { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-3: Training (교육/훈련) — KGMP §6 / ISO 22716 §7
   { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  // Phase Y-4: Calibration (검교정/설비 자격) — KGMP §7 IQ/OQ/PQ
+  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },

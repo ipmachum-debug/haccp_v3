@@ -17,6 +17,7 @@ import { nonconformingRouter } from "../coreMes/quality/nonconforming.router";
 import { correctiveActionRouter } from "../coreMes/quality/correctiveAction.router";
 import { auditRouter } from "../coreMes/quality/audit.router";
 import { trainingRouter } from "../coreMes/quality/training.router";
+import { calibrationRouter } from "../coreMes/quality/calibration.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -50,4 +51,11 @@ export const coreMesRouterMap = {
    * KGMP §6 / ISO 22716 §7 / ISO 13485 §6.2 모두 적용.
    */
   training: trainingRouter,
+   * Calibration (검교정/설비 자격) — Phase Y-4
+   *
+   * 단일 테이블 h_calibrations + measurements JSON + nextDueDate 자동 계산.
+   * IQ / OQ / PQ / routine 4종.
+   * KGMP §7 / ISO 13485 §7.6 모두 적용.
+   */
+  calibration: calibrationRouter,
 } as const;
