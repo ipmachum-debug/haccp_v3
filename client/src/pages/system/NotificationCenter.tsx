@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
+// Phase Plugin-5: Notification Engine — Plugin 기반 알림 type 필터
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
+import { getNotificationTypes } from "@/domain/engines/clientNotificationEngine";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +22,8 @@ const STORAGE_KEY_PRESETS = "notification_filter_presets";
 type FilterPreset = { id: string; name: string; filterType: string; filterStatus: string; };
 
 export default function NotificationCenter() {
+  // Phase Plugin-5: 산업 plugin 기반 알림 type 필터
+  const { plugin: domainPlugin } = useDomainPlugin();
   const [filterType, setFilterType] = useState<string>(() => typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_TYPE) || "all" : "all");
   const [filterStatus, setFilterStatus] = useState<string>(() => typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY_STATUS) || "all" : "all");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -143,12 +148,22 @@ export default function NotificationCenter() {
             <span className="text-[10px] text-muted-foreground font-medium self-center mr-1">타입</span>
             {[
               { v: "all", l: "전체", c: unreadCount },
-              { v: "ccp_reminder", l: "CCP점검", c: countsByType?.ccp_reminder },
-              { v: "ccp_overdue", l: "CCP누락", c: countsByType?.ccp_overdue },
-              { v: "expiry_warning_7d", l: "7일전", c: countsByType?.expiry_warning_7d },
-              { v: "expiry_warning_3d", l: "3일전", c: countsByType?.expiry_warning_3d },
-              { v: "expiry_urgent", l: "기한초과", c: countsByType?.expiry_urgent },
-              { v: "low_stock", l: "재고부족", c: countsByType?.low_stock },
+              // ★ Phase Plugin-5: plugin.notifications.types 가 있으면 동적 생성
+              ...(domainPlugin
+                ? getNotificationTypes(domainPlugin).map((t) => ({
+                    v: t.code,
+                    l: t.label,
+                    c: countsByType?.[t.code as keyof typeof countsByType],
+                  }))
+                : [
+                    // 폴백: legacy 식품 HACCP 하드코딩 (Strangler Fig)
+                    { v: "ccp_reminder", l: "CCP점검", c: countsByType?.ccp_reminder },
+                    { v: "ccp_overdue", l: "CCP누락", c: countsByType?.ccp_overdue },
+                    { v: "expiry_warning_7d", l: "7일전", c: countsByType?.expiry_warning_7d },
+                    { v: "expiry_warning_3d", l: "3일전", c: countsByType?.expiry_warning_3d },
+                    { v: "expiry_urgent", l: "기한초과", c: countsByType?.expiry_urgent },
+                    { v: "low_stock", l: "재고부족", c: countsByType?.low_stock },
+                  ]),
             ].map(f => (
               <Button key={f.v} variant={filterType === f.v ? "default" : "outline"} size="sm" className="h-6 text-[10px] px-2" onClick={() => setFilterType(f.v)}>
                 {f.l}{f.c ? <Badge className="ml-1 h-3.5 px-1 text-[9px] bg-red-500 text-white">{f.c}</Badge> : null}
