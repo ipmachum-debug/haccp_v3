@@ -249,6 +249,48 @@ const childRoutes: Record<string, string[]> = {
   ],
 };
 
+/**
+ * 메뉴 path 에서 industry 추출 — Phase 3 industry 격리 필터.
+ *
+ * 패턴: /dashboard/{industry}/* 형태일 때 해당 industry 반환.
+ * 그 외에는 null (industry 무관 메뉴 = 모두에게 표시).
+ *
+ * Industry 키:
+ *   food / cosmetic / pharmaceutical / health-functional / medical-device / general-manufacturing
+ */
+function getMenuRequiredIndustry(path: string): string | null {
+  const m = path.match(/^\/dashboard\/(food|cosmetic|pharmaceutical|health-functional|medical-device|general-manufacturing)\//);
+  return m ? m[1] : null;
+}
+
+/**
+ * useIndustryFeatures().category (서버 IndustryCategory) 를
+ * 메뉴 path 의 IndustryKey 로 매핑.
+ *
+ * 서버 category → 메뉴 industry:
+ *   food         → food
+ *   cosmetics    → cosmetic
+ *   pharma       → pharmaceutical
+ *   supplement   → health-functional
+ *   general      → general-manufacturing
+ *   electronics  → null (medical-device 프로필 미정의 — 추후 보강)
+ *   textile      → null
+ *   chemical     → null
+ *
+ * @returns 매핑된 IndustryKey 또는 null (매칭 안 되는 경우 industry-specific 메뉴 모두 hide)
+ */
+function mapCategoryToIndustryKey(category: string | null | undefined): string | null {
+  if (!category) return null;
+  const map: Record<string, string> = {
+    food: "food",
+    cosmetics: "cosmetic",
+    pharma: "pharmaceutical",
+    supplement: "health-functional",
+    general: "general-manufacturing",
+  };
+  return map[category] ?? null;
+}
+
 const menuItems = [
   // 슈퍼관리자 전용 메뉴 (WORK 탭)
   { icon: Crown, label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work" },
@@ -813,6 +855,29 @@ function DashboardLayoutContent({
     displayedMenuItems = displayedMenuItems.filter((item: any) => {
       if (!item.requireModule) return true; // requireModule 없으면 항상 표시
       return isIndustryModuleActive(item.requireModule);
+    });
+  }
+
+  // ★ Phase 3 industry 격리 필터 — path 기반 자동 필터.
+  //
+  // 동작:
+  //   /dashboard/{industry}/* 패턴의 메뉴는 테넌트 industry 와 일치해야만 표시.
+  //   - 화장품 테넌트 (category=cosmetics) 는 /dashboard/medical-device/* 메뉴 hide
+  //   - 의약품 테넌트 (category=pharma) 는 /dashboard/cosmetic/* 메뉴 hide
+  //   - 슈퍼어드민은 필터 건너뜀 (모든 industry 접근)
+  //
+  // 이유:
+  //   PR-4/PR-5 에서 Phase 3 (pharmaceutical / medical-device / general-mfg) 메뉴
+  //   추가 시 requireModule 만으로는 industry 격리 안 됨 (cosmetic GMP 와
+  //   pharmaceutical KGMP 가 둘 다 modules.gmp=true 라서 서로 노출됨).
+  //   path 기반 필터링으로 시각적 industry 격리 보장. 데이터는 기존부터 router
+  //   industry view filter 가 격리.
+  if (user?.role !== "super_admin" && !industryLoading) {
+    const tenantIndustry = mapCategoryToIndustryKey(industryCategory);
+    displayedMenuItems = displayedMenuItems.filter((item: any) => {
+      const required = getMenuRequiredIndustry(item.path);
+      if (!required) return true; // industry-specific 패턴 아님 → 표시
+      return tenantIndustry === required;
     });
   }
 
