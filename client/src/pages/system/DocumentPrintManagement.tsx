@@ -10,6 +10,8 @@ import { useState, useCallback } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import type { RouterOutput } from "@/lib/trpcTypes";
+// Phase Plugin-4: Document Engine — HACCP 전용 탭은 plugin 기반 격리
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
 
 // 승인문서 도메인 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
 type ApprovalRequest = RouterOutput["approval"]["list"][number];
@@ -146,6 +148,9 @@ export default function DocumentPrintManagement() {
   const trpcUtils = trpc.useUtils();
   const { user } = useAuth();
   const tenantId = user?.tenantId ?? 0;
+  // Phase Plugin-4: 산업 plugin — HACCP 전용 탭 (CCP/선행위생/검사일지/생산일지/원료수불/품목제조) 격리
+  const { plugin: domainPlugin } = useDomainPlugin();
+  const showHaccpDocTabs = !domainPlugin || domainPlugin.modules.haccp === true;
   const [activeTab, setActiveTab] = useState("print-queue");
 
   // 필터 상태
@@ -594,30 +599,35 @@ export default function DocumentPrintManagement() {
             <Clock className="h-3.5 w-3.5" />출력대기
             {unprintedRequests.length > 0 && <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">{unprintedRequests.length}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="ccp" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <AlertTriangle className="h-3.5 w-3.5" />CCP
-            {ccpFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{ccpFiltered.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="prerequisite" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <Shield className="h-3.5 w-3.5" />선행/위생
-            {prerequisiteFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{prerequisiteFiltered.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="inspection" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <ClipboardCheck className="h-3.5 w-3.5" />검사일지
-            {inspectionFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{inspectionFiltered.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="production_log" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <FileText className="h-3.5 w-3.5" />생산일지
-            {productionLogFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{productionLogFiltered.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="material" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <Package className="h-3.5 w-3.5" />원료수불
-            {materialFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{materialFiltered.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="production" className="flex items-center gap-1 text-xs px-2 py-1.5">
-            <Package className="h-3.5 w-3.5" />품목제조
-            {productionFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{productionFiltered.length}</Badge>}
-          </TabsTrigger>
+          {/* ★ Phase Plugin-4: HACCP 전용 카테고리 탭 (CCP/선행위생/검사일지/생산일지/원료수불/품목제조) */}
+          {showHaccpDocTabs && (
+            <>
+              <TabsTrigger value="ccp" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" />CCP
+                {ccpFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{ccpFiltered.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="prerequisite" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <Shield className="h-3.5 w-3.5" />선행/위생
+                {prerequisiteFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{prerequisiteFiltered.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="inspection" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <ClipboardCheck className="h-3.5 w-3.5" />검사일지
+                {inspectionFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{inspectionFiltered.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="production_log" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <FileText className="h-3.5 w-3.5" />생산일지
+                {productionLogFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{productionLogFiltered.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="material" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <Package className="h-3.5 w-3.5" />원료수불
+                {materialFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{materialFiltered.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="production" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                <Package className="h-3.5 w-3.5" />품목제조
+                {productionFiltered.length > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{productionFiltered.length}</Badge>}
+              </TabsTrigger>
+            </>
+          )}
           <TabsTrigger value="history" className="flex items-center gap-1 text-xs px-2 py-1.5">
             <History className="h-3.5 w-3.5" />이력
             {printedIds.size > 0 && <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{printedIds.size}</Badge>}
