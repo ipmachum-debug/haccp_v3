@@ -79,8 +79,12 @@ export const appRouter = router({
   // ── industry ── (2026-04-28: Layer 4 cosmetic PoC — _maps/industryMap.ts)
   ...industryRouterMap,
 
-  // ── core-mes ── (2026-04-30: Layer 2 cross-cutting — _maps/coreMesMap.ts)
-  ...coreMesRouterMap,
+  // ── core-mes ── (2026-05-01 Option C: namespace mount — Layer 2 cross-cutting)
+  // 이전: ...coreMesRouterMap (top-level spread) 로 인해 checklistMap.calibration /
+  // systemMap.training 레거시 라우터가 신규 Y-series 를 덮어쓰는 키 충돌 발생.
+  // 해결: coreMes namespace 로 nested mount → trpc.coreMes.{calibration,training,...}.*
+  // ADR-002 와도 일치 (Layer 2 명시화).
+  coreMes: router(coreMesRouterMap),
 
   // ── inventory ──
   inventory: inventoryRouter,

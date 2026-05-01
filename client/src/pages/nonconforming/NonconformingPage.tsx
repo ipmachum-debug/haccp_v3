@@ -114,31 +114,31 @@ export default function NonconformingPage({ industry }: Props) {
   const [statusFilter, setStatusFilter] = useState<NonconformingStatus | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const listQuery = trpc.nonconforming.list.useQuery({
+  const listQuery = trpc.coreMes.nonconforming.list.useQuery({
     industry,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 100,
   });
 
   const utils = trpc.useUtils();
-  const createMut = trpc.nonconforming.create.useMutation({
+  const createMut = trpc.coreMes.nonconforming.create.useMutation({
     onSuccess: (res) => {
       toast({ title: `${res.code} 등록 완료`, description: "발견 상태로 저장됨" });
       setCreateOpen(false);
-      utils.nonconforming.list.invalidate();
+      utils.coreMes.nonconforming.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "등록 실패", description: err.message, variant: "destructive" });
     },
   });
 
-  const transitionMut = trpc.nonconforming.transition.useMutation({
+  const transitionMut = trpc.coreMes.nonconforming.transition.useMutation({
     onSuccess: (res) => {
       toast({
         title: "상태 전이 성공",
         description: STATUS_LABELS[res.status as NonconformingStatus],
       });
-      utils.nonconforming.list.invalidate();
+      utils.coreMes.nonconforming.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "상태 전이 실패", description: err.message, variant: "destructive" });

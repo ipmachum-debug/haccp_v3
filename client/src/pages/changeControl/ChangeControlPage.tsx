@@ -116,28 +116,28 @@ export default function ChangeControlPage({ industry }: Props) {
   const [statusFilter, setStatusFilter] = useState<ChangeStatus | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const listQuery = trpc.changeControl.list.useQuery({
+  const listQuery = trpc.coreMes.changeControl.list.useQuery({
     industry,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 100,
   });
 
   const utils = trpc.useUtils();
-  const createMut = trpc.changeControl.create.useMutation({
+  const createMut = trpc.coreMes.changeControl.create.useMutation({
     onSuccess: (res) => {
       toast({ title: `${res.code} 등록 완료`, description: "초안 상태로 저장됨" });
       setCreateOpen(false);
-      utils.changeControl.list.invalidate();
+      utils.coreMes.changeControl.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "등록 실패", description: err.message, variant: "destructive" });
     },
   });
 
-  const transitionMut = trpc.changeControl.transition.useMutation({
+  const transitionMut = trpc.coreMes.changeControl.transition.useMutation({
     onSuccess: (res) => {
       toast({ title: "상태 전이 성공", description: STATUS_LABELS[res.status as ChangeStatus] });
-      utils.changeControl.list.invalidate();
+      utils.coreMes.changeControl.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "상태 전이 실패", description: err.message, variant: "destructive" });

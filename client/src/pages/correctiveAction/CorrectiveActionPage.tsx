@@ -67,31 +67,31 @@ export default function CorrectiveActionPage({ industry }: Props) {
   const [statusFilter, setStatusFilter] = useState<CapaStatus | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const listQuery = trpc.correctiveAction.list.useQuery({
+  const listQuery = trpc.coreMes.correctiveAction.list.useQuery({
     industry,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 100,
   });
 
   const utils = trpc.useUtils();
-  const createMut = trpc.correctiveAction.create.useMutation({
+  const createMut = trpc.coreMes.correctiveAction.create.useMutation({
     onSuccess: (res) => {
       toast({ title: `${res.code} 등록 완료`, description: "계획 단계 시작" });
       setCreateOpen(false);
-      utils.correctiveAction.list.invalidate();
+      utils.coreMes.correctiveAction.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "등록 실패", description: err.message, variant: "destructive" });
     },
   });
 
-  const transitionMut = trpc.correctiveAction.transition.useMutation({
+  const transitionMut = trpc.coreMes.correctiveAction.transition.useMutation({
     onSuccess: (res) => {
       toast({
         title: "상태 전이 성공",
         description: STATUS_LABELS[res.status as CapaStatus],
       });
-      utils.correctiveAction.list.invalidate();
+      utils.coreMes.correctiveAction.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "상태 전이 실패", description: err.message, variant: "destructive" });
