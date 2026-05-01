@@ -84,6 +84,11 @@ const STEPS: MigrationStep[] = [
     script: "scripts/migrate-training-table.ts",
     description: "Training (교육/훈련) — Phase Y-3",
   },
+  {
+    name: "calibration",
+    script: "scripts/migrate-calibration-table.ts",
+    description: "Calibration (검교정/설비 자격 IQ/OQ/PQ) — Phase Y-4",
+  },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {
     name: "cosmetic-bmr",
