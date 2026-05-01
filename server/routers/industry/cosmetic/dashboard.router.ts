@@ -74,54 +74,58 @@ export const cosmeticDashboardRouter = router({
         SELECT COUNT(*) AS cnt FROM h_cosmetic_bmr
         WHERE tenant_id = ${tenantId}
           AND created_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_bmr
         WHERE tenant_id = ${tenantId}
           AND status = 'completed'
           AND completed_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_bmr_ipc
         WHERE tenant_id = ${tenantId}
           AND pass_fail = 'fail'
           AND created_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_release
         WHERE tenant_id = ${tenantId}
           AND status IN ('approved','released')
           AND approved_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_release
         WHERE tenant_id = ${tenantId}
           AND status = 'recalled'
           AND recalled_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_stability_observation
         WHERE tenant_id = ${tenantId}
           AND created_at >= DATE_SUB(NOW(), ${HOURS_24})
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_bmr WHERE tenant_id = ${tenantId}
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_formula
         WHERE tenant_id = ${tenantId} AND status = 'active'
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_label
         WHERE tenant_id = ${tenantId} AND status = 'active'
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
       db.execute(sql`
         SELECT COUNT(*) AS cnt FROM h_cosmetic_stability_test
         WHERE tenant_id = ${tenantId} AND status = 'in_progress'
-      `).then((r: any) => r as any[]),
+      `).then((r: any) => r),
     ]);
 
-    const num = (rows: any[]) => Number((rows as any[])[0]?.cnt ?? 0);
+    // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — rows 추출 후 첫 row.cnt 접근
+    const num = (result: any) => {
+      const rows = (result as any)?.[0] ?? [];
+      return Number((rows as any[])[0]?.cnt ?? 0);
+    };
 
     return {
       flags: {
@@ -150,19 +154,21 @@ export const cosmeticDashboardRouter = router({
       const tenantId = Number(ctx.tenantId);
       const db = await getDb();
       if (!db) return [];
-      const rows: any = await db.execute(sql`
+      // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
+      const result: any = await db.execute(sql`
         SELECT id, bmr_code, product_id, status, planned_quantity_kg, created_at
         FROM h_cosmetic_bmr
         WHERE tenant_id = ${tenantId}
         ORDER BY created_at DESC
         LIMIT ${input.limit}
       `);
-      return (rows as any[]).map((r) => ({
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
         id: Number(r.id),
-        bmrCode: String(r.bmr_code),
+        bmrCode: String(r.bmr_code ?? ""),
         productId: Number(r.product_id),
-        status: String(r.status),
-        plannedQuantityKg: r.planned_quantity_kg ? Number(r.planned_quantity_kg) : null,
+        status: String(r.status ?? ""),
+        plannedQuantityKg: r.planned_quantity_kg != null ? Number(r.planned_quantity_kg) : null,
         createdAt: r.created_at,
       }));
     }),
@@ -173,7 +179,7 @@ export const cosmeticDashboardRouter = router({
       const tenantId = Number(ctx.tenantId);
       const db = await getDb();
       if (!db) return [];
-      const rows: any = await db.execute(sql`
+      const result: any = await db.execute(sql`
         SELECT id, release_code, bmr_id, product_id, status,
                release_quantity, release_unit, created_at
         FROM h_cosmetic_release
@@ -181,13 +187,14 @@ export const cosmeticDashboardRouter = router({
         ORDER BY created_at DESC
         LIMIT ${input.limit}
       `);
-      return (rows as any[]).map((r) => ({
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
         id: Number(r.id),
-        releaseCode: String(r.release_code),
+        releaseCode: String(r.release_code ?? ""),
         bmrId: Number(r.bmr_id),
         productId: Number(r.product_id),
-        status: String(r.status),
-        releaseQuantity: r.release_quantity ? Number(r.release_quantity) : 0,
+        status: String(r.status ?? ""),
+        releaseQuantity: r.release_quantity != null ? Number(r.release_quantity) : 0,
         releaseUnit: String(r.release_unit ?? "kg"),
         createdAt: r.created_at,
       }));
@@ -199,7 +206,7 @@ export const cosmeticDashboardRouter = router({
       const tenantId = Number(ctx.tenantId);
       const db = await getDb();
       if (!db) return [];
-      const rows: any = await db.execute(sql`
+      const result: any = await db.execute(sql`
         SELECT id, bmr_id, measurement_type, measurement_label,
                measured_value, expected_min, expected_max, unit, created_at
         FROM h_cosmetic_bmr_ipc
@@ -208,10 +215,11 @@ export const cosmeticDashboardRouter = router({
         ORDER BY created_at DESC
         LIMIT ${input.limit}
       `);
-      return (rows as any[]).map((r) => ({
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
         id: Number(r.id),
         bmrId: Number(r.bmr_id),
-        measurementType: String(r.measurement_type),
+        measurementType: String(r.measurement_type ?? ""),
         measurementLabel: r.measurement_label ?? null,
         measuredValue: r.measured_value !== null ? Number(r.measured_value) : null,
         expectedMin: r.expected_min !== null ? Number(r.expected_min) : null,
