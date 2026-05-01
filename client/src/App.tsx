@@ -117,6 +117,9 @@ const FoodCalibration = lazy(() => import("./pages/calibration/FoodCalibration")
 // Phase Y-5: Supplier (공급업체 관리 AVL)
 const CosmeticSupplier = lazy(() => import("./pages/supplier/CosmeticSupplier"));
 const FoodSupplier = lazy(() => import("./pages/supplier/FoodSupplier"));
+// Phase Y-6: Risk Assessment (ICH Q9 / ISO 14971 / Codex / KGMP §3.5)
+const CosmeticRiskAssessment = lazy(() => import("./pages/riskAssessment/CosmeticRiskAssessment"));
+const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAssessment"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
 // Phase Y-3: Training (교육/훈련) — cross-cutting
@@ -521,6 +524,8 @@ function Router() {
       <Route path="/dashboard/food/calibration" component={FoodCalibration} />
       <Route path="/dashboard/cosmetic/supplier" component={CosmeticSupplier} />
       <Route path="/dashboard/food/supplier" component={FoodSupplier} />
+      <Route path="/dashboard/cosmetic/risk-assessment" component={CosmeticRiskAssessment} />
+      <Route path="/dashboard/food/risk-assessment" component={FoodRiskAssessment} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
