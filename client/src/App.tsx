@@ -110,7 +110,9 @@ const CosmeticReleaseList = lazy(() => import("./pages/cosmetic/CosmeticReleaseL
 const CosmeticReleaseDetail = lazy(() => import("./pages/cosmetic/CosmeticReleaseDetail"));
 const CosmeticStabilityList = lazy(() => import("./pages/cosmetic/CosmeticStabilityList"));
 const CosmeticChangeControl = lazy(() => import("./pages/changeControl/CosmeticChangeControl"));
+const FoodChangeControl = lazy(() => import("./pages/changeControl/FoodChangeControl"));
 const CosmeticAudit = lazy(() => import("./pages/audit/CosmeticAudit"));
+const FoodAudit = lazy(() => import("./pages/audit/FoodAudit"));
 // Phase Y-4: Calibration (검교정/설비 자격)
 const CosmeticCalibration = lazy(() => import("./pages/calibration/CosmeticCalibration"));
 const FoodCalibration = lazy(() => import("./pages/calibration/FoodCalibration"));
@@ -121,7 +123,9 @@ const FoodSupplier = lazy(() => import("./pages/supplier/FoodSupplier"));
 const CosmeticRiskAssessment = lazy(() => import("./pages/riskAssessment/CosmeticRiskAssessment"));
 const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAssessment"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
+const FoodCorrectiveAction = lazy(() => import("./pages/correctiveAction/FoodCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
+const FoodNonconforming = lazy(() => import("./pages/nonconforming/FoodNonconforming"));
 // Phase Y-3: Training (교육/훈련) — cross-cutting
 const CosmeticTraining = lazy(() => import("./pages/training/CosmeticTraining"));
 const FoodTraining = lazy(() => import("./pages/training/FoodTraining"));
@@ -517,7 +521,9 @@ function Router() {
       <Route path="/dashboard/cosmetic/bmr" component={CosmeticBmrList} />
       <Route path="/dashboard/cosmetic/stability" component={CosmeticStabilityList} />
       <Route path="/dashboard/cosmetic/change-control" component={CosmeticChangeControl} />
+      <Route path="/dashboard/food/change-control" component={FoodChangeControl} />
       <Route path="/dashboard/cosmetic/audit" component={CosmeticAudit} />
+      <Route path="/dashboard/food/audit" component={FoodAudit} />
       <Route path="/dashboard/cosmetic/training" component={CosmeticTraining} />
       <Route path="/dashboard/food/training" component={FoodTraining} />
       <Route path="/dashboard/cosmetic/calibration" component={CosmeticCalibration} />
@@ -527,7 +533,9 @@ function Router() {
       <Route path="/dashboard/cosmetic/risk-assessment" component={CosmeticRiskAssessment} />
       <Route path="/dashboard/food/risk-assessment" component={FoodRiskAssessment} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
+      <Route path="/dashboard/food/corrective-action" component={FoodCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
+      <Route path="/dashboard/food/nonconforming" component={FoodNonconforming} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
       <Route path="/dashboard/cosmetic/label" component={CosmeticLabelList} />
