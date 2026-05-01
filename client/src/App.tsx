@@ -111,6 +111,7 @@ const CosmeticReleaseDetail = lazy(() => import("./pages/cosmetic/CosmeticReleas
 const CosmeticStabilityList = lazy(() => import("./pages/cosmetic/CosmeticStabilityList"));
 const CosmeticChangeControl = lazy(() => import("./pages/changeControl/CosmeticChangeControl"));
 const CosmeticAudit = lazy(() => import("./pages/audit/CosmeticAudit"));
+const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -504,6 +505,7 @@ function Router() {
       <Route path="/dashboard/cosmetic/stability" component={CosmeticStabilityList} />
       <Route path="/dashboard/cosmetic/change-control" component={CosmeticChangeControl} />
       <Route path="/dashboard/cosmetic/audit" component={CosmeticAudit} />
+      <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
       <Route path="/dashboard/cosmetic/label" component={CosmeticLabelList} />
