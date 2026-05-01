@@ -18,7 +18,7 @@ import { correctiveActionRouter } from "../coreMes/quality/correctiveAction.rout
 import { auditRouter } from "../coreMes/quality/audit.router";
 import { trainingRouter } from "../coreMes/quality/training.router";
 import { calibrationRouter } from "../coreMes/quality/calibration.router";
-import { supplierRouter } from "../coreMes/quality/supplier.router";
+import { qualitySupplierRouter } from "../coreMes/quality/supplier.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -63,11 +63,16 @@ export const coreMesRouterMap = {
   calibration: calibrationRouter,
 
   /**
-   * Supplier (공급업체 관리 AVL) — Phase Y-5
+   * Quality Supplier (AVL — Approved Vendor List) — Phase Y-5
    *
-   * 단일 테이블 h_suppliers + nextEvaluationDate 자동 계산.
+   * 단일 테이블 h_quality_suppliers + nextEvaluationDate 자동 계산.
    * raw_material / packaging / equipment / service / other 5종.
    * KGMP §11 / ISO 13485 §7.4 / HACCP 원료공급자 평가 모두 적용.
+   *
+   * 명명 주의: 기존 master.supplier (거래처) 와 도메인 분리.
+   *   - master.supplier      → 거래처 (매입·매출 파트너 등록부, 영업/회계 도메인)
+   *   - coreMes.qualitySupplier → AVL (품질 평가 + 승인 공급자 목록, 품질 도메인)
+   * 두 시스템은 영구 공존 (다른 개념).
    */
-  supplier: supplierRouter,
+  qualitySupplier: qualitySupplierRouter,
 } as const;

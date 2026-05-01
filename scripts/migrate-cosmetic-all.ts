@@ -90,9 +90,9 @@ const STEPS: MigrationStep[] = [
     description: "Calibration (검교정/설비 자격 IQ/OQ/PQ) — Phase Y-4",
   },
   {
-    name: "supplier",
-    script: "scripts/migrate-supplier-table.ts",
-    description: "Supplier (공급업체 관리 AVL) — Phase Y-5",
+    name: "quality-supplier",
+    script: "scripts/migrate-quality-supplier-table.ts",
+    description: "Quality Supplier (AVL — Approved Vendor List) — Phase Y-5",
   },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {

@@ -3,7 +3,7 @@
  */
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
-import { hSuppliers } from "../../../../drizzle/schema/coreMes/quality/supplier";
+import { hQualitySuppliers } from "../../../../drizzle/schema/coreMes/quality/supplier";
 import {
   type Supplier,
   type SupplierStatus,
@@ -21,15 +21,15 @@ export async function generateSupplierCode(tenantId: number): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `SUP-${year}-`;
   const rows = await db
-    .select({ code: hSuppliers.code })
-    .from(hSuppliers)
+    .select({ code: hQualitySuppliers.code })
+    .from(hQualitySuppliers)
     .where(
       and(
-        eq(hSuppliers.tenantId, tenantId),
-        sql`${hSuppliers.code} LIKE ${prefix + "%"}`,
+        eq(hQualitySuppliers.tenantId, tenantId),
+        sql`${hQualitySuppliers.code} LIKE ${prefix + "%"}`,
       ),
     )
-    .orderBy(desc(hSuppliers.code))
+    .orderBy(desc(hQualitySuppliers.code))
     .limit(1);
   let next = 1;
   if (rows.length > 0) {
@@ -62,7 +62,7 @@ export async function createSupplier(
   if (!db) throw new Error("DB 연결 실패");
   const code = await generateSupplierCode(input.tenantId);
 
-  const result = await db.insert(hSuppliers).values({
+  const result = await db.insert(hQualitySuppliers).values({
     tenantId: input.tenantId,
     industry: input.industry,
     code,
@@ -98,19 +98,19 @@ export async function listSuppliers(
   const db = await getDb();
   if (!db) return [];
   const conds = [
-    eq(hSuppliers.tenantId, tenantId),
-    eq(hSuppliers.industry, industry),
+    eq(hQualitySuppliers.tenantId, tenantId),
+    eq(hQualitySuppliers.industry, industry),
   ];
-  if (options?.status) conds.push(eq(hSuppliers.status, options.status));
-  if (options?.category) conds.push(eq(hSuppliers.category, options.category));
+  if (options?.status) conds.push(eq(hQualitySuppliers.status, options.status));
+  if (options?.category) conds.push(eq(hQualitySuppliers.category, options.category));
   if (options?.dueBefore)
-    conds.push(sql`${hSuppliers.nextEvaluationDate} <= ${options.dueBefore}`);
+    conds.push(sql`${hQualitySuppliers.nextEvaluationDate} <= ${options.dueBefore}`);
 
   const rows = await db
     .select()
-    .from(hSuppliers)
+    .from(hQualitySuppliers)
     .where(and(...conds))
-    .orderBy(desc(hSuppliers.id))
+    .orderBy(desc(hQualitySuppliers.id))
     .limit(options?.limit ?? 50)
     .offset(options?.offset ?? 0);
   return rows.map(rowToEntity);
@@ -125,12 +125,12 @@ export async function getSupplierById(
   if (!db) return null;
   const rows = await db
     .select()
-    .from(hSuppliers)
+    .from(hQualitySuppliers)
     .where(
       and(
-        eq(hSuppliers.id, id),
-        eq(hSuppliers.tenantId, tenantId),
-        eq(hSuppliers.industry, industry),
+        eq(hQualitySuppliers.id, id),
+        eq(hQualitySuppliers.tenantId, tenantId),
+        eq(hQualitySuppliers.industry, industry),
       ),
     )
     .limit(1);
@@ -164,13 +164,13 @@ export async function setSupplierEvaluation(args: {
   if (args.notes !== undefined) updates.notes = args.notes;
 
   await db
-    .update(hSuppliers)
+    .update(hQualitySuppliers)
     .set(updates)
     .where(
       and(
-        eq(hSuppliers.id, args.id),
-        eq(hSuppliers.tenantId, args.tenantId),
-        eq(hSuppliers.industry, args.industry),
+        eq(hQualitySuppliers.id, args.id),
+        eq(hQualitySuppliers.tenantId, args.tenantId),
+        eq(hQualitySuppliers.industry, args.industry),
       ),
     );
 }
@@ -211,13 +211,13 @@ export async function transitionSupplierStatus(args: {
   }
 
   await db
-    .update(hSuppliers)
+    .update(hQualitySuppliers)
     .set(updates)
     .where(
       and(
-        eq(hSuppliers.id, args.id),
-        eq(hSuppliers.tenantId, args.tenantId),
-        eq(hSuppliers.industry, args.industry),
+        eq(hQualitySuppliers.id, args.id),
+        eq(hQualitySuppliers.tenantId, args.tenantId),
+        eq(hQualitySuppliers.industry, args.industry),
       ),
     );
 }
@@ -236,14 +236,14 @@ export async function getSupplierStats(
   if (!db) return [];
   const rows = await db
     .select({
-      industry: hSuppliers.industry,
-      category: hSuppliers.category,
-      status: hSuppliers.status,
+      industry: hQualitySuppliers.industry,
+      category: hQualitySuppliers.category,
+      status: hQualitySuppliers.status,
       count: sql<number>`COUNT(*)`,
     })
-    .from(hSuppliers)
-    .where(eq(hSuppliers.tenantId, tenantId))
-    .groupBy(hSuppliers.industry, hSuppliers.category, hSuppliers.status);
+    .from(hQualitySuppliers)
+    .where(eq(hQualitySuppliers.tenantId, tenantId))
+    .groupBy(hQualitySuppliers.industry, hQualitySuppliers.category, hQualitySuppliers.status);
   return rows.map((r) => ({
     industry: r.industry as IndustryContext,
     category: r.category as SupplierCategory,
@@ -255,7 +255,7 @@ export async function getSupplierStats(
 // ─── 변환 ────────────────────────────────────────────
 
 function rowToEntity(
-  row: typeof hSuppliers.$inferSelect,
+  row: typeof hQualitySuppliers.$inferSelect,
 ): Supplier {
   const dateOrNull = (v: unknown): string | null => {
     if (!v) return null;

@@ -66,7 +66,7 @@ export default function SupplierPage({ industry }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [evalOpenFor, setEvalOpenFor] = useState<{ id: number; code: string } | null>(null);
 
-  const listQuery = trpc.supplier.list.useQuery({
+  const listQuery = trpc.qualitySupplier.list.useQuery({
     industry,
     status: statusFilter === "all" ? undefined : statusFilter,
     category: categoryFilter === "all" ? undefined : categoryFilter,
@@ -74,35 +74,35 @@ export default function SupplierPage({ industry }: Props) {
   });
 
   const utils = trpc.useUtils();
-  const createMut = trpc.supplier.create.useMutation({
+  const createMut = trpc.qualitySupplier.create.useMutation({
     onSuccess: (res) => {
       toast({ title: `${res.code} 등록 완료`, description: "평가 단계 시작" });
       setCreateOpen(false);
-      utils.supplier.list.invalidate();
+      utils.qualitySupplier.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "등록 실패", description: err.message, variant: "destructive" });
     },
   });
 
-  const evaluationMut = trpc.supplier.setEvaluation.useMutation({
+  const evaluationMut = trpc.qualitySupplier.setEvaluation.useMutation({
     onSuccess: () => {
       toast({ title: "평가 점수 입력 완료" });
       setEvalOpenFor(null);
-      utils.supplier.list.invalidate();
+      utils.qualitySupplier.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "평가 입력 실패", description: err.message, variant: "destructive" });
     },
   });
 
-  const transitionMut = trpc.supplier.transition.useMutation({
+  const transitionMut = trpc.qualitySupplier.transition.useMutation({
     onSuccess: (res) => {
       toast({
         title: "상태 전이 성공",
         description: STATUS_LABELS[res.status as SupplierStatus],
       });
-      utils.supplier.list.invalidate();
+      utils.qualitySupplier.list.invalidate();
     },
     onError: (err) => {
       toast({ title: "상태 전이 실패", description: err.message, variant: "destructive" });
