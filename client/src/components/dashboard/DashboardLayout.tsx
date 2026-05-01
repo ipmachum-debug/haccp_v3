@@ -291,6 +291,8 @@ const menuItems = [
   { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp" },
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  // Phase Y-3: Training (식품 진입) — KGMP §6 / 식품안전관리법
+  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
   { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
@@ -306,6 +308,8 @@ const menuItems = [
   { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-2-2: CAPA (시정·예방조치) — cross-cutting core-mes 도메인
   { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  // Phase Y-3: Training (교육/훈련) — KGMP §6 / ISO 22716 §7
+  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
