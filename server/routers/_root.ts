@@ -79,9 +79,6 @@ export const appRouter = router({
   // ── industry ── (2026-04-28: Layer 4 cosmetic PoC — _maps/industryMap.ts)
   ...industryRouterMap,
 
-  // ── core-mes ── (2026-04-30: Layer 2 cross-cutting — _maps/coreMesMap.ts)
-  ...coreMesRouterMap,
-
   // ── inventory ──
   inventory: inventoryRouter,
   materialLedger: materialLedgerRouter,
@@ -102,6 +99,12 @@ export const appRouter = router({
 
   // ── system ── (2026-04-19 분해: _maps/systemMap.ts)
   ...systemRouterMap,
+
+  // ── core-mes ── (2026-04-30: Layer 2 cross-cutting — _maps/coreMesMap.ts)
+  // ★ 2026-05-01: spread 순서 마지막으로 이동 — 레거시 맵(checklist.calibration, system.training,
+  //                master.supplier 등)이 신규 entity 키를 덮어쓰는 *.list 404 회귀 방지.
+  //                JS object spread = 나중 키 우선 → coreMes 가 항상 최종 권위.
+  ...coreMesRouterMap,
 
   // ── ai (LLM 연동) ──
   ai: aiRouter,
