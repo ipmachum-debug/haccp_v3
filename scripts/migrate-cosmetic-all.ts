@@ -69,6 +69,16 @@ const STEPS: MigrationStep[] = [
     script: "scripts/migrate-nonconforming-table.ts",
     description: "Nonconforming (부적합 통합) — Phase Y-2-1-a",
   },
+  {
+    name: "corrective-action",
+    script: "scripts/migrate-corrective-action-table.ts",
+    description: "CAPA (Corrective + Preventive Action) — Phase Y-2-2",
+  },
+  {
+    name: "audit",
+    script: "scripts/migrate-audit-table.ts",
+    description: "Audit (internal/supplier/external) — Phase Y-2-3",
+  },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {
     name: "cosmetic-bmr",
