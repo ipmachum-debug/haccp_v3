@@ -295,6 +295,8 @@ const menuItems = [
   { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // Phase Y-4: Calibration (식품 진입) — 온도계 / 금속검출기 / pH meter 검교정
   { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  // Phase Y-5: Supplier (식품 진입) — 원료 / 부자재 공급자 평가 (HACCP)
+  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/food/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
   { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
@@ -314,6 +316,8 @@ const menuItems = [
   { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-4: Calibration (검교정/설비 자격) — KGMP §7 IQ/OQ/PQ
   { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  // Phase Y-5: Supplier (공급업체 관리 AVL) — KGMP §11 / ISO 13485 §7.4
+  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/cosmetic/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
