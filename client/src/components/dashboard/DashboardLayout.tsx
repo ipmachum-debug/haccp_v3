@@ -327,6 +327,29 @@ const menuItems = [
   // Phase Y-6: Risk Assessment — KGMP §3.5 / ICH Q9 / ISO 14971 / Codex
   { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
 
+  // ─── Phase 3: 의료기기 ISO 13485 — Y-시리즈 8 entity (medical-device 진입) ───
+  // industryConfig 에 medical-device 프로필 미정의 (별도 PR 권장).
+  // 임시: requireModule 미설정 → 모든 admin role 에 노출 (router industry filter 가 데이터 격리 강제).
+  { icon: GitBranch, label: "변경관리 (ISO 13485)", path: "/dashboard/medical-device/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: AlertCircle, label: "부적합 관리 (ISO 13485)", path: "/dashboard/medical-device/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: AlertTriangle, label: "CAPA (ISO 13485)", path: "/dashboard/medical-device/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: ClipboardCheck, label: "감사 (ISO 13485)", path: "/dashboard/medical-device/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: GraduationCap, label: "교육 (ISO 13485)", path: "/dashboard/medical-device/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: Sliders, label: "검교정 (ISO 13485)", path: "/dashboard/medical-device/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: Building, label: "공급업체 (ISO 13485)", path: "/dashboard/medical-device/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+  { icon: AlertTriangle, label: "위험관리 ISO 14971", path: "/dashboard/medical-device/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
+
+  // ─── Phase 3: 일반 제조 ISO 9001 — Y-시리즈 8 entity (general-manufacturing 진입) ───
+  // industryConfig 의 general 프로필 (modules.quality=true) 매칭.
+  { icon: GitBranch, label: "변경관리 (일반제조)", path: "/dashboard/general-manufacturing/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: AlertCircle, label: "부적합 관리 (일반제조)", path: "/dashboard/general-manufacturing/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: AlertTriangle, label: "CAPA (일반제조)", path: "/dashboard/general-manufacturing/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: ClipboardCheck, label: "감사 (일반제조)", path: "/dashboard/general-manufacturing/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: GraduationCap, label: "교육 (일반제조)", path: "/dashboard/general-manufacturing/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: Sliders, label: "검교정 (일반제조)", path: "/dashboard/general-manufacturing/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: Building, label: "공급업체 (일반제조)", path: "/dashboard/general-manufacturing/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+  { icon: AlertTriangle, label: "위험 평가 (일반제조)", path: "/dashboard/general-manufacturing/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
+
   // ─── Phase 3: 의약품 KGMP — Y-시리즈 8 entity (pharmaceutical 진입) ───
   // 의약품 KGMP 테넌트 (industry=pharmaceutical) 전용. modules.gmp=true 매칭.
   // 모든 라우트가 server core-mes router 의 industry view filter (z.enum 6 industries) 를 통과함.
