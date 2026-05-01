@@ -94,6 +94,11 @@ const STEPS: MigrationStep[] = [
     script: "scripts/migrate-quality-supplier-table.ts",
     description: "Quality Supplier (AVL — Approved Vendor List) — Phase Y-5",
   },
+  {
+    name: "risk-assessment",
+    script: "scripts/migrate-risk-assessment-table.ts",
+    description: "Risk Assessment (ICH Q9/ISO 14971) — Phase Y-6",
+  },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {
     name: "cosmetic-bmr",
