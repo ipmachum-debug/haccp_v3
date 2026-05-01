@@ -1,5 +1,5 @@
 /**
- * Drizzle 스키마: h_suppliers — 공급업체 관리 (AVL) (Phase Y-5)
+ * Drizzle 스키마: h_quality_suppliers — 품질 공급업체 관리 (AVL) (Phase Y-5)
  *
  * AVL = Approved Vendor List.
  *
@@ -38,7 +38,7 @@ export const INDUSTRY_VALUES = [
 ] as const;
 
 export const hSuppliers = mysqlTable(
-  "h_suppliers",
+  "h_quality_suppliers",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
     tenantId: int("tenant_id").notNull(),
@@ -78,20 +78,20 @@ export const hSuppliers = mysqlTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (table) => ({
-    uniqTenantCode: uniqueIndex("uniq_supplier_tenant_code").on(
+    uniqTenantCode: uniqueIndex("uniq_quality_supplier_tenant_code").on(
       table.tenantId,
       table.code,
     ),
-    idxTenantIndustryStatus: index("idx_supplier_tenant_industry_status").on(
+    idxTenantIndustryStatus: index("idx_quality_supplier_tenant_industry_status").on(
       table.tenantId,
       table.industry,
       table.status,
     ),
-    idxTenantNextEvaluation: index("idx_supplier_tenant_next_evaluation").on(
+    idxTenantNextEvaluation: index("idx_quality_supplier_tenant_next_evaluation").on(
       table.tenantId,
       table.nextEvaluationDate,
     ),
-    idxTenantCategoryStatus: index("idx_supplier_tenant_category_status").on(
+    idxTenantCategoryStatus: index("idx_quality_supplier_tenant_category_status").on(
       table.tenantId,
       table.category,
       table.status,
