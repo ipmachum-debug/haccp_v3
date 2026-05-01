@@ -255,86 +255,81 @@ const menuItems = [
   { icon: UserCheck, label: "사용자 승인", path: "/dashboard/users/approval", roles: ["super_admin"], category: "work" },
   { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
 
-  // WORK 탭 고정 메뉴
-  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+  // ─── 대시보드 ───
+  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
 
-  // 생산 (admin, worker)
-  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
-  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
-  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
+  // ─── 생산 ───
+  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산" },
+  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산" },
+  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산" },
 
-  // 품질 (admin, worker, inspector, monitor) — 업종 모듈별 분기
-  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"] },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp" },
+  // ─── 품질·검사 (공통) ───
+  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
+  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], group: "품질·검사" },
+  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
 
-  // 재고 (admin, accountant, worker-읽기)
-  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"] },
+  // ─── 재고·운영 ───
+  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"], group: "재고·운영" },
+  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "재고·운영" },
+  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"], group: "재고·운영" },
+  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"], group: "재고·운영" },
 
-  // 알림
-  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
+  // ─── 마스터 데이터 ───
+  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
+  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
+  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], group: "마스터" },
 
-  // 승인 (admin, monitor, inspector)
-  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"] },
-
-  // 문서 출력 (admin, accountant, monitor)
-  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"] },
-
-  // 마스터 데이터 (admin, accountant)
-  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"] },
-  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"] },
-
-  // 모바일 (worker, inspector)
-  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"] },
-  // HACCP 검증 & 감사 (admin, inspector, monitor) — 업종 모듈별 분기
-  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
-  { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp" },
-  { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  // ─── 품질관리 (HACCP) — Y-시리즈 cross-cutting + Legacy 식품 품질 ───
+  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)" },
+  { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-3: Training (식품 진입) — KGMP §6 / 식품안전관리법
-  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-4: Calibration (식품 진입) — 온도계 / 금속검출기 / pH meter 검교정
-  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-5: Supplier (식품 진입) — 원료 / 부자재 공급자 평가 (HACCP)
-  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/food/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/food/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-6: Risk Assessment (식품 진입) — Codex 위해 분석 / HACCP 원칙 §1
-  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/food/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
-  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  // Phase Y-2-0-c: Change Control (변경관리) — cross-cutting core-mes 도메인 (industry view filter)
-  { icon: GitBranch, label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  // Phase Y-2-1-c: Nonconforming (부적합) — cross-cutting core-mes 도메인 (industry view filter)
-  { icon: AlertCircle, label: "부적합 관리", path: "/dashboard/cosmetic/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  // Phase Y-2-3: Audit (감사) — cross-cutting (internal/supplier/external)
-  { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  // Phase Y-2-2: CAPA (시정·예방조치) — cross-cutting core-mes 도메인
-  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/food/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+
+  // ─── 화장품 GMP — Phase 2 lifecycle (cosmetic 업종 전용) ───
+  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+  { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+  { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+  { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+  { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+  { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
+
+  // ─── 품질관리 (GMP) — Y-시리즈 cross-cutting (화장품 진입) ───
+  // Phase Y-2-0-c: Change Control (변경관리)
+  { icon: GitBranch, label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
+  // Phase Y-2-1-c: Nonconforming (부적합)
+  { icon: AlertCircle, label: "부적합 관리", path: "/dashboard/cosmetic/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
+  // Phase Y-2-3: Audit (감사)
+  { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
+  // Phase Y-2-2: CAPA (시정·예방조치)
+  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
   // Phase Y-3: Training (교육/훈련) — KGMP §6 / ISO 22716 §7
-  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
   // Phase Y-4: Calibration (검교정/설비 자격) — KGMP §7 IQ/OQ/PQ
-  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  // Phase Y-5: Supplier (공급업체 관리 AVL) — KGMP §11 / ISO 13485 §7.4
-  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/cosmetic/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
+  // Phase Y-5: Quality Supplier (AVL) — KGMP §11 / ISO 13485 §7.4
+  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/cosmetic/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
   // Phase Y-6: Risk Assessment — KGMP §3.5 / ICH Q9 / ISO 14971 / Codex
-  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
-  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
-  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
-  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
+  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
 
-  // 사내공지관리 → WORK 탭으로 이동
+  // ─── 감사·검증 (Legacy) ───
+  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "감사·검증" },
+  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
+  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"], group: "감사·검증" },
 
-  // 시스템 (admin만)
-  { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
-  // 서버 모니터링 → 슈퍼관리자 전용 (superAdminMenuItems에서 접근)
+  // ─── 시스템 ───
+  { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "시스템" },
   // ★ GOGOGOPICK 연동은 feature flag 로 제어 (기본 비활성, 운영 연동 대기)
   //    .env 에 VITE_FEATURE_GOGOGOPICK=true 설정 시 노출
   ...(FEATURES.GOGOGOPICK_INTEGRATION
-    ? [{ icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true }]
+    ? [{ icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true, group: "시스템" }]
     : []),
 ];
 
