@@ -15,24 +15,22 @@
  */
 import { changeControlRouter } from "../coreMes/quality/changeControl.router";
 import { nonconformingRouter } from "../coreMes/quality/nonconforming.router";
+import { auditRouter } from "../coreMes/quality/audit.router";
 
 export const coreMesRouterMap = {
-  /**
-   * Change Control (변경관리) — Phase Y-2-0-b
-   *
-   * 단일 테이블 h_change_controls + industry view filter.
-   * 적용: 식품 HACCP / 화장품 GMP / 의약품 KGMP / 의료기기 등 cross-industry.
-   */
+  /** Change Control (변경관리) — Phase Y-2-0-b */
   changeControl: changeControlRouter,
 
-  /**
-   * Nonconforming (부적합) — Phase Y-2-1-b
-   *
-   * 단일 테이블 h_nonconformings + industry view filter.
-   * 기존 h_nonconforming_products (식품 위주) 와 별개 — Strangler Fig.
-   * 적용: 식품 / 화장품 / 의약품 / 의료기기 모두 동일 entity.
-   * Y-2-2 (CAPA) 머지 후 corrective_action_id 활성.
-   */
+  /** Nonconforming (부적합) — Phase Y-2-1-b */
   nonconforming: nonconformingRouter,
+
+  /**
+   * Audit (감사) — Phase Y-2-3
+   *
+   * 단일 테이블 h_audits + findings JSON array + industry view filter.
+   * internal / supplier / external 3종.
+   * Findings 의 correctiveActionId 가 CAPA (Y-2-2) 와 연계.
+   */
+  audit: auditRouter,
 } as const;
 
