@@ -1,5 +1,7 @@
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
+// Phase Plugin-7: Dashboard Engine — HACCP/GMP 별 KPI 분기
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
@@ -146,6 +148,10 @@ function ProgressBar({ value, className }: { value: number; className?: string }
 // ═══════════════════════════════════════════
 export default function Dashboard() {
   const L = useIndustryLabel();
+  // Phase Plugin-7: 산업 plugin — HACCP 전용 KPI 위젯 격리
+  const { plugin: domainPlugin } = useDomainPlugin();
+  const showHaccpKpis = !domainPlugin || domainPlugin.modules.haccp === true;
+  const showGmpKpis = !!domainPlugin && domainPlugin.modules.gmp === true;
 
   // ─── Data Queries ───
   const { data: stats } = trpc.dashboard.getStats.useQuery(undefined, {
@@ -297,14 +303,17 @@ export default function Dashboard() {
             sub="실시간 생산 현황"
             href="/dashboard/pipeline"
           />
-          <MiniKPI
-            label="HACCP 경고"
-            value={(ccpDeviations?.length || 0) + (todaySchedules?.length || 0)}
-            icon={ShieldAlert}
-            color={(ccpDeviations?.length || 0) > 0 ? "red" : "emerald"}
-            sub={`CCP 이탈 ${ccpDeviations?.length || 0} | 점검 ${todaySchedules?.length || 0}`}
-            href="/quality/ccp-monitoring"
-          />
+          {/* ★ Phase Plugin-7: HACCP 경고 KPI 는 식품 HACCP 전용 (CCP 이탈/점검) */}
+          {showHaccpKpis && (
+            <MiniKPI
+              label="HACCP 경고"
+              value={(ccpDeviations?.length || 0) + (todaySchedules?.length || 0)}
+              icon={ShieldAlert}
+              color={(ccpDeviations?.length || 0) > 0 ? "red" : "emerald"}
+              sub={`CCP 이탈 ${ccpDeviations?.length || 0} | 점검 ${todaySchedules?.length || 0}`}
+              href="/quality/ccp-monitoring"
+            />
+          )}
           <MiniKPI
             label="재고 경고"
             value={(stats?.lowStockCount || 0) + (expiryNotifications?.length || 0)}
@@ -340,20 +349,25 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="pt-0">
               <div className="space-y-0.5">
-                <TaskItem
-                  icon={ThermometerSun}
-                  label="CCP 점검"
-                  count={todaySchedules?.length || 0}
-                  color="red"
-                  href="/quality/ccp-monitoring"
-                />
-                <TaskItem
-                  icon={FlaskConical}
-                  label="검사 미완료"
-                  count={ccpDeviations?.length || 0}
-                  color="amber"
-                  href="/dashboard/inspections"
-                />
+                {/* ★ Phase Plugin-7: CCP 점검 / 검사 미완료 는 식품 HACCP 전용 task */}
+                {showHaccpKpis && (
+                  <>
+                    <TaskItem
+                      icon={ThermometerSun}
+                      label="CCP 점검"
+                      count={todaySchedules?.length || 0}
+                      color="red"
+                      href="/quality/ccp-monitoring"
+                    />
+                    <TaskItem
+                      icon={FlaskConical}
+                      label="검사 미완료"
+                      count={ccpDeviations?.length || 0}
+                      color="amber"
+                      href="/dashboard/inspections"
+                    />
+                  </>
+                )}
                 <TaskItem
                   icon={Package}
                   label="생산 진행"
@@ -456,8 +470,11 @@ export default function Dashboard() {
         </div>
 
         {/* ═══ HACCP STATUS + INVENTORY STATUS ═══ */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* HACCP 상태 */}
+        {/* ★ Phase Plugin-7: HACCP 상태 카드는 식품 HACCP 전용 (CCP 점검/이탈 KPI) */}
+        {/*    화장품 GMP / 의약품 KGMP 등은 자체 plugin.dashboardWidgets 사용 */}
+        <div className={showHaccpKpis ? "grid gap-6 lg:grid-cols-2" : "grid gap-6"}>
+          {showHaccpKpis && (
+          /* HACCP 상태 */
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -531,6 +548,7 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* 재고 상태 */}
           <Card>
