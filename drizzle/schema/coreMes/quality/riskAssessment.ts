@@ -1,5 +1,5 @@
 /**
- * Drizzle 스키마: h_risk_assessments — 위험 평가 (Phase Y-6)
+ * Drizzle 스키마: h_quality_risk_assessments — 품질 위험 평가 (Phase Y-6)
  *
  * 인덱스:
  *   - PRIMARY KEY (id)
@@ -36,7 +36,7 @@ export const INDUSTRY_VALUES = [
 ] as const;
 
 export const hRiskAssessments = mysqlTable(
-  "h_risk_assessments",
+  "h_quality_risk_assessments",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
     tenantId: int("tenant_id").notNull(),
@@ -75,21 +75,21 @@ export const hRiskAssessments = mysqlTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
   },
   (table) => ({
-    uniqTenantCode: uniqueIndex("uniq_risk_assessment_tenant_code").on(
+    uniqTenantCode: uniqueIndex("uniq_quality_risk_assessment_tenant_code").on(
       table.tenantId,
       table.code,
     ),
-    idxTenantIndustryStatus: index("idx_risk_assessment_tenant_industry_status").on(
+    idxTenantIndustryStatus: index("idx_quality_risk_assessment_tenant_industry_status").on(
       table.tenantId,
       table.industry,
       table.status,
     ),
-    idxTenantCategoryStatus: index("idx_risk_assessment_tenant_category_status").on(
+    idxTenantCategoryStatus: index("idx_quality_risk_assessment_tenant_category_status").on(
       table.tenantId,
       table.category,
       table.status,
     ),
-    idxTenantResidualScore: index("idx_risk_assessment_tenant_residual_score").on(
+    idxTenantResidualScore: index("idx_quality_risk_assessment_tenant_residual_score").on(
       table.tenantId,
       table.residualScore,
     ),
