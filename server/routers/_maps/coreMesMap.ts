@@ -16,6 +16,7 @@ import { changeControlRouter } from "../coreMes/quality/changeControl.router";
 import { nonconformingRouter } from "../coreMes/quality/nonconforming.router";
 import { correctiveActionRouter } from "../coreMes/quality/correctiveAction.router";
 import { auditRouter } from "../coreMes/quality/audit.router";
+import { trainingRouter } from "../coreMes/quality/training.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -40,4 +41,13 @@ export const coreMesRouterMap = {
    * Findings 의 correctiveActionId 가 CAPA (Y-2-2) 와 연계.
    */
   audit: auditRouter,
+
+  /**
+   * Training (교육/훈련) — Phase Y-3
+   *
+   * 단일 테이블 h_trainings + attendees JSON array + industry view filter.
+   * internal / external / on_the_job / regulatory 4종.
+   * KGMP §6 / ISO 22716 §7 / ISO 13485 §6.2 모두 적용.
+   */
+  training: trainingRouter,
 } as const;

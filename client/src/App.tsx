@@ -113,6 +113,9 @@ const CosmeticChangeControl = lazy(() => import("./pages/changeControl/CosmeticC
 const CosmeticAudit = lazy(() => import("./pages/audit/CosmeticAudit"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
+// Phase Y-3: Training (교육/훈련) — cross-cutting
+const CosmeticTraining = lazy(() => import("./pages/training/CosmeticTraining"));
+const FoodTraining = lazy(() => import("./pages/training/FoodTraining"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -506,6 +509,8 @@ function Router() {
       <Route path="/dashboard/cosmetic/stability" component={CosmeticStabilityList} />
       <Route path="/dashboard/cosmetic/change-control" component={CosmeticChangeControl} />
       <Route path="/dashboard/cosmetic/audit" component={CosmeticAudit} />
+      <Route path="/dashboard/cosmetic/training" component={CosmeticTraining} />
+      <Route path="/dashboard/food/training" component={FoodTraining} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />

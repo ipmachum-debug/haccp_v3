@@ -79,6 +79,11 @@ const STEPS: MigrationStep[] = [
     script: "scripts/migrate-audit-table.ts",
     description: "Audit (internal/supplier/external) — Phase Y-2-3",
   },
+  {
+    name: "training",
+    script: "scripts/migrate-training-table.ts",
+    description: "Training (교육/훈련) — Phase Y-3",
+  },
   // 화장품 GMP Phase 2 — lifecycle 순서대로
   {
     name: "cosmetic-bmr",
