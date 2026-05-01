@@ -72,7 +72,7 @@ export default function CosmeticReleaseList() {
               QA 출고 (Release)
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              BMR 제조 완료 + IPC 합격 + 라벨 준비 → 시장 출시 lifecycle (Phase 2-6)
+              제조 완료된 화장품의 출고 검토 / 승인 / 출고 완료 / 회수를 관리합니다.
             </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
@@ -108,7 +108,7 @@ export default function CosmeticReleaseList() {
               <span className="text-xs text-muted-foreground font-normal">자동 갱신 60초</span>
             </CardTitle>
             <CardDescription>
-              pending → approved → released → (recalled). QA 검증 결과는 코드 옆 아이콘.
+              검토 대기 → QA 승인 → 출고 완료 (필요 시 회수). QA 검증 결과는 코드 옆 아이콘으로 표시됩니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -189,10 +189,10 @@ export default function CosmeticReleaseList() {
             <CardTitle className="text-sm">자동 QA 검증 항목</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• <strong>BMR 제조 완료</strong> — h_cosmetic_bmr.status === 'completed'</p>
-            <p>• <strong>IPC 모두 합격</strong> — h_cosmetic_bmr_ipc 의 모든 항목 pass</p>
-            <p>• 라벨 active 검증 — Phase 2-5 (#154) 머지 후 활성화 예정</p>
-            <p>• 안정성시험 — Phase 2 후속 (별도 모듈)</p>
+            <p>• <strong>BMR 제조 완료</strong> — 제조기록서 상태가 완료여야 출고 가능</p>
+            <p>• <strong>IPC 모두 합격</strong> — 공정중관리 측정값이 모두 한계 기준 이내</p>
+            <p>• <strong>라벨 승인</strong> — 활성 라벨 확보 (KFDA 신고용)</p>
+            <p>• <strong>안정성시험</strong> — 결과 확인 (해당 시)</p>
           </CardContent>
         </Card>
       </div>

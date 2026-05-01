@@ -109,7 +109,7 @@ export default function CosmeticLabelList() {
               <span className="text-xs text-muted-foreground font-normal">자동 갱신 60초</span>
             </CardTitle>
             <CardDescription>
-              draft → approved → active → deprecated. active 가 KFDA 신고용 표준 라벨.
+              작성 중 → 승인 → 사용 중 → 구버전. "사용 중" 상태 라벨이 KFDA 신고용 표준 라벨입니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -177,9 +177,9 @@ export default function CosmeticLabelList() {
             <CardTitle className="text-sm">향후 확장</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• 라벨 인쇄 미리보기 (PDF) — 50mL 라벨 / 100g 라벨 표준 양식</p>
-            <p>• 배합표(Phase 2-4a) → INCI 자동 생성 (active formula 선택)</p>
-            <p>• KFDA 신고서 자동 작성 (Phase 2-6 통합)</p>
+            <p>• 라벨 인쇄 미리보기 (PDF) — 50mL / 100g 표준 양식</p>
+            <p>• 배합표(Formula) 기반 INCI(전성분) 자동 생성</p>
+            <p>• KFDA 신고서 자동 작성</p>
           </CardContent>
         </Card>
       </div>

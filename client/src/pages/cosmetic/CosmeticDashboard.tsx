@@ -122,7 +122,7 @@ export default function CosmeticDashboard() {
               화장품 GMP 운영 현황
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Phase 2 lifecycle 8 모듈 + 24h 처리량 + 최근 활동
+              제조 / 공정중관리 / 출고 등 8개 GMP 모듈 운영 상태
             </p>
           </div>
           <Badge variant={alertsActive ? "default" : "secondary"} className="text-sm">
@@ -133,9 +133,9 @@ export default function CosmeticDashboard() {
         {/* 8 모듈 활성화 */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Phase 2 lifecycle 8 모듈</CardTitle>
+            <CardTitle className="text-base">화장품 GMP 모듈</CardTitle>
             <CardDescription>
-              모든 모듈은 cosmetic tenant (industry profile.gmp=true) 에서 활성.
+              KGMP / ISO 22716 기준 — Phase 2 lifecycle 8개 모듈 활성화 상태
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -419,17 +419,16 @@ export default function CosmeticDashboard() {
           </Card>
         </div>
 
-        {/* 활성화 안내 */}
+        {/* 알림 비활성 안내 (운영자용) */}
         {!alertsActive && (
           <Card className="bg-muted/30 border-dashed">
             <CardHeader>
-              <CardTitle className="text-sm">F-3 cosmetic 알림 활성화</CardTitle>
+              <CardTitle className="text-sm">실시간 알림 비활성</CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground space-y-1">
               <p>
-                IPC 부적합 / 회수 발생 시 admin/inspector/monitor 자동 알림 fanout.
-                활성화: <code>ENABLE_COSMETIC_ALERTS=true</code> (또는 tenant 별 <code>_TENANTS</code>)
-                + PM2 reload.
+                현재 IPC 부적합 / 회수 발생 시 자동 알림이 비활성 상태입니다.
+                활성화하려면 시스템 관리자에게 문의하세요.
               </p>
             </CardContent>
           </Card>
