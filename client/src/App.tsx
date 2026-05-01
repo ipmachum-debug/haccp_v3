@@ -122,6 +122,15 @@ const FoodSupplier = lazy(() => import("./pages/supplier/FoodSupplier"));
 // Phase Y-6: Risk Assessment (ICH Q9 / ISO 14971 / Codex / KGMP §3.5)
 const CosmeticRiskAssessment = lazy(() => import("./pages/riskAssessment/CosmeticRiskAssessment"));
 const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAssessment"));
+// Phase 3 — Pharmaceutical KGMP industry 활성화 (8 Y-시리즈 entity)
+const PharmaceuticalChangeControl = lazy(() => import("./pages/changeControl/PharmaceuticalChangeControl"));
+const PharmaceuticalNonconforming = lazy(() => import("./pages/nonconforming/PharmaceuticalNonconforming"));
+const PharmaceuticalCorrectiveAction = lazy(() => import("./pages/correctiveAction/PharmaceuticalCorrectiveAction"));
+const PharmaceuticalAudit = lazy(() => import("./pages/audit/PharmaceuticalAudit"));
+const PharmaceuticalTraining = lazy(() => import("./pages/training/PharmaceuticalTraining"));
+const PharmaceuticalCalibration = lazy(() => import("./pages/calibration/PharmaceuticalCalibration"));
+const PharmaceuticalSupplier = lazy(() => import("./pages/supplier/PharmaceuticalSupplier"));
+const PharmaceuticalRiskAssessment = lazy(() => import("./pages/riskAssessment/PharmaceuticalRiskAssessment"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const FoodCorrectiveAction = lazy(() => import("./pages/correctiveAction/FoodCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
@@ -532,6 +541,15 @@ function Router() {
       <Route path="/dashboard/food/supplier" component={FoodSupplier} />
       <Route path="/dashboard/cosmetic/risk-assessment" component={CosmeticRiskAssessment} />
       <Route path="/dashboard/food/risk-assessment" component={FoodRiskAssessment} />
+      {/* Phase 3 — Pharmaceutical KGMP routes (8 Y-시리즈 entity) */}
+      <Route path="/dashboard/pharmaceutical/change-control" component={PharmaceuticalChangeControl} />
+      <Route path="/dashboard/pharmaceutical/nonconforming" component={PharmaceuticalNonconforming} />
+      <Route path="/dashboard/pharmaceutical/corrective-action" component={PharmaceuticalCorrectiveAction} />
+      <Route path="/dashboard/pharmaceutical/audit" component={PharmaceuticalAudit} />
+      <Route path="/dashboard/pharmaceutical/training" component={PharmaceuticalTraining} />
+      <Route path="/dashboard/pharmaceutical/calibration" component={PharmaceuticalCalibration} />
+      <Route path="/dashboard/pharmaceutical/supplier" component={PharmaceuticalSupplier} />
+      <Route path="/dashboard/pharmaceutical/risk-assessment" component={PharmaceuticalRiskAssessment} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/food/corrective-action" component={FoodCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
