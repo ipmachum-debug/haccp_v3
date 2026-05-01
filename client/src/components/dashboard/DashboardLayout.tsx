@@ -327,6 +327,18 @@ const menuItems = [
   // Phase Y-6: Risk Assessment — KGMP §3.5 / ICH Q9 / ISO 14971 / Codex
   { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
 
+  // ─── Phase 3: 의약품 KGMP — Y-시리즈 8 entity (pharmaceutical 진입) ───
+  // 의약품 KGMP 테넌트 (industry=pharmaceutical) 전용. modules.gmp=true 매칭.
+  // 모든 라우트가 server core-mes router 의 industry view filter (z.enum 6 industries) 를 통과함.
+  { icon: GitBranch, label: "변경관리 (KGMP)", path: "/dashboard/pharmaceutical/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: AlertCircle, label: "부적합 관리 (KGMP)", path: "/dashboard/pharmaceutical/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: AlertTriangle, label: "CAPA (KGMP)", path: "/dashboard/pharmaceutical/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: ClipboardCheck, label: "감사 (KGMP)", path: "/dashboard/pharmaceutical/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: GraduationCap, label: "교육 / 훈련 (KGMP)", path: "/dashboard/pharmaceutical/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: Sliders, label: "검교정 IQ/OQ/PQ (KGMP)", path: "/dashboard/pharmaceutical/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: Building, label: "공급업체 AVL (KGMP)", path: "/dashboard/pharmaceutical/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+  { icon: AlertTriangle, label: "위험 평가 ICH Q9 (KGMP)", path: "/dashboard/pharmaceutical/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
+
   // ─── 감사·검증 (Legacy) ───
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "감사·검증" },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
