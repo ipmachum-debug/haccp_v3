@@ -1,3 +1,8 @@
+// 자동 dotenv 로드 — child migration 스크립트가 "set -a && source .env" 없이 standalone 실행 가능.
+// 이미 process.env 에 값이 있으면 dotenv 는 override 하지 않으므로 안전 (no-op).
+// 도입: 2026-05-01 (Y-2 deploy safety tools — db-env Plan C 강화)
+import "dotenv/config";
+
 /**
  * scripts/_lib/db-env.ts — child migration 스크립트 공통 DB 환경 helper
  *

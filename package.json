@@ -22,7 +22,10 @@
     "arch:check": "depcruise --config .dependency-cruiser.cjs server",
     "arch:graph": "depcruise --config .dependency-cruiser.cjs --output-type dot server | dot -T svg > architecture-graph.svg",
     "measure:reload": "tsx scripts/measure-reload-502.ts",
-    "measure:reload:baseline": "tsx scripts/measure-reload-502.ts --no-reload --duration 10"
+    "measure:reload:baseline": "tsx scripts/measure-reload-502.ts --no-reload --duration 10",
+    "lint:drizzle-tables": "tsx scripts/_lint/verify-drizzle-unique-tables.ts",
+    "lint:client-imports": "tsx scripts/_lint/verify-client-imports.ts",
+    "lint:deploy-safety": "npm run lint:drizzle-tables && npm run lint:client-imports"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
