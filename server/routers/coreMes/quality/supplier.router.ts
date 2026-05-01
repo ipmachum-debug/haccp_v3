@@ -38,7 +38,7 @@ function requireApproveRole(role?: string) {
   }
 }
 
-export const supplierRouter = router({
+export const qualitySupplierRouter = router({
   list: tenantRequiredProcedure
     .input(
       z.object({

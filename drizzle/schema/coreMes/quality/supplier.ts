@@ -1,5 +1,5 @@
 /**
- * Drizzle 스키마: h_quality_suppliers — 품질 공급업체 관리 (AVL) (Phase Y-5)
+ * Drizzle 스키마: h_quality_suppliers — 공급업체 관리 (AVL) (Phase Y-5)
  *
  * AVL = Approved Vendor List.
  *
@@ -37,7 +37,7 @@ export const INDUSTRY_VALUES = [
   "health-functional", "medical-device", "general-manufacturing",
 ] as const;
 
-export const hSuppliers = mysqlTable(
+export const hQualitySuppliers = mysqlTable(
   "h_quality_suppliers",
   {
     id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
@@ -99,5 +99,5 @@ export const hSuppliers = mysqlTable(
   }),
 );
 
-export type DbSupplierRow = typeof hSuppliers.$inferSelect;
-export type DbSupplierInsert = typeof hSuppliers.$inferInsert;
+export type DbSupplierRow = typeof hQualitySuppliers.$inferSelect;
+export type DbSupplierInsert = typeof hQualitySuppliers.$inferInsert;

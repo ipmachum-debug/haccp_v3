@@ -1,12 +1,12 @@
 /**
- * 마이그레이션: h_quality_suppliers 테이블 — Quality Supplier (AVL) (Phase Y-5)
+ * 마이그레이션: h_quality_suppliers 테이블 — Supplier (AVL) (Phase Y-5)
  */
 import mysql from "mysql2/promise";
 import { getDbConfigFromEnv } from "./_lib/db-env.js";
 
 async function migrate() {
   const conn = await mysql.createConnection(getDbConfigFromEnv(process.env));
-  console.log("=== 마이그레이션 시작: h_quality_suppliers (Quality Supplier AVL / Phase Y-5) ===\n");
+  console.log("=== 마이그레이션 시작: h_quality_suppliers (Supplier AVL / Phase Y-5) ===\n");
 
   const [tRows]: any = await conn.execute(
     `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
