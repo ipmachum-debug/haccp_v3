@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import { toast } from "@/hooks/use-toast";
-import DashboardLayout from "@/pages/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import type { IndustryKey } from "@/lib/menuTypes";
 import { INDUSTRY_LABELS } from "@/lib/menuTypes";
 

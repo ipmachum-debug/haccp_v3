@@ -12,10 +12,10 @@
  *   - 신규 industry 진입 시 라우터 변경 0 (테이블 ENUM 만 ALTER)
  */
 
-import { changeControlRouter } from \"../coreMes/quality/changeControl.router\";
-import { nonconformingRouter } from \"../coreMes/quality/nonconforming.router\";
-import { correctiveActionRouter } from \"../coreMes/quality/correctiveAction.router\";
-import { auditRouter } from \"../coreMes/quality/audit.router\";
+import { changeControlRouter } from "../coreMes/quality/changeControl.router";
+import { nonconformingRouter } from "../coreMes/quality/nonconforming.router";
+import { correctiveActionRouter } from "../coreMes/quality/correctiveAction.router";
+import { auditRouter } from "../coreMes/quality/audit.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
