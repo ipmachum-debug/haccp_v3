@@ -26,7 +26,7 @@ import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Se
 import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { toast } from "@/hooks/use-toast";
@@ -37,6 +37,9 @@ import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures";
+// Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
+import { buildMenuFromPlugin } from "@/domain/engines/clientMenuEngine";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
 
@@ -845,6 +848,15 @@ function DashboardLayoutContent({
     "/dashboard/document-output",
   ];
 
+  // ★ Phase Plugin-3 (Menu Engine): Plugin 기반 동적 메뉴
+  // - HACCP 탭: tenant 의 industry plugin 메뉴 사용 (plugin 미정 시 legacy menuItems 폴백)
+  // - WORK / 회계 탭: 기존 그대로 (산업 무관)
+  const { plugin: domainPlugin } = useDomainPlugin();
+  const pluginBasedMenu = useMemo(
+    () => buildMenuFromPlugin(domainPlugin),
+    [domainPlugin],
+  );
+
   // 표시할 메뉴 선택 (슈퍼관리자는 전용 메뉴 표시)
   let displayedMenuItems = user?.role === "super_admin" && activeTab === "work"
     ? superAdminMenuItems
@@ -852,7 +864,8 @@ function DashboardLayoutContent({
     ? workMenuItems
     : activeTab === "finance"
     ? accountingMenuItems
-    : menuItems;
+    // HACCP 탭: plugin 기반 메뉴 (plugin 없으면 legacy menuItems 폴백)
+    : (domainPlugin ? pluginBasedMenu : menuItems);
 
   // ★ 업종코드 기반 메뉴 필터링 (requireModule이 지정된 메뉴만 체크)
   // 슈퍼어드민은 필터링 건너뜀 (모든 메뉴 접근 가능)
