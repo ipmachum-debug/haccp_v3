@@ -131,6 +131,24 @@ const PharmaceuticalTraining = lazy(() => import("./pages/training/Pharmaceutica
 const PharmaceuticalCalibration = lazy(() => import("./pages/calibration/PharmaceuticalCalibration"));
 const PharmaceuticalSupplier = lazy(() => import("./pages/supplier/PharmaceuticalSupplier"));
 const PharmaceuticalRiskAssessment = lazy(() => import("./pages/riskAssessment/PharmaceuticalRiskAssessment"));
+// Phase 3 — Medical Device (ISO 13485) industry 활성화 (8 Y-시리즈 entity)
+const MedicalDeviceChangeControl = lazy(() => import("./pages/changeControl/MedicalDeviceChangeControl"));
+const MedicalDeviceNonconforming = lazy(() => import("./pages/nonconforming/MedicalDeviceNonconforming"));
+const MedicalDeviceCorrectiveAction = lazy(() => import("./pages/correctiveAction/MedicalDeviceCorrectiveAction"));
+const MedicalDeviceAudit = lazy(() => import("./pages/audit/MedicalDeviceAudit"));
+const MedicalDeviceTraining = lazy(() => import("./pages/training/MedicalDeviceTraining"));
+const MedicalDeviceCalibration = lazy(() => import("./pages/calibration/MedicalDeviceCalibration"));
+const MedicalDeviceSupplier = lazy(() => import("./pages/supplier/MedicalDeviceSupplier"));
+const MedicalDeviceRiskAssessment = lazy(() => import("./pages/riskAssessment/MedicalDeviceRiskAssessment"));
+// Phase 3 — General Manufacturing (ISO 9001) industry 활성화 (8 Y-시리즈 entity)
+const GeneralMfgChangeControl = lazy(() => import("./pages/changeControl/GeneralMfgChangeControl"));
+const GeneralMfgNonconforming = lazy(() => import("./pages/nonconforming/GeneralMfgNonconforming"));
+const GeneralMfgCorrectiveAction = lazy(() => import("./pages/correctiveAction/GeneralMfgCorrectiveAction"));
+const GeneralMfgAudit = lazy(() => import("./pages/audit/GeneralMfgAudit"));
+const GeneralMfgTraining = lazy(() => import("./pages/training/GeneralMfgTraining"));
+const GeneralMfgCalibration = lazy(() => import("./pages/calibration/GeneralMfgCalibration"));
+const GeneralMfgSupplier = lazy(() => import("./pages/supplier/GeneralMfgSupplier"));
+const GeneralMfgRiskAssessment = lazy(() => import("./pages/riskAssessment/GeneralMfgRiskAssessment"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const FoodCorrectiveAction = lazy(() => import("./pages/correctiveAction/FoodCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
@@ -550,6 +568,24 @@ function Router() {
       <Route path="/dashboard/pharmaceutical/calibration" component={PharmaceuticalCalibration} />
       <Route path="/dashboard/pharmaceutical/supplier" component={PharmaceuticalSupplier} />
       <Route path="/dashboard/pharmaceutical/risk-assessment" component={PharmaceuticalRiskAssessment} />
+      {/* Phase 3 — Medical Device (ISO 13485) routes */}
+      <Route path="/dashboard/medical-device/change-control" component={MedicalDeviceChangeControl} />
+      <Route path="/dashboard/medical-device/nonconforming" component={MedicalDeviceNonconforming} />
+      <Route path="/dashboard/medical-device/corrective-action" component={MedicalDeviceCorrectiveAction} />
+      <Route path="/dashboard/medical-device/audit" component={MedicalDeviceAudit} />
+      <Route path="/dashboard/medical-device/training" component={MedicalDeviceTraining} />
+      <Route path="/dashboard/medical-device/calibration" component={MedicalDeviceCalibration} />
+      <Route path="/dashboard/medical-device/supplier" component={MedicalDeviceSupplier} />
+      <Route path="/dashboard/medical-device/risk-assessment" component={MedicalDeviceRiskAssessment} />
+      {/* Phase 3 — General Manufacturing (ISO 9001) routes */}
+      <Route path="/dashboard/general-manufacturing/change-control" component={GeneralMfgChangeControl} />
+      <Route path="/dashboard/general-manufacturing/nonconforming" component={GeneralMfgNonconforming} />
+      <Route path="/dashboard/general-manufacturing/corrective-action" component={GeneralMfgCorrectiveAction} />
+      <Route path="/dashboard/general-manufacturing/audit" component={GeneralMfgAudit} />
+      <Route path="/dashboard/general-manufacturing/training" component={GeneralMfgTraining} />
+      <Route path="/dashboard/general-manufacturing/calibration" component={GeneralMfgCalibration} />
+      <Route path="/dashboard/general-manufacturing/supplier" component={GeneralMfgSupplier} />
+      <Route path="/dashboard/general-manufacturing/risk-assessment" component={GeneralMfgRiskAssessment} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/food/corrective-action" component={FoodCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
