@@ -284,6 +284,14 @@ const menuItems = [
   { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  // Phase Y-2-0: Change Control (식품 진입) — HACCP Plan 변경관리
+  { icon: GitBranch, label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  // Phase Y-2-1: Nonconforming (식품 진입) — 부적합 통합 관리
+  { icon: AlertCircle, label: "부적합 관리 (통합)", path: "/dashboard/food/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  // Phase Y-2-2: CAPA (식품 진입) — 시정·예방조치 (Y-시리즈)
+  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/food/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
+  // Phase Y-2-3: Audit (식품 진입) — internal/supplier/external 3종
+  { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/food/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-3: Training (식품 진입) — KGMP §6 / 식품안전관리법
   { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-4: Calibration (식품 진입) — 온도계 / 금속검출기 / pH meter 검교정
