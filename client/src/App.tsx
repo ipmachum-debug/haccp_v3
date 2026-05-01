@@ -113,6 +113,11 @@ const CosmeticChangeControl = lazy(() => import("./pages/changeControl/CosmeticC
 const CosmeticAudit = lazy(() => import("./pages/audit/CosmeticAudit"));
 const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
 const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
+// Phase Y-2: Food wrappers — cross-cutting 4개 도메인 식품 진입점
+const FoodChangeControl = lazy(() => import("./pages/changeControl/FoodChangeControl"));
+const FoodNonconforming = lazy(() => import("./pages/nonconforming/FoodNonconforming"));
+const FoodCorrectiveAction = lazy(() => import("./pages/correctiveAction/FoodCorrectiveAction"));
+const FoodAudit = lazy(() => import("./pages/audit/FoodAudit"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -508,6 +513,11 @@ function Router() {
       <Route path="/dashboard/cosmetic/audit" component={CosmeticAudit} />
       <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
       <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
+      {/* Phase Y-2 — Food wrappers (cross-cutting 4개) */}
+      <Route path="/dashboard/food/change-control" component={FoodChangeControl} />
+      <Route path="/dashboard/food/nonconforming" component={FoodNonconforming} />
+      <Route path="/dashboard/food/corrective-action" component={FoodCorrectiveAction} />
+      <Route path="/dashboard/food/audit" component={FoodAudit} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
       <Route path="/dashboard/cosmetic/label" component={CosmeticLabelList} />

@@ -1,0 +1,9 @@
+/**
+ * 식품 HACCP — Change Control 진입 (industry='food' 고정)
+ * 페이지 컴포넌트는 ChangeControlPage 가 모든 industry 공통.
+ */
+import ChangeControlPage from "./ChangeControlPage";
+
+export default function FoodChangeControl() {
+  return <ChangeControlPage industry="food" />;
+}

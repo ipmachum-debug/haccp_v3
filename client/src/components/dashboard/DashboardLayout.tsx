@@ -291,6 +291,11 @@ const menuItems = [
   { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp" },
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  // 식품 HACCP — Phase Y-2 cross-cutting 통합 (core-mes/quality)
+  { icon: GitBranch, label: "변경관리 (통합)", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: AlertCircle, label: "부적합 관리 (통합)", path: "/dashboard/food/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/food/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
+  { icon: ClipboardCheck, label: "감사 (Audit 통합)", path: "/dashboard/food/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp" },
   // 화장품 GMP — Phase 2 (cosmetic 업종 전용)
   { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
