@@ -374,24 +374,11 @@ export const hNonconformances = mysqlTable("h_nonconformances", {
 });
 
 /**
- * h_corrective_actions - 시정 조치
+ * h_corrective_actions - 시정 조치 (Phase Y-2-2 로 이전됨 — drizzle/schema/coreMes/quality/correctiveAction.ts)
+ *
+ * 2026-05-01: Y-2-2 PR #196 머지로 단일 테이블 + industry view filter + nonconforming FK 도입.
+ * legacy 정의는 drizzle/schema/coreMes/quality/correctiveAction.ts 의 hCorrectiveActions 로 대체됨.
  */
-export const hCorrectiveActions = mysqlTable("h_corrective_actions", {
-  id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
-  tenantId: int('tenant_id').notNull().references(() => tenants.id),
-  ncId: bigint("nc_id", { mode: "number" }).notNull(),
-  actionType: varchar("action_type", { length: 50 }),
-  actionDescription: text("action_description"),
-  rootCause: text("root_cause"),
-  preventiveAction: text("preventive_action"),
-  implementationDate: date("implementation_date"),
-  status: mysqlEnum("status", ["planned", "in_progress", "completed", "verified"]).default("planned"),
-  assignedTo: bigint("assigned_to", { mode: "number" }),
-  verifiedBy: bigint("verified_by", { mode: "number" }),
-  verifiedAt: timestamp("verified_at"),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
 
 /**
  * h_capa_records - CAPA (시정 및 예방 조치)
