@@ -55,6 +55,9 @@ import { aiRouter } from "../routers-ai";
 import { opscoreSyncRouter } from "../routers-opscore-sync";
 import { systemRouter } from "../_core/systemRouter";
 
+// ── domain plugin (Phase Plugin-1: 근본 도메인 분리) ──
+import { domainRouter } from "./domain.router";
+
 // ══════════════════════════════════════════
 // appRouter 조립
 // ══════════════════════════════════════════
@@ -109,6 +112,11 @@ export const appRouter = router({
   // ── ai (LLM 연동) ──
   ai: aiRouter,
   opscoreSync: opscoreSyncRouter,
+
+  // ── domain plugin (Phase Plugin-1: 근본 도메인 분리 아키텍처) ──
+  // 클라이언트는 trpc.domain.currentPlugin 으로 자기 산업 plugin 조회.
+  // 사이드바 / 알림 / 승인 / 문서 / 대시보드 모두 이 data 로 동적 렌더링.
+  domain: domainRouter,
 
   // ── company info (stub) ──
   // ★ 2026-04-13: companyInfo 라우터 실제 구현 연결 (stub 제거)
