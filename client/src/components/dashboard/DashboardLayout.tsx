@@ -300,14 +300,15 @@ const menuItems = [
   // ─── 대시보드 ───
   { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
 
-  // ─── 생산 ───
-  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산" },
-  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산" },
-  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산" },
+  // ─── 생산 ─── 식품 HACCP 전용 (배치/생산일지/원료수불부 — 화장품은 BMR, 의약품/일반제조 별도)
+  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
+  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
+  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
 
   // ─── 품질·검사 (공통) ───
   { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], group: "품질·검사" },
+  // 검사 관리: 육안검사일지(원재료) + 완제품출고검사 — HACCP 양식 전용
+  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
   { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
 
   // ─── 재고·운영 ───
@@ -319,10 +320,12 @@ const menuItems = [
   // ─── 마스터 데이터 ───
   { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
   { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
-  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], group: "마스터" },
+  // 모바일 빠른 점검: CCP 모니터링 / CCP 기록 / HACCP 체크리스트 기반 — HACCP 전용
+  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], requireModule: "haccp", group: "마스터" },
 
   // ─── 품질관리 (HACCP) — Y-시리즈 cross-cutting + Legacy 식품 품질 ───
-  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)" },
+  // 부적합제품관리 (Legacy 식품 HACCP — Y-2-1 부적합 관리(통합) 으로 이주됨)
+  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
@@ -405,9 +408,11 @@ const menuItems = [
   { icon: AlertTriangle, label: "위험 평가 ICH Q9 (KGMP)", path: "/dashboard/pharmaceutical/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
 
   // ─── 감사·검증 (Legacy) ───
-  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "감사·검증" },
+  // 감사관리 (Legacy HACCP 감사 — "HACCP 인증 유지를 위한 감사" — Y-2-3 Audit 으로 이주됨)
+  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
-  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"], group: "감사·검증" },
+  // 감사 리포트 (HACCP 감사 리포트 — CCP/위생검사/시정조치 통합 점수 — HACCP 전용)
+  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"], requireModule: "haccp", group: "감사·검증" },
 
   // ─── 시스템 ───
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "시스템" },
