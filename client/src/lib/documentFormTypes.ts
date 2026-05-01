@@ -1,16 +1,18 @@
 /**
- * Document FormType Catalog — industry 별 분류
+ * @deprecated Plugin Architecture (PR #220-225) 로 이주 완료.
+ *
+ * 신규 코드는 다음을 사용:
+ *   import { getDocumentFormTypes } from "@/domain";
+ *   const types = getDocumentFormTypes(plugin);
+ *
+ * 본 파일은 plugin 미정 시 폴백 호환성 유지 목적으로 보존됨.
+ * 모든 호출처가 plugin 기반으로 전환되면 제거 예정.
+ *
+ * Document FormType Catalog — industry 별 분류 (Legacy).
  *
  * 문서 결재자 설정 (DocumentApprovalSettingsPage) 에서 사용.
  * 화장품 GMP 테넌트가 식품 HACCP 전용 문서 (CCP 기록지 등) 를 보지 않도록
  * industry 분류 추가.
- *
- * industry 값:
- *   - "haccp"   : 식품 HACCP 전용 (CCP 기록지, 위생 점검, 일반위생관리 등)
- *   - "gmp"     : 화장품 GMP 전용 (BMR, 배합표, Release, Stability, Y-시리즈 cross-cutting)
- *   - "common"  : 공통 (일/주/월/연 일지, 회수 관리대장, 인수인계 등 — industry 무관)
- *
- * useIndustryFeatures().hasHACCP / hasGMP 와 매칭하여 필터링.
  */
 
 export type DocumentFormIndustry = "haccp" | "gmp" | "common";
