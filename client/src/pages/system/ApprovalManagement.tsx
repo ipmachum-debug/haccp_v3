@@ -6,6 +6,9 @@
 import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+// Phase Plugin-6: Approval Engine — Plugin 기반 승인 entity / 탭 동적화
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
+import { getApprovalEntityTypes } from "@/domain/engines/clientApprovalEngine";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +59,12 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 export default function ApprovalManagement() {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
+  // Phase Plugin-6: 산업 plugin 기반 — "품목제조보고" 탭은 HACCP 전용
+  // (food plugin 의 approvals.entityTypes 에 "food_product_report" 정의됨)
+  const { plugin: domainPlugin } = useDomainPlugin();
+  const approvalEntityTypes = domainPlugin ? getApprovalEntityTypes(domainPlugin) : [];
+  const showRecipeTab = !domainPlugin // 폴백: legacy 동작 (모두 노출)
+    || approvalEntityTypes.some((t) => t.code === "food_product_report");
   const [activeTab, setActiveTab] = useState<"review" | "approval" | "history" | "recipe" | "recipeHistory">("review");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -543,17 +552,22 @@ export default function ApprovalManagement() {
               <History className="h-3.5 w-3.5" />
               처리 이력
             </TabsTrigger>
-            <TabsTrigger value="recipe" className="flex items-center gap-1 text-xs px-2 py-1.5">
-              <Utensils className="h-3.5 w-3.5" />
-              품목제조보고
-              {pendingRecipes && pendingRecipes.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-[10px]">{pendingRecipes.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="recipeHistory" className="flex items-center gap-1 text-xs px-2 py-1.5">
-              <FileText className="h-3.5 w-3.5" />
-              품목제조 이력
-            </TabsTrigger>
+            {/* ★ Phase Plugin-6: 품목제조보고는 HACCP 전용 (식품안전관리법 §31) */}
+            {showRecipeTab && (
+              <>
+                <TabsTrigger value="recipe" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                  <Utensils className="h-3.5 w-3.5" />
+                  품목제조보고
+                  {pendingRecipes && pendingRecipes.length > 0 && (
+                    <Badge variant="secondary" className="ml-1 text-[10px]">{pendingRecipes.length}</Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="recipeHistory" className="flex items-center gap-1 text-xs px-2 py-1.5">
+                  <FileText className="h-3.5 w-3.5" />
+                  품목제조 이력
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           {/* ============================================================ */}
