@@ -78,7 +78,7 @@ export default function CosmeticFormulaList() {
               배합표 (Formula) 마스터
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              제품별 표준 배합표 관리 — BMR 제조 시 참조 기준 (Phase 2-4a)
+              제품별 표준 배합표 관리 — BMR 제조 시 참조 기준이 됩니다.
             </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
@@ -116,7 +116,7 @@ export default function CosmeticFormulaList() {
               <span className="text-xs text-muted-foreground font-normal">자동 갱신 60초</span>
             </CardTitle>
             <CardDescription>
-              draft → approved → active → deprecated. active 가 BMR 의 기준 배합표.
+              작성 중 → 승인 → 사용 중 → 구버전. "사용 중" 상태가 BMR 제조의 기준 배합표가 됩니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -175,15 +175,15 @@ export default function CosmeticFormulaList() {
           </CardContent>
         </Card>
 
-        {/* 향후 안내 */}
+        {/* 연계 모듈 안내 */}
         <Card className="bg-muted/30 border-dashed">
           <CardHeader>
-            <CardTitle className="text-sm">향후 확장 (Phase 2-4b ~)</CardTitle>
+            <CardTitle className="text-sm">연계 모듈</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• Phase 2-4b — BMR 별 원료 투입 기록 (배합표 기준 + 실측 차이)</p>
-            <p>• Phase 2-5 — 라벨 / 전성분 (KFDA INCI 표시)</p>
-            <p>• Phase 2-6 — QA 출고 (Release) 워크플로</p>
+            <p>• <strong>BMR 원료 투입</strong> — 배합표 기준값과 실제 투입량 비교 기록</p>
+            <p>• <strong>라벨 / 전성분 (INCI)</strong> — 배합표 기반 KFDA 표시 자동 생성</p>
+            <p>• <strong>QA 출고 (Release)</strong> — 배합표 승인이 출고 검증의 전제 조건</p>
           </CardContent>
         </Card>
       </div>

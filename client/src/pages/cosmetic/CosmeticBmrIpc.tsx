@@ -287,9 +287,9 @@ export default function CosmeticBmrIpc() {
             <CardTitle className="text-sm">향후 확장</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• 표준 IPC template 마스터 (h_cosmetic_ipc_template)</p>
-            <p>• 부적합 시 자동 알림 / CAR 등록 (Phase 2-7 — F-3 cosmetic)</p>
-            <p>• BMR Detail 페이지에 IPC 카드 통합 (Phase 2-2 머지 후)</p>
+            <p>• <strong>표준 IPC 양식 마스터</strong> — 자주 쓰는 측정 항목 템플릿</p>
+            <p>• <strong>부적합 시 자동 알림 / 시정조치 등록</strong></p>
+            <p>• <strong>BMR 상세 페이지에 IPC 카드 통합</strong></p>
           </CardContent>
         </Card>
       </div>

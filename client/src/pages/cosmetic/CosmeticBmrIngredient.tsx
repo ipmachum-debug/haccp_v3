@@ -282,7 +282,7 @@ export default function CosmeticBmrIngredient() {
               </span>
             </CardTitle>
             <CardDescription>
-              실제 투입량을 클릭하여 즉시 수정 가능. 향후 배합표 (Phase 2-4a) 자동 채움 예정.
+              실제 투입량을 클릭하여 즉시 수정할 수 있습니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -403,9 +403,9 @@ export default function CosmeticBmrIngredient() {
             <CardTitle className="text-sm">향후 확장</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• 배합표 (Phase 2-4a) 자동 채움 — active formula 선택 → ingredient 자동 prefill</p>
-            <p>• LOT 추적 — h_inventory_lots 와 통합 (FEFO 자동 할당)</p>
-            <p>• Phase 2-5 — 라벨/전성분 자동 생성 (INCI name 활용)</p>
+            <p>• <strong>배합표 자동 채움</strong> — 사용 중 배합표 선택 시 원료 목록 자동 prefill</p>
+            <p>• <strong>LOT 추적</strong> — 재고 LOT 통합 (FEFO 자동 할당)</p>
+            <p>• <strong>라벨 / 전성분 자동 생성</strong> — INCI 명 자동 매핑</p>
           </CardContent>
         </Card>
       </div>

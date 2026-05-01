@@ -126,7 +126,7 @@ export default function CosmeticStabilityList() {
               안정성시험 (Stability Test)
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              ICH Q1A 가이드라인 기반 — 장기/가속/스트레스 시험으로 사용기한 결정 (Phase 2-8)
+              ICH Q1A 가이드라인 기반 — 장기 / 가속 / 스트레스 시험으로 사용기한 결정
             </p>
           </div>
           <Button onClick={() => setCreateOpen(true)}>
@@ -142,7 +142,7 @@ export default function CosmeticStabilityList() {
               <span className="text-xs text-muted-foreground font-normal">자동 갱신 60초</span>
             </CardTitle>
             <CardDescription>
-              planned → in_progress → completed (또는 failed). 관측치는 detail 페이지에서 (향후).
+              계획 → 진행 중 → 완료 (또는 실패). 측정 관측치는 시험 상세 페이지에서 확인하세요.
             </CardDescription>
           </CardHeader>
           <CardContent>

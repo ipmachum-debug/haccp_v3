@@ -128,7 +128,7 @@ export default function CosmeticBmrList() {
               </span>
             </CardTitle>
             <CardDescription>
-              draft → approved → manufacturing → completed (또는 rejected). 60초마다 자동 갱신.
+              작성 중 → 승인 → 제조 중 → 완료 (또는 반려). 60초마다 자동 갱신됩니다.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -197,16 +197,16 @@ export default function CosmeticBmrList() {
           </CardContent>
         </Card>
 
-        {/* 향후 모듈 안내 */}
+        {/* 연계 모듈 안내 */}
         <Card className="bg-muted/30 border-dashed">
           <CardHeader>
-            <CardTitle className="text-sm">향후 확장 (Phase 2-3 ~ 2-N)</CardTitle>
+            <CardTitle className="text-sm">연계 모듈</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1">
-            <p>• Phase 2-3 — IPC (In-Process Control) 측정값 기록</p>
-            <p>• Phase 2-4 — 처방 (Formula / Ingredient) 관리</p>
-            <p>• Phase 2-5 — 라벨 / 전성분 (KFDA 규정)</p>
-            <p>• Phase 2-6 — QA 출고 (Release) 승인 워크플로</p>
+            <p>• <strong>IPC 측정값 기록</strong> — 공정 중 품질 검증</p>
+            <p>• <strong>처방 (Formula / 원료 투입) 관리</strong> — 배합표 기준 + 실측 비교</p>
+            <p>• <strong>라벨 / 전성분 (INCI)</strong> — KFDA 표시 의무 자동화</p>
+            <p>• <strong>QA 출고 (Release) 승인</strong> — 제조 완료 후 시장 출시 워크플로</p>
           </CardContent>
         </Card>
       </div>

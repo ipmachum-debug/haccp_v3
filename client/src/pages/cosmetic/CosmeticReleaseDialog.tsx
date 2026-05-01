@@ -130,7 +130,7 @@ export function CosmeticReleaseDialog({
         <DialogHeader>
           <DialogTitle>신규 출고 신청</DialogTitle>
           <DialogDescription>
-            완료된 BMR 선택 → 자동 QA 검증 → pending 상태로 등록 (검증 실패 시에도 등록 가능, QA 후속 검토).
+            완료된 BMR 을 선택하면 자동 QA 검증 후 검토 대기 상태로 등록됩니다 (검증 실패 시에도 등록 가능, QA 후속 검토).
           </DialogDescription>
         </DialogHeader>
 
