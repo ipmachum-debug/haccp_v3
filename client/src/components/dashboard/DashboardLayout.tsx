@@ -300,6 +300,8 @@ const menuItems = [
   { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-2-0-c: Change Control (변경관리) — cross-cutting core-mes 도메인 (industry view filter)
   { icon: GitBranch, label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
+  // Phase Y-2-1-c: Nonconforming (부적합) — cross-cutting core-mes 도메인 (industry view filter)
+  { icon: AlertCircle, label: "부적합 관리", path: "/dashboard/cosmetic/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-2-3: Audit (감사) — cross-cutting (internal/supplier/external)
   { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp" },
   // Phase Y-2-2: CAPA (시정·예방조치) — cross-cutting core-mes 도메인
