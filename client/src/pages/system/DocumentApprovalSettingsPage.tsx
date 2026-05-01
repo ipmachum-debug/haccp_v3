@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,76 +14,18 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { Save, Loader2, Search, User, UserCheck, Shield, Settings } from "lucide-react";
+import { filterFormTypesByIndustry } from "@/lib/documentFormTypes";
+import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
 
 // ============================================================================
-// 44개 formType 전체 목록 (표시명 포함)
+// 문서 양식 카탈로그 — industry 별 분류 + 필터 (lib/documentFormTypes.ts 참조)
+//
+// 이전: 51개 모두 하드코딩 → 화장품 GMP 테넌트도 식품 HACCP 전용 문서 (CCP 기록지 등)
+//      를 그대로 보는 데이터 분리 미흡 이슈 발생.
+// 현재: useIndustryFeatures().hasHACCP/hasGMP 로 industry 자동 필터.
+//      화장품 GMP Phase 2 lifecycle (BMR/Formula/Label/Release/Stability) +
+//      Y-시리즈 cross-cutting 7종 추가됨.
 // ============================================================================
-const FORM_TYPES: { formType: string; name: string; category: string }[] = [
-  // 일일 점검 (일일일지 탭 항목들)
-  { formType: "hygiene_checklist", name: "일반위생관리 점검일지", category: "일일 점검" },
-  { formType: "foreign_material_record", name: "이물관리 점검일지", category: "일일 점검" },
-  { formType: "temperature_humidity_check", name: "원재료실 온습도 관리일지", category: "일일 점검" },
-  { formType: "refrigeration_check", name: "냉동·냉장고 온도관리일지", category: "일일 점검" },
-  // 검사 성적서
-  { formType: "airborne_bacteria_test", name: "공중낙하세균 검사 성적서", category: "검사 성적서" },
-  { formType: "surface_contamination_test", name: "표면오염도 검사 성적서", category: "검사 성적서" },
-  { formType: "product_test_log", name: "대장균군 검사 성적서", category: "검사 성적서" },
-  { formType: "product_test_report", name: "제품 검사 성적서", category: "검사 성적서" },
-  // 위생 관리
-  { formType: "personal_hygiene_check", name: "개인 위생관리 점검표", category: "위생 관리" },
-  { formType: "hygiene_facility_check", name: "위생시설 점검일지", category: "위생 관리" },
-  { formType: "workplace_hygiene_check", name: "작업장 위생관리 점검표", category: "위생 관리" },
-  { formType: "sanitation_record", name: "손세척 소독 점검일지", category: "위생 관리" },
-  { formType: "employee_health_check", name: "종사자 건강상태 확인 일지", category: "위생 관리" },
-  { formType: "hygiene_inspection", name: "방문자 위생관리 점검표", category: "위생 관리" },
-  // 설비 관리
-  { formType: "air_compressor_maintenance", name: "공조장치 관리일지", category: "설비 관리" },
-  { formType: "air_compressor_filter", name: "공조장치 필터 관리대장", category: "설비 관리" },
-  { formType: "equipment_inspection", name: "설비 점검 관리대장", category: "설비 관리" },
-  { formType: "equipment_history", name: "설비 이력 관리대장", category: "설비 관리" },
-  { formType: "equipment_cleaning_record", name: "세척소독 관리대장", category: "설비 관리" },
-  { formType: "illumination_check", name: "조도 점검 관리대장", category: "설비 관리" },
-  // 용수/방충 관리
-  { formType: "water_quality_test", name: "수질 검사 성적서", category: "용수/방충 관리" },
-  { formType: "water_management_check", name: "용수관리 점검일지", category: "용수/방충 관리" },
-  { formType: "water_usage_check", name: "용수 사용량 점검일지", category: "용수/방충 관리" },
-  { formType: "pest_control_checklist", name: "방충방서 관리일지", category: "용수/방충 관리" },
-  // 원재료/제품 관리
-  { formType: "material_inspection", name: "원재료 검수 관리대장", category: "원재료/제품 관리" },
-  { formType: "packaging_storage_record", name: "포장재 보관 관리대장", category: "원재료/제품 관리" },
-  { formType: "finished_product_check", name: "완제품 검사 관리대장", category: "원재료/제품 관리" },
-  { formType: "shipping_inspection", name: "출하 검사 관리대장", category: "원재료/제품 관리" },
-  { formType: "self_quality_inspection", name: "자주품질 검사 관리대장", category: "원재료/제품 관리" },
-  { formType: "weight_quality_check", name: "중량 품질 검사 관리대장", category: "원재료/제품 관리" },
-  { formType: "supplier_inspection", name: "공급업체 점검 관리대장", category: "원재료/제품 관리" },
-  // 교육/훈련
-  { formType: "training_log", name: "교육훈련 관리대장", category: "교육/훈련" },
-  // 기타 관리
-  { formType: "waste_management", name: "폐기물 관리대장", category: "기타 관리" },
-  { formType: "daily_disposal_record", name: "일일 폐기 관리대장", category: "기타 관리" },
-  { formType: "food_recall_notice", name: "회수 관리대장", category: "기타 관리" },
-  { formType: "consumer_complaint", name: "소비자 불만 관리대장", category: "기타 관리" },
-  { formType: "capa_record", name: "개선/시정 조치 관리대장", category: "기타 관리" },
-  { formType: "quality_issue_record", name: "품질 이슈 관리대장", category: "기타 관리" },
-  { formType: "handover_document", name: "인수인계 문서", category: "기타 관리" },
-  { formType: "vehicle_temperature_check", name: "차량 온도 점검일지", category: "기타 관리" },
-  // 기타
-  { formType: "validity_evaluation", name: "유효성 평가 기록부", category: "기타" },
-  // 기간별 일지
-  { formType: "daily_log", name: "일일일지", category: "기간별 일지" },
-  { formType: "weekly_log", name: "주간일지", category: "기간별 일지" },
-  { formType: "monthly_log", name: "월간일지", category: "기간별 일지" },
-  { formType: "yearly_log", name: "연간일지", category: "기간별 일지" },
-  // 생산일지
-  { formType: "production_daily", name: "생산일지", category: "생산관리" },
-  // CCP 기록지 (배치 생산)
-  { formType: "batch_production", name: "[CCP] 배치 CCP 승인 (자동)", category: "CCP 기록지" },
-  { formType: "ccp_form", name: "[CCP] CCP 모니터링 기록지", category: "CCP 기록지" },
-  { formType: "ccp_2b_baking", name: "[CCP-2B] 가열(굽기)공정 기록지", category: "CCP 기록지" },
-  { formType: "ccp_1b_steam", name: "[CCP-1B] 가열(증숙)공정 기록지", category: "CCP 기록지" },
-  { formType: "ccp_4p_metal", name: "[CCP-4P] 금속검출공정 기록지", category: "CCP 기록지" },
-];
-
 // ============================================================================
 // 설정 행 타입
 // ============================================================================
@@ -108,6 +50,14 @@ export default function DocumentApprovalSettingsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [isSaving, setIsSaving] = useState(false);
 
+  // 테넌트 industry 기반 문서 양식 자동 필터
+  // (식품 HACCP 만 활성 → CCP 기록지 등 / 화장품 GMP 만 활성 → BMR/Formula 등)
+  const { hasHACCP, hasGMP, isLoading: industryLoading } = useIndustryFeatures();
+  const FORM_TYPES = useMemo(
+    () => filterFormTypesByIndustry(hasHACCP, hasGMP),
+    [hasHACCP, hasGMP],
+  );
+
   // API 쿼리
   const { data: employees } = trpc.organization.employees.list.useQuery();
   const { data: existingSettings, refetch: refetchSettings } = trpc.organization.approvalSettings.list.useQuery();
@@ -116,7 +66,7 @@ export default function DocumentApprovalSettingsPage() {
   const createMutation = trpc.organization.approvalSettings.create.useMutation();
   const updateMutation = trpc.organization.approvalSettings.update.useMutation();
 
-  // 기존 설정 로드
+  // 기존 설정 로드 — FORM_TYPES 가 industry 따라 변경되면 재계산
   useEffect(() => {
     const rows: SettingRow[] = FORM_TYPES.map((ft) => {
       const existing = (existingSettings || []).find(
@@ -134,7 +84,7 @@ export default function DocumentApprovalSettingsPage() {
       };
     });
     setSettings(rows);
-  }, [existingSettings]);
+  }, [existingSettings, FORM_TYPES]);
 
   // 설정 변경 핸들러
   const handleChange = (formType: string, field: "authorEmployeeId" | "reviewerEmployeeId" | "approverEmployeeId", value: string) => {
