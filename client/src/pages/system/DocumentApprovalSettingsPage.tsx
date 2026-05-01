@@ -16,6 +16,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Save, Loader2, Search, User, UserCheck, Shield, Settings } from "lucide-react";
 import { filterFormTypesByIndustry } from "@/lib/documentFormTypes";
 import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
+// Phase Plugin-4: Document Engine — Plugin 기반 문서 양식 카탈로그
+import { useDomainPlugin } from "@/domain/useDomainPlugin";
+import { getDocumentFormTypes } from "@/domain/engines/clientDocumentEngine";
 
 // ============================================================================
 // 문서 양식 카탈로그 — industry 별 분류 + 필터 (lib/documentFormTypes.ts 참조)
@@ -51,12 +54,18 @@ export default function DocumentApprovalSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   // 테넌트 industry 기반 문서 양식 자동 필터
-  // (식품 HACCP 만 활성 → CCP 기록지 등 / 화장품 GMP 만 활성 → BMR/Formula 등)
+  // ★ Phase Plugin-4 (Document Engine): plugin 의 documents.formTypes 우선
+  //   plugin 미정 시 legacy filterFormTypesByIndustry 폴백 (Strangler Fig)
+  const { plugin: domainPlugin } = useDomainPlugin();
   const { hasHACCP, hasGMP, isLoading: industryLoading } = useIndustryFeatures();
-  const FORM_TYPES = useMemo(
-    () => filterFormTypesByIndustry(hasHACCP, hasGMP),
-    [hasHACCP, hasGMP],
-  );
+  const FORM_TYPES = useMemo(() => {
+    if (domainPlugin) {
+      // Plugin 기반: 산업별 양식 카탈로그를 plugin 에서 자동 조회
+      return getDocumentFormTypes(domainPlugin);
+    }
+    // 폴백: legacy industry 분류 (PR #213)
+    return filterFormTypesByIndustry(hasHACCP, hasGMP);
+  }, [domainPlugin, hasHACCP, hasGMP]);
 
   // API 쿼리
   const { data: employees } = trpc.organization.employees.list.useQuery();
