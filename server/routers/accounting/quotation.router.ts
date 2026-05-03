@@ -11,7 +11,6 @@ import { quotations, quotationLines } from "../../../drizzle/schema/schema_quota
 import { partners } from "../../../drizzle/schema/schema_main_accounting";
 import { and, eq, desc, sql, like, gte, lte } from "drizzle-orm";
 import { todayKST } from "../../utils/timezone";
-import { logWarn } from "../../utils/logger";
 
 // ─── 견적서 번호 자동 생성 (QUO-YYYY-NNNN) ────────────────────
 async function generateQuotationNumber(tenantId: number): Promise<string> {
@@ -190,30 +189,43 @@ export const quotationRouter = router({
     const quotationNumber = await generateQuotationNumber(ctx.tenantId);
 
     return await withTransaction(async (conn) => {
-      // 1. 헤더 insert
-      // 거래처 이름 해소
-      let resolvedPartnerName = input.partnerName || "";
-      if (input.partnerId && !resolvedPartnerName) {
-        try {
-          const [pRows]: any = await conn.execute(
-            `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`, [input.partnerId, ctx.tenantId]);
-          if (pRows[0]) resolvedPartnerName = pRows[0].company_name;
-        } catch (err) {
-          logWarn("견적서: 거래처명 조회 실패", { tenantId: ctx.tenantId, partnerId: input.partnerId, operation: "quotation.create", error: String(err) });
+      // 신규 거래처명만 들어온 경우 partners 에 customer 로 자동 등록
+      // (같은 이름 customer 가 이미 있으면 재사용 — 중복 방지)
+      let resolvedPartnerId: number;
+      if (input.partnerId) {
+        resolvedPartnerId = input.partnerId;
+      } else if (input.partnerName?.trim()) {
+        const trimmed = input.partnerName.trim();
+        const [existing]: any = await conn.execute(
+          `SELECT id FROM partners
+           WHERE tenant_id = ? AND company_name = ? AND partner_type = 'customer'
+           LIMIT 1`,
+          [ctx.tenantId, trimmed],
+        );
+        if (existing[0]) {
+          resolvedPartnerId = Number(existing[0].id);
+        } else {
+          const [created]: any = await conn.execute(
+            `INSERT INTO partners (tenant_id, partner_type, company_name, customer_type, is_active)
+             VALUES (?, 'customer', ?, 'b2b', 1)`,
+            [ctx.tenantId, trimmed],
+          );
+          resolvedPartnerId = Number(created.insertId);
         }
+      } else {
+        throw new Error("거래처를 선택하거나 거래처명을 입력하세요.");
       }
 
       const [headerResult] = await conn.execute(
         `INSERT INTO quotations
-           (tenant_id, quotation_number, partner_id, partner_name, quote_date, valid_until, title,
+           (tenant_id, quotation_number, partner_id, quote_date, valid_until, title,
             total_amount, tax_amount, grand_total, status,
             payment_terms, delivery_terms, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
         [
           ctx.tenantId,
           quotationNumber,
-          input.partnerId || null,
-          resolvedPartnerName,
+          resolvedPartnerId,
           input.quoteDate,
           input.validUntil ?? null,
           input.title ?? null,
@@ -879,21 +891,17 @@ export const quotationRouter = router({
       if (!headers[0]) throw new Error("원본 견적서를 찾을 수 없습니다.");
       const orig = headers[0];
 
-      // 새 견적번호
-      const [lastQ]: any = await pool.execute(
-        `SELECT quotation_number FROM quotations WHERE tenant_id = ? ORDER BY id DESC LIMIT 1`, [tenantId]);
-      const lastNum = lastQ[0]?.quotation_number ? Number(lastQ[0].quotation_number.replace(/\D/g, "")) + 1 : 1;
-      const newNumber = `QT-${String(lastNum).padStart(5, "0")}`;
+      const newNumber = await generateQuotationNumber(tenantId);
       const today = new Date().toISOString().slice(0, 10);
 
       const [result]: any = await pool.execute(
-        `INSERT INTO quotations (tenant_id, quotation_number, partner_id, partner_name, quotation_date,
-          valid_until, title, payment_terms, delivery_terms, notes, subtotal, tax_amount, grand_total,
+        `INSERT INTO quotations (tenant_id, quotation_number, partner_id, quote_date,
+          valid_until, title, payment_terms, delivery_terms, notes, total_amount, tax_amount, grand_total,
           status, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
-        [tenantId, newNumber, orig.partner_id, orig.partner_name, today,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)`,
+        [tenantId, newNumber, orig.partner_id, today,
          orig.valid_until, `[복사] ${orig.title || ""}`, orig.payment_terms, orig.delivery_terms,
-         orig.notes, orig.subtotal, orig.tax_amount, orig.grand_total, ctx.user.id],
+         orig.notes, orig.total_amount, orig.tax_amount, orig.grand_total, ctx.user.id],
       );
       const newId = result.insertId;
 
@@ -922,17 +930,19 @@ export const quotationRouter = router({
       const pool = (await import("../../db/pool")).getPool();
       const tenantId = ctx.tenantId;
 
-      let where = `WHERE q.tenant_id = ?`;
-      const params: any[] = [tenantId];
+      let where = `WHERE q.tenant_id = ? AND (p.tenant_id = ? OR p.tenant_id IS NULL)`;
+      const params: any[] = [tenantId, tenantId];
       if (input.partnerId) { where += ` AND q.partner_id = ?`; params.push(input.partnerId); }
-      else if (input.partnerName) { where += ` AND q.partner_name LIKE ?`; params.push(`%${input.partnerName}%`); }
+      else if (input.partnerName) { where += ` AND p.company_name LIKE ?`; params.push(`%${input.partnerName}%`); }
       else { return { history: [], summary: null }; }
 
       const [rows]: any = await pool.execute(
-        `SELECT q.id, q.quotation_number, q.quotation_date, q.title, q.grand_total, q.status,
-                q.partner_name, q.created_at
-         FROM quotations q ${where}
-         ORDER BY q.quotation_date DESC LIMIT 50`, params);
+        `SELECT q.id, q.quotation_number, q.quote_date, q.title, q.grand_total, q.status,
+                p.company_name AS partner_name, q.created_at
+         FROM quotations q
+         LEFT JOIN partners p ON p.id = q.partner_id
+         ${where}
+         ORDER BY q.quote_date DESC LIMIT 50`, params);
 
       const history = rows as any[];
       const totalCount = history.length;
@@ -943,7 +953,7 @@ export const quotationRouter = router({
       return {
         history: history.map((h: any) => ({
           id: h.id, number: h.quotation_number,
-          date: h.quotation_date instanceof Date ? h.quotation_date.toISOString().slice(0, 10) : String(h.quotation_date || ""),
+          date: h.quote_date instanceof Date ? h.quote_date.toISOString().slice(0, 10) : String(h.quote_date || ""),
           title: h.title, amount: Number(h.grand_total || 0), status: h.status,
         })),
         summary: { totalCount, totalAmount, convertedCount, conversionRate },
