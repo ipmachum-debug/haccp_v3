@@ -11,7 +11,6 @@ import { quotations, quotationLines } from "../../../drizzle/schema/schema_quota
 import { partners } from "../../../drizzle/schema/schema_main_accounting";
 import { and, eq, desc, sql, like, gte, lte } from "drizzle-orm";
 import { todayKST } from "../../utils/timezone";
-import { logWarn } from "../../utils/logger";
 
 // ─── 견적서 번호 자동 생성 (QUO-YYYY-NNNN) ────────────────────
 async function generateQuotationNumber(tenantId: number): Promise<string> {
@@ -190,30 +189,43 @@ export const quotationRouter = router({
     const quotationNumber = await generateQuotationNumber(ctx.tenantId);
 
     return await withTransaction(async (conn) => {
-      // 1. 헤더 insert
-      // 거래처 이름 해소
-      let resolvedPartnerName = input.partnerName || "";
-      if (input.partnerId && !resolvedPartnerName) {
-        try {
-          const [pRows]: any = await conn.execute(
-            `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`, [input.partnerId, ctx.tenantId]);
-          if (pRows[0]) resolvedPartnerName = pRows[0].company_name;
-        } catch (err) {
-          logWarn("견적서: 거래처명 조회 실패", { tenantId: ctx.tenantId, partnerId: input.partnerId, operation: "quotation.create", error: String(err) });
+      // 신규 거래처명만 들어온 경우 partners 에 customer 로 자동 등록
+      // (같은 이름 customer 가 이미 있으면 재사용 — 중복 방지)
+      let resolvedPartnerId: number;
+      if (input.partnerId) {
+        resolvedPartnerId = input.partnerId;
+      } else if (input.partnerName?.trim()) {
+        const trimmed = input.partnerName.trim();
+        const [existing]: any = await conn.execute(
+          `SELECT id FROM partners
+           WHERE tenant_id = ? AND company_name = ? AND partner_type = 'customer'
+           LIMIT 1`,
+          [ctx.tenantId, trimmed],
+        );
+        if (existing[0]) {
+          resolvedPartnerId = Number(existing[0].id);
+        } else {
+          const [created]: any = await conn.execute(
+            `INSERT INTO partners (tenant_id, partner_type, company_name, customer_type, is_active)
+             VALUES (?, 'customer', ?, 'b2b', 1)`,
+            [ctx.tenantId, trimmed],
+          );
+          resolvedPartnerId = Number(created.insertId);
         }
+      } else {
+        throw new Error("거래처를 선택하거나 거래처명을 입력하세요.");
       }
 
       const [headerResult] = await conn.execute(
         `INSERT INTO quotations
-           (tenant_id, quotation_number, partner_id, partner_name, quote_date, valid_until, title,
+           (tenant_id, quotation_number, partner_id, quote_date, valid_until, title,
             total_amount, tax_amount, grand_total, status,
             payment_terms, delivery_terms, notes, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)`,
         [
           ctx.tenantId,
           quotationNumber,
-          input.partnerId || null,
-          resolvedPartnerName,
+          resolvedPartnerId,
           input.quoteDate,
           input.validUntil ?? null,
           input.title ?? null,
