@@ -323,7 +323,7 @@ export const financialReportsRouter = router({
       // AP 연체 분석
       const [apAging] = await connection.execute(
         `SELECT
-           p.name as partnerName,
+           p.company_name as partnerName,
            COUNT(*) as invoiceCount,
            SUM(apl.amount) as totalAmount,
            SUM(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN apl.amount ELSE 0 END) as overdueAmount,
@@ -332,7 +332,7 @@ export const financialReportsRouter = router({
          FROM ap_ledger apl
          LEFT JOIN partners p ON p.id = apl.partner_id
          WHERE apl.tenant_id = ? AND apl.status != 'paid'
-         GROUP BY apl.partner_id, p.name
+         GROUP BY apl.partner_id, p.company_name
          HAVING overdueAmount > 0
          ORDER BY overdueAmount DESC
          LIMIT 20`,
@@ -342,7 +342,7 @@ export const financialReportsRouter = router({
       // AR 연체 분석
       const [arAging] = await connection.execute(
         `SELECT
-           p.name as partnerName,
+           p.company_name as partnerName,
            COUNT(*) as invoiceCount,
            SUM(arl.amount) as totalAmount,
            SUM(CASE WHEN arl.due_date < CURDATE() AND arl.status != 'collected' THEN arl.amount ELSE 0 END) as overdueAmount,
@@ -350,7 +350,7 @@ export const financialReportsRouter = router({
          FROM ar_ledger arl
          LEFT JOIN partners p ON p.id = arl.partner_id
          WHERE arl.tenant_id = ? AND arl.status != 'collected'
-         GROUP BY arl.partner_id, p.name
+         GROUP BY arl.partner_id, p.company_name
          HAVING overdueAmount > 0
          ORDER BY overdueAmount DESC
          LIMIT 20`,

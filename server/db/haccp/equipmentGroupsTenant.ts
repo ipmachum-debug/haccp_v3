@@ -447,7 +447,9 @@ export async function analyzeProductionCapacity(params: {
     GROUP BY DATE_FORMAT(planned_date, ${dateFormat})
     ORDER BY DATE_FORMAT(planned_date, ${dateFormat})
   `);
-   return (result as any[]).map((row: any) => ({
+   // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출
+   const rows = ((result as any)?.[0] ?? []) as any[];
+   return rows.map((row: any) => ({
     period: row.date,
     plannedCount: Number(row.totalBatches) || 0,
     completedCount: Number(row.completedBatches) || 0,
