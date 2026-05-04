@@ -410,6 +410,17 @@ const menuItems = [
   { icon: Building, label: "공급업체 AVL (KGMP)", path: "/dashboard/pharmaceutical/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
   { icon: AlertTriangle, label: "위험 평가 ICH Q9 (KGMP)", path: "/dashboard/pharmaceutical/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
 
+  // ─── PR-239: 건강기능식품 — Y-시리즈 8 entity (health-functional 진입) ───
+  // health-functional 테넌트 (industry=health-functional) 전용. modules.haccp=true 매칭 (HACCP 기반).
+  { icon: GitBranch, label: "변경관리 (건기식)", path: "/dashboard/health-functional/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: AlertCircle, label: "부적합 관리 (건기식)", path: "/dashboard/health-functional/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: AlertTriangle, label: "CAPA (건기식)", path: "/dashboard/health-functional/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: ClipboardCheck, label: "감사 (건기식)", path: "/dashboard/health-functional/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: GraduationCap, label: "교육 (건기식)", path: "/dashboard/health-functional/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: Sliders, label: "검교정 (건기식)", path: "/dashboard/health-functional/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: Building, label: "공급업체 (건기식)", path: "/dashboard/health-functional/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+  { icon: AlertTriangle, label: "위험 평가 (건기식)", path: "/dashboard/health-functional/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
+
   // ─── 감사·검증 (Legacy) ───
   // 감사관리 (Legacy HACCP 감사 — "HACCP 인증 유지를 위한 감사" — Y-2-3 Audit 으로 이주됨)
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },

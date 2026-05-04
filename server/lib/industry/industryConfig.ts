@@ -560,6 +560,71 @@ const GENERAL_MANUFACTURING: IndustryProfile = {
   ],
 };
 
+// ────────────────────────────────────────────────────────────
+// 의료기기 제조업 (C27)
+// ────────────────────────────────────────────────────────────
+
+const MEDICAL_DEVICE_MANUFACTURING: IndustryProfile = {
+  code: "C27",
+  nameKo: "의료기기 제조업",
+  nameEn: "Medical Device Manufacturing",
+  category: "general", // industryConfig 의 IndustryCategory ENUM 에 medical_device 미정의 — fallback
+  description: "1~4등급 의료기기 — DHF/DMR/DHR + ISO 13485 + ISO 14971 위험관리",
+  icon: "activity",
+  modules: {
+    erp: true,
+    production: true,
+    inventory: true,
+    quality: true,
+    purchasing: true,
+    sales: true,
+    hr: true,
+    haccp: false,
+    gmp: true,         // ★ KGMP 의료기기
+    iso: true,         // ★ ISO 13485 핵심
+    traceability: true,
+  },
+  features: {
+    // GMP 핵심 (의료기기 KGMP)
+    gmp_deviation: true,
+    gmp_capa: true,
+    gmp_validation: true,
+    gmp_change_control: true,
+    // 품질
+    incoming_inspection: true,
+    process_inspection: true,
+    final_inspection: true,
+    nonconforming_mgmt: true,
+    calibration: true,
+    // 생산
+    bom_management: true,
+    batch_production: true,
+    work_order: true,
+    equipment_mgmt: true,
+    // 재고
+    lot_tracking: true,
+    serial_tracking: true,  // 의료기기 UDI 추적
+    expiry_mgmt: true,
+    // ERP
+    double_entry: true,
+    tax_invoice: true,
+    cost_analysis: true,
+  },
+  labels: {
+    batch: "Lot",
+    product: "의료기기",
+    material: "구성품",
+    process: "제조공정",
+    site: "제조시설",
+  },
+  certifications: [
+    { code: "ISO13485", nameKo: "ISO 13485 의료기기 품질경영시스템", requirement: "mandatory" },
+    { code: "ISO14971", nameKo: "ISO 14971 의료기기 위험관리", requirement: "mandatory" },
+    { code: "KGMP_MD", nameKo: "의료기기 KGMP", requirement: "mandatory" },
+    { code: "MDSAP", nameKo: "MDSAP (Medical Device Single Audit Program)", requirement: "recommended" },
+  ],
+};
+
 // ============================================
 // 4. 업종코드 레지스트리
 // ============================================
@@ -594,6 +659,9 @@ export const INDUSTRY_PROFILES: Record<string, IndustryProfile> = {
 
   // 전자
   C26: ELECTRONICS_MANUFACTURING,
+
+  // 의료기기 (ISO 13485 / KGMP MD / ISO 14971)
+  C27: MEDICAL_DEVICE_MANUFACTURING,
 
   // 섬유/의류
   C13: TEXTILE_MANUFACTURING,
@@ -706,6 +774,7 @@ export function getIndustryCategories(): Array<{
     { category: "cosmetics", code: "C20", nameKo: "화장품 제조업", nameEn: "Cosmetics Manufacturing", icon: "sparkles" },
     { category: "pharma", code: "C21", nameKo: "의약품 제조업", nameEn: "Pharmaceutical", icon: "syringe" },
     { category: "electronics", code: "C26", nameKo: "전자부품·장비 제조업", nameEn: "Electronics", icon: "cpu" },
+    { category: "general", code: "C27", nameKo: "의료기기 제조업", nameEn: "Medical Device Manufacturing", icon: "activity" },
     { category: "textile", code: "C13", nameKo: "섬유·의복 제조업", nameEn: "Textile & Apparel", icon: "scissors" },
     { category: "general", code: "C_GENERAL", nameKo: "일반 제조업", nameEn: "General Manufacturing", icon: "factory" },
   ];
