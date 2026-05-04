@@ -212,7 +212,7 @@ export async function autoIssueMaterialsForBatch(
                   SET available_quantity = ${lotTotalQty.toString()},
                       total_quantity = GREATEST(total_quantity, ${lotTotalQty.toString()}),
                       last_updated = NOW()
-                  WHERE id = ${inventoryId}
+                  WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
                 `);
                 availableQty = lotTotalQty;
               }
@@ -244,9 +244,9 @@ export async function autoIssueMaterialsForBatch(
 
                   // h_inventory_lots 가용 재고 차감
                   await db.execute(sql`
-                    UPDATE h_inventory_lots 
+                    UPDATE h_inventory_lots
                     SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
-                    WHERE id = ${alloc.lotId}
+                    WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
                   `);
 
                   totalAllocated += alloc.quantity;
@@ -262,11 +262,11 @@ export async function autoIssueMaterialsForBatch(
 
                 // h_inventory 총 재고 차감
                 await db.execute(sql`
-                  UPDATE h_inventory 
+                  UPDATE h_inventory
                   SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
                       available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
                       last_updated = NOW()
-                  WHERE id = ${inventoryId}
+                  WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
                 `);
               } catch (fefoErr: any) {
                 console.warn(
@@ -384,9 +384,9 @@ export async function autoIssueMaterialsForBatch(
     // 배치의 planned_cost 업데이트
     if (result.totalCost > 0) {
       await db.execute(sql`
-        UPDATE h_batches 
+        UPDATE h_batches
         SET planned_cost = ${result.totalCost.toFixed(2)}
-        WHERE id = ${batchId}
+        WHERE id = ${batchId} AND tenant_id = ${tenantId}
       `);
     }
 

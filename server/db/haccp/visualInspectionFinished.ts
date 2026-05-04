@@ -480,7 +480,7 @@ export async function submitFinishedProductApproval(
         requested_by = ${authorId}, requested_at = NOW(),
         reviewed_by = ${userId}, reviewed_at = NOW(),
         approved_by = ${userId}, approved_at = NOW()
-      WHERE id = ${(existRows as any[])[0].id}
+      WHERE id = ${(existRows as any[])[0].id} AND tenant_id = ${tenantId}
     `);
     return { success: true, message: `${log.log_year}년 ${log.log_month}월 출고검사일지 재승인 완료 (문서출력 가능)` };
   }
@@ -552,7 +552,7 @@ export async function submitVisualInspectionApproval(
           requested_at = NOW(),
           reviewed_by = ${userId}, reviewed_at = NOW(),
           approved_by = ${userId}, approved_at = NOW()
-      WHERE id = ${(existRows as any[])[0].id}
+      WHERE id = ${(existRows as any[])[0].id} AND tenant_id = ${tenantId}
     `);
     return { success: true, message: `${log.log_year}년 ${log.log_month}월 육안검사일지 재승인 완료 (문서출력 가능)` };
   }
@@ -637,7 +637,7 @@ export async function createMaterialReceivingWithLot(
     const newAvail = parseFloat(inv.available_quantity) + params.quantity;
     await db.execute(sql`
       UPDATE h_inventory SET total_quantity = ${newTotal}, available_quantity = ${newAvail},
-        last_updated = NOW() WHERE id = ${inv.id}
+        last_updated = NOW() WHERE id = ${inv.id} AND tenant_id = ${tenantId}
     `);
   } else {
     const insResult = await db.execute(sql`

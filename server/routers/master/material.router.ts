@@ -475,9 +475,9 @@ export const materialRouter = router({
             il.quantity,
             s.supplierName as supplier
           FROM h_inventory_lots il
-          LEFT JOIN h_suppliers s ON il.supplierId = s.id
+          LEFT JOIN h_suppliers s ON il.supplierId = s.id AND s.tenant_id = ${ctx.tenantId}
           WHERE il.materialId = ${input.materialId}
-            AND il.tenantId = ${ctx.tenantId}
+            AND il.tenant_id = ${ctx.tenantId}
             AND il.unitPrice IS NOT NULL
           ORDER BY il.receivedAt DESC
           LIMIT 50

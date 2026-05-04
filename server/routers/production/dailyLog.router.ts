@@ -139,7 +139,7 @@ export const dailyLogRouter = router({
                 status = ${input.status},
                 title = ${title},
                 updated_at = NOW()
-            WHERE id = ${recordId}
+            WHERE id = ${recordId} AND tenant_id = ${tenantId}
           `);
         } else {
           // 신규 생성
@@ -166,6 +166,7 @@ export const dailyLogRouter = router({
           const existApproval = await db.execute(sql`
             SELECT id FROM h_approval_requests
             WHERE reference_type = 'checklist' AND reference_id = ${recordId} AND request_type = 'daily_log'
+              AND tenant_id = ${tenantId}
             LIMIT 1
           `);
           const approvalRows = (existApproval as any)[0] || [];
@@ -182,7 +183,7 @@ export const dailyLogRouter = router({
           } else {
             await db.execute(sql`
               UPDATE h_approval_requests SET status = 'pending_review'
-              WHERE id = ${approvalRows[0].id}
+              WHERE id = ${approvalRows[0].id} AND tenant_id = ${tenantId}
             `);
           }
         }

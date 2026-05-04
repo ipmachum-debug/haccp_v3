@@ -112,14 +112,14 @@ export const workflowRouter = router({
       `);
       const workflowId = (result as any).insertId;
 
-      // 단계 생성
+      // 단계 생성 — tenant_id 필수 (NOT NULL)
       for (const step of input.steps) {
         await db.execute(sql`
           INSERT INTO h_approval_workflow_steps
-            (workflow_id, step_order, step_name, approver_user_id, approver_role_id,
+            (tenant_id, workflow_id, step_order, step_name, approver_user_id, approver_role_id,
              is_required, timeout_hours)
           VALUES
-            (${workflowId}, ${step.stepOrder}, ${step.stepName},
+            (${ctx.tenantId}, ${workflowId}, ${step.stepOrder}, ${step.stepName},
              ${step.approverUserId || null}, ${step.approverRoleId || null},
              ${step.isRequired ? 1 : 0}, ${step.timeoutHours || null})
         `);
@@ -155,7 +155,7 @@ export const workflowRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB 연결 실패" });
 
       await db.execute(sql`
-        DELETE FROM h_approval_workflow_steps WHERE workflow_id = ${input.id}
+        DELETE FROM h_approval_workflow_steps WHERE workflow_id = ${input.id} AND tenant_id = ${ctx.tenantId}
       `);
       await db.execute(sql`
         DELETE FROM h_approval_workflows

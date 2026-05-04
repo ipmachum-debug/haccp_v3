@@ -108,7 +108,7 @@ export async function postMaterialOutbound(
     if (materialIdForRow === null) {
       try {
         const lotRows: any = await db.execute(sql`
-          SELECT material_id FROM h_inventory_lots WHERE id = ${allocation.lotId} LIMIT 1
+          SELECT material_id FROM h_inventory_lots WHERE id = ${allocation.lotId} AND tenant_id = ${tenantId} LIMIT 1
         `);
         const r = Array.isArray(lotRows?.[0]) ? lotRows[0][0] : lotRows?.[0];
         materialIdForRow = r?.material_id ? Number(r.material_id) : null;

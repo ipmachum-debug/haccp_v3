@@ -121,22 +121,23 @@ export async function updateActualProfitability(data: {
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * 재고 소비 패턴 분석 (과거 30일 기준)
+ * 재고 소비 패턴 분석 (과거 30일 기준) — tenant 격리 강제
  */
-export async function getInventoryConsumptionPattern(materialId: number) {
+export async function getInventoryConsumptionPattern(materialId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  
+
   const { sql } = await import("drizzle-orm");
-  
+
   // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
-  // 과거 30일간의 재고 변화 데이터 조회
+  // 과거 30일간의 재고 변화 데이터 조회 (tenant 격리)
   const consumptionResult: any = await db.execute(sql`
     SELECT
       DATE(created_at) as date,
       SUM(CASE WHEN transaction_type = 'outbound' THEN ABS(quantity) ELSE 0 END) as dailyConsumption
     FROM h_inventory_transactions
-    WHERE lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ${materialId})
+    WHERE tenant_id = ${tenantId}
+      AND lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ${materialId} AND tenant_id = ${tenantId})
       AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
     GROUP BY DATE(created_at)
     ORDER BY date DESC
@@ -173,35 +174,35 @@ export async function getInventoryConsumptionPattern(materialId: number) {
 /**
  * 재고 소진 예측
  */
-export async function predictInventoryDepletion(materialId: number) {
+export async function predictInventoryDepletion(materialId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  
+
   const { sql } = await import("drizzle-orm");
-  
-  // 현재 재고 수량 조회
+
+  // 현재 재고 수량 조회 — tenant 격리
   const currentStockRaw = await db.execute(sql`
-    SELECT 
+    SELECT
       COALESCE(inv.available_quantity, 0) as currentStock,
       COALESCE(mat.safety_stock_level, 0) as safetyStock,
       COALESCE(inv.reorder_point, inv.min_stock_level, 0) as reorderPoint
     FROM h_materials mat
-    LEFT JOIN h_inventory inv ON inv.material_id = mat.id
-    WHERE mat.id = ${materialId}
+    LEFT JOIN h_inventory inv ON inv.material_id = mat.id AND inv.tenant_id = ${tenantId}
+    WHERE mat.id = ${materialId} AND mat.tenant_id = ${tenantId}
     LIMIT 1
   `);
-  
+
   if ((currentStockRaw as any[]).length === 0) {
     throw new Error("Material not found");
   }
-  
+
   const row = currentStockRaw[0] as any;
   const currentStock = Number(row.currentStock || 0);
   const safetyStock = Number(row.safetyStock || 0);
   const reorderPoint = Number(row.reorderPoint || 0);
-  
+
   // 소비 패턴 분석
-  const { averageDailyConsumption, trend } = await getInventoryConsumptionPattern(materialId);
+  const { averageDailyConsumption, trend } = await getInventoryConsumptionPattern(materialId, tenantId);
   
   if (averageDailyConsumption === 0) {
     return {
@@ -246,79 +247,104 @@ export async function predictInventoryDepletion(materialId: number) {
 }
 
 /**
- * 재고 예측 기반 자동 발주 알림 생성
+ * 재고 예측 기반 자동 발주 알림 생성 — 테넌트별 격리
+ *
+ * 2026-05-04: cross-tenant 누출 버그 수정 (Tool 9 발견).
+ *   - 이전: 모든 테넌트의 h_materials / users 를 한꺼번에 순회하면서 tenantId=1 하드코딩 으로 알림 INSERT
+ *   - 현재: tenants 테이블 전체 루프 → 각 테넌트의 materials / users 만 순회 → 해당 테넌트 사용자에게만 알림
  */
 export async function checkAndCreateReorderAlerts() {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  
+
   const { sql } = await import("drizzle-orm");
-  
-  // 모든 원재료 조회
-  const materialsRaw = await db.execute(sql`
-    SELECT id, material_name
-    FROM h_materials
-    WHERE is_active = 1
-  `);
-  // db.execute returns [rows, fields] in mysql2 - extract rows
-  const materials = Array.isArray(materialsRaw) && Array.isArray(materialsRaw[0]) ? materialsRaw[0] : materialsRaw;
-  
+
+  // 활성 테넌트 목록
+  const tenantsRaw: any = await db.execute(sql`SELECT id FROM tenants`);
+  const tenantsList = ((tenantsRaw as any)?.[0] ?? tenantsRaw) as any[];
+
   let alertCount = 0;
-  
-  for (const material of materials as any[]) {
+
+  for (const tenant of tenantsList) {
+    const tenantId = Number(tenant.id);
+    if (!tenantId) continue;
+
     try {
-      const materialId = material.id;
-      const materialName = material.material_name;
-      
-      if (!materialId) {
-        console.error('Material ID is undefined:', material);
-        continue;
-      }
-      
-      const prediction = await predictInventoryDepletion(materialId);
-      
-      // 발주 필요 시 알림 생성
-      if (prediction.shouldReorder) {
-        // 중복 알림 방지 (24시간 이내)
-        const existingAlertsRaw = await db.execute(sql`
-          SELECT id
-          FROM h_notifications
-          WHERE notification_type = 'reorder'
-            AND JSON_EXTRACT(metadata, '$.materialId') = ${materialId}
-            AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        `);
-        const existingAlerts = Array.isArray(existingAlertsRaw) && Array.isArray(existingAlertsRaw[0]) ? existingAlertsRaw[0] : existingAlertsRaw;
-        
-        if ((existingAlerts as any[]).length === 0) {
-          // 모든 사용자에게 알림 생성
-          const usersRaw = await db.execute(sql`SELECT id FROM users`);
-          const usersList = Array.isArray(usersRaw) && Array.isArray(usersRaw[0]) ? usersRaw[0] : usersRaw;
-          
-          for (const user of usersList as any[]) {
+      // 해당 테넌트의 활성 원재료
+      const materialsRaw: any = await db.execute(sql`
+        SELECT id, material_name
+        FROM h_materials
+        WHERE is_active = 1 AND tenant_id = ${tenantId}
+      `);
+      const materials = ((materialsRaw as any)?.[0] ?? materialsRaw) as any[];
+
+      // 해당 테넌트의 사용자
+      const usersRaw: any = await db.execute(sql`
+        SELECT id FROM users WHERE tenant_id = ${tenantId}
+      `);
+      const usersList = ((usersRaw as any)?.[0] ?? usersRaw) as any[];
+
+      if (materials.length === 0 || usersList.length === 0) continue;
+
+      for (const material of materials) {
+        try {
+          const materialId = material.id;
+          const materialName = material.material_name;
+
+          if (!materialId) {
+            console.error("Material ID is undefined:", material);
+            continue;
+          }
+
+          const prediction = await predictInventoryDepletion(materialId, tenantId);
+
+          if (!prediction.shouldReorder) continue;
+
+          // 중복 알림 방지 (24시간 이내) — 테넌트 격리
+          const existingAlertsRaw: any = await db.execute(sql`
+            SELECT id
+            FROM h_notifications
+            WHERE tenant_id = ${tenantId}
+              AND notification_type = 'reorder'
+              AND JSON_EXTRACT(metadata, '$.materialId') = ${materialId}
+              AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+          `);
+          const existingAlerts = ((existingAlertsRaw as any)?.[0] ?? existingAlertsRaw) as any[];
+
+          if (existingAlerts.length > 0) continue;
+
+          for (const user of usersList) {
             await createNotification({
-              tenantId: 1,
+              tenantId,
               userId: user.id,
               notificationType: "reorder",
               title: `재고 발주 필요: ${materialName}`,
               message: `현재 재고: ${prediction.currentStock}, 안전 재고: ${prediction.safetyStock}, 예상 소진: ${prediction.predictedDepletionDays}일 후`,
-              priority: prediction.urgencyLevel === "urgent" ? "urgent" : prediction.urgencyLevel === "high" ? "high" : "medium",
+              priority:
+                prediction.urgencyLevel === "urgent"
+                  ? "urgent"
+                  : prediction.urgencyLevel === "high"
+                  ? "high"
+                  : "medium",
               actionUrl: `/materials?materialId=${materialId}`,
               metadata: JSON.stringify({
-                materialId: materialId,
-                materialName: materialName,
+                materialId,
+                materialName,
                 currentStock: prediction.currentStock,
-                predictedDepletionDays: prediction.predictedDepletionDays
-              })
+                predictedDepletionDays: prediction.predictedDepletionDays,
+              }),
             });
           }
-          
+
           alertCount++;
+        } catch (error) {
+          console.error(`재고 예측 실패 (tenantId: ${tenantId}, materialId: ${material?.id}):`, error);
         }
       }
     } catch (error) {
-      console.error(`재고 예측 실패 (materialId: ${material?.id}):`, error);
+      console.error(`테넌트별 발주 알림 실패 (tenantId: ${tenantId}):`, error);
     }
   }
-  
+
   return { alertCount };
 }

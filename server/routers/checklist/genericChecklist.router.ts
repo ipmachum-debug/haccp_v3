@@ -297,7 +297,7 @@ export const genericChecklistRouter = router({
             try {
               const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
               const batchExec: any = await db.execute(sql`
-                SELECT planned_date FROM h_batches WHERE id = ${refId}
+                SELECT planned_date FROM h_batches WHERE id = ${refId} AND tenant_id = ${tenantId}
               `);
               const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
               const bRow = batchRowsArr[0];
@@ -409,7 +409,7 @@ export const genericChecklistRouter = router({
               try {
                 const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
                 const batchExec: any = await db.execute(sql`
-                  SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
+                  SELECT planned_date, created_at FROM h_batches WHERE id = ${refId} AND tenant_id = ${getEffectiveTenantId(ctx)}
                 `);
                 const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
                 const bRow = batchRowsArr[0];
@@ -484,7 +484,7 @@ export const genericChecklistRouter = router({
           try {
             const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
             const batchExec: any = await db.execute(sql`
-              SELECT planned_date, created_at FROM h_batches WHERE id = ${refId}
+              SELECT planned_date, created_at FROM h_batches WHERE id = ${refId} AND tenant_id = ${getEffectiveTenantId(ctx)}
             `);
             const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
             const bRow = batchRowsArr[0];
