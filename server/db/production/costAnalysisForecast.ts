@@ -129,9 +129,10 @@ export async function getInventoryConsumptionPattern(materialId: number) {
   
   const { sql } = await import("drizzle-orm");
   
+  // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
   // 과거 30일간의 재고 변화 데이터 조회
-  const consumptionData = await db.execute(sql`
-    SELECT 
+  const consumptionResult: any = await db.execute(sql`
+    SELECT
       DATE(created_at) as date,
       SUM(CASE WHEN transaction_type = 'outbound' THEN ABS(quantity) ELSE 0 END) as dailyConsumption
     FROM h_inventory_transactions
@@ -140,7 +141,8 @@ export async function getInventoryConsumptionPattern(materialId: number) {
     GROUP BY DATE(created_at)
     ORDER BY date DESC
   `);
-  
+  const consumptionData = ((consumptionResult as any)?.[0] ?? []) as any[];
+
   const consumptions = consumptionData.map((row: any) => Number(row.dailyConsumption || 0));
   
   if (consumptions.length === 0) {

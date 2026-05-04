@@ -130,7 +130,8 @@ export async function getActiveBatches(tenantId?: number) {
 
   // 최근 7일 이내의 배치 조회 (tenantId 격리)
   const tenantFilter = tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``;
-  const batchesRaw = await db.execute(sql`
+  // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
+  const batchesResult: any = await db.execute(sql`
     SELECT
       b.id as batchId,
       b.batch_code as batchNumber,
@@ -147,6 +148,7 @@ export async function getActiveBatches(tenantId?: number) {
     ORDER BY b.planned_date DESC
     LIMIT 20
   `);
+  const batchesRaw = ((batchesResult as any)?.[0] ?? []) as any[];
 
   return batchesRaw.map((row: any) => ({
     batchId: row.batchId,
