@@ -301,7 +301,7 @@ export const dailyReportRouter = router({
         if ((existRows as any[]).length > 0) {
           await db.execute(sql`
             UPDATE h_daily_reports SET summary = ${JSON.stringify(reportSummary)}, generated_at = NOW()
-            WHERE id = ${(existRows as any[])[0].id}
+            WHERE id = ${(existRows as any[])[0].id} AND tenant_id = ${tenantId}
           `);
         } else {
           await db.execute(sql`
@@ -542,7 +542,7 @@ export const dailyReportRouter = router({
                 requested_at = NOW(),
                 reviewed_by = NULL, reviewed_at = NULL,
                 approved_by = NULL, approved_at = NULL
-            WHERE id = ${(existRows as any[])[0].id}
+            WHERE id = ${(existRows as any[])[0].id} AND tenant_id = ${tenantId}
           `);
           return { success: true, message: `${dateStr} 생산일지 승인 재요청 완료` };
         }

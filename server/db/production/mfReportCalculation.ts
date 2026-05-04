@@ -807,16 +807,16 @@ export async function calculateAdjustedBatchFormula(
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 1. 원재료 구성 조회
+  // 1. 원재료 구성 조회 — tenant_id 격리 (parent + sub-query)
   const [ingredientRows] = await db.execute(sql`
-    SELECT i.*, 
+    SELECT i.*,
       COALESCE(
-        (SELECT im.item_name FROM item_master im WHERE im.id = i.material_id LIMIT 1),
-        (SELECT im.item_name FROM item_master im WHERE im.id = i.intermediate_id LIMIT 1),
+        (SELECT im.item_name FROM item_master im WHERE im.id = i.material_id AND im.tenant_id = ${tenantId} LIMIT 1),
+        (SELECT im.item_name FROM item_master im WHERE im.id = i.intermediate_id AND im.tenant_id = ${tenantId} LIMIT 1),
         Unknown
       ) as material_name
     FROM h_mf_ingredients i
-    WHERE i.mf_report_version_id = ${versionId}
+    WHERE i.mf_report_version_id = ${versionId} AND i.tenant_id = ${tenantId}
     ORDER BY i.line_no
   `) as any;
 

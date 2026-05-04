@@ -272,10 +272,10 @@ async function generateDailyReport(db: any, tenantId: number, dateStr: string, s
     if ((existingRows as any[]).length > 0) {
       // 기존 레코드 업데이트
       await db.execute(sql`
-        UPDATE h_daily_reports 
+        UPDATE h_daily_reports
         SET summary = ${reportSummary},
             generated_at = ${now}
-        WHERE id = ${(existingRows as any[])[0].id}
+        WHERE id = ${(existingRows as any[])[0].id} AND tenant_id = ${tenantId}
       `);
     } else {
       // 새 레코드 삽입
@@ -616,7 +616,7 @@ async function generateProductionDailyReport(db: any, tenantId: number, dateStr:
         UPDATE h_daily_reports
         SET summary = ${JSON.stringify(reportSummary)},
             generated_at = NOW()
-        WHERE id = ${(existingRows as any[])[0].id}
+        WHERE id = ${(existingRows as any[])[0].id} AND tenant_id = ${tenantId}
       `);
     } else {
       await db.execute(sql`

@@ -270,7 +270,7 @@ export async function autoRegenerateProductionDaily(
     if ((existRows as any[]).length > 0) {
       await db.execute(sql`
         UPDATE h_daily_reports SET summary = ${JSON.stringify(reportSummary)}, generated_at = NOW()
-        WHERE id = ${(existRows as any[])[0].id}
+        WHERE id = ${(existRows as any[])[0].id} AND tenant_id = ${tenantId}
       `);
     } else {
       await db.execute(sql`

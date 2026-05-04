@@ -446,32 +446,46 @@ export async function checkMaterialAvailability(db: any, batchId: number, siteId
 // 3. 자동 알림 생성 - 파이프라인 단계별 알림
 // ============================================================================
 export async function createPipelineNotification(
-  db: any, 
-  siteId: number, 
-  batchId: number, 
-  eventType: string, 
+  db: any,
+  siteId: number,
+  batchId: number,
+  eventType: string,
   message: string,
   severity: 'info' | 'warning' | 'error' = 'info',
-  targetUserId?: number
+  targetUserId?: number,
+  tenantId?: number,
 ) {
   const now = toKSTTimestamp(new Date());
-  
+
   try {
+    // tenantId 미제공 시 batchId 로 fallback resolve — h_notifications.tenant_id 는 NOT NULL
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId) {
+      const batchRowsRaw: any = await db.execute(
+        sql`SELECT tenant_id FROM h_batches WHERE id = ${batchId} LIMIT 1`,
+      );
+      const batchRows = ((batchRowsRaw as any)?.[0] ?? batchRowsRaw) as any[];
+      resolvedTenantId = Number(batchRows[0]?.tenant_id) || undefined;
+    }
+    if (!resolvedTenantId) {
+      console.warn(`[파이프라인 알림] tenantId 해석 불가 — batchId=${batchId}, INSERT 생략`);
+      return;
+    }
+
     await db.execute(sql`
-      INSERT INTO h_notifications 
-      (site_id, batch_id, event_type, message, severity, target_user_id, is_read, created_at)
-      VALUES 
-      (${siteId}, ${batchId}, ${eventType}, ${message}, ${severity}, ${targetUserId || null}, false, ${now})
+      INSERT INTO h_notifications
+      (tenant_id, site_id, batch_id, event_type, message, severity, target_user_id, is_read, created_at)
+      VALUES
+      (${resolvedTenantId}, ${siteId}, ${batchId}, ${eventType}, ${message}, ${severity}, ${targetUserId || null}, false, ${now})
     `);
-    console.log(`[파이프라인 알림] ${severity}: ${message}`);
+    console.log(`[파이프라인 알림] tenant=${resolvedTenantId} ${severity}: ${message}`);
   } catch (err) {
-    // h_notifications 테이블이 없을 수 있음 - 로그만 출력
-    console.log(`[파이프라인 알림 - 로그] ${severity}: ${message}`);
+    console.log(`[파이프라인 알림 - 로그] ${severity}: ${message}`, err);
   }
 }
 
 // 파이프라인 이벤트별 알림 생성 헬퍼
-export async function notifyPipelineEvent(db: any, siteId: number, batchId: number, event: string, detail?: string) {
+export async function notifyPipelineEvent(db: any, siteId: number, batchId: number, event: string, detail?: string, tenantId?: number) {
   const eventMessages: Record<string, { message: string; severity: 'info' | 'warning' | 'error' }> = {
     'batch_created': { message: `새 배치가 생성되었습니다. ${detail || ''}`, severity: 'info' },
     'batch_started': { message: `배치 생산이 시작되었습니다. ${detail || ''}`, severity: 'info' },
@@ -489,7 +503,7 @@ export async function notifyPipelineEvent(db: any, siteId: number, batchId: numb
   };
   
   const eventInfo = eventMessages[event] || { message: `파이프라인 이벤트: ${event}. ${detail || ''}`, severity: 'info' as const };
-  await createPipelineNotification(db, siteId, batchId, event, eventInfo.message, eventInfo.severity);
+  await createPipelineNotification(db, siteId, batchId, event, eventInfo.message, eventInfo.severity, undefined, tenantId);
 }
 
 
@@ -519,8 +533,8 @@ export async function runDailyClosing(db: any, siteId: number, workDate?: string
       
       // 미완료 배치 알림 생성
       for (const batch of (incompleteBatches as any[])) {
-        await notifyPipelineEvent(db, siteId, batch.id, 'batch_incomplete', 
-          `배치 ${batch.batch_code}가 일일 마감 시점에 미완료 상태(${batch.status})입니다.`);
+        await notifyPipelineEvent(db, siteId, batch.id, 'batch_incomplete',
+          `배치 ${batch.batch_code}가 일일 마감 시점에 미완료 상태(${batch.status})입니다.`, tenantId);
       }
     }
     
@@ -565,16 +579,21 @@ export async function runDailyClosing(db: any, siteId: number, workDate?: string
     
     // 4-4. 일일 마감 기록 저장
     try {
-      await db.execute(sql`
-        INSERT INTO h_daily_reports 
-        (site_id, report_date, report_type, summary, status, created_at, updated_at)
-        VALUES 
-        (${siteId}, ${targetDate}, 'daily_closing', ${JSON.stringify({ results, summary })}, 'completed', ${now}, ${now})
-        ON DUPLICATE KEY UPDATE
-        summary = ${JSON.stringify({ results, summary })},
-        status = 'completed',
-        updated_at = ${now}
-      `);
+      // tenantId 누락 시 INSERT 차단 — h_daily_reports.tenant_id 는 NOT NULL
+      if (!tenantId) {
+        console.warn("[일일 마감] tenantId 미제공 — INSERT 생략 (cross-tenant 누출 방지)");
+      } else {
+        await db.execute(sql`
+          INSERT INTO h_daily_reports
+          (tenant_id, site_id, report_date, report_type, summary, status, created_at, updated_at)
+          VALUES
+          (${tenantId}, ${siteId}, ${targetDate}, 'daily_closing', ${JSON.stringify({ results, summary })}, 'completed', ${now}, ${now})
+          ON DUPLICATE KEY UPDATE
+          summary = ${JSON.stringify({ results, summary })},
+          status = 'completed',
+          updated_at = ${now}
+        `);
+      }
     } catch (err) {
       console.log('[일일 마감] 마감 기록 저장 실패 (테이블 구조 확인 필요):', err);
     }

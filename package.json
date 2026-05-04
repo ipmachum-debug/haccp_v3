@@ -25,7 +25,9 @@
     "measure:reload:baseline": "tsx scripts/measure-reload-502.ts --no-reload --duration 10",
     "lint:drizzle-tables": "tsx scripts/_lint/verify-drizzle-unique-tables.ts",
     "lint:client-imports": "tsx scripts/_lint/verify-client-imports.ts",
-    "lint:deploy-safety": "npm run lint:drizzle-tables && npm run lint:client-imports && npm run lint:root-spreads && npm run lint:esbuild-dryrun",
+    "lint:raw-sql-columns": "tsx scripts/_lint/verify-raw-sql-columns.ts",
+    "lint:tenant-isolation": "tsx scripts/_lint/verify-tenant-isolation.ts",
+    "lint:deploy-safety": "npm run lint:drizzle-tables && npm run lint:client-imports && npm run lint:root-spreads && npm run lint:esbuild-dryrun && npm run lint:raw-sql-columns && npm run lint:tenant-isolation",
     "lint:root-spreads": "tsx scripts/_lint/verify-root-router-spreads.ts",
     "lint:esbuild-dryrun": "tsx scripts/_lint/verify-esbuild-dryrun.ts"
   },
