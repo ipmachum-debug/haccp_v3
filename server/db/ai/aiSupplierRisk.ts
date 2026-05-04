@@ -54,12 +54,14 @@ export async function analyzeSupplierRisk(tenantId: number): Promise<SupplierRis
   const conn = await getRawConnection();
 
   // 매입 거래처 목록
+  // ★ 컬럼명 정정: partners.company_name (was: p.name) / partners.biz_no (was: p.business_number)
+  // ★ 테이블 정정: accounting_purchases (was: purchases — 미존재)
   const [partners] = await conn.execute(
-    `SELECT DISTINCT p.id, p.name, p.business_number
+    `SELECT DISTINCT p.id, p.company_name, p.biz_no
      FROM partners p
-     JOIN purchases pu ON pu.partner_id = p.id AND pu.tenant_id = ?
+     JOIN accounting_purchases pu ON pu.partner_id = p.id AND pu.tenant_id = ?
      WHERE p.tenant_id = ? AND p.partner_type IN ('supplier', 'both')
-     ORDER BY p.name`,
+     ORDER BY p.company_name`,
     [tenantId, tenantId]
   );
 
@@ -67,44 +69,39 @@ export async function analyzeSupplierRisk(tenantId: number): Promise<SupplierRis
 
   for (const partner of partners as any[]) {
     // 1. 매입 이력 (최근 12개월)
+    // ★ 테이블/컬럼 정정: accounting_purchases.transaction_date (was: purchases.purchase_date)
+    // ※ accounting_purchases 에는 received_date / expected_date 컬럼 없음 — 납품 지연율은
+    //   purchase_orders.expected_delivery_date 와의 별도 JOIN 필요. 현재는 0 으로 fallback.
     const [purchases] = await conn.execute(
-      `SELECT id, purchase_date, status, total_amount,
-              CASE WHEN received_date IS NOT NULL AND received_date > expected_date THEN 1 ELSE 0 END as isDelayed
-       FROM purchases
+      `SELECT id, transaction_date, status, total_amount
+       FROM accounting_purchases
        WHERE tenant_id = ? AND partner_id = ?
-         AND purchase_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-       ORDER BY purchase_date DESC`,
+         AND transaction_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 12 MONTH), '%Y-%m-%d')
+       ORDER BY transaction_date DESC`,
       [tenantId, partner.id]
     );
 
     const txns = purchases as any[];
     if (txns.length < 2) continue; // 거래 2건 미만은 건너뜀
 
-    // 납품 지연율
-    const delayedCount = txns.filter((t) => t.isDelayed).length;
-    const deliveryDelayRate = (delayedCount / txns.length) * 100;
+    // 납품 지연율 — accounting_purchases 에 expected/received_date 미존재로 0 fallback
+    // (개선: purchase_orders.expectedDeliveryDate JOIN 시 산출 가능)
+    const deliveryDelayRate = 0;
 
-    // 2. 입고검사 불합격률
-    const [inspections] = await conn.execute(
-      `SELECT COUNT(*) as total,
-              SUM(CASE WHEN inspection_result = 'fail' THEN 1 ELSE 0 END) as fails
-       FROM receiving_inspection_records
-       WHERE tenant_id = ? AND partner_id = ?
-         AND inspection_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)`,
-      [tenantId, partner.id]
-    );
-    const inspTotal = (inspections as any[])[0]?.total || 0;
-    const inspFails = (inspections as any[])[0]?.fails || 0;
-    const qualityRejectRate = inspTotal > 0 ? (inspFails / inspTotal) * 100 : 0;
+    // 2. 입고검사 불합격률 — receiving_inspection_records 테이블 미존재
+    //    (개선: h_visual_inspection_records 또는 별도 입고검사 테이블 확정 후 연결)
+    const qualityRejectRate = 0;
+    const inspTotal = 0;
+    const inspFails = 0;
 
-    // 3. 가격 변동성 (같은 품목의 단가 변동계수)
+    // 3. 가격 변동성 (같은 거래처 단가 변동계수)
+    // ★ accounting_purchases 의 unit_price 직접 사용 (purchase_items 테이블 미존재)
     const [prices] = await conn.execute(
-      `SELECT pi.unit_price
-       FROM purchase_items pi
-       JOIN purchases pu ON pu.id = pi.purchase_id
-       WHERE pu.tenant_id = ? AND pu.partner_id = ?
-         AND pu.purchase_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-         AND pi.unit_price > 0`,
+      `SELECT unit_price
+       FROM accounting_purchases
+       WHERE tenant_id = ? AND partner_id = ?
+         AND transaction_date >= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 12 MONTH), '%Y-%m-%d')
+         AND unit_price > 0`,
       [tenantId, partner.id]
     );
     const priceList = (prices as any[]).map((p) => Number(p.unit_price));
@@ -116,13 +113,14 @@ export async function analyzeSupplierRisk(tenantId: number): Promise<SupplierRis
     }
 
     // 4. CCP 이탈 상관 (해당 거래처 원재료 사용 배치의 CCP 이탈률)
+    // ★ accounting_purchases.material_id 로 직접 매핑 (purchase_items 테이블 미존재)
     const [ccpCorr] = await conn.execute(
       `SELECT COUNT(DISTINCT b.id) as batchCount,
               COUNT(DISTINCT CASE WHEN hcr.result = 'FAIL' THEN b.id END) as failBatches
        FROM h_batches b
        JOIN h_batch_inputs bi ON bi.batch_id = b.id
-       JOIN purchase_items pi ON pi.material_id = bi.material_id
-       JOIN purchases pu ON pu.id = pi.purchase_id AND pu.partner_id = ? AND pu.tenant_id = ?
+       JOIN accounting_purchases pu ON pu.material_id = bi.material_id
+            AND pu.partner_id = ? AND pu.tenant_id = ?
        LEFT JOIN h_ccp_instances hci ON hci.batch_id = b.id AND hci.tenant_id = ?
        LEFT JOIN h_ccp_rows hcr ON hcr.instance_id = hci.id AND hcr.result = 'FAIL'
        WHERE b.tenant_id = ? AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)`,
@@ -173,8 +171,8 @@ export async function analyzeSupplierRisk(tenantId: number): Promise<SupplierRis
 
     suppliers.push({
       partnerId: partner.id,
-      partnerName: partner.name,
-      businessNumber: partner.business_number || "",
+      partnerName: partner.company_name,
+      businessNumber: partner.biz_no || "",
       overallScore,
       riskLevel,
       metrics: {

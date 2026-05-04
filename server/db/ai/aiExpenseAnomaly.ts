@@ -240,7 +240,7 @@ async function detectPaymentOverdue(tenantId: number): Promise<ExpenseAnomaly[]>
   try {
     const [rows] = await conn.execute(
       `SELECT
-         p.name as partnerName,
+         p.company_name as partnerName,
          DATEDIFF(CURDATE(), apl.due_date) as overdueDays,
          apl.amount,
          apl.description,

@@ -170,7 +170,7 @@ async function predictYieldTrend(tenantId: number): Promise<Prediction[]> {
      WHERE b.tenant_id = ? AND b.status = 'completed'
        AND b.actual_yield IS NOT NULL
        AND b.completed_at >= DATE_SUB(NOW(), INTERVAL 12 WEEK)
-     GROUP BY b.product_id, p.name, YEARWEEK(b.completed_at)
+     GROUP BY b.product_id, p.product_name, YEARWEEK(b.completed_at)
      ORDER BY b.product_id, yw`,
     [tenantId]
   );
