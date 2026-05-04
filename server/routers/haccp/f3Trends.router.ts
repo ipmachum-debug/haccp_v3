@@ -40,7 +40,8 @@ export const f3TrendsRouter = router({
     const db = await getDb();
     if (!db) return [];
 
-    const rows: any = await db.execute(sql`
+    // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출
+    const result: any = await db.execute(sql`
       SELECT
         SUBSTRING_INDEX(SUBSTRING_INDEX(title, '[CCP 이탈] ', -1), ' —', 1) AS ccp_type,
         COUNT(*) AS cnt,
@@ -54,7 +55,8 @@ export const f3TrendsRouter = router({
       LIMIT 10
     `);
 
-    return (rows as any[]).map((r) => ({
+    const rows = ((result as any)?.[0] ?? []) as any[];
+    return rows.map((r) => ({
       ccpType: String(r.ccp_type ?? "?"),
       count: Number(r.cnt ?? 0),
       lastAt: r.last_at,
@@ -72,7 +74,8 @@ export const f3TrendsRouter = router({
     const db = await getDb();
     if (!db) return [];
 
-    const rows: any = await db.execute(sql`
+    // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출
+    const result: any = await db.execute(sql`
       SELECT
         DATE(created_at) AS d,
         COUNT(*) AS cnt
@@ -84,7 +87,8 @@ export const f3TrendsRouter = router({
       ORDER BY d ASC
     `);
 
-    return (rows as any[]).map((r) => ({
+    const rows = ((result as any)?.[0] ?? []) as any[];
+    return rows.map((r) => ({
       date: typeof r.d === "string" ? r.d : new Date(r.d).toISOString().slice(0, 10),
       count: Number(r.cnt ?? 0),
     }));
@@ -99,7 +103,8 @@ export const f3TrendsRouter = router({
     const db = await getDb();
     if (!db) return [];
 
-    const rows: any = await db.execute(sql`
+    // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출
+    const result: any = await db.execute(sql`
       SELECT priority, COUNT(*) AS cnt
       FROM h_notifications
       WHERE tenant_id = ${tenantId}
@@ -109,7 +114,8 @@ export const f3TrendsRouter = router({
       ORDER BY FIELD(priority, 'urgent', 'high', 'medium', 'low')
     `);
 
-    return (rows as any[]).map((r) => ({
+    const rows = ((result as any)?.[0] ?? []) as any[];
+    return rows.map((r) => ({
       priority: String(r.priority ?? "medium"),
       count: Number(r.cnt ?? 0),
     }));
@@ -124,7 +130,8 @@ export const f3TrendsRouter = router({
     const db = await getDb();
     if (!db) return [];
 
-    const rows: any = await db.execute(sql`
+    // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출
+    const result: any = await db.execute(sql`
       SELECT HOUR(created_at) AS h, COUNT(*) AS cnt
       FROM h_notifications
       WHERE tenant_id = ${tenantId}
@@ -134,9 +141,10 @@ export const f3TrendsRouter = router({
       ORDER BY h ASC
     `);
 
+    const rows = ((result as any)?.[0] ?? []) as any[];
     // 0~23시 24개 슬롯 보장 — 0건인 시간도 포함
     const counts = new Array(24).fill(0);
-    for (const r of rows as any[]) {
+    for (const r of rows) {
       const h = Number(r.h);
       if (h >= 0 && h < 24) counts[h] = Number(r.cnt ?? 0);
     }

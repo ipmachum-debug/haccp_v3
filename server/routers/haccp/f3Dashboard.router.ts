@@ -158,7 +158,8 @@ export const f3DashboardRouter = router({
       const db = await getDb();
       if (!db) return [];
 
-      const rows: any = await db.execute(sql`
+      // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
+      const result: any = await db.execute(sql`
         SELECT id, title, message, priority, reference_id, created_at
         FROM h_notifications
         WHERE tenant_id = ${tenantId}
@@ -166,7 +167,8 @@ export const f3DashboardRouter = router({
         ORDER BY created_at DESC
         LIMIT ${input.limit}
       `);
-      return (rows as any[]).map((r) => ({
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
         id: Number(r.id),
         title: String(r.title),
         message: String(r.message ?? ""),
@@ -184,7 +186,8 @@ export const f3DashboardRouter = router({
       const db = await getDb();
       if (!db) return [];
 
-      const rows: any = await db.execute(sql`
+      // ★ db.execute(sql) 는 [rows, fields] 튜플 반환 — [0] 으로 rows 추출 필수
+      const result: any = await db.execute(sql`
         SELECT id, request_number, batch_id, status, priority, occurred_at, created_at
         FROM h_corrective_action_requests
         WHERE tenant_id = ${tenantId}
@@ -192,7 +195,8 @@ export const f3DashboardRouter = router({
         ORDER BY created_at DESC
         LIMIT ${input.limit}
       `);
-      return (rows as any[]).map((r) => ({
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
         id: Number(r.id),
         requestNumber: String(r.request_number),
         batchId: r.batch_id ? Number(r.batch_id) : null,
