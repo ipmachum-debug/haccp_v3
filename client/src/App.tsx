@@ -140,6 +140,15 @@ const MedicalDeviceTraining = lazy(() => import("./pages/training/MedicalDeviceT
 const MedicalDeviceCalibration = lazy(() => import("./pages/calibration/MedicalDeviceCalibration"));
 const MedicalDeviceSupplier = lazy(() => import("./pages/supplier/MedicalDeviceSupplier"));
 const MedicalDeviceRiskAssessment = lazy(() => import("./pages/riskAssessment/MedicalDeviceRiskAssessment"));
+// PR-239 — Health Functional Food industry 활성화 (8 Y-시리즈 entity)
+const HealthFunctionalChangeControl = lazy(() => import("./pages/changeControl/HealthFunctionalChangeControl"));
+const HealthFunctionalNonconforming = lazy(() => import("./pages/nonconforming/HealthFunctionalNonconforming"));
+const HealthFunctionalCorrectiveAction = lazy(() => import("./pages/correctiveAction/HealthFunctionalCorrectiveAction"));
+const HealthFunctionalAudit = lazy(() => import("./pages/audit/HealthFunctionalAudit"));
+const HealthFunctionalTraining = lazy(() => import("./pages/training/HealthFunctionalTraining"));
+const HealthFunctionalCalibration = lazy(() => import("./pages/calibration/HealthFunctionalCalibration"));
+const HealthFunctionalSupplier = lazy(() => import("./pages/supplier/HealthFunctionalSupplier"));
+const HealthFunctionalRiskAssessment = lazy(() => import("./pages/riskAssessment/HealthFunctionalRiskAssessment"));
 // Phase 3 — General Manufacturing (ISO 9001) industry 활성화 (8 Y-시리즈 entity)
 const GeneralMfgChangeControl = lazy(() => import("./pages/changeControl/GeneralMfgChangeControl"));
 const GeneralMfgNonconforming = lazy(() => import("./pages/nonconforming/GeneralMfgNonconforming"));
@@ -577,6 +586,15 @@ function Router() {
       <Route path="/dashboard/medical-device/calibration" component={MedicalDeviceCalibration} />
       <Route path="/dashboard/medical-device/supplier" component={MedicalDeviceSupplier} />
       <Route path="/dashboard/medical-device/risk-assessment" component={MedicalDeviceRiskAssessment} />
+      {/* PR-239 — Health Functional Food routes */}
+      <Route path="/dashboard/health-functional/change-control" component={HealthFunctionalChangeControl} />
+      <Route path="/dashboard/health-functional/nonconforming" component={HealthFunctionalNonconforming} />
+      <Route path="/dashboard/health-functional/corrective-action" component={HealthFunctionalCorrectiveAction} />
+      <Route path="/dashboard/health-functional/audit" component={HealthFunctionalAudit} />
+      <Route path="/dashboard/health-functional/training" component={HealthFunctionalTraining} />
+      <Route path="/dashboard/health-functional/calibration" component={HealthFunctionalCalibration} />
+      <Route path="/dashboard/health-functional/supplier" component={HealthFunctionalSupplier} />
+      <Route path="/dashboard/health-functional/risk-assessment" component={HealthFunctionalRiskAssessment} />
       {/* Phase 3 — General Manufacturing (ISO 9001) routes */}
       <Route path="/dashboard/general-manufacturing/change-control" component={GeneralMfgChangeControl} />
       <Route path="/dashboard/general-manufacturing/nonconforming" component={GeneralMfgNonconforming} />
