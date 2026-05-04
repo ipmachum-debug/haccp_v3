@@ -59,7 +59,7 @@ async function analyzeApAging(tenantId: number): Promise<PartnerPaymentProfile[]
   const [rows] = await conn.execute(
     `SELECT
        apl.partner_id,
-       p.name as partner_name,
+       p.company_name as partner_name,
        COUNT(*) as invoice_count,
        SUM(apl.amount) as total_outstanding,
        SUM(CASE WHEN apl.due_date >= CURDATE() THEN apl.amount ELSE 0 END) as current_amt,
@@ -71,7 +71,7 @@ async function analyzeApAging(tenantId: number): Promise<PartnerPaymentProfile[]
      FROM ap_ledger apl
      LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = ?
      WHERE apl.tenant_id = ? AND apl.status NOT IN ('paid', 'cancelled')
-     GROUP BY apl.partner_id, p.name
+     GROUP BY apl.partner_id, p.company_name
      HAVING total_outstanding > 0
      ORDER BY total_outstanding DESC
      LIMIT 50`,
@@ -148,7 +148,7 @@ async function analyzeArAging(tenantId: number): Promise<PartnerPaymentProfile[]
   const [rows] = await conn.execute(
     `SELECT
        arl.partner_id,
-       p.name as partner_name,
+       p.company_name as partner_name,
        COUNT(*) as invoice_count,
        SUM(arl.amount) as total_outstanding,
        SUM(CASE WHEN arl.due_date >= CURDATE() THEN arl.amount ELSE 0 END) as current_amt,
@@ -160,7 +160,7 @@ async function analyzeArAging(tenantId: number): Promise<PartnerPaymentProfile[]
      FROM ar_ledger arl
      LEFT JOIN partners p ON p.id = arl.partner_id AND p.tenant_id = ?
      WHERE arl.tenant_id = ? AND arl.status NOT IN ('collected', 'cancelled')
-     GROUP BY arl.partner_id, p.name
+     GROUP BY arl.partner_id, p.company_name
      HAVING total_outstanding > 0
      ORDER BY total_outstanding DESC
      LIMIT 50`,
