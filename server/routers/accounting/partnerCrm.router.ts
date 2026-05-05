@@ -175,56 +175,68 @@ export const partnerCrmRouter = router({
       if (!db) return [];
       const tenantId = Number(ctx.tenantId);
 
-      // partner_activities + communication_logs 통합 timeline (UNION)
-      const result: any = await db.execute(sql`
-        (
+      // ★ 2026-05-05 (PR #247): UNION ALL → Promise.all 분리
+      // 이전 UNION ALL 쿼리는 빈 결과에서도 양쪽 테이블 스캔 + ORDER BY combined 비용으로 느림.
+      // 두 쿼리를 병렬 실행 후 JS 에서 merge + sort 하는 게 명확하고 빠름 (둘 다 인덱스 적중).
+      const [actResult, clResult]: [any, any] = await Promise.all([
+        db.execute(sql`
           SELECT
-            CONCAT('act-', id) AS uid,
-            'activity' AS source,
-            id,
-            activity_type AS type,
-            title,
-            body,
-            outcome,
-            occurred_at AS occurred_at,
-            created_by,
-            created_at
+            id, activity_type, title, body, outcome, occurred_at, created_by
           FROM partner_activities
           WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
-        )
-        UNION ALL
-        (
+          ORDER BY occurred_at DESC
+          LIMIT ${input.limit}
+        `),
+        db.execute(sql`
           SELECT
-            CONCAT('cl-', id) AS uid,
-            'comm_log' AS source,
-            id,
-            'note' AS type,
-            CASE WHEN status = 'completed' THEN '메모 (완료)'
-                 WHEN status = 'in_progress' THEN '메모 (진행중)'
-                 ELSE '메모 (접수)' END AS title,
-            content AS body,
-            NULL AS outcome,
-            created_at AS occurred_at,
-            author_id AS created_by,
-            created_at
+            id, content, status, author_id, created_at
           FROM communication_logs
           WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
-        )
-        ORDER BY occurred_at DESC
-        LIMIT ${input.limit}
-      `);
-      const rows = ((result as any)?.[0] ?? []) as any[];
-      return rows.map((r) => ({
-        uid: String(r.uid),
-        source: String(r.source),
-        id: Number(r.id),
-        type: String(r.type),
-        title: String(r.title || ""),
-        body: r.body ? String(r.body) : null,
-        outcome: r.outcome ? String(r.outcome) : null,
-        occurredAt: r.occurred_at,
-        createdBy: r.created_by ? Number(r.created_by) : null,
-      }));
+          ORDER BY created_at DESC
+          LIMIT ${input.limit}
+        `),
+      ]);
+
+      const actRows = ((actResult as any)?.[0] ?? []) as any[];
+      const clRows = ((clResult as any)?.[0] ?? []) as any[];
+
+      const items = [
+        ...actRows.map((r) => ({
+          uid: `act-${r.id}`,
+          source: "activity",
+          id: Number(r.id),
+          type: String(r.activity_type ?? "other"),
+          title: String(r.title || ""),
+          body: r.body ? String(r.body) : null,
+          outcome: r.outcome ? String(r.outcome) : null,
+          occurredAt: r.occurred_at,
+          createdBy: r.created_by ? Number(r.created_by) : null,
+        })),
+        ...clRows.map((r) => {
+          const status = String(r.status || "received");
+          const statusLabel =
+            status === "completed" ? "메모 (완료)" : status === "in_progress" ? "메모 (진행중)" : "메모 (접수)";
+          return {
+            uid: `cl-${r.id}`,
+            source: "comm_log",
+            id: Number(r.id),
+            type: "note",
+            title: statusLabel,
+            body: r.content ? String(r.content) : null,
+            outcome: null,
+            occurredAt: r.created_at,
+            createdBy: r.author_id ? Number(r.author_id) : null,
+          };
+        }),
+      ];
+
+      // 시간 역순 + limit 적용
+      items.sort((a, b) => {
+        const ta = new Date(a.occurredAt as any).getTime();
+        const tb = new Date(b.occurredAt as any).getTime();
+        return tb - ta;
+      });
+      return items.slice(0, input.limit);
     }),
 
   activityCreate: tenantRequiredProcedure
