@@ -477,6 +477,9 @@ function Router() {
       <Route path="/dashboard/accounting/bank-transactions" component={lazy(() => import("@/pages/accounting/BankTransactionManagement"))} />
       <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/BankMatchingRuleManagement"))} />
       <Route path={ROUTES.ACCOUNTING_PARTNERS} component={lazy(() => import("@/pages/accounting/PartnersQuery"))} />
+      {/* Partner CRM Phase 1 (2026-05-05) — SNS feed + 360 detail */}
+      <Route path={ROUTES.PARTNERS_FEED} component={lazy(() => import("@/pages/partners/PartnerFeedPage"))} />
+      <Route path={ROUTES.PARTNERS_DETAIL} component={lazy(() => import("@/pages/partners/PartnerDetailPage"))} />
       <Route path="/dashboard/accounting/purchases/create" component={lazy(() => import("@/pages/accounting/PurchasesManagement"))} />
       <Route path="/dashboard/accounting/purchases/list" component={lazy(() => import("@/pages/accounting/PurchasesList"))} />
       <Route path="/dashboard/accounting/purchases/:id" component={lazy(() => import("@/pages/accounting/PurchaseDetail"))} />

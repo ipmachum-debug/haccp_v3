@@ -798,6 +798,7 @@ function DashboardLayoutContent({
     // ── 가끔 쓰는 메뉴 (하단 배치) ──
 
     // 📇 기준정보 — 2026-04-28: ROUTES 상수 사용 (App.tsx 라우트와 단일 source)
+    { icon: Sparkles, label: "거래처 피드 (CRM)", path: ROUTES.PARTNERS_FEED, roles: ["super_admin", "admin"], group: "기준정보", highlight: true },
     { icon: Building2, label: "거래처", path: ROUTES.ACCOUNTING_PARTNERS, roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: MessageSquare, label: "커뮤니케이션 로그", path: ROUTES.ACCOUNTING_COMMUNICATION_LOG, roles: ["super_admin", "admin"], group: "기준정보" },
     { icon: Shield, label: "신용관리", path: ROUTES.ACCOUNTING_PARTNER_CREDIT, roles: ["super_admin", "admin"], group: "기준정보" },
