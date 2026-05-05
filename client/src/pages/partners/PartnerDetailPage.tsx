@@ -434,7 +434,10 @@ function OverviewTab({ partner: p, overview }: { partner: any; overview: any }) 
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">거래 조건</CardTitle></CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">거래 조건</CardTitle>
+          <TermsEditDialog partner={p} />
+        </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Row label="등급">{p.grade || "-"}</Row>
           <Row label="결제 조건">{p.payment_terms_days ? `${p.payment_terms_days}일` : "-"}</Row>
@@ -642,6 +645,157 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-muted-foreground w-24 shrink-0">{label}</span>
       <span className="flex-1">{children}</span>
     </div>
+  );
+}
+
+// ─── 거래 조건 인라인 수정 다이얼로그 ───
+function TermsEditDialog({ partner: p }: { partner: any }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    grade: p.grade ?? "",
+    paymentTermsDays: p.payment_terms_days ?? "",
+    creditLimit: p.credit_limit ?? "",
+    defaultDiscountRate: p.default_discount_rate ?? "",
+    bankName: p.bank_name ?? "",
+    bankAccount: p.bank_account ?? "",
+  });
+
+  const updateMut = trpc.partners.update.useMutation({
+    onSuccess: () => {
+      utils.partnerCrm.overview.invalidate();
+      toast({ title: "거래 조건이 수정되었습니다" });
+      setOpen(false);
+    },
+    onError: (err) => {
+      toast({ title: "수정 실패", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        // 다이얼로그 열 때마다 최신 값으로 reset
+        if (v) {
+          setForm({
+            grade: p.grade ?? "",
+            paymentTermsDays: p.payment_terms_days ?? "",
+            creditLimit: p.credit_limit ?? "",
+            defaultDiscountRate: p.default_discount_rate ?? "",
+            bankName: p.bank_name ?? "",
+            bankAccount: p.bank_account ?? "",
+          });
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2">
+          <Pencil className="w-3.5 h-3.5 mr-1" /> 수정
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>거래 조건 수정 — {p.company_name || p.companyName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>등급</Label>
+              <Select value={form.grade || "none"} onValueChange={(v) => setForm({ ...form, grade: v === "none" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">미지정</SelectItem>
+                  <SelectItem value="vip">VIP</SelectItem>
+                  <SelectItem value="standard">Standard</SelectItem>
+                  <SelectItem value="economy">Economy</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>결제 조건 (일)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.paymentTermsDays}
+                onChange={(e) => setForm({ ...form, paymentTermsDays: e.target.value })}
+                placeholder="30"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>여신 한도 (원)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.creditLimit}
+                onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
+                placeholder="10000000"
+              />
+            </div>
+            <div>
+              <Label>기본 할인율 (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={form.defaultDiscountRate}
+                onChange={(e) => setForm({ ...form, defaultDiscountRate: e.target.value })}
+                placeholder="5"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>은행</Label>
+              <Input
+                value={form.bankName}
+                onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                placeholder="국민은행"
+              />
+            </div>
+            <div>
+              <Label>계좌</Label>
+              <Input
+                value={form.bankAccount}
+                onChange={(e) => setForm({ ...form, bankAccount: e.target.value })}
+                placeholder="123-456-789012"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            취소
+          </Button>
+          <Button
+            onClick={() => {
+              const payload: any = { id: Number(p.id) };
+              if (form.grade !== (p.grade ?? "")) payload.grade = form.grade;
+              if (form.paymentTermsDays !== (p.payment_terms_days ?? "")) {
+                payload.paymentTermsDays = form.paymentTermsDays === "" ? undefined : Number(form.paymentTermsDays);
+              }
+              if (form.creditLimit !== (p.credit_limit ?? "")) {
+                payload.creditLimit = form.creditLimit === "" ? undefined : Number(form.creditLimit);
+              }
+              if (form.defaultDiscountRate !== (p.default_discount_rate ?? "")) {
+                payload.defaultDiscountRate =
+                  form.defaultDiscountRate === "" ? undefined : Number(form.defaultDiscountRate);
+              }
+              if (form.bankName !== (p.bank_name ?? "")) payload.bankName = form.bankName;
+              if (form.bankAccount !== (p.bank_account ?? "")) payload.bankAccount = form.bankAccount;
+              updateMut.mutate(payload);
+            }}
+            disabled={updateMut.isPending}
+          >
+            {updateMut.isPending ? "저장 중..." : "저장"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
