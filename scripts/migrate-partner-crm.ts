@@ -111,11 +111,63 @@ async function main() {
     } else throw e;
   }
 
-  console.log("\n✅ Partner CRM Phase 1 마이그레이션 완료\n");
+  // 5. partner_documents — Phase 2 (서류 발급/보관/이력 추적)
+  console.log("[5/5] partner_documents 생성... (Phase 2)");
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS partner_documents (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL,
+      partner_id BIGINT NOT NULL,
+      doc_type ENUM(
+        'contract','tax_invoice','estimate','purchase_order','delivery_note','receipt',
+        'quality_cert','iso_cert','haccp_cert','biz_license','nda','other'
+      ) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      doc_number VARCHAR(100),
+      direction ENUM('issued','received') NOT NULL,
+      file_url TEXT,
+      file_name VARCHAR(255),
+      file_size INT,
+      issued_at TIMESTAMP NULL,
+      received_at TIMESTAMP NULL,
+      expires_at TIMESTAMP NULL,
+      notes TEXT,
+      created_by BIGINT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pd_tenant_partner (tenant_id, partner_id),
+      INDEX idx_pd_type (partner_id, doc_type),
+      INDEX idx_pd_expiry (tenant_id, expires_at),
+      CONSTRAINT fk_pd_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // 6. partner_scores — Phase 4 (신용/활성도 점수 일일 스냅샷)
+  console.log("[6/6] partner_scores 생성... (Phase 4)");
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS partner_scores (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL,
+      partner_id BIGINT NOT NULL,
+      snapshot_date VARCHAR(10) NOT NULL,
+      payment_timeliness_score INT NOT NULL DEFAULT 0,
+      credit_utilization_score INT NOT NULL DEFAULT 0,
+      activity_frequency_score INT NOT NULL DEFAULT 0,
+      transaction_stability_score INT NOT NULL DEFAULT 0,
+      total_score INT NOT NULL DEFAULT 0,
+      grade VARCHAR(5) NOT NULL,
+      breakdown JSON,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ps_tenant_partner (tenant_id, partner_id),
+      INDEX idx_ps_snapshot (partner_id, snapshot_date),
+      UNIQUE KEY uniq_ps_partner_date (partner_id, snapshot_date),
+      CONSTRAINT fk_ps_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  console.log("\n✅ Partner CRM Phase 1~4 마이그레이션 완료\n");
   process.exit(0);
 }
-
-main().catch((e) => {
   console.error("❌ 마이그레이션 실패:", e);
   process.exit(1);
 });

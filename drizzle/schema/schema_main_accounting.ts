@@ -115,19 +115,14 @@ export const partners = mysqlTable("partners", {
 
 /**
  * 거래처 담당자 테이블
+ *
+ * @deprecated 2026-05-05 — Partner CRM Phase 1 에서 확장된 partnerContacts 가
+ *   `drizzle/schema/partnerCrm.ts` 에 정의됨 (department / mobile / isActive / notes / updatedAt 추가).
+ *   기존 컬럼 호환되며 (partner_id / name / phone / email / role / is_primary),
+ *   barrel export 충돌 방지 위해 이 정의는 제거됨.
+ *   파일 자체에 남겨둔 주석은 PR 추적용 — 추후 정리 예정.
  */
-
-export const partnerContacts = mysqlTable("partner_contacts", {
-  id: bigint({ mode: "number" }).autoincrement().primaryKey(),
-  tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
-  partnerId: bigint("partner_id", { mode: "number" }).notNull().references(() => partners.id),
-  name: varchar({ length: 100 }),
-  phone: varchar({ length: 50 }),
-  email: varchar({ length: 320 }),
-  role: varchar({ length: 100 }),
-  isPrimary: tinyint("is_primary").default(0).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// export const partnerContacts = mysqlTable("partner_contacts", { ... }) — REMOVED, see partnerCrm.ts
 
 /**
  * 매입 원장 (Accounts Payable Ledger)

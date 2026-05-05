@@ -142,10 +142,42 @@ export const haccpIntegrationRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createPurchase } = await import("../../db/haccp/haccpIntegration");
-        return await createPurchase({
+        const result: any = await createPurchase({
           ...input,
           createdBy: ctx.user.id
         }, ctx.tenantId);
+
+        // ★ Phase 3 (2026-05-05): partner_activities 자동 기록 + 단가 이상 탐지
+        try {
+          const { recordTransactionActivity } = await import("../../services/partnerActivityRecorder");
+          const { detectPriceAnomaly } = await import("../../services/priceAnomalyDetector");
+          const { getDb } = await import("../../db");
+          const db = await getDb();
+          const txId = Number(result?.id ?? result?.insertId ?? 0);
+          if (db && txId > 0 && input.partnerId) {
+            await recordTransactionActivity(db, {
+              tenantId: Number(ctx.tenantId),
+              partnerId: input.partnerId,
+              userId: Number(ctx.user.id),
+              kind: "purchase",
+              txId,
+              itemName: input.itemName,
+              totalAmount: Number(input.amount) + Number(input.taxAmount || 0),
+              transactionDate: input.transactionDate,
+            });
+            await detectPriceAnomaly(db, {
+              tenantId: Number(ctx.tenantId),
+              partnerId: input.partnerId,
+              itemName: input.itemName,
+              currentPrice: Number(input.unitPrice),
+              userId: Number(ctx.user.id),
+            });
+          }
+        } catch (e: any) {
+          console.warn("[CRM hook] createPurchase 후 처리 실패:", e?.message);
+        }
+
+        return result;
       }),
 
     // 매출 거래 목록 조회
@@ -186,10 +218,34 @@ export const haccpIntegrationRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createSale } = await import("../../db/haccp/haccpIntegration");
-        return await createSale({
+        const result: any = await createSale({
           ...input,
           createdBy: ctx.user.id
         }, ctx.tenantId);
+
+        // ★ Phase 3 (2026-05-05): partner_activities 자동 기록
+        try {
+          const { recordTransactionActivity } = await import("../../services/partnerActivityRecorder");
+          const { getDb } = await import("../../db");
+          const db = await getDb();
+          const txId = Number(result?.id ?? result?.insertId ?? 0);
+          if (db && txId > 0 && input.partnerId) {
+            await recordTransactionActivity(db, {
+              tenantId: Number(ctx.tenantId),
+              partnerId: input.partnerId,
+              userId: Number(ctx.user.id),
+              kind: "sale",
+              txId,
+              itemName: input.itemName,
+              totalAmount: Number(input.amount) + Number(input.taxAmount || 0),
+              transactionDate: input.transactionDate,
+            });
+          }
+        } catch (e: any) {
+          console.warn("[CRM hook] createSale 후 처리 실패:", e?.message);
+        }
+
+        return result;
       }),
 
     // 매입 거래 수정

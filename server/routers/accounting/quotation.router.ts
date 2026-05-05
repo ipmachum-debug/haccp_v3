@@ -428,9 +428,10 @@ export const quotationRouter = router({
   markSent: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      return await withTransaction(async (conn) => {
+      const result = await withTransaction(async (conn) => {
         const [rows]: any = await conn.execute(
-          `SELECT status FROM quotations WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          `SELECT status, partner_id, quotation_number, title, grand_total
+           FROM quotations WHERE id = ? AND tenant_id = ? FOR UPDATE`,
           [input.id, ctx.tenantId],
         );
         const current = (rows as any[])[0];
@@ -446,8 +447,31 @@ export const quotationRouter = router({
           [ctx.user.id, input.id, ctx.tenantId],
         );
 
-        return { message: "견적서가 발송 처리되었습니다." };
+        return { meta: current, message: "견적서가 발송 처리되었습니다." };
       }, `quotation.markSent:${input.id}`);
+
+      // ★ Phase 3 (CRM): partner_activities 자동 기록
+      try {
+        const { recordQuoteActivity } = await import("../../services/partnerActivityRecorder");
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (db && result.meta?.partner_id) {
+          await recordQuoteActivity(db, {
+            tenantId: Number(ctx.tenantId),
+            partnerId: Number(result.meta.partner_id),
+            userId: Number(ctx.user.id),
+            quoteId: input.id,
+            quoteNumber: String(result.meta.quotation_number || ""),
+            title: result.meta.title ?? null,
+            grandTotal: Number(result.meta.grand_total || 0),
+            status: "sent",
+          });
+        }
+      } catch (e: any) {
+        console.warn("[CRM hook] markSent 후 처리 실패:", e?.message);
+      }
+
+      return { message: result.message };
     }),
 
   /**
@@ -456,9 +480,10 @@ export const quotationRouter = router({
   markAccepted: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
-      return await withTransaction(async (conn) => {
+      const result = await withTransaction(async (conn) => {
         const [rows]: any = await conn.execute(
-          `SELECT status FROM quotations WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          `SELECT status, partner_id, quotation_number, title, grand_total
+           FROM quotations WHERE id = ? AND tenant_id = ? FOR UPDATE`,
           [input.id, ctx.tenantId],
         );
         const current = (rows as any[])[0];
@@ -473,8 +498,31 @@ export const quotationRouter = router({
           [input.id, ctx.tenantId],
         );
 
-        return { message: "견적서가 수락 처리되었습니다." };
+        return { meta: current, message: "견적서가 수락 처리되었습니다." };
       }, `quotation.markAccepted:${input.id}`);
+
+      // ★ Phase 3 (CRM): contract_signed (won) 자동 기록
+      try {
+        const { recordQuoteActivity } = await import("../../services/partnerActivityRecorder");
+        const { getDb } = await import("../../db");
+        const db = await getDb();
+        if (db && result.meta?.partner_id) {
+          await recordQuoteActivity(db, {
+            tenantId: Number(ctx.tenantId),
+            partnerId: Number(result.meta.partner_id),
+            userId: Number(ctx.user.id),
+            quoteId: input.id,
+            quoteNumber: String(result.meta.quotation_number || ""),
+            title: result.meta.title ?? null,
+            grandTotal: Number(result.meta.grand_total || 0),
+            status: "accepted",
+          });
+        }
+      } catch (e: any) {
+        console.warn("[CRM hook] markAccepted 후 처리 실패:", e?.message);
+      }
+
+      return { message: result.message };
     }),
 
   /**
