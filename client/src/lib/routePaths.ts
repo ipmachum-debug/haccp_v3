@@ -49,6 +49,9 @@
 export const ROUTES = {
   // ── 회계 탭 / 기준정보 그룹 ──
   ACCOUNTING_PARTNERS: "/dashboard/accounting/partners",
+  // Partner CRM Phase 1 (2026-05-05) — SNS-style feed + 360 detail
+  PARTNERS_FEED: "/dashboard/partners/feed",
+  PARTNERS_DETAIL: "/dashboard/partners/:id",
   ACCOUNTING_COMMUNICATION_LOG: "/dashboard/accounting/communication-log",
   ACCOUNTING_PARTNER_CREDIT: "/dashboard/accounting/partner-credit",
   ACCOUNTING_PARTNER_PRICES: "/dashboard/accounting/partner-prices",

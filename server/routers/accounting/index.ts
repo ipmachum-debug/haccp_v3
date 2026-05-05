@@ -34,6 +34,7 @@ export { cashFlowRouter } from "./cashFlow.router";
 export { fixedAssetRouter } from "./fixedAsset.router";
 export { budgetRouter } from "./budget.router";
 export { partnerCreditRouter } from "./partnerCredit.router";
+export { partnerCrmRouter } from "./partnerCrm.router";
 export { payrollRouter } from "./payroll.router";
 export { hrManagementRouter } from "./hrManagement.router";
 export { purchaseReturnRouter } from "./purchaseReturn.router";
