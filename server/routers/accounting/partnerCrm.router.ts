@@ -395,16 +395,26 @@ export const partnerCrmRouter = router({
       `);
       const quoteStats = ((quoteStatsResult as any)?.[0] ?? [])[0] || {};
 
-      // AP / AR 잔액
+      // AP / AR 잔액 — entry_type 별 부호 합산 (bill/adjust = +, payment/credit = -)
+      // ap_ledger 컬럼: supplier_partner_id, ap_entry_type, amount
+      // ar_ledger 컬럼: customer_partner_id, ar_entry_type, amount
       const apResult: any = await db.execute(sql`
-        SELECT COALESCE(SUM(balance), 0) AS bal
+        SELECT COALESCE(SUM(
+          CASE WHEN ap_entry_type IN ('bill','adjust') THEN amount
+               WHEN ap_entry_type IN ('payment','credit') THEN -amount
+               ELSE 0 END
+        ), 0) AS bal
         FROM ap_ledger
-        WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
+        WHERE tenant_id = ${tenantId} AND supplier_partner_id = ${input.partnerId}
       `);
       const arResult: any = await db.execute(sql`
-        SELECT COALESCE(SUM(balance), 0) AS bal
+        SELECT COALESCE(SUM(
+          CASE WHEN ar_entry_type IN ('debit','adjust') THEN amount
+               WHEN ar_entry_type IN ('payment','credit','writeoff') THEN -amount
+               ELSE 0 END
+        ), 0) AS bal
         FROM ar_ledger
-        WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
+        WHERE tenant_id = ${tenantId} AND customer_partner_id = ${input.partnerId}
       `);
       const apBalance = Number(((apResult as any)?.[0] ?? [])[0]?.bal || 0);
       const arBalance = Number(((arResult as any)?.[0] ?? [])[0]?.bal || 0);

@@ -49,14 +49,23 @@ function nameToHue(name: string): number {
   return h % 360;
 }
 
-/** 이니셜 (한글 첫 글자 또는 영문 2자) */
+/** 이니셜 (한글 2자 또는 영문 2자) — 가독성 + 정체성 */
 function initials(name: string): string {
   if (!name) return "?";
-  const trimmed = name.replace(/^(주식회사|㈜|\(주\))\s*/, "").trim();
+  // 회사 prefix / suffix 정리
+  const trimmed = name
+    .replace(/^(주식회사|㈜|\(주\))\s*/g, "")
+    .replace(/\s*(주식회사|㈜|\(주\))$/g, "")
+    .trim();
   if (!trimmed) return "?";
-  // 한글 첫 글자
-  if (/[가-힣]/.test(trimmed[0])) return trimmed[0];
-  // 영문 → 첫 두 글자 대문자
+
+  // 한글: 의미 있는 2글자 (예: "하늘사랑" → "하늘", "한강에프디에스" → "한강")
+  if (/[가-힣]/.test(trimmed[0])) {
+    // 첫 2글자 (한글일 때)
+    return trimmed.slice(0, 2);
+  }
+  // 영숫자 혼합 (B2C / 11번가 등)
+  // 숫자/영문 첫 두 글자
   return trimmed.slice(0, 2).toUpperCase();
 }
 
@@ -265,7 +274,7 @@ function PartnerFeedContent() {
           {search ? `"${search}" 와 일치하는 거래처가 없습니다` : "거래처가 없습니다"}
         </div>
       ) : view === "grid" ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {filteredPartners.map((p: any) => (
             <PartnerCard key={p.id} partner={p} onClick={() => navigate(`/dashboard/partners/${p.id}`)} />
           ))}
@@ -310,9 +319,11 @@ function FilterPill({
 }
 
 function PartnerCard({ partner, onClick }: { partner: any; onClick: () => void }) {
-  const status = getStatusRing(partner);
   const hue = nameToHue(partner.companyName || "");
   const init = initials(partner.companyName || "");
+
+  // status 별 좌측 accent bar 색
+  const accent = getAccentColor(partner);
   const typeLabel =
     partner.partnerType === "supplier"
       ? "공급처"
@@ -321,86 +332,131 @@ function PartnerCard({ partner, onClick }: { partner: any; onClick: () => void }
       : partner.partnerType === "subcontractor"
       ? "외주"
       : partner.partnerType;
+  const TypeIcon =
+    partner.partnerType === "supplier" ? Truck : partner.partnerType === "customer" ? ShoppingCart : Building2;
   const typeColor =
     partner.partnerType === "supplier"
-      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+      ? "text-emerald-600 dark:text-emerald-400"
       : partner.partnerType === "customer"
-      ? "bg-blue-500/10 text-blue-700 dark:text-blue-400"
-      : "bg-purple-500/10 text-purple-700 dark:text-purple-400";
+      ? "text-blue-600 dark:text-blue-400"
+      : "text-purple-600 dark:text-purple-400";
 
   return (
     <Card
       onClick={onClick}
-      className="group cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all relative overflow-hidden"
+      className="group cursor-pointer hover:shadow-md hover:border-primary/30 transition-all relative overflow-hidden"
     >
-      <CardContent className="p-3 flex flex-col items-center text-center gap-2">
-        {/* 아바타 + 상태 링 */}
-        <div className="relative">
+      {/* 좌측 accent bar — status 색상 */}
+      <div className={`absolute left-0 top-0 bottom-0 w-1 ${accent.bar}`} />
+
+      <CardContent className="p-3 pl-4">
+        {/* 헤더: 작은 아바타 + 회사명 (좌우 배치) */}
+        <div className="flex items-start gap-2.5 mb-2">
           <div
-            className={`w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold ${status.ring}`}
+            className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm"
             style={{
-              background: `linear-gradient(135deg, hsl(${hue}, 65%, 55%), hsl(${(hue + 30) % 360}, 65%, 45%))`,
+              background: `linear-gradient(135deg, hsl(${hue}, 60%, 50%), hsl(${(hue + 30) % 360}, 60%, 42%))`,
             }}
-            title={status.tooltip}
+            title={partner.companyName}
           >
             {init}
           </div>
-          {partner.grade === "vip" && (
-            <Star className="absolute -top-1 -right-1 w-4 h-4 fill-amber-400 text-amber-400" />
-          )}
-        </div>
-
-        {/* 이름 */}
-        <div className="w-full">
-          <div className="font-semibold text-sm truncate" title={partner.companyName}>
-            {partner.companyName || "(이름 없음)"}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-sm leading-tight truncate" title={partner.companyName}>
+                {partner.companyName || "(이름 없음)"}
+              </span>
+              {partner.grade === "vip" && (
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
+              )}
+            </div>
+            <div className={`flex items-center gap-1 text-[11px] mt-0.5 ${typeColor}`}>
+              <TypeIcon className="w-3 h-3" />
+              <span>{typeLabel}</span>
+              {accent.label && (
+                <>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className={accent.text}>{accent.label}</span>
+                </>
+              )}
+            </div>
           </div>
-          <Badge variant="secondary" className={`text-[10px] mt-0.5 ${typeColor}`}>
-            {typeLabel}
-          </Badge>
         </div>
 
-        {/* 마지막 활동 */}
-        <div className="text-[11px] text-muted-foreground">
-          {relativeTime(partner.updatedAt)}
-        </div>
+        {/* 본문: 담당자 / 연락처 (있을 때만) */}
+        {(partner.contactPerson || partner.phone) && (
+          <div className="text-[11px] text-muted-foreground space-y-0.5 mb-2 pl-[50px]">
+            {partner.contactPerson && (
+              <div className="truncate">👤 {partner.contactPerson}</div>
+            )}
+            {partner.phone && <div className="truncate">📞 {partner.phone}</div>}
+          </div>
+        )}
 
-        {/* 호버 시 퀵 액션 */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/95 to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2 flex justify-center gap-1">
-          {partner.phone && (
-            <a
-              href={`tel:${partner.phone}`}
-              onClick={(e) => e.stopPropagation()}
-              className="h-8 w-8 rounded-full bg-emerald-500/10 hover:bg-emerald-500/20 flex items-center justify-center text-emerald-600"
-              title={`전화: ${partner.phone}`}
+        {/* 푸터: 마지막 활동 + 퀵 액션 (항상 노출, 호버 시 강조) */}
+        <div className="flex items-center justify-between pt-2 border-t border-border/40">
+          <span className="text-[10px] text-muted-foreground">
+            {relativeTime(partner.updatedAt)}
+          </span>
+          <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+            {partner.phone && (
+              <a
+                href={`tel:${partner.phone}`}
+                onClick={(e) => e.stopPropagation()}
+                className="h-6 w-6 rounded hover:bg-emerald-500/10 flex items-center justify-center text-emerald-600"
+                title={`전화: ${partner.phone}`}
+              >
+                <Phone className="w-3 h-3" />
+              </a>
+            )}
+            {partner.email && (
+              <a
+                href={`mailto:${partner.email}`}
+                onClick={(e) => e.stopPropagation()}
+                className="h-6 w-6 rounded hover:bg-blue-500/10 flex items-center justify-center text-blue-600"
+                title={`메일: ${partner.email}`}
+              >
+                <Mail className="w-3 h-3" />
+              </a>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClick();
+              }}
+              className="h-6 w-6 rounded hover:bg-primary/10 flex items-center justify-center text-primary"
+              title="360 페이지 열기"
             >
-              <Phone className="w-3.5 h-3.5" />
-            </a>
-          )}
-          {partner.email && (
-            <a
-              href={`mailto:${partner.email}`}
-              onClick={(e) => e.stopPropagation()}
-              className="h-8 w-8 rounded-full bg-blue-500/10 hover:bg-blue-500/20 flex items-center justify-center text-blue-600"
-              title={`메일: ${partner.email}`}
-            >
-              <Mail className="w-3.5 h-3.5" />
-            </a>
-          )}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onClick();
-            }}
-            className="h-8 w-8 rounded-full bg-primary/10 hover:bg-primary/20 flex items-center justify-center text-primary"
-            title="360 페이지"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </button>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       </CardContent>
     </Card>
   );
+}
+
+/** 거래처 status → 좌측 accent bar + 라벨 색상 */
+function getAccentColor(p: any): { bar: string; label?: string; text?: string } {
+  if (p.isActive === 0 || p.isActive === false) {
+    return { bar: "bg-red-500", label: "비활성", text: "text-red-600" };
+  }
+  const updatedDays = p.updatedAt
+    ? Math.floor((Date.now() - new Date(p.updatedAt).getTime()) / 86400000)
+    : 999;
+  const createdDays = p.createdAt
+    ? Math.floor((Date.now() - new Date(p.createdAt).getTime()) / 86400000)
+    : 999;
+  if (createdDays <= 14) {
+    return { bar: "bg-blue-500", label: "신규", text: "text-blue-600" };
+  }
+  if (updatedDays <= 7) {
+    return { bar: "bg-emerald-500" };
+  }
+  if (updatedDays > 90) {
+    return { bar: "bg-amber-500", label: "장기무거래", text: "text-amber-600" };
+  }
+  return { bar: "bg-muted-foreground/20" };
 }
 
 function PartnerListRow({ partner, onClick }: { partner: any; onClick: () => void }) {
