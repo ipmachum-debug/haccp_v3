@@ -1,30 +1,66 @@
 /**
- * Partner CRM Phase 1 — DB 마이그레이션
+ * Partner CRM Phase 1~4 — DB 마이그레이션 (idempotent)
  *
- * 신규 테이블 3개 생성:
- *   - partner_contacts
- *   - partner_activities
- *   - partner_tags
+ * 신규 테이블:
+ *   - partner_contacts (Phase 1)
+ *   - partner_activities (Phase 1)
+ *   - partner_tags (Phase 1)
+ *   - partner_documents (Phase 2)
+ *   - partner_scores (Phase 4)
  *
- * partners 테이블에 metadata JSON 컬럼 추가 (자유 custom field 용)
+ * 컬럼 추가:
+ *   - partners.metadata JSON (Phase 1)
+ *   - partner_contacts: department / mobile / notes / created_by / updated_at / is_active (legacy table 보강)
+ *
+ * 안전 원칙 (idempotent):
+ *   - 모든 CREATE TABLE 은 IF NOT EXISTS
+ *   - 모든 ALTER TABLE ADD COLUMN 은 헬퍼 (addColumnIfMissing) 통해 Duplicate 감지
+ *   - 재실행해도 안전 — 같은 결과 보장
+ *
+ * 작성: 2026-05-05 (Phase 1~4)
+ * 수정: 2026-05-05 (PR #245 — partner_contacts 누락 컬럼 4종 추가 + syntax fix)
  *
  * 실행:
  *   npx tsx scripts/migrate-partner-crm.ts
- *
- * 작성: 2026-05-05
  */
 
 import { getDb } from "../server/db/connection";
 import { sql } from "drizzle-orm";
 
+/**
+ * idempotent ALTER TABLE ADD COLUMN — 이미 존재하면 skip
+ */
+async function addColumnIfMissing(
+  db: any,
+  table: string,
+  column: string,
+  type: string,
+  comment?: string,
+): Promise<void> {
+  try {
+    const commentClause = comment ? ` COMMENT '${comment.replace(/'/g, "''")}'` : "";
+    await db.execute(
+      sql.raw(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}${commentClause}`),
+    );
+    console.log(`    + ${table}.${column} 추가됨`);
+  } catch (e: any) {
+    const msg = e?.message ?? String(e);
+    if (msg.includes("Duplicate column") || msg.includes("already exists")) {
+      console.log(`    = ${table}.${column} 이미 존재 — skip`);
+    } else {
+      throw e;
+    }
+  }
+}
+
 async function main() {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  console.log("=== Partner CRM Phase 1 마이그레이션 시작 ===\n");
+  console.log("=== Partner CRM Phase 1~4 마이그레이션 시작 ===\n");
 
-  // 1. partner_contacts
-  console.log("[1/4] partner_contacts 생성...");
+  // ─── 1. partner_contacts ───
+  console.log("[1/6] partner_contacts 생성 / 보강...");
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS partner_contacts (
       id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -48,8 +84,22 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 2. partner_activities
-  console.log("[2/4] partner_activities 생성...");
+  // legacy table 보강 — PR #241 이전 partner_contacts 가 이미 존재하던 경우
+  // (CREATE IF NOT EXISTS 가 skip 되어 새 컬럼이 추가되지 않음)
+  await addColumnIfMissing(db, "partner_contacts", "department", "VARCHAR(100) NULL");
+  await addColumnIfMissing(db, "partner_contacts", "mobile", "VARCHAR(50) NULL");
+  await addColumnIfMissing(db, "partner_contacts", "notes", "TEXT NULL");
+  await addColumnIfMissing(db, "partner_contacts", "created_by", "BIGINT NULL");
+  await addColumnIfMissing(db, "partner_contacts", "is_active", "TINYINT NOT NULL DEFAULT 1");
+  await addColumnIfMissing(
+    db,
+    "partner_contacts",
+    "updated_at",
+    "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+  );
+
+  // ─── 2. partner_activities ───
+  console.log("[2/6] partner_activities 생성...");
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS partner_activities (
       id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -80,8 +130,8 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 3. partner_tags
-  console.log("[3/4] partner_tags 생성...");
+  // ─── 3. partner_tags ───
+  console.log("[3/6] partner_tags 생성...");
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS partner_tags (
       id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -97,22 +147,18 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 4. partners.metadata (JSON) — 자유 custom field
-  console.log("[4/4] partners.metadata JSON 컬럼 추가...");
-  try {
-    await db.execute(sql`
-      ALTER TABLE partners
-      ADD COLUMN metadata JSON NULL COMMENT '거래처 자유 custom field (CRM Phase 1)'
-    `);
-    console.log("  → metadata 컬럼 추가됨");
-  } catch (e: any) {
-    if (e?.message?.includes("Duplicate column")) {
-      console.log("  → metadata 이미 존재 — skip");
-    } else throw e;
-  }
+  // ─── 4. partners.metadata (JSON) ───
+  console.log("[4/6] partners.metadata JSON 컬럼...");
+  await addColumnIfMissing(
+    db,
+    "partners",
+    "metadata",
+    "JSON NULL",
+    "거래처 자유 custom field (CRM Phase 1)",
+  );
 
-  // 5. partner_documents — Phase 2 (서류 발급/보관/이력 추적)
-  console.log("[5/5] partner_documents 생성... (Phase 2)");
+  // ─── 5. partner_documents (Phase 2) ───
+  console.log("[5/6] partner_documents 생성...");
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS partner_documents (
       id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -142,8 +188,8 @@ async function main() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // 6. partner_scores — Phase 4 (신용/활성도 점수 일일 스냅샷)
-  console.log("[6/6] partner_scores 생성... (Phase 4)");
+  // ─── 6. partner_scores (Phase 4) ───
+  console.log("[6/6] partner_scores 생성...");
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS partner_scores (
       id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -168,6 +214,8 @@ async function main() {
   console.log("\n✅ Partner CRM Phase 1~4 마이그레이션 완료\n");
   process.exit(0);
 }
+
+main().catch((e) => {
   console.error("❌ 마이그레이션 실패:", e);
   process.exit(1);
 });
