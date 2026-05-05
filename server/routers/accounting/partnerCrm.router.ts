@@ -834,4 +834,160 @@ export const partnerCrmRouter = router({
         );
       return { success: true };
     }),
+
+  // ═══════════════════════════════════════════════════════════════
+  // Phase 4 — 신용/활성도 점수 (Score)
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * 가장 최근 점수 + 30일 추이
+   */
+  latestScore: tenantRequiredProcedure
+    .input(z.object({ partnerId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const tenantId = Number(ctx.tenantId);
+
+      const r: any = await db.execute(sql`
+        SELECT * FROM partner_scores
+        WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
+        ORDER BY snapshot_date DESC
+        LIMIT 30
+      `);
+      const rows = ((r as any)?.[0] ?? []) as any[];
+      if (rows.length === 0) return null;
+
+      const latest = rows[0];
+      let breakdown: any = null;
+      try {
+        breakdown =
+          typeof latest.breakdown === "string"
+            ? JSON.parse(latest.breakdown)
+            : latest.breakdown;
+      } catch {}
+
+      return {
+        latest: {
+          snapshotDate: String(latest.snapshot_date),
+          paymentTimelinessScore: Number(latest.payment_timeliness_score),
+          creditUtilizationScore: Number(latest.credit_utilization_score),
+          activityFrequencyScore: Number(latest.activity_frequency_score),
+          transactionStabilityScore: Number(latest.transaction_stability_score),
+          totalScore: Number(latest.total_score),
+          grade: String(latest.grade),
+          breakdown,
+        },
+        history: rows
+          .map((row: any) => ({
+            date: String(row.snapshot_date),
+            total: Number(row.total_score),
+            grade: String(row.grade),
+          }))
+          .reverse(),
+      };
+    }),
+
+  /**
+   * 즉시 점수 재계산 (admin 수동 트리거)
+   */
+  recalculateScore: tenantRequiredProcedure
+    .input(z.object({ partnerId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      const tenantId = Number(ctx.tenantId);
+
+      const { calculatePartnerScore } = await import("../../services/creditScoreCalculator");
+      const score = await calculatePartnerScore(db, tenantId, input.partnerId);
+
+      const today = new Date().toISOString().slice(0, 10);
+      await db.execute(sql`
+        INSERT INTO partner_scores
+          (tenant_id, partner_id, snapshot_date,
+           payment_timeliness_score, credit_utilization_score,
+           activity_frequency_score, transaction_stability_score,
+           total_score, grade, breakdown, created_at)
+        VALUES
+          (${tenantId}, ${input.partnerId}, ${today},
+           ${score.paymentTimelinessScore}, ${score.creditUtilizationScore},
+           ${score.activityFrequencyScore}, ${score.transactionStabilityScore},
+           ${score.totalScore}, ${score.grade},
+           ${JSON.stringify(score.reasoning)}, NOW())
+        ON DUPLICATE KEY UPDATE
+          payment_timeliness_score = VALUES(payment_timeliness_score),
+          credit_utilization_score = VALUES(credit_utilization_score),
+          activity_frequency_score = VALUES(activity_frequency_score),
+          transaction_stability_score = VALUES(transaction_stability_score),
+          total_score = VALUES(total_score),
+          grade = VALUES(grade),
+          breakdown = VALUES(breakdown)
+      `);
+
+      return { success: true, score };
+    }),
+
+  /**
+   * 견적 응답 시간 분석 (sent → accepted/rejected 평균 일수)
+   */
+  quoteResponseTime: tenantRequiredProcedure
+    .input(z.object({ partnerId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const tenantId = Number(ctx.tenantId);
+
+      const r: any = await db.execute(sql`
+        SELECT
+          status,
+          AVG(DATEDIFF(
+            COALESCE(accepted_at, rejected_at, NOW()),
+            sent_at
+          )) AS avg_days,
+          COUNT(*) AS cnt
+        FROM quotations
+        WHERE tenant_id = ${tenantId}
+          AND partner_id = ${input.partnerId}
+          AND sent_at IS NOT NULL
+          AND status IN ('sent', 'accepted', 'rejected', 'expired')
+        GROUP BY status
+      `);
+      const rows = ((r as any)?.[0] ?? []) as any[];
+
+      let acceptedAvg = 0;
+      let acceptedCnt = 0;
+      let rejectedAvg = 0;
+      let rejectedCnt = 0;
+      let pendingCnt = 0;
+      let totalCnt = 0;
+
+      for (const row of rows) {
+        const cnt = Number(row.cnt || 0);
+        totalCnt += cnt;
+        if (row.status === "accepted") {
+          acceptedAvg = Number(row.avg_days || 0);
+          acceptedCnt = cnt;
+        } else if (row.status === "rejected") {
+          rejectedAvg = Number(row.avg_days || 0);
+          rejectedCnt = cnt;
+        } else if (row.status === "sent") {
+          pendingCnt = cnt;
+        }
+      }
+
+      const acceptanceRate =
+        acceptedCnt + rejectedCnt > 0
+          ? (acceptedCnt / (acceptedCnt + rejectedCnt)) * 100
+          : null;
+
+      return {
+        totalSentQuotes: totalCnt,
+        acceptedCount: acceptedCnt,
+        rejectedCount: rejectedCnt,
+        pendingCount: pendingCnt,
+        avgDaysToAccept: acceptedAvg,
+        avgDaysToReject: rejectedAvg,
+        acceptanceRate,
+      };
+    }),
 });

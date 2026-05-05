@@ -95,6 +95,36 @@ export function initScheduler() {
     }
   }));
 
+  // ★ Phase 4 (CRM): 매일 오전 9시 거래처 활성도 자동 태그 (장기무거래/신규)
+  cron.schedule("0 9 * * *", () => withSchedulerLock("partner_activity_tagger", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Scheduler] ${timestamp} - 거래처 활성도 자동 태그 시작`);
+    try {
+      const { autoTagPartnerActivity } = await import("./schedulers/partnerActivityTagger");
+      const result = await autoTagPartnerActivity();
+      console.log(
+        `[Scheduler] ${timestamp} - 활성도 태그: 장기무거래 +${result.staleTagged}/-${result.staleRemoved}, 신규 +${result.newTagged}`,
+      );
+    } catch (error) {
+      console.error(`[Scheduler] ${timestamp} - 거래처 활성도 자동 태그 실패:`, error);
+    }
+  }));
+
+  // ★ Phase 4 (CRM): 매일 오전 9시 5분 거래처 신용점수 산정
+  cron.schedule("5 9 * * *", () => withSchedulerLock("partner_credit_score", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Scheduler] ${timestamp} - 거래처 신용점수 산정 시작`);
+    try {
+      const { recalculateAllPartnerScores } = await import("./services/creditScoreCalculator");
+      const result = await recalculateAllPartnerScores();
+      console.log(
+        `[Scheduler] ${timestamp} - 신용점수 산정 완료: 테넌트 ${result.tenantCount} / 거래처 ${result.partnerCount} / 에러 ${result.errors}`,
+      );
+    } catch (error) {
+      console.error(`[Scheduler] ${timestamp} - 거래처 신용점수 산정 실패:`, error);
+    }
+  }));
+
   // CCP 점검 시간 알림 (매 10분마다 체크)
   cron.schedule("*/10 * * * *", () => withSchedulerLock("ccp_reminders_10min", async () => {
     try {

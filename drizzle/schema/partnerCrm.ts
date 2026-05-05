@@ -210,3 +210,49 @@ export const partnerDocuments = mysqlTable(
 
 export type PartnerDocument = typeof partnerDocuments.$inferSelect;
 export type NewPartnerDocument = typeof partnerDocuments.$inferInsert;
+
+/**
+ * 거래처 신용/활성도 점수 (Phase 4 — 일일 스냅샷)
+ *
+ * 일별로 산정되는 점수 (0-100):
+ *   - paymentTimelinessScore (0-30): AP 적시 결제 비율
+ *   - creditUtilizationScore (0-25): AP balance / credit_limit (낮을수록 높음)
+ *   - activityFrequencyScore (0-20): 월별 활동 빈도
+ *   - transactionStabilityScore (0-25): 월별 거래 변동성 (낮을수록 높음)
+ *
+ * 자동 등급 (totalScore):
+ *   - 90+ : A (VIP)
+ *   - 70-89: B (Standard)
+ *   - 50-69: C (Watch)
+ *   - <50: D (Risk)
+ */
+export const partnerScores = mysqlTable(
+  "partner_scores",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+    tenantId: int("tenant_id").notNull().references(() => tenants.id),
+    partnerId: bigint("partner_id", { mode: "number" }).notNull(),
+
+    snapshotDate: varchar("snapshot_date", { length: 10 }).notNull(), // YYYY-MM-DD
+
+    paymentTimelinessScore: int("payment_timeliness_score").default(0).notNull(),
+    creditUtilizationScore: int("credit_utilization_score").default(0).notNull(),
+    activityFrequencyScore: int("activity_frequency_score").default(0).notNull(),
+    transactionStabilityScore: int("transaction_stability_score").default(0).notNull(),
+    totalScore: int("total_score").default(0).notNull(),
+
+    grade: varchar("grade", { length: 5 }).notNull(), // A / B / C / D
+
+    /** 산정 근거 (디버깅 + UI 설명용) */
+    breakdown: json("breakdown"),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    tenantPartnerIdx: index("idx_ps_tenant_partner").on(table.tenantId, table.partnerId),
+    snapshotIdx: index("idx_ps_snapshot").on(table.partnerId, table.snapshotDate),
+  }),
+);
+
+export type PartnerScore = typeof partnerScores.$inferSelect;
+export type NewPartnerScore = typeof partnerScores.$inferInsert;

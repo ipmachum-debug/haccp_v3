@@ -360,7 +360,9 @@ function StatCard({ label, value, sub, icon }: { label: string; value: string; s
 // ─── Overview Tab ───
 function OverviewTab({ partner: p, overview }: { partner: any; overview: any }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="space-y-4">
+      <CreditScoreWidget partnerId={Number(p.id)} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Card>
         <CardHeader><CardTitle className="text-base">기본 정보</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
@@ -395,6 +397,185 @@ function OverviewTab({ partner: p, overview }: { partner: any; overview: any }) 
           <CardContent className="text-sm whitespace-pre-wrap">{p.notes}</CardContent>
         </Card>
       )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Phase 4: Credit Score Widget ───
+function CreditScoreWidget({ partnerId }: { partnerId: number }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.partnerCrm.latestScore.useQuery({ partnerId });
+  const recalcMut = trpc.partnerCrm.recalculateScore.useMutation({
+    onSuccess: () => {
+      utils.partnerCrm.latestScore.invalidate();
+      toast({ title: "신용점수가 재계산되었습니다" });
+    },
+  });
+
+  const gradeColor: Record<string, { bg: string; ring: string; text: string }> = {
+    A: { bg: "bg-emerald-500", ring: "ring-emerald-500/30", text: "text-emerald-600" },
+    B: { bg: "bg-blue-500", ring: "ring-blue-500/30", text: "text-blue-600" },
+    C: { bg: "bg-amber-500", ring: "ring-amber-500/30", text: "text-amber-600" },
+    D: { bg: "bg-red-500", ring: "ring-red-500/30", text: "text-red-600" },
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-4 text-sm text-muted-foreground">신용점수 불러오는 중...</CardContent>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return (
+      <Card>
+        <CardContent className="p-4 flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium">신용/활성도 점수</div>
+            <div className="text-xs text-muted-foreground">아직 산정되지 않았습니다</div>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => recalcMut.mutate({ partnerId })}
+            disabled={recalcMut.isPending}
+          >
+            {recalcMut.isPending ? "산정 중..." : "지금 산정"}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { latest, history } = data as any;
+  const c = gradeColor[latest.grade] || gradeColor.C;
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-4">
+          {/* 종합 점수 + 등급 */}
+          <div className="flex flex-col items-center shrink-0">
+            <div
+              className={`relative w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-3xl ring-8 ${c.ring} ${c.bg}`}
+            >
+              {latest.grade}
+              <span className="absolute -bottom-1 right-0 bg-white text-xs px-1.5 py-0.5 rounded-full border font-semibold text-foreground">
+                {latest.totalScore}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">신용/활성도</div>
+          </div>
+
+          {/* 4 factor breakdown */}
+          <div className="flex-1 grid grid-cols-2 gap-2">
+            <ScoreBar label="결제 적시성" score={latest.paymentTimelinessScore} max={30} color="emerald" />
+            <ScoreBar label="신용 활용도" score={latest.creditUtilizationScore} max={25} color="blue" />
+            <ScoreBar label="활동 빈도" score={latest.activityFrequencyScore} max={20} color="purple" />
+            <ScoreBar label="거래량 안정성" score={latest.transactionStabilityScore} max={25} color="amber" />
+          </div>
+
+          <div className="flex flex-col gap-1 items-end shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => recalcMut.mutate({ partnerId })}
+              disabled={recalcMut.isPending}
+            >
+              {recalcMut.isPending ? "산정 중..." : "재계산"}
+            </Button>
+            <span className="text-[10px] text-muted-foreground">
+              {fmtDate(latest.snapshotDate)} 기준
+            </span>
+          </div>
+        </div>
+
+        {/* 30일 추이 mini chart */}
+        {history.length > 1 && (
+          <div className="mt-3">
+            <ResponsiveContainer width="100%" height={60}>
+              <LineChart data={history}>
+                <Line type="monotone" dataKey="total" stroke={`var(--${latest.grade === "A" ? "emerald" : latest.grade === "B" ? "blue" : latest.grade === "C" ? "amber" : "red"}-500)`} strokeWidth={2} dot={false} />
+                <YAxis hide domain={[0, 100]} />
+                <RTooltip
+                  contentStyle={{ fontSize: 11 }}
+                  formatter={(v: any) => `${v}점`}
+                  labelFormatter={(l: any) => l}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+              <span>{history[0]?.date}</span>
+              <span>30일 추이</span>
+              <span>{history[history.length - 1]?.date}</span>
+            </div>
+          </div>
+        )}
+
+        {/* breakdown 설명 */}
+        {latest.breakdown && (
+          <details className="mt-3">
+            <summary className="text-xs cursor-pointer text-muted-foreground hover:text-foreground">
+              산정 근거 보기
+            </summary>
+            <div className="text-xs text-muted-foreground mt-2 grid grid-cols-2 gap-2 bg-muted/30 p-2 rounded">
+              <div>
+                평균 지연일:{" "}
+                {latest.breakdown.avgPaymentDelayDays !== null
+                  ? `${latest.breakdown.avgPaymentDelayDays.toFixed(1)}일`
+                  : "데이터 없음"}
+              </div>
+              <div>
+                AP 활용:{" "}
+                {latest.breakdown.utilizationPct !== null
+                  ? `${latest.breakdown.utilizationPct.toFixed(0)}%`
+                  : "한도 미설정"}
+              </div>
+              <div>최근 90일 활동: {latest.breakdown.activityCount90d}건</div>
+              <div>
+                월거래 변동:{" "}
+                {latest.breakdown.monthlyTransactionCV !== null
+                  ? `${latest.breakdown.monthlyTransactionCV.toFixed(0)}%`
+                  : "표본 부족"}
+              </div>
+            </div>
+          </details>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ScoreBar({
+  label,
+  score,
+  max,
+  color,
+}: {
+  label: string;
+  score: number;
+  max: number;
+  color: "emerald" | "blue" | "purple" | "amber";
+}) {
+  const pct = Math.max(0, Math.min(100, (score / max) * 100));
+  const bgClass = {
+    emerald: "bg-emerald-500",
+    blue: "bg-blue-500",
+    purple: "bg-purple-500",
+    amber: "bg-amber-500",
+  }[color];
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium tabular-nums">
+          {score}/{max}
+        </span>
+      </div>
+      <div className="h-2 bg-muted rounded-full overflow-hidden">
+        <div className={`h-full ${bgClass} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+      </div>
     </div>
   );
 }
@@ -1347,6 +1528,7 @@ function DocumentDialogContent({
 function AnalyticsTab({ partnerId }: { partnerId: number }) {
   const [months, setMonths] = useState(12);
   const { data, isLoading } = trpc.partnerCrm.analytics.useQuery({ partnerId, months });
+  const { data: quoteResp } = trpc.partnerCrm.quoteResponseTime.useQuery({ partnerId });
   const monthly = (data?.monthly ?? []) as any[];
   const activityByType = (data?.activityByType ?? []) as any[];
 
@@ -1374,6 +1556,39 @@ function AnalyticsTab({ partnerId }: { partnerId: number }) {
           </Button>
         ))}
       </div>
+      {/* 견적 응답 분석 */}
+      {quoteResp && quoteResp.totalSentQuotes > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">견적 응답 분석</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+              <Stat label="총 발송 견적" value={`${quoteResp.totalSentQuotes}건`} />
+              <Stat label="수락" value={`${quoteResp.acceptedCount}건`} />
+              <Stat label="거절" value={`${quoteResp.rejectedCount}건`} />
+              <Stat
+                label="평균 수락 일수"
+                value={
+                  quoteResp.acceptedCount > 0 ? `${quoteResp.avgDaysToAccept.toFixed(1)}일` : "-"
+                }
+              />
+              <Stat
+                label="수락률"
+                value={
+                  quoteResp.acceptanceRate !== null
+                    ? `${quoteResp.acceptanceRate.toFixed(0)}%`
+                    : "-"
+                }
+              />
+            </div>
+            {quoteResp.pendingCount > 0 && (
+              <div className="mt-3 text-xs text-amber-600 dark:text-amber-400">
+                ⏳ 응답 대기 견적 {quoteResp.pendingCount}건 있음
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Card>
           <CardHeader><CardTitle className="text-base">월별 매입/매출 추이</CardTitle></CardHeader>
