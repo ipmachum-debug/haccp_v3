@@ -99,9 +99,13 @@ function nameToHue(name: string): number {
 }
 function initials(name: string): string {
   if (!name) return "?";
-  const t = name.replace(/^(주식회사|㈜|\(주\))\s*/, "").trim();
+  const t = name
+    .replace(/^(주식회사|㈜|\(주\))\s*/g, "")
+    .replace(/\s*(주식회사|㈜|\(주\))$/g, "")
+    .trim();
   if (!t) return "?";
-  if (/[가-힣]/.test(t[0])) return t[0];
+  // 한글: 2자, 영숫자: 2자
+  if (/[가-힣]/.test(t[0])) return t.slice(0, 2);
   return t.slice(0, 2).toUpperCase();
 }
 function fmtKRW(n: number | null | undefined): string {
@@ -197,53 +201,105 @@ function PartnerDetailContent() {
         <ArrowLeft className="w-4 h-4 mr-1" /> 거래처 피드로
       </Button>
 
-      {/* 헤더 카드 */}
-      <Card>
-        <CardContent className="p-6 flex items-start gap-6">
+      {/* 헤더 카드 — LinkedIn / Notion 프로필 스타일 */}
+      <Card className="overflow-hidden">
+        {/* 상단 그라디언트 cover 배너 */}
+        <div
+          className="h-20 relative"
+          style={{
+            background: `linear-gradient(135deg, hsl(${hue}, 55%, 50%) 0%, hsl(${(hue + 40) % 360}, 50%, 40%) 100%)`,
+          }}
+        >
           <div
-            className="w-24 h-24 rounded-full flex items-center justify-center text-white text-3xl font-bold shrink-0 ring-4 ring-background shadow-lg"
+            className="absolute inset-0 opacity-20"
             style={{
-              background: `linear-gradient(135deg, hsl(${hue}, 65%, 55%), hsl(${(hue + 30) % 360}, 65%, 45%))`,
+              backgroundImage:
+                "radial-gradient(circle at 20% 50%, white 0%, transparent 30%), radial-gradient(circle at 80% 30%, white 0%, transparent 30%)",
             }}
-          >
-            {init}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold">{p.company_name || p.companyName}</h1>
-              {p.grade === "vip" && (
-                <Badge className="bg-amber-500 text-white">
-                  <Star className="w-3 h-3 mr-1 fill-current" /> VIP
-                </Badge>
-              )}
-              <PartnerTypeBadge type={p.partner_type || p.partnerType} />
+          />
+        </div>
+
+        <CardContent className="px-6 pb-5 pt-0 relative">
+          {/* 좌측: 작은 정사각형 로고 (cover 위에 살짝 걸침) */}
+          <div className="flex items-end gap-4 -mt-8 mb-3">
+            <div
+              className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-lg font-bold shrink-0 ring-4 ring-background shadow-md"
+              style={{
+                background: `linear-gradient(135deg, hsl(${hue}, 60%, 50%), hsl(${(hue + 30) % 360}, 60%, 42%))`,
+              }}
+            >
+              {init}
             </div>
-            <div className="text-sm text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
-              {p.biz_no && <span>📋 {p.biz_no}</span>}
-              {p.ceo_name && <span>👤 {p.ceo_name}</span>}
-              {p.phone && <span>📞 {p.phone}</span>}
-              {p.email && <span>✉ {p.email}</span>}
+
+            {/* 우측 액션: 전화/메일/편집 */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {p.phone && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`tel:${p.phone}`}>
+                    <Phone className="w-3.5 h-3.5 mr-1" /> 전화
+                  </a>
+                </Button>
+              )}
+              {p.email && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`mailto:${p.email}`}>
+                    <Mail className="w-3.5 h-3.5 mr-1" /> 메일
+                  </a>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* 회사명 + 배지 */}
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h1 className="text-xl font-bold">{p.company_name || p.companyName || "(이름 없음)"}</h1>
+            {p.grade === "vip" && (
+              <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+                <Star className="w-3 h-3 mr-1 fill-current" /> VIP
+              </Badge>
+            )}
+            <PartnerTypeBadge type={p.partner_type || p.partnerType} />
+          </div>
+
+          {/* 메타 정보 — 한 줄로 정렬 */}
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
+              {p.biz_no && (
+                <span className="inline-flex items-center gap-1">
+                  <FileText className="w-3 h-3" /> {p.biz_no}
+                </span>
+              )}
+              {p.ceo_name && (
+                <span className="inline-flex items-center gap-1">
+                  <UserCircle className="w-3 h-3" /> 대표 {p.ceo_name}
+                </span>
+              )}
+              {p.contact_person && (
+                <span className="inline-flex items-center gap-1">
+                  <UserCircle className="w-3 h-3" /> 담당 {p.contact_person}
+                </span>
+              )}
+              {p.phone && (
+                <span className="inline-flex items-center gap-1">
+                  <Phone className="w-3 h-3" /> {p.phone}
+                </span>
+              )}
+              {p.email && (
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="w-3 h-3" /> {p.email}
+                </span>
+              )}
             </div>
             {p.address && (
-              <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" /> {p.address}
+              <div className="flex items-center gap-1">
+                <MapPin className="w-3 h-3" /> {p.address}
               </div>
             )}
-          </div>
-          <div className="flex flex-col gap-2 shrink-0">
-            {p.phone && (
-              <Button variant="outline" size="sm" asChild>
-                <a href={`tel:${p.phone}`}>
-                  <Phone className="w-4 h-4 mr-1" /> 전화
-                </a>
-              </Button>
-            )}
-            {p.email && (
-              <Button variant="outline" size="sm" asChild>
-                <a href={`mailto:${p.email}`}>
-                  <Mail className="w-4 h-4 mr-1" /> 메일
-                </a>
-              </Button>
+            {(p.biz_type || p.biz_item) && (
+              <div className="flex items-center gap-x-3 flex-wrap text-muted-foreground/70">
+                {p.biz_type && <span>업태: {p.biz_type}</span>}
+                {p.biz_item && <span>종목: {p.biz_item}</span>}
+              </div>
             )}
           </div>
         </CardContent>
@@ -378,7 +434,10 @@ function OverviewTab({ partner: p, overview }: { partner: any; overview: any }) 
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">거래 조건</CardTitle></CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">거래 조건</CardTitle>
+          <TermsEditDialog partner={p} />
+        </CardHeader>
         <CardContent className="space-y-2 text-sm">
           <Row label="등급">{p.grade || "-"}</Row>
           <Row label="결제 조건">{p.payment_terms_days ? `${p.payment_terms_days}일` : "-"}</Row>
@@ -586,6 +645,157 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className="text-muted-foreground w-24 shrink-0">{label}</span>
       <span className="flex-1">{children}</span>
     </div>
+  );
+}
+
+// ─── 거래 조건 인라인 수정 다이얼로그 ───
+function TermsEditDialog({ partner: p }: { partner: any }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    grade: p.grade ?? "",
+    paymentTermsDays: p.payment_terms_days ?? "",
+    creditLimit: p.credit_limit ?? "",
+    defaultDiscountRate: p.default_discount_rate ?? "",
+    bankName: p.bank_name ?? "",
+    bankAccount: p.bank_account ?? "",
+  });
+
+  const updateMut = trpc.partners.update.useMutation({
+    onSuccess: () => {
+      utils.partnerCrm.overview.invalidate();
+      toast({ title: "거래 조건이 수정되었습니다" });
+      setOpen(false);
+    },
+    onError: (err) => {
+      toast({ title: "수정 실패", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        // 다이얼로그 열 때마다 최신 값으로 reset
+        if (v) {
+          setForm({
+            grade: p.grade ?? "",
+            paymentTermsDays: p.payment_terms_days ?? "",
+            creditLimit: p.credit_limit ?? "",
+            defaultDiscountRate: p.default_discount_rate ?? "",
+            bankName: p.bank_name ?? "",
+            bankAccount: p.bank_account ?? "",
+          });
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-7 px-2">
+          <Pencil className="w-3.5 h-3.5 mr-1" /> 수정
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>거래 조건 수정 — {p.company_name || p.companyName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>등급</Label>
+              <Select value={form.grade || "none"} onValueChange={(v) => setForm({ ...form, grade: v === "none" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="-" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">미지정</SelectItem>
+                  <SelectItem value="vip">VIP</SelectItem>
+                  <SelectItem value="standard">Standard</SelectItem>
+                  <SelectItem value="economy">Economy</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>결제 조건 (일)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.paymentTermsDays}
+                onChange={(e) => setForm({ ...form, paymentTermsDays: e.target.value })}
+                placeholder="30"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>여신 한도 (원)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={form.creditLimit}
+                onChange={(e) => setForm({ ...form, creditLimit: e.target.value })}
+                placeholder="10000000"
+              />
+            </div>
+            <div>
+              <Label>기본 할인율 (%)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={form.defaultDiscountRate}
+                onChange={(e) => setForm({ ...form, defaultDiscountRate: e.target.value })}
+                placeholder="5"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>은행</Label>
+              <Input
+                value={form.bankName}
+                onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                placeholder="국민은행"
+              />
+            </div>
+            <div>
+              <Label>계좌</Label>
+              <Input
+                value={form.bankAccount}
+                onChange={(e) => setForm({ ...form, bankAccount: e.target.value })}
+                placeholder="123-456-789012"
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            취소
+          </Button>
+          <Button
+            onClick={() => {
+              const payload: any = { id: Number(p.id) };
+              if (form.grade !== (p.grade ?? "")) payload.grade = form.grade;
+              if (form.paymentTermsDays !== (p.payment_terms_days ?? "")) {
+                payload.paymentTermsDays = form.paymentTermsDays === "" ? undefined : Number(form.paymentTermsDays);
+              }
+              if (form.creditLimit !== (p.credit_limit ?? "")) {
+                payload.creditLimit = form.creditLimit === "" ? undefined : Number(form.creditLimit);
+              }
+              if (form.defaultDiscountRate !== (p.default_discount_rate ?? "")) {
+                payload.defaultDiscountRate =
+                  form.defaultDiscountRate === "" ? undefined : Number(form.defaultDiscountRate);
+              }
+              if (form.bankName !== (p.bank_name ?? "")) payload.bankName = form.bankName;
+              if (form.bankAccount !== (p.bank_account ?? "")) payload.bankAccount = form.bankAccount;
+              updateMut.mutate(payload);
+            }}
+            disabled={updateMut.isPending}
+          >
+            {updateMut.isPending ? "저장 중..." : "저장"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

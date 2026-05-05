@@ -508,7 +508,7 @@ export const partnerCrmRouter = router({
             CONCAT('p-', id) AS uid,
             'purchase' AS kind,
             id, transaction_date, item_name, quantity, unit, unit_price, total_amount, tax_amount,
-            evidence_type, status, memo, created_at
+            evidence_type, status, notes, created_at
           FROM accounting_purchases
           WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
           ORDER BY transaction_date DESC, id DESC
@@ -522,7 +522,7 @@ export const partnerCrmRouter = router({
             CONCAT('s-', id) AS uid,
             'sale' AS kind,
             id, transaction_date, item_name, quantity, unit, unit_price, total_amount, tax_amount,
-            evidence_type, status, memo, created_at
+            evidence_type, status, notes, created_at
           FROM accounting_sales
           WHERE tenant_id = ${tenantId} AND partner_id = ${input.partnerId}
           ORDER BY transaction_date DESC, id DESC
@@ -547,7 +547,7 @@ export const partnerCrmRouter = router({
         taxAmount: Number(r.tax_amount || 0),
         evidenceType: r.evidence_type || null,
         status: r.status || null,
-        memo: r.memo || null,
+        memo: r.notes || null,
       }));
     }),
 

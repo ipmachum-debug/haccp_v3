@@ -178,18 +178,31 @@ function PartnerFeedContent() {
   return (
     <div className="space-y-4">
       {/* 헤더 */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
-            거래처 피드
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            전체 {stats.total}곳 · 신규 {stats.newCount}곳 · 장기무거래 {stats.stale}곳
-          </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+            거래처 통합 관리 (CRM)
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">거래처</h1>
+          <div className="flex items-center gap-x-3 text-xs text-muted-foreground mt-1">
+            <span>
+              전체 <span className="font-semibold text-foreground">{stats.total}</span>곳
+            </span>
+            {stats.newCount > 0 && (
+              <span className="text-blue-600 dark:text-blue-400">
+                신규 <span className="font-semibold">{stats.newCount}</span>
+              </span>
+            )}
+            {stats.stale > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                장기무거래 <span className="font-semibold">{stats.stale}</span>
+              </span>
+            )}
+          </div>
         </div>
-        <Button onClick={() => navigate(ROUTES.ACCOUNTING_PARTNERS)} variant="outline">
-          <Plus className="w-4 h-4 mr-1" /> 거래처 등록 / 관리
+        <Button onClick={() => navigate(ROUTES.ACCOUNTING_PARTNERS)} variant="outline" size="sm">
+          <Plus className="w-3.5 h-3.5 mr-1" /> 거래처 등록 / 관리
         </Button>
       </div>
 
