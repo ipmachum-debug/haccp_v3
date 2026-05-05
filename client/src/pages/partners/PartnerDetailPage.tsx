@@ -99,9 +99,13 @@ function nameToHue(name: string): number {
 }
 function initials(name: string): string {
   if (!name) return "?";
-  const t = name.replace(/^(주식회사|㈜|\(주\))\s*/, "").trim();
+  const t = name
+    .replace(/^(주식회사|㈜|\(주\))\s*/g, "")
+    .replace(/\s*(주식회사|㈜|\(주\))$/g, "")
+    .trim();
   if (!t) return "?";
-  if (/[가-힣]/.test(t[0])) return t[0];
+  // 한글: 2자, 영숫자: 2자
+  if (/[가-힣]/.test(t[0])) return t.slice(0, 2);
   return t.slice(0, 2).toUpperCase();
 }
 function fmtKRW(n: number | null | undefined): string {
@@ -197,53 +201,105 @@ function PartnerDetailContent() {
         <ArrowLeft className="w-4 h-4 mr-1" /> 거래처 피드로
       </Button>
 
-      {/* 헤더 카드 */}
-      <Card>
-        <CardContent className="p-6 flex items-start gap-6">
+      {/* 헤더 카드 — LinkedIn / Notion 프로필 스타일 */}
+      <Card className="overflow-hidden">
+        {/* 상단 그라디언트 cover 배너 */}
+        <div
+          className="h-20 relative"
+          style={{
+            background: `linear-gradient(135deg, hsl(${hue}, 55%, 50%) 0%, hsl(${(hue + 40) % 360}, 50%, 40%) 100%)`,
+          }}
+        >
           <div
-            className="w-24 h-24 rounded-full flex items-center justify-center text-white text-3xl font-bold shrink-0 ring-4 ring-background shadow-lg"
+            className="absolute inset-0 opacity-20"
             style={{
-              background: `linear-gradient(135deg, hsl(${hue}, 65%, 55%), hsl(${(hue + 30) % 360}, 65%, 45%))`,
+              backgroundImage:
+                "radial-gradient(circle at 20% 50%, white 0%, transparent 30%), radial-gradient(circle at 80% 30%, white 0%, transparent 30%)",
             }}
-          >
-            {init}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold">{p.company_name || p.companyName}</h1>
-              {p.grade === "vip" && (
-                <Badge className="bg-amber-500 text-white">
-                  <Star className="w-3 h-3 mr-1 fill-current" /> VIP
-                </Badge>
-              )}
-              <PartnerTypeBadge type={p.partner_type || p.partnerType} />
+          />
+        </div>
+
+        <CardContent className="px-6 pb-5 pt-0 relative">
+          {/* 좌측: 작은 정사각형 로고 (cover 위에 살짝 걸침) */}
+          <div className="flex items-end gap-4 -mt-8 mb-3">
+            <div
+              className="w-16 h-16 rounded-xl flex items-center justify-center text-white text-lg font-bold shrink-0 ring-4 ring-background shadow-md"
+              style={{
+                background: `linear-gradient(135deg, hsl(${hue}, 60%, 50%), hsl(${(hue + 30) % 360}, 60%, 42%))`,
+              }}
+            >
+              {init}
             </div>
-            <div className="text-sm text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
-              {p.biz_no && <span>📋 {p.biz_no}</span>}
-              {p.ceo_name && <span>👤 {p.ceo_name}</span>}
-              {p.phone && <span>📞 {p.phone}</span>}
-              {p.email && <span>✉ {p.email}</span>}
+
+            {/* 우측 액션: 전화/메일/편집 */}
+            <div className="ml-auto flex items-center gap-1.5">
+              {p.phone && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`tel:${p.phone}`}>
+                    <Phone className="w-3.5 h-3.5 mr-1" /> 전화
+                  </a>
+                </Button>
+              )}
+              {p.email && (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`mailto:${p.email}`}>
+                    <Mail className="w-3.5 h-3.5 mr-1" /> 메일
+                  </a>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* 회사명 + 배지 */}
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h1 className="text-xl font-bold">{p.company_name || p.companyName || "(이름 없음)"}</h1>
+            {p.grade === "vip" && (
+              <Badge className="bg-amber-500 hover:bg-amber-500 text-white">
+                <Star className="w-3 h-3 mr-1 fill-current" /> VIP
+              </Badge>
+            )}
+            <PartnerTypeBadge type={p.partner_type || p.partnerType} />
+          </div>
+
+          {/* 메타 정보 — 한 줄로 정렬 */}
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="flex items-center gap-x-4 gap-y-1 flex-wrap">
+              {p.biz_no && (
+                <span className="inline-flex items-center gap-1">
+                  <FileText className="w-3 h-3" /> {p.biz_no}
+                </span>
+              )}
+              {p.ceo_name && (
+                <span className="inline-flex items-center gap-1">
+                  <UserCircle className="w-3 h-3" /> 대표 {p.ceo_name}
+                </span>
+              )}
+              {p.contact_person && (
+                <span className="inline-flex items-center gap-1">
+                  <UserCircle className="w-3 h-3" /> 담당 {p.contact_person}
+                </span>
+              )}
+              {p.phone && (
+                <span className="inline-flex items-center gap-1">
+                  <Phone className="w-3 h-3" /> {p.phone}
+                </span>
+              )}
+              {p.email && (
+                <span className="inline-flex items-center gap-1">
+                  <Mail className="w-3 h-3" /> {p.email}
+                </span>
+              )}
             </div>
             {p.address && (
-              <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5" /> {p.address}
+              <div className="flex items-center gap-1">
+                <MapPin className="w-3 h-3" /> {p.address}
               </div>
             )}
-          </div>
-          <div className="flex flex-col gap-2 shrink-0">
-            {p.phone && (
-              <Button variant="outline" size="sm" asChild>
-                <a href={`tel:${p.phone}`}>
-                  <Phone className="w-4 h-4 mr-1" /> 전화
-                </a>
-              </Button>
-            )}
-            {p.email && (
-              <Button variant="outline" size="sm" asChild>
-                <a href={`mailto:${p.email}`}>
-                  <Mail className="w-4 h-4 mr-1" /> 메일
-                </a>
-              </Button>
+            {(p.biz_type || p.biz_item) && (
+              <div className="flex items-center gap-x-3 flex-wrap text-muted-foreground/70">
+                {p.biz_type && <span>업태: {p.biz_type}</span>}
+                {p.biz_item && <span>종목: {p.biz_item}</span>}
+              </div>
             )}
           </div>
         </CardContent>
