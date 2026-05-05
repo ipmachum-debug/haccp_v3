@@ -82,6 +82,19 @@ export function initScheduler() {
     }
   }));
 
+  // ★ Phase 3 (CRM): 매일 오전 8시 거래처 서류 만료 알림
+  cron.schedule("0 8 * * *", () => withSchedulerLock("partner_doc_expiry", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Scheduler] ${timestamp} - 거래처 서류 만료 알림 체크 시작`);
+    try {
+      const { checkPartnerDocumentExpiry } = await import("./schedulers/partnerDocumentExpiry");
+      const result = await checkPartnerDocumentExpiry();
+      console.log(`[Scheduler] ${timestamp} - 거래처 서류 만료 알림 ${result.alertCount}건 생성`);
+    } catch (error) {
+      console.error(`[Scheduler] ${timestamp} - 거래처 서류 만료 알림 실패:`, error);
+    }
+  }));
+
   // CCP 점검 시간 알림 (매 10분마다 체크)
   cron.schedule("*/10 * * * *", () => withSchedulerLock("ccp_reminders_10min", async () => {
     try {
