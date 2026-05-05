@@ -111,7 +111,38 @@ async function main() {
     } else throw e;
   }
 
-  console.log("\n✅ Partner CRM Phase 1 마이그레이션 완료\n");
+  // 5. partner_documents — Phase 2 (서류 발급/보관/이력 추적)
+  console.log("[5/5] partner_documents 생성... (Phase 2)");
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS partner_documents (
+      id BIGINT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL,
+      partner_id BIGINT NOT NULL,
+      doc_type ENUM(
+        'contract','tax_invoice','estimate','purchase_order','delivery_note','receipt',
+        'quality_cert','iso_cert','haccp_cert','biz_license','nda','other'
+      ) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      doc_number VARCHAR(100),
+      direction ENUM('issued','received') NOT NULL,
+      file_url TEXT,
+      file_name VARCHAR(255),
+      file_size INT,
+      issued_at TIMESTAMP NULL,
+      received_at TIMESTAMP NULL,
+      expires_at TIMESTAMP NULL,
+      notes TEXT,
+      created_by BIGINT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pd_tenant_partner (tenant_id, partner_id),
+      INDEX idx_pd_type (partner_id, doc_type),
+      INDEX idx_pd_expiry (tenant_id, expires_at),
+      CONSTRAINT fk_pd_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  console.log("\n✅ Partner CRM Phase 1 + 2 마이그레이션 완료\n");
   process.exit(0);
 }
 
