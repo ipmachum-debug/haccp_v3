@@ -45,6 +45,8 @@ export * from "./schema_dual_unit";
 export * from "./communicationLog";
 export * from "./communicationLogExtensions";
 export * from "./communicationLogBoard";
+// Partner CRM (Phase 1, 2026-05-05)
+export * from "./partnerCrm";
 export * from "./ccpMonitoring";
 export * from "./expense";
 export * from "./support";

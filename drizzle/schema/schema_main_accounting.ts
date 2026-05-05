@@ -107,6 +107,8 @@ export const partners = mysqlTable("partners", {
   //                  이 파트너의 매출은 분기별 플랫폼 정산 모듈에서 관리
   //   b2c_direct   — B2C 직접 판매 (자사몰·오프라인 매장 등, 향후 확장용)
   customerType: mysqlEnum("customer_type", ["b2b", "b2c_platform", "b2c_direct"]).default("b2b").notNull(),
+  // ★ 2026-05-05 Partner CRM Phase 1 — 자유 custom field (JSON)
+  metadata: json("metadata"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
