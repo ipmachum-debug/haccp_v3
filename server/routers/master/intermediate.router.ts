@@ -74,11 +74,21 @@ export const intermediateRouter = router({
    * 매칭 가능한 원재료 (kind='MIXED') 목록 — 매칭 다이얼로그용
    */
   matchableMaterials: tenantRequiredProcedure
-    .input(z.object({ search: z.string().optional() }).optional())
+    .input(
+      z
+        .object({
+          search: z.string().optional(),
+          /** 'MIXED' 만 / 'all' (모든 원재료) — 기본 'all' (사용자 유연성) */
+          kindFilter: z.enum(["MIXED", "all"]).optional(),
+        })
+        .optional(),
+    )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) return [];
       const tenantId = Number(ctx.tenantId);
+      // ★ 2026-05-05 hotfix: kind='MIXED' 필터 기본 해제 — 사용자가 모든 원재료에서 선택 가능.
+      // kind='MIXED' 만 보고 싶으면 kindFilter='MIXED' 명시.
       const result: any = await db.execute(sql`
         SELECT
           m.id, m.material_code, m.material_name, m.unit, m.kind,
@@ -86,9 +96,9 @@ export const intermediateRouter = router({
           (SELECT i.intermediate_name FROM h_intermediates i WHERE i.linked_material_id = m.id LIMIT 1) AS already_linked_to_name
         FROM h_materials m
         WHERE m.tenant_id = ${tenantId}
-          AND m.kind = 'MIXED'
+          ${input?.kindFilter === "MIXED" ? sql`AND m.kind = 'MIXED'` : sql``}
           ${input?.search ? sql`AND (m.material_name LIKE ${"%" + input.search + "%"} OR m.material_code LIKE ${"%" + input.search + "%"})` : sql``}
-        ORDER BY m.material_code ASC
+        ORDER BY m.kind = 'MIXED' DESC, m.material_code ASC
       `);
       const rows = ((result as any)?.[0] ?? []) as any[];
       return rows.map((r) => ({
