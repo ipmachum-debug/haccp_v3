@@ -1,12 +1,13 @@
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
-import { Database, Package, Leaf, Building2, GitBranch } from "lucide-react";
+import { Database, Package, Leaf, Building2, GitBranch, Layers } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import CategoryManagement from "@/pages/accounting/CategoryManagement";
 import ProductCcpMapping from "@/pages/haccp/ProductCcpMapping";
 import ProductsTab from "@/components/masterData/ProductsTab";
 import MaterialsTab from "@/components/masterData/MaterialsTab";
 import SuppliersTab from "@/components/masterData/SuppliersTab";
+import { IntermediatesContent } from "@/pages/manufacturing/IntermediatesPage";
 
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -26,7 +27,7 @@ export default function MasterDataManagement() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
               <span>{`${L("product")}`}</span>
@@ -34,6 +35,10 @@ export default function MasterDataManagement() {
             <TabsTrigger value="materials" className="flex items-center gap-2">
               <Leaf className="h-4 w-4" />
               <span>{`${L("material")}`}</span>
+            </TabsTrigger>
+            <TabsTrigger value="intermediates" className="flex items-center gap-2">
+              <Layers className="h-4 w-4" />
+              <span>중간재</span>
             </TabsTrigger>
             <TabsTrigger value="suppliers" className="flex items-center gap-2">
               <Building2 className="h-4 w-4" />
@@ -57,6 +62,11 @@ export default function MasterDataManagement() {
           {/* 원재료 관리 탭 */}
           <TabsContent value="materials" className="space-y-4">
             <MaterialsTab />
+          </TabsContent>
+
+          {/* 중간재 관리 탭 (PR #250) — 통팥앙금 / 콩고물 / 카스테라가루 등 BOM 사용 중간재 */}
+          <TabsContent value="intermediates" className="space-y-4">
+            <IntermediatesContent embedded />
           </TabsContent>
 
           {/* 거래처 관리 탭 */}

@@ -323,8 +323,8 @@ const menuItems = [
   // ─── 마스터 데이터 ───
   { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
   { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
-  // PR #248 (2026-05-05): 중간재 관리 — BOM 분해 비율 (통팥앙금/콩고물 등)
-  { icon: Layers, label: "중간재 관리", path: ROUTES.MANUFACTURING_INTERMEDIATES, roles: ["super_admin", "admin"], group: "마스터" },
+  // PR #250 통합: 중간재 관리는 마스터 데이터 페이지의 6번째 탭 (?tab=intermediates) 으로 이동.
+  // 단독 사이드바 메뉴는 제거 — 라우트 (/dashboard/manufacturing/intermediates) 는 유지 (bookmark 호환).
   // 모바일 빠른 점검: CCP 모니터링 / CCP 기록 / HACCP 체크리스트 기반 — HACCP 전용
   { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], requireModule: "haccp", group: "마스터" },
 
