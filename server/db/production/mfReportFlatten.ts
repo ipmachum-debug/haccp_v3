@@ -158,14 +158,13 @@ export async function flattenBomTree(
     if (mixedIds.length > 0) {
       await loadIntermediatesByLinkedMaterialId(db, tenantId, mixedIds, intermediateMap);
     }
-    // ★ 2026-05-06 hotfix: 이름 매칭 fallback
-    // BOM 이 item_master.id 를 참조하지만 사용자 매칭은 h_materials.id 에 저장 → ID 공간 미스매치
-    // → MIXED material 의 이름과 같은 h_intermediates 도 추가 로드
-    const mixedNames = [...materialMap.values()]
-      .filter((m) => m.kind === "MIXED")
-      .map((m) => m.material_name);
-    if (mixedNames.length > 0) {
-      await loadIntermediatesByName(db, tenantId, mixedNames, intermediateMap);
+    // ★ 2026-05-06 hotfix v3 (PR #260):
+    // 이름 매칭은 kind 무관하게 적용 — item_master fallback 이 raw_material 을 RAW 로 분류해도
+    // 이름이 "조림류(통팥앙금)" 같은 패턴이면 중간재 매칭 필요.
+    // 모든 BOM material 이름 (RAW + MIXED) 을 후보로 사전 로드.
+    const allNames = [...materialMap.values()].map((m) => m.material_name);
+    if (allNames.length > 0) {
+      await loadIntermediatesByName(db, tenantId, allNames, intermediateMap);
     }
   }
   if (allIntermediateIds.size > 0) {
@@ -194,18 +193,21 @@ export async function flattenBomTree(
     }
     if (newMaterialIds.length > 0) {
       await loadMaterials(db, tenantId, newMaterialIds, materialMap);
-      const newMixedMaterials = newMaterialIds
+      // ★ 2026-05-06 hotfix v3 (PR #260): kind 무관 이름 매칭
+      const newMaterials = newMaterialIds
         .map((id) => materialMap.get(id))
-        .filter((m): m is MaterialRow => !!m && m.kind === "MIXED");
-      const newMixedIds = newMixedMaterials.map((m) => m.id);
-      const newMixedNames = newMixedMaterials.map((m) => m.material_name);
+        .filter((m): m is MaterialRow => !!m);
+      const newMixedIds = newMaterials.filter((m) => m.kind === "MIXED").map((m) => m.id);
+      const newAllNames = newMaterials.map((m) => m.material_name);
       if (newMixedIds.length > 0) {
         await loadIntermediatesByLinkedMaterialId(db, tenantId, newMixedIds, intermediateMap);
-        await loadIntermediatesByName(db, tenantId, newMixedNames, intermediateMap);
-        // 새로 추가된 intermediate 들 — 다음 iteration 에서 components 로드
-        for (const i of intermediateMap.values()) {
-          if (!loadedIntermediateIds.has(i.id)) queue.push(i.id);
-        }
+      }
+      if (newAllNames.length > 0) {
+        await loadIntermediatesByName(db, tenantId, newAllNames, intermediateMap);
+      }
+      // 새로 추가된 intermediate 들 — 다음 iteration 에서 components 로드
+      for (const i of intermediateMap.values()) {
+        if (!loadedIntermediateIds.has(i.id)) queue.push(i.id);
       }
     }
   }
@@ -227,18 +229,23 @@ export async function flattenBomTree(
       intermediate = intermediateMap.get(b.intermediate_id);
     } else if (b.material_id) {
       material = materialMap.get(b.material_id);
-      if (material?.kind === "MIXED") {
-        // 1차: linked_material_id 매칭
-        intermediate = [...intermediateMap.values()].find((i) => i.linked_material_id === material!.id);
-        // 2차 fallback (★ 2026-05-06 hotfix): 이름 매칭
+      // ★ 2026-05-06 hotfix v3 (PR #260):
+      // kind 무관하게 매칭 시도 — item_master fallback 은 raw_material → RAW 로 분류하지만,
+      // 이름이 "조림류(통팥앙금)" 같은 중간재 패턴이면 분해 필요.
+      if (material) {
+        // 1차: linked_material_id 매칭 (PR #252)
+        intermediate = [...intermediateMap.values()].find(
+          (i) => i.linked_material_id === material!.id,
+        );
+        // 2차: 이름 정확 매칭
         if (!intermediate) {
           intermediate = [...intermediateMap.values()].find(
             (i) => i.intermediate_name === material!.material_name,
           );
         }
-        // 3차 fallback: 괄호 내부 이름 매칭 ("조림류(통팥앙금)" → "통팥앙금")
+        // 3차: 괄호 내부 이름 매칭 ("조림류(통팥앙금)" → "통팥앙금")
         if (!intermediate) {
-          const inParens = material!.material_name.match(/[\(（]([^)）]+)[\)）]/);
+          const inParens = material.material_name.match(/[\(（]([^)）]+)[\)）]/);
           if (inParens) {
             const innerName = inParens[1].trim();
             intermediate = [...intermediateMap.values()].find(
@@ -312,12 +319,30 @@ function expandIntermediate(
     const origin = parseOrigin(c.note);
     const ratio = c.ratio_percent !== null ? Number(c.ratio_percent) : null;
 
-    // 이 component 가 MIXED 라면 중간재 expand 가능?
+    // ★ 2026-05-06 hotfix v3 (PR #260): 이 component 가 더 깊은 중간재 인지 확인
+    // kind 무관 이름 매칭 — item_master fallback 으로 RAW 분류된 항목도 중간재 가능
     let nextIntermediate: IntermediateRow | undefined;
-    if (m?.kind === "MIXED") {
+    if (m) {
+      // 1차: linked_material_id
       nextIntermediate = [...ctx.intermediateMap.values()].find(
         (i) => i.linked_material_id === m.id,
       );
+      // 2차: 이름 정확 매칭
+      if (!nextIntermediate) {
+        nextIntermediate = [...ctx.intermediateMap.values()].find(
+          (i) => i.intermediate_name === m.material_name,
+        );
+      }
+      // 3차: 괄호 내부 이름 매칭
+      if (!nextIntermediate) {
+        const inParens = m.material_name.match(/[\(（]([^)）]+)[\)）]/);
+        if (inParens) {
+          const innerName = inParens[1].trim();
+          nextIntermediate = [...ctx.intermediateMap.values()].find(
+            (i) => i.intermediate_name === innerName,
+          );
+        }
+      }
     }
 
     rows.push({
