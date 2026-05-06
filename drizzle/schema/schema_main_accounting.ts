@@ -325,8 +325,7 @@ export type InsertAccountingMonthlyCloseAudit = typeof accountingMonthlyCloseAud
 
 export type Partner = typeof partners.$inferSelect;
 export type InsertPartner = typeof partners.$inferInsert;
-export type PartnerContact = typeof partnerContacts.$inferSelect;
-export type InsertPartnerContact = typeof partnerContacts.$inferInsert;
+// PartnerContact / InsertPartnerContact 타입은 partnerCrm.ts 로 이전됨 (2026-05-05 PR #247)
 export type ApLedgerEntry = typeof apLedger.$inferSelect;
 export type InsertApLedgerEntry = typeof apLedger.$inferInsert;
 export type ArLedgerEntry = typeof arLedger.$inferSelect;
