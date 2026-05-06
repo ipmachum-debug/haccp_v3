@@ -7,3 +7,4 @@ export { supplierRouter } from "./supplier.router";
 export { supplierEvaluationRouter } from "./supplierEvaluation.router";
 export { templateSettingsRouter } from "./templateSettings.router";
 export { itemMasterRouter, productSkuRouter } from "./itemMaster.router";
+export { intermediateRouter } from "./intermediate.router";
