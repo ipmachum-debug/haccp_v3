@@ -129,7 +129,9 @@ export async function flattenBomTree(
       is_deductible, material_type, flavor_name, is_additional
     FROM h_mf_ingredients
     WHERE mf_report_version_id = ${mfReportVersionId}
-      AND tenant_id = ${tenantId}
+      AND mf_report_version_id IN (
+        SELECT id FROM h_mf_report_versions WHERE tenant_id = ${tenantId}
+      )
     ORDER BY line_no ASC, id ASC
   `);
   const bom = (((bomResult as any)?.[0] ?? []) as any[]) as BomIngredient[];

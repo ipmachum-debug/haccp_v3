@@ -816,7 +816,10 @@ export async function calculateAdjustedBatchFormula(
         Unknown
       ) as material_name
     FROM h_mf_ingredients i
-    WHERE i.mf_report_version_id = ${versionId} AND i.tenant_id = ${tenantId}
+    WHERE i.mf_report_version_id = ${versionId}
+      AND i.mf_report_version_id IN (
+        SELECT id FROM h_mf_report_versions WHERE tenant_id = ${tenantId}
+      )
     ORDER BY i.line_no
   `) as any;
 
