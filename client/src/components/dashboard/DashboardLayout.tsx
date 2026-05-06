@@ -335,21 +335,17 @@ const menuItems = [
   { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
   // Phase Y-2-0: Change Control (식품 진입) — HACCP Plan 변경관리
+  // ★ 식품 industry 에서 변경관리만 사이드바 노출. 다른 7개 (Y-2-1 ~ Y-6) 는 legacy 메뉴와 중복
+  // 으로 사이드바 hide. 라우트는 유지 (직접 URL / 다른 industry 사용 중).
+  // 매핑:
+  //   부적합 관리 (통합) → 부적합제품관리 (legacy)
+  //   CAPA (시정·예방) → 부적합제품관리 → 회수시뮬레이션 탭
+  //   감사 (Audit) → 감사관리 (legacy)
+  //   공급업체 (AVL) → 감사관리 → 거래처감사관리 탭
+  //   위험 평가 → HACCP 검증 → HACCP 7원칙 탭
+  //   검교정/설비 자격 → HACCP 체크리스트 → 항목별 일지 (검교정/이력카드/설비)
+  //   교육 / 훈련 → HACCP 체크리스트 → 항목별 일지 → 교육훈련일지
   { icon: GitBranch, label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-2-1: Nonconforming (식품 진입) — 부적합 통합 관리
-  { icon: AlertCircle, label: "부적합 관리 (통합)", path: "/dashboard/food/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-2-2: CAPA (식품 진입) — 시정·예방조치 (Y-시리즈)
-  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/food/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-2-3: Audit (식품 진입) — internal/supplier/external 3종
-  { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/food/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-3: Training (식품 진입) — KGMP §6 / 식품안전관리법
-  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-4: Calibration (식품 진입) — 온도계 / 금속검출기 / pH meter 검교정
-  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-5: Supplier (식품 진입) — 원료 / 부자재 공급자 평가 (HACCP)
-  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/food/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-6: Risk Assessment (식품 진입) — Codex 위해 분석 / HACCP 원칙 §1
-  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/food/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
 
   // ─── 화장품 GMP — Phase 2 lifecycle (cosmetic 업종 전용) ───
   { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
