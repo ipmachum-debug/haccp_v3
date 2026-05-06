@@ -58,7 +58,12 @@ export default function IntermediatesPage() {
   );
 }
 
-function IntermediatesContent() {
+/**
+ * 중간재 관리 콘텐츠 — DashboardLayout 없이 export.
+ * 단독 페이지 (/dashboard/manufacturing/intermediates) 와
+ * 마스터 데이터 6번째 탭 (PR #250) 에서 모두 사용.
+ */
+export function IntermediatesContent({ embedded = false }: { embedded?: boolean } = {}) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -82,17 +87,21 @@ function IntermediatesContent() {
 
   return (
     <div className="space-y-4">
-      {/* 헤더 */}
+      {/* 헤더 — embedded 모드 (마스터 데이터 탭) 에서는 부모 페이지가 타이틀 제공 */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-            <Layers className="w-3.5 h-3.5 text-primary" />
-            제조 마스터 데이터
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">중간재 관리</h1>
+          {!embedded && (
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                <Layers className="w-3.5 h-3.5 text-primary" />
+                제조 마스터 데이터
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight">중간재 관리</h1>
+            </>
+          )}
           <div className="text-xs text-muted-foreground mt-1">
             전체 <span className="font-semibold text-foreground">{intermediates.length}</span>건
-            (통팥앙금, 콩고물, 카스테라가루 등 BOM 사용 중간재 등록 / 원재료 분해 비율 설정)
+            {!embedded && " (통팥앙금, 콩고물, 카스테라가루 등 BOM 사용 중간재 등록 / 원재료 분해 비율 설정)"}
           </div>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
