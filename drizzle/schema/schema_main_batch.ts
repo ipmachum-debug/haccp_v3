@@ -33,6 +33,7 @@ export const hBatches = mysqlTable("h_batches", {
     "in_progress",
     "paused",
     "completed",
+    "under_review",
     "failed",
     "cancelled",
     "shipped",
