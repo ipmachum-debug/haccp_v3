@@ -450,4 +450,24 @@ export const mfReportRouter = router({
         const { flattenBomTree } = await import("../../db/production/mfReportFlatten");
         return await flattenBomTree(input.versionId, Number(ctx.tenantId));
       }),
+
+    /**
+     * 품목제조보고서 Excel 출력 — PR #256
+     */
+    exportFlattenedExcel: tenantRequiredProcedure
+      .input(z.object({ versionId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { exportMfReportExcel } = await import("../../db/production/mfReportExcelExport");
+        return await exportMfReportExcel(input.versionId, Number(ctx.tenantId));
+      }),
+
+    /**
+     * 품목제조보고서 PDF 출력 — PR #256 (puppeteer HTML→PDF, 한글 폰트 지원)
+     */
+    exportFlattenedPdf: tenantRequiredProcedure
+      .input(z.object({ versionId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { exportMfReportPdf } = await import("../../db/production/mfReportPdfExport");
+        return await exportMfReportPdf(input.versionId, Number(ctx.tenantId));
+      }),
 });
