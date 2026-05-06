@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Loader2, Search, FileText, Eye, Edit, Trash2, Plus, Filter, CheckSquare, FileDown, AlertTriangle, Shield, Save, FlaskConical } from "lucide-react";
+import { Loader2, Search, FileText, Eye, Edit, Trash2, Plus, Filter, CheckSquare, FileDown, AlertTriangle, Shield, Save, FlaskConical, FileSpreadsheet, Sheet } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -556,6 +556,56 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
     }
   };
 
+  // 식약처 품목제조보고서 (PR #256) — PDF 출력
+  const exportPdfMut = trpc.mfReport.exportFlattenedPdf.useMutation();
+  const handleExportFlattenedPdf = async (reportId: number) => {
+    try {
+      const versions = await utils.mfReport.getVersions.fetch({ mfReportId: reportId });
+      if (!versions || versions.length === 0) {
+        toast.error("버전 정보를 찾을 수 없습니다");
+        return;
+      }
+      const result = await exportPdfMut.mutateAsync({ versionId: versions[0].id });
+      const blob = new Blob([Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0))], {
+        type: "application/pdf",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("품목제조보고서 PDF 다운로드 완료");
+    } catch (e) {
+      toast.error(`PDF 출력 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`);
+    }
+  };
+
+  // 식약처 품목제조보고서 (PR #256) — Excel 출력
+  const exportExcelMut = trpc.mfReport.exportFlattenedExcel.useMutation();
+  const handleExportFlattenedExcel = async (reportId: number) => {
+    try {
+      const versions = await utils.mfReport.getVersions.fetch({ mfReportId: reportId });
+      if (!versions || versions.length === 0) {
+        toast.error("버전 정보를 찾을 수 없습니다");
+        return;
+      }
+      const result = await exportExcelMut.mutateAsync({ versionId: versions[0].id });
+      const blob = new Blob([Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0))], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success("품목제조보고서 Excel 다운로드 완료");
+    } catch (e) {
+      toast.error(`Excel 출력 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`);
+    }
+  };
+
   // 재고 차감 mutation
   const deductInventoryMutation = trpc.mfReport.deductInventory.useMutation({
     onSuccess: () => {
@@ -801,6 +851,25 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
                           title="배합표 출력"
                         >
                           <FileDown className="w-4 h-4" />
+                        </Button>
+                        {/* PR #256 — 식약처 품목제조보고서 출력 */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportFlattenedPdf(report.id)}
+                          disabled={exportPdfMut.isPending}
+                          title="식약처 품목제조보고서 PDF (BOM 트리 분해)"
+                        >
+                          <FileText className="w-4 h-4 text-red-600" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleExportFlattenedExcel(report.id)}
+                          disabled={exportExcelMut.isPending}
+                          title="식약처 품목제조보고서 Excel (BOM 트리 분해)"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                         </Button>
                         <Button
                           variant="ghost"
