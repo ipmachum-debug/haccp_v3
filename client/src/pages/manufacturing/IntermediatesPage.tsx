@@ -47,7 +47,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Search, Layers, Package, ChevronRight, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Layers, Package, ChevronRight, X, Link2, Unlink2, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 export default function IntermediatesPage() {
@@ -170,6 +170,7 @@ export function IntermediatesContent({ embedded = false }: { embedded?: boolean 
                   <TableHead className="w-32">카테고리</TableHead>
                   <TableHead className="w-20">단위</TableHead>
                   <TableHead className="w-24 text-center">유통기한</TableHead>
+                  <TableHead className="w-44">연결된 원재료</TableHead>
                   <TableHead className="w-32 text-center">분해 원재료</TableHead>
                   <TableHead className="w-32 text-right">액션</TableHead>
                 </TableRow>
@@ -191,6 +192,12 @@ export function IntermediatesContent({ embedded = false }: { embedded?: boolean 
                     <TableCell className="text-xs">{it.unit || "-"}</TableCell>
                     <TableCell className="text-center text-xs">
                       {it.shelfLifeDays ? `${it.shelfLifeDays}일` : "-"}
+                    </TableCell>
+                    <TableCell>
+                      <LinkedMaterialCell
+                        intermediate={it}
+                        onChange={() => utils.intermediate.list.invalidate()}
+                      />
                     </TableCell>
                     <TableCell className="text-center">
                       <Button
@@ -646,3 +653,182 @@ function ComponentAddDialog({
     </DialogContent>
   );
 }
+
+// ─── 연결된 원재료 셀 (PR #252) ───
+function LinkedMaterialCell({
+  intermediate,
+  onChange,
+}: {
+  intermediate: any;
+  onChange: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const utils = trpc.useUtils();
+
+  const unlinkMut = trpc.intermediate.unlinkMaterial.useMutation({
+    onSuccess: () => {
+      utils.intermediate.list.invalidate();
+      toast({ title: "매칭이 해제되었습니다" });
+      onChange();
+    },
+  });
+
+  if (intermediate.linkedMaterialId) {
+    return (
+      <div className="flex items-center gap-1">
+        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium truncate" title={intermediate.linkedMaterialName}>
+            {intermediate.linkedMaterialName}
+          </div>
+          <div className="text-[10px] text-muted-foreground font-mono">
+            {intermediate.linkedMaterialCode}
+          </div>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" title="매칭 변경">
+              <Pencil className="w-3 h-3" />
+            </Button>
+          </DialogTrigger>
+          <MatchMaterialDialog
+            intermediate={intermediate}
+            onSuccess={() => {
+              setOpen(false);
+              onChange();
+            }}
+          />
+        </Dialog>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0"
+          title="매칭 해제"
+          onClick={() => {
+            if (confirm(`'${intermediate.intermediateName}' 의 원재료 매칭을 해제할까요?`)) {
+              unlinkMut.mutate({ intermediateId: intermediate.id });
+            }
+          }}
+        >
+          <Unlink2 className="w-3 h-3 text-amber-500" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 text-xs">
+          <Link2 className="w-3 h-3 mr-1" /> 매칭
+        </Button>
+      </DialogTrigger>
+      <MatchMaterialDialog
+        intermediate={intermediate}
+        onSuccess={() => {
+          setOpen(false);
+          onChange();
+        }}
+      />
+    </Dialog>
+  );
+}
+
+// ─── 원재료 매칭 다이얼로그 ───
+function MatchMaterialDialog({
+  intermediate,
+  onSuccess,
+}: {
+  intermediate: any;
+  onSuccess: () => void;
+}) {
+  const utils = trpc.useUtils();
+  const [search, setSearch] = useState("");
+  const { data: materials = [], isLoading } = trpc.intermediate.matchableMaterials.useQuery({
+    search: search.trim() || undefined,
+  });
+
+  const linkMut = trpc.intermediate.linkMaterial.useMutation({
+    onSuccess: () => {
+      utils.intermediate.list.invalidate();
+      toast({ title: "원재료가 매칭되었습니다" });
+      onSuccess();
+    },
+    onError: (e) => toast({ title: "매칭 실패", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <DialogContent className="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Link2 className="w-5 h-5 text-primary" />
+          원재료 매칭 — {intermediate.intermediateName}
+        </DialogTitle>
+        <p className="text-xs text-muted-foreground">
+          이 중간재와 같은 entity 인 원재료 (h_materials, kind=MIXED) 를 선택. 매칭되면 BOM 출력 시 분해 가능.
+        </p>
+      </DialogHeader>
+      <div className="space-y-3">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="원재료명 / 코드 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <div className="border rounded max-h-96 overflow-y-auto">
+          {isLoading ? (
+            <div className="text-center py-8 text-muted-foreground">불러오는 중...</div>
+          ) : materials.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              {search
+                ? "일치하는 원재료가 없습니다"
+                : "kind='MIXED' 원재료가 없습니다 (현재 모든 원재료가 RAW 인 상태)"}
+            </div>
+          ) : (
+            materials.map((m: any) => {
+              const isAlreadyLinked = !!m.alreadyLinkedToCode;
+              const isCurrentlyLinkedToThis =
+                Number(intermediate.linkedMaterialId) === Number(m.id);
+              return (
+                <button
+                  key={m.id}
+                  onClick={() =>
+                    linkMut.mutate({ intermediateId: intermediate.id, materialId: m.id })
+                  }
+                  disabled={isCurrentlyLinkedToThis || linkMut.isPending}
+                  className={`w-full text-left px-3 py-2.5 hover:bg-accent transition-colors border-b last:border-b-0 ${
+                    isCurrentlyLinkedToThis ? "bg-emerald-500/10" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-sm flex items-center gap-1.5">
+                        {m.materialName}
+                        {isCurrentlyLinkedToThis && (
+                          <Badge className="bg-emerald-500 text-white text-[10px]">현재 연결됨</Badge>
+                        )}
+                        {isAlreadyLinked && !isCurrentlyLinkedToThis && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            ⚠ {m.alreadyLinkedToName} 에 연결됨
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono mt-0.5">
+                        {m.materialCode} {m.unit && `· ${m.unit}`}
+                      </div>
+                    </div>
+                    {!isCurrentlyLinkedToThis && <Link2 className="w-4 h-4 text-primary" />}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </DialogContent>
+  );
+}
+
