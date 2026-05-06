@@ -439,4 +439,15 @@ export const mfReportRouter = router({
         const { calculateAdjustedBatchFormula } = await import("../../db/production/mfReportAPI");
         return await calculateAdjustedBatchFormula(input.versionId, input.batchKg, ctx.tenantId);
       }),
+
+    /**
+     * 품목제조보고서 BOM 트리 분해 — PR #254
+     * 식약처 양식 출력 준비 (트리 구조 + depth + 원산지)
+     */
+    flattenedBom: tenantRequiredProcedure
+      .input(z.object({ versionId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { flattenBomTree } = await import("../../db/production/mfReportFlatten");
+        return await flattenBomTree(input.versionId, Number(ctx.tenantId));
+      }),
 });
