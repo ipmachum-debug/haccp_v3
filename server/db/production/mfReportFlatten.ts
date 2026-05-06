@@ -324,6 +324,7 @@ async function loadMaterials(
   out: Map<number, MaterialRow>,
 ): Promise<void> {
   if (ids.length === 0) return;
+  // 1차: h_materials (kind 정보 보존)
   const result: any = await db.execute(sql`
     SELECT id, material_code, material_name, kind
     FROM h_materials
@@ -338,6 +339,27 @@ async function loadMaterials(
       kind: (String(r.kind) as "RAW" | "MIXED") || "RAW",
     });
   }
+
+  // 2차 fallback: 누락된 ID 는 item_master 로 lookup (★ 2026-05-06 hotfix)
+  // h_mf_ingredients.material_id / intermediate_id 가 item_master.id 를 참조하는 데이터 다수.
+  const missingIds = ids.filter((id) => !out.has(id));
+  if (missingIds.length > 0) {
+    const fallback: any = await db.execute(sql`
+      SELECT id, item_code, item_name, item_type
+      FROM item_master
+      WHERE tenant_id = ${tenantId} AND id IN (${sql.raw(missingIds.join(","))})
+    `);
+    const fbRows = ((fallback as any)?.[0] ?? []) as any[];
+    for (const r of fbRows) {
+      out.set(Number(r.id), {
+        id: Number(r.id),
+        material_code: String(r.item_code),
+        material_name: String(r.item_name),
+        // item_type: 'raw_material' → RAW / others → MIXED 가정
+        kind: r.item_type === "raw_material" ? "RAW" : "MIXED",
+      });
+    }
+  }
 }
 
 async function loadIntermediatesByIds(
@@ -347,6 +369,7 @@ async function loadIntermediatesByIds(
   out: Map<number, IntermediateRow>,
 ): Promise<void> {
   if (ids.length === 0) return;
+  // 1차: h_intermediates 직접 조회
   const result: any = await db.execute(sql`
     SELECT id, intermediate_code, intermediate_name, category, linked_material_id
     FROM h_intermediates
@@ -361,6 +384,31 @@ async function loadIntermediatesByIds(
       category: r.category ? String(r.category) : null,
       linked_material_id: r.linked_material_id ? Number(r.linked_material_id) : null,
     });
+  }
+
+  // 2차 fallback: 누락된 ID 는 linked_material_id = ID 로 매칭 시도
+  // (BOM 의 intermediate_id 가 사실은 item_master.id 또는 h_materials.id 인 케이스)
+  const missingIds = ids.filter((id) => !out.has(id));
+  if (missingIds.length > 0) {
+    const fallback: any = await db.execute(sql`
+      SELECT id, intermediate_code, intermediate_name, category, linked_material_id
+      FROM h_intermediates
+      WHERE tenant_id = ${tenantId} AND linked_material_id IN (${sql.raw(missingIds.join(","))})
+    `);
+    const fbRows = (((fallback as any)?.[0] ?? []) as any[]) as IntermediateRow[];
+    for (const r of fbRows) {
+      const linkedId = r.linked_material_id ? Number(r.linked_material_id) : null;
+      if (linkedId && missingIds.includes(linkedId)) {
+        // 이 intermediate 가 missing material id 의 linked 매핑임 — material id 키로 등록
+        out.set(linkedId, {
+          id: Number(r.id),
+          intermediate_code: String(r.intermediate_code),
+          intermediate_name: String(r.intermediate_name),
+          category: r.category ? String(r.category) : null,
+          linked_material_id: linkedId,
+        });
+      }
+    }
   }
 }
 
