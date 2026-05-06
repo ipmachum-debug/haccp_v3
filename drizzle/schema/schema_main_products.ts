@@ -146,6 +146,9 @@ export const hIntermediates = mysqlTable("h_intermediates", {
   unit: varchar("unit", { length: 20 }),
   shelfLifeDays: int("shelf_life_days"),
   description: text("description"),
+  // PR #252 (2026-05-05): 동일 entity 의 h_materials (kind='MIXED') 참조 — 재고/매입 통합용
+  // 자동 이름 매칭으로 초기 연결, 사용자가 [매칭] 다이얼로그로 수정 가능.
+  linkedMaterialId: bigint("linked_material_id", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

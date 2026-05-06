@@ -41,8 +41,12 @@ export const intermediateRouter = router({
       const result: any = await db.execute(sql`
         SELECT
           i.*,
-          (SELECT COUNT(*) FROM h_mixed_material_components mmc WHERE mmc.intermediate_material_id = i.id) AS component_count
+          (SELECT COUNT(*) FROM h_mixed_material_components mmc WHERE mmc.intermediate_material_id = i.id) AS component_count,
+          m.material_code AS linked_material_code,
+          m.material_name AS linked_material_name,
+          m.kind AS linked_material_kind
         FROM h_intermediates i
+        LEFT JOIN h_materials m ON m.id = i.linked_material_id AND m.tenant_id = i.tenant_id
         WHERE i.tenant_id = ${tenantId}
           ${input?.search ? sql`AND (i.intermediate_name LIKE ${"%" + input.search + "%"} OR i.intermediate_code LIKE ${"%" + input.search + "%"})` : sql``}
           ${input?.category ? sql`AND i.category = ${input.category}` : sql``}
@@ -58,8 +62,83 @@ export const intermediateRouter = router({
         shelfLifeDays: r.shelf_life_days ? Number(r.shelf_life_days) : null,
         description: r.description ? String(r.description) : null,
         componentCount: Number(r.component_count || 0),
+        linkedMaterialId: r.linked_material_id ? Number(r.linked_material_id) : null,
+        linkedMaterialCode: r.linked_material_code ? String(r.linked_material_code) : null,
+        linkedMaterialName: r.linked_material_name ? String(r.linked_material_name) : null,
+        linkedMaterialKind: r.linked_material_kind ? String(r.linked_material_kind) : null,
         createdAt: r.created_at,
       }));
+    }),
+
+  /**
+   * 매칭 가능한 원재료 (kind='MIXED') 목록 — 매칭 다이얼로그용
+   */
+  matchableMaterials: tenantRequiredProcedure
+    .input(z.object({ search: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const tenantId = Number(ctx.tenantId);
+      const result: any = await db.execute(sql`
+        SELECT
+          m.id, m.material_code, m.material_name, m.unit, m.kind,
+          (SELECT i.intermediate_code FROM h_intermediates i WHERE i.linked_material_id = m.id LIMIT 1) AS already_linked_to_code,
+          (SELECT i.intermediate_name FROM h_intermediates i WHERE i.linked_material_id = m.id LIMIT 1) AS already_linked_to_name
+        FROM h_materials m
+        WHERE m.tenant_id = ${tenantId}
+          AND m.kind = 'MIXED'
+          ${input?.search ? sql`AND (m.material_name LIKE ${"%" + input.search + "%"} OR m.material_code LIKE ${"%" + input.search + "%"})` : sql``}
+        ORDER BY m.material_code ASC
+      `);
+      const rows = ((result as any)?.[0] ?? []) as any[];
+      return rows.map((r) => ({
+        id: Number(r.id),
+        materialCode: String(r.material_code),
+        materialName: String(r.material_name),
+        unit: r.unit ? String(r.unit) : null,
+        kind: r.kind ? String(r.kind) : null,
+        alreadyLinkedToCode: r.already_linked_to_code ? String(r.already_linked_to_code) : null,
+        alreadyLinkedToName: r.already_linked_to_name ? String(r.already_linked_to_name) : null,
+      }));
+    }),
+
+  /**
+   * 중간재에 원재료 매칭 (linked_material_id 설정).
+   * 같은 material 이 이미 다른 intermediate 에 연결되어 있으면 자동 해제 후 신규 연결.
+   */
+  linkMaterial: adminProcedure
+    .input(z.object({ intermediateId: z.number(), materialId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      const tenantId = Number(ctx.tenantId);
+      // 같은 material 에 이미 연결된 다른 intermediate 가 있으면 해제
+      await db.execute(sql`
+        UPDATE h_intermediates SET linked_material_id = NULL
+        WHERE tenant_id = ${tenantId}
+          AND linked_material_id = ${input.materialId}
+          AND id != ${input.intermediateId}
+      `);
+      await db.execute(sql`
+        UPDATE h_intermediates SET linked_material_id = ${input.materialId}
+        WHERE id = ${input.intermediateId} AND tenant_id = ${tenantId}
+      `);
+      return { success: true };
+    }),
+
+  /**
+   * 매칭 해제
+   */
+  unlinkMaterial: adminProcedure
+    .input(z.object({ intermediateId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      await db.execute(sql`
+        UPDATE h_intermediates SET linked_material_id = NULL
+        WHERE id = ${input.intermediateId} AND tenant_id = ${Number(ctx.tenantId)}
+      `);
+      return { success: true };
     }),
 
   getById: tenantRequiredProcedure
