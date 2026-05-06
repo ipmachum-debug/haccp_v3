@@ -404,7 +404,9 @@ function ComponentsDialog({
   const { data: components = [], isLoading } = trpc.intermediate.componentList.useQuery({
     intermediateId: intermediate.id,
   });
-  const { data: materials = [] } = trpc.material.list.useQuery({});
+  // material.list 는 { items, total, page, limit } 객체 반환 → items 추출 (large limit 으로 전체 조회)
+  const { data: materialsResp } = trpc.material.list.useQuery({ limit: 1000 });
+  const materials = (materialsResp as any)?.items ?? [];
   const [addOpen, setAddOpen] = useState(false);
 
   const addMut = trpc.intermediate.componentAdd.useMutation({
@@ -547,7 +549,7 @@ function ComponentAddDialog({
 
   // 이미 추가된 원재료는 제외
   const existingIds = new Set(existing.map((c) => c.componentMaterialId));
-  const filteredMaterials = (materials as any[])
+  const filteredMaterials = (Array.isArray(materials) ? (materials as any[]) : [])
     .filter((m) => !existingIds.has(Number(m.id)))
     .filter((m) => {
       if (!search.trim()) return true;
