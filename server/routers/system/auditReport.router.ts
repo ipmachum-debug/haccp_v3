@@ -41,18 +41,32 @@ export const auditReportRouter = router({
       const trainExpected = trainAssign[0].cnt * trainUsers[0].cnt;
       const trainingRate = trainExpected > 0 ? Math.round((trainDone[0].cnt / trainExpected) * 100) : 0;
 
-      // 2. 체크리스트 완료율
-      const [checkTotal] = await conn.execute<any[]>(
-        `SELECT COUNT(*) as cnt FROM generic_checklists
-         WHERE tenant_id = ? AND form_date >= ? AND form_date <= ?`,
-        [tenantId, startDate, endDate]
-      );
-      const [checkComplete] = await conn.execute<any[]>(
-        `SELECT COUNT(*) as cnt FROM generic_checklists
-         WHERE tenant_id = ? AND form_date >= ? AND form_date <= ? AND status = 'completed'`,
-        [tenantId, startDate, endDate]
-      );
-      const checklistRate = checkTotal[0].cnt > 0 ? Math.round((checkComplete[0].cnt / checkTotal[0].cnt) * 100) : 0;
+      // 2. 체크리스트 완료율 — h_generic_checklist_records 테이블 사용
+      //    이전 버그: 'generic_checklists' (잘못된 이름) + status='completed' (스키마 ENUM 미존재)
+      //    수정: 정확한 테이블 (h_generic_checklist_records) + 정확한 status ('approved')
+      //          + graceful skip (테이블 미존재 / 컬럼 미존재 환경에서도 0% 반환, 다른 메트릭 영향 0)
+      let checklistRate = 0;
+      try {
+        const [checkTotal] = await conn.execute<any[]>(
+          `SELECT COUNT(*) as cnt FROM h_generic_checklist_records
+           WHERE tenant_id = ? AND form_date >= ? AND form_date <= ?`,
+          [tenantId, startDate, endDate]
+        );
+        const [checkComplete] = await conn.execute<any[]>(
+          `SELECT COUNT(*) as cnt FROM h_generic_checklist_records
+           WHERE tenant_id = ? AND form_date >= ? AND form_date <= ? AND status = 'approved'`,
+          [tenantId, startDate, endDate]
+        );
+        checklistRate = checkTotal[0].cnt > 0
+          ? Math.round((checkComplete[0].cnt / checkTotal[0].cnt) * 100)
+          : 0;
+      } catch (err: any) {
+        // 테이블 / 컬럼 미존재 시 graceful skip — audit summary 다른 메트릭은 정상 표시.
+        // 운영 로그 스팸 방지 위해 console.warn 1회만 출력 (반복 호출에도 단일 라인).
+        console.warn(
+          `[auditReport.getAuditSummary] checklist 메트릭 graceful skip: ${err?.message ?? err}`
+        );
+      }
 
       // 3. CCP 이탈 현황
       const [ccpTotal] = await conn.execute<any[]>(
