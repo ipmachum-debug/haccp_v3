@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers } from "lucide-react";
 import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
@@ -323,6 +323,8 @@ const menuItems = [
   // ─── 마스터 데이터 ───
   { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
   { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
+  // PR #248 (2026-05-05): 중간재 관리 — BOM 분해 비율 (통팥앙금/콩고물 등)
+  { icon: Layers, label: "중간재 관리", path: ROUTES.MANUFACTURING_INTERMEDIATES, roles: ["super_admin", "admin"], group: "마스터" },
   // 모바일 빠른 점검: CCP 모니터링 / CCP 기록 / HACCP 체크리스트 기반 — HACCP 전용
   { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], requireModule: "haccp", group: "마스터" },
 

@@ -477,6 +477,8 @@ function Router() {
       <Route path="/dashboard/accounting/bank-transactions" component={lazy(() => import("@/pages/accounting/BankTransactionManagement"))} />
       <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/BankMatchingRuleManagement"))} />
       <Route path={ROUTES.ACCOUNTING_PARTNERS} component={lazy(() => import("@/pages/accounting/PartnersQuery"))} />
+      {/* PR #248 — 중간재 관리 */}
+      <Route path={ROUTES.MANUFACTURING_INTERMEDIATES} component={lazy(() => import("@/pages/manufacturing/IntermediatesPage"))} />
       {/* Partner CRM Phase 1 (2026-05-05) — SNS feed + 360 detail */}
       <Route path={ROUTES.PARTNERS_FEED} component={lazy(() => import("@/pages/partners/PartnerFeedPage"))} />
       <Route path={ROUTES.PARTNERS_DETAIL} component={lazy(() => import("@/pages/partners/PartnerDetailPage"))} />

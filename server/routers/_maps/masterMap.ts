@@ -11,6 +11,7 @@ import {
   templateSettingsRouter,
   itemMasterRouter,
   productSkuRouter,
+  intermediateRouter,
 } from "../master";
 
 export const masterRouterMap = {
@@ -23,4 +24,5 @@ export const masterRouterMap = {
   templateSettings: templateSettingsRouter,
   itemMaster: itemMasterRouter,
   productSku: productSkuRouter,
+  intermediate: intermediateRouter,
 } as const;

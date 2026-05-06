@@ -49,6 +49,8 @@
 export const ROUTES = {
   // ── 회계 탭 / 기준정보 그룹 ──
   ACCOUNTING_PARTNERS: "/dashboard/accounting/partners",
+  // PR #248 — 중간재 관리
+  MANUFACTURING_INTERMEDIATES: "/dashboard/manufacturing/intermediates",
   // Partner CRM Phase 1 (2026-05-05) — SNS-style feed + 360 detail
   PARTNERS_FEED: "/dashboard/partners/feed",
   PARTNERS_DETAIL: "/dashboard/partners/:id",
