@@ -48,7 +48,7 @@ export const intermediateRouter = router({
           ${input?.category ? sql`AND i.category = ${input.category}` : sql``}
         ORDER BY i.intermediate_code ASC
       `);
-      const rows = ((result as any)?.[0] ?? []) as any[];
+      const rows = (Array.isArray((result as any)?.[0]) ? (result as any)[0] : (result as any)) as any[];
       return rows.map((r) => ({
         id: Number(r.id),
         intermediateCode: String(r.intermediate_code),
@@ -153,7 +153,8 @@ export const intermediateRouter = router({
         SELECT COUNT(*) AS cnt FROM h_mf_ingredients
         WHERE intermediate_id = ${input.id}
       `);
-      const usageCount = Number(((usageResult as any)?.[0] ?? [])[0]?.cnt || 0);
+      const usageRows = (Array.isArray((usageResult as any)?.[0]) ? (usageResult as any)[0] : (usageResult as any)) as any[];
+      const usageCount = Number(usageRows?.[0]?.cnt || 0);
       if (usageCount > 0) {
         throw new Error(`이 중간재는 ${usageCount}개의 BOM 에서 사용 중입니다. 먼저 BOM 에서 제거하세요.`);
       }
@@ -207,7 +208,7 @@ export const intermediateRouter = router({
           AND mmc.intermediate_material_id = ${input.intermediateId}
         ORDER BY mmc.id ASC
       `);
-      const rows = ((result as any)?.[0] ?? []) as any[];
+      const rows = (Array.isArray((result as any)?.[0]) ? (result as any)[0] : (result as any)) as any[];
       return rows.map((r) => ({
         id: Number(r.id),
         intermediateMaterialId: Number(r.intermediate_material_id),
@@ -299,7 +300,7 @@ export const intermediateRouter = router({
       WHERE tenant_id = ${Number(ctx.tenantId)} AND category IS NOT NULL AND category != ''
       ORDER BY category ASC
     `);
-    const rows = ((result as any)?.[0] ?? []) as any[];
+    const rows = (Array.isArray((result as any)?.[0]) ? (result as any)[0] : (result as any)) as any[];
     return rows.map((r) => String(r.category));
   }),
 });
