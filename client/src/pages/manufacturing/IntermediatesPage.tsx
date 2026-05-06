@@ -744,8 +744,10 @@ function MatchMaterialDialog({
 }) {
   const utils = trpc.useUtils();
   const [search, setSearch] = useState("");
+  const [mixedOnly, setMixedOnly] = useState(false);
   const { data: materials = [], isLoading } = trpc.intermediate.matchableMaterials.useQuery({
     search: search.trim() || undefined,
+    kindFilter: mixedOnly ? "MIXED" : "all",
   });
 
   const linkMut = trpc.intermediate.linkMaterial.useMutation({
@@ -765,18 +767,29 @@ function MatchMaterialDialog({
           원재료 매칭 — {intermediate.intermediateName}
         </DialogTitle>
         <p className="text-xs text-muted-foreground">
-          이 중간재와 같은 entity 인 원재료 (h_materials, kind=MIXED) 를 선택. 매칭되면 BOM 출력 시 분해 가능.
+          이 중간재와 같은 entity 인 원재료를 선택. 매칭되면 BOM 출력 시 분해 가능 + 재고/매입 통합.
         </p>
       </DialogHeader>
       <div className="space-y-3">
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="원재료명 / 코드 검색"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="원재료명 / 코드 검색"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={mixedOnly}
+              onChange={(e) => setMixedOnly(e.target.checked)}
+              className="rounded"
+            />
+            kind=MIXED 만
+          </label>
         </div>
         <div className="border rounded max-h-96 overflow-y-auto">
           {isLoading ? (
@@ -784,8 +797,10 @@ function MatchMaterialDialog({
           ) : materials.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground text-sm">
               {search
-                ? "일치하는 원재료가 없습니다"
-                : "kind='MIXED' 원재료가 없습니다 (현재 모든 원재료가 RAW 인 상태)"}
+                ? `"${search}" 와 일치하는 원재료가 없습니다`
+                : mixedOnly
+                ? "kind='MIXED' 원재료가 없습니다"
+                : "원재료가 등록되지 않았습니다"}
             </div>
           ) : (
             materials.map((m: any) => {
@@ -816,8 +831,21 @@ function MatchMaterialDialog({
                           </Badge>
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground font-mono mt-0.5">
-                        {m.materialCode} {m.unit && `· ${m.unit}`}
+                      <div className="text-xs text-muted-foreground font-mono mt-0.5 flex items-center gap-1.5">
+                        <span>{m.materialCode}</span>
+                        {m.unit && <span>· {m.unit}</span>}
+                        {m.kind && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] py-0 px-1.5 ${
+                              m.kind === "MIXED"
+                                ? "border-amber-400/60 text-amber-600 dark:text-amber-400"
+                                : "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
+                            }`}
+                          >
+                            {m.kind}
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     {!isCurrentlyLinkedToThis && <Link2 className="w-4 h-4 text-primary" />}
