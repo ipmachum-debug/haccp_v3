@@ -118,7 +118,17 @@ export default function DailyBatchCreate() {
       }
       setLocation("/dashboard/batch");
     },
-    onError: (error: { message: string; data?: { zodError?: { fieldErrors: Record<string, string[]> } } }) => {
+    onError: (error: any) => {
+      // ★ PR #263: CCP 매핑 누락 (PRECONDITION_FAILED) 시 가이드 메시지 강조
+      const code = error?.data?.code || error?.shape?.data?.code;
+      const cause = error?.data?.cause || error?.shape?.data?.cause;
+      if (code === "PRECONDITION_FAILED" && cause?.guidance && Array.isArray(cause.guidance)) {
+        toast.error(error.message, {
+          description: cause.guidance.join("\n"),
+          duration: 12000,
+        });
+        return;
+      }
       const detail = error.data?.zodError
         ? `검증 오류: ${JSON.stringify(error.data.zodError.fieldErrors)}`
         : error.message;

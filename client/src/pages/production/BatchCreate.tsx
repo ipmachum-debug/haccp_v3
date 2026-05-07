@@ -247,7 +247,18 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
         setLocation(`/dashboard/batch/${data.batchId}`);
       }
     },
-    onError: (error: { message: string }) => {
+    onError: (error: any) => {
+      // ★ PR #263: CCP 매핑 누락 (PRECONDITION_FAILED) 시 가이드 메시지 강조
+      const code = error?.data?.code || error?.shape?.data?.code;
+      const cause = error?.data?.cause || error?.shape?.data?.cause;
+      if (code === "PRECONDITION_FAILED" && cause?.guidance && Array.isArray(cause.guidance)) {
+        const guidanceText = cause.guidance.join("\n");
+        toast.error(error.message, {
+          description: guidanceText,
+          duration: 12000,
+        });
+        return;
+      }
       toast.error(`${L("batch")} 생성 실패: ${error.message}`);
     },
   });

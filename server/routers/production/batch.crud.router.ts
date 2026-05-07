@@ -48,6 +48,32 @@ export const batchCrudRouter = router({
         const tenantId = ctx.tenantId;
         const workDate = formatLocalDate(input.plannedStartDate);
 
+        // ★ PR #263: CCP 공정그룹 매핑 사전 검증 (fail-fast)
+        // 매핑이 없으면 배치 생성 자체를 차단하고 사용자에게 친절한 안내 메시지를 띄움.
+        // 4월 17일 batch 580 (흑임자인절미) 0건 CCP form record 사고 재발 방지.
+        const productMeta = await getProductById(input.productId, tenantId);
+        const productNameLabel = (productMeta as any)?.productName || `제품 #${input.productId}`;
+        const { validateProductCcpMapping } = await import("../../services/validateProductCcpMapping");
+        const ccpValidation = await validateProductCcpMapping({
+          productId: input.productId,
+          productName: productNameLabel,
+          tenantId,
+        });
+        if (!ccpValidation.valid) {
+          const { TRPCError } = await import("@trpc/server");
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: ccpValidation.message,
+            cause: {
+              guidance: ccpValidation.guidance,
+              bomMappingCount: ccpValidation.bomMappingCount,
+              manualMappingCount: ccpValidation.manualMappingCount,
+              hasApprovedBom: ccpValidation.hasApprovedBom,
+              hasMetalDetection: ccpValidation.hasMetalDetection,
+            },
+          });
+        }
+
         // STEP 1. 배치 헤더 생성 (h_products_v2.id를 직접 사용)
         const batchId = await createBatch({
           tenantId,
