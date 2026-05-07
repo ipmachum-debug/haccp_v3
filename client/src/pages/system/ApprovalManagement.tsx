@@ -413,12 +413,15 @@ export default function ApprovalManagement() {
   return (
     <DashboardLayout>
       <div className="space-y-4">
+        {/* PR #265 — 작성자 사전 검토 알림 배너 */}
+        <WriterPendingBanner />
+
         {/* 헤더 */}
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h1 className="text-2xl font-bold">승인 관리</h1>
             <p className="text-sm text-muted-foreground">
-              작성 &rarr; 검토 &rarr; 최종승인
+              작성자 사전 검토 &rarr; 검토 &rarr; 최종승인
               {currentRole !== "none" && (
                 <Badge variant="outline" className="ml-2 text-xs">
                   {currentRole === "approver" ? "승인자" : currentRole === "reviewer" ? "검토자" : "일반"}
@@ -895,5 +898,50 @@ export default function ApprovalManagement() {
         />
       </div>
     </DashboardLayout>
+  );
+}
+
+// ─── PR #265: 작성자 사전 검토 대기 배너 ───
+function WriterPendingBanner() {
+  const [, navigate] = useLocation();
+  const { data: count = 0 } = trpc.approval.pendingWriterCount.useQuery(undefined, {
+    refetchInterval: 30000, // 30초마다 갱신
+  });
+  // 작성자 본인 대기 — 작성자 본인이 직접 처리해야 하는 항목 알림
+  const { data: pendingList = [] } = trpc.approval.list.useQuery(
+    { status: "pending_writer" },
+    { enabled: count > 0 },
+  );
+
+  if (count === 0) return null;
+
+  return (
+    <div className="bg-amber-500/10 border-l-4 border-amber-500 rounded-r p-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="font-semibold text-amber-800 dark:text-amber-300">
+            ⚠ 내 작성 대기 {count}건
+          </span>
+          <span className="text-xs text-amber-700/80 dark:text-amber-400/80">
+            자동 생성 결과 검토 후 [제출] 하면 검토자에게 전달됩니다
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {(pendingList as any[]).slice(0, 3).map((item: any) => (
+            <button
+              key={item.id}
+              onClick={() => navigate(`/dashboard/writer-review/${item.id}`)}
+              className="text-xs bg-amber-500/20 hover:bg-amber-500/30 px-2 py-1 rounded font-medium"
+            >
+              #{item.id} {item.title?.slice(0, 30)}
+              {item.title && item.title.length > 30 ? "..." : ""}
+            </button>
+          ))}
+          {pendingList.length > 3 && (
+            <span className="text-xs text-amber-700">+ {pendingList.length - 3}건</span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

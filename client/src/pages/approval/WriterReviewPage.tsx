@@ -26,16 +26,21 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   ArrowLeft,
   CheckCircle2,
-  AlertCircle,
   Clock,
   FileCheck,
   User,
   Calendar,
   Send,
   Edit3,
+  Image as ImageIcon,
+  FileText as FileTextIcon,
+  Upload,
+  Trash2,
+  Paperclip,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
@@ -196,6 +201,12 @@ function WriterReviewContent() {
         </CardContent>
       </Card>
 
+      {/* 첨부 파일 — PR #265 */}
+      <AttachmentsSection
+        approvalId={approvalId}
+        canUpload={isPendingWriter}
+      />
+
       {/* 제출 버튼 */}
       <Card>
         <CardContent className="p-4">
@@ -270,5 +281,191 @@ function StatusBadge({ status }: { status: string }) {
     <Badge variant="outline" className={`text-[10px] ${c.className}`}>
       {c.label}
     </Badge>
+  );
+}
+
+// ─── PR #265: 첨부 파일 섹션 ───
+function AttachmentsSection({
+  approvalId,
+  canUpload,
+}: {
+  approvalId: number;
+  canUpload: boolean;
+}) {
+  const utils = trpc.useUtils();
+  const { data: attachments = [], isLoading } = trpc.approval.listAttachments.useQuery({
+    approvalRequestId: approvalId,
+  });
+
+  const uploadMut = trpc.approval.uploadAttachment.useMutation({
+    onSuccess: () => {
+      utils.approval.listAttachments.invalidate();
+      toast({ title: "파일이 업로드되었습니다" });
+    },
+    onError: (e: any) => {
+      toast({ title: "업로드 실패", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMut = trpc.approval.deleteAttachment.useMutation({
+    onSuccess: () => {
+      utils.approval.listAttachments.invalidate();
+      toast({ title: "파일이 삭제되었습니다" });
+    },
+  });
+
+  const [caption, setCaption] = useState("");
+
+  const handleFileSelect = async (file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "파일 크기 초과", description: "10MB 이하만 업로드 가능", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] || result;
+      const isPhoto = file.type.startsWith("image/");
+      uploadMut.mutate({
+        approvalRequestId: approvalId,
+        fileName: file.name,
+        mimeType: file.type || "application/octet-stream",
+        fileBase64: base64,
+        attachmentType: isPhoto ? "photo" : "document",
+        caption: caption.trim() || undefined,
+      });
+      setCaption("");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const fmtSize = (bytes: number | null): string => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Paperclip className="w-4 h-4 text-primary" />
+          첨부 파일 (사진 / 문서)
+          {attachments.length > 0 && (
+            <Badge variant="secondary" className="text-[10px]">
+              {attachments.length}건
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* 업로드 영역 */}
+        {canUpload && (
+          <div className="border-2 border-dashed border-muted-foreground/30 rounded-lg p-4 hover:border-primary/40 transition-colors">
+            <div className="flex flex-col gap-2">
+              <Label className="text-xs">설명 (선택)</Label>
+              <Input
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                placeholder="예: 제조 시작 시점 작업장 / CCP-1B 측정값 사진"
+              />
+              <Label
+                htmlFor="file-upload"
+                className="cursor-pointer flex items-center justify-center gap-2 py-3 bg-primary/5 hover:bg-primary/10 rounded text-sm font-medium"
+              >
+                <Upload className="w-4 h-4" />
+                {uploadMut.isPending ? "업로드 중..." : "사진 / 문서 선택"}
+              </Label>
+              <input
+                id="file-upload"
+                type="file"
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                className="hidden"
+                disabled={uploadMut.isPending}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileSelect(file);
+                  e.target.value = ""; // 같은 파일 재선택 가능
+                }}
+              />
+              <p className="text-[10px] text-muted-foreground text-center">
+                이미지 (jpg/png) 또는 문서 (pdf/docx/xlsx) · 10MB 이하
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* 첨부 목록 */}
+        {isLoading ? (
+          <div className="text-center py-4 text-sm text-muted-foreground">불러오는 중...</div>
+        ) : attachments.length === 0 ? (
+          <div className="text-center py-6 text-sm text-muted-foreground">
+            <Paperclip className="w-10 h-10 mx-auto mb-1 opacity-30" />
+            <p>첨부된 파일이 없습니다</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {attachments.map((a: any) => (
+              <div
+                key={a.id}
+                className="border rounded p-2 flex flex-col gap-1 hover:shadow-sm transition-shadow"
+              >
+                {a.attachmentType === "photo" && a.mimeType?.startsWith("image/") ? (
+                  <a href={a.fileUrl} target="_blank" rel="noreferrer">
+                    <img
+                      src={a.fileUrl}
+                      alt={a.fileName}
+                      className="w-full h-32 object-cover rounded bg-muted"
+                    />
+                  </a>
+                ) : (
+                  <a
+                    href={a.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="h-32 flex items-center justify-center bg-muted rounded"
+                  >
+                    {a.attachmentType === "photo" ? (
+                      <ImageIcon className="w-10 h-10 text-muted-foreground" />
+                    ) : (
+                      <FileTextIcon className="w-10 h-10 text-muted-foreground" />
+                    )}
+                  </a>
+                )}
+                <div className="flex items-start justify-between gap-1">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium truncate" title={a.fileName}>
+                      {a.fileName}
+                    </div>
+                    {a.caption && (
+                      <div className="text-[10px] text-muted-foreground truncate" title={a.caption}>
+                        {a.caption}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-muted-foreground">
+                      {fmtSize(a.fileSize)}
+                    </div>
+                  </div>
+                  {canUpload && (
+                    <button
+                      onClick={() => {
+                        if (confirm(`'${a.fileName}' 을(를) 삭제할까요?`)) {
+                          deleteMut.mutate({ id: a.id });
+                        }
+                      }}
+                      className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
+                      title="삭제"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -484,4 +484,121 @@ export const approvalRouter = router({
       return Number((rows as any[])[0]?.cnt || 0);
     }),
 
+    /**
+     * 첨부 파일 업로드 — PR #265
+     * 작성자 사전 검토 단계 (pending_writer) 에서 사진 / 문서 첨부.
+     * Base64 → S3 → DB row.
+     */
+    uploadAttachment: workerProcedure
+      .input(
+        z.object({
+          approvalRequestId: z.number(),
+          fileName: z.string().min(1),
+          mimeType: z.string().min(1),
+          /** Base64 (data: 접두사 제외) */
+          fileBase64: z.string().min(1),
+          attachmentType: z.enum(["photo", "document", "other"]).default("photo"),
+          caption: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { storagePut } = await import("../../storage");
+        const { getRawConnection } = await import("../../db/connection");
+
+        // 권한 체크: 승인 요청 작성자 또는 admin
+        const conn = await getRawConnection();
+        const [rows]: any = await conn.execute(
+          `SELECT requested_by, status FROM h_approval_requests WHERE id = ? AND tenant_id = ?`,
+          [input.approvalRequestId, ctx.tenantId],
+        );
+        const row = (rows as any[])[0];
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "승인 요청을 찾을 수 없습니다" });
+        const isAuthor = Number(row.requested_by) === Number(ctx.user.id);
+        const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
+        if (!isAuthor && !isAdmin) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "작성자 본인 또는 관리자만 첨부 가능" });
+        }
+
+        // S3 업로드 — key: tenants/{tenantId}/approval-attachments/{approvalId}/{ts}-{filename}
+        const buf = Buffer.from(input.fileBase64, "base64");
+        const ts = Date.now();
+        const safeName = input.fileName.replace(/[^가-힣a-zA-Z0-9._-]/g, "_");
+        const key = `tenants/${ctx.tenantId}/approval-attachments/${input.approvalRequestId}/${ts}-${safeName}`;
+        const { url } = await storagePut(key, buf, input.mimeType);
+
+        // DB 저장
+        const [insertResult]: any = await conn.execute(
+          `INSERT INTO h_approval_attachments
+             (tenant_id, approval_request_id, file_url, file_name, file_size, mime_type, attachment_type, caption, uploaded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            ctx.tenantId,
+            input.approvalRequestId,
+            url,
+            input.fileName,
+            buf.length,
+            input.mimeType,
+            input.attachmentType,
+            input.caption ?? null,
+            ctx.user.id,
+          ],
+        );
+
+        return { success: true, id: Number(insertResult.insertId), url };
+      }),
+
+    /**
+     * 첨부 파일 목록 조회
+     */
+    listAttachments: tenantRequiredProcedure
+      .input(z.object({ approvalRequestId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const [rows]: any = await conn.execute(
+          `SELECT id, file_url, file_name, file_size, mime_type, attachment_type, caption, uploaded_by, uploaded_at
+           FROM h_approval_attachments
+           WHERE tenant_id = ? AND approval_request_id = ?
+           ORDER BY uploaded_at DESC`,
+          [ctx.tenantId, input.approvalRequestId],
+        );
+        return (rows as any[]).map((r) => ({
+          id: Number(r.id),
+          fileUrl: String(r.file_url),
+          fileName: String(r.file_name),
+          fileSize: r.file_size ? Number(r.file_size) : null,
+          mimeType: r.mime_type ? String(r.mime_type) : null,
+          attachmentType: String(r.attachment_type),
+          caption: r.caption ? String(r.caption) : null,
+          uploadedBy: Number(r.uploaded_by),
+          uploadedAt: r.uploaded_at,
+        }));
+      }),
+
+    /**
+     * 첨부 파일 삭제 — 작성자 본인 / admin
+     */
+    deleteAttachment: workerProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const [rows]: any = await conn.execute(
+          `SELECT uploaded_by FROM h_approval_attachments WHERE id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId],
+        );
+        const row = (rows as any[])[0];
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "첨부 파일을 찾을 수 없습니다" });
+        const isUploader = Number(row.uploaded_by) === Number(ctx.user.id);
+        const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
+        if (!isUploader && !isAdmin) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "업로더 본인 또는 관리자만 삭제 가능" });
+        }
+        await conn.execute(
+          `DELETE FROM h_approval_attachments WHERE id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId],
+        );
+        return { success: true };
+      }),
+
 });
