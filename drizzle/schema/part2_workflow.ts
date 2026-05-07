@@ -22,7 +22,7 @@ export const hApprovalRequests = mysqlTable("h_approval_requests", {
   referenceId: bigint("reference_id", { mode: "number" }),
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description"),
-  status: mysqlEnum("status", ["pending_review", "pending_approval", "pending", "approved", "rejected", "cancelled"]).default("pending_review"),
+  status: mysqlEnum("status", ["pending_writer", "pending_review", "pending_approval", "pending", "approved", "rejected", "cancelled"]).default("pending_review"),
   priority: mysqlEnum("priority", ["low", "medium", "high", "urgent"]).default("medium"),
   requestedBy: bigint("requested_by", { mode: "number" }).notNull(),
   requestedAt: timestamp("requested_at").defaultNow().notNull(),

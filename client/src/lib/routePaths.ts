@@ -51,6 +51,8 @@ export const ROUTES = {
   ACCOUNTING_PARTNERS: "/dashboard/accounting/partners",
   // PR #248 — 중간재 관리
   MANUFACTURING_INTERMEDIATES: "/dashboard/manufacturing/intermediates",
+  // PR #264 — 작성자 사전 검토 페이지
+  WRITER_REVIEW: "/dashboard/writer-review/:approvalId",
   // Partner CRM Phase 1 (2026-05-05) — SNS-style feed + 360 detail
   PARTNERS_FEED: "/dashboard/partners/feed",
   PARTNERS_DETAIL: "/dashboard/partners/:id",

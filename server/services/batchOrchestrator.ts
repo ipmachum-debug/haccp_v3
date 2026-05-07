@@ -347,15 +347,15 @@ export async function createSingleBatch(
               [input.userId, ccp4pRec.id, input.tenantId],
             );
             const title4p = `[CCP 기록지-CCP-4P] ${input.workDate} 금속검출 통합`;
-            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n[작성자 자동승인 → 검토자 대기]`;
-            // ★ pending_review 로 등록 (작성자 자동승인 → 검토자 단계)
+            // ★ PR #264: 작성자 사전 검토 단계 추가 (pending_writer → pending_review → ...)
+            const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n[작성자 사전 검토 대기]`;
             const [approvalResult4p] = await conn4p.execute(
               `INSERT INTO h_approval_requests
                 (site_id, tenant_id, request_type, reference_type, reference_id,
                  title, description, status, priority,
                  requested_by, requested_at, created_at)
                VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
-                       ?, ?, 'pending_review', 'high',
+                       ?, ?, 'pending_writer', 'high',
                        ?, NOW(), NOW())`,
               [
                 input.siteId, input.tenantId, ccp4pRec.id,
@@ -427,15 +427,15 @@ export async function createSingleBatch(
           `제품: ${productName}\n계획일: ${input.workDate}\n` +
           `CCP ${ccpCount}건 자동 생성 완료\n배치코드: ${batchCodeFinal}\n` +
           `CCP 공정: ${ccpGroupNames}\n` +
-          `[작성자 자동승인 → 검토자 대기]`;
-        // ★ pending_review 로 등록 → 검토자 검토 필수
+          `[작성자 사전 검토 대기]`;
+        // ★ PR #264: pending_writer 로 등록 (작성자 사전 검토 → 검토자 → 승인자)
         await bpConn.execute(
           `INSERT INTO h_approval_requests
              (site_id, tenant_id, request_type, reference_type, reference_id,
               title, description, status, priority,
               requested_by, requested_at, created_at)
            VALUES (?, ?, 'batch_production', 'batch', ?,
-                   ?, ?, 'pending_review', 'high',
+                   ?, ?, 'pending_writer', 'high',
                    ?, NOW(), NOW())`,
           [
             input.siteId, input.tenantId, batchId,
@@ -443,7 +443,7 @@ export async function createSingleBatch(
             input.userId,
           ],
         );
-        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_review)`);
+        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_writer — 작성자 사전 검토 대기)`);
       }
     } catch (bpErr) {
       console.error(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 생성 실패:`, bpErr);
