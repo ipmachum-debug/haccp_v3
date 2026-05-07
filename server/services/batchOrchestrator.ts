@@ -81,6 +81,31 @@ export async function createSingleBatch(
   const { createBatch, getProductById, createAuditLog } = await import("../db");
   const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
 
+  // ★ PR #263: CCP 공정그룹 매핑 사전 검증 (fail-fast).
+  // 4월 17일 batch 580 흑임자인절미 0건 CCP form record 사고 재발 방지.
+  const productMetaForValidation = await getProductById(input.productId, input.tenantId);
+  const productNameForValidation = (productMetaForValidation as any)?.productName || `제품 #${input.productId}`;
+  const { validateProductCcpMapping } = await import("./validateProductCcpMapping");
+  const ccpValidation = await validateProductCcpMapping({
+    productId: input.productId,
+    productName: productNameForValidation,
+    tenantId: input.tenantId,
+  });
+  if (!ccpValidation.valid) {
+    const { TRPCError } = await import("@trpc/server");
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: ccpValidation.message,
+      cause: {
+        guidance: ccpValidation.guidance,
+        bomMappingCount: ccpValidation.bomMappingCount,
+        manualMappingCount: ccpValidation.manualMappingCount,
+        hasApprovedBom: ccpValidation.hasApprovedBom,
+        hasMetalDetection: ccpValidation.hasMetalDetection,
+      },
+    });
+  }
+
   // === 1. 배치 생성 ===
   // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
   // T00:00:00 KST → T15:00:00Z(전날) 문제 방지
