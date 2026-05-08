@@ -355,7 +355,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedReport, setSelectedReport] = useState<number | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [statusFilter, setStatusFilter] = useState<string>("ACTIVE");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -765,7 +765,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
               <Button
                 variant="outline"
                 onClick={() => {
-                  setStatusFilter("ALL");
+                  setStatusFilter("ACTIVE");
                   setStartDate("");
                   setEndDate("");
                   setSearchTerm("");
