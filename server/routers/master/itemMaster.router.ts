@@ -197,6 +197,25 @@ export const itemMasterRouter = router({
         });
       }
 
+      // ★ 2026-05-08 (PR #269, Strangler Fig 1단계 확장): raw_material 은 h_materials 도 함께 채움
+      if (input.itemType === "raw_material") {
+        const { syncItemMasterToMaterial } = await import("../../db/production/itemMasterSync.js");
+        await syncItemMasterToMaterial(db, {
+          tenantId: ctx.tenantId,
+          itemId: insertId,
+          itemCode,
+          itemName: input.itemName,
+          category: input.category,
+          baseUnit: input.baseUnit,
+          supplierId: input.supplierId,
+          purchaseUnit: input.purchaseUnit,
+          purchaseConversionRate: input.purchaseConversionRate?.toString(),
+          shelfLifeDays: input.shelfLifeDays,
+          description: input.description,
+          isActive: 1,
+        });
+      }
+
       return { id: insertId, message: "품목이 등록되었습니다." };
     }),
   
