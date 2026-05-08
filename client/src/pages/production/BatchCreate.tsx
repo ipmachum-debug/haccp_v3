@@ -225,10 +225,10 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
         : "CCP 생성 대기 중 (BOM → 공정그룹 매핑 확인 필요)";
 
       if (data.autoNavigateToApproval) {
-        // 자동 모드: 승인관리 자동 이동 (서버에서 승인 요청도 자동 등록됨)
-        toast.success(`${L("batch")} 생성 완료! 승인관리로 이동합니다.`, {
-          description: `${ccpMsg} · 설비기준·공정기준 자동 삽입 완료`,
-          duration: 4000,
+        // ★ PR #264: 자동 모드 → 작성자 사전 검토 단계 진입 (pending_writer)
+        toast.success(`${L("batch")} 생성 완료! 작성자 사전 검토 단계로 이동합니다.`, {
+          description: `${ccpMsg} · 자동 생성 결과를 검토 후 [제출] 하면 검토자에게 전달됩니다.`,
+          duration: 5000,
         });
         setTimeout(() => setLocation("/dashboard/approval"), 1500);
       } else if (processingMode === "auto" && !data.ccpCreated) {

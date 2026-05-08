@@ -410,4 +410,78 @@ export const approvalRouter = router({
         return result;
       }),
 
+    /**
+     * 작성자 사전 검토 완료 → 검토자 단계로 제출 — PR #264
+     * pending_writer → pending_review 전이.
+     * 작성자 본인 (또는 admin) 만 가능.
+     */
+    submitByWriter: workerProcedure
+      .input(
+        z.object({
+          approvalRequestId: z.number(),
+          notes: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+
+        // 현재 상태 확인
+        const [rows]: any = await conn.execute(
+          `SELECT id, status, requested_by, tenant_id
+           FROM h_approval_requests
+           WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          [input.approvalRequestId, ctx.tenantId],
+        );
+        const row = (rows as any[])[0];
+        if (!row) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "승인 요청을 찾을 수 없습니다" });
+        }
+        if (row.status !== "pending_writer") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `현재 상태 (${row.status}) 에서는 작성자 제출이 불가합니다. pending_writer 상태에서만 가능.`,
+          });
+        }
+        // 권한: 작성자 본인 또는 admin
+        const isAuthor = Number(row.requested_by) === Number(ctx.user.id);
+        const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
+        if (!isAuthor && !isAdmin) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "작성자 본인 또는 관리자만 제출할 수 있습니다",
+          });
+        }
+
+        // pending_review 로 전이 (검토자 단계)
+        await conn.execute(
+          `UPDATE h_approval_requests
+           SET status = 'pending_review',
+               description = CASE
+                 WHEN ? IS NOT NULL AND CHAR_LENGTH(?) > 0
+                   THEN CONCAT(IFNULL(description, ''), '\n\n[작성자 메모] ', ?)
+                 ELSE description
+               END
+           WHERE id = ? AND tenant_id = ?`,
+          [input.notes ?? null, input.notes ?? "", input.notes ?? "", input.approvalRequestId, ctx.tenantId],
+        );
+
+        return { success: true, status: "pending_review" };
+      }),
+
+    /**
+     * 작성자 사전 검토 대기 카운트 — 사이드바 뱃지용
+     */
+    pendingWriterCount: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const { getRawConnection } = await import("../../db/connection");
+      const conn = await getRawConnection();
+      const [rows]: any = await conn.execute(
+        `SELECT COUNT(*) AS cnt
+         FROM h_approval_requests
+         WHERE tenant_id = ? AND status = 'pending_writer' AND requested_by = ?`,
+        [ctx.tenantId, ctx.user.id],
+      );
+      return Number((rows as any[])[0]?.cnt || 0);
+    }),
+
 });
