@@ -124,6 +124,8 @@ function ItemMasterContent() {
 
   const [activeTab, setActiveTab] = useState<string>("own_product");
   const [search, setSearch] = useState("");
+  // ★ 2026-05-08 (PR #271): 활성 기본 — 비활성/전체 옵션 유지
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isSkuOpen, setIsSkuOpen] = useState(false);
@@ -136,7 +138,7 @@ function ItemMasterContent() {
   const { data: itemsData, refetch: refetchItems } = trpc.itemMaster.list.useQuery({
     itemType: activeTab as ItemType,
     search: search || undefined,
-    isActive: 1,
+    isActive: statusFilter === "ALL" ? undefined : statusFilter === "ACTIVE" ? 1 : 0,
     limit: 200,
   });
 
@@ -257,6 +259,16 @@ function ItemMasterContent() {
                 className="pl-10 w-64"
               />
             </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "ACTIVE" | "INACTIVE" | "ALL")}
+              className="border rounded px-3 py-2 text-sm"
+              title="상태 필터"
+            >
+              <option value="ACTIVE">활성</option>
+              <option value="INACTIVE">비활성</option>
+              <option value="ALL">전체</option>
+            </select>
             <div className="flex gap-2">
               <Button
                 variant="outline"

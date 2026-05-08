@@ -41,6 +41,8 @@ export default function SupplierManagement() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<any>(null);
   const [autoSupplierCode, setAutoSupplierCode] = useState("");
+  // ★ 2026-05-08 (PR #271): 활성 기본 — 비활성/전체 옵션 유지
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
 
   // 거래처 목록 조회
   const { data: rawSuppliersData, isLoading, refetch } = trpc.supplier.getAll.useQuery({ limit: 9999 });
@@ -100,12 +102,17 @@ export default function SupplierManagement() {
   });
 
   // 필터링된 거래처 목록
-  const filteredSuppliers = suppliers?.filter(
-    (supplier: any) =>
+  const filteredSuppliers = suppliers?.filter((supplier: any) => {
+    const matchesSearch =
       supplier.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       supplier.supplierCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      supplier.businessNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+      supplier.businessNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+    const isActive = supplier.isActive === 1 || supplier.isActive === true;
+    const matchesStatus =
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE" ? isActive : !isActive);
+    return matchesSearch && matchesStatus;
+  });
 
   const handleCreate = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -264,8 +271,8 @@ export default function SupplierManagement() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="mb-4">
-            <div className="relative">
+          <div className="mb-4 flex gap-2 items-center">
+            <div className="relative flex-1">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder="거래처명, 코드, 사업자번호로 검색..."
@@ -274,6 +281,16 @@ export default function SupplierManagement() {
                 className="pl-8"
               />
             </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "ACTIVE" | "INACTIVE" | "ALL")}
+              className="border rounded px-3 py-2 text-sm"
+              title="상태 필터"
+            >
+              <option value="ACTIVE">활성</option>
+              <option value="INACTIVE">비활성</option>
+              <option value="ALL">전체</option>
+            </select>
           </div>
 
           {isLoading ? (
