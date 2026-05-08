@@ -529,11 +529,16 @@ async function generateBatchCode(
 ): Promise<string> {
   const conn = await getRawConnection();
 
-  // 제품 코드 조회 (h_products_v2)
+  // 제품 코드 조회 (h_products_v2 → item_master 폴백)
+  // ★ 2026-05-08: h_products_v2 미등록 product_id 폴백 — item_master.item_code 사용
   let productCode = "00000";
   try {
     const [rows] = await conn.execute<any[]>(
-      "SELECT product_code FROM h_products_v2 WHERE id=? AND tenant_id=? LIMIT 1",
+      `SELECT COALESCE(p.product_code, im.item_code) AS product_code
+       FROM (SELECT ? AS product_id, ? AS tenant_id) q
+       LEFT JOIN h_products_v2 p ON p.id = q.product_id AND p.tenant_id = q.tenant_id
+       LEFT JOIN item_master im ON im.id = q.product_id AND im.tenant_id = q.tenant_id
+       LIMIT 1`,
       [productId, tenantId],
     );
     if ((rows as any[]).length > 0 && (rows as any[])[0].product_code) {

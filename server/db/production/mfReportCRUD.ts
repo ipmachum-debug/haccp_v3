@@ -86,7 +86,7 @@ export async function getMfReports(tenantId: number) {
     .select({
       id: hMfReports.id,
       productId: hMfReports.productId,
-      productName: hProductsV2.productName,
+      productName: sql<string>`COALESCE(${hProductsV2.productName}, ${itemMaster.itemName})`.as("product_name"),
       reportNo: hMfReports.reportNo,
       reportDate: hMfReports.reportDate,
       status: hMfReports.status,
@@ -94,6 +94,7 @@ export async function getMfReports(tenantId: number) {
     })
     .from(hMfReports)
     .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id))
+    .leftJoin(itemMaster, eq(hMfReports.productId, itemMaster.id))
     .where(eq(hMfReports.tenantId, tenantId))
     .orderBy(desc(hMfReports.createdAt));
 }
@@ -110,7 +111,7 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
     .select({
       id: hMfReports.id,
       productId: hMfReports.productId,
-      productName: hProductsV2.productName,
+      productName: sql<string>`COALESCE(${hProductsV2.productName}, ${itemMaster.itemName})`.as("product_name"),
       reportNo: hMfReports.reportNo,
       reportDate: hMfReports.reportDate,
       status: hMfReports.status,
@@ -119,6 +120,7 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
     })
     .from(hMfReports)
     .leftJoin(hProductsV2, eq(hMfReports.productId, hProductsV2.id))
+    .leftJoin(itemMaster, eq(hMfReports.productId, itemMaster.id))
     .where(
       and(
         eq(hMfReports.id, mfReportId),

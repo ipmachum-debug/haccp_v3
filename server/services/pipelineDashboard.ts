@@ -38,8 +38,8 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         b.start_time,
         b.completed_at,
         b.created_at,
-        p.product_name,
-        p.product_code,
+        COALESCE(p.product_name, im.item_name) AS product_name,
+        COALESCE(p.product_code, im.item_code) AS product_code,
         -- 원료 출고 상태: h_batch_inputs (inventory_deducted=1) 또는 h_inventory_transactions
         (SELECT COUNT(*) FROM h_batch_inputs 
          WHERE batch_id = b.id AND tenant_id = b.tenant_id) as batch_input_count,
@@ -128,6 +128,7 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
         b.day_batch_group
       FROM h_batches b
       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+      LEFT JOIN item_master im ON im.id = b.product_id AND im.tenant_id = b.tenant_id
       WHERE b.planned_date = ${targetDate}
         ${tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``}
       ORDER BY b.id ASC
@@ -357,10 +358,12 @@ export async function getPipelineStatus(db: any, siteId: number, workDate?: stri
 // ============================================================================
 export async function checkMaterialAvailability(db: any, batchId: number, siteId: number, tenantId?: number) {
   // 배치 정보 조회 (테넌트 격리)
+  // ★ 2026-05-08: h_products_v2 미등록 product_id 폴백 — item_master.item_name 사용
   const batchQuery = sql`
-    SELECT b.*, p.product_name as product_name
+    SELECT b.*, COALESCE(p.product_name, im.item_name) as product_name
     FROM h_batches b
     LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+    LEFT JOIN item_master im ON im.id = b.product_id AND im.tenant_id = b.tenant_id
     WHERE b.id = ${batchId}
     ${tenantId ? sql`AND b.tenant_id = ${tenantId}` : sql``}
   `;

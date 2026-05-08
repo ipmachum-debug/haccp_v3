@@ -1,8 +1,9 @@
 import { getDb } from "../db";
-import { and, gte, lte, eq, desc } from "drizzle-orm";
+import { and, gte, lte, eq, desc, sql } from "drizzle-orm";
 import puppeteer from "puppeteer";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { itemMaster } from "../../drizzle/schema/schema_dual_unit";
 
 /**
  * CCP 점검 리포트 데이터 조회
@@ -24,7 +25,7 @@ export async function getCcpReportData(params: {
       instanceId: hCcpInstances.id,
       ccpType: hCcpInstances.ccpType,
       batchCode: hBatches.batchCode,
-      productName: hProductsV2.productName,
+      productName: sql<string>`COALESCE(${hProductsV2.productName}, ${itemMaster.itemName})`.as("product_name"),
       rowId: hCcpRows.id,
       measuredAt: hCcpRows.measuredAt,
       tempC: hCcpRows.tempC,
@@ -36,7 +37,8 @@ export async function getCcpReportData(params: {
     })
     .from(hCcpInstances)
     .innerJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
-    .innerJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
+    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
+    .leftJoin(itemMaster, eq(hBatches.productId, itemMaster.id))
     .leftJoin(hCcpRows, eq(hCcpRows.instanceId, hCcpInstances.id))
     .where(
       and(
