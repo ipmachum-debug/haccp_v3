@@ -164,7 +164,7 @@ export const itemMasterRouter = router({
       });
       
       const insertId = (result as any)[0]?.insertId;
-      
+
       // 제품 타입이면 기본 kg SKU 자동 생성
       if (input.itemType === "own_product" || input.itemType === "external_product") {
         const skuCode = await generateSkuCode(itemCode, ctx.tenantId);
@@ -178,7 +178,25 @@ export const itemMasterRouter = router({
           isDefault: 1,
         });
       }
-      
+
+      // ★ 2026-05-08 (PR #268, Strangler Fig 1단계): own_product 는 h_products_v2 도 함께 채움
+      // docs/architecture/07-canonical-tables.md 정책 — canonical(item_master) 이 레거시(h_products_v2) sync.
+      // 다운스트림 라우터들이 item_master.id 를 product_id 로 사용하므로 동일 id 로 INSERT.
+      if (input.itemType === "own_product") {
+        const { syncItemMasterToProduct } = await import("../../db/production/itemMasterSync.js");
+        await syncItemMasterToProduct(db, {
+          tenantId: ctx.tenantId,
+          itemId: insertId,
+          itemCode,
+          itemName: input.itemName,
+          category: input.category,
+          baseUnit: input.baseUnit,
+          shelfLifeDays: input.shelfLifeDays,
+          description: input.description,
+          isActive: 1,
+        });
+      }
+
       return { id: insertId, message: "품목이 등록되었습니다." };
     }),
   

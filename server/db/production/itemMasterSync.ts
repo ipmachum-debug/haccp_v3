@@ -131,3 +131,101 @@ export async function deactivateLinkedItemMaster(
       ),
     );
 }
+
+/**
+ * 역방향 동기화: item_master(own_product) → h_products_v2
+ *
+ * 2026-05-08 (PR #268): item_master 가 canonical 로 결정된 후,
+ * itemMaster.router.ts:create 등 item_master 단독 INSERT 경로에서
+ * h_products_v2 도 함께 채워주기 위한 헬퍼.
+ *
+ * docs/architecture/07-canonical-tables.md 의 Strangler Fig 1단계.
+ *
+ * 전략: h_products_v2 의 id 를 item_master.id 와 동일하게 INSERT —
+ * 다운스트림 라우터들이 item_master.id 를 product_id 로 사용하므로
+ * dual lookup (PR #266) 가 정상 매칭됨.
+ *
+ * 충돌 처리:
+ *   1) h_products_v2.id == itemId 이미 존재 → UPDATE
+ *   2) productCode 가 다른 row 에서 사용 중 (UNIQUE 충돌) → SKIP
+ *   3) 그 외 → INSERT with explicit id
+ */
+export interface SyncItemMasterParams {
+  tenantId: number;
+  itemId: number;
+  itemCode: string;
+  itemName: string;
+  category?: string | null;
+  baseUnit?: string | null;
+  shelfLifeDays?: number | null;
+  description?: string | null;
+  isActive?: number;
+}
+
+export async function syncItemMasterToProduct(
+  db: MySql2Database<any>,
+  params: SyncItemMasterParams,
+): Promise<SyncAction> {
+  const { hProductsV2 } = await import("../../../drizzle/schema/schema_main_products.js");
+
+  const unit = params.baseUnit || "kg";
+  const isActive = params.isActive ?? 1;
+
+  // 1) 동일 id 존재 → UPDATE
+  const existingById = await db
+    .select({ id: hProductsV2.id })
+    .from(hProductsV2)
+    .where(
+      and(
+        eq(hProductsV2.id, params.itemId),
+        eq(hProductsV2.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (existingById.length > 0) {
+    await db
+      .update(hProductsV2)
+      .set({
+        productCode: params.itemCode,
+        productName: params.itemName,
+        category: params.category ?? null,
+        unit,
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      })
+      .where(eq(hProductsV2.id, params.itemId));
+    return "updated";
+  }
+
+  // 2) productCode 충돌 (UNIQUE) → SKIP (다른 id 가 같은 code 점유 중)
+  const codeConflict = await db
+    .select({ id: hProductsV2.id })
+    .from(hProductsV2)
+    .where(
+      and(
+        eq(hProductsV2.productCode, params.itemCode),
+        eq(hProductsV2.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (codeConflict.length > 0) {
+    return "skipped";
+  }
+
+  // 3) 신규 INSERT — id 명시 (item_master.id 와 일치)
+  await db.insert(hProductsV2).values({
+    id: params.itemId,
+    tenantId: params.tenantId,
+    productCode: params.itemCode,
+    productName: params.itemName,
+    category: params.category ?? null,
+    unit,
+    shelfLifeDays: params.shelfLifeDays ?? null,
+    description: params.description ?? null,
+    isActive,
+  } as any);
+  return "inserted";
+}
