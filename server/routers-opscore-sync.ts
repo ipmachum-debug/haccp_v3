@@ -501,6 +501,8 @@ async function syncProducts(db: any, direction: string, tenantId: number, opscor
       const opscoreProducts = await getOpscoreProducts();
       let synced = 0;
       let errors = 0;
+      // ★ 2026-05-08 (PR #268): h_products_v2 INSERT 후 item_master 도 sync — canonical 정책
+      const { syncProductToItemMaster } = await import("./db/production/itemMasterSync.js");
       for (const p of opscoreProducts) {
         try {
           if (p.sku) {
@@ -508,10 +510,21 @@ async function syncProducts(db: any, direction: string, tenantId: number, opscor
               SELECT id FROM h_products_v2 WHERE product_code = ${p.sku} AND tenant_id = ${tenantId} LIMIT 1
             `);
             if ((existing as unknown as any[]).length === 0) {
-              await db.execute(sql`
+              const [insertResult] = await db.execute(sql`
                 INSERT INTO h_products_v2 (product_name, product_code, unit, is_active, tenant_id)
                 VALUES (${p.name}, ${p.sku}, ${(p as any).unit || 'EA'}, 1, ${tenantId})
               `);
+              const newProductId = (insertResult as any)?.insertId;
+              if (newProductId) {
+                await syncProductToItemMaster(db as any, {
+                  tenantId,
+                  productId: newProductId,
+                  productCode: p.sku,
+                  productName: p.name,
+                  unit: (p as any).unit || "EA",
+                  isActive: 1,
+                });
+              }
               synced++;
             }
           }
