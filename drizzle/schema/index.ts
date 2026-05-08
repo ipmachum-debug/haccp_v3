@@ -47,6 +47,8 @@ export * from "./communicationLogExtensions";
 export * from "./communicationLogBoard";
 // Partner CRM (Phase 1, 2026-05-05)
 export * from "./partnerCrm";
+// PR #265 — approval attachments (writer review 사진 업로드)
+export * from "./approvalAttachments";
 export * from "./ccpMonitoring";
 export * from "./expense";
 export * from "./support";
