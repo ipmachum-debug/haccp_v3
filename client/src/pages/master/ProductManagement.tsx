@@ -47,6 +47,8 @@ export default function ProductManagement() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
+  // ★ 2026-05-08 (PR #271): 활성 기본 — 비활성/전체 옵션 유지
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
 
   const { data: rawProductsData, refetch } = trpc.product.list.useQuery({ limit: 9999 });
   const products = (rawProductsData as any)?.items ?? (Array.isArray(rawProductsData) ? rawProductsData : []);
@@ -155,10 +157,16 @@ export default function ProductManagement() {
     }
   };
 
-  const filteredProducts = products?.filter((product: any) =>
-    product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.productCode.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products?.filter((product: any) => {
+    const matchesSearch =
+      product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.productCode.toLowerCase().includes(searchTerm.toLowerCase());
+    const isActive = product.isActive === 1 || product.isActive === true;
+    const matchesStatus =
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE" ? isActive : !isActive);
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <DashboardLayout>
@@ -172,14 +180,26 @@ export default function ProductManagement() {
       </div>
 
       <div className="flex justify-between items-center mb-4">
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder={`${L("product")}명 또는 제품코드 검색...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex items-center gap-2">
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder={`${L("product")}명 또는 제품코드 검색...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "ACTIVE" | "INACTIVE" | "ALL")}
+            className="border rounded px-3 py-2 text-sm"
+            title="상태 필터"
+          >
+            <option value="ACTIVE">활성</option>
+            <option value="INACTIVE">비활성</option>
+            <option value="ALL">전체</option>
+          </select>
         </div>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>

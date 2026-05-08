@@ -38,6 +38,8 @@ export default function MaterialManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isGeneratingCode, setIsGeneratingCode] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | undefined>(undefined);
+  // ★ 2026-05-08 (PR #271): 활성 기본 — 비활성/전체 옵션 유지
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
   
   // 카테고리 목록 조회
   const { data: categories } = trpc.categories.listAll.useQuery();
@@ -60,7 +62,10 @@ export default function MaterialManagement() {
     const matchesSearch = material.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          material.materialCode?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategoryId === undefined || material.categoryId === selectedCategoryId;
-    return matchesSearch && matchesCategory;
+    const matchesStatus =
+      statusFilter === "ALL" ||
+      (statusFilter === "ACTIVE" ? material.isActive === 1 || material.isActive === true : !(material.isActive === 1 || material.isActive === true));
+    return matchesSearch && matchesCategory && matchesStatus;
   });
   const utils = trpc.useUtils();
   const createMutation = trpc.material.create.useMutation();
@@ -213,11 +218,24 @@ export default function MaterialManagement() {
               </option>
             ))}
           </select>
-          {selectedCategoryId && (
+          <Label className="whitespace-nowrap ml-2">상태:</Label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "ACTIVE" | "INACTIVE" | "ALL")}
+            className="border rounded px-3 py-2 text-sm"
+          >
+            <option value="ACTIVE">활성</option>
+            <option value="INACTIVE">비활성</option>
+            <option value="ALL">전체</option>
+          </select>
+          {(selectedCategoryId || statusFilter !== "ACTIVE") && (
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setSelectedCategoryId(undefined)}
+              onClick={() => {
+                setSelectedCategoryId(undefined);
+                setStatusFilter("ACTIVE");
+              }}
             >
               필터 초기화
             </Button>
