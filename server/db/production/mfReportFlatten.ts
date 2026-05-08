@@ -109,13 +109,16 @@ export async function flattenBomTree(
   if (!db) throw new Error("DB 연결 실패");
 
   // 메타 정보 (보고번호 + 제품명 + version no)
+  // ★ 2026-05-08: h_products_v2 미등록 product_id 폴백 — item_master.item_name 사용
   const metaResult: any = await db.execute(sql`
     SELECT
-      r.report_no, r.product_id, p.product_name AS product_name,
+      r.report_no, r.product_id,
+      COALESCE(p.product_name, im.item_name) AS product_name,
       v.version_no
     FROM h_mf_report_versions v
     JOIN h_mf_reports r ON r.id = v.mf_report_id AND r.tenant_id = ${tenantId}
     LEFT JOIN h_products_v2 p ON p.id = r.product_id AND p.tenant_id = ${tenantId}
+    LEFT JOIN item_master im ON im.id = r.product_id AND im.tenant_id = ${tenantId}
     WHERE v.id = ${mfReportVersionId} AND v.tenant_id = ${tenantId}
     LIMIT 1
   `);

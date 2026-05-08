@@ -367,10 +367,12 @@ function formatDate(d: any): string {
 async function getProductName(productId: number, tenantId: number): Promise<string> {
   const conn = await getRawConnection();
   if (!conn) return "미확인";
+  // ★ 2026-05-08: h_products_v2 미등록 시 item_master 폴백
   const [rows] = await conn.execute<any[]>(
-    `SELECT p.product_name
-     FROM h_products_v2 p
-     WHERE p.id = ? AND p.tenant_id = ?
+    `SELECT COALESCE(p.product_name, im.item_name) AS product_name
+     FROM (SELECT ? AS product_id, ? AS tenant_id) q
+     LEFT JOIN h_products_v2 p ON p.id = q.product_id AND p.tenant_id = q.tenant_id
+     LEFT JOIN item_master im ON im.id = q.product_id AND im.tenant_id = q.tenant_id
      LIMIT 1`,
     [productId, tenantId]
   );
