@@ -229,3 +229,105 @@ export async function syncItemMasterToProduct(
   } as any);
   return "inserted";
 }
+
+/**
+ * 역방향 동기화: item_master(raw_material) → h_materials
+ *
+ * 2026-05-08 (PR #269): PR #268 의 own_product 패턴을 raw_material 로 확장.
+ * BOM tree / inventory / 매입 라우터들이 h_materials.id 와 item_master.id
+ * 어느 쪽이든 material_id 로 사용하므로 동일 id 로 INSERT.
+ *
+ * 충돌 처리:
+ *   1) h_materials.id == itemId 이미 존재 → UPDATE
+ *   2) materialCode 가 다른 row 에서 사용 중 (UNIQUE 충돌) → SKIP
+ *   3) 그 외 → INSERT with explicit id (kind='RAW' 고정)
+ */
+export interface SyncItemMasterToMaterialParams {
+  tenantId: number;
+  itemId: number;
+  itemCode: string;
+  itemName: string;
+  category?: string | null;
+  baseUnit?: string | null;
+  supplierId?: number | null;
+  purchaseUnit?: string | null;
+  purchaseConversionRate?: string | null;
+  shelfLifeDays?: number | null;
+  description?: string | null;
+  isActive?: number;
+}
+
+export async function syncItemMasterToMaterial(
+  db: MySql2Database<any>,
+  params: SyncItemMasterToMaterialParams,
+): Promise<SyncAction> {
+  const { hMaterials } = await import("../../../drizzle/schema/schema_main_products.js");
+
+  const unit = params.baseUnit || "kg";
+  const isActive = params.isActive ?? 1;
+
+  // 1) 동일 id 존재 → UPDATE
+  const existingById = await db
+    .select({ id: hMaterials.id })
+    .from(hMaterials)
+    .where(
+      and(
+        eq(hMaterials.id, params.itemId),
+        eq(hMaterials.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (existingById.length > 0) {
+    await db
+      .update(hMaterials)
+      .set({
+        materialCode: params.itemCode,
+        materialName: params.itemName,
+        category: params.category ?? null,
+        unit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        conversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      })
+      .where(eq(hMaterials.id, params.itemId));
+    return "updated";
+  }
+
+  // 2) materialCode 충돌 (UNIQUE) → SKIP
+  const codeConflict = await db
+    .select({ id: hMaterials.id })
+    .from(hMaterials)
+    .where(
+      and(
+        eq(hMaterials.materialCode, params.itemCode),
+        eq(hMaterials.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (codeConflict.length > 0) {
+    return "skipped";
+  }
+
+  // 3) 신규 INSERT — id 명시
+  await db.insert(hMaterials).values({
+    id: params.itemId,
+    tenantId: params.tenantId,
+    materialCode: params.itemCode,
+    materialName: params.itemName,
+    kind: "RAW",
+    category: params.category ?? null,
+    unit,
+    supplierId: params.supplierId ?? null,
+    purchaseUnit: params.purchaseUnit ?? null,
+    conversionRate: params.purchaseConversionRate ?? "1.0000",
+    shelfLifeDays: params.shelfLifeDays ?? null,
+    description: params.description ?? null,
+    isActive,
+  } as any);
+  return "inserted";
+}
