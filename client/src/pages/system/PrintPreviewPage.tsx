@@ -15,7 +15,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader } from "@/components/print/PrintHelpers";
 import { renderDailyLogPages } from "@/components/print/DailyLogRenderers";
-import { renderWeeklyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
+import { renderWeeklyLogPages, renderMonthlyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
 import { renderCcpBatchSummary, renderCcpFormRecord } from "@/components/print/CcpRenderers";
 import { renderFormContent } from "@/components/print/renderFormContent";
 
@@ -251,6 +251,19 @@ export default function PrintPreviewPage() {
           pageTitle: `연간 검교정 점검표 - ${doc.formData?.year || ""}년`,
           pageIndex: 0,
           totalPages: 1,
+        });
+      } else if (doc.formType === "monthly_log") {
+        const monthlyEnrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        const monthlyPages = renderMonthlyLogPages(doc.formData, monthlyEnrichedDoc);
+        const monthlyPageTitles = ["월간 CCP 검증 점검표", "월간 위생 점검표"];
+        monthlyPages.forEach((pageContent, idx) => {
+          pages.push({
+            doc: monthlyEnrichedDoc,
+            pageContent,
+            pageTitle: monthlyPageTitles[idx] || `월간일지 ${idx + 1}`,
+            pageIndex: idx,
+            totalPages: monthlyPages.length,
+          });
         });
       } else if (doc.formType === "batch_production" || doc.formType === "batch_approval") {
         const ccpRecords: any[] = doc.formData?.ccpFormRecords || [];

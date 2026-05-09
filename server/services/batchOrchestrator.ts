@@ -349,20 +349,47 @@ export async function createSingleBatch(
             const title4p = `[CCP 기록지-CCP-4P] ${input.workDate} 금속검출 통합`;
             // ★ PR #264: 작성자 사전 검토 단계 추가 (pending_writer → pending_review → ...)
             const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${input.workDate}\n[작성자 사전 검토 대기]`;
-            const [approvalResult4p] = await conn4p.execute(
-              `INSERT INTO h_approval_requests
-                (site_id, tenant_id, request_type, reference_type, reference_id,
-                 title, description, status, priority,
-                 requested_by, requested_at, created_at)
-               VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
-                       ?, ?, 'pending_writer', 'high',
-                       ?, NOW(), NOW())`,
-              [
-                input.siteId, input.tenantId, ccp4pRec.id,
-                title4p, desc4p,
-                input.userId,
-              ],
-            );
+            // ★ Mission 1 fallback: ENUM 미적용 환경에서 pending_writer INSERT 실패 시 pending_review 로 재시도
+            let approvalResult4p: any;
+            try {
+              [approvalResult4p] = await conn4p.execute(
+                `INSERT INTO h_approval_requests
+                  (site_id, tenant_id, request_type, reference_type, reference_id,
+                   title, description, status, priority,
+                   requested_by, requested_at, created_at)
+                 VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
+                         ?, ?, 'pending_writer', 'high',
+                         ?, NOW(), NOW())`,
+                [
+                  input.siteId, input.tenantId, ccp4pRec.id,
+                  title4p, desc4p,
+                  input.userId,
+                ],
+              );
+            } catch (ccp4pWriterErr: any) {
+              const isEnumError =
+                ccp4pWriterErr?.code === "WARN_DATA_TRUNCATED" ||
+                ccp4pWriterErr?.errno === 1265 ||
+                /Data truncated/i.test(String(ccp4pWriterErr?.message || ccp4pWriterErr?.sqlMessage || ""));
+              if (!isEnumError) throw ccp4pWriterErr;
+              console.warn(
+                `[batchOrchestrator] CCP-4P pending_writer INSERT 실패 (ENUM 미적용 추정) → pending_review 폴백`,
+              );
+              [approvalResult4p] = await conn4p.execute(
+                `INSERT INTO h_approval_requests
+                  (site_id, tenant_id, request_type, reference_type, reference_id,
+                   title, description, status, priority,
+                   requested_by, requested_at, created_at)
+                 VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?,
+                         ?, ?, 'pending_review', 'high',
+                         ?, NOW(), NOW())`,
+                [
+                  input.siteId, input.tenantId, ccp4pRec.id,
+                  title4p, desc4p,
+                  input.userId,
+                ],
+              );
+            }
             const approvalId4p = (approvalResult4p as any).insertId;
             await conn4p.execute(
               `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
@@ -406,6 +433,15 @@ export async function createSingleBatch(
   //   - status: 'approved' → 'pending_review' (작성자 자동승인 → 검토자 단계)
   //   - 제목: "[CCP 기록지]" prefix 로 생산일지와 구분 (중복 표시 오해 방지)
   //   이전 버그: 검토/승인 단계 건너뛰고 즉시 출력 대기로 점프
+  // ★ 2026-05-09 수정 (Mission 1, post-mortem of bulkCreateForDay regression):
+  //   PR #264 (353814b) 가 'pending_writer' 상태로 INSERT 하지만 ENUM 마이그
+  //   레이션 누락으로 `Data truncated for column 'status'` 발생 → silent fail.
+  //   bulkCreateForDay 경로의 모든 batch_production AR 누락 (e.g. 4/20 배치 586/587/588).
+  //   픽스:
+  //     A) DB ENUM 확장 (sql/step10) — 'pending_writer' 추가
+  //     B) startupMigrations idempotent 마이그레이션 — 부팅 시 자동 보정
+  //     C) 코드 fallback — 'pending_writer' INSERT 실패 시 'pending_review' 로 재시도
+  //        (운영 환경 ENUM 패치 누락된 인스턴스에 대비한 방어선)
   // 중복 생성 방지: 동일 batch_id 의 batch_production AR 이 이미 있으면 skip
   if (ccpCreated && ccpCount > 0) {
     try {
@@ -423,27 +459,66 @@ export async function createSingleBatch(
           .join(", ");
         const modeLabel = input.mode === "manual" ? "[수동]" : "[자동]";
         const bpTitle = `[CCP 기록지]${modeLabel} ${batchCodeFinal} (${productName})`;
-        const bpDesc =
+        const bpDescWriter =
           `제품: ${productName}\n계획일: ${input.workDate}\n` +
           `CCP ${ccpCount}건 자동 생성 완료\n배치코드: ${batchCodeFinal}\n` +
           `CCP 공정: ${ccpGroupNames}\n` +
           `[작성자 사전 검토 대기]`;
+        const bpDescReview =
+          `제품: ${productName}\n계획일: ${input.workDate}\n` +
+          `CCP ${ccpCount}건 자동 생성 완료\n배치코드: ${batchCodeFinal}\n` +
+          `CCP 공정: ${ccpGroupNames}\n` +
+          `[검토 대기 — fallback: pending_writer ENUM 미적용 환경]`;
         // ★ PR #264: pending_writer 로 등록 (작성자 사전 검토 → 검토자 → 승인자)
-        await bpConn.execute(
-          `INSERT INTO h_approval_requests
-             (site_id, tenant_id, request_type, reference_type, reference_id,
-              title, description, status, priority,
-              requested_by, requested_at, created_at)
-           VALUES (?, ?, 'batch_production', 'batch', ?,
-                   ?, ?, 'pending_writer', 'high',
-                   ?, NOW(), NOW())`,
-          [
-            input.siteId, input.tenantId, batchId,
-            bpTitle, bpDesc,
-            input.userId,
-          ],
-        );
-        console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_writer — 작성자 사전 검토 대기)`);
+        try {
+          await bpConn.execute(
+            `INSERT INTO h_approval_requests
+               (site_id, tenant_id, request_type, reference_type, reference_id,
+                title, description, status, priority,
+                requested_by, requested_at, created_at)
+             VALUES (?, ?, 'batch_production', 'batch', ?,
+                     ?, ?, 'pending_writer', 'high',
+                     ?, NOW(), NOW())`,
+            [
+              input.siteId, input.tenantId, batchId,
+              bpTitle, bpDescWriter,
+              input.userId,
+            ],
+          );
+          console.log(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_writer — 작성자 사전 검토 대기)`);
+        } catch (writerErr: any) {
+          // ★ Fallback: ENUM 에 pending_writer 가 없는 (마이그레이션 미적용) 환경
+          //   에서 'Data truncated' 발생 → pending_review 로 재시도하여 데이터 손실 방지
+          const isEnumError =
+            writerErr?.code === "WARN_DATA_TRUNCATED" ||
+            writerErr?.errno === 1265 ||
+            /Data truncated/i.test(String(writerErr?.message || writerErr?.sqlMessage || ""));
+          if (isEnumError) {
+            console.warn(
+              `[batchOrchestrator] 배치 #${batchId} pending_writer INSERT 실패 (ENUM 미적용 추정) → pending_review 폴백 시도`,
+            );
+            await bpConn.execute(
+              `INSERT INTO h_approval_requests
+                 (site_id, tenant_id, request_type, reference_type, reference_id,
+                  title, description, status, priority,
+                  requested_by, requested_at, created_at)
+               VALUES (?, ?, 'batch_production', 'batch', ?,
+                       ?, ?, 'pending_review', 'high',
+                       ?, NOW(), NOW())`,
+              [
+                input.siteId, input.tenantId, batchId,
+                bpTitle, bpDescReview,
+                input.userId,
+              ],
+            );
+            console.log(
+              `[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 등록 (pending_review fallback — ENUM 마이그레이션 필요)`,
+            );
+          } else {
+            // ENUM 외 에러는 외부 catch 로 위임
+            throw writerErr;
+          }
+        }
       }
     } catch (bpErr) {
       console.error(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 생성 실패:`, bpErr);

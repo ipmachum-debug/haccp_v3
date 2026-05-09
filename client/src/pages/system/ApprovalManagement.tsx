@@ -65,7 +65,7 @@ export default function ApprovalManagement() {
   const approvalEntityTypes = domainPlugin ? getApprovalEntityTypes(domainPlugin) : [];
   const showRecipeTab = !domainPlugin // 폴백: legacy 동작 (모두 노출)
     || approvalEntityTypes.some((t) => t.code === "food_product_report");
-  const [activeTab, setActiveTab] = useState<"review" | "approval" | "history" | "recipe" | "recipeHistory">("review");
+  const [activeTab, setActiveTab] = useState<"review" | "approval" | "history" | "recipe" | "recipeHistory" | "writerPending">("review");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -414,7 +414,7 @@ export default function ApprovalManagement() {
     <DashboardLayout>
       <div className="space-y-4">
         {/* PR #265 — 작성자 사전 검토 알림 배너 */}
-        <WriterPendingBanner />
+        <WriterPendingBanner onGoToWriterTab={() => { setActiveTab("writerPending"); setSelectedIds([]); }} />
 
         {/* 헤더 */}
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -537,6 +537,11 @@ export default function ApprovalManagement() {
         {/* 탭 */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setSelectedIds([]); }}>
           <TabsList className="flex flex-wrap h-auto gap-1 p-1">
+            <TabsTrigger value="writerPending" className="flex items-center gap-1 text-xs px-2 py-1.5">
+              <AlertCircle className="h-3.5 w-3.5" />
+              내 작성 대기
+              <WriterPendingTabBadge />
+            </TabsTrigger>
             <TabsTrigger value="review" className="flex items-center gap-1 text-xs px-2 py-1.5">
               <UserCheck className="h-3.5 w-3.5" />
               검토 대기
@@ -825,6 +830,14 @@ export default function ApprovalManagement() {
               </Card>
             )}
           </TabsContent>
+
+          {/* ============================================================ */}
+          {/* 내 작성 대기 탭 (2026-05-09 추가) */}
+          {/* pending_writer 상태 — 작성자 본인이 검토 후 제출해야 하는 항목 */}
+          {/* ============================================================ */}
+          <TabsContent value="writerPending" className="space-y-2 mt-2">
+            <WriterPendingTabContent />
+          </TabsContent>
         </Tabs>
 
         {/* ============================================================ */}
@@ -901,47 +914,333 @@ export default function ApprovalManagement() {
   );
 }
 
-// ─── PR #265: 작성자 사전 검토 대기 배너 ───
-function WriterPendingBanner() {
+// ─── PR #265 + 2026-05-09: 작성자 사전 검토 대기 배너 ───
+// 변경: [작성/수정] / [바로 제출] / [전체 일괄 제출] 액션 버튼 추가
+//       requestType 별 라우팅 (batch_production → 배치 상세 / ccp_form_record → CCP 기록지 등)
+function WriterPendingBanner({ onGoToWriterTab }: { onGoToWriterTab?: () => void }) {
   const [, navigate] = useLocation();
-  const { data: count = 0 } = trpc.approval.pendingWriterCount.useQuery(undefined, {
+  const utils = trpc.useUtils();
+  const { data: count = 0, refetch: refetchCount } = trpc.approval.pendingWriterCount.useQuery(undefined, {
     refetchInterval: 30000, // 30초마다 갱신
   });
-  // 작성자 본인 대기 — 작성자 본인이 직접 처리해야 하는 항목 알림
-  const { data: pendingList = [] } = trpc.approval.list.useQuery(
+  const { data: pendingList = [], refetch: refetchList } = trpc.approval.list.useQuery(
     { status: "pending_writer" },
     { enabled: count > 0 },
   );
 
+  // 단건 제출 (작성자 본인 사전 검토 완료)
+  const submitOne = trpc.approval.submitByWriter.useMutation({
+    onSuccess: () => {
+      toast.success("검토자 단계로 제출되었습니다");
+      refetchCount();
+      refetchList();
+      utils.approval.list.invalidate();
+    },
+    onError: (e: any) => toast.error(`제출 실패: ${e.message}`),
+  });
+
+  // 일괄 제출
+  const bulkSubmit = trpc.approval.bulkSubmitByWriter.useMutation({
+    onSuccess: (res: any) => {
+      const okN = res?.submittedCount ?? 0;
+      const skN = res?.skippedCount ?? 0;
+      toast.success(`일괄 제출 완료 — 성공 ${okN}건${skN > 0 ? ` / 스킵 ${skN}건` : ""}`);
+      refetchCount();
+      refetchList();
+      utils.approval.list.invalidate();
+    },
+    onError: (e: any) => toast.error(`일괄 제출 실패: ${e.message}`),
+  });
+
   if (count === 0) return null;
 
+  // 작성/수정 버튼 라우팅 — requestType 별로 작성 화면이 다름
+  const editPathFor = (item: any): string => {
+    const t = item.requestType || item.formType || "";
+    const refId = item.referenceId || item.reference_id;
+    // batch_production / batch_approval → 배치 상세 페이지
+    if (t === "batch_production" || t === "batch_approval") {
+      return refId ? `/dashboard/production/batch/${refId}` : `/dashboard/production`;
+    }
+    // CCP 기록지 (ccp_form_record / CCP-1P 등 ccp_form prefix)
+    if (t === "ccp_form_record" || t.startsWith("ccp_form")) {
+      return refId ? `/dashboard/production/ccp-form/${refId}` : `/dashboard/production`;
+    }
+    // 그 외 — writer-review 전용 화면 (legacy)
+    return `/dashboard/writer-review/${item.id}`;
+  };
+
   return (
-    <div className="bg-amber-500/10 border-l-4 border-amber-500 rounded-r p-3">
+    <div className="bg-amber-500/10 border-l-4 border-amber-500 rounded-r p-3 space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-semibold text-amber-800 dark:text-amber-300">
             ⚠ 내 작성 대기 {count}건
           </span>
           <span className="text-xs text-amber-700/80 dark:text-amber-400/80">
-            자동 생성 결과 검토 후 [제출] 하면 검토자에게 전달됩니다
+            자동 생성 결과 검토 후 [바로 제출] 또는 [작성/수정] 후 제출하세요
           </span>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {(pendingList as any[]).slice(0, 3).map((item: any) => (
-            <button
-              key={item.id}
-              onClick={() => navigate(`/dashboard/writer-review/${item.id}`)}
-              className="text-xs bg-amber-500/20 hover:bg-amber-500/30 px-2 py-1 rounded font-medium"
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {onGoToWriterTab && (
+            <Button
+              size="sm" variant="outline"
+              className="h-7 text-xs border-amber-500 text-amber-700 hover:bg-amber-500/10"
+              onClick={onGoToWriterTab}
             >
-              #{item.id} {item.title?.slice(0, 30)}
-              {item.title && item.title.length > 30 ? "..." : ""}
-            </button>
-          ))}
-          {pendingList.length > 3 && (
-            <span className="text-xs text-amber-700">+ {pendingList.length - 3}건</span>
+              <ListChecks className="h-3.5 w-3.5 mr-1" />
+              전체 보기 ({count})
+            </Button>
           )}
+          <Button
+            size="sm"
+            className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+            disabled={bulkSubmit.isPending || (pendingList as any[]).length === 0}
+            onClick={() => {
+              if (!confirm(`내 작성 대기 ${(pendingList as any[]).length}건을 모두 검토자에게 제출할까요?`)) return;
+              bulkSubmit.mutate({
+                approvalRequestIds: (pendingList as any[]).map((p) => Number(p.id)),
+              });
+            }}
+          >
+            {bulkSubmit.isPending ? "제출 중..." : `전체 일괄 제출 (${(pendingList as any[]).length})`}
+          </Button>
         </div>
       </div>
+
+      {/* 항목별 액션 (최대 5개 노출 + 더보기) */}
+      <div className="flex flex-col gap-1">
+        {(pendingList as any[]).slice(0, 5).map((item: any) => {
+          const title = item.title || `#${item.id}`;
+          const shortTitle = title.length > 40 ? title.slice(0, 40) + "…" : title;
+          return (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-2 bg-white/60 dark:bg-amber-900/20 rounded px-2 py-1 border border-amber-200/60"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[10px] text-amber-700/80 font-mono shrink-0">#{item.id}</span>
+                <span className="text-xs truncate" title={title}>{shortTitle}</span>
+                {item.requestType && (
+                  <Badge variant="outline" className="text-[10px] h-4 px-1 shrink-0">
+                    {(REQUEST_TYPE_LABELS as any)?.[item.requestType] || item.requestType}
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="sm" variant="outline"
+                  className="h-6 text-[11px] px-2"
+                  onClick={() => navigate(editPathFor(item))}
+                >
+                  작성/수정
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-6 text-[11px] px-2 bg-amber-600 hover:bg-amber-700 text-white"
+                  disabled={submitOne.isPending}
+                  onClick={() => {
+                    if (!confirm(`이 항목을 바로 검토자에게 제출할까요?\n\n#${item.id} ${title}`)) return;
+                    submitOne.mutate({ approvalRequestId: Number(item.id) });
+                  }}
+                >
+                  바로 제출
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+        {(pendingList as any[]).length > 5 && (
+          <div className="text-[11px] text-amber-700/80 pl-1">
+            … 외 {(pendingList as any[]).length - 5}건
+            {onGoToWriterTab && (
+              <button onClick={onGoToWriterTab} className="ml-1 underline hover:text-amber-900">
+                [내 작성 대기 탭으로 이동]
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 2026-05-09: 탭 트리거용 카운트 뱃지 ───
+function WriterPendingTabBadge() {
+  const { data: count = 0 } = trpc.approval.pendingWriterCount.useQuery(undefined, {
+    refetchInterval: 30000,
+  });
+  if (count === 0) return null;
+  return (
+    <Badge variant="destructive" className="ml-1 h-4 px-1 text-[10px]">{count}</Badge>
+  );
+}
+
+// ─── 2026-05-09: "내 작성 대기" 탭 본체 ───
+// pending_writer 전용 — 작성자 본인이 자동 생성 결과 검토 후 제출
+function WriterPendingTabContent() {
+  const [, navigate] = useLocation();
+  const utils = trpc.useUtils();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const { data: list = [], refetch, isLoading } = trpc.approval.list.useQuery(
+    { status: "pending_writer" },
+  );
+  const items = (list as any[]) || [];
+
+  const submitOne = trpc.approval.submitByWriter.useMutation({
+    onSuccess: () => {
+      toast.success("검토자 단계로 제출되었습니다");
+      refetch();
+      utils.approval.pendingWriterCount.invalidate();
+      utils.approval.list.invalidate();
+    },
+    onError: (e: any) => toast.error(`제출 실패: ${e.message}`),
+  });
+
+  const bulkSubmit = trpc.approval.bulkSubmitByWriter.useMutation({
+    onSuccess: (res: any) => {
+      const okN = res?.submittedCount ?? 0;
+      const skN = res?.skippedCount ?? 0;
+      toast.success(`일괄 제출 완료 — 성공 ${okN}건${skN > 0 ? ` / 스킵 ${skN}건` : ""}`);
+      setSelectedIds([]);
+      refetch();
+      utils.approval.pendingWriterCount.invalidate();
+      utils.approval.list.invalidate();
+    },
+    onError: (e: any) => toast.error(`일괄 제출 실패: ${e.message}`),
+  });
+
+  const editPathFor = (item: any): string => {
+    const t = item.requestType || item.formType || "";
+    const refId = item.referenceId || item.reference_id;
+    if (t === "batch_production" || t === "batch_approval") {
+      return refId ? `/dashboard/production/batch/${refId}` : `/dashboard/production`;
+    }
+    if (t === "ccp_form_record" || t.startsWith("ccp_form")) {
+      return refId ? `/dashboard/production/ccp-form/${refId}` : `/dashboard/production`;
+    }
+    return `/dashboard/writer-review/${item.id}`;
+  };
+
+  const allSelected = items.length > 0 && items.every((it: any) => selectedIds.includes(Number(it.id)));
+  const toggleAll = () => {
+    if (allSelected) setSelectedIds([]);
+    else setSelectedIds(items.map((it: any) => Number(it.id)));
+  };
+  const toggleOne = (id: number) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  if (isLoading) {
+    return (
+      <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">불러오는 중...</CardContent></Card>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center">
+          <CheckCircle className="h-10 w-10 mx-auto text-green-600 mb-3" />
+          <p className="text-sm text-muted-foreground">작성 대기 항목이 없습니다 — 모두 제출되었습니다 👍</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* 일괄 액션 바 */}
+      <div className="flex items-center gap-2 py-1.5 flex-wrap">
+        <button onClick={toggleAll} className="text-muted-foreground hover:text-blue-600">
+          {allSelected ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
+        </button>
+        <span className="text-xs text-muted-foreground">전체 선택 ({items.length}건)</span>
+        <div className="ml-auto flex gap-1.5 flex-wrap">
+          {selectedIds.length > 0 && (
+            <Button
+              size="sm"
+              className="h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+              disabled={bulkSubmit.isPending}
+              onClick={() => {
+                if (!confirm(`선택한 ${selectedIds.length}건을 검토자에게 제출할까요?`)) return;
+                bulkSubmit.mutate({ approvalRequestIds: selectedIds });
+              }}
+            >
+              {bulkSubmit.isPending ? "제출 중..." : `선택 일괄 제출 (${selectedIds.length})`}
+            </Button>
+          )}
+          <Button
+            size="sm" variant="outline"
+            className="h-7 text-xs border-amber-500 text-amber-700 hover:bg-amber-500/10"
+            disabled={bulkSubmit.isPending || items.length === 0}
+            onClick={() => {
+              if (!confirm(`전체 ${items.length}건을 모두 검토자에게 제출할까요?`)) return;
+              bulkSubmit.mutate({ approvalRequestIds: items.map((it: any) => Number(it.id)) });
+            }}
+          >
+            <ArrowRight className="h-3.5 w-3.5 mr-1" />
+            전체 일괄 제출 ({items.length})
+          </Button>
+        </div>
+      </div>
+
+      {/* 항목 리스트 */}
+      <Card>
+        <CardContent className="p-0">
+          {items.map((item: any) => {
+            const id = Number(item.id);
+            const checked = selectedIds.includes(id);
+            const title = item.title || `#${id}`;
+            const requestedAt = item.requestedAt || item.createdAt;
+            return (
+              <div
+                key={id}
+                className="flex items-center gap-2 px-3 py-2.5 border-b last:border-b-0 hover:bg-accent/40"
+              >
+                <button onClick={() => toggleOne(id)} className="text-muted-foreground hover:text-blue-600 shrink-0">
+                  {checked ? <CheckSquare className="w-4 h-4 text-blue-600" /> : <Square className="w-4 h-4" />}
+                </button>
+                <span className="text-[10px] text-muted-foreground font-mono shrink-0">#{id}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate" title={title}>{title}</div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {item.requestType && (
+                      <Badge variant="outline" className="text-[10px] h-4 px-1">
+                        {(REQUEST_TYPE_LABELS as any)?.[item.requestType] || item.requestType}
+                      </Badge>
+                    )}
+                    {requestedAt && (
+                      <span>{format(new Date(requestedAt as string | Date), "MM.dd HH:mm", { locale: ko })}</span>
+                    )}
+                    {item.requesterName && <span>· 작성자 {item.requesterName}</span>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm" variant="outline"
+                    className="h-7 text-[11px] px-2"
+                    onClick={() => navigate(editPathFor(item))}
+                  >
+                    작성/수정
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-7 text-[11px] px-2 bg-amber-600 hover:bg-amber-700 text-white"
+                    disabled={submitOne.isPending}
+                    onClick={() => {
+                      if (!confirm(`이 항목을 바로 검토자에게 제출할까요?\n\n#${id} ${title}`)) return;
+                      submitOne.mutate({ approvalRequestId: id });
+                    }}
+                  >
+                    바로 제출
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
     </div>
   );
 }

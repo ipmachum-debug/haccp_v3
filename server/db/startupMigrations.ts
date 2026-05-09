@@ -810,7 +810,7 @@ async function ensureWorkflowTables(conn: any) {
         reference_id BIGINT NULL,
         title VARCHAR(200) NOT NULL,
         description TEXT,
-        status ENUM('pending_review','pending_approval','pending','approved','rejected','cancelled') DEFAULT 'pending_review',
+        status ENUM('pending_writer','pending_review','pending_approval','pending','approved','rejected','cancelled') DEFAULT 'pending_review',
         priority ENUM('low','medium','high','urgent') DEFAULT 'medium',
         requested_by BIGINT NOT NULL,
         requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -915,6 +915,47 @@ async function ensureWorkflowTables(conn: any) {
     }
   }
   console.log(`[Migration] Workflow tables verified: ${created}/${tables.length} exist`);
+
+  // ★ 2026-05-09 (Mission 1): h_approval_requests.status ENUM 확장 — 'pending_writer'
+  //   PR #264 (353814b) 가 batchOrchestrator STEP 6.3 에서 status='pending_writer'
+  //   로 INSERT 하지만 ENUM 정의에 누락되어 'Data truncated' silent fail.
+  //   결과: bulkCreateForDay 경로의 batch_production AR 모두 누락.
+  //   Idempotent: ENUM 에 이미 'pending_writer' 가 있으면 skip.
+  try {
+    const [colRows] = await conn.query(
+      `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'h_approval_requests'
+         AND COLUMN_NAME = 'status'`,
+    );
+    const colType = (colRows as any[])[0]?.COLUMN_TYPE || "";
+    if (colType && !/'pending_writer'/.test(colType)) {
+      await conn.query(
+        `ALTER TABLE h_approval_requests
+           MODIFY COLUMN status ENUM(
+             'pending_writer',
+             'pending_review',
+             'pending_approval',
+             'pending',
+             'approved',
+             'rejected',
+             'cancelled'
+           ) NOT NULL DEFAULT 'pending_review'`,
+      );
+      console.log(
+        "[Migration] h_approval_requests.status ENUM extended — 'pending_writer' added",
+      );
+    } else if (colType) {
+      console.log(
+        "[Migration] h_approval_requests.status ENUM already includes 'pending_writer' — skip",
+      );
+    }
+  } catch (err: any) {
+    console.warn(
+      "[Migration] h_approval_requests.status ENUM ensure failed:",
+      err.message,
+    );
+  }
 }
 
 /**
