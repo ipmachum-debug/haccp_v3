@@ -470,6 +470,77 @@ export const approvalRouter = router({
       }),
 
     /**
+     * 작성자 사전 검토 완료 → 검토자 단계로 *일괄* 제출 — 2026-05-09 추가
+     * pending_writer → pending_review 전이.
+     * 작성자 본인 (또는 admin) 만 가능. 권한 없는 항목 / 상태 불일치 항목은 skipped 로 분류.
+     */
+    bulkSubmitByWriter: workerProcedure
+      .input(
+        z.object({
+          approvalRequestIds: z.array(z.number().int().positive()).min(1).max(500),
+          notes: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+
+        const placeholders = input.approvalRequestIds.map(() => "?").join(",");
+        const [rows]: any = await conn.execute(
+          `SELECT id, status, requested_by
+             FROM h_approval_requests
+            WHERE tenant_id = ? AND id IN (${placeholders})`,
+          [ctx.tenantId, ...input.approvalRequestIds],
+        );
+        const list = (rows as any[]) || [];
+
+        const isAdmin = ctx.user.role === "admin" || ctx.user.role === "super_admin";
+        const submitted: number[] = [];
+        const skipped: { id: number; reason: string }[] = [];
+
+        for (const reqId of input.approvalRequestIds) {
+          const row = list.find((r: any) => Number(r.id) === Number(reqId));
+          if (!row) {
+            skipped.push({ id: reqId, reason: "not_found" });
+            continue;
+          }
+          if (row.status !== "pending_writer") {
+            skipped.push({ id: reqId, reason: `invalid_status:${row.status}` });
+            continue;
+          }
+          const isAuthor = Number(row.requested_by) === Number(ctx.user.id);
+          if (!isAuthor && !isAdmin) {
+            skipped.push({ id: reqId, reason: "forbidden" });
+            continue;
+          }
+          submitted.push(reqId);
+        }
+
+        if (submitted.length > 0) {
+          const ph = submitted.map(() => "?").join(",");
+          await conn.execute(
+            `UPDATE h_approval_requests
+                SET status = 'pending_review',
+                    description = CASE
+                      WHEN ? IS NOT NULL AND CHAR_LENGTH(?) > 0
+                        THEN CONCAT(IFNULL(description, ''), '\n\n[작성자 메모] ', ?)
+                      ELSE description
+                    END
+              WHERE tenant_id = ? AND id IN (${ph}) AND status = 'pending_writer'`,
+            [input.notes ?? null, input.notes ?? "", input.notes ?? "", ctx.tenantId, ...submitted],
+          );
+        }
+
+        return {
+          success: true,
+          submittedCount: submitted.length,
+          skippedCount: skipped.length,
+          submitted,
+          skipped,
+        };
+      }),
+
+    /**
      * 작성자 사전 검토 대기 카운트 — 사이드바 뱃지용
      */
     pendingWriterCount: tenantRequiredProcedure.query(async ({ ctx }) => {
