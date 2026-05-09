@@ -475,8 +475,12 @@ export default function MfReportCreate() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {ingredients.map((ing, index) => (
-                    <TableRow key={index}>
+                  {/* ★ 2026-05-08 (PR #272): 비율(quantity) 내림차순 정렬 — UX 개선 */}
+                  {ingredients
+                    .map((ing, originalIndex) => ({ ing, originalIndex }))
+                    .sort((a, b) => Number(b.ing.quantity || 0) - Number(a.ing.quantity || 0))
+                    .map(({ ing, originalIndex }) => (
+                    <TableRow key={originalIndex}>
                       <TableCell>
                         {ing.materialType === "RAW" ? "원재료" : ing.materialType === "MIXED" ? "중간재" : "부재료"}
                       </TableCell>
@@ -494,7 +498,7 @@ export default function MfReportCreate() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveIngredient(index)}
+                          onClick={() => handleRemoveIngredient(originalIndex)}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>

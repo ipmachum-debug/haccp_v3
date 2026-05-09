@@ -10,6 +10,7 @@ import { Loader2, Plus, Trash2, ArrowLeft, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -292,9 +293,13 @@ export default function MfReportModify() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {ingredients.map((ing, index) => (
-                      <TableRow key={index}>
-                        <TableCell className="text-sm">{index + 1}</TableCell>
+                    {/* ★ 2026-05-08 (PR #272): 비율(quantity) 내림차순 정렬 — UX 개선 */}
+                    {ingredients
+                      .map((ing, originalIndex) => ({ ing, originalIndex }))
+                      .sort((a, b) => Number(b.ing.quantity || 0) - Number(a.ing.quantity || 0))
+                      .map(({ ing, originalIndex }, displayIdx) => (
+                      <TableRow key={originalIndex}>
+                        <TableCell className="text-sm">{displayIdx + 1}</TableCell>
                         <TableCell className="text-sm">
                           {ing.materialType === "RAW" ? "원재료" : ing.materialType === "MIXED" ? "중간재" : "부재료"}
                         </TableCell>
@@ -309,12 +314,12 @@ export default function MfReportModify() {
                             type="number"
                             step="0.01"
                             value={ing.quantity}
-                            onChange={(e) => handleQuantityChange(index, e.target.value)}
+                            onChange={(e) => handleQuantityChange(originalIndex, e.target.value)}
                             className="h-8 text-sm"
                           />
                         </TableCell>
                         <TableCell>
-                          <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveIngredient(index)}>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveIngredient(originalIndex)}>
                             <Trash2 className="w-4 h-4 text-red-500" />
                           </Button>
                         </TableCell>
@@ -391,19 +396,21 @@ export default function MfReportModify() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Select
-                        value={newIngredient.materialId?.toString() || ""}
-                        onValueChange={(v) => setNewIngredient({ ...newIngredient, materialId: parseInt(v), intermediateId: undefined })}
-                      >
-                        <SelectTrigger className="h-9"><SelectValue placeholder="원재료 선택" /></SelectTrigger>
-                        <SelectContent>
-                          {materials.map((m: any) => (
-                            <SelectItem key={m.id} value={m.id.toString()}>
-                              {m.materialName} ({m.materialCode})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      // ★ 2026-05-08 (PR #272): Combobox 로 교체 — 원재료 검색 가능
+                      <MaterialCombobox
+                        selectedId={newIngredient.materialId ?? null}
+                        onSelect={(m) =>
+                          setNewIngredient({
+                            ...newIngredient,
+                            materialId: m.id,
+                            intermediateId: undefined,
+                          })
+                        }
+                        onClear={() =>
+                          setNewIngredient({ ...newIngredient, materialId: undefined })
+                        }
+                        placeholder="원재료 검색... (이름/코드)"
+                      />
                     )}
                   </div>
 
