@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -518,13 +519,19 @@ export default function MfReportEdit() {
                       </tr>
                     </thead>
                     <tbody>
-                      {ingredients.map((ing, index) => {
+                      {/* ★ 2026-05-08 (PR #272): 비율(quantity) 내림차순 정렬 — UX 개선
+                          originalIndex 보존하여 updateIngredient/removeIngredient 정상 작동 */}
+                      {ingredients
+                        .map((ing, originalIndex) => ({ ing, originalIndex }))
+                        .sort((a, b) => Number(b.ing.quantity || 0) - Number(a.ing.quantity || 0))
+                        .map(({ ing, originalIndex }, displayIdx) => {
+                        const index = originalIndex;
                         const baseWeight = calcWeightFromRatio(ing.quantity);
                         const hasAdjustment = ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0 && Math.abs(ing.adjustedWeightKg - baseWeight) > 0.001;
 
                         return (
                           <tr key={index} className="border-b hover:bg-muted/30 transition-colors">
-                            <td className="px-3 py-1.5 text-xs text-muted-foreground font-mono">{index + 1}</td>
+                            <td className="px-3 py-1.5 text-xs text-muted-foreground font-mono">{displayIdx + 1}</td>
                             <td className="px-3 py-1.5 text-sm font-medium">{getMaterialName(ing)}</td>
                             <td className="px-3 py-1.5">
                               <Input
@@ -641,22 +648,13 @@ export default function MfReportEdit() {
                       <tr key={index} className="border-b hover:bg-muted/30">
                         <td className="px-3 py-1.5 text-xs text-muted-foreground font-mono">+{index + 1}</td>
                         <td className="px-3 py-1.5">
-                          <Select
-                            value={add.materialId?.toString() || "none"}
-                            onValueChange={(v) => updateAdditionalIngredient(index, "materialId", v === "none" ? undefined : parseInt(v))}
-                          >
-                            <SelectTrigger className="h-8 text-sm border-0 shadow-none bg-transparent px-1">
-                              <SelectValue placeholder={`${L("material")} 선택`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">선택 안 함</SelectItem>
-                              {materials?.map((m: any) => (
-                                <SelectItem key={m.id} value={m.id.toString()}>
-                                  {m.materialName || m.itemName || `ID: ${m.id}`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {/* ★ 2026-05-08 (PR #272): Combobox 로 교체 — 원재료 검색 가능 */}
+                          <MaterialCombobox
+                            selectedId={add.materialId ?? null}
+                            onSelect={(m) => updateAdditionalIngredient(index, "materialId", m.id)}
+                            onClear={() => updateAdditionalIngredient(index, "materialId", undefined)}
+                            placeholder={`${L("material")} 검색...`}
+                          />
                         </td>
                         <td className="px-3 py-1.5">
                           <Input
