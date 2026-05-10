@@ -100,6 +100,9 @@ export const materialLedgerMonthly = mysqlTable("material_ledger_monthly", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 }, (table) => ({
+  // ★ 2026-05-09 (PR #273): ON DUPLICATE KEY UPDATE 동작을 위한 UNIQUE 제약
+  // 누락 시 cron 매일 INSERT 만 누적 (2026-04 21배 중복 사고 발생)
+  uqTenantMaterialYearMonth: uniqueIndex("uq_mlm_tenant_material_year_month").on(table.tenantId, table.materialId, table.yearMonth),
   tenantMonthIdx: index("idx_tenant_month").on(table.tenantId, table.yearMonth),
   materialIdx: index("idx_material").on(table.materialId),
 }));
