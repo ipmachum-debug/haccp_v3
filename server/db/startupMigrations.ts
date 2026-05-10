@@ -1710,6 +1710,161 @@ async function ensureCriticalSchemaInvariants(conn: any) {
     );
   }
 
+  // ============================================================
+  // [4] h_batch_inputs.material_id → h_materials.id (FK orphan check)
+  // ------------------------------------------------------------
+  // h_batch_inputs.material_id is a logical FK to h_materials.id
+  // (Drizzle .references() declared, but not enforced at DB level
+  //  because h_batch_inputs predates h_materials.) We detect orphans
+  //  defensively here. Do NOT auto-delete — manufacturing audit data
+  //  must never be silently destroyed. Warn only.
+  // ============================================================
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      "SELECT TABLE_NAME FROM information_schema.TABLES " +
+        "WHERE TABLE_SCHEMA = DATABASE() " +
+        "AND TABLE_NAME IN ('h_batch_inputs', 'h_materials')",
+    );
+    const tableNames = (tblRows as any[]).map((r) => r.TABLE_NAME);
+    if (
+      !tableNames.includes("h_batch_inputs") ||
+      !tableNames.includes("h_materials")
+    ) {
+      console.log(
+        "[CriticalSchema] h_batch_inputs/h_materials not found — skip FK check",
+      );
+      okCount++;
+    } else {
+      const [orphanRows] = await conn.query(
+        "SELECT COUNT(*) AS c FROM h_batch_inputs bi " +
+          "LEFT JOIN h_materials m " +
+          "ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id " +
+          "WHERE m.id IS NULL",
+      );
+      const orphanCount = Number((orphanRows as any[])[0]?.c ?? 0);
+      if (orphanCount === 0) {
+        console.log(
+          "[CriticalSchema] h_batch_inputs.material_id → h_materials FK ok (0 orphans)",
+        );
+        okCount++;
+      } else {
+        console.warn(
+          `[CriticalSchema] h_batch_inputs has ${orphanCount} orphan rows ` +
+            "(material_id not found in h_materials) — manual review needed " +
+            "(NOT auto-deleted to preserve audit trail)",
+        );
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] h_batch_inputs FK check failed:",
+      err?.message ?? err,
+    );
+  }
+
+  // ============================================================
+  // [5] production_sku_output.batch_id → h_batches.id (FK orphan check)
+  // ------------------------------------------------------------
+  // production_sku_output records SKU-level outputs of a batch.
+  // If a batch was deleted/replaced without cascading the output,
+  // the SKU output becomes a phantom record. Warn only (audit data).
+  // ============================================================
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      "SELECT TABLE_NAME FROM information_schema.TABLES " +
+        "WHERE TABLE_SCHEMA = DATABASE() " +
+        "AND TABLE_NAME IN ('production_sku_output', 'h_batches')",
+    );
+    const tableNames = (tblRows as any[]).map((r) => r.TABLE_NAME);
+    if (
+      !tableNames.includes("production_sku_output") ||
+      !tableNames.includes("h_batches")
+    ) {
+      console.log(
+        "[CriticalSchema] production_sku_output/h_batches not found — skip FK check",
+      );
+      okCount++;
+    } else {
+      const [orphanRows] = await conn.query(
+        "SELECT COUNT(*) AS c FROM production_sku_output pso " +
+          "LEFT JOIN h_batches b " +
+          "ON b.id = pso.batch_id AND b.tenant_id = pso.tenant_id " +
+          "WHERE b.id IS NULL",
+      );
+      const orphanCount = Number((orphanRows as any[])[0]?.c ?? 0);
+      if (orphanCount === 0) {
+        console.log(
+          "[CriticalSchema] production_sku_output.batch_id → h_batches FK ok (0 orphans)",
+        );
+        okCount++;
+      } else {
+        console.warn(
+          `[CriticalSchema] production_sku_output has ${orphanCount} orphan rows ` +
+            "(batch_id not found in h_batches) — manual review needed " +
+            "(NOT auto-deleted to preserve audit trail)",
+        );
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] production_sku_output FK check failed:",
+      err?.message ?? err,
+    );
+  }
+
+  // ============================================================
+  // [6] h_recipe_lines.material_id → h_materials.id (FK orphan check)
+  // ------------------------------------------------------------
+  // Recipe lines reference materials. An orphan recipe_line means
+  // a BOM points to a deleted material — production planning will
+  // silently produce wrong quantities. Warn only.
+  // ============================================================
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      "SELECT TABLE_NAME FROM information_schema.TABLES " +
+        "WHERE TABLE_SCHEMA = DATABASE() " +
+        "AND TABLE_NAME IN ('h_recipe_lines', 'h_materials')",
+    );
+    const tableNames = (tblRows as any[]).map((r) => r.TABLE_NAME);
+    if (
+      !tableNames.includes("h_recipe_lines") ||
+      !tableNames.includes("h_materials")
+    ) {
+      console.log(
+        "[CriticalSchema] h_recipe_lines/h_materials not found — skip FK check",
+      );
+      okCount++;
+    } else {
+      const [orphanRows] = await conn.query(
+        "SELECT COUNT(*) AS c FROM h_recipe_lines rl " +
+          "LEFT JOIN h_materials m " +
+          "ON m.id = rl.material_id AND m.tenant_id = rl.tenant_id " +
+          "WHERE m.id IS NULL",
+      );
+      const orphanCount = Number((orphanRows as any[])[0]?.c ?? 0);
+      if (orphanCount === 0) {
+        console.log(
+          "[CriticalSchema] h_recipe_lines.material_id → h_materials FK ok (0 orphans)",
+        );
+        okCount++;
+      } else {
+        console.warn(
+          `[CriticalSchema] h_recipe_lines has ${orphanCount} orphan rows ` +
+            "(material_id not found in h_materials) — manual review needed " +
+            "(NOT auto-deleted to preserve audit trail)",
+        );
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] h_recipe_lines FK check failed:",
+      err?.message ?? err,
+    );
+  }
+
   console.log(
     `[CriticalSchema] ${okCount}/${total} critical invariants verified`,
   );
