@@ -265,13 +265,19 @@ export async function onBatchCompleted(params: {
 /** 월별 원료수불부 조회 (엑셀 다운로드용) - 정제수 제외 */
 export async function getMonthlyLedger(yearMonth: string, tenantId: number) {
   const db = await getRawConnection();
+  // ★ 2026-05-09 (PR #278): 듀얼 lookup — h_materials 미등록 material_id 폴백 (item_master.raw_material)
   const [rows] = await db.execute(
-    `SELECT ml.*, m.material_name, m.material_code, m.unit
+    `SELECT ml.*,
+            COALESCE(m.material_name, im.item_name) AS material_name,
+            COALESCE(m.material_code, im.item_code) AS material_code,
+            COALESCE(m.unit, im.base_unit) AS unit
      FROM material_ledger_monthly ml
-     JOIN h_materials m ON m.id = ml.material_id
+     LEFT JOIN h_materials m ON m.id = ml.material_id AND m.tenant_id = ml.tenant_id
+     LEFT JOIN item_master im ON im.id = ml.material_id AND im.tenant_id = ml.tenant_id AND im.item_type = 'raw_material'
      WHERE ml.tenant_id = ? AND ml.\`year_month\` = ?
-       AND m.material_name NOT LIKE '%정제수%'
-     ORDER BY m.material_name`,
+       AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+       AND COALESCE(m.material_name, im.item_name) IS NOT NULL
+     ORDER BY COALESCE(m.material_name, im.item_name)`,
     [tenantId, yearMonth]
   );
   return rows as Record<string, unknown>[];
