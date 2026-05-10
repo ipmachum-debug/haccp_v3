@@ -1468,6 +1468,253 @@ async function ensurePerformanceIndexes(conn: any) {
   console.log(`[Migration] Performance indexes: ${created}/${indexes.length} verified`);
 }
 
+/**
+ * ★ PR #275 (2026-05-10): Critical schema invariants safety net
+ *
+ *   ensure* 함수들과 별개로, **운영 안전성에 직접 영향**을 주는 핵심 불변식
+ *   (UNIQUE 제약 / ENUM 멤버십) 을 idempotent 하게 검증/복구한다.
+ *
+ *   배경:
+ *   - PR #273: material_ledger_monthly (tenant_id, material_id, year_month) UNIQUE
+ *     누락 → cron 의 INSERT ... ON DUPLICATE KEY UPDATE 패턴이 무한 INSERT
+ *     로 변질 (681행 → N차 부팅 후 2~3K 행). UNIQUE 가 없으면 cron idempotency 가
+ *     깨진다.
+ *   - PR #264: h_approval_requests.status ENUM 에 'pending_writer' 누락 →
+ *     bulkCreateForDay silent fail (이미 ensureWorkflowTables 에서 처리,
+ *     본 함수는 추가 invariants 만 다룸).
+ *   - h_batches.status: 'completed' 등 핵심 값이 ENUM 에 누락되면 batch
+ *     완료 통합 훅 (PR #274) 이 silent fail.
+ *
+ *   원칙:
+ *   - 모든 검사는 idempotent (이미 통과한 invariant 는 skip 로그만).
+ *   - 실패해도 throw 하지 않음 (서버 부팅은 계속, console.error 로 알림).
+ */
+async function ensureCriticalSchemaInvariants(conn: any) {
+  let okCount = 0;
+  let total = 0;
+
+  // ─────────────────────────────────────────────────────────────────
+  // [1] material_ledger_monthly (tenant_id, material_id, year_month) UNIQUE
+  //     — PR #273 의 cron idempotency 의존
+  // ─────────────────────────────────────────────────────────────────
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'material_ledger_monthly'`,
+    );
+    if ((tblRows as any[]).length === 0) {
+      console.log(
+        "[CriticalSchema] material_ledger_monthly table not found — skip UNIQUE check",
+      );
+      okCount++;
+    } else {
+      const [idxRows] = await conn.query(
+        `SELECT INDEX_NAME, NON_UNIQUE
+           FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'material_ledger_monthly'
+            AND INDEX_NAME = 'uq_mlm_tenant_material_year_month'`,
+      );
+      const hasUnique =
+        (idxRows as any[]).length > 0 &&
+        Number((idxRows as any[])[0].NON_UNIQUE) === 0;
+      if (hasUnique) {
+        console.log(
+          "[CriticalSchema] material_ledger_monthly UNIQUE (tenant_id, material_id, year_month) — OK",
+        );
+        okCount++;
+      } else {
+        // 1) 중복 정리 (tenant_id, material_id, year_month) — id 가 작은 첫 행만 유지
+        const [dupRows] = await conn.query(
+          "SELECT COUNT(*) AS c FROM (" +
+            "SELECT tenant_id, material_id, `year_month`, COUNT(*) AS n " +
+            "FROM material_ledger_monthly " +
+            "GROUP BY tenant_id, material_id, `year_month` HAVING n > 1" +
+            ") t",
+        );
+        const dupCount = Number((dupRows as any[])[0]?.c ?? 0);
+        if (dupCount > 0) {
+          console.warn(
+            `[CriticalSchema] material_ledger_monthly: ${dupCount} duplicate (tenant_id, material_id, year_month) groups — cleaning up`,
+          );
+          await conn.query(
+            "DELETE m1 FROM material_ledger_monthly m1 " +
+              "INNER JOIN material_ledger_monthly m2 " +
+              "ON m1.tenant_id = m2.tenant_id " +
+              "AND m1.material_id = m2.material_id " +
+              "AND m1.`year_month` = m2.`year_month` " +
+              "AND m1.id > m2.id",
+          );
+          console.log("[CriticalSchema] duplicates removed");
+        }
+        // 2) UNIQUE 추가
+        await conn.query(
+          "ALTER TABLE material_ledger_monthly " +
+            "ADD UNIQUE INDEX uq_mlm_tenant_material_year_month " +
+            "(tenant_id, material_id, `year_month`)",
+        );
+        console.log(
+          "[CriticalSchema] material_ledger_monthly UNIQUE added (tenant_id, material_id, year_month)",
+        );
+        okCount++;
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] material_ledger_monthly UNIQUE ensure failed:",
+      err?.message ?? err,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // [2] h_batches.status ENUM 에 'completed' / 'in_progress' / 'planned'
+  //     멤버십 보장 — PR #274 batch 완료 통합 훅 이 의존.
+  //     누락 시 silent 'Data truncated' fail.
+  // ─────────────────────────────────────────────────────────────────
+  total++;
+  try {
+    const [colRows] = await conn.query(
+      `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'h_batches'
+          AND COLUMN_NAME = 'status'`,
+    );
+    const colType = (colRows as any[])[0]?.COLUMN_TYPE || "";
+    if (!colType) {
+      console.log(
+        "[CriticalSchema] h_batches.status column not found — skip ENUM check",
+      );
+      okCount++;
+    } else {
+      const required = ["planned", "in_progress", "completed", "cancelled"];
+      const missing = required.filter(
+        (v) => !new RegExp(`'${v}'`).test(colType),
+      );
+      if (missing.length === 0) {
+        console.log(
+          "[CriticalSchema] h_batches.status ENUM has all required members — OK",
+        );
+        okCount++;
+      } else {
+        console.warn(
+          `[CriticalSchema] h_batches.status ENUM missing: ${missing.join(", ")} — extending`,
+        );
+        await conn.query(
+          `ALTER TABLE h_batches
+             MODIFY COLUMN status ENUM(
+               'planned',
+               'in_progress',
+               'completed',
+               'cancelled'
+             ) NOT NULL DEFAULT 'planned'`,
+        );
+        console.log("[CriticalSchema] h_batches.status ENUM extended");
+        okCount++;
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] h_batches.status ENUM ensure failed:",
+      err?.message ?? err,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // [3] material_ledger_daily (tenant_id, material_id, ledger_date) UNIQUE
+  //     — daily ledger upsert idempotency 보장.
+  //     monthly 와 동일 패턴, daily cron 도 ON DUPLICATE KEY UPDATE 사용.
+  // ─────────────────────────────────────────────────────────────────
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      `SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'material_ledger_daily'`,
+    );
+    if ((tblRows as any[]).length === 0) {
+      console.log(
+        "[CriticalSchema] material_ledger_daily table not found — skip UNIQUE check",
+      );
+      okCount++;
+    } else {
+      const [idxRows] = await conn.query(
+        `SELECT INDEX_NAME, NON_UNIQUE
+           FROM information_schema.STATISTICS
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = 'material_ledger_daily'
+            AND INDEX_NAME = 'uq_mld_tenant_material_date'`,
+      );
+      const hasUnique =
+        (idxRows as any[]).length > 0 &&
+        Number((idxRows as any[])[0].NON_UNIQUE) === 0;
+      if (hasUnique) {
+        console.log(
+          "[CriticalSchema] material_ledger_daily UNIQUE (tenant_id, material_id, ledger_date) — OK",
+        );
+        okCount++;
+      } else {
+        // ledger_date 컬럼 존재 확인 (스키마 변종 방어)
+        const [colRows2] = await conn.query(
+          `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'material_ledger_daily'
+              AND COLUMN_NAME = 'ledger_date'`,
+        );
+        if ((colRows2 as any[]).length === 0) {
+          console.log(
+            "[CriticalSchema] material_ledger_daily.ledger_date not found — skip (schema variant)",
+          );
+          okCount++;
+        } else {
+          // 중복 정리
+          const [dupRows] = await conn.query(
+            "SELECT COUNT(*) AS c FROM (" +
+              "SELECT tenant_id, material_id, ledger_date, COUNT(*) AS n " +
+              "FROM material_ledger_daily " +
+              "GROUP BY tenant_id, material_id, ledger_date HAVING n > 1" +
+              ") t",
+          );
+          const dupCount = Number((dupRows as any[])[0]?.c ?? 0);
+          if (dupCount > 0) {
+            console.warn(
+              `[CriticalSchema] material_ledger_daily: ${dupCount} duplicate groups — cleaning up`,
+            );
+            await conn.query(
+              "DELETE m1 FROM material_ledger_daily m1 " +
+                "INNER JOIN material_ledger_daily m2 " +
+                "ON m1.tenant_id = m2.tenant_id " +
+                "AND m1.material_id = m2.material_id " +
+                "AND m1.ledger_date = m2.ledger_date " +
+                "AND m1.id > m2.id",
+            );
+            console.log("[CriticalSchema] daily duplicates removed");
+          }
+          await conn.query(
+            "ALTER TABLE material_ledger_daily " +
+              "ADD UNIQUE INDEX uq_mld_tenant_material_date " +
+              "(tenant_id, material_id, ledger_date)",
+          );
+          console.log(
+            "[CriticalSchema] material_ledger_daily UNIQUE added",
+          );
+          okCount++;
+        }
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] material_ledger_daily UNIQUE ensure failed:",
+      err?.message ?? err,
+    );
+  }
+
+  console.log(
+    `[CriticalSchema] ${okCount}/${total} critical invariants verified`,
+  );
+}
+
 export async function runStartupMigrations() {
   try {
     const conn = await getRawConnection();
@@ -1487,6 +1734,10 @@ export async function runStartupMigrations() {
     await ensurePayrollTable(conn);
     await ensureHRTables(conn);
     await ensurePerformanceIndexes(conn);
+
+    // ★ PR #275: Critical schema invariants — UNIQUE/ENUM 핵심 불변식 보장.
+    //   ensure* 류 와 별개로 운영 안전성에 직접 영향을 주는 항목만 검증/복구.
+    await ensureCriticalSchemaInvariants(conn);
 
     console.log("[Migration] Startup migrations completed");
 

@@ -751,17 +751,23 @@ async function startServer() {
       await getDb();
       console.log("[Server] Database pre-initialized successfully");
 
-      // 자동 마이그레이션 — production 기본 비활성.
-      // 배포 재현성/스키마 drift 방지를 위해 배포 파이프라인에서 명시적으로 돌리는 것이 원칙.
-      // 비상 시 RUN_STARTUP_MIGRATIONS=true 로 강제 실행 가능.
+      // ★ PR #275 (2026-05-10): gate 반전 — 기본 ON, opt-out via RUN_STARTUP_MIGRATIONS=false.
+      //   기존 정책 (production 기본 비활성) 의 부작용:
+      //   - DB 손실/롤백 후 ensure* 가 자동 복구하지 못해 운영 장애 (h_approval_requests
+      //     ENUM 'pending_writer' 누락 → bulkCreateForDay silent fail 등 5건 발생).
+      //   - "배포 파이프라인에서 명시적으로" 라는 원칙은 단일 인스턴스 배포 환경에서
+      //     비현실적 (수동 단계 누락 시 schema drift 누적).
+      //   변경 후:
+      //   - 기본 ON: 매 부팅마다 idempotent ensure* 가 schema invariants 검증/복구.
+      //   - 비상 시 RUN_STARTUP_MIGRATIONS=false 로 opt-out (긴급 hotfix / 디버깅용).
+      //   - ensureCriticalSchemaInvariants() 가 추가되어 UNIQUE/ENUM 핵심 불변식 보장.
       const shouldRunMigrations =
-        process.env.NODE_ENV !== "production" ||
-        process.env.RUN_STARTUP_MIGRATIONS === "true";
+        process.env.RUN_STARTUP_MIGRATIONS !== "false";
       if (shouldRunMigrations) {
         const { runStartupMigrations } = await import("../db/startupMigrations");
         await runStartupMigrations();
       } else {
-        console.log("[Server] startupMigrations skipped (production default). Set RUN_STARTUP_MIGRATIONS=true to enable.");
+        console.log("[Server] startupMigrations skipped (RUN_STARTUP_MIGRATIONS=false). Remove env var to re-enable.");
       }
     } catch (err) {
       console.error("[Server] Database pre-initialization failed:", err);
