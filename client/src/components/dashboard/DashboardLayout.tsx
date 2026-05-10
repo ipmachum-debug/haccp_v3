@@ -580,6 +580,22 @@ function DashboardLayoutContent({
   // WORK/회계/HACCP 탭 상태 관리 (기본값: work)
   const [activeTab, setActiveTab] = useState<"work" | "finance" | "haccp">("work");
 
+  // ★ 2026-05-09 (PR #279): super_admin 도 기본적으로 industry 필터 적용
+  // 사유: 식품 테넌트 진입 시 화장품/의약품 메뉴까지 다 보여 사용자 혼란 (PR #262 이후 지속 보고)
+  // localStorage 기반: super_admin 이 명시적으로 toggle 시에만 전체 메뉴 노출
+  const [superAdminShowAllMenus, setSuperAdminShowAllMenus] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dashboard-super-admin-show-all") === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("dashboard-super-admin-show-all", String(superAdminShowAllMenus));
+    } catch {}
+  }, [superAdminShowAllMenus]);
+
   // 구독 기반 모듈 활성화 (DB 동적 + 환경변수 폴백)
   const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>({
     erp: MODULES.ERP, haccp: MODULES.HACCP,
@@ -877,9 +893,13 @@ function DashboardLayoutContent({
     // HACCP 탭: plugin 기반 메뉴 (plugin 없으면 legacy menuItems 폴백)
     : (domainPlugin ? pluginBasedMenu : menuItems);
 
+  // ★ 2026-05-09 (PR #279): super_admin 도 기본적으로 필터 적용
+  // (식품 테넌트 진입 시 화장품/의약품 메뉴 혼재 문제 해결)
+  // super_admin 이 명시적으로 "전체 메뉴 보기" 토글 시에만 우회.
+  const applyMenuFilters = !industryLoading && (user?.role !== "super_admin" || !superAdminShowAllMenus);
+
   // ★ 업종코드 기반 메뉴 필터링 (requireModule이 지정된 메뉴만 체크)
-  // 슈퍼어드민은 필터링 건너뜀 (모든 메뉴 접근 가능)
-  if (user?.role !== "super_admin" && !industryLoading) {
+  if (applyMenuFilters) {
     displayedMenuItems = displayedMenuItems.filter((item: any) => {
       if (!item.requireModule) return true; // requireModule 없으면 항상 표시
       return isIndustryModuleActive(item.requireModule);
@@ -892,7 +912,7 @@ function DashboardLayoutContent({
   //   /dashboard/{industry}/* 패턴의 메뉴는 테넌트 industry 와 일치해야만 표시.
   //   - 화장품 테넌트 (category=cosmetics) 는 /dashboard/medical-device/* 메뉴 hide
   //   - 의약품 테넌트 (category=pharma) 는 /dashboard/cosmetic/* 메뉴 hide
-  //   - 슈퍼어드민은 필터 건너뜀 (모든 industry 접근)
+  //   - super_admin: 기본 적용, "전체 메뉴 보기" 토글 시 우회 (PR #279)
   //
   // 이유:
   //   PR-4/PR-5 에서 Phase 3 (pharmaceutical / medical-device / general-mfg) 메뉴
@@ -900,7 +920,7 @@ function DashboardLayoutContent({
   //   pharmaceutical KGMP 가 둘 다 modules.gmp=true 라서 서로 노출됨).
   //   path 기반 필터링으로 시각적 industry 격리 보장. 데이터는 기존부터 router
   //   industry view filter 가 격리.
-  if (user?.role !== "super_admin" && !industryLoading) {
+  if (applyMenuFilters) {
     const tenantIndustry = mapCategoryToIndustryKey(industryCategory);
     displayedMenuItems = displayedMenuItems.filter((item: any) => {
       const required = getMenuRequiredIndustry(item.path);
@@ -1048,6 +1068,24 @@ function DashboardLayoutContent({
                     )}
                   </TabsList>
                 </Tabs>
+
+                {/* ★ 2026-05-09 (PR #279): super_admin 전용 — 전체 메뉴 보기 토글
+                    기본은 industry 격리 (food 테넌트면 cosmetic 메뉴 hide).
+                    토글 ON 시 모든 industry 메뉴 노출 (테넌트 관리/디버깅 용도). */}
+                {user?.role === "super_admin" && (
+                  <div className="mt-2 flex items-center justify-between rounded border border-sidebar-border/40 px-2 py-1 text-[10px] text-muted-foreground">
+                    <span title="기본은 테넌트 industry 격리 — 토글 ON 시 모든 메뉴 노출">
+                      {superAdminShowAllMenus ? "🔓 전체 메뉴" : "🔒 테넌트 격리"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSuperAdminShowAllMenus((v) => !v)}
+                      className="ml-2 rounded bg-sidebar-accent/80 px-2 py-0.5 text-[10px] hover:bg-sidebar-accent"
+                    >
+                      {superAdminShowAllMenus ? "격리" : "전체"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </SidebarHeader>
