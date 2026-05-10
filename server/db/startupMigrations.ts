@@ -1865,6 +1865,67 @@ async function ensureCriticalSchemaInvariants(conn: any) {
     );
   }
 
+  // ============================================================
+  // [7] daily_log checklist record ↔ daily_log AR 1:1 매칭 검증
+  // ------------------------------------------------------------
+  // h_generic_checklist_records (form_type='daily_log') 와
+  // h_approval_requests (request_type='daily_log',
+  //   reference_type='checklist', reference_id=record.id) 는 1:1 매칭이어야 한다.
+  //
+  // 실패 시 결과: 일일일지 record 는 있지만 승인관리 화면에 보이지 않음 (사용자 혼란).
+  // 원인: autoDailyReport "기존 record" 분기에서 짝꿍 AR 미생성 (자가복구 도입 전).
+  // 정책: 자동 삭제/생성 금지 (감사 추적 보존) — 경고만 발생.
+  // ============================================================
+  total++;
+  try {
+    const [tblRows] = await conn.query(
+      "SELECT TABLE_NAME FROM information_schema.TABLES " +
+        "WHERE TABLE_SCHEMA = DATABASE() " +
+        "AND TABLE_NAME IN ('h_generic_checklist_records', 'h_approval_requests')",
+    );
+    const tableNames = (tblRows as any[]).map((r) => r.TABLE_NAME);
+    if (
+      !tableNames.includes("h_generic_checklist_records") ||
+      !tableNames.includes("h_approval_requests")
+    ) {
+      console.log(
+        "[CriticalSchema] daily_log record/AR tables not found — skip 1:1 check",
+      );
+      okCount++;
+    } else {
+      const [orphanRows] = await conn.query(
+        "SELECT COUNT(*) AS c " +
+          "FROM h_generic_checklist_records r " +
+          "LEFT JOIN h_approval_requests ar " +
+          "  ON ar.tenant_id = r.tenant_id " +
+          "  AND ar.request_type = 'daily_log' " +
+          "  AND ar.reference_type = 'checklist' " +
+          "  AND ar.reference_id = r.id " +
+          "WHERE r.form_type = 'daily_log' " +
+          "  AND ar.id IS NULL",
+      );
+      const orphanCount = Number((orphanRows as any[])[0]?.c ?? 0);
+      if (orphanCount === 0) {
+        console.log(
+          "[CriticalSchema] daily_log record↔AR 1:1 ok (0 orphan records)",
+        );
+        okCount++;
+      } else {
+        console.warn(
+          `[CriticalSchema] daily_log: ${orphanCount} record(s) without paired AR ` +
+            "— users won't see them in 승인관리. " +
+            "Run sql/step13_orphan_daily_log_ar_backfill_commit.sql to backfill " +
+            "(or wait for autoDailyReport self-heal on next batch creation).",
+        );
+      }
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] daily_log 1:1 check failed:",
+      err?.message ?? err,
+    );
+  }
+
   console.log(
     `[CriticalSchema] ${okCount}/${total} critical invariants verified`,
   );
