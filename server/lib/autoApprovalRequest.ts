@@ -285,7 +285,21 @@ export async function finalApproveRequest(
           [batchId, tenantId]
         );
         console.log(`[finalApprove] 배치 #${batchId} 상태 → completed`);
-        
+
+        // ★ 2026-05-09 (PR #274): completeBatch() 우회 경로 — 자동 동기화 헬퍼 호출
+        // - actual_quantity 자동 갱신 (4/22 batch 591, 4/27 batch 600 등 NULL 패턴 차단)
+        // - h_batch_inputs 누락 알람
+        // - h_daily_reports 캐시 무효화
+        try {
+          const { syncBatchOnComplete } = await import("./production/syncBatchOnComplete.js");
+          const syncResult = await syncBatchOnComplete(batchId, tenantId);
+          if (syncResult.warnings.length > 0) {
+            console.warn(`[finalApprove] 배치 #${batchId} sync 경고:`, syncResult.warnings);
+          }
+        } catch (syncErr: any) {
+          console.error(`[finalApprove] syncBatchOnComplete 실패 (계속 진행):`, syncErr?.message ?? syncErr);
+        }
+
         // 2) 해당 배치의 CCP-1B/2B form_records를 approved로 변경하고 승인요청 생성
         const [draftRecords] = await rawConn.execute(
           `SELECT fr.id, fr.ccp_type, fr.work_date, fr.product_name, b.batch_code

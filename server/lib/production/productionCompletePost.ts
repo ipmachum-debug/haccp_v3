@@ -120,5 +120,18 @@ export async function postProductionComplete(
 
     console.log(`[productionCompletePost] 배치 #${batchId} 생산 완료 (${actualQuantity}kg, 수율: ${actualYield.toFixed(2)}%)`);
     return { alreadyProcessed: false };
+  }).then(async (result) => {
+    // ★ 2026-05-09 (PR #274): 트랜잭션 커밋 후 cache 무효화 + h_batch_inputs 점검
+    // (이 경로는 actualQuantity 가 이미 set 되어 있으므로 actual_quantity 자동 갱신은 no-op)
+    try {
+      const { syncBatchOnComplete } = await import("./syncBatchOnComplete.js");
+      const syncResult = await syncBatchOnComplete(batchId, tenantId);
+      if (syncResult.warnings.length > 0) {
+        console.warn(`[productionCompletePost] 배치 #${batchId} sync 경고:`, syncResult.warnings);
+      }
+    } catch (syncErr: any) {
+      console.error(`[productionCompletePost] syncBatchOnComplete 실패 (계속 진행):`, syncErr?.message ?? syncErr);
+    }
+    return result;
   });
 }

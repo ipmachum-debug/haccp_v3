@@ -658,6 +658,20 @@ export async function completeBatch(params: {
       .where(eq(hBatches.id, batchId));
   }
 
+  // ★ 2026-05-09 (PR #274): 자동 동기화 헬퍼 호출
+  // - actual_quantity 가 0 이거나 누락된 경우 production_sku_output 합계로 보정
+  // - h_batch_inputs 누락 알람 (재고 차감 누락 의심)
+  // - h_daily_reports 캐시 무효화 (stale 캐시 자동 재생성)
+  try {
+    const { syncBatchOnComplete } = await import("../../lib/production/syncBatchOnComplete.js");
+    const syncResult = await syncBatchOnComplete(batchId, tenantId);
+    if (syncResult.warnings.length > 0) {
+      console.warn(`[completeBatch] sync 경고 ${syncResult.warnings.length}건:`, syncResult.warnings);
+    }
+  } catch (syncErr: any) {
+    console.error(`[completeBatch] syncBatchOnComplete 실패 (계속 진행):`, syncErr?.message ?? syncErr);
+  }
+
   // 4. CCP 인스턴스 종결 (status: approved로 변경)
   await db
     .update(hCcpInstances)
