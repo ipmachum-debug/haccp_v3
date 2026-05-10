@@ -29,14 +29,22 @@ export const mfReportRouter = router({
           reportNo: z.string().min(1),
           reportDate: z.string(),
           flavorId: z.number().optional(),
+          /** ★ PR #299: BASIC = 단품 BOM, MIXED = 혼합 (child SKU + 비율) */
+          reportType: z.enum(["BASIC", "MIXED"]).default("BASIC"),
           ingredients: z.array(
             z.object({
               materialId: z.number().optional(),
               intermediateId: z.number().optional(),
+              /** ★ PR #299: MIXED 시 child SKU 참조 */
+              childSkuId: z.number().optional(),
+              /** ★ PR #299: 1box 당 child 개수 (라벨용, 선택) */
+              pieceCount: z.number().int().optional(),
+              /** ★ PR #299: 1개당 g (라벨용, 선택) */
+              pieceWeightG: z.number().optional(),
               quantity: z.number(),
               unit: z.string(),
               isDeductible: z.number(),
-              materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC"]),
+              materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC", "CHILD_SKU"]),
               flavorName: z.string().optional(),
               processGroupId: z.number().optional(),
               adjustedWeightKg: z.number().optional(),
@@ -52,7 +60,20 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createMfReport } = await import("../../db/production/mfReportAPI");
-        return await createMfReport(input, ctx.tenantId);
+        const result = await createMfReport(input, ctx.tenantId);
+
+        // ★ 2026-05-10 (PR #299): MIXED type 이면 sku_bundles 자동 동기화
+        if (input.reportType === "MIXED") {
+          try {
+            const { syncMfReportToBundles } = await import(
+              "../../lib/production/syncMfReportToBundles.js"
+            );
+            await syncMfReportToBundles(result.mfReportId, ctx.tenantId);
+          } catch (e: any) {
+            console.error("[mfReport.create] sku_bundles 자동 동기화 실패 (mfReport 는 정상 저장):", e?.message ?? e);
+          }
+        }
+        return result;
       }),
     // 품목제조보고 수정 (기존 보고서 업데이트)
     update: adminProcedure
@@ -61,6 +82,8 @@ export const mfReportRouter = router({
           mfReportId: z.number(),
           reportNo: z.string().optional(),
           reportDate: z.string().optional(),
+          /** ★ PR #299: BASIC ↔ MIXED 전환 가능 */
+          reportType: z.enum(["BASIC", "MIXED"]).optional(),
           yieldBasis: z.string().optional(),
           unitWeightG: z.number().optional(),
           batchTargetKg: z.number().optional(),
@@ -68,10 +91,13 @@ export const mfReportRouter = router({
             z.object({
               materialId: z.number().optional(),
               intermediateId: z.number().optional(),
+              childSkuId: z.number().optional(),
+              pieceCount: z.number().int().optional(),
+              pieceWeightG: z.number().optional(),
               quantity: z.number(),
               unit: z.string(),
               isDeductible: z.number().default(1),
-              materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC"]),
+              materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC", "CHILD_SKU"]),
               flavorName: z.string().optional(),
               processGroupId: z.number().optional(),
               adjustedWeightKg: z.number().optional(),
@@ -82,7 +108,20 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { updateMfReport } = await import("../../db/production/mfReportAPI");
-        return await updateMfReport(input, ctx.tenantId);
+        const result = await updateMfReport(input, ctx.tenantId);
+
+        // ★ 2026-05-10 (PR #299): MIXED type 이면 sku_bundles 자동 재동기화
+        if (input.reportType === "MIXED") {
+          try {
+            const { syncMfReportToBundles } = await import(
+              "../../lib/production/syncMfReportToBundles.js"
+            );
+            await syncMfReportToBundles(input.mfReportId, ctx.tenantId);
+          } catch (e: any) {
+            console.error("[mfReport.update] sku_bundles 자동 동기화 실패:", e?.message ?? e);
+          }
+        }
+        return result;
       }),
     
     // 품목제조보고 버전 생성
