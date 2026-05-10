@@ -532,9 +532,21 @@ export async function getProductCostTrend(
     /* ignore — 이름은 폴백 시 null */
   }
 
+  // ★ 2026-05-11 (PR #306): '정제수' 한글 리터럴을 바인딩 파라미터로 분리.
+  //   esbuild 가 SQL 안 한글을 \uXXXX 백슬래시 시퀀스로 이스케이프 컴파일 →
+  //   MySQL 패킷 corruption → ER_MALFORMED_PACKET 의 진짜 원인.
+  //   유니코드 이스케이프(\uXXXX)로 작성해서 esbuild 가 더 변형하지 않게 함.
+  const purifiedWaterLikePattern = "%" + "\uC815\uC81C\uC218" + "%"; // = '%정제수%'
+
   // 배치 + 원가 (듀얼 lookup + actualCost 폴백)
-  const dateFilter = [];
-  const params_arr: any[] = [tenantId, productId];
+  // SQL 안 ? 순서대로 params 배열 구성:
+  //   [0] NOT LIKE ? (서브쿼리 안, 정제수 패턴)
+  //   [1] b.tenant_id = ?
+  //   [2] b.product_id = ?
+  //   [3..] dateFilter (planned_date >= ? / <= ?)
+  //   [last] LIMIT ?
+  const dateFilter: string[] = [];
+  const params_arr: any[] = [purifiedWaterLikePattern, Number(tenantId), Number(productId)];
   if (startDate) {
     dateFilter.push("AND b.planned_date >= ?");
     params_arr.push(formatLocalDate(startDate));
@@ -543,13 +555,7 @@ export async function getProductCostTrend(
     dateFilter.push("AND b.planned_date <= ?");
     params_arr.push(formatLocalDate(endDate));
   }
-  // ★ 2026-05-11 (PR #305): conn.query() 로 전환했으므로 LIMIT 도 Number 로 통일.
-  //   conn.execute() (prepared statement) 사용 시 PM2 프로세스 안에서만
-  //   ER_MALFORMED_PACKET 이 재현되는 문제 발생 (단독 mysql2 테스트는 정상).
-  //   → 풀의 prepared statement 캐시/바인딩 이슈로 추정 → query() 로 우회.
-  params_arr[params_arr.length - 1] = Number(limit);
-  params_arr[0] = Number(tenantId);
-  params_arr[1] = Number(productId);
+  params_arr.push(Number(limit));
 
   // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
   // ★ 2026-05-10 (PR #298 Option B): 이름 기반 cross-namespace 폴백 추가
@@ -613,7 +619,7 @@ export async function getProductCostTrend(
          WHERE bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
            AND (
              COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) IS NULL
-             OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE '%정제수%'
+             OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE ?
            )
        ), 0) AS total_material_cost
      FROM h_batches b
