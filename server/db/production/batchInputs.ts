@@ -8,8 +8,20 @@ import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 
 
+/**
+ * 배치 투입 라인 1건 추가.
+ *
+ * **`materialId` 의 의미:**
+ *   반드시 `h_materials.id` (원재료 마스터) 값. 중간재(`h_intermediates.id`) 또는
+ *   완제품(`h_products_v2.id`) 을 넘기면 데이터 무결성이 깨집니다.
+ *   (Drizzle schema: `hBatchInputs.materialId.references(() => hMaterials.id)`)
+ *
+ * 호출자(라우터/서비스) 단에서 입력 검증 시 이 ID 가 raw_material 임을
+ * 보장해야 합니다. tRPC zod input 에는 `.describe()` 로 의미를 명시.
+ */
 export async function addBatchInput(input: {
   batchId: number;
+  /** **반드시 `h_materials.id` (원재료 마스터)**. intermediates/products 금지. */
   materialId: number;
   quantity: string;
   unitPrice?: string;

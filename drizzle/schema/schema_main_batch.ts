@@ -6,6 +6,7 @@ import {
   mysqlEnum, mysqlTable, text, timestamp, tinyint, varchar
 } from "drizzle-orm/mysql-core";
 import { tenants } from "./schema_main_core";
+import { hMaterials } from "./schema_main_products";
 
 export const hBatches = mysqlTable("h_batches", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
@@ -73,11 +74,46 @@ export const hBatchProductions = mysqlTable("h_batch_productions", {
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
 
+/**
+ * h_batch_inputs — 배치별 원재료 투입 기록
+ *
+ * **material_id 컬럼의 의미 (중요):**
+ *   `material_id` 는 항상 `h_materials.id` (원재료 마스터) 를 참조합니다.
+ *   `h_intermediates` (중간재) 나 `h_products_v2` (완제품) 를 참조하지 **않습니다**.
+ *
+ * **경험적 검증 (tenant_id=2, 2026-05-10 기준):**
+ *   - 총 3,052 행, 74 distinct material_id
+ *   - h_materials match: 100% (74/74)
+ *   - h_intermediates match: 0
+ *   - h_products_v2 match: 0
+ *   - unmatched: 0
+ *
+ * **History:**
+ *   과거 코드/문서에서 "material_id 가 raw_material 외 ID 도 받을 수 있다" 는
+ *   잘못된 가정이 있었으나, 실제 데이터/사용 패턴은 raw_material(h_materials)
+ *   전용입니다. 중간재 투입은 별도 메커니즘(intermediate_id 가 있는 곳) 사용.
+ *
+ * **Naming:**
+ *   `material_id` 라는 이름은 legacy 명명이며, 의미상으로는 `raw_material_id`
+ *   에 더 가깝습니다. 이름 변경은 backward-compat 영향이 커 보류, 대신 본 주석과
+ *   `references(() => hMaterials.id)` 로 의미를 명확히 합니다.
+ */
 export const hBatchInputs = mysqlTable("h_batch_inputs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
-  materialId: bigint("material_id", { mode: "number" }).notNull(),
+  /**
+   * **반드시 `h_materials.id` (원재료 마스터) 를 참조합니다.**
+   *
+   * - 중간재 (`h_intermediates`) 또는 완제품 (`h_products_v2`) 를 참조하지 않음.
+   * - 새 코드를 추가할 때:
+   *   - 항상 `h_materials` 와 JOIN/조회할 것.
+   *   - 절대 `h_intermediates` / `h_products_v2` 와 매칭하지 말 것.
+   * - canonical-sync (PR #269 ~) 도 raw_material 라인을 통해서만 동기화됨.
+   */
+  materialId: bigint("material_id", { mode: "number" })
+    .notNull()
+    .references(() => hMaterials.id),
   lotId: bigint("lot_id", { mode: "number" }),
   plannedQuantity: decimal("planned_quantity", { precision: 10, scale: 3 }).notNull(),
   actualQuantity: decimal("actual_quantity", { precision: 10, scale: 3 }),
