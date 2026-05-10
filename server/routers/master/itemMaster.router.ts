@@ -259,32 +259,66 @@ export const itemMasterRouter = router({
         .set(cleanData)
         .where(and(
           eq(itemMaster.id, id),
-          eq(itemMaster.tenantId, ctx.tenantId as any) 
+          eq(itemMaster.tenantId, ctx.tenantId as any)
         ));
-      
-      // h_products_v2 역방향 동기화 (legacyProductId가 있는 경우)
+
+      // ★ 2026-05-09 (PR #277): legacy 테이블 역방향 동기화 — 헬퍼 사용 + raw_material 보강
+      // 기존: own_product 만 + legacyProductId 매칭만 → PR #268 로 만든 row (legacyProductId NULL) 누락
+      // 변경:
+      //   - own_product/external_product → syncItemMasterToProduct (id 다중 매칭)
+      //   - raw_material → syncItemMasterToMaterial (이전엔 sync 없었음 ❌)
       try {
-        const [item] = await db.select({ legacyProductId: itemMaster.legacyProductId, itemType: itemMaster.itemType })
+        const [item] = await db
+          .select()
           .from(itemMaster)
-          .where(eq(itemMaster.id, id));
-        if (item?.legacyProductId && (item.itemType === 'own_product' || item.itemType === 'external_product')) {
-          const syncParts: any[] = [];
-          if (updateData.itemName !== undefined) syncParts.push(sql`product_name = ${updateData.itemName}`);
-          if (updateData.category !== undefined) syncParts.push(sql`category = ${updateData.category}`);
-          if (updateData.baseUnit !== undefined) syncParts.push(sql`unit = ${updateData.baseUnit}`);
-          if (updateData.shelfLifeDays !== undefined) syncParts.push(sql`shelf_life_days = ${updateData.shelfLifeDays}`);
-          if (updateData.description !== undefined) syncParts.push(sql`description = ${updateData.description}`);
-          if (updateData.isActive !== undefined) syncParts.push(sql`is_active = ${updateData.isActive}`);
-          if (syncParts.length > 0) {
-            await db.execute(
-              sql`UPDATE h_products_v2 SET ${sql.join(syncParts, sql`, `)} WHERE id = ${item.legacyProductId} AND tenant_id = ${ctx.tenantId}`
-            );
+          .where(
+            and(
+              eq(itemMaster.id, id),
+              eq(itemMaster.tenantId, ctx.tenantId as any)
+            )
+          )
+          .limit(1);
+
+        if (item) {
+          if (item.itemType === "own_product" || item.itemType === "external_product") {
+            const { syncItemMasterToProduct } = await import("../../db/production/itemMasterSync.js");
+            await syncItemMasterToProduct(db, {
+              tenantId: ctx.tenantId,
+              itemId: item.id,
+              itemCode: item.itemCode,
+              itemName: item.itemName,
+              category: item.category,
+              baseUnit: item.baseUnit,
+              shelfLifeDays: item.shelfLifeDays,
+              description: item.description,
+              isActive: item.isActive,
+            });
+          }
+
+          if (item.itemType === "raw_material") {
+            const { syncItemMasterToMaterial } = await import("../../db/production/itemMasterSync.js");
+            await syncItemMasterToMaterial(db, {
+              tenantId: ctx.tenantId,
+              itemId: item.id,
+              itemCode: item.itemCode,
+              itemName: item.itemName,
+              category: item.category,
+              baseUnit: item.baseUnit,
+              supplierId: (item as any).supplierId ?? null,
+              purchaseUnit: (item as any).purchaseUnit ?? null,
+              purchaseConversionRate: (item as any).purchaseConversionRate
+                ? String((item as any).purchaseConversionRate)
+                : null,
+              shelfLifeDays: item.shelfLifeDays,
+              description: item.description,
+              isActive: item.isActive,
+            });
           }
         }
       } catch (syncErr) {
-        console.error('h_products_v2 역방향 동기화 실패:', syncErr);
+        console.error('legacy 테이블 역방향 동기화 실패:', syncErr);
       }
-      
+
       return { success: true, message: "품목이 수정되었습니다." };
     }),
   

@@ -251,38 +251,57 @@ export const materialRouter = router({
       .mutation(async ({ input, ctx }) => {
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        
+
         const { id, ...data } = input;
-        
+
         await db
           .update(hMaterials)
           .set(data as any)
           .where(
             and(
               eq(hMaterials.id, id),
-              eq(hMaterials.tenantId, ctx.tenantId as any) 
+              eq(hMaterials.tenantId, ctx.tenantId as any)
             )
           );
-        
-        // item_master 테이블 동기화 (legacyMaterialId로 연결)
+
+        // ★ 2026-05-09 (PR #277): item_master 동기화 — 헬퍼 사용으로 매칭 보강
+        // 기존: WHERE legacyMaterialId = id 만 매칭 → PR #269 로 만든 row (legacyMaterialId NULL) 누락
+        // 변경: syncMaterialToItemMaster() 가 legacyMaterialId / id / itemCode 3중 매칭 → drift 차단
         try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          const syncData: any = {};
-          if (data.materialName) syncData.itemName = data.materialName;
-          if (data.materialCode) syncData.itemCode = data.materialCode;
-          if (data.category) syncData.category = data.category;
-          if (data.unit) syncData.baseUnit = data.unit;
-          if (data.shelfLifeDays !== undefined) syncData.shelfLifeDays = data.shelfLifeDays;
-          if (data.description) syncData.description = data.description;
-          if (Object.keys(syncData).length > 0) {
-            await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
-            );
+          // 최신 값으로 동기화하기 위해 DB 에서 현재 값을 읽은 후 sync 호출
+          const [current] = await db
+            .select()
+            .from(hMaterials)
+            .where(
+              and(
+                eq(hMaterials.id, id),
+                eq(hMaterials.tenantId, ctx.tenantId as any)
+              )
+            )
+            .limit(1);
+          if (current) {
+            const { syncMaterialToItemMaster } = await import("../../db/production/itemMasterSync.js");
+            await syncMaterialToItemMaster(db, {
+              tenantId: ctx.tenantId,
+              materialId: id,
+              materialCode: current.materialCode,
+              materialName: current.materialName,
+              category: current.category,
+              unit: current.unit,
+              supplierId: (current as any).supplierId ?? null,
+              purchaseUnit: (current as any).purchaseUnit ?? null,
+              purchaseConversionRate: (current as any).conversionRate
+                ? String((current as any).conversionRate)
+                : null,
+              shelfLifeDays: current.shelfLifeDays,
+              description: current.description,
+              isActive: current.isActive,
+            });
           }
         } catch (syncErr) {
           console.error('item_master 동기화 실패 (material):', syncErr);
         }
-        
+
         return { success: true };
       }),
     

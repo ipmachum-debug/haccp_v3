@@ -112,6 +112,157 @@ export async function syncProductToItemMaster(
 }
 
 /**
+ * 정방향 동기화: h_materials → item_master(raw_material)
+ *
+ * 2026-05-09 (PR #277): syncProductToItemMaster 의 raw_material 버전.
+ * material.router.ts:update 등에서 h_materials 가 변경됐을 때
+ * item_master 도 같이 갱신되도록 사용.
+ *
+ * 매칭 우선순위:
+ *   1) legacyMaterialId = materialId 매칭 (기존 연결)
+ *   2) id = materialId 매칭 (PR #269 패턴: id 동일)
+ *   3) itemCode = materialCode 매칭 (다른 경로로 먼저 생긴 행)
+ *   4) 신규 INSERT
+ */
+export interface SyncMaterialParams {
+  tenantId: number;
+  materialId: number;
+  materialCode: string;
+  materialName: string;
+  category?: string | null;
+  unit?: string | null;
+  supplierId?: number | null;
+  purchaseUnit?: string | null;
+  purchaseConversionRate?: string | null;
+  shelfLifeDays?: number | null;
+  description?: string | null;
+  isActive?: number;
+}
+
+export async function syncMaterialToItemMaster(
+  db: MySql2Database<any>,
+  params: SyncMaterialParams,
+): Promise<SyncAction> {
+  const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
+
+  const baseUnit = params.unit || "kg";
+  const isActive = params.isActive ?? 1;
+
+  // 1) legacyMaterialId 매칭 우선 (기존 연결)
+  const linkedRows = await db
+    .select({ id: itemMaster.id })
+    .from(itemMaster)
+    .where(
+      and(
+        eq(itemMaster.legacyMaterialId, params.materialId),
+        eq(itemMaster.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (linkedRows.length > 0) {
+    await db
+      .update(itemMaster)
+      .set({
+        itemCode: params.materialCode,
+        itemName: params.materialName,
+        category: params.category ?? null,
+        baseUnit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      })
+      .where(eq(itemMaster.id, linkedRows[0].id));
+    return "updated";
+  }
+
+  // 2) id 동일 매칭 (PR #269 패턴: 신규 등록 시 item_master.id == h_materials.id)
+  const sameIdRows = await db
+    .select({ id: itemMaster.id, itemType: itemMaster.itemType })
+    .from(itemMaster)
+    .where(
+      and(
+        eq(itemMaster.id, params.materialId),
+        eq(itemMaster.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (sameIdRows.length > 0 && sameIdRows[0].itemType === "raw_material") {
+    await db
+      .update(itemMaster)
+      .set({
+        itemCode: params.materialCode,
+        itemName: params.materialName,
+        category: params.category ?? null,
+        baseUnit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        legacyMaterialId: params.materialId,
+        isActive,
+      })
+      .where(eq(itemMaster.id, sameIdRows[0].id));
+    return "updated";
+  }
+
+  // 3) itemCode + tenantId 매칭 (다른 경로로 먼저 생긴 행)
+  const sameCodeRows = await db
+    .select({ id: itemMaster.id })
+    .from(itemMaster)
+    .where(
+      and(
+        eq(itemMaster.itemCode, params.materialCode),
+        eq(itemMaster.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (sameCodeRows.length > 0) {
+    await db
+      .update(itemMaster)
+      .set({
+        legacyMaterialId: params.materialId,
+        itemName: params.materialName,
+        itemType: "raw_material",
+        category: params.category ?? null,
+        baseUnit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      })
+      .where(eq(itemMaster.id, sameCodeRows[0].id));
+    return "linked";
+  }
+
+  // 4) 신규 INSERT
+  await db.insert(itemMaster).values({
+    tenantId: params.tenantId,
+    itemCode: params.materialCode,
+    itemName: params.materialName,
+    itemType: "raw_material",
+    category: params.category ?? null,
+    baseUnit,
+    supplierId: params.supplierId ?? null,
+    purchaseUnit: params.purchaseUnit ?? null,
+    purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+    shelfLifeDays: params.shelfLifeDays ?? null,
+    description: params.description ?? null,
+    legacyMaterialId: params.materialId,
+    isActive,
+  } as any);
+  return "inserted";
+}
+
+/**
  * 비활성화 동기화 (제품 soft delete 시 호출).
  * legacyProductId 로 연결된 item_master 행만 비활성화.
  */
