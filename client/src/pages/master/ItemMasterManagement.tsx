@@ -707,6 +707,25 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
       console.error('[ItemMaster] handleSubmit: itemName is empty, aborting');
       return;
     }
+    // ★ 2026-05-10 (PR #298 L3): 원재료/부재료의 기본단가=0 저장 시 경고
+    //   기본단가=0 인 마스터는 배치 INSERT 시 4-tier 폴백의 마지막 라인이 0이 되어
+    //   원가 계산 0/'-' 표시 사고로 이어짐 → 저장 전 사용자 확인
+    const itemTypeNow = isEdit ? (initialData?.itemType ?? itemType) : itemType;
+    const isMaterialType = itemTypeNow === 'raw_material' || itemTypeNow === 'subsidiary';
+    const priceNum = Number(form.defaultUnitPrice ?? 0);
+    if (isMaterialType && (!priceNum || priceNum <= 0)) {
+      const proceed = window.confirm(
+        `[경고] 기본단가가 0원입니다.\n\n` +
+        `원재료/부재료의 기본단가가 0인 경우, 배치 생성 시 원가 계산이 0으로 처리되어 ` +
+        `'생산원가 분석' 화면에 '-' 로 표시될 수 있습니다.\n\n` +
+        `그래도 저장하시겠습니까?\n` +
+        `(나중에 입고 등록 시 자동으로 단가가 갱신됩니다.)`
+      );
+      if (!proceed) {
+        console.warn('[ItemMaster] handleSubmit aborted: defaultUnitPrice=0 confirmation declined');
+        return;
+      }
+    }
     const data: any = { ...form };
     if (!isEdit) {
       data.itemType = itemType;
@@ -852,6 +871,14 @@ function ItemFormDialog({ open, onOpenChange, itemType, initialData, isEdit, onS
               onChange={(e) => setForm({ ...form, defaultUnitPrice: Number(e.target.value) })}
               placeholder="0"
             />
+            {/* ★ 2026-05-10 (PR #298 L3): 원재료/부재료의 기본단가=0 인라인 경고 */}
+            {(itemType === "raw_material" || itemType === "subsidiary") &&
+              (!form.defaultUnitPrice || Number(form.defaultUnitPrice) <= 0) && (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  ⚠ 기본단가가 0원이면 배치 원가 계산이 '-'로 표시될 수 있습니다.
+                  입고 등록 시 자동 갱신되지만, 가능하면 초기값을 입력해주세요.
+                </p>
+              )}
           </div>
           <div className="space-y-2">
             <Label>설명</Label>

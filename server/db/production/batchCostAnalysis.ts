@@ -75,8 +75,10 @@ export async function getBatchCostAnalysis(params: {
   }
 
   // ★ 2026-05-09 (PR #295): h_batches.actualCost 가 NULL 이면 batch_inputs SUM(unitPrice × quantity) 폴백
+  // ★ 2026-05-10 (PR #298 Option B): NULLIF(0) 폴백 + 이름 기반 cross-namespace 폴백 + 정제수 NULL 안전화
   // 신규 배치 다수가 actualCost NULL (autoApprove 경로 등) → 화면에 "-" 표시 사고
-  // 폴백 단가: lot_unit_price → h_materials.unit_price → item_master.default_unit_price → 0
+  // 폴백 단가: bi.unit_price → h_materials.unit_price (id) → item_master.default_unit_price (id)
+  //          → h_materials.unit_price (이름) → item_master.default_unit_price (이름) → 0
   const batches = await db
     .select({
       batchId: hBatches.id,
@@ -88,19 +90,36 @@ export async function getBatchCostAnalysis(params: {
       // 폴백용 SUM (h_batches.actualCost 0/NULL 일 때만 사용)
       computedActualCost: sql<number>`COALESCE((
         SELECT SUM(
-          COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
-          * COALESCE(
-              bi.unit_price,
-              m.unit_price,
-              im.default_unit_price,
-              0
-            )
+          COALESCE(
+            NULLIF(bi.total_price, 0),
+            COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
+            * COALESCE(
+                NULLIF(bi.unit_price, 0),
+                NULLIF(m.unit_price, 0),
+                NULLIF(im.default_unit_price, 0),
+                NULLIF(m_byname.unit_price, 0),
+                NULLIF(im_byname.default_unit_price, 0),
+                0
+              )
+          )
         )
         FROM h_batch_inputs bi
         LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
         LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
+        LEFT JOIN h_materials m_byname
+          ON m.id IS NULL
+         AND m_byname.tenant_id = bi.tenant_id
+         AND TRIM(m_byname.material_name) = TRIM(im.item_name)
+        LEFT JOIN item_master im_byname
+          ON im.id IS NULL
+         AND im_byname.tenant_id = bi.tenant_id
+         AND im_byname.item_type = 'raw_material'
+         AND TRIM(im_byname.item_name) = TRIM(m.material_name)
         WHERE bi.batch_id = h_batches.id AND bi.tenant_id = h_batches.tenant_id
-          AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+          AND (
+            COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) IS NULL
+            OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE '%정제수%'
+          )
       ), 0)`.as("computed_actual_cost"),
     })
     .from(hBatches)
@@ -527,6 +546,10 @@ export async function getProductCostTrend(
   params_arr.push(limit);
 
   // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
+  // ★ 2026-05-10 (PR #298 Option B): 이름 기반 cross-namespace 폴백 추가
+  //   bi.material_id 가 item_master.id namespace 인 케이스를 위해 이름 매칭 폴백:
+  //     m_byname: im.item_name → h_materials.material_name JOIN
+  //     im_byname: m.material_name → item_master.item_name JOIN
   // 기존엔 unit_price=0 이 NULL 이 아니라 폴백 못 타고 0 반환 → '-' 표시
   // 또한 LEFT JOIN 미매칭 시 material_name=NULL → NULL NOT LIKE → 필터 탈락
   const [rows]: any = await conn.execute(
@@ -544,6 +567,8 @@ export async function getProductCostTrend(
                  NULLIF(bi.unit_price, 0),
                  NULLIF(m.unit_price, 0),
                  NULLIF(im.default_unit_price, 0),
+                 NULLIF(m_byname.unit_price, 0),
+                 NULLIF(im_byname.default_unit_price, 0),
                  0
                )
            )
@@ -551,10 +576,20 @@ export async function getProductCostTrend(
          FROM h_batch_inputs bi
          LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
          LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
+         /* 이름 기반 cross-namespace 폴백 */
+         LEFT JOIN h_materials m_byname
+           ON m.id IS NULL
+          AND m_byname.tenant_id = bi.tenant_id
+          AND TRIM(m_byname.material_name) = TRIM(im.item_name)
+         LEFT JOIN item_master im_byname
+           ON im.id IS NULL
+          AND im_byname.tenant_id = bi.tenant_id
+          AND im_byname.item_type = 'raw_material'
+          AND TRIM(im_byname.item_name) = TRIM(m.material_name)
          WHERE bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
            AND (
-             COALESCE(m.material_name, im.item_name) IS NULL
-             OR COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+             COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) IS NULL
+             OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE '%정제수%'
            )
        ), 0) AS total_material_cost
      FROM h_batches b

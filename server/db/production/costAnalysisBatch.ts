@@ -130,7 +130,12 @@ export async function getBatchCostSummary(batchIds: number[], tenantId?: number)
 
   const conn = await getRawConnection();
 
-  // 듀얼 lookup + NULLIF(0) 폴백 — Drizzle 표현이 복잡하므로 raw SQL 사용
+  // 듀얼 lookup + NULLIF(0) 폴백 + 이름 기반 cross-namespace 폴백 — Drizzle 표현이 복잡하므로 raw SQL 사용
+  // ★ 2026-05-10 (PR #298 Option B):
+  //   bi.material_id 가 item_master.id namespace 인 케이스를 위해 이름 기반 폴백 추가:
+  //     m_byname: im.item_name → h_materials.material_name JOIN (h_materials 단가 폴백)
+  //     im_byname: m.material_name → item_master.item_name JOIN (item_master 단가 폴백)
+  //   기존 m/im 직접 JOIN 폴백 후에도 단가가 0 인 경우 cross-namespace 매칭 시도.
   const placeholders = batchIds.map(() => "?").join(",");
   const [rows]: any = await conn.execute(
     `SELECT
@@ -143,6 +148,8 @@ export async function getBatchCostSummary(batchIds: number[], tenantId?: number)
                  NULLIF(bi.unit_price, 0),
                  NULLIF(m.unit_price, 0),
                  NULLIF(im.default_unit_price, 0),
+                 NULLIF(m_byname.unit_price, 0),
+                 NULLIF(im_byname.default_unit_price, 0),
                  0
                )
          )
@@ -153,10 +160,20 @@ export async function getBatchCostSummary(batchIds: number[], tenantId?: number)
      LEFT JOIN item_master im
        ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id
         AND im.item_type = 'raw_material'
+     /* 이름 기반 cross-namespace 폴백 */
+     LEFT JOIN h_materials m_byname
+       ON m.id IS NULL
+      AND m_byname.tenant_id = bi.tenant_id
+      AND TRIM(m_byname.material_name) = TRIM(im.item_name)
+     LEFT JOIN item_master im_byname
+       ON im.id IS NULL
+      AND im_byname.tenant_id = bi.tenant_id
+      AND im_byname.item_type = 'raw_material'
+      AND TRIM(im_byname.item_name) = TRIM(m.material_name)
      WHERE bi.batch_id IN (${placeholders})
        AND (
-         COALESCE(m.material_name, im.item_name) IS NULL
-         OR COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) IS NULL
+         OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE '%정제수%'
        )
      GROUP BY bi.batch_id`,
     batchIds,
