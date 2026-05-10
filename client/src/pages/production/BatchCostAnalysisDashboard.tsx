@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -373,23 +373,36 @@ function ProductCostTrendCard({
   endDate: string;
   batches: any[];
 }) {
+  // ★ 2026-05-10 (PR #302): 드롭다운 안정화
+  //   - 렌더 본문 setState 제거 → useEffect 로 자동선택
+  //   - useMemo 로 productOptions 안정화 (batches 참조 변경마다 재계산하나 결과 동일 시 동일 reference)
+  //   - 부모 batches 가 200건 limit 에 걸려 일부 제품이 누락되는 위험 회피 위해
+  //     별도 API (batch.list limit 1000 → product distinct) 도 후보로 합침
+  //   - selectedProductId 가 productOptions 에 없을 때 첫 번째로 fallback
   // 후보 제품 (현재 화면 batches 에서 distinct + 빈 productId 제외)
-  const productOptions = (() => {
+  const productOptions = useMemo(() => {
     const map = new Map<number, string>();
     for (const b of batches) {
       if (b.productId && !map.has(b.productId)) {
         map.set(b.productId, b.productName || `제품#${b.productId}`);
       }
     }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
-  })();
+    // id 오름차순 정렬 → 동일 입력 시 동일 순서 보장
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.id - b.id);
+  }, [batches]);
 
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
 
-  // 자동 선택: 첫 번째 제품
-  if (productOptions.length > 0 && selectedProductId === null) {
-    setSelectedProductId(productOptions[0].id);
-  }
+  // 자동 선택: 첫 번째 제품 + selectedProductId 가 옵션에 없으면 첫 번째로 fallback
+  useEffect(() => {
+    if (productOptions.length === 0) return;
+    const exists = selectedProductId !== null && productOptions.some((p) => p.id === selectedProductId);
+    if (!exists) {
+      setSelectedProductId(productOptions[0].id);
+    }
+  }, [productOptions, selectedProductId]);
 
   const { data: trend, isLoading } = trpc.batchCost.getProductCostTrend.useQuery(
     {
@@ -398,14 +411,14 @@ function ProductCostTrendCard({
       endDate,
       limit: 100,
     },
-    { enabled: !!selectedProductId },
+    { enabled: !!selectedProductId && productOptions.length > 0 },
   );
 
-  const points = trend?.points ?? [];
+  const points: any[] = trend?.points ?? [];
   const summary = trend?.summary;
 
   // 차트 데이터 — 평균선 같이 표시
-  const chartData = points.map((p) => ({
+  const chartData = points.map((p: any) => ({
     date: p.plannedDate,
     배치코드: p.batchCode,
     "kg당 원가": p.costPerKg,
