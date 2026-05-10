@@ -270,6 +270,21 @@ export async function autoBatchTransition(
        WHERE id = ? AND tenant_id = ?`,
       [batchId, tenantId]
     );
+
+    // ★ PR #274: 배치 완료 통합 훅 (actual_quantity 자동 + h_batch_inputs 알람 + 캐시 무효화)
+    // IoT 자동 완료에서도 동일한 후처리 보장.
+    // 위 UPDATE 가 actual_quantity = planned_quantity 으로 일단 채웠지만,
+    // production_sku_output 합계가 더 정확할 수 있으므로 훅이 재계산하여 보정한다.
+    try {
+      const { runBatchCompletionHooks } = await import(
+        "../lib/production/batchCompletionHooks"
+      );
+      await runBatchCompletionHooks(batchId, tenantId, {
+        source: "updateBatchStatus",
+      });
+    } catch (hookErr) {
+      console.error(`[iotService] 완료 훅 실행 실패 (배치#${batchId}):`, hookErr);
+    }
   }
 
   return { success: true, message: `배치 #${batchId}: ${currentStatus} → ${targetStatus}` };

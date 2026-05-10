@@ -285,7 +285,33 @@ export async function finalApproveRequest(
           [batchId, tenantId]
         );
         console.log(`[finalApprove] 배치 #${batchId} 상태 → completed`);
-        
+
+        // ★ PR #274: 배치 완료 통합 훅 — completeBatch() 우회 경로
+        //   결재 자동 승인 → 직접 UPDATE 만 하고 끝나는 path 에서도 동일 후처리.
+        //   - actual_quantity NULL → production_sku_output 합계로 자동 보강
+        //     (4/22 batch 591, 4/27 batch 600 등 NULL 패턴 차단)
+        //   - h_batch_inputs 0 행 알람 (4/2 흑임자 460/461 패턴 조기 발견)
+        //   - h_daily_reports 캐시 무효화 (UI 달성률 즉시 갱신)
+        try {
+          const { runBatchCompletionHooks } = await import(
+            "./production/batchCompletionHooks"
+          );
+          const hookResult = await runBatchCompletionHooks(batchId, tenantId, {
+            source: "manual",
+          });
+          if (hookResult.warnings.length > 0) {
+            console.warn(
+              `[finalApprove] 배치 #${batchId} 통합 훅 경고:`,
+              hookResult.warnings,
+            );
+          }
+        } catch (hookErr: any) {
+          console.error(
+            `[finalApprove] 통합 훅 실행 실패 (계속 진행):`,
+            hookErr?.message ?? hookErr,
+          );
+        }
+
         // 2) 해당 배치의 CCP-1B/2B form_records를 approved로 변경하고 승인요청 생성
         const [draftRecords] = await rawConn.execute(
           `SELECT fr.id, fr.ccp_type, fr.work_date, fr.product_name, b.batch_code

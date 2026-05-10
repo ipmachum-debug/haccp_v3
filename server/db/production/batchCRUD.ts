@@ -443,6 +443,23 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
       // LOT 생성 실패해도 status update 자체는 유지 (이미 커밋됨)
     }
   }
+
+  // ★ PR #274: 배치 완료 통합 훅 (actual_quantity 자동 + h_batch_inputs 알람 + 캐시 무효화)
+  // batchLifecycle.ts:completeBatch() 의 끝에서 호출되는 공통 훅을 이 경로에서도 호출.
+  // 드롭다운으로 직접 'completed' 로 바꾼 경우에도 동일한 후처리 보장.
+  if (status === "completed" && batchRow && batchRow.tenantId) {
+    try {
+      const { runBatchCompletionHooks } = await import(
+        "../../lib/production/batchCompletionHooks"
+      );
+      await runBatchCompletionHooks(batchId, batchRow.tenantId, {
+        source: "updateBatchStatus",
+      });
+    } catch (hookErr) {
+      console.error(`[updateBatchStatus] 완료 훅 실행 실패 (배치#${batchId}):`, hookErr);
+      // 훅 실패해도 status update 자체는 유지 (이미 커밋됨)
+    }
+  }
 }
 
 export async function deleteBatch(batchId: number, tenantId?: number) {

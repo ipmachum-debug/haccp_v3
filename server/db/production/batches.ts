@@ -245,6 +245,21 @@ export async function completeBatch(
     console.error(`[completeBatch] 제품 LOT 생성 실패 (배치: ${id}):`, err);
   }
 
+  // ★ PR #274: 배치 완료 통합 훅 (actual_quantity 자동 + h_batch_inputs 알람 + 캐시 무효화)
+  // batchLifecycle.ts:completeBatch() 의 끝에서 호출되는 공통 훅을 이 legacy 경로에서도 호출.
+  if (tenantId) {
+    try {
+      const { runBatchCompletionHooks } = await import(
+        "../../lib/production/batchCompletionHooks"
+      );
+      await runBatchCompletionHooks(id, tenantId, {
+        source: "completeBatch",
+      });
+    } catch (hookErr) {
+      console.error(`[completeBatch] 완료 훅 실행 실패 (배치: ${id}):`, hookErr);
+    }
+  }
+
   return await getBatchById(id);
 }
 
