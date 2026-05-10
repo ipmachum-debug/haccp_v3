@@ -286,6 +286,32 @@ export async function finalApproveRequest(
         );
         console.log(`[finalApprove] 배치 #${batchId} 상태 → completed`);
 
+        // ★ 2026-05-09 (PR #276): h_batch_inputs 비어있으면 BOM 자동 적용 (사후 안전망)
+        // - 흑임자 460/461 사고 패턴 차단: completed 인데 inputs 0 행 → 재고 0 차감 (silent failure)
+        try {
+          const { applyBomToBatch } = await import("./production/applyBomToBatch.js");
+          const [batchInfoRows]: any = await rawConn.execute(
+            `SELECT product_id, planned_quantity FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+            [batchId, tenantId],
+          );
+          const batchInfo = (batchInfoRows as any[])[0];
+          if (batchInfo?.product_id && batchInfo?.planned_quantity) {
+            const bomResult = await applyBomToBatch({
+              batchId,
+              productId: Number(batchInfo.product_id),
+              plannedQuantity: Number(batchInfo.planned_quantity),
+              tenantId,
+            });
+            if (bomResult.attempted && bomResult.insertedCount > 0) {
+              console.log(
+                `[finalApprove] 배치 #${batchId} BOM 자동 적용 (사후): ${bomResult.insertedCount}건`,
+              );
+            }
+          }
+        } catch (bomErr: any) {
+          console.error(`[finalApprove] BOM 자동 적용 실패 (계속 진행):`, bomErr?.message ?? bomErr);
+        }
+
         // ★ 2026-05-09 (PR #274): completeBatch() 우회 경로 — 자동 동기화 헬퍼 호출
         // - actual_quantity 자동 갱신 (4/22 batch 591, 4/27 batch 600 등 NULL 패턴 차단)
         // - h_batch_inputs 누락 알람

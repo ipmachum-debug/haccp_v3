@@ -89,90 +89,19 @@ export async function createBatch(batch: {
   const tenantId = batch.tenantId;
   const plannedQty = parseFloat(batch.plannedQuantity);
 
-  // === 원재료 투입 자동생성 (품목제조보고 배합비 기반) ===
+  // ★ 2026-05-09 (PR #276): 통합 BOM applier 헬퍼 사용
+  // 이전 90+ 줄 중복 로직을 applyBomToBatch() 한 줄 호출로 대체.
+  // 멱등성, processGroupId, 보정배합비 우선 순서 모두 동일 동작.
   try {
-    // 1. 제품의 품목제조보고 조회
-    const mfReport = await db
-      .select({ id: hMfReports.id })
-      .from(hMfReports)
-      .where(and(
-        eq(hMfReports.productId, batch.productId),
-        eq(hMfReports.tenantId, tenantId)
-      ))
-      .limit(1);
-
-    if (mfReport.length > 0) {
-      // 2. 최신 승인된 버전 조회 (APPROVED 우선, 없으면 최신 DRAFT fallback)
-      let latestVersion = await db
-        .select({ id: hMfReportVersions.id })
-        .from(hMfReportVersions)
-        .where(and(
-          eq(hMfReportVersions.mfReportId, mfReport[0].id),
-          eq(hMfReportVersions.approvalStatus, "APPROVED")
-        ))
-        .orderBy(desc(hMfReportVersions.versionNo))
-        .limit(1);
-
-      // APPROVED 없으면 최신 버전 fallback
-      if (latestVersion.length === 0) {
-        latestVersion = await db
-          .select({ id: hMfReportVersions.id })
-          .from(hMfReportVersions)
-          .where(eq(hMfReportVersions.mfReportId, mfReport[0].id))
-          .orderBy(desc(hMfReportVersions.versionNo))
-          .limit(1);
-        if (latestVersion.length > 0) {
-          console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
-        }
-      }
-
-      if (latestVersion.length > 0) {
-        // 3. 배합비(원재료 함량) 조회
-        // item_master.base_unit으로 실제 단위(kg/g) 조회
-        // h_mf_ingredients.material_id → item_master.id (직접 참조)
-        const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit");
-        const ingredientsRaw = await db
-          .select({
-            materialId: hMfIngredients.materialId,
-            quantity: hMfIngredients.quantity,
-            correctedQuantity: hMfIngredients.correctedQuantity,
-            isDeductible: hMfIngredients.isDeductible,
-            unit: hMfIngredients.unit,         // BOM 단위 (%)
-            processGroupId: hMfIngredients.processGroupId,
-            materialUnit: itemMaster.baseUnit,  // item_master.base_unit (kg 등)
-          })
-          .from(hMfIngredients)
-          .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))
-          .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
-          .orderBy(hMfIngredients.lineNo);
-        const ingredients = ingredientsRaw;
-
-        // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
-        // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
-        if (ingredients.length > 0) {
-          const batchInputs = ingredients
-            .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0)
-            .map((ing: any) => {
-              // 보정 배합비 사용 (없으면 법적 배합비 fallback)
-              const ratio = ing.correctedQuantity
-                ? parseFloat(ing.correctedQuantity)
-                : parseFloat(ing.quantity);
-              return {
-                batchId,
-                materialId: ing.materialId!,
-                plannedQuantity: ((ratio / 100) * plannedQty).toFixed(3),
-                unit: ing.materialUnit || "kg",  // 원재료 실제 단위 사용 (% 아닌 kg/g)
-                processGroupId: ing.processGroupId ?? null,
-                tenantId
-              };
-            });
-
-          if (batchInputs.length > 0) {
-            await db.insert(hBatchInputs).values(batchInputs as any);
-            console.log("[createBatch] 원재료 투입 자동생성:", batchInputs.length, "건");
-          }
-        }
-      }
+    const { applyBomToBatch } = await import("../../lib/production/applyBomToBatch.js");
+    const bomResult = await applyBomToBatch({
+      batchId,
+      productId: batch.productId,
+      plannedQuantity: plannedQty,
+      tenantId,
+    });
+    if (bomResult.warnings.length > 0) {
+      console.warn(`[createBatch] BOM 적용 경고:`, bomResult.warnings);
     }
   } catch (error) {
     console.error("[createBatch] 원재료 투입 자동생성 실패 (배치 생성은 유지):", error);

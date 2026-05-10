@@ -928,6 +928,32 @@ export const batchCrudRouter = router({
         // === 파이프라인 자동화: 배치 시작 시 원료 자동 출고 ===
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
+          // ★ 2026-05-09 (PR #276): in_progress 진입 시 h_batch_inputs 비어있으면 BOM 자동 적용
+          // (createBatch 가 BOM 적용에 실패한 경우 — productId 변경, BOM 사후 등록 등 — 마지막 안전망)
+          // 흑임자 460/461 사고 패턴: completed 인데 inputs 0 행 → 재고 0 차감 → 무한재료 환상
+          try {
+            const { applyBomToBatch } = await import('../../lib/production/applyBomToBatch.js');
+            const plannedQty = parseFloat(batch.plannedQuantity?.toString() || '0');
+            if (plannedQty > 0 && batch.productId) {
+              const bomResult = await applyBomToBatch({
+                batchId: input.id,
+                productId: batch.productId,
+                plannedQuantity: plannedQty,
+                tenantId: ctx.tenantId,
+              });
+              if (bomResult.attempted && bomResult.insertedCount > 0) {
+                console.log(
+                  `[파이프라인] 배치 #${input.id} in_progress 전환 시 BOM 자동 적용: ${bomResult.insertedCount}건 (사후 안전망)`,
+                );
+              }
+              if (bomResult.warnings.length > 0) {
+                console.warn(`[파이프라인] BOM 자동 적용 경고:`, bomResult.warnings);
+              }
+            }
+          } catch (bomErr: any) {
+            console.error(`[파이프라인] BOM 자동 적용 실패 (출고 계속 진행):`, bomErr?.message ?? bomErr);
+          }
+
           try {
             // 2026-04-29 (F2-2-d): dispatcher 경유 — env 기본값 v1 (운영 안전).
             // USE_AUTO_ISSUE_V2 / USE_AUTO_ISSUE_V2_TENANTS 로 점진 v2 전환 가능.
