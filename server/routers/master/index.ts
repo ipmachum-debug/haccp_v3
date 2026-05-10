@@ -10,3 +10,5 @@ export { itemMasterRouter, productSkuRouter } from "./itemMaster.router";
 export { intermediateRouter } from "./intermediate.router";
 // PR #280 — SKU 번들 (혼합 제품)
 export { skuBundleRouter } from "./skuBundle.router";
+// PR #298 — SKU 별칭 (Excel 매칭용)
+export { skuAliasRouter } from "./skuAlias.router";

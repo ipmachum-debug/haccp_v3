@@ -13,6 +13,7 @@ import {
   productSkuRouter,
   intermediateRouter,
   skuBundleRouter,
+  skuAliasRouter,
 } from "../master";
 
 export const masterRouterMap = {
@@ -28,4 +29,6 @@ export const masterRouterMap = {
   intermediate: intermediateRouter,
   // PR #280 — SKU 번들 (혼합 제품)
   skuBundle: skuBundleRouter,
+  // PR #298 — SKU 별칭 (Excel 매칭용)
+  skuAlias: skuAliasRouter,
 } as const;

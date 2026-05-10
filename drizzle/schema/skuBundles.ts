@@ -39,8 +39,19 @@ export const skuBundles = mysqlTable(
     childSkuId: bigint("child_sku_id", { mode: "number" })
       .notNull()
       .references(() => productSkus.id),
-    /** 표준 비율 (%) — 합계는 100% 권장. 예: 33.33 + 33.33 + 33.34 */
+    /** 표준 비율 (%) — 합계는 100% 권장. 예: 33.33 + 33.33 + 33.34
+     *  count + piece_weight 입력 시 자동 계산됨 (PR #298). */
     defaultRatio: decimal("default_ratio", { precision: 5, scale: 2 }).notNull(),
+    /** ★ 2026-05-10 (PR #298): 1 parent 박스당 child 개수 (개)
+     *  예: 혼합마카다미아 = 5개 (각 80g), 혼합설기 = 2개 (각 50g) */
+    childPieces: int("child_pieces"),
+    /** ★ 2026-05-10 (PR #298): child 1개당 무게 (g)
+     *  예: 혼합마카 child = 80g, 혼합설기 child = 50g
+     *  HACCP 라벨 표시용 + 자동 ratio 계산용 */
+    childPieceWeightG: decimal("child_piece_weight_g", {
+      precision: 10,
+      scale: 2,
+    }),
     /** 정렬 순서 (UI/리포트 표시용) */
     sortOrder: int("sort_order").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
