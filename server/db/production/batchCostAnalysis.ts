@@ -543,10 +543,11 @@ export async function getProductCostTrend(
     dateFilter.push("AND b.planned_date <= ?");
     params_arr.push(formatLocalDate(endDate));
   }
-  // ★ mysql2 prepared statement 호환: LIMIT 정수 파라미터는 String 캐스팅 필요
-  //   (그대로 Number push 시 'Incorrect arguments to mysqld_stmt_execute' 에러 발생)
-  params_arr[params_arr.length - 1] = String(limit);
-  // tenant_id 와 product_id 도 안전을 위해 명시적으로 정규화 (Number 유지)
+  // ★ 2026-05-11 (PR #305): conn.query() 로 전환했으므로 LIMIT 도 Number 로 통일.
+  //   conn.execute() (prepared statement) 사용 시 PM2 프로세스 안에서만
+  //   ER_MALFORMED_PACKET 이 재현되는 문제 발생 (단독 mysql2 테스트는 정상).
+  //   → 풀의 prepared statement 캐시/바인딩 이슈로 추정 → query() 로 우회.
+  params_arr[params_arr.length - 1] = Number(limit);
   params_arr[0] = Number(tenantId);
   params_arr[1] = Number(productId);
 
@@ -572,7 +573,10 @@ export async function getProductCostTrend(
   );
   let rows: any[] = [];
   try {
-    const [r]: any = await conn.execute(
+    // ★ 2026-05-11 (PR #305): conn.execute() → conn.query() 전환.
+    //   PM2 프로세스 안에서만 prepared statement 가 ER_MALFORMED_PACKET 으로
+    //   깨지는 현상 → 클라이언트 측 보간 사용하는 query() 로 우회.
+    const [r]: any = await conn.query(
       `SELECT
        b.id AS batch_id,
        b.batch_code,
