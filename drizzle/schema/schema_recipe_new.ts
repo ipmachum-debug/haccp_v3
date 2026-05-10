@@ -32,6 +32,21 @@ export const hMfReports = mysqlTable("h_mf_reports", {
   reportNo: varchar("report_no", { length: 50 }).notNull(),
   reportDate: date("report_date").notNull(),
   status: varchar("status", { length: 20 }).default("ACTIVE").notNull(), // ACTIVE, ARCHIVED
+  /**
+   * ★ 2026-05-10 (PR #299): mfReport 분류 — 기본/혼합
+   *  - BASIC: 일반 단품 BOM (원재료 → 단품 제조)
+   *  - MIXED: 혼합 제품 정의 (child SKU 그룹 + 1개당 g, 매출 분해용)
+   *
+   *  생산 정책:
+   *  - BASIC: batch 생성 가능
+   *  - MIXED: batch 생성 차단 — "혼합 제품은 생산 단위가 아닙니다.
+   *           각 단품을 별도로 생산하세요"
+   *
+   *  자동 동기화:
+   *  - MIXED 저장 시 sku_bundles UPSERT (PR #299 hook)
+   *  - mfReport 의 ingredients 가 child product SKU 정보를 가짐
+   */
+  reportType: varchar("report_type", { length: 20 }).default("BASIC").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
   tenantId: int("tenant_id").notNull().default(1).references(() => tenants.id),
@@ -86,11 +101,26 @@ export const hMfIngredients = mysqlTable("h_mf_ingredients", {
   lineNo: int("line_no").notNull(),
   materialId: bigint("material_id", { mode: "number" }), // 원재료 (RAW)
   intermediateId: bigint("intermediate_id", { mode: "number" }), // 혼합재제 (MIXED)
-  quantity: varchar("quantity", { length: 20 }).notNull(), // 수량 (비율 %) - 법적 배합비
+  /**
+   * ★ 2026-05-10 (PR #299): 혼합 mfReport 의 child 제품 SKU
+   *  - hMfReports.report_type = 'MIXED' 일 때만 사용
+   *  - product_skus.id 참조 (다른 단품 제품의 SKU)
+   *  - mfReport 저장 시 sku_bundles 자동 INSERT
+   */
+  childSkuId: bigint("child_sku_id", { mode: "number" }),
+  /** ★ PR #299: 1박스(parent) 당 child 개수 — 예: 5개 */
+  pieceCount: int("piece_count"),
+  /** ★ PR #299: child 1개당 무게 (g) — 예: 80g */
+  pieceWeightG: decimal("piece_weight_g", { precision: 10, scale: 2 }),
+  quantity: varchar("quantity", { length: 20 }).notNull(), // 수량 (비율 %) - 법적 배합비 / MIXED 시 자동 계산값
   correctedQuantity: varchar("corrected_quantity", { length: 20 }), // 보정 배합비 (정제수 제외 재계산)
   unit: varchar("unit", { length: 10 }).notNull(), // 단위
   isDeductible: tinyint("is_deductible").default(1).notNull(), // 차감 대상 여부 (핵심 플래그)
-  materialType: varchar("material_type", { length: 20 }).default("RAW").notNull(), // RAW: 원재료, MIXED: 중간재, FLAVOR_SPECIFIC: 부재료
+  /**
+   * RAW: 원재료, MIXED: 중간재, FLAVOR_SPECIFIC: 부재료
+   * ★ PR #299: CHILD_SKU 신규 — 혼합 mfReport 의 child 제품
+   */
+  materialType: varchar("material_type", { length: 20 }).default("RAW").notNull(),
   flavorName: varchar("flavor_name", { length: 100 }),
   processGroupId: int("process_group_id"),
   adjustedWeightKg: decimal("adjusted_weight_kg", { precision: 10, scale: 3 }),

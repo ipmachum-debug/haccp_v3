@@ -24,8 +24,38 @@ export async function createBatch(batch: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+
+  // ★ 2026-05-10 (PR #299): 혼합 mfReport (MIXED) 인 제품은 batch 생성 차단
+  // 정책: "생산은 단품으로 한다" — 혼합은 출고 단위, 생산 단위 X
+  // 작업자가 mfReport 등록 시 혼합으로 분류한 제품으로 batch 생성 시도하면 명확한 안내
+  // (hMfReports import 는 아래쪽 동일 import 라인에서 함께 처리)
+
   const { hBatches, hBatchInputs } = await import("../../../drizzle/schema");
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../../drizzle/schema/schema_recipe_new");
+
+  // ★ 2026-05-10 (PR #299): 혼합 mfReport 차단 (생산은 단품만)
+  try {
+    const [mfRow] = await db
+      .select({ reportType: hMfReports.reportType, reportNo: hMfReports.reportNo })
+      .from(hMfReports)
+      .where(
+        and(
+          eq(hMfReports.productId, batch.productId),
+          eq(hMfReports.tenantId, batch.tenantId),
+          eq(hMfReports.status, "ACTIVE"),
+        ),
+      )
+      .limit(1);
+    if (mfRow && mfRow.reportType === "MIXED") {
+      throw new Error(
+        `[혼합 제품] 이 제품 (보고서 ${mfRow.reportNo}) 은 혼합 SKU 로 등록되어 있어 생산 단위가 아닙니다. ` +
+          `각 단품을 별도로 생산하세요. 혼합은 매출 출고 시 자동 분해됩니다.`,
+      );
+    }
+  } catch (err: any) {
+    if (err?.message?.includes("[혼합 제품]")) throw err;
+    // 다른 조회 에러는 silent — batch 생성 계속 진행
+  }
 
   // Format dates as MySQL-compatible strings (KST 기준, UTC 변환 방지)
   const pd = batch.plannedDate;
