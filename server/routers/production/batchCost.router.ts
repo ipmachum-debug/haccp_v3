@@ -149,4 +149,29 @@ export const batchCostRouter = router({
       const { calculateBatchCost } = await import("../../db/production/batchCostCalculation");
       return await calculateBatchCost(input.batchId, ctx.tenantId);
     }),
+
+  // ★ 2026-05-09 (PR #295): 제품당 원가 변화 시계열
+  // - 제품 선택 → 모든 배치 시간순 + kg당 원가 + 평균/최저/최고
+  // - 배치비용분석 화면 신규 그래프
+  getProductCostTrend: tenantRequiredProcedure
+    .input(
+      z.object({
+        productId: z.number(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional(),
+        limit: z.number().optional(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const { getProductCostTrend } = await import("../../db/production/batchCostAnalysis");
+      return await getProductCostTrend(
+        {
+          productId: input.productId,
+          startDate: input.startDate ? new Date(input.startDate) : undefined,
+          endDate: input.endDate ? new Date(input.endDate) : undefined,
+          limit: input.limit,
+        },
+        ctx.tenantId,
+      );
+    }),
 });
