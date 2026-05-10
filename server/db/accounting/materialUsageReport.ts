@@ -200,15 +200,16 @@ export async function getMaterialUsageReport(
        b.id AS batch_id,
        b.batch_code,
        b.product_id,
-       COALESCE(p.product_code, '') AS product_code,
-       COALESCE(p.product_name, '') AS product_name,
+       COALESCE(p.product_code, im.item_code, '') AS product_code,
+       COALESCE(p.product_name, im.item_name, '') AS product_name,
        DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
        b.actual_quantity,
        COALESCE(b.planned_quantity, 0) AS planned_quantity,
        b.status,
-       COALESCE(p.unit, 'kg') AS unit
+       COALESCE(p.unit, im.base_unit, 'kg') AS unit
      FROM h_batches b
      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+     LEFT JOIN item_master im ON im.id = b.product_id AND im.tenant_id = b.tenant_id AND im.item_type IN ('own_product','external_product')
      WHERE b.tenant_id = ?
        AND b.planned_date BETWEEN ? AND ?
        AND b.status IN ('completed','approved','shipped','archived')
@@ -263,17 +264,19 @@ export async function getMaterialUsageReport(
          bi.batch_id,
          DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
          bi.material_id,
-         COALESCE(m.material_code, '') AS material_code,
-         COALESCE(m.material_name, '') AS material_name,
+         COALESCE(m.material_code, im.item_code, '') AS material_code,
+         COALESCE(m.material_name, im.item_name, '') AS material_name,
          ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity, 0), 3) AS quantity,
-         COALESCE(bi.unit, m.unit, 'kg') AS unit
+         COALESCE(bi.unit, m.unit, im.base_unit, 'kg') AS unit
        FROM h_batch_inputs bi
        JOIN h_batches b ON b.id = bi.batch_id AND b.tenant_id = bi.tenant_id
-       JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
        WHERE bi.tenant_id = ?
          AND bi.batch_id IN (${ph})
-         AND m.material_name NOT LIKE '%정제수%'
-       ORDER BY b.planned_date ASC, m.material_name ASC`,
+         AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         AND COALESCE(m.material_name, im.item_name) IS NOT NULL
+       ORDER BY b.planned_date ASC, COALESCE(m.material_name, im.item_name) ASC`,
       [tenantId, ...batchIds],
     );
     inputRows = getRows<InputRow>(inputsResult);
@@ -485,25 +488,32 @@ export async function getMaterialUsageReport(
       material_unit: string;
       mat_qty: number;
     }
+    // ★ 2026-05-09 hotfix: 듀얼 lookup — h_materials/h_products_v2 미등록 ID 는 item_master 폴백
+    // 증상: 원료수불 보고서 "제품별 원재료 사용 내역" 의 원재료명이 빈 칸으로 표시
+    // 원인: bi.material_id 가 item_master.id (256, 263~298 등) 인데 h_materials 에는 매칭 row 없음
+    //       → m.material_name NULL → COALESCE(.., '') = '' (빈 문자열)
+    // 처치: item_master LEFT JOIN 추가 + COALESCE 폴백 (PR #278 패턴 확장)
     const pmuResult: any = await db.execute(
       `SELECT
          b.product_id,
-         COALESCE(p.product_code, '') AS product_code,
-         COALESCE(p.product_name, '') AS product_name,
-         COALESCE(p.unit, 'kg') AS product_unit,
+         COALESCE(p.product_code, imp.item_code, '') AS product_code,
+         COALESCE(p.product_name, imp.item_name, '') AS product_name,
+         COALESCE(p.unit, imp.base_unit, 'kg') AS product_unit,
          COALESCE(b.actual_quantity, b.planned_quantity, 0) AS batch_qty,
          bi.material_id,
-         COALESCE(m.material_name, '') AS material_name,
-         COALESCE(bi.unit, m.unit, 'kg') AS material_unit,
+         COALESCE(m.material_name, imm.item_name, '') AS material_name,
+         COALESCE(bi.unit, m.unit, imm.base_unit, 'kg') AS material_unit,
          COALESCE(bi.actual_quantity, bi.planned_quantity, 0) AS mat_qty
        FROM h_batches b
        LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+       LEFT JOIN item_master imp ON imp.id = b.product_id AND imp.tenant_id = b.tenant_id AND imp.item_type IN ('own_product','external_product')
        LEFT JOIN h_batch_inputs bi ON bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
        LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN item_master imm ON imm.id = bi.material_id AND imm.tenant_id = bi.tenant_id AND imm.item_type = 'raw_material'
        WHERE b.tenant_id = ?
          AND b.id IN (${ph2})
-         AND (m.material_name IS NULL OR m.material_name NOT LIKE '%정제수%')
-       ORDER BY p.product_name, m.material_name`,
+         AND COALESCE(m.material_name, imm.item_name) NOT LIKE '%정제수%'
+       ORDER BY COALESCE(p.product_name, imp.item_name), COALESCE(m.material_name, imm.item_name)`,
       [tenantId, ...batchIds],
     );
     const pmuRows: PMURow[] = (pmuResult?.[0] as PMURow[]) || [];
