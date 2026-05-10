@@ -1,6 +1,7 @@
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { getDb } from "../connection";
 import { hBatches, hBatchInputs, hMaterials } from "../../../drizzle/schema";
+import { itemMaster } from "../../../drizzle/schema/schema_dual_unit";
 
 import { formatLocalDate } from "../../utils/timezone";
 
@@ -73,6 +74,9 @@ export async function getBatchCostAnalysis(params: {
     conditions.push(lte(hBatches.plannedDate, endDate));
   }
 
+  // ★ 2026-05-09 (PR #295): h_batches.actualCost 가 NULL 이면 batch_inputs SUM(unitPrice × quantity) 폴백
+  // 신규 배치 다수가 actualCost NULL (autoApprove 경로 등) → 화면에 "-" 표시 사고
+  // 폴백 단가: lot_unit_price → h_materials.unit_price → item_master.default_unit_price → 0
   const batches = await db
     .select({
       batchId: hBatches.id,
@@ -80,7 +84,24 @@ export async function getBatchCostAnalysis(params: {
       productId: hBatches.productId,
       plannedDate: hBatches.plannedDate,
       plannedCost: hBatches.plannedCost,
-      actualCost: hBatches.actualCost
+      actualCost: hBatches.actualCost,
+      // 폴백용 SUM (h_batches.actualCost 0/NULL 일 때만 사용)
+      computedActualCost: sql<number>`COALESCE((
+        SELECT SUM(
+          COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
+          * COALESCE(
+              bi.unit_price,
+              m.unit_price,
+              im.default_unit_price,
+              0
+            )
+        )
+        FROM h_batch_inputs bi
+        LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+        LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
+        WHERE bi.batch_id = h_batches.id AND bi.tenant_id = h_batches.tenant_id
+          AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+      ), 0)`.as("computed_actual_cost"),
     })
     .from(hBatches)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -89,7 +110,10 @@ export async function getBatchCostAnalysis(params: {
 
   return batches.map((batch) => {
     const plannedCost = Number(batch.plannedCost || 0);
-    const actualCost = Number(batch.actualCost || 0);
+    const dbActualCost = Number(batch.actualCost || 0);
+    const computedCost = Number((batch as any).computedActualCost || 0);
+    // h_batches.actualCost 가 0 이거나 NULL 이면 계산값 사용
+    const actualCost = dbActualCost > 0 ? dbActualCost : computedCost;
     const costDifference = actualCost - plannedCost;
     const costDifferencePercent =
       plannedCost > 0 ? (costDifference / plannedCost) * 100 : 0;
@@ -123,19 +147,25 @@ export async function getBatchMaterialCostBreakdown(
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // h_batch_inputs.unitPrice (FEFO LOT 실제단가) 우선, 없으면 h_materials.unitPrice (마스터 단가) 폴백
+  // ★ 2026-05-09 (PR #295): 듀얼 lookup — h_materials 미등록 (item_master.id=256, 263+) 도 표시
+  // 단가도 item_master.default_unit_price 폴백 — newer batches 의 cost=0 사고 차단
+  // h_batch_inputs.unitPrice (FEFO LOT 실제단가) 우선, 없으면 master 단가 폴백
   const batchInputs = await db
     .select({
       materialId: hBatchInputs.materialId,
-      materialName: hMaterials.materialName,
+      materialName: sql<string>`COALESCE(${hMaterials.materialName}, ${itemMaster.itemName})`.as("material_name"),
       plannedQuantity: hBatchInputs.plannedQuantity,
       actualQuantity: hBatchInputs.actualQuantity,
-      lotUnitPrice: hBatchInputs.unitPrice,       // FEFO LOT 실제단가
-      lotTotalPrice: hBatchInputs.totalPrice,      // FEFO LOT 실제원가
-      masterUnitPrice: hMaterials.unitPrice         // 마스터 단가 (폴백)
+      lotUnitPrice: hBatchInputs.unitPrice,
+      lotTotalPrice: hBatchInputs.totalPrice,
+      masterUnitPrice: sql<string>`COALESCE(${hMaterials.unitPrice}, ${itemMaster.defaultUnitPrice})`.as("master_unit_price"),
     })
     .from(hBatchInputs)
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
+    .leftJoin(itemMaster, and(
+      eq(itemMaster.id, hBatchInputs.materialId),
+      eq(itemMaster.itemType, "raw_material"),
+    ))
     .where(eq(hBatchInputs.batchId, batchId));
 
   return batchInputs.map((input) => {
@@ -416,4 +446,152 @@ function getWeekNumber(date: Date): number {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+/**
+ * ★ 2026-05-09 (PR #295): 제품당 원가 변화 시계열
+ *
+ * 특정 제품의 모든 배치를 시간순으로 정렬하고
+ * 각 배치의 kg당 재료원가를 반환 — 단가 변동 추적 + 차트 표시용.
+ *
+ * 듀얼 lookup 적용 (h_materials + item_master 폴백).
+ * actualCost NULL 시 batch_inputs SUM 자동 계산.
+ */
+export interface ProductCostTrendPoint {
+  batchId: number;
+  batchCode: string;
+  plannedDate: string; // YYYY-MM-DD
+  actualQuantityKg: number;
+  totalMaterialCost: number;
+  costPerKg: number;
+}
+
+export async function getProductCostTrend(
+  params: {
+    productId: number;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+  },
+  tenantId: number,
+): Promise<{
+  productId: number;
+  productName: string | null;
+  points: ProductCostTrendPoint[];
+  summary: {
+    avgCostPerKg: number;
+    minCostPerKg: number;
+    maxCostPerKg: number;
+    totalBatches: number;
+    totalProductionKg: number;
+    totalMaterialCost: number;
+  };
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+
+  const { productId, startDate, endDate, limit = 200 } = params;
+
+  // 제품명 조회 (듀얼 lookup)
+  const { getRawConnection } = await import("../connection");
+  const conn = await getRawConnection();
+  let productName: string | null = null;
+  try {
+    const [rows]: any = await conn.execute(
+      `SELECT COALESCE(p.product_name, im.item_name) AS product_name
+       FROM (SELECT ? AS pid, ? AS tid) q
+       LEFT JOIN h_products_v2 p ON p.id = q.pid AND p.tenant_id = q.tid
+       LEFT JOIN item_master im ON im.id = q.pid AND im.tenant_id = q.tid AND im.item_type IN ('own_product','external_product')
+       LIMIT 1`,
+      [productId, tenantId],
+    );
+    productName = (rows as any[])[0]?.product_name ?? null;
+  } catch {
+    /* ignore — 이름은 폴백 시 null */
+  }
+
+  // 배치 + 원가 (듀얼 lookup + actualCost 폴백)
+  const dateFilter = [];
+  const params_arr: any[] = [tenantId, productId];
+  if (startDate) {
+    dateFilter.push("AND b.planned_date >= ?");
+    params_arr.push(formatLocalDate(startDate));
+  }
+  if (endDate) {
+    dateFilter.push("AND b.planned_date <= ?");
+    params_arr.push(formatLocalDate(endDate));
+  }
+  params_arr.push(limit);
+
+  const [rows]: any = await conn.execute(
+    `SELECT
+       b.id AS batch_id,
+       b.batch_code,
+       DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
+       COALESCE(b.actual_quantity, b.planned_quantity, 0) AS actual_qty_kg,
+       COALESCE(NULLIF(b.actual_cost, 0), (
+         SELECT SUM(
+           COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
+           * COALESCE(
+               bi.unit_price,
+               m.unit_price,
+               im.default_unit_price,
+               0
+             )
+         )
+         FROM h_batch_inputs bi
+         LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+         LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
+         WHERE bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
+           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+       ), 0) AS total_material_cost
+     FROM h_batches b
+     WHERE b.tenant_id = ?
+       AND b.product_id = ?
+       AND b.status IN ('completed','approved','shipped','archived')
+       ${dateFilter.join(" ")}
+     ORDER BY b.planned_date ASC, b.id ASC
+     LIMIT ?`,
+    params_arr,
+  );
+
+  const points: ProductCostTrendPoint[] = ((rows as any[]) || []).map((r) => {
+    const qtyKg = Number(r.actual_qty_kg) || 0;
+    const totalCost = Number(r.total_material_cost) || 0;
+    return {
+      batchId: Number(r.batch_id),
+      batchCode: String(r.batch_code || ""),
+      plannedDate: String(r.planned_date),
+      actualQuantityKg: Math.round(qtyKg * 1000) / 1000,
+      totalMaterialCost: Math.round(totalCost),
+      costPerKg: qtyKg > 0 ? Math.round(totalCost / qtyKg) : 0,
+    };
+  });
+
+  // 집계
+  const validPoints = points.filter((p) => p.costPerKg > 0);
+  const totalProduction = points.reduce((s, p) => s + p.actualQuantityKg, 0);
+  const totalCost = points.reduce((s, p) => s + p.totalMaterialCost, 0);
+  const avg =
+    validPoints.length > 0
+      ? validPoints.reduce((s, p) => s + p.costPerKg, 0) / validPoints.length
+      : 0;
+  const min =
+    validPoints.length > 0 ? Math.min(...validPoints.map((p) => p.costPerKg)) : 0;
+  const max =
+    validPoints.length > 0 ? Math.max(...validPoints.map((p) => p.costPerKg)) : 0;
+
+  return {
+    productId,
+    productName,
+    points,
+    summary: {
+      avgCostPerKg: Math.round(avg),
+      minCostPerKg: min,
+      maxCostPerKg: max,
+      totalBatches: points.length,
+      totalProductionKg: Math.round(totalProduction * 1000) / 1000,
+      totalMaterialCost: Math.round(totalCost),
+    },
+  };
 }

@@ -6,8 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { Eye, AlertTriangle, Droplets } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LineChart, Line, Legend } from "recharts";
+import { Eye, AlertTriangle, Droplets, TrendingUp } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -199,6 +200,9 @@ export default function BatchCostAnalysisDashboard() {
             </Card>
           )}
 
+          {/* ★ 2026-05-09 (PR #295): 제품당 원가 변화 그래프 */}
+          <ProductCostTrendCard startDate={startDate} endDate={endDate} batches={filteredBatches} />
+
           {/* 배치별 상세 원가 테이블 */}
           <Card>
             <CardHeader>
@@ -354,5 +358,213 @@ export default function BatchCostAnalysisDashboard() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ============================================================
+// PR #295 — 제품당 원가 변화 그래프
+// ============================================================
+function ProductCostTrendCard({
+  startDate,
+  endDate,
+  batches,
+}: {
+  startDate: string;
+  endDate: string;
+  batches: any[];
+}) {
+  // 후보 제품 (현재 화면 batches 에서 distinct + 빈 productId 제외)
+  const productOptions = (() => {
+    const map = new Map<number, string>();
+    for (const b of batches) {
+      if (b.productId && !map.has(b.productId)) {
+        map.set(b.productId, b.productName || `제품#${b.productId}`);
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  })();
+
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+
+  // 자동 선택: 첫 번째 제품
+  if (productOptions.length > 0 && selectedProductId === null) {
+    setSelectedProductId(productOptions[0].id);
+  }
+
+  const { data: trend, isLoading } = trpc.batchCost.getProductCostTrend.useQuery(
+    {
+      productId: selectedProductId!,
+      startDate,
+      endDate,
+      limit: 100,
+    },
+    { enabled: !!selectedProductId },
+  );
+
+  const points = trend?.points ?? [];
+  const summary = trend?.summary;
+
+  // 차트 데이터 — 평균선 같이 표시
+  const chartData = points.map((p) => ({
+    date: p.plannedDate,
+    배치코드: p.batchCode,
+    "kg당 원가": p.costPerKg,
+    평균: summary?.avgCostPerKg ?? 0,
+  }));
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" /> 제품당 원가 변화 추이
+            </CardTitle>
+            <CardDescription>
+              제품 선택 시 모든 배치를 시간순 + kg당 원가 변동 그래프
+            </CardDescription>
+          </div>
+          <div className="w-64">
+            <Select
+              value={selectedProductId?.toString() || ""}
+              onValueChange={(v) => setSelectedProductId(parseInt(v) || null)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="제품 선택..." />
+              </SelectTrigger>
+              <SelectContent>
+                {productOptions.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {!selectedProductId ? (
+          <div className="py-8 text-center text-muted-foreground text-sm">
+            제품을 선택하세요
+          </div>
+        ) : isLoading ? (
+          <div className="py-8 text-center text-muted-foreground text-sm">로딩 중...</div>
+        ) : points.length === 0 ? (
+          <div className="py-8 text-center text-muted-foreground text-sm">
+            선택한 기간 동안 이 제품의 배치 데이터가 없습니다
+          </div>
+        ) : (
+          <>
+            {/* 요약 */}
+            {summary && (
+              <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-5">
+                <div className="rounded border p-2">
+                  <div className="text-[10px] text-muted-foreground">총 배치</div>
+                  <div className="font-semibold">{summary.totalBatches}건</div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-[10px] text-muted-foreground">총 생산량</div>
+                  <div className="font-semibold">{summary.totalProductionKg.toLocaleString()} kg</div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-[10px] text-muted-foreground">평균 kg당</div>
+                  <div className="font-semibold text-blue-600">
+                    ₩{summary.avgCostPerKg.toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-[10px] text-muted-foreground">최저 kg당</div>
+                  <div className="font-semibold text-green-600">
+                    ₩{summary.minCostPerKg.toLocaleString()}
+                  </div>
+                </div>
+                <div className="rounded border p-2">
+                  <div className="text-[10px] text-muted-foreground">최고 kg당</div>
+                  <div className="font-semibold text-red-600">
+                    ₩{summary.maxCostPerKg.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* 그래프 */}
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => `₩${(v / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(value: any, name: string) =>
+                    name === "kg당 원가" || name === "평균"
+                      ? [`₩${Number(value).toLocaleString()}`, name]
+                      : [value, name]
+                  }
+                  labelFormatter={(label, items) => {
+                    const code = (items as any)?.[0]?.payload?.배치코드;
+                    return code ? `${label} (${code})` : label;
+                  }}
+                />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="kg당 원가"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="평균"
+                  stroke="#9ca3af"
+                  strokeWidth={1}
+                  strokeDasharray="5 5"
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* 배치 리스트 테이블 (간략) */}
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                배치별 상세 ({points.length}건)
+              </summary>
+              <Table className="mt-2">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">배치코드</TableHead>
+                    <TableHead className="text-xs">생산일</TableHead>
+                    <TableHead className="text-xs text-right">생산량(kg)</TableHead>
+                    <TableHead className="text-xs text-right">총 재료원가</TableHead>
+                    <TableHead className="text-xs text-right">kg당</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {points.map((p) => (
+                    <TableRow key={p.batchId}>
+                      <TableCell className="text-xs font-mono">{p.batchCode}</TableCell>
+                      <TableCell className="text-xs">{p.plannedDate}</TableCell>
+                      <TableCell className="text-xs text-right">
+                        {p.actualQuantityKg.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-xs text-right">
+                        ₩{p.totalMaterialCost.toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-xs text-right font-semibold">
+                        ₩{p.costPerKg.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </details>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
