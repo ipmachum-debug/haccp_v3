@@ -198,12 +198,13 @@ export const processGroupsRouter = router({
           // ★ CCP-4P(금속검출): 수동 매핑 (ccp_process_group_products 테이블)
           const [rows] = await db.execute(
             sql`SELECT gp.id, gp.process_group_id, gp.product_id, gp.created_at,
-                p.product_name,
+                COALESCE(p.product_name, im.item_name) AS product_name,
                 'MANUAL' as mapping_source
               FROM ccp_process_group_products gp
-              JOIN h_products_v2 p ON gp.product_id = p.id
+              LEFT JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
+              LEFT JOIN item_master im ON im.id = gp.product_id AND im.tenant_id = gp.tenant_id AND im.item_type IN ('own_product','external_product')
               WHERE gp.tenant_id = ${tenantId} AND gp.process_group_id = ${input.processGroupId}
-              ORDER BY p.product_name`
+              ORDER BY COALESCE(p.product_name, im.item_name)`
           );
           return rows as unknown as any[];
         } else {
@@ -211,15 +212,16 @@ export const processGroupsRouter = router({
           const [rows] = await db.execute(
             sql`SELECT DISTINCT
                 r.product_id,
-                p.product_name,
+                COALESCE(p.product_name, im.item_name) AS product_name,
                 'BOM' as mapping_source
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id
+              LEFT JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+              LEFT JOIN item_master im ON im.id = r.product_id AND im.tenant_id = r.tenant_id AND im.item_type IN ('own_product','external_product')
               WHERE i.process_group_id = ${input.processGroupId}
                 AND r.tenant_id = ${tenantId}
-              ORDER BY p.product_name`
+              ORDER BY COALESCE(p.product_name, im.item_name)`
           );
           return (rows as unknown as any[]).map((r: any) => ({
             ...r,
@@ -231,14 +233,15 @@ export const processGroupsRouter = router({
           // CCP-4P: 수동 매핑 조회
           const [rows] = await db.execute(
             sql`SELECT gp.id, gp.process_group_id, gp.product_id, gp.created_at,
-                p.product_name,
+                COALESCE(p.product_name, im.item_name) AS product_name,
                 g.name as group_name, g.ccp_type,
                 'MANUAL' as mapping_source
               FROM ccp_process_group_products gp
-              JOIN h_products_v2 p ON gp.product_id = p.id
+              LEFT JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
+              LEFT JOIN item_master im ON im.id = gp.product_id AND im.tenant_id = gp.tenant_id AND im.item_type IN ('own_product','external_product')
               JOIN ccp_process_groups g ON gp.process_group_id = g.id
               WHERE gp.tenant_id = ${tenantId} AND g.ccp_type = 'CCP-4P'
-              ORDER BY g.name, p.product_name`
+              ORDER BY g.name, COALESCE(p.product_name, im.item_name)`
           );
           return rows as unknown as any[];
         } else {
@@ -246,7 +249,7 @@ export const processGroupsRouter = router({
           const [rows] = await db.execute(
             sql`SELECT DISTINCT
                 r.product_id,
-                p.product_name,
+                COALESCE(p.product_name, im.item_name) AS product_name,
                 g.id as process_group_id,
                 g.name as group_name,
                 g.ccp_type,
@@ -254,11 +257,12 @@ export const processGroupsRouter = router({
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id
+              LEFT JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+              LEFT JOIN item_master im ON im.id = r.product_id AND im.tenant_id = r.tenant_id AND im.item_type IN ('own_product','external_product')
               JOIN ccp_process_groups g ON i.process_group_id = g.id
               WHERE r.tenant_id = ${tenantId}
                 AND g.ccp_type = ${input.ccpType}
-              ORDER BY g.name, p.product_name`
+              ORDER BY g.name, COALESCE(p.product_name, im.item_name)`
           );
           return rows as unknown as any[];
         }
@@ -267,7 +271,7 @@ export const processGroupsRouter = router({
         const [bomRows] = await db.execute(
           sql`SELECT DISTINCT
               r.product_id,
-              p.product_name,
+              COALESCE(p.product_name, im.item_name) AS product_name,
               g.id as process_group_id,
               g.name as group_name,
               g.ccp_type,
@@ -275,24 +279,26 @@ export const processGroupsRouter = router({
             FROM h_mf_reports r
             JOIN h_mf_report_versions v ON v.mf_report_id = r.id
             JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-            JOIN h_products_v2 p ON r.product_id = p.id
+            LEFT JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+            LEFT JOIN item_master im ON im.id = r.product_id AND im.tenant_id = r.tenant_id AND im.item_type IN ('own_product','external_product')
             JOIN ccp_process_groups g ON i.process_group_id = g.id
             WHERE r.tenant_id = ${tenantId}
-            ORDER BY g.ccp_type, g.name, p.product_name`
+            ORDER BY g.ccp_type, g.name, COALESCE(p.product_name, im.item_name)`
         );
 
         const [manualRows] = await db.execute(
           sql`SELECT gp.product_id,
-              p.product_name,
+              COALESCE(p.product_name, im.item_name) AS product_name,
               g.id as process_group_id,
               g.name as group_name,
               g.ccp_type,
               'MANUAL' as mapping_source
             FROM ccp_process_group_products gp
-            JOIN h_products_v2 p ON gp.product_id = p.id
+            LEFT JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
+            LEFT JOIN item_master im ON im.id = gp.product_id AND im.tenant_id = gp.tenant_id AND im.item_type IN ('own_product','external_product')
             JOIN ccp_process_groups g ON gp.process_group_id = g.id
             WHERE gp.tenant_id = ${tenantId} AND g.ccp_type = 'CCP-4P'
-            ORDER BY g.name, p.product_name`
+            ORDER BY g.name, COALESCE(p.product_name, im.item_name)`
         );
 
         return [...(bomRows as unknown as any[]), ...(manualRows as unknown as any[])];
@@ -509,10 +515,12 @@ export const processGroupsRouter = router({
 
       const [rows] = await db.execute(
         sql`SELECT m.id, m.product_id, m.process_type, m.time_profile_id, m.created_at, m.updated_at,
-            p.product_name, p.process_flags,
+            COALESCE(p.product_name, im.item_name) AS product_name,
+            p.process_flags,
             tp.profile_name, tp.time_minutes, tp.ccp_process_group_id
           FROM ccp_product_time_profile_map m
-          JOIN h_products_v2 p ON m.product_id = p.id
+          LEFT JOIN h_products_v2 p ON m.product_id = p.id AND p.tenant_id = m.tenant_id
+          LEFT JOIN item_master im ON im.id = m.product_id AND im.tenant_id = m.tenant_id AND im.item_type IN ('own_product','external_product')
           JOIN ccp_time_profiles tp ON m.time_profile_id = tp.id
           WHERE m.tenant_id = ${tenantId}${extraWhere}
           ORDER BY p.product_name, m.process_type`

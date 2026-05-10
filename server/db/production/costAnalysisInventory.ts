@@ -62,9 +62,10 @@ export async function getProfitabilityTrendByMonth(startDate?: Date, endDate?: D
       totalRevenue: sql<number>`SUM(CAST(${hBatches.revenue} AS DECIMAL(15,2)))`,
       totalCost: sql<number>`
         COALESCE(SUM(
-          (SELECT SUM(CAST(bi.quantity AS DECIMAL(15,2)) * CAST(m.unit_price AS DECIMAL(15,2)))
+          (SELECT SUM(CAST(bi.quantity AS DECIMAL(15,2)) * CAST(COALESCE(m.unit_price, im.default_unit_price, 0) AS DECIMAL(15,2)))
            FROM h_batch_inputs bi
-           JOIN h_materials m ON bi.material_id = m.id
+           LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+           LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
            WHERE bi.batch_id = ${hBatches.id})
         ), 0)
       `,
@@ -112,9 +113,10 @@ export async function getProfitabilityTrendByQuarter(startDate?: Date, endDate?:
       totalRevenue: sql<number>`SUM(CAST(${hBatches.revenue} AS DECIMAL(15,2)))`,
       totalCost: sql<number>`
         COALESCE(SUM(
-          (SELECT SUM(CAST(bi.quantity AS DECIMAL(15,2)) * CAST(m.unit_price AS DECIMAL(15,2)))
+          (SELECT SUM(CAST(bi.quantity AS DECIMAL(15,2)) * CAST(COALESCE(m.unit_price, im.default_unit_price, 0) AS DECIMAL(15,2)))
            FROM h_batch_inputs bi
-           JOIN h_materials m ON bi.material_id = m.id
+           LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+           LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
            WHERE bi.batch_id = ${hBatches.id})
         ), 0)
       `,

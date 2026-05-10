@@ -367,13 +367,17 @@ async function predictExpiryRisk(tenantId: number): Promise<Prediction[]> {
   const predictions: Prediction[] = [];
 
   // 소비기한 임박 재고 (14일 이내)
+  // ★ 2026-05-09 (PR #278): 듀얼 lookup — h_materials 폴백 (item_master.raw_material)
   const [rows] = await conn.execute(
-    `SELECT m.material_name as name, inv.total_quantity as quantity, inv.unit,
+    `SELECT COALESCE(m.material_name, im.item_name) as name,
+            inv.total_quantity as quantity, inv.unit,
             CURDATE() as expiry_date,
             0 as daysLeft
      FROM h_inventory inv
-     JOIN h_materials m ON m.id = inv.material_id
+     LEFT JOIN h_materials m ON m.id = inv.material_id AND m.tenant_id = inv.tenant_id
+     LEFT JOIN item_master im ON im.id = inv.material_id AND im.tenant_id = inv.tenant_id AND im.item_type = 'raw_material'
      WHERE inv.tenant_id = ? AND inv.total_quantity > 0
+       AND COALESCE(m.material_name, im.item_name) IS NOT NULL
      ORDER BY inv.total_quantity ASC
      LIMIT 20`,
     [tenantId]

@@ -263,17 +263,19 @@ export async function getMaterialUsageReport(
          bi.batch_id,
          DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
          bi.material_id,
-         COALESCE(m.material_code, '') AS material_code,
-         COALESCE(m.material_name, '') AS material_name,
+         COALESCE(m.material_code, im.item_code, '') AS material_code,
+         COALESCE(m.material_name, im.item_name, '') AS material_name,
          ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity, 0), 3) AS quantity,
-         COALESCE(bi.unit, m.unit, 'kg') AS unit
+         COALESCE(bi.unit, m.unit, im.base_unit, 'kg') AS unit
        FROM h_batch_inputs bi
        JOIN h_batches b ON b.id = bi.batch_id AND b.tenant_id = bi.tenant_id
-       JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
        WHERE bi.tenant_id = ?
          AND bi.batch_id IN (${ph})
-         AND m.material_name NOT LIKE '%정제수%'
-       ORDER BY b.planned_date ASC, m.material_name ASC`,
+         AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         AND COALESCE(m.material_name, im.item_name) IS NOT NULL
+       ORDER BY b.planned_date ASC, COALESCE(m.material_name, im.item_name) ASC`,
       [tenantId, ...batchIds],
     );
     inputRows = getRows<InputRow>(inputsResult);
@@ -285,17 +287,19 @@ export async function getMaterialUsageReport(
            pmu.batch_id,
            DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
            pmu.material_id,
-           COALESCE(m.material_code, '') AS material_code,
-           COALESCE(m.material_name, '') AS material_name,
+           COALESCE(m.material_code, im.item_code, '') AS material_code,
+           COALESCE(m.material_name, im.item_name, '') AS material_name,
            ROUND(COALESCE(pmu.actual_quantity, pmu.planned_quantity, 0), 3) AS quantity,
-           COALESCE(pmu.unit, m.unit, 'kg') AS unit
+           COALESCE(pmu.unit, m.unit, im.base_unit, 'kg') AS unit
          FROM h_production_material_usage pmu
          JOIN h_batches b ON b.id = pmu.batch_id AND b.tenant_id = pmu.tenant_id
-         JOIN h_materials m ON m.id = pmu.material_id AND m.tenant_id = pmu.tenant_id
+         LEFT JOIN h_materials m ON m.id = pmu.material_id AND m.tenant_id = pmu.tenant_id
+         LEFT JOIN item_master im ON im.id = pmu.material_id AND im.tenant_id = pmu.tenant_id AND im.item_type = 'raw_material'
          WHERE pmu.tenant_id = ?
            AND pmu.batch_id IN (${ph})
-           AND m.material_name NOT LIKE '%정제수%'
-         ORDER BY b.planned_date ASC, m.material_name ASC`,
+           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           AND COALESCE(m.material_name, im.item_name) IS NOT NULL
+         ORDER BY b.planned_date ASC, COALESCE(m.material_name, im.item_name) ASC`,
         [tenantId, ...batchIds],
       );
       inputRows = getRows<InputRow>(pmuResult);
@@ -318,18 +322,20 @@ export async function getMaterialUsageReport(
       `SELECT
          d.ledger_date AS planned_date,
          d.material_id,
-         COALESCE(m.material_code, '') AS material_code,
-         COALESCE(m.material_name, '') AS material_name,
+         COALESCE(m.material_code, im.item_code, '') AS material_code,
+         COALESCE(m.material_name, im.item_name, '') AS material_name,
          ROUND(SUM(COALESCE(d.usage_qty, 0)), 3) AS quantity,
-         COALESCE(m.unit, 'kg') AS unit
+         COALESCE(m.unit, im.base_unit, 'kg') AS unit
        FROM material_ledger_daily d
-       JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+       LEFT JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+       LEFT JOIN item_master im ON im.id = d.material_id AND im.tenant_id = d.tenant_id AND im.item_type = 'raw_material'
        WHERE d.tenant_id = ?
          AND d.ledger_date BETWEEN ? AND ?
          AND COALESCE(d.usage_qty, 0) > 0
-         AND m.material_name NOT LIKE '%정제수%'
-       GROUP BY d.ledger_date, d.material_id, m.material_code, m.material_name, m.unit
-       ORDER BY d.ledger_date ASC, m.material_name ASC`,
+         AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         AND COALESCE(m.material_name, im.item_name) IS NOT NULL
+       GROUP BY d.ledger_date, d.material_id, material_code, material_name, unit
+       ORDER BY d.ledger_date ASC, material_name ASC`,
       [tenantId, start, end],
     );
     const ledgerRows = getRows<LedgerRow>(ledgerResult);

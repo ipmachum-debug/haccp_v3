@@ -242,13 +242,17 @@ export async function getMaterialUsageRanking(params: {
   const { tenantId, startDate, endDate, limit = 20 } = params;
   const priceMap = await getMaterialBestPrices(tenantId);
 
+  // ★ 2026-05-09 (PR #278): 듀얼 lookup — h_materials 폴백 (item_master.raw_material)
   let sql = `
-    SELECT bi.material_id, m.material_name, m.unit,
+    SELECT bi.material_id,
+           COALESCE(m.material_name, im.item_name) AS material_name,
+           COALESCE(m.unit, im.base_unit) AS unit,
            SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) as total_qty,
            COUNT(DISTINCT bi.batch_id) as batch_count
     FROM h_batch_inputs bi
     JOIN h_batches b ON bi.batch_id = b.id
-    JOIN h_materials m ON bi.material_id = m.id
+    LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+    LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
     WHERE b.tenant_id = ?
   `;
   const binds: any[] = [tenantId];
@@ -380,11 +384,15 @@ export async function getBatchMaterialDetail(params: {
   if ((batchRows as any[]).length === 0) throw new Error("Batch not found");
   const batch = (batchRows as any[])[0];
 
+  // ★ 2026-05-09 (PR #278): 듀얼 lookup — h_materials 폴백
   const [inputRows] = await conn.execute<any[]>(`
-    SELECT bi.material_id, m.material_name, m.unit,
+    SELECT bi.material_id,
+           COALESCE(m.material_name, im.item_name) AS material_name,
+           COALESCE(m.unit, im.base_unit) AS unit,
            COALESCE(bi.actual_quantity, bi.planned_quantity) as qty
     FROM h_batch_inputs bi
-    JOIN h_materials m ON bi.material_id = m.id
+    LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+    LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
     WHERE bi.batch_id = ?
     ORDER BY COALESCE(bi.actual_quantity, bi.planned_quantity) DESC
   `, [batchId]);

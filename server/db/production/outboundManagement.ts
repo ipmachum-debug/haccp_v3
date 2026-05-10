@@ -270,9 +270,9 @@ export async function getOutboundHistory(params?: {
         bi.id + 10000000 AS id,
         0 AS lotId,
         b.batch_code AS lotNumber,
-        m.material_name AS materialName,
+        COALESCE(m.material_name, im.item_name) AS materialName,
         ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
-        COALESCE(bi.unit, m.unit, 'kg') AS unit,
+        COALESCE(bi.unit, m.unit, im.base_unit, 'kg') AS unit,
         'batch' AS referenceType,
         bi.batch_id AS referenceId,
         'BATCH' AS sourceType,
@@ -283,7 +283,8 @@ export async function getOutboundHistory(params?: {
         'batch_input' AS dataSource
       FROM h_batch_inputs bi
       JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
-      JOIN h_materials m ON bi.material_id = m.id
+      LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+      LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
       WHERE ${biConditions.join(' AND ')}
         AND NOT EXISTS (
           SELECT 1 FROM h_inventory_transactions tx
@@ -430,10 +431,10 @@ export async function getConsumptionSummary(params: {
     (
       SELECT
         DATE(COALESCE(bi.input_time, b.start_time, b.created_at)) AS txDate,
-        m.material_name AS materialName,
+        COALESCE(m.material_name, im.item_name) AS materialName,
         bi.material_id AS materialId,
         ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
-        COALESCE(bi.unit, m.unit, 'kg') AS unit,
+        COALESCE(bi.unit, m.unit, im.base_unit, 'kg') AS unit,
         COALESCE(bi.unit_price, 0) AS unitCost,
         ROUND(COALESCE(bi.total_price, COALESCE(bi.actual_quantity, bi.planned_quantity) * COALESCE(bi.unit_price, 0)), 0) AS amount,
         'BATCH' AS sourceType,
@@ -448,7 +449,8 @@ export async function getConsumptionSummary(params: {
         'batch_input' AS dataSource
       FROM h_batch_inputs bi
       JOIN h_batches b ON bi.batch_id = b.id AND b.tenant_id = bi.tenant_id
-      JOIN h_materials m ON bi.material_id = m.id
+      LEFT JOIN h_materials m ON bi.material_id = m.id AND m.tenant_id = bi.tenant_id
+      LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
       WHERE bi.tenant_id = ${tenantId}
         AND b.status IN ('in_progress', 'completed')
         AND bi.inventory_deducted = 1

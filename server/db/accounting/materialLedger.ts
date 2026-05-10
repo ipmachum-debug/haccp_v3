@@ -572,11 +572,13 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
          COALESCE(SUM(l.stock_quantity * COALESCE(m.unit_price, 0)), 0) AS amt
        FROM h_inbound_lines l
        JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
-       JOIN h_materials m ON m.id = l.material_id AND m.tenant_id = l.tenant_id
+       LEFT JOIN h_materials m ON m.id = l.material_id AND m.tenant_id = l.tenant_id
+       LEFT JOIN item_master im ON im.id = l.material_id AND im.tenant_id = l.tenant_id AND im.item_type = 'raw_material'
        WHERE l.tenant_id = ?
          AND h.status = 'confirmed'
          AND h.inbound_date BETWEEN ? AND ?
-         AND m.material_name NOT LIKE '%정제수%'`,
+         AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         AND COALESCE(m.material_name, im.item_name) IS NOT NULL`,
       [tenantId, startDate, endDate],
     );
     const r = getRows<{ qty: number; amt: number }>(inbResult);
@@ -594,9 +596,11 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
            COALESCE(SUM(d.receiving_qty), 0) as qty,
            COALESCE(SUM(d.receiving_qty * COALESCE(m.unit_price, 0)), 0) as amt
          FROM material_ledger_daily d
-         JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+         LEFT JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+         LEFT JOIN item_master im ON im.id = d.material_id AND im.tenant_id = d.tenant_id AND im.item_type = 'raw_material'
          WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?
-           AND m.material_name NOT LIKE '%정제수%'`,
+           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           AND COALESCE(m.material_name, im.item_name) IS NOT NULL`,
         [tenantId, startDate, endDate],
       );
       const r = getRows<{ qty: number; amt: number }>(monthResult);
@@ -619,11 +623,13 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
          COALESCE(SUM(COALESCE(bi.actual_quantity, bi.planned_quantity, 0) * COALESCE(m.unit_price, 0)), 0) AS amt
        FROM h_batch_inputs bi
        JOIN h_batches b ON b.id = bi.batch_id AND b.tenant_id = bi.tenant_id
-       JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+       LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
        WHERE bi.tenant_id = ?
          AND b.planned_date BETWEEN ? AND ?
          AND b.status IN ('in_progress','completed','approved','shipped','archived')
-         AND m.material_name NOT LIKE '%정제수%'`,
+         AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+         AND COALESCE(m.material_name, im.item_name) IS NOT NULL`,
       [tenantId, startDate, endDate],
     );
     const r = getRows<{ qty: number; amt: number }>(usageResult);
@@ -642,10 +648,12 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
            COALESCE(SUM(COALESCE(pmu.actual_quantity, pmu.planned_quantity, 0) * COALESCE(m.unit_price, 0)), 0) AS amt
          FROM h_production_material_usage pmu
          JOIN h_batches b ON b.id = pmu.batch_id AND b.tenant_id = pmu.tenant_id
-         JOIN h_materials m ON m.id = pmu.material_id AND m.tenant_id = pmu.tenant_id
+         LEFT JOIN h_materials m ON m.id = pmu.material_id AND m.tenant_id = pmu.tenant_id
+         LEFT JOIN item_master im ON im.id = pmu.material_id AND im.tenant_id = pmu.tenant_id AND im.item_type = 'raw_material'
          WHERE pmu.tenant_id = ?
            AND b.planned_date BETWEEN ? AND ?
-           AND m.material_name NOT LIKE '%정제수%'`,
+           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           AND COALESCE(m.material_name, im.item_name) IS NOT NULL`,
         [tenantId, startDate, endDate],
       );
       const r = getRows<{ qty: number; amt: number }>(pmuResult);
@@ -664,9 +672,11 @@ export async function getDashboardSummary(tenantId: number, targetMonth?: string
            COALESCE(SUM(d.usage_qty), 0) as qty,
            COALESCE(SUM(d.usage_qty * COALESCE(m.unit_price, 0)), 0) as amt
          FROM material_ledger_daily d
-         JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+         LEFT JOIN h_materials m ON m.id = d.material_id AND m.tenant_id = d.tenant_id
+         LEFT JOIN item_master im ON im.id = d.material_id AND im.tenant_id = d.tenant_id AND im.item_type = 'raw_material'
          WHERE d.tenant_id = ? AND d.ledger_date >= ? AND d.ledger_date <= ?
-           AND m.material_name NOT LIKE '%정제수%'`,
+           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           AND COALESCE(m.material_name, im.item_name) IS NOT NULL`,
         [tenantId, startDate, endDate],
       );
       const r = getRows<{ qty: number; amt: number }>(mldResult);
