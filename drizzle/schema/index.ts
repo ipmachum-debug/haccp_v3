@@ -55,3 +55,5 @@ export * from "./support";
 export * from "./industryCode";
 export * from "./domainEvents";
 export * from "./capabilities";
+// PR #280 — SKU 번들 (혼합 제품: 다중 생산 → 1 SKU 출고)
+export * from "./skuBundles";
