@@ -210,4 +210,46 @@ export const skuBundleRouter = router({
         );
       return rows;
     }),
+
+  /**
+   * ★ PR #282 (Phase 3): parent SKU 의 가용 번들 수 + child 별 재고 분포 조회.
+   * 출고 화면에서 "최대 N box 가능" 표시용.
+   */
+  getAvailability: tenantRequiredProcedure
+    .input(z.object({ parentSkuId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      const { getBundleAvailability } = await import(
+        "../../lib/production/bundleStock.js"
+      );
+      const result = await getBundleAvailability(db, ctx.tenantId, input.parentSkuId);
+      return result;
+    }),
+
+  /**
+   * ★ PR #282 (Phase 3): parent N 단위 출고 시 child 차감 계획 미리보기.
+   * 부족 발생 시 hasShortage=true 로 경고 (block 아님 — 사용자 승인 정책).
+   */
+  previewDecomposition: tenantRequiredProcedure
+    .input(
+      z.object({
+        parentSkuId: z.number(),
+        parentQty: z.number().positive(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB 연결 실패");
+      const { previewBundleDecomposition } = await import(
+        "../../lib/production/bundleStock.js"
+      );
+      const result = await previewBundleDecomposition(
+        db,
+        ctx.tenantId,
+        input.parentSkuId,
+        input.parentQty,
+      );
+      return result;
+    }),
 });
