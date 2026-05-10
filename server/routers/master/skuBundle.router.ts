@@ -13,6 +13,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
 import { skuBundles } from "../../../drizzle/schema/skuBundles";
+import { skuAliases } from "../../../drizzle/schema/skuAliases";
 import { productSkus, itemMaster } from "../../../drizzle/schema/schema_dual_unit";
 
 export const skuBundleRouter = router({
@@ -32,6 +33,9 @@ export const skuBundleRouter = router({
           parentSkuId: skuBundles.parentSkuId,
           childSkuId: skuBundles.childSkuId,
           defaultRatio: skuBundles.defaultRatio,
+          // ★ PR #298: count + piece weight (HACCP 라벨용)
+          childPieces: skuBundles.childPieces,
+          childPieceWeightG: skuBundles.childPieceWeightG,
           sortOrder: skuBundles.sortOrder,
           // child SKU info
           childSkuCode: productSkus.skuCode,
@@ -77,6 +81,9 @@ export const skuBundleRouter = router({
             z.object({
               childSkuId: z.number(),
               defaultRatio: z.number().positive(),
+              // ★ PR #298: count + piece weight (HACCP 라벨용)
+              childPieces: z.number().int().positive().nullable().optional(),
+              childPieceWeightG: z.number().positive().nullable().optional(),
               sortOrder: z.number().optional(),
             }),
           )
@@ -151,6 +158,9 @@ export const skuBundleRouter = router({
             parentSkuId: input.parentSkuId,
             childSkuId: c.childSkuId,
             defaultRatio: c.defaultRatio.toString(),
+            // ★ PR #298: piece info (NULL 허용 — Option A 호환)
+            childPieces: c.childPieces ?? null,
+            childPieceWeightG: c.childPieceWeightG?.toString() ?? null,
             sortOrder: c.sortOrder ?? idx,
           })) as any,
         );
@@ -251,5 +261,41 @@ export const skuBundleRouter = router({
         input.parentQty,
       );
       return result;
+    }),
+
+  /**
+   * ★ PR #298 (Phase 5): 실제 출고 분해 + FEFO 차감 + bundle_lots INSERT.
+   * - parent LOT 신규 채번 (BLEND-YYYYMMDD-NNN)
+   * - 각 child SKU FEFO LOT 차감 (h_inventory_lots.available_quantity)
+   * - h_inventory_transactions 기록
+   * - bundle_lots INSERT (parent ↔ child LOT 매핑)
+   * - 트랜잭션 보장: 한 child SQL 실패 시 전체 ROLLBACK
+   */
+  applyOutbound: adminProcedure
+    .input(
+      z.object({
+        parentSkuId: z.number(),
+        parentQty: z.number().positive(),
+        outboundDate: z.string().min(10), // YYYY-MM-DD
+        referenceType: z.string().optional(),
+        referenceId: z.number().optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { withTransaction } = await import("../../db");
+      const { decomposeBundleOutbound } = await import(
+        "../../lib/production/decomposeBundleOutbound.js"
+      );
+      return withTransaction(async (conn: any) => {
+        return decomposeBundleOutbound(conn, {
+          parentSkuId: input.parentSkuId,
+          parentQty: input.parentQty,
+          outboundDate: input.outboundDate,
+          tenantId: ctx.tenantId,
+          referenceType: input.referenceType,
+          referenceId: input.referenceId,
+          userId: ctx.user.id,
+        });
+      });
     }),
 });

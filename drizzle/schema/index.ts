@@ -59,3 +59,5 @@ export * from "./capabilities";
 export * from "./skuBundles";
 // PR #283 — 번들 LOT 매핑 (parent LOT ↔ child LOT N:1, 회수 시뮬레이션)
 export * from "./bundleLots";
+// PR #298 — SKU 별칭 (Excel 일괄 등록 매칭용)
+export * from "./skuAliases";

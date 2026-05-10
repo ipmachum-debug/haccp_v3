@@ -1306,14 +1306,21 @@ function BundleCompositionDialog({
     })();
   }, [open, candidateItems.length, parentSku?.id]);
 
-  // 편집 상태
-  const [children, setChildren] = useState<Array<{ childSkuId: number; defaultRatio: number }>>([]);
+  // ★ PR #298: 편집 상태 — pieces + pieceWeightG 추가
+  const [children, setChildren] = useState<Array<{
+    childSkuId: number;
+    defaultRatio: number;
+    childPieces: number | null;
+    childPieceWeightG: number | null;
+  }>>([]);
   useEffect(() => {
     if (bundleData?.items) {
       setChildren(
         bundleData.items.map((b: any) => ({
           childSkuId: b.childSkuId,
           defaultRatio: Number(b.defaultRatio),
+          childPieces: b.childPieces ?? null,
+          childPieceWeightG: b.childPieceWeightG != null ? Number(b.childPieceWeightG) : null,
         })),
       );
     } else {
@@ -1321,7 +1328,27 @@ function BundleCompositionDialog({
     }
   }, [bundleData?.items]);
 
-  const totalRatio = children.reduce((s, c) => s + (Number(c.defaultRatio) || 0), 0);
+  // ★ PR #298: pieces × pieceG 입력 시 ratio 자동 계산
+  // parent SKU 의 1 단위 kg 기준 (예: parent 400g = 5×80g → 각 child 20%)
+  const totalGramFromPieces = children.reduce(
+    (s, c) =>
+      s +
+      (c.childPieces && c.childPieceWeightG ? c.childPieces * c.childPieceWeightG : 0),
+    0,
+  );
+  const allHavePieces = children.length > 0 && children.every((c) => c.childPieces && c.childPieceWeightG);
+  // pieces 모드: 자동 ratio = (pieces × pieceG) / total × 100
+  const childrenWithComputedRatio = allHavePieces && totalGramFromPieces > 0
+    ? children.map((c) => ({
+        ...c,
+        defaultRatio:
+          c.childPieces && c.childPieceWeightG
+            ? Math.round(((c.childPieces * c.childPieceWeightG) / totalGramFromPieces) * 100 * 100) / 100
+            : 0,
+      }))
+    : children;
+
+  const totalRatio = childrenWithComputedRatio.reduce((s, c) => s + (Number(c.defaultRatio) || 0), 0);
   const isValid = Math.abs(totalRatio - 100) < 0.01 && children.length >= 2;
 
   const setMutation = trpc.skuBundle.setBundleComposition.useMutation({
@@ -1344,7 +1371,10 @@ function BundleCompositionDialog({
   });
 
   const handleAdd = () => {
-    setChildren([...children, { childSkuId: 0, defaultRatio: 0 }]);
+    setChildren([
+      ...children,
+      { childSkuId: 0, defaultRatio: 0, childPieces: null, childPieceWeightG: null },
+    ]);
   };
 
   const handleRemove = (idx: number) => {
@@ -1379,9 +1409,12 @@ function BundleCompositionDialog({
     }
     setMutation.mutate({
       parentSkuId: parentSku.id,
-      children: children.map((c, idx) => ({
+      // ★ PR #298: pieces 입력 시 자동 계산된 ratio 우선 사용
+      children: childrenWithComputedRatio.map((c, idx) => ({
         childSkuId: c.childSkuId,
         defaultRatio: c.defaultRatio,
+        childPieces: c.childPieces ?? undefined,
+        childPieceWeightG: c.childPieceWeightG ?? undefined,
         sortOrder: idx,
       })),
     });
@@ -1408,13 +1441,25 @@ function BundleCompositionDialog({
             </div>
           )}
 
-          {/* child SKU 행 */}
+          {/* child SKU 행 — PR #298: pieces × pieceG 입력 시 ratio 자동 계산 */}
           <div className="space-y-2">
+            {/* 헤더 (한번만) */}
+            {children.length > 0 && (
+              <div className="grid grid-cols-[24px_1fr_60px_60px_80px_24px] items-center gap-2 px-2 text-[10px] font-medium text-muted-foreground">
+                <span>#</span>
+                <span>child SKU</span>
+                <span className="text-center">개수</span>
+                <span className="text-center">1개당(g)</span>
+                <span className="text-right">비율(%)</span>
+                <span></span>
+              </div>
+            )}
             {children.map((child, idx) => {
-              const skuOption = allSkus.find((s) => s.id === child.childSkuId);
+              const computedRatio = childrenWithComputedRatio[idx]?.defaultRatio ?? 0;
+              const usingPieces = !!(child.childPieces && child.childPieceWeightG);
               return (
-                <div key={idx} className="flex items-center gap-2 rounded border p-2">
-                  <span className="w-6 text-xs text-muted-foreground">{idx + 1}</span>
+                <div key={idx} className="grid grid-cols-[24px_1fr_60px_60px_80px_24px] items-center gap-2 rounded border p-2">
+                  <span className="text-xs text-muted-foreground">{idx + 1}</span>
                   <select
                     value={child.childSkuId || ""}
                     onChange={(e) => {
@@ -1422,7 +1467,7 @@ function BundleCompositionDialog({
                       next[idx].childSkuId = parseInt(e.target.value) || 0;
                       setChildren(next);
                     }}
-                    className="flex-1 rounded border px-2 py-1 text-sm"
+                    className="rounded border px-2 py-1 text-sm"
                   >
                     <option value="">child SKU 선택...</option>
                     {allSkus.map((sku) => (
@@ -1433,25 +1478,60 @@ function BundleCompositionDialog({
                   </select>
                   <Input
                     type="number"
-                    step="0.01"
-                    min="0"
-                    max="100"
-                    value={child.defaultRatio || ""}
+                    min="1"
+                    value={child.childPieces || ""}
                     onChange={(e) => {
                       const next = [...children];
-                      next[idx].defaultRatio = parseFloat(e.target.value) || 0;
+                      next[idx].childPieces = parseInt(e.target.value) || null;
                       setChildren(next);
                     }}
-                    className="w-24 text-right"
-                    placeholder="%"
+                    className="text-right text-xs"
+                    placeholder="개"
                   />
-                  <span className="text-xs text-muted-foreground">%</span>
-                  <Button variant="ghost" size="sm" onClick={() => handleRemove(idx)}>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={child.childPieceWeightG || ""}
+                    onChange={(e) => {
+                      const next = [...children];
+                      next[idx].childPieceWeightG = parseFloat(e.target.value) || null;
+                      setChildren(next);
+                    }}
+                    className="text-right text-xs"
+                    placeholder="g"
+                  />
+                  {usingPieces ? (
+                    <span className="text-right text-xs font-medium text-blue-600">
+                      {computedRatio.toFixed(2)}%
+                    </span>
+                  ) : (
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      value={child.defaultRatio || ""}
+                      onChange={(e) => {
+                        const next = [...children];
+                        next[idx].defaultRatio = parseFloat(e.target.value) || 0;
+                        setChildren(next);
+                      }}
+                      className="text-right text-xs"
+                      placeholder="%"
+                    />
+                  )}
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => handleRemove(idx)}>
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>
               );
             })}
+            {allHavePieces && totalGramFromPieces > 0 && (
+              <div className="rounded bg-blue-50 px-2 py-1 text-[10px] text-blue-900">
+                💡 개수 × 1개당(g) = 총 {totalGramFromPieces.toLocaleString()}g — 비율 자동 계산
+              </div>
+            )}
           </div>
 
           {/* 컨트롤 */}
