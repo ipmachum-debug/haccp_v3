@@ -543,10 +543,17 @@ export async function getProductCostTrend(
     dateFilter.push("AND b.planned_date <= ?");
     params_arr.push(formatLocalDate(endDate));
   }
-  // ★ mysql2 prepared statement 호환: LIMIT 정수 파라미터는 String 캐스팅 필요
-  //   (그대로 Number push 시 'Incorrect arguments to mysqld_stmt_execute' 에러 발생)
-  params_arr[params_arr.length - 1] = String(limit);
-  // tenant_id 와 product_id 도 안전을 위해 명시적으로 정규화 (Number 유지)
+  // ★ 2026-05-10 (LIMIT ER_MALFORMED_PACKET fix):
+  //   직전 시도: params_arr.push(limit) → 'Incorrect arguments to mysqld_stmt_execute'
+  //   1차 우회: params_arr[len-1] = String(limit) → 마지막 date param 을 덮어쓰는
+  //            잘못된 의미 + ER_MALFORMED_PACKET 까지 함께 발생
+  //            (다중 LEFT JOIN + TRIM + 서브쿼리 결합 시 mysql2 의 prepared
+  //             statement packet 직렬화가 깨지는 케이스로 확인됨)
+  //   확정 우회: LIMIT 값을 정수로 검증 후 SQL 본문에 직접 interpolate.
+  //   - SQL injection 안전: Math.floor + Number + clamp(1, 1000) 다중 검증
+  //   - tenant_id / product_id 는 prepared 파라미터로 유지 (Number 명시)
+  //   - date 파라미터는 그대로 prepared 유지
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 200)));
   params_arr[0] = Number(tenantId);
   params_arr[1] = Number(productId);
 
@@ -568,7 +575,8 @@ export async function getProductCostTrend(
   // ★ 2026-05-10 (PR #304 logging): 진입/결과/에러 명시 로깅
   console.log(
     `[getProductCostTrend] tenantId=${tenantId} productId=${productId} ` +
-    `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} limit=${limit}`,
+    `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} ` +
+    `limit=${safeLimit} (raw=${limit}) params=${JSON.stringify(params_arr)}`,
   );
   let rows: any[] = [];
   try {
@@ -618,7 +626,7 @@ export async function getProductCostTrend(
        AND b.status IN ('in_progress','completed','under_review','shipped','archived')
        ${dateFilter.join(" ")}
      ORDER BY b.planned_date ASC, b.id ASC
-     LIMIT ?`,
+     LIMIT ${safeLimit}`,
       params_arr,
     );
     rows = (r as any[]) || [];
