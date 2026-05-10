@@ -955,16 +955,21 @@ function WriterPendingBanner({ onGoToWriterTab }: { onGoToWriterTab?: () => void
   if (count === 0) return null;
 
   // 작성/수정 버튼 라우팅 — requestType 별로 작성 화면이 다름
+  // NOTE: 실제 라우트는 App.tsx 의 <Route path="/dashboard/batch/:id"> 이며
+  //       /dashboard/production/batch/:id 는 라우트가 없어서 404 가 났음.
+  //       CCP 기록지(ccp_form_record) 도 배치 상세 페이지에서 일괄 작성하므로
+  //       동일하게 /dashboard/batch/:id 로 보낸다 (RequestDetailDialog 와 동일).
   const editPathFor = (item: any): string => {
     const t = item.requestType || item.formType || "";
     const refId = item.referenceId || item.reference_id;
     // batch_production / batch_approval → 배치 상세 페이지
     if (t === "batch_production" || t === "batch_approval") {
-      return refId ? `/dashboard/production/batch/${refId}` : `/dashboard/production`;
+      return refId ? `/dashboard/batch/${refId}` : `/dashboard/batch-management`;
     }
     // CCP 기록지 (ccp_form_record / CCP-1P 등 ccp_form prefix)
+    // referenceId 는 batch_id 이며, 배치 상세 페이지에서 모든 CCP 기록지를 작성한다.
     if (t === "ccp_form_record" || t.startsWith("ccp_form")) {
-      return refId ? `/dashboard/production/ccp-form/${refId}` : `/dashboard/production`;
+      return refId ? `/dashboard/batch/${refId}` : `/dashboard/batch-management`;
     }
     // 그 외 — writer-review 전용 화면 (legacy)
     return `/dashboard/writer-review/${item.id}`;
@@ -1111,14 +1116,15 @@ function WriterPendingTabContent() {
     onError: (e: any) => toast.error(`일괄 제출 실패: ${e.message}`),
   });
 
+  // 작성/수정 라우팅 — 위쪽 editPathFor 와 동일 정책 (라우트는 /dashboard/batch/:id)
   const editPathFor = (item: any): string => {
     const t = item.requestType || item.formType || "";
     const refId = item.referenceId || item.reference_id;
     if (t === "batch_production" || t === "batch_approval") {
-      return refId ? `/dashboard/production/batch/${refId}` : `/dashboard/production`;
+      return refId ? `/dashboard/batch/${refId}` : `/dashboard/batch-management`;
     }
     if (t === "ccp_form_record" || t.startsWith("ccp_form")) {
-      return refId ? `/dashboard/production/ccp-form/${refId}` : `/dashboard/production`;
+      return refId ? `/dashboard/batch/${refId}` : `/dashboard/batch-management`;
     }
     return `/dashboard/writer-review/${item.id}`;
   };
