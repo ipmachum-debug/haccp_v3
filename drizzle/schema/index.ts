@@ -57,3 +57,5 @@ export * from "./domainEvents";
 export * from "./capabilities";
 // PR #280 — SKU 번들 (혼합 제품: 다중 생산 → 1 SKU 출고)
 export * from "./skuBundles";
+// PR #283 — 번들 LOT 매핑 (parent LOT ↔ child LOT N:1, 회수 시뮬레이션)
+export * from "./bundleLots";
