@@ -150,43 +150,106 @@ export async function createBatch(batch: {
         // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
         // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
         // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
-        //   기존 — 단가/총가 컬럼 미설정 → DB DEFAULT 0 → 자동출고 안 호출 시 영원히 0
-        //   수정 — h_materials.unit_price + item_master.default_unit_price 듀얼 lookup
+        // ★ 2026-05-10 (PR #298): material_id 표준화 — h_mf_ingredients.material_id (= item_master.id) 를
+        //    자재명 매칭으로 canonical h_materials.id 로 변환 후 INSERT.
+        //    이로써 신규 배치는 lot/inventory 시스템과 ID 네임스페이스가 일치 → 자동출고 정상 작동.
+        //    h_materials 에 매칭 없는 자재만 item_master.id 그대로 유지 (호환성 유지).
         if (ingredients.length > 0) {
           const filteredIngredients = ingredients
             .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0);
 
-          const candidateMaterialIds = filteredIngredients
+          const candidateRawIds = filteredIngredients
             .map((ing: any) => Number(ing.materialId))
             .filter((id: number) => Number.isFinite(id));
 
-          // 단가 lookup (h_materials → item_master 폴백)
-          const priceMap = new Map<number, number>();
-          if (candidateMaterialIds.length > 0) {
-            const placeholders = candidateMaterialIds.map(() => "?").join(",");
+          // ★ ID 표준화 맵: rawId(item_master.id) → canonicalId(h_materials.id)
+          //   미매칭 시 raw 그대로 유지 (호환성)
+          const idMap = new Map<number, number>(); // rawId → canonicalId
+          const nameMap = new Map<number, string>(); // canonicalId → name
+          if (candidateRawIds.length > 0) {
+            const ph = candidateRawIds.map(() => "?").join(",");
+            // item_master.id → item_name → h_materials.id 자재명 매칭
+            const [mapRows]: any = await conn.execute(
+              `SELECT im.id AS raw_id, im.item_name,
+                      hm.id AS hm_id, hm.material_name
+                 FROM item_master im
+                 LEFT JOIN h_materials hm
+                   ON hm.tenant_id = im.tenant_id
+                  AND TRIM(hm.material_name) = TRIM(im.item_name)
+                WHERE im.tenant_id = ? AND im.id IN (${ph})`,
+              [tenantId, ...candidateRawIds],
+            );
+            for (const r of (mapRows as any[])) {
+              const rawId = Number(r.raw_id);
+              const hmId = r.hm_id ? Number(r.hm_id) : null;
+              const name = r.material_name || r.item_name || null;
+              if (hmId) {
+                idMap.set(rawId, hmId);
+                if (name) nameMap.set(hmId, name);
+              } else {
+                idMap.set(rawId, rawId); // h_materials 에 없으면 raw 유지
+                if (r.item_name) nameMap.set(rawId, r.item_name);
+              }
+            }
+            // 위 lookup 에서 누락된 raw id 는 그대로 raw 사용 (item_master 에도 없는 경우)
+            for (const rawId of candidateRawIds) {
+              if (!idMap.has(rawId)) idMap.set(rawId, rawId);
+            }
+          }
+
+          // 표준화된 canonical ID 목록으로 단가 lookup
+          const canonicalIds = Array.from(new Set(Array.from(idMap.values())));
+
+          // 단가 lookup 1차: h_materials.unit_price (canonicalId 기준)
+          const priceMap = new Map<number, number>(); // canonicalId → unit_price
+          if (canonicalIds.length > 0) {
+            const ph = canonicalIds.map(() => "?").join(",");
             const [priceRows]: any = await conn.execute(
               `SELECT id, unit_price FROM h_materials
-                WHERE tenant_id = ? AND id IN (${placeholders}) AND unit_price > 0`,
-              [tenantId, ...candidateMaterialIds],
+                WHERE tenant_id = ? AND id IN (${ph}) AND unit_price > 0`,
+              [tenantId, ...canonicalIds],
             );
             for (const r of (priceRows as any[])) {
               const p = parseFloat(r.unit_price ?? 0);
               if (p > 0) priceMap.set(Number(r.id), p);
             }
-            // 폴백: item_master
-            const missing = candidateMaterialIds.filter((id) => !priceMap.has(id));
-            if (missing.length > 0) {
-              const ph2 = missing.map(() => "?").join(",");
-              const [imRows]: any = await conn.execute(
-                `SELECT id, default_unit_price FROM item_master
-                  WHERE tenant_id = ? AND id IN (${ph2})
-                    AND item_type = 'raw_material' AND default_unit_price > 0`,
-                [tenantId, ...missing],
-              );
-              for (const r of (imRows as any[])) {
-                const p = parseFloat(r.default_unit_price ?? 0);
-                if (p > 0) priceMap.set(Number(r.id), p);
-              }
+          }
+
+          // 단가 lookup 2차: 마지막 입고 lot.unit_price (h_materials 가격 0 인 경우)
+          const stillMissing = canonicalIds.filter((id) => !priceMap.has(id));
+          if (stillMissing.length > 0) {
+            const ph = stillMissing.map(() => "?").join(",");
+            const [lotRows]: any = await conn.execute(
+              `SELECT material_id, unit_price
+                 FROM (
+                   SELECT material_id, unit_price,
+                          ROW_NUMBER() OVER (PARTITION BY material_id ORDER BY receipt_date DESC, id DESC) AS rn
+                     FROM h_inventory_lots
+                    WHERE tenant_id = ? AND material_id IN (${ph})
+                      AND unit_price IS NOT NULL AND unit_price > 0
+                 ) t
+                WHERE rn = 1`,
+              [tenantId, ...stillMissing],
+            );
+            for (const r of (lotRows as any[])) {
+              const p = parseFloat(r.unit_price ?? 0);
+              if (p > 0) priceMap.set(Number(r.material_id), p);
+            }
+          }
+
+          // 단가 lookup 3차: item_master.default_unit_price (raw id 기준 — h_materials 에 없는 자재)
+          const stillMissing2 = canonicalIds.filter((id) => !priceMap.has(id));
+          if (stillMissing2.length > 0) {
+            const ph = stillMissing2.map(() => "?").join(",");
+            const [imRows]: any = await conn.execute(
+              `SELECT id, default_unit_price FROM item_master
+                WHERE tenant_id = ? AND id IN (${ph})
+                  AND default_unit_price > 0`,
+              [tenantId, ...stillMissing2],
+            );
+            for (const r of (imRows as any[])) {
+              const p = parseFloat(r.default_unit_price ?? 0);
+              if (p > 0) priceMap.set(Number(r.id), p);
             }
           }
 
@@ -197,13 +260,21 @@ export async function createBatch(batch: {
                 ? parseFloat(ing.correctedQuantity)
                 : parseFloat(ing.quantity);
               const plannedQ = (ratio / 100) * plannedQty;
-              const unitPrice = priceMap.get(Number(ing.materialId)) ?? 0;
+              const rawId = Number(ing.materialId);
+              const canonicalId = idMap.get(rawId) ?? rawId;
+              const unitPrice = priceMap.get(canonicalId) ?? 0;
               const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
+              if (canonicalId !== rawId) {
+                console.info(
+                  `[createBatch] id-standardize batch=${batchId} raw=${rawId} -> canonical=${canonicalId} ` +
+                  `name="${nameMap.get(canonicalId) ?? "(unknown)"}"`
+                );
+              }
               return {
                 batchId,
-                materialId: ing.materialId!,
+                materialId: canonicalId,                          // ★ canonical h_materials.id 저장
                 plannedQuantity: plannedQ.toFixed(3),
-                unit: ing.materialUnit || "kg",  // 원재료 실제 단위 사용 (% 아닌 kg/g)
+                unit: ing.materialUnit || "kg",                   // 원재료 실제 단위 사용
                 processGroupId: ing.processGroupId ?? null,
                 unitPrice: unitPrice.toFixed(2),
                 totalPrice: totalPrice.toFixed(2),
@@ -213,7 +284,7 @@ export async function createBatch(batch: {
 
           if (batchInputs.length > 0) {
             await db.insert(hBatchInputs).values(batchInputs as any);
-            console.log("[createBatch] 원재료 투입 자동생성:", batchInputs.length, "건");
+            console.log("[createBatch] 원재료 투입 자동생성:", batchInputs.length, "건 (PR#298 ID 표준화)");
           }
         }
       }

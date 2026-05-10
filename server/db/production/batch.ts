@@ -1,5 +1,5 @@
 import { eq, and, desc, sql } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, getRawConnection } from "../connection";
 import {
   hBatches,
   hBatchInputs,
@@ -91,40 +91,107 @@ export async function createBatch(data: {
         
         // 2-4. 배합비 × 생산량으로 원재료 투입 계획 생성 (process_group_id 포함)
         // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
-        //   기존 — 단가/총가 컬럼 미설정 → DB DEFAULT 0 으로 박힘 → 자동출고 안 호출되면 영원히 0
-        //   수정 — h_materials.unit_price 를 한 번 조회하여 plannedQuantity × unit_price 로
-        //          total_price 도 미리 계산하여 INSERT (자동출고 갱신 전이라도 원가 표시 가능)
+        // ★ 2026-05-10 (PR #298): material_id 표준화 — h_mf_ingredients.material_id (= item_master.id) 를
+        //    자재명 매칭으로 canonical h_materials.id 로 변환 후 INSERT.
+        //    단가는 4단 폴백: h_materials → 마지막 입고 lot → item_master.default_unit_price.
         if (ingredients.length > 0) {
-          const candidateMaterialIds = ingredients
+          const candidateRawIds = ingredients
             .map((ing) => ing.materialId)
             .filter((id): id is number => id !== null);
 
-          // 마스터 단가 lookup (h_materials)
+          const conn = await getRawConnection();
+          // ★ ID 표준화 맵: rawId(item_master.id) → canonicalId(h_materials.id)
+          const idMap = new Map<number, number>();
+          if (candidateRawIds.length > 0) {
+            const ph = candidateRawIds.map(() => "?").join(",");
+            const [mapRows]: any = await conn.execute(
+              `SELECT im.id AS raw_id, im.item_name,
+                      hm.id AS hm_id, hm.material_name
+                 FROM item_master im
+                 LEFT JOIN h_materials hm
+                   ON hm.tenant_id = im.tenant_id
+                  AND TRIM(hm.material_name) = TRIM(im.item_name)
+                WHERE im.tenant_id = ? AND im.id IN (${ph})`,
+              [data.tenantId, ...candidateRawIds],
+            );
+            for (const r of (mapRows as any[])) {
+              const rawId = Number(r.raw_id);
+              const hmId = r.hm_id ? Number(r.hm_id) : null;
+              if (hmId) idMap.set(rawId, hmId);
+              else idMap.set(rawId, rawId);
+            }
+            for (const rawId of candidateRawIds) {
+              if (!idMap.has(rawId)) idMap.set(rawId, rawId);
+            }
+          }
+
+          const canonicalIds = Array.from(new Set(Array.from(idMap.values())));
+
+          // 단가 lookup 1차: h_materials.unit_price (canonicalId)
           const priceMap = new Map<number, number>();
-          if (candidateMaterialIds.length > 0) {
-            const priceRows = await db
-              .select({ id: hMaterials.id, unitPrice: hMaterials.unitPrice })
-              .from(hMaterials)
-              .where(and(
-                eq(hMaterials.tenantId, data.tenantId),
-                sql`${hMaterials.id} IN (${sql.join(candidateMaterialIds.map(i => sql`${i}`), sql`, `)})`,
-              ));
-            for (const r of priceRows) {
-              const p = r.unitPrice ? parseFloat(r.unitPrice as any) : 0;
+          if (canonicalIds.length > 0) {
+            const ph = canonicalIds.map(() => "?").join(",");
+            const [priceRows]: any = await conn.execute(
+              `SELECT id, unit_price FROM h_materials
+                WHERE tenant_id = ? AND id IN (${ph}) AND unit_price > 0`,
+              [data.tenantId, ...canonicalIds],
+            );
+            for (const r of (priceRows as any[])) {
+              const p = parseFloat(r.unit_price ?? 0);
+              if (p > 0) priceMap.set(Number(r.id), p);
+            }
+          }
+
+          // 단가 lookup 2차: 마지막 입고 lot.unit_price
+          const stillMissing = canonicalIds.filter((id) => !priceMap.has(id));
+          if (stillMissing.length > 0) {
+            const ph = stillMissing.map(() => "?").join(",");
+            const [lotRows]: any = await conn.execute(
+              `SELECT material_id, unit_price
+                 FROM (
+                   SELECT material_id, unit_price,
+                          ROW_NUMBER() OVER (PARTITION BY material_id ORDER BY receipt_date DESC, id DESC) AS rn
+                     FROM h_inventory_lots
+                    WHERE tenant_id = ? AND material_id IN (${ph})
+                      AND unit_price IS NOT NULL AND unit_price > 0
+                 ) t
+                WHERE rn = 1`,
+              [data.tenantId, ...stillMissing],
+            );
+            for (const r of (lotRows as any[])) {
+              const p = parseFloat(r.unit_price ?? 0);
+              if (p > 0) priceMap.set(Number(r.material_id), p);
+            }
+          }
+
+          // 단가 lookup 3차: item_master.default_unit_price
+          const stillMissing2 = canonicalIds.filter((id) => !priceMap.has(id));
+          if (stillMissing2.length > 0) {
+            const ph = stillMissing2.map(() => "?").join(",");
+            const [imRows]: any = await conn.execute(
+              `SELECT id, default_unit_price FROM item_master
+                WHERE tenant_id = ? AND id IN (${ph})
+                  AND default_unit_price > 0`,
+              [data.tenantId, ...stillMissing2],
+            );
+            for (const r of (imRows as any[])) {
+              const p = parseFloat(r.default_unit_price ?? 0);
               if (p > 0) priceMap.set(Number(r.id), p);
             }
           }
 
           const batchInputs = ingredients
-            .filter(ing => ing.materialId !== null) // materialId가 있는 것만
+            .filter(ing => ing.materialId !== null)
             .map(ing => {
               const plannedQ = (parseFloat(ing.quantity) / 100) * plannedQty;
-              const unitPrice = priceMap.get(ing.materialId!) ?? 0;
+              const rawId = Number(ing.materialId!);
+              const canonicalId = idMap.get(rawId) ?? rawId;
+              const unitPrice = priceMap.get(canonicalId) ?? 0;
               const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
               return {
                 batchId,
-                materialId: ing.materialId!,
-                plannedQuantity: plannedQ, // 배합비(%) × 생산량
+                materialId: canonicalId,                          // ★ canonical h_materials.id
+                plannedQuantity: plannedQ,
                 unit: ing.unit,
                 processGroupId: ing.processGroupId ?? null,
                 unitPrice: unitPrice.toFixed(2),
