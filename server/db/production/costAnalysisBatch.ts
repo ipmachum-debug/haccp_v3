@@ -62,12 +62,16 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
     const water = isWaterMaterial(item.material?.materialName);
 
     // h_batch_inputs에 FEFO 할당 시 저장된 실제단가 우선 사용
-    const batchInputUnitPrice = item.input.unitPrice ? parseFloat(String(item.input.unitPrice)) : null;
+    // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (4/13 이후 unit_price=0 대량 발생 대응)
+    const rawBatchInputPrice = item.input.unitPrice ? parseFloat(String(item.input.unitPrice)) : 0;
+    const batchInputUnitPrice = rawBatchInputPrice > 0 ? rawBatchInputPrice : null;
     const masterUnitPrice = item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0;
     const unitPrice = water ? 0 : (batchInputUnitPrice ?? masterUnitPrice);
 
     // total_price가 있으면 직접 사용 (FEFO 가중평균 기반), 없으면 수량×단가
-    const batchInputTotalPrice = item.input.totalPrice ? parseFloat(String(item.input.totalPrice)) : null;
+    // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (NULL/0 모두 폴백)
+    const rawBatchInputTotalPrice = item.input.totalPrice ? parseFloat(String(item.input.totalPrice)) : 0;
+    const batchInputTotalPrice = rawBatchInputTotalPrice > 0 ? rawBatchInputTotalPrice : null;
     const cost = water ? 0 : (batchInputTotalPrice ?? quantity * unitPrice);
 
     return {
@@ -94,42 +98,73 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
 
 /**
  * 여러 배치의 비용 조회 (배치 목록 페이지용)
- * 단가 우선순위: ① h_batch_inputs.total_price (FEFO LOT 실제원가) → ② 수량 × h_materials.unit_price (마스터 단가)
- * 정제수는 비용 합계에서 제외
+ *
+ * ★ 2026-05-10 (PR #297, hotfix/batch-cost-coalesce-zero):
+ *   기존 버그 — h_batch_inputs.unit_price/total_price 가 0(NOT NULL) 으로
+ *   기록된 행이 4/13 이후 대량 발생. SQL `COALESCE(unit_price, m.unit_price, 0)`
+ *   는 NULL 만 건너뛰고 0 은 유효값으로 취급해 마스터 단가 폴백 실패 → SUM=0 → '-' 표시.
+ *
+ *   추가 버그 — `LEFT JOIN h_materials` + WHERE `m.material_name NOT LIKE '%정제수%'`
+ *   는 JOIN 미매칭(NULL) 행을 제외 (NULL NOT LIKE → NULL → 필터 탈락).
+ *   item_master 로만 등록된 원재료 투입이 통째로 빠짐.
+ *
+ *   수정 —
+ *   ① NULLIF(col, 0) 으로 0 도 NULL 처리 → 폴백 체인 정상 작동
+ *   ② item_master 듀얼 lookup 추가 (m.unit_price 없으면 im.default_unit_price)
+ *   ③ 정제수 필터를 `(name IS NULL OR name NOT LIKE ...)` 로 NULL 안전화
+ *
+ * 단가 우선순위: ① bi.total_price > 0 (FEFO LOT 실제원가)
+ *               → ② actual_qty × bi.unit_price > 0 (LOT 가중평균)
+ *               → ③ actual_qty × m.unit_price (h_materials 마스터)
+ *               → ④ actual_qty × im.default_unit_price (item_master 마스터)
+ *               → ⑤ 0
+ * 정제수는 비용 합계에서 제외 (LEFT JOIN 결과 NULL 행은 제외 안 함).
  */
 export async function getBatchCostSummary(batchIds: number[], tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const { hBatchInputs, hMaterials } = await import("../../../drizzle/schema.js");
-  const { inArray, eq, sql, and } = await import("drizzle-orm");
+  const { getRawConnection } = await import("../connection");
 
   if (batchIds.length === 0) return [];
 
-  // 각 배치별 총 비용 계산 (정제수 제외)
-  // COALESCE: h_batch_inputs.total_price (LOT 실제원가) > actual_qty × h_batch_inputs.unit_price > actual_qty × h_materials.unit_price
-  const result = await db
-    .select({
-      batchId: hBatchInputs.batchId,
-      totalCost: sql<string>`SUM(
-        COALESCE(
-          ${hBatchInputs.totalPrice},
-          COALESCE(${hBatchInputs.actualQuantity}, ${hBatchInputs.plannedQuantity})
-            * COALESCE(${hBatchInputs.unitPrice}, ${hMaterials.unitPrice}, 0)
-        )
-      )`
-    })
-    .from(hBatchInputs)
-    .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
-    .where(and(
-      inArray(hBatchInputs.batchId, batchIds),
-      sql`${hMaterials.materialName} NOT LIKE '%정제수%'`
-    ))
-    .groupBy(hBatchInputs.batchId);
+  const conn = await getRawConnection();
 
-  return result.map((r) => ({
+  // 듀얼 lookup + NULLIF(0) 폴백 — Drizzle 표현이 복잡하므로 raw SQL 사용
+  const placeholders = batchIds.map(() => "?").join(",");
+  const [rows]: any = await conn.execute(
+    `SELECT
+       bi.batch_id AS batchId,
+       SUM(
+         COALESCE(
+           NULLIF(bi.total_price, 0),
+           COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
+             * COALESCE(
+                 NULLIF(bi.unit_price, 0),
+                 NULLIF(m.unit_price, 0),
+                 NULLIF(im.default_unit_price, 0),
+                 0
+               )
+         )
+       ) AS totalCost
+     FROM h_batch_inputs bi
+     LEFT JOIN h_materials m
+       ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+     LEFT JOIN item_master im
+       ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id
+        AND im.item_type = 'raw_material'
+     WHERE bi.batch_id IN (${placeholders})
+       AND (
+         COALESCE(m.material_name, im.item_name) IS NULL
+         OR COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+       )
+     GROUP BY bi.batch_id`,
+    batchIds,
+  );
+
+  return ((rows as any[]) || []).map((r) => ({
     batchId: Number(r.batchId),
-    totalCost: parseFloat(r.totalCost || "0")
+    totalCost: parseFloat(r.totalCost || "0"),
   }));
 }
 

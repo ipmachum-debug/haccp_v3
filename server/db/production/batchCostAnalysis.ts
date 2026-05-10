@@ -173,15 +173,18 @@ export async function getBatchMaterialCostBreakdown(
     const actualQuantity = Number(input.actualQuantity || 0);
     const water = isWaterMaterial(input.materialName);
 
-    // 단가 우선순위: LOT 실제단가 → 마스터 단가
-    const lotPrice = input.lotUnitPrice ? Number(input.lotUnitPrice) : null;
+    // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (4/13 이후 unit_price=0 대량 발생 대응)
+    // 단가 우선순위: LOT 실제단가 (>0) → 마스터 단가 (h_materials/item_master COALESCE)
+    const rawLotPrice = input.lotUnitPrice ? Number(input.lotUnitPrice) : 0;
+    const lotPrice = rawLotPrice > 0 ? rawLotPrice : null;
     const masterPrice = input.masterUnitPrice ? Number(input.masterUnitPrice) : 0;
     const unitPrice = water ? 0 : (lotPrice ?? masterPrice);
     const priceSource = water ? "excluded" : (lotPrice !== null ? "lot" : "master");
 
     const plannedCost = plannedQuantity * unitPrice;
-    // 실제원가: LOT total_price가 있으면 직접 사용 (FEFO 가중평균)
-    const lotTotal = input.lotTotalPrice ? Number(input.lotTotalPrice) : null;
+    // ★ 2026-05-10 (PR #297): LOT total_price 도 0 이면 폴백 (수량 × unitPrice)
+    const rawLotTotal = input.lotTotalPrice ? Number(input.lotTotalPrice) : 0;
+    const lotTotal = rawLotTotal > 0 ? rawLotTotal : null;
     const actualCost = water ? 0 : (lotTotal ?? actualQuantity * unitPrice);
     const costDifference = actualCost - plannedCost;
 
@@ -523,6 +526,9 @@ export async function getProductCostTrend(
   }
   params_arr.push(limit);
 
+  // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
+  // 기존엔 unit_price=0 이 NULL 이 아니라 폴백 못 타고 0 반환 → '-' 표시
+  // 또한 LEFT JOIN 미매칭 시 material_name=NULL → NULL NOT LIKE → 필터 탈락
   const [rows]: any = await conn.execute(
     `SELECT
        b.id AS batch_id,
@@ -531,19 +537,25 @@ export async function getProductCostTrend(
        COALESCE(b.actual_quantity, b.planned_quantity, 0) AS actual_qty_kg,
        COALESCE(NULLIF(b.actual_cost, 0), (
          SELECT SUM(
-           COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
-           * COALESCE(
-               bi.unit_price,
-               m.unit_price,
-               im.default_unit_price,
-               0
-             )
+           COALESCE(
+             NULLIF(bi.total_price, 0),
+             COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
+             * COALESCE(
+                 NULLIF(bi.unit_price, 0),
+                 NULLIF(m.unit_price, 0),
+                 NULLIF(im.default_unit_price, 0),
+                 0
+               )
+           )
          )
          FROM h_batch_inputs bi
          LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
          LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
          WHERE bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
-           AND COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           AND (
+             COALESCE(m.material_name, im.item_name) IS NULL
+             OR COALESCE(m.material_name, im.item_name) NOT LIKE '%정제수%'
+           )
        ), 0) AS total_material_cost
      FROM h_batches b
      WHERE b.tenant_id = ?
