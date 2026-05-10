@@ -90,17 +90,48 @@ export async function createBatch(data: {
           .orderBy(hMfIngredients.lineNo);
         
         // 2-4. 배합비 × 생산량으로 원재료 투입 계획 생성 (process_group_id 포함)
+        // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
+        //   기존 — 단가/총가 컬럼 미설정 → DB DEFAULT 0 으로 박힘 → 자동출고 안 호출되면 영원히 0
+        //   수정 — h_materials.unit_price 를 한 번 조회하여 plannedQuantity × unit_price 로
+        //          total_price 도 미리 계산하여 INSERT (자동출고 갱신 전이라도 원가 표시 가능)
         if (ingredients.length > 0) {
+          const candidateMaterialIds = ingredients
+            .map((ing) => ing.materialId)
+            .filter((id): id is number => id !== null);
+
+          // 마스터 단가 lookup (h_materials)
+          const priceMap = new Map<number, number>();
+          if (candidateMaterialIds.length > 0) {
+            const priceRows = await db
+              .select({ id: hMaterials.id, unitPrice: hMaterials.unitPrice })
+              .from(hMaterials)
+              .where(and(
+                eq(hMaterials.tenantId, data.tenantId),
+                sql`${hMaterials.id} IN (${sql.join(candidateMaterialIds.map(i => sql`${i}`), sql`, `)})`,
+              ));
+            for (const r of priceRows) {
+              const p = r.unitPrice ? parseFloat(r.unitPrice as any) : 0;
+              if (p > 0) priceMap.set(Number(r.id), p);
+            }
+          }
+
           const batchInputs = ingredients
             .filter(ing => ing.materialId !== null) // materialId가 있는 것만
-            .map(ing => ({
-              batchId,
-              materialId: ing.materialId!,
-              plannedQuantity: (parseFloat(ing.quantity) / 100) * plannedQty, // 배합비(%) × 생산량
-              unit: ing.unit,
-              processGroupId: ing.processGroupId ?? null,
-              tenantId: data.tenantId
-            }));
+            .map(ing => {
+              const plannedQ = (parseFloat(ing.quantity) / 100) * plannedQty;
+              const unitPrice = priceMap.get(ing.materialId!) ?? 0;
+              const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
+              return {
+                batchId,
+                materialId: ing.materialId!,
+                plannedQuantity: plannedQ, // 배합비(%) × 생산량
+                unit: ing.unit,
+                processGroupId: ing.processGroupId ?? null,
+                unitPrice: unitPrice.toFixed(2),
+                totalPrice: totalPrice.toFixed(2),
+                tenantId: data.tenantId
+              };
+            });
           
           if (batchInputs.length > 0) {
             await db.insert(hBatchInputs).values(batchInputs as any);

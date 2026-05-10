@@ -149,20 +149,64 @@ export async function createBatch(batch: {
 
         // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
         // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
+        // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
+        //   기존 — 단가/총가 컬럼 미설정 → DB DEFAULT 0 → 자동출고 안 호출 시 영원히 0
+        //   수정 — h_materials.unit_price + item_master.default_unit_price 듀얼 lookup
         if (ingredients.length > 0) {
-          const batchInputs = ingredients
-            .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0)
+          const filteredIngredients = ingredients
+            .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0);
+
+          const candidateMaterialIds = filteredIngredients
+            .map((ing: any) => Number(ing.materialId))
+            .filter((id: number) => Number.isFinite(id));
+
+          // 단가 lookup (h_materials → item_master 폴백)
+          const priceMap = new Map<number, number>();
+          if (candidateMaterialIds.length > 0) {
+            const placeholders = candidateMaterialIds.map(() => "?").join(",");
+            const [priceRows]: any = await conn.execute(
+              `SELECT id, unit_price FROM h_materials
+                WHERE tenant_id = ? AND id IN (${placeholders}) AND unit_price > 0`,
+              [tenantId, ...candidateMaterialIds],
+            );
+            for (const r of (priceRows as any[])) {
+              const p = parseFloat(r.unit_price ?? 0);
+              if (p > 0) priceMap.set(Number(r.id), p);
+            }
+            // 폴백: item_master
+            const missing = candidateMaterialIds.filter((id) => !priceMap.has(id));
+            if (missing.length > 0) {
+              const ph2 = missing.map(() => "?").join(",");
+              const [imRows]: any = await conn.execute(
+                `SELECT id, default_unit_price FROM item_master
+                  WHERE tenant_id = ? AND id IN (${ph2})
+                    AND item_type = 'raw_material' AND default_unit_price > 0`,
+                [tenantId, ...missing],
+              );
+              for (const r of (imRows as any[])) {
+                const p = parseFloat(r.default_unit_price ?? 0);
+                if (p > 0) priceMap.set(Number(r.id), p);
+              }
+            }
+          }
+
+          const batchInputs = filteredIngredients
             .map((ing: any) => {
               // 보정 배합비 사용 (없으면 법적 배합비 fallback)
               const ratio = ing.correctedQuantity
                 ? parseFloat(ing.correctedQuantity)
                 : parseFloat(ing.quantity);
+              const plannedQ = (ratio / 100) * plannedQty;
+              const unitPrice = priceMap.get(Number(ing.materialId)) ?? 0;
+              const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
               return {
                 batchId,
                 materialId: ing.materialId!,
-                plannedQuantity: ((ratio / 100) * plannedQty).toFixed(3),
+                plannedQuantity: plannedQ.toFixed(3),
                 unit: ing.materialUnit || "kg",  // 원재료 실제 단위 사용 (% 아닌 kg/g)
                 processGroupId: ing.processGroupId ?? null,
+                unitPrice: unitPrice.toFixed(2),
+                totalPrice: totalPrice.toFixed(2),
                 tenantId
               };
             });

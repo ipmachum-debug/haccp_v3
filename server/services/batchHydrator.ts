@@ -448,18 +448,63 @@ async function hydrateBatchInputs(
 
   if (ingredients.length === 0) return 0;
 
-  const batchInputs = ingredients
-    .filter((ing: any) => ing.materialId !== null && ing.materialId !== 191 && ing.isDeductible !== 0)
+  // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
+  //   기존 — 단가/총가 컬럼 미설정 → DB DEFAULT 0 → 자동출고 안 호출 시 영원히 0
+  //   수정 — h_materials.unit_price + item_master.default_unit_price 듀얼 lookup
+  const filteredIngredients = ingredients
+    .filter((ing: any) => ing.materialId !== null && ing.materialId !== 191 && ing.isDeductible !== 0);
+
+  const candidateMaterialIds = filteredIngredients
+    .map((ing: any) => Number(ing.materialId))
+    .filter((id: number) => Number.isFinite(id));
+
+  // 단가 lookup (h_materials → item_master 폴백)
+  const priceMap = new Map<number, number>();
+  if (candidateMaterialIds.length > 0) {
+    const { getRawConnection } = await import("../db/connection");
+    const conn = await getRawConnection();
+    const placeholders = candidateMaterialIds.map(() => "?").join(",");
+    const [priceRows]: any = await conn.execute(
+      `SELECT id, unit_price FROM h_materials
+        WHERE tenant_id = ? AND id IN (${placeholders}) AND unit_price > 0`,
+      [tenantId, ...candidateMaterialIds],
+    );
+    for (const r of (priceRows as any[])) {
+      const p = parseFloat(r.unit_price ?? 0);
+      if (p > 0) priceMap.set(Number(r.id), p);
+    }
+    const missing = candidateMaterialIds.filter((id) => !priceMap.has(id));
+    if (missing.length > 0) {
+      const ph2 = missing.map(() => "?").join(",");
+      const [imRows]: any = await conn.execute(
+        `SELECT id, default_unit_price FROM item_master
+          WHERE tenant_id = ? AND id IN (${ph2})
+            AND item_type = 'raw_material' AND default_unit_price > 0`,
+        [tenantId, ...missing],
+      );
+      for (const r of (imRows as any[])) {
+        const p = parseFloat(r.default_unit_price ?? 0);
+        if (p > 0) priceMap.set(Number(r.id), p);
+      }
+    }
+  }
+
+  const batchInputs = filteredIngredients
     .map((ing: any) => {
       const ratio = ing.correctedQuantity
         ? parseFloat(ing.correctedQuantity)
         : parseFloat(ing.quantity);
+      const plannedQ = (ratio / 100) * plannedQty;
+      const unitPrice = priceMap.get(Number(ing.materialId)) ?? 0;
+      const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
       return {
         batchId,
         materialId: ing.materialId!,
-        plannedQuantity: ((ratio / 100) * plannedQty).toFixed(3),
+        plannedQuantity: plannedQ.toFixed(3),
         unit: ing.materialUnit || "kg",
         processGroupId: ing.processGroupId ?? null,
+        unitPrice: unitPrice.toFixed(2),
+        totalPrice: totalPrice.toFixed(2),
         tenantId,
       };
     });
