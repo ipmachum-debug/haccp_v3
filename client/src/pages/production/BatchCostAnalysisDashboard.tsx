@@ -375,27 +375,38 @@ function ProductCostTrendCard({
 }) {
   // ★ 2026-05-10 (PR #302): 드롭다운 안정화
   //   - 렌더 본문 setState 제거 → useEffect 로 자동선택
-  //   - useMemo 로 productOptions 안정화 (batches 참조 변경마다 재계산하나 결과 동일 시 동일 reference)
-  //   - 부모 batches 가 200건 limit 에 걸려 일부 제품이 누락되는 위험 회피 위해
-  //     별도 API (batch.list limit 1000 → product distinct) 도 후보로 합침
-  //   - selectedProductId 가 productOptions 에 없을 때 첫 번째로 fallback
+  //   - useMemo 로 productOptions 안정화
+  //   - selectedProductId 가 productOptions 에 없을 때 fallback
+  // ★ 2026-05-10 (PR #303): UX 개선
+  //   - 자동선택 기준: id ASC → "배치 건수 가장 많은 제품" (count DESC)
+  //     → 사용자가 드롭다운을 만지지 않아도 가장 의미있는 그래프가 즉시 표시됨
+  //     (이전: 첫 번째 옵션이 product_id=5 같은 우연한 최소 ID 제품 → 데이터 부족 → "데이터 없음" 메시지)
+  //   - 옵션 라벨에 배치 건수 표시: "꿀설기 (22건)" 형식
+  //   - 옵션 정렬도 건수 내림차순 → 자주 보는 제품이 위로
   // 후보 제품 (현재 화면 batches 에서 distinct + 빈 productId 제외)
   const productOptions = useMemo(() => {
-    const map = new Map<number, string>();
+    const map = new Map<number, { name: string; count: number }>();
     for (const b of batches) {
-      if (b.productId && !map.has(b.productId)) {
-        map.set(b.productId, b.productName || `제품#${b.productId}`);
+      if (!b.productId) continue;
+      const cur = map.get(b.productId);
+      if (cur) {
+        cur.count += 1;
+      } else {
+        map.set(b.productId, {
+          name: b.productName || `제품#${b.productId}`,
+          count: 1,
+        });
       }
     }
-    // id 오름차순 정렬 → 동일 입력 시 동일 순서 보장
+    // 배치 건수 DESC → 동률 시 id ASC (안정적 순서)
     return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.id - b.id);
+      .map(([id, v]) => ({ id, name: v.name, count: v.count }))
+      .sort((a, b) => (b.count - a.count) || (a.id - b.id));
   }, [batches]);
 
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
 
-  // 자동 선택: 첫 번째 제품 + selectedProductId 가 옵션에 없으면 첫 번째로 fallback
+  // 자동 선택: 배치 건수 가장 많은 제품 + selectedProductId 가 옵션에 없으면 fallback
   useEffect(() => {
     if (productOptions.length === 0) return;
     const exists = selectedProductId !== null && productOptions.some((p) => p.id === selectedProductId);
@@ -448,7 +459,7 @@ function ProductCostTrendCard({
               <SelectContent>
                 {productOptions.map((p) => (
                   <SelectItem key={p.id} value={p.id.toString()}>
-                    {p.name}
+                    {p.name} ({p.count}건)
                   </SelectItem>
                 ))}
               </SelectContent>
