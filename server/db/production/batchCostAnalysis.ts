@@ -1,4 +1,5 @@
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
+import mysql from "mysql2/promise";
 import { getDb } from "../connection";
 import { hBatches, hBatchInputs, hMaterials } from "../../../drizzle/schema";
 import { itemMaster } from "../../../drizzle/schema/schema_dual_unit";
@@ -532,30 +533,32 @@ export async function getProductCostTrend(
     /* ignore — 이름은 폴백 시 null */
   }
 
-  // ★ 2026-05-11 (PR #306): '정제수' 한글 리터럴을 바인딩 파라미터로 분리.
-  //   esbuild 가 SQL 안 한글을 \uXXXX 백슬래시 시퀀스로 이스케이프 컴파일 →
-  //   MySQL 패킷 corruption → ER_MALFORMED_PACKET 의 진짜 원인.
-  //   유니코드 이스케이프(\uXXXX)로 작성해서 esbuild 가 더 변형하지 않게 함.
+  // ★ 2026-05-11 (PR #307): mysql.format() 으로 SQL 안 ? 를 미리 모두 치환한 뒤
+  //   conn.query() 에 인자 없이 호출. 그동안 발생한 모든 에러를 일괄 차단:
+  //   1) ER_MALFORMED_PACKET: 한글 리터럴 → esbuild \uXXXX 이스케이프 → MySQL
+  //      패킷 corruption. mysql.escape() 가 utf8 문자열로 정상 직렬화.
+  //   2) ER_PARSE_ERROR near '?': conn.query(sql, values) 가 특정 dateFilter
+  //      조합에서 placeholder 치환을 안 함 → 사전 치환으로 우회.
   const purifiedWaterLikePattern = "%" + "\uC815\uC81C\uC218" + "%"; // = '%정제수%'
 
   // 배치 + 원가 (듀얼 lookup + actualCost 폴백)
-  // SQL 안 ? 순서대로 params 배열 구성:
+  // SQL 안 ? 순서대로 values 배열 구성:
   //   [0] NOT LIKE ? (서브쿼리 안, 정제수 패턴)
   //   [1] b.tenant_id = ?
   //   [2] b.product_id = ?
   //   [3..] dateFilter (planned_date >= ? / <= ?)
   //   [last] LIMIT ?
   const dateFilter: string[] = [];
-  const params_arr: any[] = [purifiedWaterLikePattern, Number(tenantId), Number(productId)];
+  const values: any[] = [purifiedWaterLikePattern, Number(tenantId), Number(productId)];
   if (startDate) {
     dateFilter.push("AND b.planned_date >= ?");
-    params_arr.push(formatLocalDate(startDate));
+    values.push(formatLocalDate(startDate));
   }
   if (endDate) {
     dateFilter.push("AND b.planned_date <= ?");
-    params_arr.push(formatLocalDate(endDate));
+    values.push(formatLocalDate(endDate));
   }
-  params_arr.push(Number(limit));
+  values.push(Number(limit));
 
   // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
   // ★ 2026-05-10 (PR #298 Option B): 이름 기반 cross-namespace 폴백 추가
@@ -577,13 +580,11 @@ export async function getProductCostTrend(
     `[getProductCostTrend] tenantId=${tenantId} productId=${productId} ` +
     `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} limit=${limit}`,
   );
-  let rows: any[] = [];
-  try {
-    // ★ 2026-05-11 (PR #305): conn.execute() → conn.query() 전환.
-    //   PM2 프로세스 안에서만 prepared statement 가 ER_MALFORMED_PACKET 으로
-    //   깨지는 현상 → 클라이언트 측 보간 사용하는 query() 로 우회.
-    const [r]: any = await conn.query(
-      `SELECT
+  // ★ 2026-05-11 (PR #307): mysql.format() 으로 ? 사전 치환 후 인자 없이 query().
+  //   conn.query(sql, values) 가 특정 조합에서 placeholder 치환을 누락하는
+  //   ER_PARSE_ERROR near '?' 를 우회.
+  const sqlText =
+    `SELECT
        b.id AS batch_id,
        b.batch_code,
        DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
@@ -606,7 +607,6 @@ export async function getProductCostTrend(
          FROM h_batch_inputs bi
          LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
          LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
-         /* 이름 기반 cross-namespace 폴백 */
          LEFT JOIN h_materials m_byname
            ON m.id IS NULL
           AND m_byname.tenant_id = bi.tenant_id
@@ -628,9 +628,17 @@ export async function getProductCostTrend(
        AND b.status IN ('in_progress','completed','under_review','shipped','archived')
        ${dateFilter.join(" ")}
      ORDER BY b.planned_date ASC, b.id ASC
-     LIMIT ?`,
-      params_arr,
-    );
+     LIMIT ?`;
+
+  const finalSql = mysql.format(sqlText, values);
+  console.log(
+    `[getProductCostTrend] formatted SQL length=${finalSql.length} ` +
+    `qmarkRemain=${(finalSql.match(/\?/g) || []).length} valuesLen=${values.length}`,
+  );
+
+  let rows: any[] = [];
+  try {
+    const [r]: any = await conn.query(finalSql);
     rows = (r as any[]) || [];
   } catch (err: any) {
     console.error(
