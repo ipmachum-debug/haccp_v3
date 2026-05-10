@@ -70,7 +70,7 @@ export function ProductStockView() {
       const existing = batchMap.get(key) || { totalProduced: 0, lotCount: 0, latestBatch: "" };
       existing.totalProduced += parseFloat(String(batch.actualQuantity ?? batch.plannedQuantity ?? "0"));
       existing.lotCount += 1;
-      existing.latestBatch = String(batch.endTime || batch.startTime || existing.latestBatch || "");
+      existing.latestBatch = String(batch.endTime || (batch as any).completedAt || batch.startTime || (batch as any).plannedDate || existing.latestBatch || "");
       batchMap.set(key, existing);
     });
 
@@ -233,8 +233,14 @@ export function ProductReceiptInfo() {
         if (typeof v === 'number') return v;
         return 0;
       };
-      const dateA = toTs(a.endTime) || toTs(a.startTime);
-      const dateB = toTs(b.endTime) || toTs(b.startTime);
+      // 완료일 정렬 fallback 우선순위:
+      //   endTime → completedAt → startTime → plannedDate
+      // 사후 입력(backfill)된 배치는 endTime/startTime 이 비어있고
+      // completedAt 또는 plannedDate 만 있는 경우가 있어 fallback 필요.
+      const toAny = (b: any) =>
+        toTs(b.endTime) || toTs(b.completedAt) || toTs(b.startTime) || toTs(b.plannedDate);
+      const dateA = toAny(a);
+      const dateB = toAny(b);
       return dateB - dateA; // newest first
     });
   }, [batches]);
@@ -266,7 +272,7 @@ export function ProductReceiptInfo() {
                     <TD className="font-mono text-xs">{b.batchCode || (b as { batchNumber?: string }).batchNumber || ""}</TD>
                     <TD className="font-medium">{b.productName || "-"}</TD>
                     <TD className="text-right font-mono">{fmt(b.actualQuantity || b.plannedQuantity)}</TD>
-                    <TD className="text-muted-foreground">{fmtDate(b.endTime)}</TD>
+                    <TD className="text-muted-foreground">{fmtDate(b.endTime || (b as any).completedAt || b.startTime || (b as any).plannedDate)}</TD>
                     <TD className="text-center">
                       <Badge variant="default" className="text-xs px-2.5 py-1 bg-emerald-600 text-white">입고완료</Badge>
                     </TD>
