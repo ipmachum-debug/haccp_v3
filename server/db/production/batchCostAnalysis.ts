@@ -543,17 +543,37 @@ export async function getProductCostTrend(
     dateFilter.push("AND b.planned_date <= ?");
     params_arr.push(formatLocalDate(endDate));
   }
-  params_arr.push(limit);
+  // ★ mysql2 prepared statement 호환: LIMIT 정수 파라미터는 String 캐스팅 필요
+  //   (그대로 Number push 시 'Incorrect arguments to mysqld_stmt_execute' 에러 발생)
+  params_arr[params_arr.length - 1] = String(limit);
+  // tenant_id 와 product_id 도 안전을 위해 명시적으로 정규화 (Number 유지)
+  params_arr[0] = Number(tenantId);
+  params_arr[1] = Number(productId);
 
   // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
   // ★ 2026-05-10 (PR #298 Option B): 이름 기반 cross-namespace 폴백 추가
   //   bi.material_id 가 item_master.id namespace 인 케이스를 위해 이름 매칭 폴백:
   //     m_byname: im.item_name → h_materials.material_name JOIN
   //     im_byname: m.material_name → item_master.item_name JOIN
-  // 기존엔 unit_price=0 이 NULL 이 아니라 폴백 못 타고 0 반환 → '-' 표시
-  // 또한 LEFT JOIN 미매칭 시 material_name=NULL → NULL NOT LIKE → 필터 탈락
-  const [rows]: any = await conn.execute(
-    `SELECT
+  //   기존엔 unit_price=0 이 NULL 이 아니라 폴백 못 타고 0 반환 → '-' 표시
+  //   또한 LEFT JOIN 미매칭 시 material_name=NULL → NULL NOT LIKE → 필터 탈락
+  // ★ 2026-05-10 (PR #304 Trend chart fix): status 필터 정정.
+  //   - 기존: status IN ('completed','approved','shipped','archived')
+  //     → 'approved' 는 enum 에 존재하지 않는 죽은 값
+  //     → PR #277 의 'under_review' (작성자 사전 검토) 누락 → 신규 배치가 차트에서 제외됨
+  //     → 결과: 하단 배치별 상세 원가 (status 무필터) 는 보이는데 trend 만 비어 보이는 사용자 사고
+  //   - 수정: 실제 enum 기준 + 'in_progress' 까지 포함 (재료 투입 시점부터 원가 추적 의미 있음).
+  //   - 실제 enum: planned/in_progress/paused/completed/under_review/failed/cancelled/shipped/archived
+  //   - 'planned' / 'cancelled' / 'failed' / 'paused' 는 제외 (실제 생산 데이터 없음)
+  // ★ 2026-05-10 (PR #304 logging): 진입/결과/에러 명시 로깅
+  console.log(
+    `[getProductCostTrend] tenantId=${tenantId} productId=${productId} ` +
+    `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} limit=${limit}`,
+  );
+  let rows: any[] = [];
+  try {
+    const [r]: any = await conn.execute(
+      `SELECT
        b.id AS batch_id,
        b.batch_code,
        DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
@@ -595,14 +615,22 @@ export async function getProductCostTrend(
      FROM h_batches b
      WHERE b.tenant_id = ?
        AND b.product_id = ?
-       AND b.status IN ('completed','approved','shipped','archived')
+       AND b.status IN ('in_progress','completed','under_review','shipped','archived')
        ${dateFilter.join(" ")}
      ORDER BY b.planned_date ASC, b.id ASC
      LIMIT ?`,
-    params_arr,
-  );
+      params_arr,
+    );
+    rows = (r as any[]) || [];
+  } catch (err: any) {
+    console.error(
+      `[getProductCostTrend] SQL error tenantId=${tenantId} productId=${productId} ` +
+      `msg="${err?.message}" code=${err?.code}`,
+    );
+    throw err;
+  }
 
-  const points: ProductCostTrendPoint[] = ((rows as any[]) || []).map((r) => {
+  const points: ProductCostTrendPoint[] = rows.map((r) => {
     const qtyKg = Number(r.actual_qty_kg) || 0;
     const totalCost = Number(r.total_material_cost) || 0;
     return {
@@ -614,6 +642,11 @@ export async function getProductCostTrend(
       costPerKg: qtyKg > 0 ? Math.round(totalCost / qtyKg) : 0,
     };
   });
+
+  console.log(
+    `[getProductCostTrend] result tenantId=${tenantId} productId=${productId} ` +
+    `rows=${points.length} productName="${productName ?? "?"}"`,
+  );
 
   // 집계
   const validPoints = points.filter((p) => p.costPerKg > 0);
