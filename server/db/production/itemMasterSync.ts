@@ -133,6 +133,148 @@ export async function deactivateLinkedItemMaster(
 }
 
 /**
+ * 정방향 동기화: h_materials → item_master (raw_material)
+ *
+ * 2026-05-10 (PR #269 follow-up — Task [4]):
+ * material.router.ts 의 create/update/bulkCreate 3 곳에서 inline upsert
+ * 코드가 중복되던 것을 통합한 헬퍼.
+ *
+ * 처리 분기 (syncProductToItemMaster 와 동일 패턴):
+ *   1) legacyMaterialId 매칭 우선 (이미 연결된 상태) → UPDATE
+ *   2) itemCode + tenantId 매칭 (다른 경로로 먼저 생긴 행) → legacyMaterialId 연결 + UPDATE
+ *   3) 없으면 → INSERT (itemType='raw_material')
+ *
+ * NOTE: itemType 은 항상 'raw_material' 로 강제. PACKAGING/SUBSIDIARY
+ *       kind 도 item_master 에서는 raw_material 로 통합 관리하는 정책.
+ */
+export interface SyncMaterialParams {
+  tenantId: number;
+  materialId: number;
+  materialCode: string;
+  materialName: string;
+  category?: string | null;
+  unit?: string | null;
+  supplierId?: number | null;
+  purchaseUnit?: string | null;
+  purchaseConversionRate?: string | null;
+  shelfLifeDays?: number | null;
+  description?: string | null;
+  isActive?: number;
+}
+
+export async function syncMaterialToItemMaster(
+  db: MySql2Database<any>,
+  params: SyncMaterialParams,
+): Promise<SyncAction> {
+  const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
+
+  const baseUnit = params.unit || "kg";
+  const isActive = params.isActive ?? 1;
+
+  // 1) legacyMaterialId 매칭 우선
+  const linkedRows = await db
+    .select({ id: itemMaster.id })
+    .from(itemMaster)
+    .where(
+      and(
+        eq(itemMaster.legacyMaterialId, params.materialId),
+        eq(itemMaster.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (linkedRows.length > 0) {
+    await db
+      .update(itemMaster)
+      .set({
+        itemCode: params.materialCode,
+        itemName: params.materialName,
+        category: params.category ?? null,
+        baseUnit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      } as any)
+      .where(eq(itemMaster.id, linkedRows[0].id));
+    return "updated";
+  }
+
+  // 2) itemCode + tenantId 매칭 (다른 경로로 먼저 생긴 행)
+  const sameCodeRows = await db
+    .select({ id: itemMaster.id })
+    .from(itemMaster)
+    .where(
+      and(
+        eq(itemMaster.itemCode, params.materialCode),
+        eq(itemMaster.tenantId, params.tenantId),
+      ),
+    )
+    .limit(1);
+
+  if (sameCodeRows.length > 0) {
+    await db
+      .update(itemMaster)
+      .set({
+        legacyMaterialId: params.materialId,
+        itemName: params.materialName,
+        itemType: "raw_material",
+        category: params.category ?? null,
+        baseUnit,
+        supplierId: params.supplierId ?? null,
+        purchaseUnit: params.purchaseUnit ?? null,
+        purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+        shelfLifeDays: params.shelfLifeDays ?? null,
+        description: params.description ?? null,
+        isActive,
+      } as any)
+      .where(eq(itemMaster.id, sameCodeRows[0].id));
+    return "linked";
+  }
+
+  // 3) 신규 INSERT
+  await db.insert(itemMaster).values({
+    tenantId: params.tenantId,
+    itemCode: params.materialCode,
+    itemName: params.materialName,
+    itemType: "raw_material",
+    category: params.category ?? null,
+    baseUnit,
+    supplierId: params.supplierId ?? null,
+    purchaseUnit: params.purchaseUnit ?? null,
+    purchaseConversionRate: params.purchaseConversionRate ?? "1.0000",
+    shelfLifeDays: params.shelfLifeDays ?? null,
+    description: params.description ?? null,
+    legacyMaterialId: params.materialId,
+    isActive,
+  } as any);
+  return "inserted";
+}
+
+/**
+ * 비활성화 동기화 (원재료 soft delete 시 호출).
+ * legacyMaterialId 로 연결된 item_master 행만 비활성화.
+ */
+export async function deactivateLinkedItemMasterByMaterial(
+  db: MySql2Database<any>,
+  tenantId: number,
+  materialId: number,
+): Promise<void> {
+  const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
+  await db
+    .update(itemMaster)
+    .set({ isActive: 0 })
+    .where(
+      and(
+        eq(itemMaster.legacyMaterialId, materialId),
+        eq(itemMaster.tenantId, tenantId),
+      ),
+    );
+}
+
+/**
  * 역방향 동기화: item_master(own_product) → h_products_v2
  *
  * 2026-05-08 (PR #268): item_master 가 canonical 로 결정된 후,
