@@ -140,7 +140,15 @@ export const productionSkuOutput = mysqlTable("production_sku_output", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
   batchId: bigint("batch_id", { mode: "number" }).notNull(),
+  /** 생산 SKU (실제 제조한 child SKU) */
   skuId: bigint("sku_id", { mode: "number" }).notNull(),
+
+  /**
+   * ★ 2026-05-09 (PR #280): 번들 parent SKU (혼합 제품 출고용).
+   * NULL = 단일 SKU (기본). NOT NULL = 이 child 의 생산이 parent 번들로 합쳐짐.
+   * sku_bundles 룩업으로 자동 채워짐 (syncBatchOnComplete 확장).
+   */
+  bundleSkuId: bigint("bundle_sku_id", { mode: "number" }),
 
   quantity: int("quantity").notNull().default(0),
   defectiveQty: int("defective_qty").default(0),
@@ -153,6 +161,7 @@ export const productionSkuOutput = mysqlTable("production_sku_output", {
 }, (table) => ({
   batchIdIdx: index("idx_pso_batch_id").on(table.batchId),
   skuIdIdx: index("idx_pso_sku_id").on(table.skuId),
+  bundleIdx: index("idx_pso_bundle").on(table.bundleSkuId),
   tenantIdIdx: index("idx_pso_tenant_id").on(table.tenantId),
 }));
 

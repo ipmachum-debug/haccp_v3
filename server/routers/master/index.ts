@@ -8,3 +8,5 @@ export { supplierEvaluationRouter } from "./supplierEvaluation.router";
 export { templateSettingsRouter } from "./templateSettings.router";
 export { itemMasterRouter, productSkuRouter } from "./itemMaster.router";
 export { intermediateRouter } from "./intermediate.router";
+// PR #280 — SKU 번들 (혼합 제품)
+export { skuBundleRouter } from "./skuBundle.router";
