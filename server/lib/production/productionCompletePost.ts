@@ -120,5 +120,28 @@ export async function postProductionComplete(
 
     console.log(`[productionCompletePost] 배치 #${batchId} 생산 완료 (${actualQuantity}kg, 수율: ${actualYield.toFixed(2)}%)`);
     return { alreadyProcessed: false };
+  }).then(async (txResult) => {
+    // ★ 트랜잭션 커밋 후 통합 훅 실행 (PR #274)
+    //   actual_quantity 보강 / h_batch_inputs 점검 / production_daily 캐시 무효화
+    //   트랜잭션 외부에서 실행 (실패해도 완료 처리는 유지).
+    if (!txResult.alreadyProcessed) {
+      try {
+        const { runBatchCompletionHooks } = await import(
+          "./batchCompletionHooks"
+        );
+        const hookResult = await runBatchCompletionHooks(batchId, tenantId, {
+          source: "productionCompletePost",
+        });
+        if (hookResult.warnings.length > 0) {
+          console.warn(
+            `[productionCompletePost] 통합 훅 경고 (배치#${batchId}):`,
+            hookResult.warnings,
+          );
+        }
+      } catch (hookErr) {
+        console.error(`[productionCompletePost] 통합 훅 실행 실패:`, hookErr);
+      }
+    }
+    return txResult;
   });
 }
