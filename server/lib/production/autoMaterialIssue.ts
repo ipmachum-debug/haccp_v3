@@ -27,6 +27,10 @@ import { getDb } from "../../db";
 import { getRawConnection } from "../../db/connection";
 import { eq, and, sql } from "drizzle-orm";
 import { resolveMaterialIds, resolvePriceFallback } from "./materialIdResolver";
+import {
+  ensureProductionLogForBatch,
+  insertInventoryDeductionLog,
+} from "./inventoryDeductionLog";
 
 /** 정제수(purified water) 여부 판별 - 원가 계산에서 제외 대상 */
 function isWaterMaterial(materialName: string | null | undefined): boolean {
@@ -162,6 +166,28 @@ export async function autoIssueMaterialsForBatch(
 
     // PR-W3: 배치 일자 우선 (completed_at → planned_date → 오늘 폴백)
     const transactionDate = resolveBatchTransactionDate(batch);
+
+    // ★ 2026-05-10 (PR #299 F5-4): h_inventory_deduction_log INSERT 를 위한
+    //   production_log_id 사전 보장 (배치당 1회). 실패해도 차감 main flow 는
+    //   계속 — deduction_log 는 best-effort 보고용 이력일 뿐.
+    let productionLogIdForDeduction: number | null = null;
+    try {
+      const rawConn = await getRawConnection();
+      productionLogIdForDeduction = await ensureProductionLogForBatch(
+        batchId,
+        tenantId,
+        rawConn,
+      );
+      if (productionLogIdForDeduction) {
+        console.info(
+          `[deductionLog] batch=${batchId} production_log_id=${productionLogIdForDeduction} 확보`,
+        );
+      }
+    } catch (plErr: any) {
+      console.warn(
+        `[deductionLog] ensureProductionLog 실패 batch=${batchId}: ${plErr?.message || plErr}`,
+      );
+    }
 
     // 3. 각 원재료별 출고 처리
     for (const input of batchInputs) {
@@ -433,6 +459,34 @@ export async function autoIssueMaterialsForBatch(
           `);
         } catch (ledgerErr: any) {
           result.warnings.push(`${materialName}: 수불부 반영 실패 (${ledgerErr.message})`);
+        }
+
+        // ★ 2026-05-10 (PR #299 F5-4): h_inventory_deduction_log INSERT
+        //   조건: 실제 lot 차감 성공 + 수량 > 0 + 정제수 제외
+        //   실패해도 main flow 영향 없음 (best-effort).
+        if (
+          productionLogIdForDeduction &&
+          actuallyDeducted &&
+          issuedQuantity > 0 &&
+          !isWater
+        ) {
+          try {
+            const rawConn = await getRawConnection();
+            await insertInventoryDeductionLog(
+              {
+                productionLogId: productionLogIdForDeduction,
+                materialId: canonicalId,
+                materialType: "raw_material",
+                deductedQuantity: issuedQuantity,
+                unit,
+              },
+              rawConn,
+            );
+          } catch (dlErr: any) {
+            console.warn(
+              `[deductionLog] insert 예외 batch=${batchId} material=${canonicalId}: ${dlErr?.message || dlErr}`,
+            );
+          }
         }
 
         result.issuedMaterials.push({
