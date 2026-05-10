@@ -18,7 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw } from "lucide-react";
+import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw, Boxes } from "lucide-react";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type ItemType = "raw_material" | "own_product" | "external_product" | "subsidiary";
@@ -130,6 +130,8 @@ function ItemMasterContent() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isSkuOpen, setIsSkuOpen] = useState(false);
   const [isSkuEditOpen, setIsSkuEditOpen] = useState(false);
+  // PR #281 — 번들 구성 다이얼로그
+  const [isBundleOpen, setIsBundleOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [selectedSku, setSelectedSku] = useState<any>(null);
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
@@ -437,6 +439,7 @@ function ItemMasterContent() {
                                     deleteSkuMutation.mutate({ id: skuId });
                                   }
                                 }}
+                                onOpenBundle={(sku: any) => { setSelectedSku(sku); setSelectedItem(item); setIsBundleOpen(true); }}
                               />
                             </TableCell>
                           </TableRow>
@@ -502,6 +505,15 @@ function ItemMasterContent() {
           isPending={updateSkuMutation.isPending}
         />
       )}
+
+      {/* PR #281 — 번들 구성 다이얼로그 (혼합 제품) */}
+      {selectedSku && (
+        <BundleCompositionDialog
+          open={isBundleOpen}
+          onOpenChange={setIsBundleOpen}
+          parentSku={selectedSku}
+        />
+      )}
     </div>
   );
 }
@@ -509,7 +521,7 @@ function ItemMasterContent() {
 // ============================================================
 // SKU 섹션 (수정/삭제 버튼 포함)
 // ============================================================
-function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, onDeleteSku }: {
+function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, onDeleteSku, onOpenBundle }: {
   itemId: number;
   itemCode: string;
   itemName: string;
@@ -517,6 +529,7 @@ function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, 
   onAddSku: () => void;
   onEditSku: (sku: any) => void;
   onDeleteSku: (skuId: number) => void;
+  onOpenBundle: (sku: any) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -571,14 +584,26 @@ function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, 
                       size="sm"
                       className="h-6 w-6 p-0"
                       onClick={() => onEditSku(sku)}
+                      title="SKU 수정"
                     >
                       <Pencil className="h-3 w-3" />
+                    </Button>
+                    {/* ★ 2026-05-09 (PR #281): 번들 구성 버튼 — 혼합 제품 SKU 의 child 등록 */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-blue-600"
+                      onClick={() => onOpenBundle(sku)}
+                      title="번들 구성 (혼합 제품)"
+                    >
+                      <Boxes className="h-3 w-3" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       className="h-6 w-6 p-0 text-destructive"
                       onClick={() => onDeleteSku(sku.id)}
+                      title="SKU 삭제"
                     >
                       <Trash2 className="h-3 w-3" />
                     </Button>
@@ -1226,6 +1251,263 @@ function SkuEditDialog({ open, onOpenChange, sku, itemName, onSubmit, isPending 
           <Button variant="outline" onClick={() => onOpenChange(false)}>취소</Button>
           <Button onClick={handleSubmit} disabled={isPending}>
             {isPending ? "수정 중..." : "SKU 수정"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// PR #281 — 번들 구성 다이얼로그 (혼합 제품: parent SKU 의 child + 비율)
+// ============================================================
+function BundleCompositionDialog({
+  open,
+  onOpenChange,
+  parentSku,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  parentSku: any;
+}) {
+  const { toast } = useToast();
+  const utils = trpc.useUtils();
+
+  // 현재 번들 구성 조회
+  const { data: bundleData, refetch: refetchBundle } = trpc.skuBundle.listByParent.useQuery(
+    { parentSkuId: parentSku?.id },
+    { enabled: !!parentSku?.id && open },
+  );
+
+  // 후보 child SKU 조회 (자기 SKU 제외)
+  const { data: itemsData } = trpc.itemMaster.list.useQuery(
+    { itemType: "own_product", isActive: 1, limit: 200 },
+    { enabled: open },
+  );
+  const candidateItems = (itemsData as any)?.items ?? [];
+
+  // 모든 후보 SKU 조회 (각 item 의 SKU 평탄화)
+  const [allSkus, setAllSkus] = useState<any[]>([]);
+  useEffect(() => {
+    if (!open || candidateItems.length === 0) return;
+    (async () => {
+      const skus: any[] = [];
+      for (const item of candidateItems) {
+        try {
+          const list = await utils.productSku.listByItem.fetch({ itemId: item.id });
+          for (const sku of list as any[]) {
+            if (sku.id !== parentSku.id && sku.isActive === 1) {
+              skus.push({ ...sku, itemName: item.itemName });
+            }
+          }
+        } catch {}
+      }
+      setAllSkus(skus);
+    })();
+  }, [open, candidateItems.length, parentSku?.id]);
+
+  // 편집 상태
+  const [children, setChildren] = useState<Array<{ childSkuId: number; defaultRatio: number }>>([]);
+  useEffect(() => {
+    if (bundleData?.items) {
+      setChildren(
+        bundleData.items.map((b: any) => ({
+          childSkuId: b.childSkuId,
+          defaultRatio: Number(b.defaultRatio),
+        })),
+      );
+    } else {
+      setChildren([]);
+    }
+  }, [bundleData?.items]);
+
+  const totalRatio = children.reduce((s, c) => s + (Number(c.defaultRatio) || 0), 0);
+  const isValid = Math.abs(totalRatio - 100) < 0.01 && children.length >= 2;
+
+  const setMutation = trpc.skuBundle.setBundleComposition.useMutation({
+    onSuccess: (res) => {
+      toast({ title: "번들 구성 저장 완료", description: `${res.savedCount}개 child SKU 등록 (합계 ${res.totalRatio}%)` });
+      refetchBundle();
+      onOpenChange(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "저장 실패", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const removeMutation = trpc.skuBundle.removeBundle.useMutation({
+    onSuccess: () => {
+      toast({ title: "번들 구성 삭제 — 단일 SKU 로 전환됨" });
+      refetchBundle();
+      onOpenChange(false);
+    },
+  });
+
+  const handleAdd = () => {
+    setChildren([...children, { childSkuId: 0, defaultRatio: 0 }]);
+  };
+
+  const handleRemove = (idx: number) => {
+    setChildren(children.filter((_, i) => i !== idx));
+  };
+
+  const handleAutoBalance = () => {
+    if (children.length === 0) return;
+    const equal = Math.floor((100 / children.length) * 100) / 100;
+    const updated = children.map((c) => ({ ...c, defaultRatio: equal }));
+    // 마지막 행에 잔여 보정
+    const sum = updated.reduce((s, c) => s + c.defaultRatio, 0);
+    if (Math.abs(sum - 100) > 0.001) {
+      updated[updated.length - 1].defaultRatio += Math.round((100 - sum) * 100) / 100;
+    }
+    setChildren(updated);
+  };
+
+  const handleSubmit = () => {
+    if (!parentSku?.id) return;
+    if (!isValid) {
+      toast({
+        title: "비율 합계가 100% 가 아닙니다",
+        description: `현재: ${totalRatio.toFixed(2)}% (최소 2개 child 필요)`,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (children.some((c) => !c.childSkuId)) {
+      toast({ title: "child SKU 를 모두 선택하세요", variant: "destructive" });
+      return;
+    }
+    setMutation.mutate({
+      parentSkuId: parentSku.id,
+      children: children.map((c, idx) => ({
+        childSkuId: c.childSkuId,
+        defaultRatio: c.defaultRatio,
+        sortOrder: idx,
+      })),
+    });
+  };
+
+  if (!parentSku) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>번들 구성 — {parentSku.skuName}</DialogTitle>
+          <DialogDescription>
+            혼합 제품: 여러 child SKU 를 비율대로 묶어 1개 출고 SKU 로 관리.
+            합계 100%, 비율 고정 (HACCP 라벨 일관성).
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {/* 현재 구성 안내 */}
+          {bundleData?.items && bundleData.items.length > 0 && (
+            <div className="rounded-md bg-blue-50 p-2 text-xs text-blue-900">
+              현재 {bundleData.items.length}개 child 등록됨 (합계: {bundleData.totalRatio}%)
+            </div>
+          )}
+
+          {/* child SKU 행 */}
+          <div className="space-y-2">
+            {children.map((child, idx) => {
+              const skuOption = allSkus.find((s) => s.id === child.childSkuId);
+              return (
+                <div key={idx} className="flex items-center gap-2 rounded border p-2">
+                  <span className="w-6 text-xs text-muted-foreground">{idx + 1}</span>
+                  <select
+                    value={child.childSkuId || ""}
+                    onChange={(e) => {
+                      const next = [...children];
+                      next[idx].childSkuId = parseInt(e.target.value) || 0;
+                      setChildren(next);
+                    }}
+                    className="flex-1 rounded border px-2 py-1 text-sm"
+                  >
+                    <option value="">child SKU 선택...</option>
+                    {allSkus.map((sku) => (
+                      <option key={sku.id} value={sku.id}>
+                        {sku.skuCode} — {sku.itemName} ({sku.skuName})
+                      </option>
+                    ))}
+                  </select>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    value={child.defaultRatio || ""}
+                    onChange={(e) => {
+                      const next = [...children];
+                      next[idx].defaultRatio = parseFloat(e.target.value) || 0;
+                      setChildren(next);
+                    }}
+                    className="w-24 text-right"
+                    placeholder="%"
+                  />
+                  <span className="text-xs text-muted-foreground">%</span>
+                  <Button variant="ghost" size="sm" onClick={() => handleRemove(idx)}>
+                    <Trash2 className="h-3 w-3 text-destructive" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* 컨트롤 */}
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="outline" size="sm" onClick={handleAdd}>
+              <Plus className="mr-1 h-3 w-3" /> child SKU 추가
+            </Button>
+            {children.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={handleAutoBalance}>
+                <RefreshCw className="mr-1 h-3 w-3" /> 균등 분배
+              </Button>
+            )}
+          </div>
+
+          {/* 합계 게이지 */}
+          <div className="rounded-md border p-3">
+            <div className="mb-1 flex items-center justify-between text-xs">
+              <span>합계</span>
+              <span className={isValid ? "font-semibold text-green-600" : "font-semibold text-red-600"}>
+                {totalRatio.toFixed(2)}% {isValid ? "✓" : "✗"}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded bg-muted">
+              <div
+                className={isValid ? "h-full bg-green-500" : "h-full bg-red-500"}
+                style={{ width: `${Math.min(100, totalRatio)}%` }}
+              />
+            </div>
+            {!isValid && children.length > 0 && (
+              <div className="mt-1 text-xs text-red-600">
+                {children.length < 2 ? "최소 2개 child 필요" : "100.00% 가 아닙니다"}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          {bundleData?.items && bundleData.items.length > 0 && (
+            <Button
+              variant="outline"
+              className="text-destructive"
+              onClick={() => {
+                if (confirm("번들 구성을 삭제하고 단일 SKU 로 전환하시겠습니까?")) {
+                  removeMutation.mutate({ parentSkuId: parentSku.id });
+                }
+              }}
+              disabled={removeMutation.isPending}
+            >
+              번들 해제
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            취소
+          </Button>
+          <Button onClick={handleSubmit} disabled={!isValid || setMutation.isPending}>
+            {setMutation.isPending ? "저장 중..." : "저장"}
           </Button>
         </DialogFooter>
       </DialogContent>

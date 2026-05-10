@@ -246,6 +246,30 @@ export async function createSingleBatch(
   if (input.skuOutputs && input.skuOutputs.length > 0) {
     try {
       const conn = await getRawConnection();
+      // ★ 2026-05-09 (PR #281): SKU 번들 자동 매칭 — child SKU → parent bundle 룩업
+      const childIds = input.skuOutputs
+        .map((o: any) => o.skuId)
+        .filter((id: number) => Number.isFinite(id));
+      const bundleMap = new Map<number, number>();
+      if (childIds.length > 0) {
+        const ph = childIds.map(() => "?").join(",");
+        try {
+          const [bRows] = await conn.execute<any[]>(
+            `SELECT child_sku_id, parent_sku_id FROM sku_bundles
+             WHERE tenant_id = ? AND child_sku_id IN (${ph})
+             ORDER BY sort_order, id`,
+            [input.tenantId, ...childIds],
+          );
+          for (const r of bRows as any[]) {
+            if (!bundleMap.has(Number(r.child_sku_id))) {
+              bundleMap.set(Number(r.child_sku_id), Number(r.parent_sku_id));
+            }
+          }
+        } catch (_e) {
+          // sku_bundles 테이블 미생성 환경 (마이그레이션 전) — 조용히 패스
+        }
+      }
+
       for (const skuOut of input.skuOutputs) {
         if (!skuOut.plannedQty && !skuOut.actualQty) continue;
         const [skuRows] = await conn.execute<any[]>(
@@ -257,11 +281,12 @@ export async function createSingleBatch(
           : 1;
         const qty = skuOut.actualQty ?? skuOut.plannedQty;
         const totalKg = (qty * kgPerUnit).toFixed(3);
+        const bundleSkuId = bundleMap.get(skuOut.skuId) ?? null;
         await conn.execute(
-          `INSERT INTO production_sku_output (tenant_id, batch_id, sku_id, quantity, defective_qty, total_kg, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE quantity=VALUES(quantity), defective_qty=VALUES(defective_qty), total_kg=VALUES(total_kg)`,
-          [input.tenantId, batchId, skuOut.skuId, qty, skuOut.defectiveQty || 0, totalKg, skuOut.note || null],
+          `INSERT INTO production_sku_output (tenant_id, batch_id, sku_id, bundle_sku_id, quantity, defective_qty, total_kg, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE bundle_sku_id=VALUES(bundle_sku_id), quantity=VALUES(quantity), defective_qty=VALUES(defective_qty), total_kg=VALUES(total_kg)`,
+          [input.tenantId, batchId, skuOut.skuId, bundleSkuId, qty, skuOut.defectiveQty || 0, totalKg, skuOut.note || null],
         );
       }
     } catch (skuErr) {

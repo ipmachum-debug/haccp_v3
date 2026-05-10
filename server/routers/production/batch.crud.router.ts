@@ -330,6 +330,14 @@ export const batchCrudRouter = router({
               "../../../drizzle/schema/schema_dual_unit.js"
             );
             const { eq: eqOp } = await import("drizzle-orm");
+            // ★ 2026-05-09 (PR #281): SKU 번들 자동 매칭 — child SKU 가 어떤 parent 에 속하는지 룩업
+            const { resolveBundleSkuIdsBulk } = await import(
+              "../../lib/production/resolveBundleSkuId.js"
+            );
+            const childSkuIds = input.skuOutputs
+              .map((o: any) => o.skuId)
+              .filter((id: number) => Number.isFinite(id));
+            const bundleMap = await resolveBundleSkuIdsBulk(db, tenantId, childSkuIds);
 
             for (const skuOut of input.skuOutputs) {
               const qty = skuOut.actualQty ?? skuOut.plannedQty;
@@ -341,6 +349,7 @@ export const batchCrudRouter = router({
                 tenantId,
                 batchId,
                 skuId: skuOut.skuId,
+                bundleSkuId: bundleMap.get(skuOut.skuId) ?? null,
                 quantity: qty,
                 defectiveQty: skuOut.defectiveQty ?? 0,
                 totalKg,
