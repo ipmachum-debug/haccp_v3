@@ -281,31 +281,99 @@ function SalesListContent() {
       restore: "복구",
     };
     const label = actionLabels[action];
-    const itemText = group.itemCount > 1 ? `${group.itemCount}개 품목` : "이 거래";
-    if (!confirm(`${group.transactionDate} ${group.partnerName} — ${itemText}을(를) ${label}하시겠습니까?`)) {
+
+    // ─── 대상/대상외 분리 (2026-05-11 PR-I) ─────────────────
+    // 혼재(mixed) 그룹 부분 처리 시, 액션이 가능한 항목만 추려서 진행하고
+    // 나머지(이미 다른 상태로 전환된 항목)는 건너뛴다는 점을 사용자에게 명시.
+    const targets = group.items.filter((item) =>
+      getAvailableActions(item.status, "sale").includes(action),
+    );
+    const skipped = group.items.filter(
+      (item) => !getAvailableActions(item.status, "sale").includes(action),
+    );
+
+    if (targets.length === 0) {
+      toast({
+        title: `${label} 불가`,
+        description: "해당 상태의 품목이 없습니다.",
+        variant: "destructive",
+      });
       return;
     }
-    const targetIds = group.items
-      .filter((item) => getAvailableActions(item.status, "sale").includes(action))
-      .map((item) => item.id);
-    if (targetIds.length === 0) {
-      toast({ title: `${label} 불가`, description: "해당 상태의 품목이 없습니다.", variant: "destructive" });
+
+    // confirm 메시지 — 혼재 그룹이거나 일부 항목이 대상 외인 경우 명시
+    const itemText =
+      group.itemCount > 1 ? `${group.itemCount}개 품목` : "이 거래";
+    let confirmMsg = `${group.transactionDate} ${group.partnerName} — ${itemText}을(를) ${label}하시겠습니까?`;
+    if (skipped.length > 0) {
+      confirmMsg += `\n\n· 처리 대상: ${targets.length}건\n· 건너뜀(이미 다른 상태): ${skipped.length}건`;
+    }
+    if (!confirm(confirmMsg)) {
       return;
     }
-    try {
-      if (action === "approve") {
-        await Promise.all(targetIds.map((id) => postMutation.mutateAsync({ saleId: id })));
-      } else if (action === "markReceived") {
-        await Promise.all(targetIds.map((id) => markReceivedMutation.mutateAsync({ saleId: id })));
-      } else if (action === "cancel") {
-        await Promise.all(targetIds.map((id) => saleCancelMutation.mutateAsync({ saleId: id })));
-      } else if (action === "restore") {
-        await Promise.all(targetIds.map((id) => saleRestoreMutation.mutateAsync({ saleId: id })));
+
+    const targetIds = targets.map((item) => item.id);
+
+    // ─── allSettled 로 부분 성공 허용 (2026-05-11 PR-I) ─────
+    // 기존: Promise.all → 1건 실패 시 전체 reject, 사용자가 어떤 게 성공/실패했는지 모름
+    // 변경: Promise.allSettled → 모두 시도, 결과를 ok/fail 로 집계해 토스트 표시
+    const runOne = (id: number): Promise<unknown> => {
+      switch (action) {
+        case "approve":
+          return postMutation.mutateAsync({ saleId: id });
+        case "markReceived":
+          return markReceivedMutation.mutateAsync({ saleId: id });
+        case "cancel":
+          return saleCancelMutation.mutateAsync({ saleId: id });
+        case "restore":
+          return saleRestoreMutation.mutateAsync({ saleId: id });
+        default:
+          return Promise.reject(new Error(`알 수 없는 액션: ${action}`));
       }
-      toast({ title: `그룹 ${label} 완료`, description: `${targetIds.length}개 품목 처리됨` });
-    } catch (err) {
-      const error = err as Error;
-      toast({ title: `그룹 ${label} 실패`, description: error.message || "일부 품목 처리 실패", variant: "destructive" });
+    };
+
+    const results = await Promise.allSettled(targetIds.map(runOne));
+
+    const okIds: number[] = [];
+    const failures: Array<{ id: number; message: string }> = [];
+    results.forEach((res, idx) => {
+      const id = targetIds[idx];
+      if (res.status === "fulfilled") {
+        okIds.push(id);
+      } else {
+        const reason = res.reason as { message?: string } | Error | undefined;
+        const message =
+          (reason as Error | undefined)?.message ??
+          String(reason ?? "알 수 없는 오류");
+        failures.push({ id, message });
+        // eslint-disable-next-line no-console
+        console.error(`[handleGroupAction] sale#${id} ${action} 실패:`, reason);
+      }
+    });
+
+    // ─── 결과 토스트: 부분 성공/실패 명시 ──────────────────
+    if (failures.length === 0) {
+      const desc =
+        skipped.length > 0
+          ? `${okIds.length}건 처리됨 (건너뜀 ${skipped.length}건)`
+          : `${okIds.length}건 처리됨`;
+      toast({ title: `그룹 ${label} 완료`, description: desc });
+    } else if (okIds.length === 0) {
+      const sample = failures.slice(0, 3).map((f) => `#${f.id}: ${f.message}`).join(" / ");
+      const more = failures.length > 3 ? ` 외 ${failures.length - 3}건` : "";
+      toast({
+        title: `그룹 ${label} 실패`,
+        description: `${failures.length}건 모두 실패 — ${sample}${more}`,
+        variant: "destructive",
+      });
+    } else {
+      const failIds = failures.map((f) => `#${f.id}`).slice(0, 5).join(", ");
+      const more = failures.length > 5 ? ` 외 ${failures.length - 5}건` : "";
+      toast({
+        title: `그룹 ${label} 부분 성공`,
+        description: `성공 ${okIds.length}건 / 실패 ${failures.length}건 (${failIds}${more})`,
+        variant: "destructive",
+      });
     }
   };
 
