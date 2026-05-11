@@ -181,12 +181,22 @@ export async function postProductSale(
 
     // ────────────────────────────────────────────────────────────
     // ★ PR-C2 (2026-05-11): 혼합 SKU 자동 분해 차감 라우팅
+    // ★ PR-H (2026-05-11): is_default=1 조건 제거 — 번들 등록된 SKU 우선
     // ────────────────────────────────────────────────────────────
     // 제품 매출의 productId 가 sku_bundles 의 parent_sku_id 와 연결돼 있으면
     // (= 혼합 SKU 정의 존재), 직접 FEFO 대신 decomposeBundleOutbound 호출.
     //
-    // 브릿지: h_products_v2.id → item_master.legacy_product_id → product_skus(default)
-    //         → sku_bundles.parent_sku_id 존재 여부
+    // 브릿지: h_products_v2.id → item_master.legacy_product_id → product_skus
+    //         → sku_bundles.parent_sku_id 존재 확인
+    //
+    // [수정 배경 — PR-H]
+    //   기존 쿼리는 ps.is_default = 1 필터로 인해, 번들 parent 로 사용되는
+    //   product_skus 가 is_default=0 인 경우 (실제 운영 데이터에서 흔함)
+    //   브릿지가 0건을 반환하고 → FEFO 폴백 → product_id LOT 없음 → 차감 0건.
+    //
+    //   해결: is_default 필터 제거. 대신 sku_bundles 에 parent 로 등록된
+    //   product_skus 만 후보로 선택. 같은 item_id 에 번들 등록된 SKU 가
+    //   여러 개일 경우 is_default=1 우선, 그 다음 id ASC.
     let bundleParentSkuId: number | null = null;
     if (isProductSale && resolvedProductId && saleQty > 0) {
       try {
@@ -194,7 +204,6 @@ export async function postProductSale(
           `SELECT ps.id AS parent_sku_id
            FROM item_master im
            JOIN product_skus ps ON ps.item_id = im.id
-             AND ps.is_default = 1
              AND ps.tenant_id = im.tenant_id
              AND ps.is_active = 1
            WHERE im.legacy_product_id = ?
@@ -203,6 +212,7 @@ export async function postProductSale(
                SELECT 1 FROM sku_bundles sb
                 WHERE sb.parent_sku_id = ps.id AND sb.tenant_id = im.tenant_id
              )
+           ORDER BY ps.is_default DESC, ps.id ASC
            LIMIT 1`,
           [resolvedProductId, tenantId],
         );
