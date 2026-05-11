@@ -18,7 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw, Boxes } from "lucide-react";
+import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw, Boxes, Star, X } from "lucide-react";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type ItemType = "raw_material" | "own_product" | "external_product" | "subsidiary";
@@ -132,6 +132,10 @@ function ItemMasterContent() {
   const [isSkuEditOpen, setIsSkuEditOpen] = useState(false);
   // PR #281 — 번들 구성 다이얼로그
   const [isBundleOpen, setIsBundleOpen] = useState(false);
+  // ★ PR-C/D (2026-05-11): SKU 별칭 (alias) 관리 다이얼로그
+  //   Excel 일괄 매출에서 "단지 혼합10종설기" 같은 자유로운 표기 → SKU 자동 매칭용.
+  //   alias 등록은 여기서 1회, 매칭은 SalesBulkUpload 에서 bulkMatchPreview 가 자동 처리.
+  const [isAliasOpen, setIsAliasOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [selectedSku, setSelectedSku] = useState<any>(null);
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null);
@@ -440,6 +444,7 @@ function ItemMasterContent() {
                                   }
                                 }}
                                 onOpenBundle={(sku: any) => { setSelectedSku(sku); setSelectedItem(item); setIsBundleOpen(true); }}
+                                onOpenAlias={(sku: any) => { setSelectedSku(sku); setSelectedItem(item); setIsAliasOpen(true); }}
                               />
                             </TableCell>
                           </TableRow>
@@ -514,6 +519,15 @@ function ItemMasterContent() {
           parentSku={selectedSku}
         />
       )}
+
+      {/* ★ PR-C/D (2026-05-11) — SKU 별칭 (alias) 관리 다이얼로그 */}
+      {selectedSku && (
+        <AliasManagementDialog
+          open={isAliasOpen}
+          onOpenChange={setIsAliasOpen}
+          sku={selectedSku}
+        />
+      )}
     </div>
   );
 }
@@ -521,7 +535,7 @@ function ItemMasterContent() {
 // ============================================================
 // SKU 섹션 (수정/삭제 버튼 포함)
 // ============================================================
-function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, onDeleteSku, onOpenBundle }: {
+function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, onDeleteSku, onOpenBundle, onOpenAlias }: {
   itemId: number;
   itemCode: string;
   itemName: string;
@@ -530,6 +544,7 @@ function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, 
   onEditSku: (sku: any) => void;
   onDeleteSku: (skuId: number) => void;
   onOpenBundle: (sku: any) => void;
+  onOpenAlias: (sku: any) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -597,6 +612,16 @@ function SkuSection({ itemId, itemCode, itemName, skuList, onAddSku, onEditSku, 
                       title="번들 구성 (혼합 제품)"
                     >
                       <Boxes className="h-3 w-3" />
+                    </Button>
+                    {/* ★ 2026-05-11 (PR-C/D): SKU 별칭 관리 — Excel 매출 일괄 매칭용 */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-amber-600"
+                      onClick={() => onOpenAlias(sku)}
+                      title="별칭 관리 (Excel 매출 매칭)"
+                    >
+                      <Search className="h-3 w-3" />
                     </Button>
                     <Button
                       variant="ghost"
@@ -1616,6 +1641,186 @@ function BundleCompositionDialog({
           <Button onClick={handleSubmit} disabled={!isValid || setMutation.isPending}>
             {setMutation.isPending ? "저장 중..." : "저장"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================
+// SKU 별칭 (alias) 관리 다이얼로그 — PR-C/D (2026-05-11)
+// ============================================================
+//
+// 목적: Excel 일괄 매출 등록 시 "단지 혼합10종설기" 같은 자유로운 표기를
+//       SKU 와 매칭하기 위한 alias 1:N 관리.
+// 동작: SalesBulkUpload 가 매칭 단계에서 bulkMatchPreview 를 호출 →
+//       alias 정확 매칭 우선 → sku_name → sku_code → item_name fallback.
+// 권한: addAlias / removeAlias 는 adminProcedure.
+function AliasManagementDialog({
+  open,
+  onOpenChange,
+  sku,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sku: { id: number; skuCode: string; skuName: string };
+}) {
+  const { toast } = useToast();
+  const utils = trpc.useUtils();
+  const [newAlias, setNewAlias] = useState("");
+  const [isPrimary, setIsPrimary] = useState(false);
+  const [note, setNote] = useState("");
+
+  const { data: aliases, refetch } = trpc.skuAlias.listBySku.useQuery(
+    { skuId: sku.id },
+    { enabled: open && !!sku.id },
+  );
+
+  const addMutation = trpc.skuAlias.addAlias.useMutation({
+    onSuccess: () => {
+      toast({ title: "별칭이 추가되었습니다." });
+      setNewAlias("");
+      setIsPrimary(false);
+      setNote("");
+      void refetch();
+      void utils.skuAlias.listBySku.invalidate({ skuId: sku.id });
+    },
+    onError: (e) => {
+      toast({ title: "추가 실패", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const removeMutation = trpc.skuAlias.removeAlias.useMutation({
+    onSuccess: () => {
+      toast({ title: "별칭이 삭제되었습니다." });
+      void refetch();
+      void utils.skuAlias.listBySku.invalidate({ skuId: sku.id });
+    },
+    onError: (e) => {
+      toast({ title: "삭제 실패", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const handleAdd = () => {
+    const trimmed = newAlias.trim();
+    if (!trimmed) {
+      toast({ title: "별칭을 입력해주세요.", variant: "destructive" });
+      return;
+    }
+    addMutation.mutate({
+      skuId: sku.id,
+      alias: trimmed,
+      isPrimary,
+      note: note.trim() || undefined,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-amber-600" />
+            SKU 별칭 관리 — {sku.skuName}
+          </DialogTitle>
+          <DialogDescription>
+            <span className="block text-xs text-muted-foreground font-mono">{sku.skuCode}</span>
+            <span className="block mt-2">
+              Excel 매출 일괄 등록 시 이 별칭들과 정확 매칭되면 자동으로 이 SKU 로 인식됩니다.
+              <br />
+              예: "단지 혼합10종설기", "혼합10종설기", "단지 혼합 설기 10종" 등 N개 등록 가능.
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+            <Label className="text-sm font-semibold">새 별칭 추가</Label>
+            <div className="flex gap-2">
+              <Input
+                value={newAlias}
+                onChange={(e) => setNewAlias(e.target.value)}
+                placeholder="예: 단지 혼합10종설기"
+                onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+              />
+              <Button onClick={handleAdd} disabled={addMutation.isPending}>
+                {addMutation.isPending ? "추가 중..." : "추가"}
+              </Button>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isPrimary}
+                  onChange={(e) => setIsPrimary(e.target.checked)}
+                  className="h-3 w-3"
+                />
+                <Star className="h-3 w-3 text-amber-500" />
+                <span>대표 별칭으로 설정 (기존 대표는 자동 강등)</span>
+              </label>
+            </div>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="비고 (선택) — 등록 출처, 이력 등"
+              className="text-xs h-8"
+            />
+          </div>
+
+          <div>
+            <Label className="text-sm font-semibold">
+              등록된 별칭 ({aliases?.length ?? 0}개)
+            </Label>
+            {aliases && aliases.length > 0 ? (
+              <Table className="mt-2">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[40px]">대표</TableHead>
+                    <TableHead>별칭</TableHead>
+                    <TableHead className="text-xs">비고</TableHead>
+                    <TableHead className="w-[60px] text-right">삭제</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aliases.map((a: any) => (
+                    <TableRow key={a.id}>
+                      <TableCell>
+                        {a.isPrimary ? (
+                          <Star className="h-3 w-3 text-amber-500 fill-amber-500" />
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="font-medium">{a.alias}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{a.note || "-"}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0 text-destructive"
+                          onClick={() => {
+                            if (confirm(`별칭 "${a.alias}" 을 삭제하시겠습니까?`)) {
+                              removeMutation.mutate({ id: a.id });
+                            }
+                          }}
+                          disabled={removeMutation.isPending}
+                          title="삭제"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-2">
+                등록된 별칭이 없습니다. 위에서 첫 별칭을 추가해보세요.
+              </p>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>닫기</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

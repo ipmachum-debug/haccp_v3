@@ -249,10 +249,13 @@ export const skuAliasRouter = router({
       if (distinctNorm.length === 0) return { matches: [], unmatched: [] };
 
       // alias + sku_name + sku_code 한 번에 매칭 (UNION)
+      // ★ PR-C/D (2026-05-11): itemId 도 함께 반환 — Excel 일괄 매출 매칭에서
+      //   item_master 기준 라우팅 (`bulkCreateSales` 의 productId/materialId 결정) 에 사용.
       const aliasRows = await db
         .select({
           text: skuAliases.alias,
           skuId: skuAliases.skuId,
+          itemId: productSkus.itemId,
           skuCode: productSkus.skuCode,
           skuName: productSkus.skuName,
         })
@@ -270,6 +273,7 @@ export const skuAliasRouter = router({
           name: productSkus.skuName,
           code: productSkus.skuCode,
           skuId: productSkus.id,
+          itemId: productSkus.itemId,
         })
         .from(productSkus)
         .where(
@@ -283,12 +287,13 @@ export const skuAliasRouter = router({
 
       const matchMap = new Map<
         string,
-        { skuId: number; skuCode: string; skuName: string; matchSource: string }
+        { skuId: number; itemId: number; skuCode: string; skuName: string; matchSource: string }
       >();
       for (const r of aliasRows) {
         if (!matchMap.has(r.text)) {
           matchMap.set(r.text, {
             skuId: r.skuId,
+            itemId: r.itemId,
             skuCode: r.skuCode,
             skuName: r.skuName,
             matchSource: "alias",
@@ -300,6 +305,7 @@ export const skuAliasRouter = router({
         if (byName) {
           matchMap.set(r.name, {
             skuId: r.skuId,
+            itemId: r.itemId,
             skuCode: r.code,
             skuName: r.name,
             matchSource: "sku_name",
@@ -308,6 +314,7 @@ export const skuAliasRouter = router({
         if (r.code && !matchMap.has(r.code)) {
           matchMap.set(r.code, {
             skuId: r.skuId,
+            itemId: r.itemId,
             skuCode: r.code,
             skuName: r.name,
             matchSource: "sku_code",
@@ -318,6 +325,7 @@ export const skuAliasRouter = router({
       const matches: Array<{
         text: string;
         skuId: number;
+        itemId: number;
         skuCode: string;
         skuName: string;
         matchSource: string;
