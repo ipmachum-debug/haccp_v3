@@ -50,7 +50,13 @@ export interface ChildDeduction {
     lotId: number;
     lotNumber: string;
     deductedKg: number;
+    /** ★ PR-C2 (2026-05-11): COGS 계산용 LOT 단가 (h_inventory_lots.unit_price 시점값) */
+    unitCost: number;
+    /** ★ PR-C2: deductedKg × unitCost 행 비용 */
+    cost: number;
   }>;
+  /** ★ PR-C2: 이 child 의 차감 LOT 비용 합 (COGS 누적용) */
+  totalCost: number;
 }
 
 export interface DecomposeBundleResult {
@@ -60,6 +66,8 @@ export interface DecomposeBundleResult {
   parentLot: { id: number; lotNumber: string };
   children: ChildDeduction[];
   totalDeductedKg: number;
+  /** ★ PR-C2: 모든 child 의 LOT 단가×kg 합 (COGS 라우팅용) */
+  totalCost: number;
   hasShortage: boolean;
   warnings: string[];
 }
@@ -159,8 +167,9 @@ export async function decomposeBundleOutbound(
     const requiredKg = requiredKgPerParent * parentQty;
 
     // FEFO 차감: expiry_date 빠른 LOT 우선
+    // ★ PR-C2 (2026-05-11): unit_price 함께 SELECT — COGS 계산용
     const [lots]: any = await conn.execute(
-      `SELECT id, lot_number, available_quantity, expiry_date
+      `SELECT id, lot_number, available_quantity, expiry_date, unit_price
          FROM h_inventory_lots
          WHERE tenant_id = ?
            AND sku_id = ?
@@ -171,12 +180,15 @@ export async function decomposeBundleOutbound(
 
     let remaining = requiredKg;
     const usedLots: ChildDeduction["lots"] = [];
+    let childTotalCost = 0;
 
     for (const lot of (lots as any[])) {
       if (remaining <= 0.001) break;
       const avail = Number(lot.available_quantity) || 0;
       const take = Math.min(avail, remaining);
       if (take > 0) {
+        const lotUnitCost = Number(lot.unit_price || 0);
+        const lotCost = take * lotUnitCost;
         await conn.execute(
           `UPDATE h_inventory_lots
              SET available_quantity = GREATEST(available_quantity - ?, 0),
@@ -184,13 +196,17 @@ export async function decomposeBundleOutbound(
              WHERE id = ? AND tenant_id = ?`,
           [take, take, lot.id, tenantId],
         );
-        // h_inventory_transactions 기록
+        // h_inventory_transactions 기록 — ★ PR-C2: unit_cost/amount 추가
         await conn.execute(
           `INSERT INTO h_inventory_transactions
              (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
-              source_type, source_id, action_type, purpose, performed_by, created_by)
-           VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?)`,
-          [tenantId, lot.id, take, outboundDate, parentLotId, userId, userId],
+              source_type, source_id, action_type, purpose, unit_cost, amount,
+              performed_by, created_by)
+           VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?)`,
+          [
+            tenantId, lot.id, take, outboundDate, parentLotId,
+            lotUnitCost, lotCost, userId, userId,
+          ],
         );
         // bundle_lots 매핑 INSERT
         await conn.execute(
@@ -210,7 +226,10 @@ export async function decomposeBundleOutbound(
           lotId: Number(lot.id),
           lotNumber: String(lot.lot_number),
           deductedKg: Math.round(take * 1000) / 1000,
+          unitCost: lotUnitCost,
+          cost: Math.round(lotCost * 100) / 100,
         });
+        childTotalCost += lotCost;
         remaining -= take;
       }
     }
@@ -231,9 +250,12 @@ export async function decomposeBundleOutbound(
       deductedKg: Math.round(deductedKg * 1000) / 1000,
       shortageKg: Math.round(shortageKg * 1000) / 1000,
       lots: usedLots,
+      totalCost: Math.round(childTotalCost * 100) / 100,
     });
     totalDeductedKg += deductedKg;
   }
+
+  const grandTotalCost = children.reduce((s, c) => s + c.totalCost, 0);
 
   return {
     parentSkuId,
@@ -241,6 +263,7 @@ export async function decomposeBundleOutbound(
     parentLot: { id: parentLotId, lotNumber: parentLotNumber },
     children,
     totalDeductedKg: Math.round(totalDeductedKg * 1000) / 1000,
+    totalCost: Math.round(grandTotalCost * 100) / 100,
     hasShortage: warnings.length > 0,
     warnings,
   };
