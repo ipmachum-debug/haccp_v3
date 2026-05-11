@@ -309,7 +309,55 @@ function SalesBulkUploadContent() {
     setStep('review');
     // 중복 검사 비동기 실행 (UI 차단하지 않음)
     setTimeout(() => { void runDuplicateCheck(); }, 100);
+    // ★ PR-C/D (2026-05-11): alias 기반 정확 매칭 — fuzzy 결과 위에 덮어쓰기.
+    //   "단지 혼합10종설기" 처럼 등록된 별칭을 가진 행은 fuzzy 점수와 무관하게 alias 우선.
+    setTimeout(() => { void runAliasMatch(rows); }, 100);
   }, [excelRawRows, excelHeaders, headerMapping, partners, allItems]);
+
+  /**
+   * ★ PR-C/D (2026-05-11): SKU 별칭 기반 정확 매칭
+   * 품목 마스터 → 각 SKU 행의 "별칭 관리" 다이얼로그에서 등록한 alias 가 있으면,
+   * Excel 의 itemName 과 정확 매칭되어 자동으로 그 SKU 의 item_master 행으로 인식.
+   * - fuzzy 매칭 결과보다 우선
+   * - 등록된 alias 가 없으면 동작 변화 0 (기존 fuzzy 결과 유지)
+   */
+  const runAliasMatch = async (initialRows: ParsedRow[]) => {
+    const texts = Array.from(new Set(initialRows.map((r) => r.itemName).filter(Boolean)));
+    if (texts.length === 0) return;
+    try {
+      const result: any = await (utils as any).skuAlias?.bulkMatchPreview?.fetch?.({ texts });
+      if (!result || !result.matches || result.matches.length === 0) return;
+      const byText = new Map<string, { itemId: number; skuName: string; matchSource: string }>();
+      for (const m of result.matches as Array<{ text: string; itemId: number; skuName: string; matchSource: string }>) {
+        byText.set(m.text.trim(), { itemId: m.itemId, skuName: m.skuName, matchSource: m.matchSource });
+      }
+      setParsedRows((prev) =>
+        prev.map((r) => {
+          const m = byText.get(r.itemName.trim());
+          if (!m) return r;
+          const item = allItems.find((i) => i.id === m.itemId);
+          if (!item) return r;
+          return {
+            ...r,
+            itemMasterId: item.id,
+            itemType: item.itemType,
+            itemMatchScore: 1.0,
+            status: r.partnerId ? 'matched' : 'warning',
+            statusMessage: `별칭 매칭 (${m.matchSource}) → ${m.skuName}`,
+          };
+        }),
+      );
+      const matchedCount = result.matchedCount ?? result.matches.length;
+      if (matchedCount > 0) {
+        toast({
+          title: "별칭 매칭 완료",
+          description: `${matchedCount}건이 SKU 별칭으로 자동 매칭되었습니다.`,
+        });
+      }
+    } catch (err) {
+      console.warn("[runAliasMatch]", err);
+    }
+  };
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 3: 리뷰
