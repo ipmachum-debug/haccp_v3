@@ -108,9 +108,28 @@ function SalesBulkUploadContent() {
   const [aliasSkuQuery, setAliasSkuQuery] = useState<string>('');
   const [aliasSelectedSkuId, setAliasSelectedSkuId] = useState<number | null>(null);
 
-  const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: UploadError[] } | null>(null);
+  const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: UploadError[]; insertedIds?: number[] } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isAiMatching, setIsAiMatching] = useState(false);
+
+  // ★ PR-J (2026-05-11): 일괄 등록 직후 승인 다이얼로그
+  //   사용자 의도: "일괄 등록 마지막 단계에서 승인을 묻고, '승인' 선택 시
+  //   재고 즉시 차감. 그러지 않으면 pending 으로만 등록." (회계 제외 체크와는 별도 흐름)
+  //   ─────────────────────────────────────────────────
+  //   approveDialogOpen: 다이얼로그 표시 여부
+  //   approveCandidateIds: 방금 INSERT 된 sale.id 들 (서버에서 insertedIds 로 전달)
+  //   isApproving: productSalePost 일괄 호출 중 로딩 표시
+  //   accountingExcludedAtUpload: 업로드 시 체크된 회계제외 플래그 (참고용 표시)
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approveCandidateIds, setApproveCandidateIds] = useState<number[]>([]);
+  const [isApproving, setIsApproving] = useState(false);
+  const [accountingExcludedAtUpload, setAccountingExcludedAtUpload] = useState(false);
+
+  // 일괄 등록 시 회계 제외 체크 (B2C 전자상거래용)
+  const [accountingExcluded, setAccountingExcluded] = useState(false);
+
+  // PR-J: 업로드 직후 일괄 승인용 mutation
+  const postMutation = trpc.inventoryAccounting.productSalePost.useMutation();
 
   // ─── 데이터 조회 ───
   const { data: allPartners } = trpc.partners.search.useQuery(
@@ -590,17 +609,111 @@ function SalesBulkUploadContent() {
 
     setIsUploading(true);
     try {
-      const result = await bulkMutation.mutateAsync({ items: uploadItems });
+      // ★ PR-J (2026-05-11): accountingExcluded 플래그 전달
+      //   기존 흐름은 status=pending 으로만 INSERT (재고 차감 X, 분개 X).
+      //   회계 제외 체크 여부는 별도 컬럼 (accounting_excluded) 으로 저장되며,
+      //   업로드 자체에서는 재고 차감을 하지 않는다 ─ 다음 단계의
+      //   "지금 모두 승인하고 재고 차감" 다이얼로그에서 일괄 승인 시점에 차감.
+      const result = await bulkMutation.mutateAsync({
+        items: uploadItems,
+        accountingExcluded,
+      });
       setUploadResult(result);
       utils.haccpIntegration.getAllSales.invalidate();
       setStep('result');
-      toast({ title: `매출 일괄 등록 완료`, description: `성공: ${result.successCount}건, 실패: ${result.failCount}건` });
+      toast({
+        title: `매출 일괄 등록 완료`,
+        description: `성공: ${result.successCount}건, 실패: ${result.failCount}건`,
+      });
+
+      // ★ PR-J: 마지막 단계 승인 다이얼로그 트리거
+      //   insertedIds 가 1건 이상이면 사용자에게 "지금 모두 승인하고 재고 차감
+      //   하시겠습니까?" 묻는다. "예" → productSalePost 일괄 호출, "아니오" → pending 유지.
+      const ids = (result as { insertedIds?: number[] }).insertedIds ?? [];
+      if (ids.length > 0) {
+        setApproveCandidateIds(ids);
+        setAccountingExcludedAtUpload(accountingExcluded);
+        setApproveDialogOpen(true);
+      }
     } catch (e) {
         const error = e as Error;
       toast({ title: "등록 오류", description: error.message, variant: "destructive" });
     } finally {
       setIsUploading(false);
     }
+  };
+
+  // ★ PR-J (2026-05-11): 일괄 승인 핸들러
+  //   업로드 직후 다이얼로그에서 "지금 모두 승인" 선택 시 호출.
+  //   - productSalePost 를 Promise.allSettled 로 호출해 부분 실패 허용
+  //   - 결과는 토스트로 "성공 N건 / 실패 M건" 표시
+  //   - mixed 그룹 처리 흐름(PR-I)과 동일한 패턴 적용
+  const handleBulkApproveAfterUpload = async () => {
+    if (approveCandidateIds.length === 0) {
+      setApproveDialogOpen(false);
+      return;
+    }
+    setIsApproving(true);
+    try {
+      const results = await Promise.allSettled(
+        approveCandidateIds.map((id) => postMutation.mutateAsync({ saleId: id })),
+      );
+      const okIds: number[] = [];
+      const failures: Array<{ id: number; message: string }> = [];
+      results.forEach((res, idx) => {
+        const id = approveCandidateIds[idx];
+        if (res.status === "fulfilled") {
+          okIds.push(id);
+        } else {
+          const reason = res.reason as { message?: string } | Error | undefined;
+          const message =
+            (reason as Error | undefined)?.message ??
+            String(reason ?? "알 수 없는 오류");
+          failures.push({ id, message });
+          // eslint-disable-next-line no-console
+          console.error(`[bulkApproveAfterUpload] sale#${id} 승인 실패:`, reason);
+        }
+      });
+
+      utils.haccpIntegration.getAllSales.invalidate();
+
+      if (failures.length === 0) {
+        toast({
+          title: "일괄 승인 완료",
+          description: `${okIds.length}건 모두 승인 + 재고 차감 완료`,
+        });
+      } else if (okIds.length === 0) {
+        const sample = failures.slice(0, 3).map((f) => `#${f.id}: ${f.message}`).join(" / ");
+        const more = failures.length > 3 ? ` 외 ${failures.length - 3}건` : "";
+        toast({
+          title: "일괄 승인 실패",
+          description: `${failures.length}건 모두 실패 — ${sample}${more}`,
+          variant: "destructive",
+        });
+      } else {
+        const failIds = failures.map((f) => `#${f.id}`).slice(0, 5).join(", ");
+        const more = failures.length > 5 ? ` 외 ${failures.length - 5}건` : "";
+        toast({
+          title: "일괄 승인 부분 성공",
+          description: `성공 ${okIds.length}건 / 실패 ${failures.length}건 (${failIds}${more})`,
+          variant: "destructive",
+        });
+      }
+    } finally {
+      setIsApproving(false);
+      setApproveDialogOpen(false);
+      setApproveCandidateIds([]);
+    }
+  };
+
+  // 다이얼로그에서 "아니오" — pending 유지
+  const handleSkipApprove = () => {
+    toast({
+      title: "대기 상태로 저장",
+      description: `${approveCandidateIds.length}건이 pending 상태로 등록되었습니다. 매출 조회에서 개별/그룹 승인 가능.`,
+    });
+    setApproveDialogOpen(false);
+    setApproveCandidateIds([]);
   };
 
   const handleDownloadTemplate = () => {
@@ -843,11 +956,25 @@ function SalesBulkUploadContent() {
             );
           })()}
 
-          <div className="flex items-center justify-between">
+          {/* ★ PR-J (2026-05-11): 회계 제외 체크 + 일괄 등록 버튼 */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <Button variant="outline" size="sm" onClick={() => setStep('mapping')}>
               <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매핑 수정
             </Button>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <label
+                className="flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 cursor-pointer select-none"
+                title="B2C 전자상거래 등 회계 분개에서 제외할 매출을 일괄 등록할 때 체크하세요. 다음 단계 다이얼로그에서 '지금 모두 승인' 선택 시 재고가 즉시 차감됩니다."
+              >
+                <input
+                  type="checkbox"
+                  checked={accountingExcluded}
+                  onChange={(e) => setAccountingExcluded(e.target.checked)}
+                  disabled={isUploading}
+                  className="h-3.5 w-3.5"
+                />
+                <span className="font-medium">회계 제외 (B2C)</span>
+              </label>
               {parsedRows.some(r => r.status === 'warning') && (
                 <Button
                   variant="outline"
@@ -1203,6 +1330,60 @@ function SalesBulkUploadContent() {
               disabled={!aliasSelectedSkuId || addAliasMutation?.isPending}
             >
               {addAliasMutation?.isPending ? "등록 중..." : "별칭으로 등록"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ PR-J (2026-05-11): 일괄 등록 직후 승인 다이얼로그
+          insertedIds가 1건 이상이면 사용자에게 "지금 모두 승인하고 재고 차감"을 묻는다.
+          - "지금 모두 승인": productSalePost 일괄 호출 (Promise.allSettled, 부분실패 허용)
+          - "나중에 승인": pending 상태로 유지 (매출 조회에서 개별/그룹 승인 가능) */}
+      <Dialog
+        open={approveDialogOpen}
+        onOpenChange={(open) => {
+          if (!isApproving) setApproveDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>지금 승인하고 재고 차감할까요?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              <strong>{approveCandidateIds.length}건</strong>이 <em>pending</em> 상태로 등록되었습니다.
+            </p>
+            {accountingExcludedAtUpload && (
+              <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong>회계 제외</strong> 체크된 매출입니다. 승인 시 재고는 즉시 차감되지만 회계 분개에서는 제외됩니다 (B2C 전자상거래용).
+                </span>
+              </div>
+            )}
+            <ul className="text-xs text-muted-foreground list-disc pl-5 space-y-1">
+              <li><strong>지금 모두 승인</strong>: FEFO/BUNDLE 분해로 즉시 재고 차감</li>
+              <li><strong>나중에 승인</strong>: pending 유지 → 매출 조회에서 개별/그룹 승인</li>
+            </ul>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button
+              variant="outline"
+              onClick={handleSkipApprove}
+              disabled={isApproving}
+            >
+              나중에 승인
+            </Button>
+            <Button
+              onClick={handleBulkApproveAfterUpload}
+              disabled={isApproving || approveCandidateIds.length === 0}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isApproving ? (
+                <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> 승인 중...</>
+              ) : (
+                <>지금 모두 승인 ({approveCandidateIds.length}건)</>
+              )}
             </Button>
           </div>
         </DialogContent>
