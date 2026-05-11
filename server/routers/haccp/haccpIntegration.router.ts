@@ -544,14 +544,23 @@ export const haccpIntegrationRouter = router({
         let successCount = 0;
         let failCount = 0;
         const errors: { index: number; message: string }[] = [];
+        // ★ 2026-05-11 PR-J: 생성된 sale.id 수집 → 클라이언트의
+        //   "지금 모두 승인하고 재고 차감" 다이얼로그에서 productSalePost
+        //   를 일괄 호출할 때 사용.
+        const insertedIds: number[] = [];
 
         for (let i = 0; i < input.items.length; i++) {
           try {
-            await createSale({
+            const result: any = await createSale({
               ...input.items[i],
               accountingExcluded: input.accountingExcluded,
               createdBy: ctx.user.id,
             }, ctx.tenantId);
+            // mysql2/drizzle 의 [ResultSetHeader] 구조: { insertId, affectedRows, ... }
+            const insertedId = Number(result?.insertId ?? result?.id ?? 0);
+            if (insertedId > 0) {
+              insertedIds.push(insertedId);
+            }
             successCount++;
           } catch (e: any) {
             failCount++;
@@ -559,6 +568,12 @@ export const haccpIntegrationRouter = router({
           }
         }
 
-        return { successCount, failCount, errors, total: input.items.length };
+        return {
+          successCount,
+          failCount,
+          errors,
+          total: input.items.length,
+          insertedIds, // PR-J: 후속 일괄 승인용
+        };
       }),
 });
