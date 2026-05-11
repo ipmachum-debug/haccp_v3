@@ -1476,7 +1476,9 @@ function BundleCompositionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      {/* ★ PR-G (2026-05-11): max-w-2xl → max-w-4xl + max-h 스크롤
+          이전: SKU 명 + 개수/g/% 입력 6열이 좁아서 비율 컬럼이 잘려나가는 오버플로우 사고. */}
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>번들 구성 — {parentSku.skuName}</DialogTitle>
           <DialogDescription>
@@ -1497,7 +1499,7 @@ function BundleCompositionDialog({
           <div className="space-y-2">
             {/* 헤더 (한번만) */}
             {children.length > 0 && (
-              <div className="grid grid-cols-[24px_1fr_60px_60px_80px_24px] items-center gap-2 px-2 text-[10px] font-medium text-muted-foreground">
+              <div className="grid grid-cols-[24px_minmax(220px,1fr)_72px_84px_92px_28px] items-center gap-2 px-2 text-[10px] font-medium text-muted-foreground">
                 <span>#</span>
                 <span>child SKU</span>
                 <span className="text-center">개수</span>
@@ -1510,7 +1512,7 @@ function BundleCompositionDialog({
               const computedRatio = childrenWithComputedRatio[idx]?.defaultRatio ?? 0;
               const usingPieces = !!(child.childPieces && child.childPieceWeightG);
               return (
-                <div key={idx} className="grid grid-cols-[24px_1fr_60px_60px_80px_24px] items-center gap-2 rounded border p-2">
+                <div key={idx} className="grid grid-cols-[24px_minmax(220px,1fr)_72px_84px_92px_28px] items-center gap-2 rounded border p-2">
                   <span className="text-xs text-muted-foreground">{idx + 1}</span>
                   <select
                     value={child.childSkuId || ""}
