@@ -124,6 +124,13 @@ function SalesBulkUploadContent() {
   const [approveCandidateIds, setApproveCandidateIds] = useState<number[]>([]);
   const [isApproving, setIsApproving] = useState(false);
   const [accountingExcludedAtUpload, setAccountingExcludedAtUpload] = useState(false);
+  // ★ PR-L (2026-05-11): 승인 진행률 추적
+  //   순차 처리 (LOT lock 경쟁 회피 + 진행률 자연 증가)로 변경하면서 도입.
+  //   done=0/total=0 이면 진행률 UI 숨김.
+  const [approveProgress, setApproveProgress] = useState<{ done: number; total: number }>({
+    done: 0,
+    total: 0,
+  });
 
   // 일괄 등록 시 회계 제외 체크 (B2C 전자상거래용)
   const [accountingExcluded, setAccountingExcluded] = useState(false);
@@ -643,29 +650,31 @@ function SalesBulkUploadContent() {
     }
   };
 
-  // ★ PR-J (2026-05-11): 일괄 승인 핸들러
+  // ★ PR-J (2026-05-11) → PR-L (2026-05-11): 일괄 승인 핸들러
   //   업로드 직후 다이얼로그에서 "지금 모두 승인" 선택 시 호출.
-  //   - productSalePost 를 Promise.allSettled 로 호출해 부분 실패 허용
-  //   - 결과는 토스트로 "성공 N건 / 실패 M건" 표시
-  //   - mixed 그룹 처리 흐름(PR-I)과 동일한 패턴 적용
+  //   PR-L 변경:
+  //   - Promise.allSettled (병렬) → 순차 await (for...of) 로 변경.
+  //     이유: ① LOT row-lock 경쟁 회피 (bulk-approve-b2c 스크립트 동일 패턴)
+  //           ② 진행률(approveProgress) 자연 증가로 12/100 같은 UI 가능
+  //           ③ 부분 실패 시 어느 시점에서 끊겼는지 추적 용이
+  //   - 부분 실패 허용 + 3-tier 토스트 (완료/부분/전체실패) 는 그대로 유지.
   const handleBulkApproveAfterUpload = async () => {
     if (approveCandidateIds.length === 0) {
       setApproveDialogOpen(false);
       return;
     }
+    const ids = approveCandidateIds;
     setIsApproving(true);
+    setApproveProgress({ done: 0, total: ids.length });
+    const okIds: number[] = [];
+    const failures: Array<{ id: number; message: string }> = [];
     try {
-      const results = await Promise.allSettled(
-        approveCandidateIds.map((id) => postMutation.mutateAsync({ saleId: id })),
-      );
-      const okIds: number[] = [];
-      const failures: Array<{ id: number; message: string }> = [];
-      results.forEach((res, idx) => {
-        const id = approveCandidateIds[idx];
-        if (res.status === "fulfilled") {
+      for (const id of ids) {
+        try {
+          await postMutation.mutateAsync({ saleId: id });
           okIds.push(id);
-        } else {
-          const reason = res.reason as { message?: string } | Error | undefined;
+        } catch (e) {
+          const reason = e as { message?: string } | Error | undefined;
           const message =
             (reason as Error | undefined)?.message ??
             String(reason ?? "알 수 없는 오류");
@@ -673,7 +682,9 @@ function SalesBulkUploadContent() {
           // eslint-disable-next-line no-console
           console.error(`[bulkApproveAfterUpload] sale#${id} 승인 실패:`, reason);
         }
-      });
+        // 진행률 갱신 — 성공/실패 무관하게 1건 처리 완료
+        setApproveProgress((p) => ({ ...p, done: p.done + 1 }));
+      }
 
       utils.haccpIntegration.getAllSales.invalidate();
 
@@ -703,15 +714,21 @@ function SalesBulkUploadContent() {
       setIsApproving(false);
       setApproveDialogOpen(false);
       setApproveCandidateIds([]);
+      setApproveProgress({ done: 0, total: 0 });
     }
   };
 
-  // 다이얼로그에서 "아니오" — pending 유지
+  // 다이얼로그에서 "나중에 승인" — pending 유지
+  // PR-L: ESC / 외부 클릭 / 명시 버튼 어느 경로로 닫혀도 동일 처리되도록
+  //       Dialog onOpenChange 에서도 이 함수를 재사용한다.
   const handleSkipApprove = () => {
-    toast({
-      title: "대기 상태로 저장",
-      description: `${approveCandidateIds.length}건이 pending 상태로 등록되었습니다. 매출 조회에서 개별/그룹 승인 가능.`,
-    });
+    const count = approveCandidateIds.length;
+    if (count > 0) {
+      toast({
+        title: "대기 상태로 저장",
+        description: `${count}건이 pending 상태로 등록되었습니다. 매출 조회에서 개별/그룹 승인 가능.`,
+      });
+    }
     setApproveDialogOpen(false);
     setApproveCandidateIds([]);
   };
@@ -1335,14 +1352,22 @@ function SalesBulkUploadContent() {
         </DialogContent>
       </Dialog>
 
-      {/* ★ PR-J (2026-05-11): 일괄 등록 직후 승인 다이얼로그
+      {/* ★ PR-J (2026-05-11) → PR-L (2026-05-11): 일괄 등록 직후 승인 다이얼로그
           insertedIds가 1건 이상이면 사용자에게 "지금 모두 승인하고 재고 차감"을 묻는다.
-          - "지금 모두 승인": productSalePost 일괄 호출 (Promise.allSettled, 부분실패 허용)
-          - "나중에 승인": pending 상태로 유지 (매출 조회에서 개별/그룹 승인 가능) */}
+          - "지금 모두 승인": productSalePost 순차 호출 (PR-L: 진행률 표시 + LOT lock 회피)
+          - "나중에 승인": pending 상태로 유지
+          - PR-L: ESC / 외부 클릭으로 닫힐 때도 "나중에 승인" 과 동일 처리 (토스트 보장) */}
       <Dialog
         open={approveDialogOpen}
         onOpenChange={(open) => {
-          if (!isApproving) setApproveDialogOpen(open);
+          // 승인 진행 중 닫기 차단
+          if (isApproving) return;
+          // ESC / 외부 클릭 = 닫기 시도 → "나중에 승인" 과 동일 처리
+          if (!open && approveCandidateIds.length > 0) {
+            handleSkipApprove();
+            return;
+          }
+          setApproveDialogOpen(open);
         }}
       >
         <DialogContent className="max-w-md">
@@ -1362,9 +1387,35 @@ function SalesBulkUploadContent() {
               </div>
             )}
             <ul className="text-xs text-muted-foreground list-disc pl-5 space-y-1">
-              <li><strong>지금 모두 승인</strong>: FEFO/BUNDLE 분해로 즉시 재고 차감</li>
+              <li><strong>지금 모두 승인</strong>: FEFO/BUNDLE 분해로 즉시 재고 차감 (순차 처리)</li>
               <li><strong>나중에 승인</strong>: pending 유지 → 매출 조회에서 개별/그룹 승인</li>
             </ul>
+
+            {/* ★ PR-L: 승인 진행률 표시 — 순차 처리 중 1건씩 증가 */}
+            {isApproving && approveProgress.total > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">승인 진행 중...</span>
+                  <span className="font-mono font-medium text-blue-700">
+                    {approveProgress.done} / {approveProgress.total}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-600 transition-all duration-200 ease-out"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        (approveProgress.done / approveProgress.total) * 100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  LOT 락 충돌을 피하기 위해 순차 처리합니다. 100건 기준 30~60초 소요 예상.
+                </p>
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 mt-4">
             <Button
@@ -1380,7 +1431,10 @@ function SalesBulkUploadContent() {
               className="bg-blue-600 hover:bg-blue-700"
             >
               {isApproving ? (
-                <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> 승인 중...</>
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  승인 중 ({approveProgress.done}/{approveProgress.total})
+                </>
               ) : (
                 <>지금 모두 승인 ({approveCandidateIds.length}건)</>
               )}
