@@ -810,7 +810,15 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
                         onCheckedChange={() => toggleSelect(report.id)}
                       />
                     </TableCell>
-                    <TableCell className="font-medium">{report.reportNo}</TableCell>
+                    <TableCell className="font-medium">
+                      {report.reportNo}
+                      {/* ★ PR-E (2026-05-11): MIXED 보고서 표시 */}
+                      {(report as any).reportType === "MIXED" && (
+                        <Badge className="ml-2 bg-amber-100 text-amber-800 border-amber-300" variant="outline">
+                          혼합
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell>{report.productName || "-"}</TableCell>
                     <TableCell>
                       {report.reportDate ? new Date(report.reportDate).toLocaleDateString("ko-KR") : "-"}

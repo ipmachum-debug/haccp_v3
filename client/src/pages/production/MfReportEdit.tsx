@@ -46,6 +46,11 @@ export default function MfReportEdit() {
   const [productName, setProductName] = useState<string>("");
   const [reportNo, setReportNo] = useState("");
   const [reportDate, setReportDate] = useState("");
+  /**
+   * ★ PR-E (2026-05-11): 보고서 분류 — 기존 보고서 BASIC ↔ MIXED 전환 가능.
+   * MIXED 저장 시 sku_bundles 자동 동기화 + 배치 생성 차단 (PR #299 정책).
+   */
+  const [reportType, setReportType] = useState<"BASIC" | "MIXED">("BASIC");
   const [yieldBasis, setYieldBasis] = useState<"UNIT" | "BATCH">("UNIT");
   const [unitWeightG, setUnitWeightG] = useState("");
   const [batchTargetKg, setBatchTargetKg] = useState("");
@@ -94,6 +99,12 @@ export default function MfReportEdit() {
       setProductName(reportDetail.productName || "");
       setReportNo(reportDetail.reportNo);
       setReportDate(formatLocalDate(new Date(reportDetail.reportDate)));
+      // ★ PR-E: 기존 보고서의 reportType 복원 (없으면 BASIC)
+      if ((reportDetail as any).reportType === "MIXED") {
+        setReportType("MIXED");
+      } else {
+        setReportType("BASIC");
+      }
 
       const ver = latestVersion[0];
       if (ver.yieldBasis) setYieldBasis(ver.yieldBasis === "BATCH" ? "BATCH" : "UNIT");
@@ -383,6 +394,11 @@ export default function MfReportEdit() {
       mfReportId: reportId,
       reportNo,
       reportDate,
+      // ★ PR-E (2026-05-11): reportType 전달 — 화면에서 BASIC ↔ MIXED 전환 가능.
+      //   MIXED 저장 시 syncMfReportToBundles 가 sku_bundles 를 UPSERT (PR #299).
+      //   현재 MfReportEdit 의 ingredient 편집 UI 는 RAW/MIXED/FLAVOR 만 지원 →
+      //   CHILD_SKU 행 편집은 MfReportCreate 또는 후속 PR 에서 보강.
+      reportType,
       yieldBasis,
       unitWeightG: unitWeightG ? parseFloat(unitWeightG) : undefined,
       batchTargetKg: batchProdKg > 0 ? batchProdKg : undefined,
@@ -460,6 +476,35 @@ export default function MfReportEdit() {
                     onChange={(e) => { setBatchProductionKg(e.target.value); setBatchTargetKg(e.target.value); }}
                     placeholder="100" />
                 </div>
+              </div>
+              {/* ★ PR-E (2026-05-11): 보고서 분류 토글 — 단품(BASIC) / 혼합(MIXED) */}
+              <div className="mt-3 flex items-center gap-3 rounded-md border bg-muted/30 p-2">
+                <Label className="text-xs text-muted-foreground whitespace-nowrap font-semibold">
+                  보고서 분류
+                </Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={reportType === "BASIC" ? "default" : "outline"}
+                    onClick={() => setReportType("BASIC")}
+                  >
+                    단품 (BASIC)
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={reportType === "MIXED" ? "default" : "outline"}
+                    onClick={() => setReportType("MIXED")}
+                  >
+                    혼합 (MIXED)
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground flex-1">
+                  {reportType === "BASIC"
+                    ? "단품 제조 BOM · 배치 생성 가능"
+                    : "혼합 SKU · 배치 생성 차단됨 + sku_bundles 자동 동기화 (저장 시)"}
+                </p>
               </div>
             </CardContent>
           </Card>

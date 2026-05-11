@@ -34,10 +34,16 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 interface IngredientRow {
   materialId?: number;
   intermediateId?: number;
+  /** ★ PR-E (2026-05-11): MIXED mfReport 의 단품 SKU 참조 */
+  childSkuId?: number;
+  /** ★ PR-E: 1박스당 child 개수 (라벨용, 선택) */
+  pieceCount?: number;
+  /** ★ PR-E: 1개당 g (라벨용, 선택) */
+  pieceWeightG?: number;
   quantity: string;
   unit: string;
   isDeductible: boolean;
-  materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC";
+  materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC" | "CHILD_SKU";
   flavorName?: string; // 부재료의 경우 맛 이름
 }
 
@@ -53,6 +59,12 @@ export default function MfReportCreate() {
   const [unitWeightG, setUnitWeightG] = useState("");
   const [batchTargetKg, setBatchTargetKg] = useState("");
   const [ingredients, setIngredients] = useState<IngredientRow[]>([]);
+  /**
+   * ★ PR-E (2026-05-11): 보고서 분류 (BASIC=단품 BOM / MIXED=혼합 SKU)
+   * MIXED 저장 시 syncMfReportToBundles 가 sku_bundles 를 UPSERT 함 (PR #299).
+   * 또한 createBatch 가 MIXED 보고서의 제품으로 배치 생성을 차단함.
+   */
+  const [reportType, setReportType] = useState<"BASIC" | "MIXED">("BASIC");
 
   const [newIngredient, setNewIngredient] = useState<IngredientRow>({
     quantity: "",
@@ -70,6 +82,12 @@ export default function MfReportCreate() {
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: intermediates, isLoading: intermediatesLoading } =
     trpc.intermediate.list.useQuery(undefined);
+  // ★ PR-E: MIXED 보고서의 CHILD_SKU 선택용 — 자사제품 SKU 목록
+  const { data: _rawSkus, isLoading: skusLoading } = (trpc as any).productSku.listAll.useQuery(
+    { itemType: "own_product" },
+    { enabled: reportType === "MIXED" },
+  );
+  const skus = Array.isArray(_rawSkus) ? _rawSkus : [];
 
   // 검색용 옵션 목록 생성
   const productOptions: SearchableSelectOption[] = useMemo(() =>
@@ -90,6 +108,13 @@ export default function MfReportCreate() {
       label: `${i.materialName} (${i.materialCode})`,
     })), [intermediates]);
 
+  // ★ PR-E: 단품 SKU 옵션 (parent SKU 제외 — 자기 참조 금지)
+  const skuOptions: SearchableSelectOption[] = useMemo(() =>
+    skus.map((s: any) => ({
+      value: s.id.toString(),
+      label: `${s.skuName || s.itemName} (${s.skuCode})`,
+    })), [skus]);
+
   const createMutation = trpc.mfReport.create.useMutation({
     onSuccess: () => {
       toast.success("품목제조보고가 생성되었습니다");
@@ -101,11 +126,18 @@ export default function MfReportCreate() {
   });
 
   const handleAddIngredient = () => {
-    if (
-      (!newIngredient.materialId && !newIngredient.intermediateId) ||
-      !newIngredient.quantity
-    ) {
-      toast.error("원재료/중간재와 수량을 입력하세요");
+    // ★ PR-E: CHILD_SKU 는 childSkuId, 그 외는 materialId/intermediateId 검증
+    if (newIngredient.materialType === "CHILD_SKU") {
+      if (!newIngredient.childSkuId) {
+        toast.error("단품 SKU 를 선택하세요");
+        return;
+      }
+    } else if (!newIngredient.materialId && !newIngredient.intermediateId) {
+      toast.error("원재료/중간재를 선택하세요");
+      return;
+    }
+    if (!newIngredient.quantity) {
+      toast.error("비율(%)을 입력하세요");
       return;
     }
 
@@ -118,9 +150,9 @@ export default function MfReportCreate() {
     setIngredients([...ingredients, { ...newIngredient }]);
     setNewIngredient({
       quantity: "",
-      unit: "kg",
+      unit: "%",
       isDeductible: true,
-      materialType: "RAW",
+      materialType: reportType === "MIXED" ? "CHILD_SKU" : "RAW",
     });
   };
 
@@ -159,12 +191,16 @@ export default function MfReportCreate() {
       productId: parseInt(selectedProductId),
       reportNo: reportCode,
       reportDate: todayLocal(),
+      reportType, // ★ PR-E: BASIC | MIXED
       yieldBasis,
       unitWeightG: unitWeightG ? parseFloat(unitWeightG) : undefined,
       batchTargetKg: batchTargetKg ? parseFloat(batchTargetKg) : undefined,
       ingredients: ingredients.map((ing) => ({
         materialId: ing.materialId,
         intermediateId: ing.intermediateId,
+        childSkuId: ing.childSkuId,
+        pieceCount: ing.pieceCount,
+        pieceWeightG: ing.pieceWeightG,
         quantity: parseFloat(ing.quantity),
         unit: ing.unit,
         isDeductible: ing.isDeductible ? 1 : 0,
@@ -246,7 +282,51 @@ export default function MfReportCreate() {
                 />
               </div>
 
-              {/* 맛 선택 UI 제거됨 - 부재료로 대체 */}
+              {/* ★ PR-E (2026-05-11): 보고서 분류 — 단품(BASIC) / 혼합(MIXED) */}
+              <div className="col-span-2">
+                <Label>보고서 분류 *</Label>
+                <div className="flex gap-2 mt-1">
+                  <Button
+                    type="button"
+                    variant={reportType === "BASIC" ? "default" : "outline"}
+                    onClick={() => {
+                      setReportType("BASIC");
+                      setNewIngredient((prev) => ({
+                        ...prev,
+                        materialType: "RAW",
+                        childSkuId: undefined,
+                        pieceCount: undefined,
+                        pieceWeightG: undefined,
+                      }));
+                    }}
+                    className="flex-1"
+                  >
+                    단품 (BASIC)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={reportType === "MIXED" ? "default" : "outline"}
+                    onClick={() => {
+                      setReportType("MIXED");
+                      setNewIngredient((prev) => ({
+                        ...prev,
+                        materialType: "CHILD_SKU",
+                        materialId: undefined,
+                        intermediateId: undefined,
+                        flavorName: undefined,
+                      }));
+                    }}
+                    className="flex-1"
+                  >
+                    혼합 (MIXED) — 단품 SKU 조합
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {reportType === "BASIC"
+                    ? "단품 제조 BOM (원재료 → 단품 제품). 배치 생성 가능."
+                    : "혼합 제품 정의 (단품 SKU × % 비율). 배치 생성 차단됨. 저장 시 sku_bundles 자동 동기화 → 매출 출고 시 단품 자동 분해 차감."}
+                </p>
+              </div>
             </div>
 
             <div className="border-t pt-4 mt-4">
@@ -301,22 +381,56 @@ export default function MfReportCreate() {
                 <Label htmlFor="materialType">재료 타입</Label>
                 <Select
                   value={newIngredient.materialType}
-                  onValueChange={(value: "RAW" | "MIXED" | "FLAVOR_SPECIFIC") =>
-                    setNewIngredient({ ...newIngredient, materialType: value, materialId: undefined, intermediateId: undefined, flavorName: undefined })
+                  onValueChange={(value: "RAW" | "MIXED" | "FLAVOR_SPECIFIC" | "CHILD_SKU") =>
+                    setNewIngredient({
+                      ...newIngredient,
+                      materialType: value,
+                      materialId: undefined,
+                      intermediateId: undefined,
+                      childSkuId: undefined,
+                      flavorName: undefined,
+                    })
                   }
                 >
                   <SelectTrigger id="materialType">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="RAW">{L("material")}</SelectItem>
-                    <SelectItem value="MIXED">중간재</SelectItem>
-                    <SelectItem value="FLAVOR_SPECIFIC">부재료(맛별)</SelectItem>
+                    {/* ★ PR-E: MIXED 보고서 = CHILD_SKU 만 / BASIC 보고서 = 기존 3종 */}
+                    {reportType === "MIXED" ? (
+                      <SelectItem value="CHILD_SKU">단품 SKU</SelectItem>
+                    ) : (
+                      <>
+                        <SelectItem value="RAW">{L("material")}</SelectItem>
+                        <SelectItem value="MIXED">중간재</SelectItem>
+                        <SelectItem value="FLAVOR_SPECIFIC">부재료(맛별)</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
 
-              {newIngredient.materialType !== "FLAVOR_SPECIFIC" ? (
+              {/* ★ PR-E: CHILD_SKU 분기 — 단품 SKU 선택 + 선택적 개수/g */}
+              {newIngredient.materialType === "CHILD_SKU" ? (
+                <div className="col-span-2">
+                  <Label htmlFor="childSku">단품 SKU</Label>
+                  <SearchableSelect
+                    id="childSku"
+                    options={skuOptions}
+                    value={newIngredient.childSkuId?.toString() || ""}
+                    onValueChange={(value) =>
+                      setNewIngredient({
+                        ...newIngredient,
+                        childSkuId: value ? parseInt(value) : undefined,
+                      })
+                    }
+                    placeholder="단품 SKU 검색..."
+                    searchPlaceholder="SKU 명 또는 코드 검색..."
+                    emptyMessage={skusLoading ? "로딩 중..." : "SKU 가 없습니다 — 품목 마스터에서 등록"}
+                    isLoading={skusLoading}
+                  />
+                </div>
+              ) : newIngredient.materialType !== "FLAVOR_SPECIFIC" ? (
                 <div className="col-span-2">
                   <Label htmlFor="ingredient">
                     {newIngredient.materialType === "RAW" ? "원재료" : "중간재"}
@@ -428,9 +542,47 @@ export default function MfReportCreate() {
                   onChange={(e) =>
                     setNewIngredient({ ...newIngredient, quantity: e.target.value })
                   }
-                  placeholder="예: 25.5"
+                  placeholder={newIngredient.materialType === "CHILD_SKU" ? "예: 10 (10%)" : "예: 25.5"}
                 />
               </div>
+
+              {/* ★ PR-E: CHILD_SKU 시 라벨용 개수 + 1개당 g (선택) */}
+              {newIngredient.materialType === "CHILD_SKU" && (
+                <>
+                  <div>
+                    <Label htmlFor="pieceCount">개수 (개)</Label>
+                    <Input
+                      id="pieceCount"
+                      type="number"
+                      step="1"
+                      value={newIngredient.pieceCount?.toString() ?? ""}
+                      onChange={(e) =>
+                        setNewIngredient({
+                          ...newIngredient,
+                          pieceCount: e.target.value ? parseInt(e.target.value) : undefined,
+                        })
+                      }
+                      placeholder="예: 2"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="pieceWeightG">1개당 (g)</Label>
+                    <Input
+                      id="pieceWeightG"
+                      type="number"
+                      step="0.1"
+                      value={newIngredient.pieceWeightG?.toString() ?? ""}
+                      onChange={(e) =>
+                        setNewIngredient({
+                          ...newIngredient,
+                          pieceWeightG: e.target.value ? parseFloat(e.target.value) : undefined,
+                        })
+                      }
+                      placeholder="예: 50"
+                    />
+                  </div>
+                </>
+              )}
 
               <div>
                 <Label htmlFor="unit">단위</Label>
@@ -482,12 +634,30 @@ export default function MfReportCreate() {
                     .map(({ ing, originalIndex }) => (
                     <TableRow key={originalIndex}>
                       <TableCell>
-                        {ing.materialType === "RAW" ? "원재료" : ing.materialType === "MIXED" ? "중간재" : "부재료"}
+                        {ing.materialType === "RAW"
+                          ? "원재료"
+                          : ing.materialType === "MIXED"
+                            ? "중간재"
+                            : ing.materialType === "CHILD_SKU"
+                              ? "단품 SKU"
+                              : "부재료"}
                       </TableCell>
                       <TableCell>
-                        {ing.materialType === "MIXED"
-                          ? getIntermediateName(ing.intermediateId)
-                          : getMaterialName(ing.materialId)}
+                        {ing.materialType === "CHILD_SKU" ? (
+                          <>
+                            {skus.find((s: any) => s.id === ing.childSkuId)?.skuName ??
+                              `SKU #${ing.childSkuId}`}
+                            {ing.pieceCount && ing.pieceWeightG ? (
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({ing.pieceCount}개 × {ing.pieceWeightG}g)
+                              </span>
+                            ) : null}
+                          </>
+                        ) : ing.materialType === "MIXED" ? (
+                          getIntermediateName(ing.intermediateId)
+                        ) : (
+                          getMaterialName(ing.materialId)
+                        )}
                       </TableCell>
                       <TableCell>{ing.flavorName || "-"}</TableCell>
                       <TableCell>{ing.quantity}</TableCell>
