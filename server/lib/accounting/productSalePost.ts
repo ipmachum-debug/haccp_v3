@@ -179,7 +179,76 @@ export async function postProductSale(
     const ledgerId = resolvedProductId ?? resolvedMaterialId; // 수불부는 material_id 컬럼 공용
     const itemTypeLabel = isProductSale ? "제품" : "원재료/부자재/외부제품";
 
-    if (lotFilterColumn && lotFilterValue && saleQty > 0) {
+    // ────────────────────────────────────────────────────────────
+    // ★ PR-C2 (2026-05-11): 혼합 SKU 자동 분해 차감 라우팅
+    // ────────────────────────────────────────────────────────────
+    // 제품 매출의 productId 가 sku_bundles 의 parent_sku_id 와 연결돼 있으면
+    // (= 혼합 SKU 정의 존재), 직접 FEFO 대신 decomposeBundleOutbound 호출.
+    //
+    // 브릿지: h_products_v2.id → item_master.legacy_product_id → product_skus(default)
+    //         → sku_bundles.parent_sku_id 존재 여부
+    let bundleParentSkuId: number | null = null;
+    if (isProductSale && resolvedProductId && saleQty > 0) {
+      try {
+        const [bundleRows] = await conn.execute(
+          `SELECT ps.id AS parent_sku_id
+           FROM item_master im
+           JOIN product_skus ps ON ps.item_id = im.id
+             AND ps.is_default = 1
+             AND ps.tenant_id = im.tenant_id
+             AND ps.is_active = 1
+           WHERE im.legacy_product_id = ?
+             AND im.tenant_id = ?
+             AND EXISTS (
+               SELECT 1 FROM sku_bundles sb
+                WHERE sb.parent_sku_id = ps.id AND sb.tenant_id = im.tenant_id
+             )
+           LIMIT 1`,
+          [resolvedProductId, tenantId],
+        );
+        const row = (bundleRows as any[])[0];
+        if (row?.parent_sku_id) {
+          bundleParentSkuId = Number(row.parent_sku_id);
+        }
+      } catch (e: any) {
+        // 브릿지 조회 실패는 fallthrough (정상 FEFO 로 계속). 로그만 남김.
+        console.warn(
+          `[${docId}] bundle bridge lookup 실패 (FEFO 로 폴백): ${e?.message}`,
+        );
+      }
+    }
+
+    if (bundleParentSkuId) {
+      // ─── BUNDLE PATH: decomposeBundleOutbound 라우팅 ───
+      const { decomposeBundleOutbound } = await import(
+        "../production/decomposeBundleOutbound"
+      );
+      const result = await decomposeBundleOutbound(conn, {
+        parentSkuId: bundleParentSkuId,
+        parentQty: saleQty,
+        outboundDate: entryDate,
+        tenantId,
+        referenceType: "sales",
+        referenceId: saleId,
+        userId,
+      });
+      totalCogs = result.totalCost;
+      for (const c of result.children) {
+        for (const l of c.lots) {
+          usedLots.push({ lotId: l.lotId, qty: l.deductedKg, unitCost: l.unitCost });
+        }
+      }
+      console.log(
+        `[${docId}] BUNDLE 분해 차감 완료: parent_sku=${bundleParentSkuId} qty=${saleQty} ` +
+        `children=${result.children.length} totalCost=${totalCogs} shortage=${result.hasShortage}`,
+      );
+      if (result.hasShortage) {
+        // 부족이 있으면 워닝 로그만 (decomposeBundleOutbound 의 정책: 부분 허용).
+        console.warn(
+          `[${docId}] BUNDLE 부족: ${result.warnings.join("; ")}`,
+        );
+      }
+    } else if (lotFilterColumn && lotFilterValue && saleQty > 0) {
       // (A-1) FEFO 순으로 사용 가능 LOT 조회 + 각 LOT 잠금
       const [lotRows] = await conn.execute(
         `SELECT id, available_quantity, current_quantity, unit_price, expiry_date
