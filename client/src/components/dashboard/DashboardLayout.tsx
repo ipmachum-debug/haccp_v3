@@ -1393,7 +1393,10 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 px-3 py-4 md:px-5 md:py-5">{children}</main>
+        {/* ★ 2026-05-11: min-w-0 + w-full — flex-1 만으로는 자식 wide table 이
+            viewport 를 밀어내는 사고. SidebarInset 와 함께 적용해 모바일 좌우
+            스와이프 + Table 자체 overflow-x-auto 가 정상 작동하게 한다. */}
+        <main className="flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5">{children}</main>
       </SidebarInset>
     </>
   );

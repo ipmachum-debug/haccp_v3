@@ -316,7 +316,11 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
     <main
       data-slot="sidebar-inset"
       className={cn(
-        "bg-background relative flex w-full flex-1 flex-col",
+        // ★ 2026-05-11: min-w-0 추가 — flex 자식의 기본 min-width:auto 가
+        // wide 테이블 (원가분석/배치비용분석/매출조회 등) 을 가두지 못하고
+        // viewport 밖으로 밀어 모바일 좌우 스와이프 막던 사고 해결.
+        // 부모를 min-w-0 으로 좁히면 내부 Table 의 overflow-x-auto 가 정상 작동.
+        "bg-background relative flex w-full min-w-0 flex-1 flex-col",
         "md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2",
         className
       )}
