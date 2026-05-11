@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Package, Pencil, Trash2, Search, Box, Layers, ShoppingCart, ChevronDown, ChevronUp, Download, FileText, Upload, Plus, Wrench, RefreshCw, Boxes, Star, X } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import type { SearchableSelectOption } from "@/components/ui/searchable-select";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 type ItemType = "raw_material" | "own_product" | "external_product" | "subsidiary";
@@ -1340,6 +1342,16 @@ function BundleCompositionDialog({
 
   // 모든 후보 SKU 조회 (각 item 의 SKU 평탄화)
   const [allSkus, setAllSkus] = useState<any[]>([]);
+  // ★ PR-H (2026-05-11): SearchableSelect 용 옵션 배열 — label 에 코드/품목명/SKU명 모두 포함
+  //   → CommandInput 으로 어느 토큰을 입력하든 검색됨 (예: "호두" / "30071" / "PACK")
+  const skuOptions: SearchableSelectOption[] = useMemo(
+    () =>
+      allSkus.map((sku) => ({
+        value: String(sku.id),
+        label: `${sku.skuCode} — ${sku.itemName} (${sku.skuName})`,
+      })),
+    [allSkus],
+  );
   useEffect(() => {
     if (!open || candidateItems.length === 0) return;
     (async () => {
@@ -1514,22 +1526,21 @@ function BundleCompositionDialog({
               return (
                 <div key={idx} className="grid grid-cols-[24px_minmax(220px,1fr)_72px_84px_92px_28px] items-center gap-2 rounded border p-2">
                   <span className="text-xs text-muted-foreground">{idx + 1}</span>
-                  <select
-                    value={child.childSkuId || ""}
-                    onChange={(e) => {
+                  {/* ★ PR-H (2026-05-11): native <select> → SearchableSelect (자동완성 검색)
+                      품목 수가 많아 드롭다운 스크롤 어려운 문제 해결.
+                      코드 / 품목명 / SKU명 어느 토큰을 입력해도 검색됨. */}
+                  <SearchableSelect
+                    options={skuOptions}
+                    value={child.childSkuId ? String(child.childSkuId) : ""}
+                    onValueChange={(value) => {
                       const next = [...children];
-                      next[idx].childSkuId = parseInt(e.target.value) || 0;
+                      next[idx].childSkuId = value ? parseInt(value) : 0;
                       setChildren(next);
                     }}
-                    className="rounded border px-2 py-1 text-sm"
-                  >
-                    <option value="">child SKU 선택...</option>
-                    {allSkus.map((sku) => (
-                      <option key={sku.id} value={sku.id}>
-                        {sku.skuCode} — {sku.itemName} ({sku.skuName})
-                      </option>
-                    ))}
-                  </select>
+                    placeholder="child SKU 선택..."
+                    searchPlaceholder="코드 / 품목명 / SKU명 검색..."
+                    emptyMessage="검색 결과가 없습니다"
+                  />
                   <Input
                     type="number"
                     min="1"
