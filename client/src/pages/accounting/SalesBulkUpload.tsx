@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Upload, FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle,
-  Download, ArrowLeft, RefreshCw, Search, Package, Building2, X, ChevronRight,
+  Download, ArrowLeft, RefreshCw, Search, Package, Building2, X, ChevronRight, Tag, Boxes,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -100,6 +100,13 @@ function SalesBulkUploadContent() {
   const [matchDialogOpen, setMatchDialogOpen] = useState(false);
   const [matchDialogRowId, setMatchDialogRowId] = useState<string>('');
   const [matchDialogType, setMatchDialogType] = useState<'item' | 'partner'>('item');
+  // ★ PR-F (2026-05-11): 인라인 별칭 추가 다이얼로그
+  //   매출 화면 안에서 직접 "이 품목명 → 어떤 SKU" 매핑을 등록 → 향후 자동 매칭.
+  //   "혼합 매칭 UI 가 어디 있는지 안 보여" 사용자 사고 해결.
+  const [aliasDialogOpen, setAliasDialogOpen] = useState(false);
+  const [aliasDialogRowId, setAliasDialogRowId] = useState<string>('');
+  const [aliasSkuQuery, setAliasSkuQuery] = useState<string>('');
+  const [aliasSelectedSkuId, setAliasSelectedSkuId] = useState<number | null>(null);
 
   const [uploadResult, setUploadResult] = useState<{ successCount: number; failCount: number; total: number; errors: UploadError[] } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -128,6 +135,26 @@ function SalesBulkUploadContent() {
   const bulkMutation = trpc.haccpIntegration.bulkCreateSales.useMutation();
   const aiMatchMutation = (trpc as any).aiSkuMatch?.matchBatch?.useMutation?.();
   const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
+
+  // ★ PR-F: 별칭 다이얼로그용 SKU 목록 (혼합 SKU 포함 자사제품 전체)
+  //   alias 추가 mutation 도 함께 준비.
+  const { data: aliasSkus } = (trpc as any).productSku?.listAll?.useQuery?.(
+    { itemType: "own_product" },
+    { enabled: aliasDialogOpen },
+  ) ?? { data: undefined };
+  const addAliasMutation = (trpc as any).skuAlias?.addAlias?.useMutation?.({
+    onSuccess: (data: any) => {
+      toast({ title: "별칭이 등록되었습니다.", description: `"${data?.alias || ''}" → SKU 매칭 갱신` });
+      setAliasDialogOpen(false);
+      setAliasSelectedSkuId(null);
+      setAliasSkuQuery("");
+      // 별칭 등록 후 즉시 재매칭 실행 (현 행만이라도 매칭됨)
+      setTimeout(() => { void runAliasMatch(parsedRows); }, 200);
+    },
+    onError: (err: { message: string }) => {
+      toast({ title: "별칭 등록 실패", description: err.message, variant: "destructive" });
+    },
+  });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 1: 파일 업로드
@@ -905,26 +932,46 @@ function SalesBulkUploadContent() {
                         </button>
                       </TableCell>
                       <TableCell className="text-xs">
-                        <button
-                          onClick={() => openMatchDialog(row.id, 'item')}
-                          className={`text-left w-full hover:underline flex items-center gap-1 ${
-                            row.itemMasterId ? 'text-blue-700 dark:text-blue-400' : 'text-amber-600'
-                          }`}
-                        >
-                          <Package className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{row.itemName || '-'}</span>
-                          {row.itemMasterId && row.itemMatchScore < 1 && (
-                            <span className="text-[9px] text-muted-foreground">({Math.round(row.itemMatchScore * 100)}%)</span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => openMatchDialog(row.id, 'item')}
+                            className={`text-left flex-1 hover:underline flex items-center gap-1 min-w-0 ${
+                              row.itemMasterId ? 'text-blue-700 dark:text-blue-400' : 'text-amber-600'
+                            }`}
+                          >
+                            <Package className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{row.itemName || '-'}</span>
+                            {row.itemMasterId && row.itemMatchScore < 1 && (
+                              <span className="text-[9px] text-muted-foreground">({Math.round(row.itemMatchScore * 100)}%)</span>
+                            )}
+                            {row.itemType && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                                {row.itemType === 'own_product' ? '자사' :
+                                 row.itemType === 'raw_material' ? '원재료' :
+                                 row.itemType === 'subsidiary' ? '부자재' :
+                                 row.itemType === 'external_product' ? '외부' : ''}
+                              </Badge>
+                            )}
+                          </button>
+                          {/* ★ PR-F: 인라인 별칭 추가 — 매칭 0/낮음 + 'own_product' 매칭일 때만 표시
+                              ("이 품목명을 어떤 SKU 의 별칭으로 등록" — 향후 자동 매칭) */}
+                          {(!row.itemMasterId || row.itemMatchScore < 0.95) && row.itemName && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 w-5 p-0 shrink-0 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                              onClick={() => {
+                                setAliasDialogRowId(row.id);
+                                setAliasSelectedSkuId(null);
+                                setAliasSkuQuery(row.itemName);
+                                setAliasDialogOpen(true);
+                              }}
+                              title="이 품목명을 SKU 별칭으로 등록 (혼합 SKU 등 자동 매칭용)"
+                            >
+                              <Tag className="h-3 w-3" />
+                            </Button>
                           )}
-                          {row.itemType && (
-                            <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 ml-0.5">
-                              {row.itemType === 'own_product' ? '자사' :
-                               row.itemType === 'raw_material' ? '원재료' :
-                               row.itemType === 'subsidiary' ? '부자재' :
-                               row.itemType === 'external_product' ? '외부' : ''}
-                            </Badge>
-                          )}
-                        </button>
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs text-right tabular-nums">{row.quantity.toLocaleString()}</TableCell>
                       <TableCell className="text-xs text-right tabular-nums">{row.unitPrice.toLocaleString()}</TableCell>
@@ -1057,6 +1104,107 @@ function SalesBulkUploadContent() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ★ PR-F (2026-05-11): 인라인 별칭 추가 다이얼로그 */}
+      <Dialog open={aliasDialogOpen} onOpenChange={setAliasDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-amber-600" />
+              SKU 별칭 추가
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs">
+              <div className="font-semibold text-amber-900 mb-1 flex items-center gap-1">
+                <Boxes className="h-3 w-3" /> 혼합 제품 매칭 흐름
+              </div>
+              <ol className="list-decimal pl-5 space-y-0.5 text-amber-800">
+                <li><b>품목 마스터 → SKU 행 → "번들 구성"</b> 으로 혼합 SKU 의 child + % 등록</li>
+                <li>같은 SKU 행의 "별칭" 또는 <b>여기서</b> 자유로운 표기 (예: "단지 혼합10종설기") 를 SKU 의 별칭으로 등록</li>
+                <li>다음 Excel 업로드부터 자동으로 이 SKU 에 매칭됨</li>
+              </ol>
+            </div>
+
+            <div>
+              <Label className="text-sm font-semibold">등록할 별칭 (Excel 행 품목명)</Label>
+              <div className="mt-1 px-3 py-2 rounded border bg-muted text-sm font-medium">
+                {parsedRows.find((r) => r.id === aliasDialogRowId)?.itemName || "-"}
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-sm font-semibold">매칭할 SKU</Label>
+              <Input
+                value={aliasSkuQuery}
+                onChange={(e) => setAliasSkuQuery(e.target.value)}
+                placeholder="SKU 명 또는 코드 검색..."
+                className="mt-1"
+              />
+              <div className="mt-2 max-h-60 overflow-y-auto border rounded">
+                {(() => {
+                  const q = aliasSkuQuery.trim().toLowerCase();
+                  const filtered = (Array.isArray(aliasSkus) ? aliasSkus : []).filter((s: any) => {
+                    if (!q) return true;
+                    return (
+                      String(s.skuName || s.itemName || "").toLowerCase().includes(q) ||
+                      String(s.skuCode || "").toLowerCase().includes(q)
+                    );
+                  }).slice(0, 50);
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                        매칭되는 SKU 가 없습니다. 품목 마스터에서 먼저 SKU 를 등록하세요.
+                      </div>
+                    );
+                  }
+                  return filtered.map((s: any) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setAliasSelectedSkuId(s.id)}
+                      className={`w-full text-left px-3 py-2 text-xs border-b last:border-b-0 hover:bg-accent ${
+                        aliasSelectedSkuId === s.id ? "bg-amber-50" : ""
+                      }`}
+                    >
+                      <div className="font-medium">{s.skuName || s.itemName}</div>
+                      <div className="text-[10px] text-muted-foreground font-mono">
+                        {s.skuCode}{s.itemName && s.skuName !== s.itemName ? ` · ${s.itemName}` : ""}
+                      </div>
+                    </button>
+                  ));
+                })()}
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setAliasDialogOpen(false)}>
+              취소
+            </Button>
+            <Button
+              onClick={() => {
+                const row = parsedRows.find((r) => r.id === aliasDialogRowId);
+                if (!row || !row.itemName) {
+                  toast({ title: "품목명이 없습니다.", variant: "destructive" });
+                  return;
+                }
+                if (!aliasSelectedSkuId) {
+                  toast({ title: "매칭할 SKU 를 선택하세요.", variant: "destructive" });
+                  return;
+                }
+                addAliasMutation?.mutate?.({
+                  skuId: aliasSelectedSkuId,
+                  alias: row.itemName,
+                  isPrimary: false,
+                });
+              }}
+              disabled={!aliasSelectedSkuId || addAliasMutation?.isPending}
+            >
+              {addAliasMutation?.isPending ? "등록 중..." : "별칭으로 등록"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
