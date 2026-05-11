@@ -249,12 +249,16 @@
   }
 
   /* ── Table Redesign ── */
+  /* ★ 2026-05-11 PR-K: overflow: hidden → overflow-x: auto (모바일 스와이프 허용) */
   .premium-table-container {
     background: #FFFFFF;
     border: 1px solid #E5E7EB;
     border-radius: 16px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
   }
 
   .dark .premium-table-container {
@@ -395,11 +399,22 @@ html.dark body {
    Table Styling (data-slot based)
    ============================================================================ */
 
+/* ★ 2026-05-11 PR-K: overflow: hidden 제거 — Table 컴포넌트의 Tailwind
+   유틸리티 overflow-x-auto 가 같은 specificity 의 글로벌 규칙에 의해
+   덮어쓰여지면서 모바일 좌우 스와이프가 차단되던 사고 해결.
+   - overflow-x: auto      → 가로 스크롤 허용 (스와이프 가능)
+   - overflow-y: hidden    → 세로는 페이지 본문 스크롤 위임 (관성 유지)
+   - -webkit-overflow-scrolling: touch → iOS 관성 스크롤
+   - overscroll-behavior-x: contain    → 모서리 스와이프가 브라우저 뒤로가기
+                                          를 트리거하지 않게 차단 */
 [data-slot="table-container"] {
   background: #FFFFFF;
   border: 1px solid #E5E7EB;
   border-radius: 16px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
 
