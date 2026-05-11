@@ -1,4 +1,5 @@
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
+import mysql from "mysql2/promise";
 import { getDb } from "../connection";
 import { hBatches, hBatchInputs, hMaterials } from "../../../drizzle/schema";
 import { itemMaster } from "../../../drizzle/schema/schema_dual_unit";
@@ -532,30 +533,32 @@ export async function getProductCostTrend(
     /* ignore — 이름은 폴백 시 null */
   }
 
+  // ★ 2026-05-11 (PR #307): mysql.format() 으로 SQL 안 ? 를 미리 모두 치환한 뒤
+  //   conn.query() 에 인자 없이 호출. 그동안 발생한 모든 에러를 일괄 차단:
+  //   1) ER_MALFORMED_PACKET: 한글 리터럴 → esbuild \uXXXX 이스케이프 → MySQL
+  //      패킷 corruption. mysql.escape() 가 utf8 문자열로 정상 직렬화.
+  //   2) ER_PARSE_ERROR near '?': conn.query(sql, values) 가 특정 dateFilter
+  //      조합에서 placeholder 치환을 안 함 → 사전 치환으로 우회.
+  const purifiedWaterLikePattern = "%" + "\uC815\uC81C\uC218" + "%"; // = '%정제수%'
+
   // 배치 + 원가 (듀얼 lookup + actualCost 폴백)
-  const dateFilter = [];
-  const params_arr: any[] = [tenantId, productId];
+  // SQL 안 ? 순서대로 values 배열 구성:
+  //   [0] NOT LIKE ? (서브쿼리 안, 정제수 패턴)
+  //   [1] b.tenant_id = ?
+  //   [2] b.product_id = ?
+  //   [3..] dateFilter (planned_date >= ? / <= ?)
+  //   [last] LIMIT ?
+  const dateFilter: string[] = [];
+  const values: any[] = [purifiedWaterLikePattern, Number(tenantId), Number(productId)];
   if (startDate) {
     dateFilter.push("AND b.planned_date >= ?");
-    params_arr.push(formatLocalDate(startDate));
+    values.push(formatLocalDate(startDate));
   }
   if (endDate) {
     dateFilter.push("AND b.planned_date <= ?");
-    params_arr.push(formatLocalDate(endDate));
+    values.push(formatLocalDate(endDate));
   }
-  // ★ 2026-05-10 (LIMIT ER_MALFORMED_PACKET fix):
-  //   직전 시도: params_arr.push(limit) → 'Incorrect arguments to mysqld_stmt_execute'
-  //   1차 우회: params_arr[len-1] = String(limit) → 마지막 date param 을 덮어쓰는
-  //            잘못된 의미 + ER_MALFORMED_PACKET 까지 함께 발생
-  //            (다중 LEFT JOIN + TRIM + 서브쿼리 결합 시 mysql2 의 prepared
-  //             statement packet 직렬화가 깨지는 케이스로 확인됨)
-  //   확정 우회: LIMIT 값을 정수로 검증 후 SQL 본문에 직접 interpolate.
-  //   - SQL injection 안전: Math.floor + Number + clamp(1, 1000) 다중 검증
-  //   - tenant_id / product_id 는 prepared 파라미터로 유지 (Number 명시)
-  //   - date 파라미터는 그대로 prepared 유지
-  const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 200)));
-  params_arr[0] = Number(tenantId);
-  params_arr[1] = Number(productId);
+  values.push(Number(limit));
 
   // ★ 2026-05-10 (PR #297): NULLIF(col, 0) 폴백 + 정제수 필터 NULL 안전화
   // ★ 2026-05-10 (PR #298 Option B): 이름 기반 cross-namespace 폴백 추가
@@ -575,13 +578,13 @@ export async function getProductCostTrend(
   // ★ 2026-05-10 (PR #304 logging): 진입/결과/에러 명시 로깅
   console.log(
     `[getProductCostTrend] tenantId=${tenantId} productId=${productId} ` +
-    `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} ` +
-    `limit=${safeLimit} (raw=${limit}) params=${JSON.stringify(params_arr)}`,
+    `start=${startDate ? formatLocalDate(startDate) : "-"} end=${endDate ? formatLocalDate(endDate) : "-"} limit=${limit}`,
   );
-  let rows: any[] = [];
-  try {
-    const [r]: any = await conn.execute(
-      `SELECT
+  // ★ 2026-05-11 (PR #307): mysql.format() 으로 ? 사전 치환 후 인자 없이 query().
+  //   conn.query(sql, values) 가 특정 조합에서 placeholder 치환을 누락하는
+  //   ER_PARSE_ERROR near '?' 를 우회.
+  const sqlText =
+    `SELECT
        b.id AS batch_id,
        b.batch_code,
        DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date,
@@ -604,7 +607,6 @@ export async function getProductCostTrend(
          FROM h_batch_inputs bi
          LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
          LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id AND im.item_type = 'raw_material'
-         /* 이름 기반 cross-namespace 폴백 */
          LEFT JOIN h_materials m_byname
            ON m.id IS NULL
           AND m_byname.tenant_id = bi.tenant_id
@@ -617,7 +619,7 @@ export async function getProductCostTrend(
          WHERE bi.batch_id = b.id AND bi.tenant_id = b.tenant_id
            AND (
              COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) IS NULL
-             OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE '%정제수%'
+             OR COALESCE(m.material_name, im.item_name, m_byname.material_name, im_byname.item_name) NOT LIKE ?
            )
        ), 0) AS total_material_cost
      FROM h_batches b
@@ -626,9 +628,17 @@ export async function getProductCostTrend(
        AND b.status IN ('in_progress','completed','under_review','shipped','archived')
        ${dateFilter.join(" ")}
      ORDER BY b.planned_date ASC, b.id ASC
-     LIMIT ${safeLimit}`,
-      params_arr,
-    );
+     LIMIT ?`;
+
+  const finalSql = mysql.format(sqlText, values);
+  console.log(
+    `[getProductCostTrend] formatted SQL length=${finalSql.length} ` +
+    `qmarkRemain=${(finalSql.match(/\?/g) || []).length} valuesLen=${values.length}`,
+  );
+
+  let rows: any[] = [];
+  try {
+    const [r]: any = await conn.query(finalSql);
     rows = (r as any[]) || [];
   } catch (err: any) {
     console.error(
