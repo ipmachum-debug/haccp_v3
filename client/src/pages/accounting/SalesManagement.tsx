@@ -250,8 +250,27 @@ function SalesManagementContent() {
   };
 
   const handleRemoveItem = (id: string) => {
+    // ★ 2026-05-16: 마지막 행도 삭제 가능하게 변경 (사용자 "삭제 안 됨" 사고).
+    //   기존엔 disabled 로 막아서 클릭해도 silent. 이제 마지막 행 삭제 시
+    //   자동으로 빈 신규 행 1개 생성 → 테이블이 비어버리지 않고 사용자가
+    //   "삭제됐다" 를 시각적으로 체감 + 즉시 새 입력 가능.
     if (items.length === 1) {
-      toast({ title: "최소 1개의 품목이 필요합니다.", variant: "destructive" });
+      setItems([
+        {
+          id: `${Date.now()}-1`,
+          itemType: "",
+          itemName: "",
+          packagingSize: 0,
+          packagingUnit: "kg",
+          quantity: 0,
+          unitPrice: 0,
+          amount: 0,
+          taxAmount: 0,
+          totalAmount: 0,
+          taxType: "taxed",
+        },
+      ]);
+      toast({ title: "품목이 초기화되었습니다." });
       return;
     }
     setItems(items.filter((item) => item.id !== id));
@@ -608,12 +627,13 @@ function SalesManagementContent() {
                   <TableCell className="py-1 text-right text-xs">{item.taxAmount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-right text-xs font-semibold">{item.totalAmount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-center">
+                    {/* ★ 2026-05-16: disabled 제거 — 마지막 행도 삭제 가능 (초기화 동작) */}
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => handleRemoveItem(item.id)}
-                      disabled={items.length === 1}
-                      className="h-7 w-7 p-0"
+                      className="h-7 w-7 p-0 hover:bg-red-50"
+                      title={items.length === 1 ? "이 행 초기화" : "행 삭제"}
                     >
                       <Trash2 className="h-3 w-3 text-red-500" />
                     </Button>
@@ -668,8 +688,29 @@ function SalesManagementContent() {
         </div>
       )}
 
-      {/* 저장 버튼 */}
-      <div className="flex justify-end gap-2 mt-3">
+      {/* 저장 버튼 + 거래명세표 (사전 노출) */}
+      {/* ★ 2026-05-16: 거래명세표 출력 버튼을 저장 전에도 노출.
+          이유: 기능 존재 자체를 사용자가 인지 가능 + 저장 후 출력 흐름 유도.
+          미저장 상태에서는 disabled + 안내 툴팁. */}
+      <div className="flex justify-end gap-2 mt-3 flex-wrap">
+        <Button
+          variant="outline"
+          onClick={handlePrintStatement}
+          disabled={savedSaleIds.length === 0 || isPrinting}
+          title={
+            savedSaleIds.length === 0
+              ? "먼저 저장 버튼을 눌러 매출을 등록한 후 출력할 수 있습니다."
+              : `${savedSaleIds.length}건의 거래명세표 출력`
+          }
+          className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          <Printer className="h-4 w-4 mr-1.5" />
+          {isPrinting
+            ? "생성 중..."
+            : savedSaleIds.length > 0
+              ? `거래명세표 출력 (${savedSaleIds.length}건)`
+              : "거래명세표 출력"}
+        </Button>
         <Button onClick={handleSave} disabled={isSaving} className="min-w-[100px]">
           <Save className="h-4 w-4 mr-1.5" />
           {isSaving ? "저장 중..." : "저장"}
