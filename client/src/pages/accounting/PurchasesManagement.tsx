@@ -190,9 +190,28 @@ function PurchasesManagementContent() {
     ]);
   };
 
+  // ★ 2026-05-16 (PR-R): 마지막 1행을 '삭제 불가' 토스트 + disabled 로 막지 않고,
+  //   '초기화 (fresh empty row)' 로 처리. variant="ghost" + disabled 조합이
+  //   시각적으로 active 와 구분되지 않아 '클릭했는데 아무 일도 안 일어남' 사고 패턴을 유발.
+  //   → 항상 클릭 가능하게 두고, 마지막 1행은 명시적 토스트로 '초기화됨' 피드백.
   const handleRemoveItem = (id: string) => {
     if (items.length === 1) {
-      toast({ title: "최소 1개의 품목이 필요합니다.", variant: "destructive" });
+      setItems([
+        {
+          id: `${Date.now()}-1`,
+          itemType: "",
+          itemName: "",
+          packagingSize: 0,
+          packagingUnit: "kg",
+          quantity: 0,
+          unitPrice: 0,
+          amount: 0,
+          taxAmount: 0,
+          totalAmount: 0,
+          taxType: "taxed",
+        },
+      ]);
+      toast({ title: "품목이 초기화되었습니다." });
       return;
     }
     setItems(items.filter((item) => item.id !== id));
@@ -530,8 +549,8 @@ function PurchasesManagementContent() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleRemoveItem(item.id)}
-                      disabled={items.length === 1}
-                      className="h-7 w-7 p-0"
+                      className="h-7 w-7 p-0 hover:bg-red-50"
+                      title={items.length === 1 ? "이 행 초기화" : "행 삭제"}
                     >
                       <Trash2 className="h-3 w-3 text-red-500" />
                     </Button>
