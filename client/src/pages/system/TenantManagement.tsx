@@ -210,12 +210,38 @@ export default function TenantManagement() {
   });
 
   // 구독 연장 mutation
+  // ★ PR-M (2026-05-15): 빠른 연장 클릭 시 화면이 갱신되지 않던 사고 수정.
+  //   ─ 기존: onSuccess 가 refetch() 만 호출 → selectedTenant / subscriptionForm
+  //     state 는 stale 한 채로 남아 다이얼로그 안의 시작일/일수/종료일은 변하지
+  //     않아 사용자가 "버튼이 안 먹는다" 고 느꼈음.
+  //   ─ 수정: 서버 응답 { newEndDate, totalDays } 으로 selectedTenant 와
+  //     subscriptionForm 을 즉시 갱신. 다이얼로그는 그대로 유지하여 연속 연장
+  //     가능 (해석안 B).
   const extendSubscriptionMutation = trpc.subscriptionPublic.extendSubscription.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       toast({
         title: "성공",
-        description: "구독이 연장되었습니다.",
+        description: data?.message ?? "구독이 연장되었습니다.",
       });
+      // ① selectedTenant 즉시 반영 — 다음번 빠른 연장 시 stale 방지
+      if (selectedTenant && data?.newEndDate) {
+        setSelectedTenant({
+          ...selectedTenant,
+          subscriptionEndDate: data.newEndDate,
+          subscriptionDays: data.totalDays ?? selectedTenant.subscriptionDays,
+          status: "active",
+          isReadOnly: false,
+          gracePeriodEndDate: null,
+        });
+      }
+      // ② 다이얼로그 폼 (구독 기간 input) 도 동기화
+      if (data?.totalDays) {
+        setSubscriptionForm((prev) => ({
+          ...prev,
+          subscriptionDays: data.totalDays,
+        }));
+      }
+      // ③ 백그라운드로 테넌트 목록 새로고침 (다이얼로그 닫은 뒤에도 일관성 유지)
       refetch();
     },
     onError: (error: { message: string }) => {
@@ -1049,12 +1075,22 @@ export default function TenantManagement() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* ★ PR-M (2026-05-15): 카테고리별 구독 라벨 — "HACCP 구독" 하드코딩 제거.
+              ─ food / supplement → "HACCP 구독"
+              ─ cosmetic / cosmetics / pharma → "GMP 구독"
+              ─ 그 외 → "구독"
+              DB 에 cosmetic (단수) / cosmetics (복수) 가 혼재할 수 있어 양쪽 모두 인식. */}
           <Tabs value={subscriptionTab} onValueChange={setSubscriptionTab} className="w-full">
             {/* ★ GOGOGOPICK 연동 탭은 feature flag 로 제어. 비활성 시 단일 탭만 표시 */}
             <TabsList className={`grid w-full ${FEATURES.GOGOGOPICK_INTEGRATION ? "grid-cols-2" : "grid-cols-1"}`}>
               <TabsTrigger value="haccp" className="flex items-center gap-1">
                 <Package className="h-4 w-4" />
-                HACCP 구독
+                {(() => {
+                  const cat = (selectedTenant?.industryCategory ?? "").toLowerCase();
+                  if (cat === "cosmetic" || cat === "cosmetics" || cat === "pharma") return "GMP 구독";
+                  if (cat === "food" || cat === "supplement") return "HACCP 구독";
+                  return "구독";
+                })()}
               </TabsTrigger>
               {FEATURES.GOGOGOPICK_INTEGRATION && (
                 <TabsTrigger value="gogogopick" className="flex items-center gap-1">
