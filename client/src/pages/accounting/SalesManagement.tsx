@@ -250,8 +250,27 @@ function SalesManagementContent() {
   };
 
   const handleRemoveItem = (id: string) => {
+    // ★ 2026-05-16: 마지막 행도 삭제 가능하게 변경 (사용자 "삭제 안 됨" 사고).
+    //   기존엔 disabled 로 막아서 클릭해도 silent. 이제 마지막 행 삭제 시
+    //   자동으로 빈 신규 행 1개 생성 → 테이블이 비어버리지 않고 사용자가
+    //   "삭제됐다" 를 시각적으로 체감 + 즉시 새 입력 가능.
     if (items.length === 1) {
-      toast({ title: "최소 1개의 품목이 필요합니다.", variant: "destructive" });
+      setItems([
+        {
+          id: `${Date.now()}-1`,
+          itemType: "",
+          itemName: "",
+          packagingSize: 0,
+          packagingUnit: "kg",
+          quantity: 0,
+          unitPrice: 0,
+          amount: 0,
+          taxAmount: 0,
+          totalAmount: 0,
+          taxType: "taxed",
+        },
+      ]);
+      toast({ title: "품목이 초기화되었습니다." });
       return;
     }
     setItems(items.filter((item) => item.id !== id));
@@ -608,12 +627,13 @@ function SalesManagementContent() {
                   <TableCell className="py-1 text-right text-xs">{item.taxAmount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-right text-xs font-semibold">{item.totalAmount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-center">
+                    {/* ★ 2026-05-16: disabled 제거 — 마지막 행도 삭제 가능 (초기화 동작) */}
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => handleRemoveItem(item.id)}
-                      disabled={items.length === 1}
-                      className="h-7 w-7 p-0"
+                      className="h-7 w-7 p-0 hover:bg-red-50"
+                      title={items.length === 1 ? "이 행 초기화" : "행 삭제"}
                     >
                       <Trash2 className="h-3 w-3 text-red-500" />
                     </Button>
