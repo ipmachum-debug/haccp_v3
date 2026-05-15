@@ -378,17 +378,22 @@ export async function generateTransactionStatementPDF(
       }
 
       // ── 6. 푸터 (발행 정보 + 브랜드) ────────────────────────
-      const footerY = 790;
+      // ★ 2026-05-16 사고 수정: footerY=790 + 텍스트 높이 (~8pt) → 페이지 bottom
+      //   margin (792 = 842-50) 초과 → pdfkit 가 자동으로 새 페이지 추가, 그 페이지
+      //   에서도 absolute y=790 호출 → 또 새 페이지. 총 3페이지 생성 사고.
+      //   해결: footerY 를 760 으로 낮춰 안전 여유 확보 + lineBreak:false 로
+      //   pdfkit 의 line-height 기반 자동 paginate 완전 차단.
+      const footerY = 760;
       doc.moveTo(leftX, footerY - 8).lineTo(rightX, footerY - 8)
         .lineWidth(0.3).strokeColor(border).stroke();
       doc.fillColor(textFaint).font("NG").fontSize(7)
         .text(
           `발행 일시: ${format(new Date(), "yyyy.MM.dd HH:mm", { locale: ko })}`,
-          leftX, footerY, { width: contentWidth / 2 },
+          leftX, footerY, { width: contentWidth / 2, lineBreak: false },
         );
       doc.fillColor(textFaint).font("NG").fontSize(7)
         .text("powered by Millio AI  ·  millioai.com", leftX, footerY, {
-          width: contentWidth, align: "right",
+          width: contentWidth, align: "right", lineBreak: false,
         });
 
       doc.end();
