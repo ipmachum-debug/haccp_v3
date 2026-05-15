@@ -67,9 +67,15 @@ export const subscriptionPublicRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
-      const tenant = await (db.query as any).tenants.findFirst({
-        where: eq(tenants.id, input.tenantId),
-      });
+      // ★ PR-O (2026-05-15): db.query.tenants.findFirst → db.select() 로 교체.
+      //   기존 코드는 drizzle relational-query API 를 호출했는데 본 프로젝트는
+      //   relations 미정의 환경이라 db.query 가 undefined → 500 "Cannot read
+      //   properties of undefined (reading 'findFirst')" 발생 → 빠른연장 무반응.
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
 
       if (!tenant) {
         throw new TRPCError({
@@ -113,9 +119,12 @@ export const subscriptionPublicRouter = router({
   getSubscription: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
-      const tenant = await (db.query as any).tenants.findFirst({
-        where: eq(tenants.id, ctx.tenantId),
-      });
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId))
+        .limit(1);
 
       if (!tenant) {
         throw new TRPCError({
@@ -149,9 +158,12 @@ export const subscriptionPublicRouter = router({
     .input(z.object({ tenantId: z.number() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const tenant = await (db.query as any).tenants.findFirst({
-        where: eq(tenants.id, input.tenantId),
-      });
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
 
       if (!tenant) {
         throw new TRPCError({
@@ -185,10 +197,13 @@ export const subscriptionPublicRouter = router({
   getNotifications: tenantRequiredProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
-      const notifications = await (db.query as any).subscriptionNotifications.findMany({
-        where: eq(subscriptionNotifications.tenantId, ctx.tenantId),
-        orderBy: (notifications: any, { desc }: any) => [desc(notifications.createdAt)],
-      });
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() + desc() 로 교체
+      const { desc } = await import("drizzle-orm");
+      const notifications = await db
+        .select()
+        .from(subscriptionNotifications)
+        .where(eq(subscriptionNotifications.tenantId, ctx.tenantId))
+        .orderBy(desc(subscriptionNotifications.createdAt));
 
       return notifications;
     }),
@@ -221,9 +236,11 @@ export const subscriptionPublicRouter = router({
     .input(z.object({ packageName: z.enum(["starter", "standard", "enterprise"]) }))
     .query(async ({ input }) => {
       const db = await getDb();
-      const features = await (db.query as any).packageFeatures.findMany({
-        where: eq(packageFeatures.packageName, input.packageName as any),
-      });
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+      const features = await db
+        .select()
+        .from(packageFeatures)
+        .where(eq(packageFeatures.packageName, input.packageName as any));
 
       return features;
     }),
@@ -291,9 +308,12 @@ export const subscriptionPublicRouter = router({
         };
       }
 
-      const tenant = await (db.query as any).tenants.findFirst({
-        where: eq(tenants.id, ctx.tenantId),
-      });
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId))
+        .limit(1);
 
       if (!tenant) {
         throw new TRPCError({
@@ -310,12 +330,15 @@ export const subscriptionPublicRouter = router({
         };
       }
 
-      const feature = await (db.query as any).packageFeatures.findFirst({
-        where: and(
+      // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+      const [feature] = await db
+        .select()
+        .from(packageFeatures)
+        .where(and(
           eq(packageFeatures.packageName, tenant.subscriptionPackage || "starter"),
           eq(packageFeatures.featureName, input.featureName)
-        ),
-      });
+        ))
+        .limit(1);
 
       if (!feature || !feature.isEnabled) {
         return {
@@ -345,9 +368,12 @@ export const subscriptionPublicRouter = router({
       };
     }
 
-    const tenant = await (db.query as any).tenants.findFirst({
-      where: eq(tenants.id, ctx.tenantId),
-    });
+    // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.id, ctx.tenantId))
+      .limit(1);
 
     if (!tenant) {
       throw new TRPCError({
@@ -364,12 +390,14 @@ export const subscriptionPublicRouter = router({
       };
     }
 
-    const features = await (db.query as any).packageFeatures.findMany({
-      where: and(
+    // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
+    const features = await db
+      .select()
+      .from(packageFeatures)
+      .where(and(
         eq(packageFeatures.packageName, tenant.subscriptionPackage || "starter"),
         eq(packageFeatures.isEnabled, true)
-      ),
-    });
+      ));
 
     return {
       features: features.map((f: any) => f.featureName),
