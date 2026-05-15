@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Save, Search, FileText } from "lucide-react";
+import { Plus, Trash2, Save, Search, FileText, Printer, CheckCircle2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 import { todayLocal } from "../../lib/dateUtils";
@@ -78,6 +78,11 @@ function PurchasesManagementContent() {
 
   const [isPartnerSearchOpen, setIsPartnerSearchOpen] = useState(false);
   const [materialSearchItemId, setMaterialSearchItemId] = useState<string | null>(null);
+
+  // ★ 2026-05-16 (PR-R): 저장 완료 후 거래명세표 출력 흐름을 위한 상태.
+  //   handleSave 가 모든 행을 일괄 처리한 뒤 success/fail 카운팅 + purchaseId 수집.
+  const [savedPurchaseIds, setSavedPurchaseIds] = useState<number[]>([]);
+  const [isPrinting, setIsPrinting] = useState(false);
 
   const [items, setItems] = useState<PurchaseItem[]>([
     {
@@ -141,35 +146,87 @@ function PurchasesManagementContent() {
   ];
 
   const utils = trpc.useUtils();
+  // ★ 2026-05-16 (PR-R): createPurchase onSuccess 에서 자동 폼 초기화 제거.
+  //   handleSave 가 모든 행을 일괄 처리한 뒤 한 번에 success/fail 카운팅 + purchaseId 수집 → 거래명세표 인쇄 흐름 활성.
   const createMutation = trpc.haccpIntegration.createPurchase.useMutation({
-    onSuccess: () => {
-      utils.haccpIntegration.getAllPurchases.invalidate();
-      toast({ title: "매입 거래가 등록되었습니다." });
-      // 폼 초기화
-      setSelectedPartnerId("");
-      setSelectedPartnerName("");
-      setTransactionDate(todayLocal());
-      setMemo("");
-      setItems([
-        {
-          id: `${Date.now()}-1`,
-          itemType: "",
-          itemName: "",
-          packagingSize: 0,
-          packagingUnit: "kg",
-          quantity: 0,
-          unitPrice: 0,
-          amount: 0,
-          taxAmount: 0,
-          totalAmount: 0,
-          taxType: "taxed",
-        },
-      ]);
-    },
     onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
+
+  // 거래명세표 PDF 다운로드 (단건 / 그룹)
+  const printSinglePdfMutation = (trpc as any).haccpIntegration.generatePurchasePDF.useMutation();
+  const printGroupPdfMutation = (trpc as any).haccpIntegration.generatePurchaseGroupPDF.useMutation();
+
+  // 양식 초기화 (새 매입 등록 버튼)
+  const resetForm = () => {
+    setSelectedPartnerId("");
+    setSelectedPartnerName("");
+    setTransactionDate(todayLocal());
+    setMemo("");
+    setSavedPurchaseIds([]);
+    setItems([
+      {
+        id: `${Date.now()}-1`,
+        itemType: "",
+        itemName: "",
+        packagingSize: 0,
+        packagingUnit: "kg",
+        quantity: 0,
+        unitPrice: 0,
+        amount: 0,
+        taxAmount: 0,
+        totalAmount: 0,
+        taxType: "taxed",
+      },
+    ]);
+  };
+
+  // 거래명세표 PDF 출력
+  const handlePrintStatement = async () => {
+    if (savedPurchaseIds.length === 0) return;
+    setIsPrinting(true);
+    try {
+      const result: any = savedPurchaseIds.length === 1
+        ? await printSinglePdfMutation.mutateAsync({ purchaseId: savedPurchaseIds[0] })
+        : await printGroupPdfMutation.mutateAsync({ purchaseIds: savedPurchaseIds });
+
+      // base64 → blob → 새 창 (서버: { pdf: base64, filename })
+      const base64: string | undefined = result?.pdf;
+      const filename: string = result?.filename
+        || `거래명세표_${transactionDate}_${selectedPartnerName || "거래처"}.pdf`;
+      if (!base64 || typeof base64 !== "string") {
+        throw new Error("PDF 응답 형식이 예상과 다릅니다.");
+      }
+      const byteChars = atob(base64);
+      const byteNums = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([new Uint8Array(byteNums)], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+
+      // 새 창에서 열어 인쇄/다운로드 둘 다 가능 — 팭업 차단 시 다운로드 폴백
+      const win = window.open(url, "_blank");
+      if (!win) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+
+      toast({ title: "거래명세표가 생성되었습니다." });
+    } catch (err: any) {
+      toast({
+        title: "거래명세표 생성 실패",
+        description: err?.message || "PDF 생성 중 오류가 발생했습니다.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
 
   const handleAddItem = () => {
     setItems([
@@ -311,9 +368,11 @@ function PurchasesManagementContent() {
     }
 
     setIsSaving(true);
+    setSavedPurchaseIds([]); // 재저장 대비 초기화
 
     let successCount = 0;
     let failCount = 0;
+    const newPurchaseIds: number[] = [];
 
     items.forEach((item) => {
       createMutation.mutate(
@@ -332,20 +391,29 @@ function PurchasesManagementContent() {
           memo: memo || undefined,
         },
         {
-          onSuccess: () => {
+          onSuccess: (data: any) => {
             successCount++;
+            // ★ 2026-05-16 (PR-R): drizzle/mysql2 insert 결과에서 purchase.id 수집
+            //   createPurchase 는 result (id | insertId) 를 반환.
+            const insertedId = Number(data?.insertId ?? data?.id ?? 0);
+            if (insertedId > 0) newPurchaseIds.push(insertedId);
+
             if (successCount + failCount === items.length) {
               setIsSaving(false);
+              utils.haccpIntegration.getAllPurchases.invalidate();
+              setSavedPurchaseIds(newPurchaseIds);
               toast({
                 title: `매입 등록 완료`,
-                description: `성공: ${successCount}건, 실패: ${failCount}건`,
+                description: `성공: ${successCount}건${failCount > 0 ? `, 실패: ${failCount}건` : ""}`,
               });
+              // ★ 폼은 유지 — 거래명세표 출력 후 "새 매입 등록" 으로 수동 초기화.
             }
           },
           onError: () => {
             failCount++;
             if (successCount + failCount === items.length) {
               setIsSaving(false);
+              setSavedPurchaseIds(newPurchaseIds);
               toast({
                 title: `매입 등록 완료`,
                 description: `성공: ${successCount}건, 실패: ${failCount}건`,
@@ -569,8 +637,65 @@ function PurchasesManagementContent() {
         </div>
       </div>
 
-      {/* 저장 버튼 */}
-      <div className="flex justify-end gap-2 mt-3">
+      {/* ★ 2026-05-16 (PR-R): 저장 후 결과 + 거래명세표 출력 / 새 매입 등록 버튼 바 */}
+      {savedPurchaseIds.length > 0 && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <span className="font-semibold text-emerald-900">
+              {savedPurchaseIds.length}건 등록 완료
+            </span>
+            <span className="text-emerald-700 text-xs">
+              · 거래명세표를 출력하거나 새 매입을 등록하세요
+            </span>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrintStatement}
+              disabled={isPrinting}
+              className="border-emerald-300 hover:bg-emerald-100"
+            >
+              <Printer className="h-4 w-4 mr-1.5" />
+              {isPrinting ? "생성 중..." : "거래명세표 출력"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetForm}
+              className="border-slate-300"
+            >
+              <RefreshCw className="h-4 w-4 mr-1.5" />
+              새 매입 등록
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 저장 버튼 + 거래명세표 (사전 노출) */}
+      {/* ★ 2026-05-16 (PR-R): 거래명세표 출력 버튼을 저장 전에도 노출.
+          이유: 기능 존재 자체를 사용자가 인지 가능 + 저장 후 출력 흐름 유도.
+          미저장 상태에서는 disabled + 안내 툴팁. */}
+      <div className="flex justify-end gap-2 mt-3 flex-wrap">
+        <Button
+          variant="outline"
+          onClick={handlePrintStatement}
+          disabled={savedPurchaseIds.length === 0 || isPrinting}
+          title={
+            savedPurchaseIds.length === 0
+              ? "먼저 저장 버튼을 눌러 매입을 등록한 후 출력할 수 있습니다."
+              : `${savedPurchaseIds.length}건의 거래명세표 출력`
+          }
+          className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          <Printer className="h-4 w-4 mr-1.5" />
+          {isPrinting
+            ? "생성 중..."
+            : savedPurchaseIds.length > 0
+              ? `거래명세표 출력 (${savedPurchaseIds.length}건)`
+              : "거래명세표 출력"}
+        </Button>
         <Button onClick={handleSave} disabled={isSaving} className="min-w-[100px]">
           <Save className="h-4 w-4 mr-1.5" />
           {isSaving ? "저장 중..." : "저장"}
