@@ -668,8 +668,29 @@ function SalesManagementContent() {
         </div>
       )}
 
-      {/* 저장 버튼 */}
-      <div className="flex justify-end gap-2 mt-3">
+      {/* 저장 버튼 + 거래명세표 (사전 노출) */}
+      {/* ★ 2026-05-16: 거래명세표 출력 버튼을 저장 전에도 노출.
+          이유: 기능 존재 자체를 사용자가 인지 가능 + 저장 후 출력 흐름 유도.
+          미저장 상태에서는 disabled + 안내 툴팁. */}
+      <div className="flex justify-end gap-2 mt-3 flex-wrap">
+        <Button
+          variant="outline"
+          onClick={handlePrintStatement}
+          disabled={savedSaleIds.length === 0 || isPrinting}
+          title={
+            savedSaleIds.length === 0
+              ? "먼저 저장 버튼을 눌러 매출을 등록한 후 출력할 수 있습니다."
+              : `${savedSaleIds.length}건의 거래명세표 출력`
+          }
+          className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          <Printer className="h-4 w-4 mr-1.5" />
+          {isPrinting
+            ? "생성 중..."
+            : savedSaleIds.length > 0
+              ? `거래명세표 출력 (${savedSaleIds.length}건)`
+              : "거래명세표 출력"}
+        </Button>
         <Button onClick={handleSave} disabled={isSaving} className="min-w-[100px]">
           <Save className="h-4 w-4 mr-1.5" />
           {isSaving ? "저장 중..." : "저장"}
