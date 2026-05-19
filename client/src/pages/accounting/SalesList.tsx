@@ -274,6 +274,19 @@ function SalesListContent() {
     group: TransactionGroup,
     action: "approve" | "markReceived" | "cancel" | "restore",
   ) => {
+    // ★ 2026-05-16 PR-Q: silent fail 사고 진단 + 방어
+    //   사용자 보고: "승인 버튼 클릭해도 아무 반응이 없어. 전에도 동일 문제 해결한 적 있는데 자꾸 반복돼"
+    //   가능 원인:
+    //     1) postMutation.isPending 이 이전 호출에서 stuck → 버튼 visually-disabled (잘 안 보임)
+    //     2) 브라우저가 native confirm() 을 suppress (드물지만 가능)
+    //     3) 클릭 핸들러는 호출됐는데 내부 분기에서 silent return
+    //   해결:
+    //     - 진입 즉시 console.log → DevTools 에서 호출 여부 확인 가능
+    //     - 진입 즉시 toast → 사용자가 "버튼이 반응했다"는 것을 시각으로 확인
+    //     - 모든 silent return 경로에 로깅 (어디서 빠졌는지 추적 가능)
+    // eslint-disable-next-line no-console
+    console.log(`[handleGroupAction] start action=${action} groupKey=${group.groupKey} items=${group.items.length} dominantStatus=${group.dominantStatus}`);
+
     const actionLabels: Record<string, string> = {
       approve: "승인",
       markReceived: "수금 완료 처리",
@@ -293,6 +306,8 @@ function SalesListContent() {
     );
 
     if (targets.length === 0) {
+      // eslint-disable-next-line no-console
+      console.warn(`[handleGroupAction] ${action} 불가 — targets=0 (모든 항목이 다른 상태)`);
       toast({
         title: `${label} 불가`,
         description: "해당 상태의 품목이 없습니다.",
@@ -308,15 +323,25 @@ function SalesListContent() {
     if (skipped.length > 0) {
       confirmMsg += `\n\n· 처리 대상: ${targets.length}건\n· 건너뜀(이미 다른 상태): ${skipped.length}건`;
     }
-    if (!confirm(confirmMsg)) {
+    // ★ 2026-05-16 PR-Q: window.confirm 명시 호출 + 결과 로깅.
+    //   일부 환경 (예: 임베드 / PWA / 자동화 도구) 에서 native confirm 이
+    //   suppress 될 수 있는데, 그 때를 위해 명시 호출 + return 값 로깅.
+    const confirmed = window.confirm(confirmMsg);
+    // eslint-disable-next-line no-console
+    console.log(`[handleGroupAction] confirm result=${confirmed} for ${action} (targets=${targets.length})`);
+    if (!confirmed) {
       return;
     }
+
+    // 사용자 액션 확인 즉시 토스트 — 처리 중임을 시각 피드백
+    toast({
+      title: `${label} 처리 중`,
+      description: `${targets.length}건 처리 중입니다...`,
+    });
 
     const targetIds = targets.map((item) => item.id);
 
     // ─── allSettled 로 부분 성공 허용 (2026-05-11 PR-I) ─────
-    // 기존: Promise.all → 1건 실패 시 전체 reject, 사용자가 어떤 게 성공/실패했는지 모름
-    // 변경: Promise.allSettled → 모두 시도, 결과를 ok/fail 로 집계해 토스트 표시
     const runOne = (id: number): Promise<unknown> => {
       switch (action) {
         case "approve":
@@ -874,9 +899,15 @@ function SalesListContent() {
                                 {isFirst ? (
                                   <>
                                     {availableGroupActions.includes("approve") && (
+                                      // ★ PR-Q (2026-05-16): disabled=isPending 제거 — Promise.allSettled 로
+                                      //   여러 호출을 다루는데 useMutation 의 isPending 이 마지막 mutation 만 추적해서
+                                      //   불완전. handleGroupAction 자체가 reentrancy 안전하므로 disabled 불필요.
                                       <Button size="sm" variant="default"
-                                        onClick={() => handleGroupAction(group, "approve")}
-                                        disabled={postMutation.isPending}
+                                        onClick={() => {
+                                          // eslint-disable-next-line no-console
+                                          console.log(`[ApproveBtn] click groupKey=${group.groupKey} dominantStatus=${group.dominantStatus} items=${group.items.length}`);
+                                          handleGroupAction(group, "approve");
+                                        }}
                                         title={isMultiItem ? "그룹 전체 승인" : "승인"}
                                         className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
                                         <CheckCircle className="h-3.5 w-3.5" />
