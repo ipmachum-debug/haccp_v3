@@ -40,7 +40,7 @@ export const changeLogRouter = router({
         const [rows]: any = await pool.execute(
           `SELECT cl.*, u.name as user_name
            FROM change_logs cl
-           LEFT JOIN users u ON cl.user_id = u.id
+           LEFT JOIN users u ON cl.user_id = u.id AND u.tenant_id = cl.tenant_id
            ${where}
            ORDER BY cl.created_at DESC
            LIMIT ? OFFSET ?`,

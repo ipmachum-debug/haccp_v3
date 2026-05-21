@@ -141,7 +141,7 @@ export async function getCommunicationLogs(filters: {
         u.name as authorName,
         p.company_name as partnerName
       FROM communication_logs cl
-      LEFT JOIN users u ON cl.author_id = u.id
+      LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
       LEFT JOIN partners p ON cl.partner_id = p.id
       WHERE ${whereClause}
       ORDER BY ${sortBy} ${sortOrder}
@@ -182,7 +182,7 @@ export async function getCommunicationLogById(logId: number, tenantId: number) {
         u.name as authorName,
         p.company_name as partnerName
       FROM communication_logs cl
-      LEFT JOIN users u ON cl.author_id = u.id
+      LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
       LEFT JOIN partners p ON cl.partner_id = p.id
       WHERE cl.id = ${Number(logId)} AND cl.tenant_id = ${Number(tenantId)}
       LIMIT 1
@@ -379,7 +379,7 @@ export async function getComments(logId: number, tenantId: number) {
         c.created_at as createdAt, c.updated_at as updatedAt,
         u.name as authorName
       FROM communication_log_comments c
-      LEFT JOIN users u ON c.author_id = u.id
+      LEFT JOIN users u ON c.author_id = u.id AND u.tenant_id = c.tenant_id
       WHERE c.log_id = ${Number(logId)} AND c.tenant_id = ${Number(tenantId)}
       ORDER BY c.created_at ASC
     `));

@@ -402,7 +402,7 @@ export const documentPrintRouter = router({
           u.name as printed_by_name,
           u.email as printed_by_email
         FROM document_batch_print_groups dbpg
-        LEFT JOIN users u ON dbpg.printed_by = u.id
+        LEFT JOIN users u ON dbpg.printed_by = u.id AND u.tenant_id = dbpg.tenant_id
         ${whereClause}
         ORDER BY dbpg.printed_at DESC
         LIMIT ${input.limit} OFFSET ${offset}
@@ -438,7 +438,7 @@ export const documentPrintRouter = router({
           u.name as printed_by_name,
           u.email as printed_by_email
         FROM document_batch_print_groups dbpg
-        LEFT JOIN users u ON dbpg.printed_by = u.id
+        LEFT JOIN users u ON dbpg.printed_by = u.id AND u.tenant_id = dbpg.tenant_id
         WHERE dbpg.id = ${input.groupId} AND dbpg.tenant_id = ${tenantId}
       `;
       const groupResult = await db.execute(groupQuery);
@@ -640,7 +640,7 @@ export const documentPrintRouter = router({
           dbpg.*,
           u.name as printed_by_name
         FROM document_batch_print_groups dbpg
-        LEFT JOIN users u ON dbpg.printed_by = u.id
+        LEFT JOIN users u ON dbpg.printed_by = u.id AND u.tenant_id = dbpg.tenant_id
         WHERE dbpg.tenant_id = ${tenantId}
           AND dbpg.site_id = ${input.siteId}
           AND dbpg.work_date = ${input.workDate}

@@ -412,7 +412,7 @@ export const documentApprovalRouter = router({
           u.name as actor_name,
           u.email as actor_email
         FROM document_approval_history dah
-        LEFT JOIN users u ON dah.actor_id = u.id
+        LEFT JOIN users u ON dah.actor_id = u.id AND u.tenant_id = dah.tenant_id
         WHERE dah.document_instance_id = ${input.documentId}
           AND dah.tenant_id = ${tenantId}
         ORDER BY dah.created_at ASC
