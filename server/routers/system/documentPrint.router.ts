@@ -140,8 +140,8 @@ export const documentPrintRouter = router({
           b.batch_code as batch_number
         FROM document_instances di
         JOIN document_types dt ON di.document_type_id = dt.id
-        LEFT JOIN h_products_v2 p ON di.product_id = p.id
-        LEFT JOIN h_batches b ON di.batch_id = b.id
+        LEFT JOIN h_products_v2 p ON di.product_id = p.id AND p.tenant_id = di.tenant_id
+        LEFT JOIN h_batches b ON di.batch_id = b.id AND b.tenant_id = di.tenant_id
         ${whereClause}
         ${orderByClause}
         LIMIT ${input.limit} OFFSET ${offset}

@@ -201,7 +201,7 @@ export const processGroupsRouter = router({
                 p.product_name,
                 'MANUAL' as mapping_source
               FROM ccp_process_group_products gp
-              JOIN h_products_v2 p ON gp.product_id = p.id
+              JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
               WHERE gp.tenant_id = ${tenantId} AND gp.process_group_id = ${input.processGroupId}
               ORDER BY p.product_name`
           );
@@ -216,7 +216,7 @@ export const processGroupsRouter = router({
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id
+              JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
               WHERE i.process_group_id = ${input.processGroupId}
                 AND r.tenant_id = ${tenantId}
               ORDER BY p.product_name`
@@ -235,7 +235,7 @@ export const processGroupsRouter = router({
                 g.name as group_name, g.ccp_type,
                 'MANUAL' as mapping_source
               FROM ccp_process_group_products gp
-              JOIN h_products_v2 p ON gp.product_id = p.id
+              JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
               JOIN ccp_process_groups g ON gp.process_group_id = g.id
               WHERE gp.tenant_id = ${tenantId} AND g.ccp_type = 'CCP-4P'
               ORDER BY g.name, p.product_name`
@@ -254,7 +254,7 @@ export const processGroupsRouter = router({
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id
+              JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
               JOIN ccp_process_groups g ON i.process_group_id = g.id
               WHERE r.tenant_id = ${tenantId}
                 AND g.ccp_type = ${input.ccpType}
@@ -275,7 +275,7 @@ export const processGroupsRouter = router({
             FROM h_mf_reports r
             JOIN h_mf_report_versions v ON v.mf_report_id = r.id
             JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-            JOIN h_products_v2 p ON r.product_id = p.id
+            JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
             JOIN ccp_process_groups g ON i.process_group_id = g.id
             WHERE r.tenant_id = ${tenantId}
             ORDER BY g.ccp_type, g.name, p.product_name`
@@ -289,7 +289,7 @@ export const processGroupsRouter = router({
               g.ccp_type,
               'MANUAL' as mapping_source
             FROM ccp_process_group_products gp
-            JOIN h_products_v2 p ON gp.product_id = p.id
+            JOIN h_products_v2 p ON gp.product_id = p.id AND p.tenant_id = gp.tenant_id
             JOIN ccp_process_groups g ON gp.process_group_id = g.id
             WHERE gp.tenant_id = ${tenantId} AND g.ccp_type = 'CCP-4P'
             ORDER BY g.name, p.product_name`
@@ -512,8 +512,8 @@ export const processGroupsRouter = router({
             p.product_name, p.process_flags,
             tp.profile_name, tp.time_minutes, tp.ccp_process_group_id
           FROM ccp_product_time_profile_map m
-          JOIN h_products_v2 p ON m.product_id = p.id
-          JOIN ccp_time_profiles tp ON m.time_profile_id = tp.id
+          JOIN h_products_v2 p ON m.product_id = p.id AND p.tenant_id = m.tenant_id
+          JOIN ccp_time_profiles tp ON m.time_profile_id = tp.id AND tp.tenant_id = m.tenant_id
           WHERE m.tenant_id = ${tenantId}${extraWhere}
           ORDER BY p.product_name, m.process_type`
       );

@@ -172,7 +172,7 @@ export const dailyReportRouter = router({
             SUM(CASE WHEN r.is_deviation = 0 THEN 1 ELSE 0 END) as pass_count,
             SUM(CASE WHEN r.is_deviation = 1 THEN 1 ELSE 0 END) as fail_count
           FROM h_ccp_form_records fr
-          INNER JOIN h_batches b ON fr.batch_id = b.id
+          INNER JOIN h_batches b ON fr.batch_id = b.id AND b.tenant_id = fr.tenant_id
           LEFT JOIN h_ccp_form_rows r ON r.form_record_id = fr.id AND r.tenant_id = ${tenantId}
           WHERE fr.tenant_id = ${tenantId}
             AND DATE(b.planned_date) = ${dateStr}
@@ -186,7 +186,7 @@ export const dailyReportRouter = router({
               SELECT 1 FROM h_ccp_form_rows r WHERE r.form_record_id = fr.id AND r.is_deviation = 1
             ) THEN 1 ELSE 0 END) as deviation_count
           FROM h_ccp_form_records fr
-          INNER JOIN h_batches b ON fr.batch_id = b.id
+          INNER JOIN h_batches b ON fr.batch_id = b.id AND b.tenant_id = fr.tenant_id
           WHERE fr.tenant_id = ${tenantId}
             AND DATE(b.planned_date) = ${dateStr}
         `);
@@ -201,8 +201,8 @@ export const dailyReportRouter = router({
           SELECT r.id as row_id, r.is_deviation, r.deviation_note as note, r.measurement_time,
             fr.ccp_type, b.batch_code, p.product_name, fr.work_date
           FROM h_ccp_form_rows r
-          INNER JOIN h_ccp_form_records fr ON r.form_record_id = fr.id
-          INNER JOIN h_batches b ON fr.batch_id = b.id
+          INNER JOIN h_ccp_form_records fr ON r.form_record_id = fr.id AND fr.tenant_id = r.tenant_id
+          INNER JOIN h_batches b ON fr.batch_id = b.id AND b.tenant_id = fr.tenant_id
           LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = ${tenantId}
           WHERE r.tenant_id = ${tenantId} AND r.is_deviation = 1
             AND DATE(b.planned_date) = ${dateStr}
