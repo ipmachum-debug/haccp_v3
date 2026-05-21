@@ -40,9 +40,9 @@ export const payrollRouter = router({
                   COALESCE(pos.position_name, '') as position,
                   COALESCE(dept.department_name, '') as department
            FROM payroll_records p
-           LEFT JOIN h_employees e ON p.employee_id = e.id
-           LEFT JOIN h_departments dept ON e.department_id = dept.id
-           LEFT JOIN h_positions pos ON e.position_id = pos.id
+           LEFT JOIN h_employees e ON p.employee_id = e.id AND e.tenant_id = p.tenant_id
+           LEFT JOIN h_departments dept ON e.department_id = dept.id AND dept.tenant_id = p.tenant_id
+           LEFT JOIN h_positions pos ON e.position_id = pos.id AND pos.tenant_id = p.tenant_id
            WHERE p.tenant_id = ? AND p.year_month = ?
            ORDER BY e.name ASC`,
           [ctx.tenantId, yearMonth],

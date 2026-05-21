@@ -195,7 +195,7 @@ export const productRouter = router({
               // h_ccp_instances - 배치 기반 CCP 인스턴스
               await pool.execute(
                 `UPDATE h_ccp_instances ci
-                 JOIN h_batches b ON ci.batch_id = b.id
+                 JOIN h_batches b ON ci.batch_id = b.id AND b.tenant_id = ci.tenant_id
                  SET ci.product_name = ?
                  WHERE b.product_id = ? AND b.tenant_id = ?`,
                 [rest.productName, id, ctx.tenantId]
@@ -203,7 +203,7 @@ export const productRouter = router({
               // h_ccp_form_records - CCP 폼 레코드
               await pool.execute(
                 `UPDATE h_ccp_form_records cfr
-                 JOIN h_batches b ON cfr.batch_id = b.id
+                 JOIN h_batches b ON cfr.batch_id = b.id AND b.tenant_id = cfr.tenant_id
                  SET cfr.product_name = ?
                  WHERE b.product_id = ? AND b.tenant_id = ?`,
                 [rest.productName, id, ctx.tenantId]
@@ -211,8 +211,8 @@ export const productRouter = router({
               // h_ccp_form_rows - CCP 폼 데이터 행
               await pool.execute(
                 `UPDATE h_ccp_form_rows r
-                 JOIN h_ccp_form_records cfr ON r.form_record_id = cfr.id
-                 JOIN h_batches b ON cfr.batch_id = b.id
+                 JOIN h_ccp_form_records cfr ON r.form_record_id = cfr.id AND cfr.tenant_id = r.tenant_id
+                 JOIN h_batches b ON cfr.batch_id = b.id AND b.tenant_id = cfr.tenant_id
                  SET r.product_name = ?
                  WHERE b.product_id = ? AND b.tenant_id = ?`,
                 [rest.productName, id, ctx.tenantId]

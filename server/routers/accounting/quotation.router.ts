@@ -988,7 +988,7 @@ export const quotationRouter = router({
         `SELECT q.id, q.quotation_number, q.quote_date, q.title, q.grand_total, q.status,
                 p.company_name AS partner_name, q.created_at
          FROM quotations q
-         LEFT JOIN partners p ON p.id = q.partner_id
+         LEFT JOIN partners p ON p.id = q.partner_id AND p.tenant_id = q.tenant_id
          ${where}
          ORDER BY q.quote_date DESC LIMIT 50`, params);
 

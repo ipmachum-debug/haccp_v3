@@ -330,7 +330,7 @@ export const financialReportsRouter = router({
            MIN(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN DATEDIFF(CURDATE(), apl.due_date) ELSE NULL END) as minOverdueDays,
            MAX(CASE WHEN apl.due_date < CURDATE() AND apl.status != 'paid' THEN DATEDIFF(CURDATE(), apl.due_date) ELSE NULL END) as maxOverdueDays
          FROM ap_ledger apl
-         LEFT JOIN partners p ON p.id = apl.partner_id
+         LEFT JOIN partners p ON p.id = apl.partner_id AND p.tenant_id = apl.tenant_id
          WHERE apl.tenant_id = ? AND apl.status != 'paid'
          GROUP BY apl.partner_id, p.company_name
          HAVING overdueAmount > 0
@@ -348,7 +348,7 @@ export const financialReportsRouter = router({
            SUM(CASE WHEN arl.due_date < CURDATE() AND arl.status != 'collected' THEN arl.amount ELSE 0 END) as overdueAmount,
            MAX(CASE WHEN arl.due_date < CURDATE() AND arl.status != 'collected' THEN DATEDIFF(CURDATE(), arl.due_date) ELSE NULL END) as maxOverdueDays
          FROM ar_ledger arl
-         LEFT JOIN partners p ON p.id = arl.partner_id
+         LEFT JOIN partners p ON p.id = arl.partner_id AND p.tenant_id = arl.tenant_id
          WHERE arl.tenant_id = ? AND arl.status != 'collected'
          GROUP BY arl.partner_id, p.company_name
          HAVING overdueAmount > 0
