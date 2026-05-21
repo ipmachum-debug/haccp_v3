@@ -39,7 +39,7 @@ export const fixedAssetRouter = router({
         `SELECT fa.*, u.name as registered_by_name,
                 aa.name as account_name, aa.code as account_code
          FROM fixed_assets fa
-         LEFT JOIN users u ON fa.registered_by = u.id
+         LEFT JOIN users u ON fa.registered_by = u.id AND u.tenant_id = fa.tenant_id
          LEFT JOIN accounting_accounts aa ON fa.accounting_account_id = aa.id
          ${where}
          ORDER BY fa.acquisition_date DESC, fa.id DESC`,

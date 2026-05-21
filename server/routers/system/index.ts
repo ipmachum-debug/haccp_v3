@@ -1,6 +1,7 @@
 // system 도메인 라우터 모음
 export { approvalRouter } from "./approval.router";
 export { auditLogRouter } from "./auditLog.router";
+export { tenantIsolationAuditRouter } from "./tenantIsolationAudit.router";
 export { excelRouter } from "./excel.router";
 export { excelImportRouter } from "./excelImport.router";
 export { favoritesRouter } from "./favorites.router";

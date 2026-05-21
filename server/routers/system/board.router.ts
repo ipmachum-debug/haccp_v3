@@ -196,7 +196,7 @@ export const boardRouter = router({
             (SELECT COUNT(*) FROM users WHERE tenant_id = ? AND approval_status = 'approved') as totalUsers,
             (SELECT COUNT(*) FROM communication_log_acks WHERE log_id = cl.id AND user_id = ?) as myAck
           FROM communication_logs cl
-          LEFT JOIN users u ON cl.author_id = u.id
+          LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
           LEFT JOIN partners p ON cl.partner_id = p.id
           WHERE cl.tenant_id = ? ${typeCondition}
           ORDER BY cl.created_at DESC
@@ -223,7 +223,7 @@ export const boardRouter = router({
               (SELECT COUNT(*) FROM users WHERE tenant_id = ? AND approval_status = 'approved') as totalUsers,
               0 as myAck
             FROM communication_logs cl
-            LEFT JOIN users u ON cl.author_id = u.id
+            LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
             LEFT JOIN partners p ON cl.partner_id = p.id
             WHERE cl.tenant_id = ? AND (cl.partner_id = 0 OR cl.partner_id IS NULL)
             ORDER BY cl.created_at DESC
@@ -320,7 +320,7 @@ export const boardRouter = router({
             u.name as authorName
           FROM communication_log_notifications n
           LEFT JOIN communication_logs cl ON n.log_id = cl.id
-          LEFT JOIN users u ON cl.author_id = u.id
+          LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
           WHERE n.tenant_id = ? AND n.user_id = ? ${unreadFilter}
           ORDER BY n.created_at DESC
           LIMIT 50`,
@@ -339,7 +339,7 @@ export const boardRouter = router({
               u.name as authorName
             FROM communication_log_notifications n
             LEFT JOIN communication_logs cl ON n.log_id = cl.id
-            LEFT JOIN users u ON cl.author_id = u.id
+            LEFT JOIN users u ON cl.author_id = u.id AND u.tenant_id = cl.tenant_id
             WHERE n.tenant_id = ? AND n.user_id = ? ${unreadFilter}
             ORDER BY n.created_at DESC
             LIMIT 50`,
@@ -497,7 +497,7 @@ export const boardRouter = router({
             c.created_at as createdAt,
             u.name as authorName
           FROM communication_log_comments c
-          LEFT JOIN users u ON c.author_id = u.id
+          LEFT JOIN users u ON c.author_id = u.id AND u.tenant_id = c.tenant_id
           WHERE c.log_id = ? AND c.tenant_id = ?
           ORDER BY c.created_at ASC`,
           [logId, tenantId]

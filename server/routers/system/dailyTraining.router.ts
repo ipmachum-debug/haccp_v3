@@ -518,7 +518,7 @@ export const dailyTrainingRouter = router({
     const [rows] = await pool.execute<any[]>(
       `SELECT r.*, u.name as created_by_name
        FROM h_training_monthly_reports r
-       LEFT JOIN users u ON r.created_by = u.id
+       LEFT JOIN users u ON r.created_by = u.id AND u.tenant_id = r.tenant_id
        WHERE r.tenant_id = ?
        ORDER BY r.year DESC, r.month DESC`,
       [ctx.tenantId]

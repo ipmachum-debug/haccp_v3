@@ -240,7 +240,7 @@ export const weeklyLogsRouter = router({
             u.name AS creator_name,
             ar.id AS approval_request_id, ar.status AS approval_status
           FROM h_generic_checklist_records r
-          LEFT JOIN users u ON r.created_by = u.id
+          LEFT JOIN users u ON r.created_by = u.id AND u.tenant_id = r.tenant_id
           LEFT JOIN h_approval_requests ar ON (
             ar.reference_type = 'checklist' AND ar.reference_id = r.id AND ar.request_type = 'weekly_log'
           )

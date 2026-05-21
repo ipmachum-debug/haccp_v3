@@ -54,7 +54,7 @@ export const journalEntryRouter = router({
                   e.voucher_id, e.posted_by, e.created_at,
                   u.name as posted_by_name
            FROM expense_journal_entries e
-           LEFT JOIN users u ON e.posted_by = u.id
+           LEFT JOIN users u ON e.posted_by = u.id AND u.tenant_id = e.tenant_id
            ${where}
            ORDER BY e.entry_date DESC, e.id DESC
            LIMIT ? OFFSET ?`,
@@ -83,7 +83,8 @@ export const journalEntryRouter = router({
       try {
         const [headerRows]: any = await pool.execute(
           `SELECT e.*, u.name as posted_by_name FROM expense_journal_entries e
-           LEFT JOIN users u ON e.posted_by = u.id WHERE e.id = ? AND e.tenant_id = ?`,
+           LEFT JOIN users u ON e.posted_by = u.id AND u.tenant_id = e.tenant_id
+           WHERE e.id = ? AND e.tenant_id = ?`,
           [input.id, ctx.tenantId],
         );
         if (!headerRows[0]) throw new Error("전표를 찾을 수 없습니다.");

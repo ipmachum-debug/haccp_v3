@@ -84,7 +84,7 @@ export const expenseRouter = router({
       const [rows] = await conn.execute(
         `SELECT v.*, u.name as created_by_name
          FROM expense_vouchers v
-         LEFT JOIN users u ON v.created_by = u.id
+         LEFT JOIN users u ON v.created_by = u.id AND u.tenant_id = v.tenant_id
          WHERE ${where}
          ORDER BY v.expense_date DESC, v.id DESC
          LIMIT ? OFFSET ?`,
@@ -106,8 +106,8 @@ export const expenseRouter = router({
       const [vRows] = await conn.execute(
         `SELECT v.*, u.name as created_by_name, u2.name as posted_by_name
          FROM expense_vouchers v
-         LEFT JOIN users u ON v.created_by = u.id
-         LEFT JOIN users u2 ON v.posted_by = u2.id
+         LEFT JOIN users u ON v.created_by = u.id AND u.tenant_id = v.tenant_id
+         LEFT JOIN users u2 ON v.posted_by = u2.id AND u2.tenant_id = v.tenant_id
          WHERE v.id = ? AND v.tenant_id = ?`,
         [input.id, tenantId],
       );
@@ -547,7 +547,7 @@ export const expenseRouter = router({
     const [rows] = await conn.execute(
       `SELECT t.*, u.name as created_by_name
        FROM expense_recurring_templates t
-       LEFT JOIN users u ON t.created_by = u.id
+       LEFT JOIN users u ON t.created_by = u.id AND u.tenant_id = t.tenant_id
        WHERE t.tenant_id = ?
        ORDER BY t.is_active DESC, t.template_name`,
       [tenantId],
@@ -752,7 +752,7 @@ export const expenseRouter = router({
       const [rows] = await conn.execute(
         `SELECT v.*, u.name as created_by_name
          FROM expense_vouchers v
-         LEFT JOIN users u ON v.created_by = u.id
+         LEFT JOIN users u ON v.created_by = u.id AND u.tenant_id = v.tenant_id
          WHERE ${where}
          ORDER BY v.expense_date DESC
          LIMIT ? OFFSET ?`,
@@ -770,7 +770,7 @@ export const expenseRouter = router({
       const [rows] = await conn.execute(
         `SELECT p.*, u.name as paid_by_name
          FROM expense_unpaid_payments p
-         LEFT JOIN users u ON p.paid_by = u.id
+         LEFT JOIN users u ON p.paid_by = u.id AND u.tenant_id = p.tenant_id
          WHERE p.voucher_id = ? AND p.tenant_id = ?
          ORDER BY p.payment_date DESC`,
         [input.voucherId, tenantId],
