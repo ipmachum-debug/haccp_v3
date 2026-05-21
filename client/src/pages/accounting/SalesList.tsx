@@ -67,6 +67,34 @@ import {
   type TransactionGroup,
 } from "../../lib/transactionGrouping";
 
+// ★ PR-S (2026-05-20): 배포 빌드 식별용 마커
+//   사용자가 "승인 버튼 무반응" 사고를 PR-Q (v0.8.211) 적용 후에도 재보고함.
+//   → 가장 가능성 큰 가설: 브라우저/PWA/CDN 캐시로 인해 사용자가 보고 있는 빌드가
+//     v0.8.211 이 아닐 수 있음. 이 마커가 화면 헤더에 노출되면 사용자가
+//     콘솔 없이도 어느 빌드를 보고 있는지 즉시 식별 가능.
+const SALES_LIST_BUILD_TAG = "PR-S-2026-05-20";
+
+// ★ PR-S: mutateAsync 가 어떤 이유로든 hang 될 때 강제 abort.
+//   현재 사고가 "버튼 클릭 후 대기중 그대로 유지" 이므로,
+//   서버 측 stuck, 네트워크 stuck, hydration 문제 등 모든 hang 경로 차단.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} 시간 초과 (${ms}ms 동안 응답 없음)`));
+    }, ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 export default function SalesList() {
   return (
     <DashboardLayout>
@@ -86,6 +114,29 @@ function SalesListContent() {
   const [editingSale, setEditingSale] = useState<any>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
+
+  // ★ PR-S (2026-05-20): 화면 가시 진단 패널 — 콘솔 없이도 사용자가
+  //   클릭이 도달했는지, 어떤 처리가 진행중인지 즉시 확인 가능.
+  //   "승인 버튼 눌러도 대기중 그대로" 사고가 재발할 때, 사용자가 직접
+  //   카운터 증가/마지막 라벨 변화로 클릭 도달 여부를 판단할 수 있음.
+  const [approveClickCount, setApproveClickCount] = useState(0);
+  const [lastActionInfo, setLastActionInfo] = useState<{
+    label: string;
+    detail: string;
+    ts: string;
+    kind: "click" | "progress" | "ok" | "fail";
+  } | null>(null);
+  // 진행 중인 그룹 액션 — 인라인 버튼 스피너 표시용
+  // key: `${groupKey}::${action}` value: targets 길이
+  const [inFlightActions, setInFlightActions] = useState<Record<string, number>>({});
+  const setActionInFlight = (key: string, n: number | null) => {
+    setInFlightActions((prev) => {
+      const next = { ...prev };
+      if (n === null) delete next[key];
+      else next[key] = n;
+      return next;
+    });
+  };
 
   // 매출 상태 일괄 복구 (approved → pending) — 2026-04-21 관리자 유지보수용
   const { user } = useAuth();
@@ -275,15 +326,12 @@ function SalesListContent() {
     action: "approve" | "markReceived" | "cancel" | "restore",
   ) => {
     // ★ 2026-05-16 PR-Q: silent fail 사고 진단 + 방어
-    //   사용자 보고: "승인 버튼 클릭해도 아무 반응이 없어. 전에도 동일 문제 해결한 적 있는데 자꾸 반복돼"
-    //   가능 원인:
-    //     1) postMutation.isPending 이 이전 호출에서 stuck → 버튼 visually-disabled (잘 안 보임)
-    //     2) 브라우저가 native confirm() 을 suppress (드물지만 가능)
-    //     3) 클릭 핸들러는 호출됐는데 내부 분기에서 silent return
-    //   해결:
-    //     - 진입 즉시 console.log → DevTools 에서 호출 여부 확인 가능
-    //     - 진입 즉시 toast → 사용자가 "버튼이 반응했다"는 것을 시각으로 확인
-    //     - 모든 silent return 경로에 로깅 (어디서 빠졌는지 추적 가능)
+    // ★ 2026-05-20 PR-S: 가시 진단 패널 + 30초 hang 타임아웃 추가
+    //   사용자 재보고 (v0.8.211 배포 후에도): "승인 버튼 무반응, 대기중 그대로"
+    //   PR-Q 에서 진입 toast + console.log 가 무조건 발화되도록 짰는데도 무반응이라면:
+    //     A) 사용자가 보는 빌드가 v0.8.211 이 아닐 가능성 (캐시) → BUILD_TAG 노출
+    //     B) toast 가 가려져 시각 인지 실패 가능성 → lastActionInfo 패널로 보강
+    //     C) mutateAsync 가 hang 됐을 가능성 → withTimeout 으로 30초 강제 차단
     // eslint-disable-next-line no-console
     console.log(`[handleGroupAction] start action=${action} groupKey=${group.groupKey} items=${group.items.length} dominantStatus=${group.dominantStatus}`);
 
@@ -294,6 +342,14 @@ function SalesListContent() {
       restore: "복구",
     };
     const label = actionLabels[action];
+
+    // PR-S: 가시 진단 — 함수 진입 즉시 화면 헤더 패널에 기록
+    setLastActionInfo({
+      label,
+      detail: `진입: group=${group.groupKey} items=${group.items.length} status=${group.dominantStatus}`,
+      ts: new Date().toLocaleTimeString(),
+      kind: "click",
+    });
 
     // ─── 대상/대상외 분리 (2026-05-11 PR-I) ─────────────────
     // 혼재(mixed) 그룹 부분 처리 시, 액션이 가능한 항목만 추려서 진행하고
@@ -341,23 +397,41 @@ function SalesListContent() {
 
     const targetIds = targets.map((item) => item.id);
 
+    // PR-S: 인라인 버튼 스피너용 in-flight 상태 + 가시 진단 패널 업데이트
+    const inFlightKey = `${group.groupKey}::${action}`;
+    setActionInFlight(inFlightKey, targets.length);
+    setLastActionInfo({
+      label,
+      detail: `처리중: ${targets.length}건 (group=${group.groupKey})`,
+      ts: new Date().toLocaleTimeString(),
+      kind: "progress",
+    });
+
     // ─── allSettled 로 부분 성공 허용 (2026-05-11 PR-I) ─────
+    // ★ PR-S: 각 mutateAsync 에 30초 강제 타임아웃 — hang 차단
+    const TIMEOUT_MS = 30000;
     const runOne = (id: number): Promise<unknown> => {
       switch (action) {
         case "approve":
-          return postMutation.mutateAsync({ saleId: id });
+          return withTimeout(postMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 승인`);
         case "markReceived":
-          return markReceivedMutation.mutateAsync({ saleId: id });
+          return withTimeout(markReceivedMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 수금완료`);
         case "cancel":
-          return saleCancelMutation.mutateAsync({ saleId: id });
+          return withTimeout(saleCancelMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 취소`);
         case "restore":
-          return saleRestoreMutation.mutateAsync({ saleId: id });
+          return withTimeout(saleRestoreMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 복구`);
         default:
           return Promise.reject(new Error(`알 수 없는 액션: ${action}`));
       }
     };
 
-    const results = await Promise.allSettled(targetIds.map(runOne));
+    let results: PromiseSettledResult<unknown>[];
+    try {
+      results = await Promise.allSettled(targetIds.map(runOne));
+    } finally {
+      // PR-S: 어떤 경로든 in-flight 해제 (예외 경로 포함)
+      setActionInFlight(inFlightKey, null);
+    }
 
     const okIds: number[] = [];
     const failures: Array<{ id: number; message: string }> = [];
@@ -383,6 +457,13 @@ function SalesListContent() {
           ? `${okIds.length}건 처리됨 (건너뜀 ${skipped.length}건)`
           : `${okIds.length}건 처리됨`;
       toast({ title: `그룹 ${label} 완료`, description: desc });
+      // PR-S: 가시 진단 — 성공
+      setLastActionInfo({
+        label,
+        detail: `완료: ${okIds.length}건 성공`,
+        ts: new Date().toLocaleTimeString(),
+        kind: "ok",
+      });
     } else if (okIds.length === 0) {
       const sample = failures.slice(0, 3).map((f) => `#${f.id}: ${f.message}`).join(" / ");
       const more = failures.length > 3 ? ` 외 ${failures.length - 3}건` : "";
@@ -391,6 +472,13 @@ function SalesListContent() {
         description: `${failures.length}건 모두 실패 — ${sample}${more}`,
         variant: "destructive",
       });
+      // PR-S: 가시 진단 — 전체 실패 (사용자에게 첫번째 실패 메시지 노출)
+      setLastActionInfo({
+        label,
+        detail: `실패: ${failures.length}건 — ${failures[0]?.message ?? "알 수 없음"}`,
+        ts: new Date().toLocaleTimeString(),
+        kind: "fail",
+      });
     } else {
       const failIds = failures.map((f) => `#${f.id}`).slice(0, 5).join(", ");
       const more = failures.length > 5 ? ` 외 ${failures.length - 5}건` : "";
@@ -398,6 +486,13 @@ function SalesListContent() {
         title: `그룹 ${label} 부분 성공`,
         description: `성공 ${okIds.length}건 / 실패 ${failures.length}건 (${failIds}${more})`,
         variant: "destructive",
+      });
+      // PR-S: 가시 진단 — 부분 성공
+      setLastActionInfo({
+        label,
+        detail: `부분 성공: ${okIds.length}/${okIds.length + failures.length}건`,
+        ts: new Date().toLocaleTimeString(),
+        kind: "fail",
       });
     }
   };
@@ -601,6 +696,41 @@ function SalesListContent() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">매출 조회</h1>
               <p className="text-sm text-muted-foreground">매출 거래 내역을 조회하고 관리합니다.</p>
+              {/* ★ PR-S (2026-05-20): 빌드 마커 + 가시 진단 패널.
+                   사용자가 콘솔 없이도 클릭이 도달했는지/어느 빌드를 보고 있는지 즉시 식별. */}
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                <Badge variant="outline" className="text-[10px] bg-zinc-50 text-zinc-600 border-zinc-300 font-mono">
+                  build {SALES_LIST_BUILD_TAG}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] font-mono ${
+                    approveClickCount > 0
+                      ? "bg-blue-50 text-blue-700 border-blue-300"
+                      : "bg-zinc-50 text-zinc-500 border-zinc-300"
+                  }`}
+                  title="승인 버튼 클릭 도달 카운터 (콘솔 없이 클릭 도달 확인)"
+                >
+                  승인 클릭 {approveClickCount}
+                </Badge>
+                {lastActionInfo && (
+                  <Badge
+                    variant="outline"
+                    className={`text-[10px] font-mono ${
+                      lastActionInfo.kind === "ok"
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                        : lastActionInfo.kind === "fail"
+                        ? "bg-rose-50 text-rose-700 border-rose-300"
+                        : lastActionInfo.kind === "progress"
+                        ? "bg-amber-50 text-amber-700 border-amber-300"
+                        : "bg-blue-50 text-blue-700 border-blue-300"
+                    }`}
+                    title="마지막 액션 진행 상태 (실시간 업데이트)"
+                  >
+                    [{lastActionInfo.ts}] {lastActionInfo.label} · {lastActionInfo.detail}
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -898,21 +1028,48 @@ function SalesListContent() {
                               <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                                 {isFirst ? (
                                   <>
-                                    {availableGroupActions.includes("approve") && (
+                                    {availableGroupActions.includes("approve") && (() => {
                                       // ★ PR-Q (2026-05-16): disabled=isPending 제거 — Promise.allSettled 로
                                       //   여러 호출을 다루는데 useMutation 의 isPending 이 마지막 mutation 만 추적해서
                                       //   불완전. handleGroupAction 자체가 reentrancy 안전하므로 disabled 불필요.
-                                      <Button size="sm" variant="default"
-                                        onClick={() => {
-                                          // eslint-disable-next-line no-console
-                                          console.log(`[ApproveBtn] click groupKey=${group.groupKey} dominantStatus=${group.dominantStatus} items=${group.items.length}`);
-                                          handleGroupAction(group, "approve");
-                                        }}
-                                        title={isMultiItem ? "그룹 전체 승인" : "승인"}
-                                        className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700">
-                                        <CheckCircle className="h-3.5 w-3.5" />
-                                      </Button>
-                                    )}
+                                      // ★ PR-S (2026-05-20): 인라인 진행 표시 + 가시 클릭 카운터.
+                                      const inFlightCount = inFlightActions[`${group.groupKey}::approve`];
+                                      const isInFlight = inFlightCount !== undefined;
+                                      return (
+                                        <Button size="sm" variant="default"
+                                          onClick={() => {
+                                            // eslint-disable-next-line no-console
+                                            console.log(`[ApproveBtn] click groupKey=${group.groupKey} dominantStatus=${group.dominantStatus} items=${group.items.length}`);
+                                            // PR-S: 가시 클릭 카운터 증가 — 콘솔 없이도 도달 확인
+                                            setApproveClickCount((c) => c + 1);
+                                            setLastActionInfo({
+                                              label: "승인",
+                                              detail: `버튼 클릭 (group=${group.groupKey})`,
+                                              ts: new Date().toLocaleTimeString(),
+                                              kind: "click",
+                                            });
+                                            handleGroupAction(group, "approve");
+                                          }}
+                                          title={
+                                            isInFlight
+                                              ? `처리 중 ${inFlightCount}건...`
+                                              : isMultiItem
+                                              ? "그룹 전체 승인"
+                                              : "승인"
+                                          }
+                                          className={`h-7 w-7 p-0 ${
+                                            isInFlight
+                                              ? "bg-blue-400 animate-pulse cursor-wait"
+                                              : "bg-blue-600 hover:bg-blue-700"
+                                          }`}>
+                                          {isInFlight ? (
+                                            <span className="inline-block h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                                          ) : (
+                                            <CheckCircle className="h-3.5 w-3.5" />
+                                          )}
+                                        </Button>
+                                      );
+                                    })()}
                                     {availableGroupActions.includes("markReceived") && !groupAllExcluded && (
                                       <Button size="sm" variant="default"
                                         onClick={() => handleGroupAction(group, "markReceived")}
