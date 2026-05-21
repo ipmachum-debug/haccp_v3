@@ -19,8 +19,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
+
+// ★ PR-T (2026-05-20): 수정 다이얼로그 빌드 마커 + 사용자가 즉시 productId
+//   상태를 확인 가능하도록 가시 진단. "수정 다이얼로그에서 제품명이 매칭되어
+//   있지 않다" 사용자 보고에 대한 가시 답변.
+const EDIT_SALE_BUILD_TAG = "PR-T-2026-05-20";
 
 interface EditSaleDialogProps {
   sale: any;
@@ -57,6 +64,37 @@ export function EditSaleDialog({
   // 계정 과목 목록 조회 (accounting_accounts 테이블)
   const { data: accountsList } = trpc.accountingAccounts.list.useQuery();
   const accountCategories = (accountsList as any)?.items ?? (Array.isArray(accountsList) ? accountsList : []);
+
+  // ★ PR-T: itemName 으로 자동 매칭 — productId 가 누락된 경우 사용자가
+  //   "이름으로 자동 매칭" 버튼을 누르면 product list 에서 정확 일치 or LIKE 매칭 시도.
+  //   서버측 productSalePost 의 자동 매칭과 동일 로직을 클라이언트에서도 노출.
+  const { data: matchCandidates } = trpc.product.list.useQuery(
+    { limit: 50, search: formData.itemName },
+    { enabled: !formData.productId && formData.itemName.length >= 2 },
+  );
+  const matchCandidatesArr: any[] = (matchCandidates as any)?.items ?? (Array.isArray(matchCandidates) ? matchCandidates : []);
+  const bestMatch = matchCandidatesArr.find((p: any) => p.productName === formData.itemName) || matchCandidatesArr[0];
+
+  const handleAutoMatch = () => {
+    if (!bestMatch) {
+      toast({
+        title: "자동 매칭 실패",
+        description: `'${formData.itemName}' 와 일치하는 제품이 없습니다. 직접 선택해주세요.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setFormData({
+      ...formData,
+      productId: bestMatch.id,
+      itemName: bestMatch.productName,
+      unit: bestMatch.unit || formData.unit,
+    });
+    toast({
+      title: "자동 매칭 완료",
+      description: `제품 #${bestMatch.id} '${bestMatch.productName}' 로 매칭되었습니다.`,
+    });
+  };
 
   // sale 데이터가 변경되면 폼 초기화
   useEffect(() => {
@@ -142,9 +180,39 @@ export function EditSaleDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>매출 거래 수정</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            매출 거래 수정
+            {/* ★ PR-T (2026-05-20): 빌드 마커 — 사용자가 콘솔 없이도 새 빌드 수신 여부 확인 */}
+            <Badge variant="outline" className="text-[10px] font-mono bg-zinc-50 text-zinc-600 border-zinc-300">
+              build {EDIT_SALE_BUILD_TAG}
+            </Badge>
+            {sale?.id && (
+              <Badge variant="outline" className="text-[10px] font-mono bg-blue-50 text-blue-700 border-blue-300">
+                매출 #{sale.id}
+              </Badge>
+            )}
+          </DialogTitle>
           <DialogDescription>
             매출 거래 정보를 수정합니다.
+            {/* ★ PR-T: productId 매칭 상태 가시화 */}
+            <span className="block mt-1 text-xs">
+              {formData.productId ? (
+                <span className="inline-flex items-center gap-1 text-emerald-700">
+                  <CheckCircle2 className="h-3 w-3" />
+                  제품 매핑됨 (productId={formData.productId})
+                </span>
+              ) : formData.itemName ? (
+                <span className="inline-flex items-center gap-1 text-amber-700">
+                  <AlertCircle className="h-3 w-3" />
+                  제품 미매핑 — itemName='{formData.itemName}' 만 저장됨. 승인 시 서버가 이름으로 자동 매칭 시도.
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-rose-700">
+                  <AlertCircle className="h-3 w-3" />
+                  제품 정보 없음 — 저장 전 제품을 선택해주세요.
+                </span>
+              )}
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -189,7 +257,22 @@ export function EditSaleDialog({
 
             {/* 제품 (ProductCombobox - 검색/자동완성) */}
             <div className="space-y-2 col-span-2">
-              <Label htmlFor="itemName">제품 *</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="itemName">제품 *</Label>
+                {/* ★ PR-T: productId 가 없고 itemName 만 있을 때 자동 매칭 단축 버튼 */}
+                {!formData.productId && formData.itemName && bestMatch && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    onClick={handleAutoMatch}
+                    title={`'${bestMatch.productName}' (#${bestMatch.id}) 로 자동 매칭`}
+                  >
+                    🔗 '{bestMatch.productName}' 로 자동 매칭
+                  </Button>
+                )}
+              </div>
               <ProductCombobox
                 selectedId={formData.productId}
                 selectedName={formData.itemName}
@@ -211,6 +294,18 @@ export function EditSaleDialog({
                 required
                 placeholder="제품 검색... (이름/코드)"
               />
+              {/* ★ PR-T: 매칭 상태 인라인 힌트 */}
+              {!formData.productId && formData.itemName && (
+                <p className="text-[11px] text-amber-600 flex items-start gap-1">
+                  <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                  <span>
+                    이 매출은 제품 FK 가 비어있습니다. itemName 으로 검색하거나 위
+                    '자동 매칭' 버튼을 사용하면 한 번에 연결됩니다.
+                    (FK 없이도 승인은 서버가 itemName 으로 자동 매칭하지만,
+                    재고 차감/COGS 분개 정확도를 위해 명시 매핑 권장)
+                  </span>
+                </p>
+              )}
             </div>
 
             {/* 카테고리 */}

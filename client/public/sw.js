@@ -1,6 +1,10 @@
 // Service Worker for HACCP PWA
 // v8: 2026-04-16 — 강제 캐시 전체 삭제 (vendor-pdf 캐시 오염 해결)
-const CACHE_NAME = 'haccp-v8';
+// v9-2026-05-20 (PR-T): 매출 승인 무반응 사고 해결 후에도 사용자 화면에
+//   PR-Q/PR-S 빌드 마커가 안 나타나는 사고 → 사용자 브라우저가 stale
+//   index.html 을 보고 있을 가능성. CACHE_NAME bump 로 SW activate 시
+//   기존 캐시 전체 삭제 + clients.claim + 자동 reload 메시지 전파.
+const CACHE_NAME = 'haccp-v9-2026-05-20';
 
 // 설치 이벤트 - 즉시 활성화
 self.addEventListener('install', (event) => {

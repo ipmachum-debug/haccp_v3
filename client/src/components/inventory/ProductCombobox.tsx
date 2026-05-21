@@ -104,9 +104,36 @@ export function ProductCombobox({
     return { recentProducts: recent, otherProducts: other };
   }, [products, recentIds]);
 
-  const selectedProduct = useMemo(
-    () => products.find((p) => p.id === selectedId),
+  // ★ PR-T (2026-05-20): selectedId 가 있는데 list (200건/검색 결과) 에 없으면
+  //   product.getById 로 단일 조회 fallback. EditSaleDialog 에서 매출에 매핑된
+  //   productId 가 list 상위 200건에 안 들어가는 경우 (검색어 미입력 시) "매칭 안됨"
+  //   앰버 박스가 떴던 사고를 해결.
+  const listHasSelected = useMemo(
+    () => (selectedId ? products.some((p) => p.id === selectedId) : true),
     [products, selectedId],
+  );
+  const { data: singleProduct } = trpc.product.getById.useQuery(
+    { id: selectedId as number },
+    { enabled: !!selectedId && !listHasSelected },
+  );
+  const fallbackProduct: ProductItem | null = useMemo(() => {
+    if (!singleProduct || listHasSelected) return null;
+    const p = singleProduct as any;
+    if (!p || !p.id) return null;
+    return {
+      id: p.id,
+      productName: p.productName || `P${p.id}`,
+      productCode: p.productCode || undefined,
+      unit: p.unit || undefined,
+      category: p.category || undefined,
+    };
+  }, [singleProduct, listHasSelected]);
+
+  const selectedProduct = useMemo(
+    () =>
+      products.find((p) => p.id === selectedId) ||
+      (fallbackProduct && fallbackProduct.id === selectedId ? fallbackProduct : undefined),
+    [products, selectedId, fallbackProduct],
   );
 
   // 외부 클릭 닫기
