@@ -149,13 +149,18 @@ export const hrManagementRouter = router({
         params.push(myEmpId);
       }
 
+      // ★ PR-V (2026-05-21) P0 보안 패치: users JOIN 에 tenant_id 필터 추가.
+      //   원래 (e.user_id = u.id OR a.employee_id = u.id) 만으로 매칭하면
+      //   다른 테넌트의 user.id 가 우연히 일치할 때 그 회사 직원 이름이 노출됨.
       const [rows]: any = await pool.execute(
         `SELECT a.*,
                 COALESCE(e.name, u.name) as employee_name,
                 COALESCE(u.role, '') as employee_role
          FROM attendance_records a
          LEFT JOIN h_employees e ON a.employee_id = e.id AND e.tenant_id = a.tenant_id
-         LEFT JOIN users u ON (e.user_id = u.id OR a.employee_id = u.id)
+         LEFT JOIN users u
+           ON (e.user_id = u.id OR a.employee_id = u.id)
+          AND u.tenant_id = a.tenant_id
          ${where}
          ORDER BY a.work_date DESC, COALESCE(e.name, u.name) ASC`,
         params,
@@ -388,13 +393,14 @@ export const hrManagementRouter = router({
   matchingStatus: tenantRequiredProcedure.query(async ({ ctx }) => {
     const pool = getPool();
     try {
+      // ★ PR-V (2026-05-21) P0 보안 패치: users JOIN 에 tenant_id 필터 추가.
       const [rows]: any = await pool.execute(
         `SELECT e.id as emp_id, e.employee_code, e.name as emp_name, e.user_id,
                 u.name as user_name, u.email as user_email, u.role as user_role,
                 COALESCE(dept.department_name, '') as department,
                 COALESCE(pos.position_name, '') as position
          FROM h_employees e
-         LEFT JOIN users u ON e.user_id = u.id
+         LEFT JOIN users u ON e.user_id = u.id AND u.tenant_id = e.tenant_id
          LEFT JOIN h_departments dept ON e.department_id = dept.id
          LEFT JOIN h_positions pos ON e.position_id = pos.id
          WHERE e.tenant_id = ? AND e.is_active = 1
@@ -638,21 +644,36 @@ export const hrManagementRouter = router({
       if (input?.year) { where += ` AND YEAR(lr.start_date) = ?`; params.push(input.year); }
       if (input?.status && input.status !== "all") { where += ` AND lr.status = ?`; params.push(input.status); }
 
+      // ★ PR-V (2026-05-21) P0 보안 패치: 테넌트 간 데이터 누출 차단.
+      //   사장님 보고 사례: tenant_id=2 ((주)단지) 인사관리 → 연차관리에
+      //   다른 테넌트 소속 직원 "박형준" 이 노출됨.
+      //   원인: 아래 3개 fallback/JOIN 이 모두 users.id 만 매칭하고
+      //         tenant_id 필터가 없었음.
+      //         leave_requests.employee_id 는 h_employees.id 이지만,
+      //         h_employees 매핑이 빠진 경우 (SELECT users WHERE id=...)
+      //         fallback 이 다른 테넌트의 같은 숫자 id 를 가진 user 를 끌어옴.
+      //   해결: 모든 users 참조에 AND tenant_id = lr.tenant_id 추가.
       const [rows]: any = await pool.execute(
         `SELECT lr.*,
                 COALESCE(
                   e.name,
-                  (SELECT u2.name FROM users u2 WHERE u2.id = lr.employee_id LIMIT 1),
+                  (SELECT u2.name FROM users u2
+                     WHERE u2.id = lr.employee_id
+                       AND u2.tenant_id = lr.tenant_id
+                     LIMIT 1),
                   CONCAT('ID:', lr.employee_id)
                 ) as employee_name,
                 COALESCE(
-                  (SELECT u3.role FROM users u3 WHERE u3.id = COALESCE(e.user_id, lr.employee_id) LIMIT 1),
+                  (SELECT u3.role FROM users u3
+                     WHERE u3.id = COALESCE(e.user_id, lr.employee_id)
+                       AND u3.tenant_id = lr.tenant_id
+                     LIMIT 1),
                   ''
                 ) as employee_role,
                 a.name as approved_by_name
          FROM leave_requests lr
          LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
-         LEFT JOIN users a ON lr.approved_by = a.id
+         LEFT JOIN users a ON lr.approved_by = a.id AND a.tenant_id = lr.tenant_id
          ${where}
          ORDER BY lr.created_at DESC`,
         params,
