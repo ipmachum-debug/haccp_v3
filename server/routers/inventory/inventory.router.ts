@@ -1686,5 +1686,28 @@ export const inventoryRouter = router({
           batchId: input?.batchId,
           dryRun: input?.dryRun || false
         });
+      }),
+
+    /**
+     * ★ PR-U (2026-05-20): 제품 재고 부족 자동 진단
+     *
+     * 매출 승인 시 "재고 부족" 에러가 발생한 경우, 클라이언트가 이 endpoint 를
+     * 호출해 진짜 원인 (생산 미입고 / 소진 / 번들 자식 부족 / 제품 마스터 없음)
+     * 을 분류하고, "다음에 무엇을 해야 하는지" 안내 문구 + 액션 링크를 받아옵니다.
+     *
+     * read-only (SELECT 만 사용) — tenantRequiredProcedure 로 충분.
+     */
+    checkProductStock: tenantRequiredProcedure
+      .input(z.object({
+        productId: z.number().int().positive(),
+        requestedQty: z.number().positive().optional(),
+      }))
+      .query(async ({ input, ctx }) => {
+        const { diagnoseProductStock } = await import("../../db/inventory/inventoryDiagnostics");
+        return await diagnoseProductStock({
+          productId: input.productId,
+          tenantId: ctx.tenantId,
+          requestedQty: input.requestedQty,
+        });
       })
 });
