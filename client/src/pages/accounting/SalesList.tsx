@@ -9,6 +9,8 @@ import type { TransactionRow } from "../../lib/transactionGrouping";
 type SaleRow = TransactionRow;
 type PartnerRow = RouterOutput["partners"]["list"][number];
 type SaleGroup = import("../../lib/transactionGrouping").TransactionGroup<SaleRow>;
+// ★ PR-U (2026-05-20): 재고 부족 자동 진단 결과 타입 — checkProductStock endpoint 출력
+type StockDiagnosisResult = RouterOutput["inventory"]["checkProductStock"];
 type GroupPDFInput = { saleIds: number[]; [k: string]: unknown };
 type GroupPDFResult = { pdf: string; message?: string; [k: string]: unknown };
 import { Button } from "@/components/ui/button";
@@ -67,12 +69,21 @@ import {
   type TransactionGroup,
 } from "../../lib/transactionGrouping";
 
-// ★ PR-S (2026-05-20): 배포 빌드 식별용 마커
-//   사용자가 "승인 버튼 무반응" 사고를 PR-Q (v0.8.211) 적용 후에도 재보고함.
-//   → 가장 가능성 큰 가설: 브라우저/PWA/CDN 캐시로 인해 사용자가 보고 있는 빌드가
-//     v0.8.211 이 아닐 수 있음. 이 마커가 화면 헤더에 노출되면 사용자가
-//     콘솔 없이도 어느 빌드를 보고 있는지 즉시 식별 가능.
-const SALES_LIST_BUILD_TAG = "PR-S-2026-05-20";
+// ★ PR-U (2026-05-20): 배포 빌드 식별용 마커
+//   사용자가 "승인 버튼 무반응" 사고를 PR-Q (v0.8.211) 적용 후에도 재보고했고,
+//   PR-S/PR-T 의 가시 진단 패널이 진짜 원인을 노출함 (제품 재고 부족).
+//   PR-U 는 그 노출된 에러를 사용자가 즉시 해석/대응할 수 있도록 친화 UI 추가.
+const SALES_LIST_BUILD_TAG = "PR-U-2026-05-20";
+
+// ★ PR-U (2026-05-20): 재고 부족 에러 메시지 패턴 감지용 정규식.
+//   서버 측 productSalePost.ts 라인 285-289 에서 던지는 에러 메시지 형식:
+//     [SALE-XXXX] 제품 #N 재고 부족: 요청 X, 가용 Y
+//     [SALE-XXXX] 원재료/부자재/외부제품 #N 재고 부족: 요청 X, 가용 Y
+//   productId 와 요청 수량을 추출해 자동 진단 endpoint 호출에 사용.
+const SHORTAGE_RE =
+  /제품\s*#(\d+)\s*재고\s*부족\s*:\s*요청\s*([0-9.]+)\s*,\s*가용\s*([0-9.]+)/;
+const MATERIAL_SHORTAGE_RE =
+  /(?:원재료|부자재|외부제품|원재료\/부자재\/외부제품)\s*#(\d+)\s*재고\s*부족/;
 
 // ★ PR-S: mutateAsync 가 어떤 이유로든 hang 될 때 강제 abort.
 //   현재 사고가 "버튼 클릭 후 대기중 그대로 유지" 이므로,
@@ -125,10 +136,29 @@ function SalesListContent() {
     detail: string;
     ts: string;
     kind: "click" | "progress" | "ok" | "fail";
+    /** ★ PR-U: 전체 에러 메시지 (Badge 가 한 줄로 truncate 하는 것을 보완) */
+    fullMessage?: string;
   } | null>(null);
   // 진행 중인 그룹 액션 — 인라인 버튼 스피너 표시용
   // key: `${groupKey}::${action}` value: targets 길이
   const [inFlightActions, setInFlightActions] = useState<Record<string, number>>({});
+
+  // ★ PR-U (2026-05-20): 재고 부족 에러 발생 시 자동 진단 결과 표시 state.
+  //   사용자가 "[SALE-7479] 제품 #295 재고 부족: 요청 240, 가용 0.000" 같은
+  //   에러를 받았을 때, 한 번의 클릭(또는 자동) 으로 진짜 원인을 알 수 있게 함.
+  const [stockDiagnosis, setStockDiagnosis] = useState<{
+    productId: number;
+    requestedQty?: number;
+    originalErrorMessage: string;
+    /** 진단 endpoint 응답 — 비동기 로딩 중에는 null */
+    result: StockDiagnosisResult | null;
+    /** 로딩/에러 표시용 */
+    loading: boolean;
+    error?: string;
+  } | null>(null);
+
+  // ★ PR-U: 진단 trpc utils — useUtils 로 query 강제 호출 (caching 일관)
+  const trpcUtils = trpc.useUtils();
   const setActionInFlight = (key: string, n: number | null) => {
     setInFlightActions((prev) => {
       const next = { ...prev };
@@ -473,11 +503,13 @@ function SalesListContent() {
         variant: "destructive",
       });
       // PR-S: 가시 진단 — 전체 실패 (사용자에게 첫번째 실패 메시지 노출)
+      const firstFailMsg = failures[0]?.message ?? "알 수 없음";
       setLastActionInfo({
         label,
-        detail: `실패: ${failures.length}건 — ${failures[0]?.message ?? "알 수 없음"}`,
+        detail: `실패: ${failures.length}건 — ${firstFailMsg}`,
         ts: new Date().toLocaleTimeString(),
         kind: "fail",
+        fullMessage: failures.map((f) => `#${f.id}: ${f.message}`).join("\n"),
       });
     } else {
       const failIds = failures.map((f) => `#${f.id}`).slice(0, 5).join(", ");
@@ -493,7 +525,66 @@ function SalesListContent() {
         detail: `부분 성공: ${okIds.length}/${okIds.length + failures.length}건`,
         ts: new Date().toLocaleTimeString(),
         kind: "fail",
+        fullMessage: failures.map((f) => `#${f.id}: ${f.message}`).join("\n"),
       });
+    }
+
+    // ★ PR-U (2026-05-20): 재고 부족 패턴 자동 감지 → 진단 endpoint 호출.
+    //   사용자가 PR-S 의 Badge 에서 "[SALE-7479] 제품 #295 재고 부족: 요청 240, 가용 0.000"
+    //   같은 메시지를 보고도 "그래서 어떻게?" 를 모르는 상황을 방지.
+    //   진단 결과는 stockDiagnosis state 에 저장되어 카드로 표시됨.
+    if (failures.length > 0 && action === "approve") {
+      const errorMessages = failures.map((f) => f.message).join("\n");
+      const productMatch = errorMessages.match(SHORTAGE_RE);
+      const materialMatch = errorMessages.match(MATERIAL_SHORTAGE_RE);
+      if (productMatch) {
+        const productId = Number(productMatch[1]);
+        const requestedQty = Number(productMatch[2]);
+        // 진단 시작 — loading 상태 먼저 표시
+        setStockDiagnosis({
+          productId,
+          requestedQty: Number.isFinite(requestedQty) ? requestedQty : undefined,
+          originalErrorMessage: errorMessages,
+          result: null,
+          loading: true,
+        });
+        try {
+          const diag = await trpcUtils.inventory.checkProductStock.fetch({
+            productId,
+            requestedQty: Number.isFinite(requestedQty) ? requestedQty : undefined,
+          });
+          setStockDiagnosis({
+            productId,
+            requestedQty: Number.isFinite(requestedQty) ? requestedQty : undefined,
+            originalErrorMessage: errorMessages,
+            result: diag,
+            loading: false,
+          });
+        } catch (e: any) {
+          // eslint-disable-next-line no-console
+          console.error("[PR-U] checkProductStock 호출 실패:", e);
+          setStockDiagnosis({
+            productId,
+            requestedQty: Number.isFinite(requestedQty) ? requestedQty : undefined,
+            originalErrorMessage: errorMessages,
+            result: null,
+            loading: false,
+            error: e?.message || "진단 endpoint 호출 실패",
+          });
+        }
+      } else if (materialMatch) {
+        // 원재료/부자재 부족 — 제품 진단 endpoint 는 적용 안 됨.
+        // 일단 패널만 표시 (향후 PR 에서 material 진단 추가 가능).
+        setStockDiagnosis({
+          productId: Number(materialMatch[1]),
+          originalErrorMessage: errorMessages,
+          result: null,
+          loading: false,
+          error:
+            "원재료/부자재 재고 부족은 자동 진단이 아직 지원되지 않습니다. " +
+            "재고 관리 메뉴에서 직접 확인해주세요.",
+        });
+      }
     }
   };
 
@@ -731,6 +822,20 @@ function SalesListContent() {
                   </Badge>
                 )}
               </div>
+              {/* ★ PR-U (2026-05-20): 마지막 액션 전체 메시지 패널.
+                   Badge 는 한 줄로 truncate 되므로 긴 에러 메시지는 손실됨.
+                   여기서는 줄바꿈 포함 전체 메시지를 사용자에게 그대로 노출. */}
+              {lastActionInfo?.fullMessage && lastActionInfo.kind === "fail" && (
+                <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 max-w-2xl">
+                  <div className="font-semibold mb-1 flex items-center gap-2">
+                    <XCircle className="h-3.5 w-3.5" />
+                    실패 상세 메시지 (전체)
+                  </div>
+                  <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                    {lastActionInfo.fullMessage}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -751,6 +856,169 @@ function SalesListContent() {
             </Button>
           </div>
         </div>
+
+        {/* ★ PR-U (2026-05-20): 재고 부족 자동 진단 카드 ─────────────────
+              매출 승인 시 "재고 부족" 에러가 발생하면 자동으로 표시됩니다.
+              사용자가 콘솔 없이도 "왜 재고가 0 인지" 와 "다음에 무엇을 해야 하는지"
+              를 한눈에 파악할 수 있도록 안내문구 + 액션 링크를 제공합니다. */}
+        {stockDiagnosis && (
+          <Card className="border-2 border-amber-300 bg-amber-50/50 shadow-md">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2 text-amber-900">
+                <XCircle className="h-5 w-5 text-amber-600" />
+                재고 부족 자동 진단
+                <Badge variant="outline" className="ml-2 text-[10px] font-mono bg-white text-amber-700 border-amber-300">
+                  제품 #{stockDiagnosis.productId}
+                  {stockDiagnosis.requestedQty != null && ` · 요청 ${stockDiagnosis.requestedQty}`}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-7 text-xs text-amber-700 hover:bg-amber-100"
+                  onClick={() => setStockDiagnosis(null)}
+                  title="진단 패널 닫기"
+                >
+                  닫기
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* 원본 에러 메시지 — 사용자가 "왜 이 카드가 떴는지" 즉시 이해 */}
+              <div className="rounded-md border border-rose-200 bg-white px-3 py-2 text-xs text-rose-800">
+                <div className="font-semibold mb-1">서버 응답 (원본):</div>
+                <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                  {stockDiagnosis.originalErrorMessage}
+                </pre>
+              </div>
+
+              {/* 진단 진행 중 */}
+              {stockDiagnosis.loading && (
+                <div className="flex items-center gap-2 text-sm text-amber-800">
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
+                  자동 진단 중... (DB 조회 약 1~2초)
+                </div>
+              )}
+
+              {/* 진단 endpoint 호출 자체가 실패한 경우 */}
+              {!stockDiagnosis.loading && stockDiagnosis.error && (
+                <div className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                  자동 진단 실패: {stockDiagnosis.error}
+                </div>
+              )}
+
+              {/* 진단 결과 표시 */}
+              {!stockDiagnosis.loading && stockDiagnosis.result && (
+                <>
+                  <div className="rounded-md bg-white border border-amber-200 px-3 py-2.5">
+                    <div className="flex items-start gap-2">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] font-mono shrink-0 ${
+                          stockDiagnosis.result.code === "OK"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                            : stockDiagnosis.result.code === "PRODUCT_NOT_FOUND"
+                            ? "bg-rose-50 text-rose-700 border-rose-300"
+                            : stockDiagnosis.result.code === "BUNDLE_SHORTAGE"
+                            ? "bg-violet-50 text-violet-700 border-violet-300"
+                            : stockDiagnosis.result.code === "NO_LOTS"
+                            ? "bg-amber-50 text-amber-700 border-amber-300"
+                            : stockDiagnosis.result.code === "EXHAUSTED"
+                            ? "bg-orange-50 text-orange-700 border-orange-300"
+                            : "bg-zinc-50 text-zinc-700 border-zinc-300"
+                        }`}
+                      >
+                        {stockDiagnosis.result.code}
+                      </Badge>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-zinc-900">
+                          {stockDiagnosis.result.summary}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-700 leading-relaxed">
+                          {stockDiagnosis.result.guidance}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 권장 액션 버튼 — 사장님의 다음 클릭을 가이드 */}
+                  {stockDiagnosis.result.suggestedActions.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-amber-900">다음 행동:</span>
+                      {stockDiagnosis.result.suggestedActions.map((act, idx) => (
+                        <Button
+                          key={`${act.href}-${idx}`}
+                          variant={act.kind === "primary" ? "default" : "outline"}
+                          size="sm"
+                          className={`h-8 text-xs ${
+                            act.kind === "primary"
+                              ? "bg-amber-600 hover:bg-amber-700 text-white"
+                              : "border-amber-300 text-amber-800 hover:bg-amber-100"
+                          }`}
+                          onClick={() => navigate(act.href)}
+                        >
+                          {act.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 상세 통계 — 사장님이 시스템 관리자에게 공유하기 좋은 raw */}
+                  <details className="rounded-md border border-amber-200 bg-white px-3 py-2">
+                    <summary className="text-xs font-semibold text-amber-900 cursor-pointer select-none">
+                      상세 통계 보기 (시스템 관리자 공유용)
+                    </summary>
+                    <div className="mt-2 space-y-2 text-[11px] font-mono text-zinc-700">
+                      <div>
+                        제품:{" "}
+                        {stockDiagnosis.result.details.product
+                          ? `${stockDiagnosis.result.details.product.productName ?? "(미지정)"} (#${stockDiagnosis.result.details.product.id}, ${stockDiagnosis.result.details.product.productCode ?? "-"}, ${stockDiagnosis.result.details.product.unit ?? "-"}, ${stockDiagnosis.result.details.product.isActive ? "active" : "inactive"})`
+                          : "(없음)"}
+                      </div>
+                      <div>FEFO 가용 합계: {stockDiagnosis.result.details.fefoUsableSum.toFixed(3)}</div>
+                      {stockDiagnosis.result.details.lotsByStatus.length > 0 && (
+                        <div>
+                          <div className="font-semibold text-zinc-800">LOT 상태별:</div>
+                          <ul className="ml-3 list-disc">
+                            {stockDiagnosis.result.details.lotsByStatus.map((r) => (
+                              <li key={r.status}>
+                                {r.status}: {r.lotCount}건 / quantity {r.sumQuantity.toFixed(3)} / current {r.sumCurrent.toFixed(3)} / available {r.sumAvailable.toFixed(3)} (fefo {r.fefoUsableSum.toFixed(3)})
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {stockDiagnosis.result.details.bundleParents.length > 0 && (
+                        <div>
+                          <div className="font-semibold text-zinc-800">번들 부모 SKU:</div>
+                          <ul className="ml-3 list-disc">
+                            {stockDiagnosis.result.details.bundleParents.map((p) => (
+                              <li key={p.parentSkuId}>
+                                #{p.parentSkuId} {p.parentSkuCode} — {p.parentSkuName} (child {p.bundleChildCount}개)
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {stockDiagnosis.result.details.bundleChildren.length > 0 && (
+                        <div>
+                          <div className="font-semibold text-zinc-800">번들 child 재고:</div>
+                          <ul className="ml-3 list-disc">
+                            {stockDiagnosis.result.details.bundleChildren.map((c) => (
+                              <li key={c.childSkuId} className={c.availableKg < 0.001 ? "text-rose-700" : ""}>
+                                #{c.childSkuId} {c.childSkuCode} {c.childSkuName}: {c.availableKg.toFixed(3)}kg
+                                {c.availableKg < 0.001 && " ← 부족"}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* KPI 요약 카드 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
