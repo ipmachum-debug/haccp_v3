@@ -152,17 +152,35 @@ export const hrManagementRouter = router({
       // ★ PR-V (2026-05-21) P0 보안 패치: users JOIN 에 tenant_id 필터 추가.
       //   원래 (e.user_id = u.id OR a.employee_id = u.id) 만으로 매칭하면
       //   다른 테넌트의 user.id 가 우연히 일치할 때 그 회사 직원 이름이 노출됨.
+      //
+      // ★ PR-X (2026-05-21) UX 개선: 격리로 인해 NULL 되는 케이스를
+      //   h_employees(비활성 포함) → users → h_employees.user_id 역매핑 →
+      //   '(삭제된 직원 #N)' 순으로 친화 표시.
       const [rows]: any = await pool.execute(
         `SELECT a.*,
-                COALESCE(e.name, u.name) as employee_name,
+                COALESCE(
+                  e.name,
+                  (SELECT e2.name FROM h_employees e2
+                     WHERE e2.id = a.employee_id
+                       AND e2.tenant_id = a.tenant_id
+                     LIMIT 1),
+                  u.name,
+                  (SELECT e3.name FROM h_employees e3
+                     WHERE e3.user_id = a.employee_id
+                       AND e3.tenant_id = a.tenant_id
+                     LIMIT 1),
+                  CONCAT('(삭제된 직원 #', a.employee_id, ')')
+                ) as employee_name,
                 COALESCE(u.role, '') as employee_role
          FROM attendance_records a
-         LEFT JOIN h_employees e ON a.employee_id = e.id AND e.tenant_id = a.tenant_id
+         LEFT JOIN h_employees e ON a.employee_id = e.id
+                                AND e.tenant_id = a.tenant_id
+                                AND e.is_active = 1
          LEFT JOIN users u
            ON (e.user_id = u.id OR a.employee_id = u.id)
           AND u.tenant_id = a.tenant_id
          ${where}
-         ORDER BY a.work_date DESC, COALESCE(e.name, u.name) ASC`,
+         ORDER BY a.work_date DESC, employee_name ASC`,
         params,
       );
 
@@ -647,21 +665,39 @@ export const hrManagementRouter = router({
       // ★ PR-V (2026-05-21) P0 보안 패치: 테넌트 간 데이터 누출 차단.
       //   사장님 보고 사례: tenant_id=2 ((주)단지) 인사관리 → 연차관리에
       //   다른 테넌트 소속 직원 "박형준" 이 노출됨.
-      //   원인: 아래 3개 fallback/JOIN 이 모두 users.id 만 매칭하고
-      //         tenant_id 필터가 없었음.
+      //   원인: fallback/JOIN 이 모두 users.id 만 매칭하고 tenant_id 필터가 없었음.
       //         leave_requests.employee_id 는 h_employees.id 이지만,
       //         h_employees 매핑이 빠진 경우 (SELECT users WHERE id=...)
       //         fallback 이 다른 테넌트의 같은 숫자 id 를 가진 user 를 끌어옴.
       //   해결: 모든 users 참조에 AND tenant_id = lr.tenant_id 추가.
+      //
+      // ★ PR-X (2026-05-21) UX 회귀 수정: PR-V 격리 후 3번째 fallback "ID:9" 가
+      //   화면에 그대로 노출되는 사고.
+      //   원인: 격리가 정상 작동하면서 다른 테넌트 user 가 더 이상 끌려오지 않음 →
+      //         h_employees 에 매칭되지 않는 leave_request 가 모두 'ID:N' 으로 표시.
+      //   해결:
+      //     1) LEFT JOIN e 는 그대로 두되 (활성 직원), 추가 sub-query 로
+      //        is_active=0 인 퇴직 직원도 같은 테넌트 한정으로 이름 조회.
+      //     2) leave_requests.employee_id 가 잘못해서 users.id 로 저장된
+      //        과거 데이터 케이스도 h_employees.user_id 역매핑으로 보강.
+      //     3) 최종 fallback 을 'ID:9' → '(삭제된 직원 #9)' 친화 표시.
       const [rows]: any = await pool.execute(
         `SELECT lr.*,
                 COALESCE(
                   e.name,
+                  (SELECT e2.name FROM h_employees e2
+                     WHERE e2.id = lr.employee_id
+                       AND e2.tenant_id = lr.tenant_id
+                     LIMIT 1),
                   (SELECT u2.name FROM users u2
                      WHERE u2.id = lr.employee_id
                        AND u2.tenant_id = lr.tenant_id
                      LIMIT 1),
-                  CONCAT('ID:', lr.employee_id)
+                  (SELECT e3.name FROM h_employees e3
+                     WHERE e3.user_id = lr.employee_id
+                       AND e3.tenant_id = lr.tenant_id
+                     LIMIT 1),
+                  CONCAT('(삭제된 직원 #', lr.employee_id, ')')
                 ) as employee_name,
                 COALESCE(
                   (SELECT u3.role FROM users u3
@@ -670,9 +706,25 @@ export const hrManagementRouter = router({
                      LIMIT 1),
                   ''
                 ) as employee_role,
+                /* 디버깅용: 어느 단계 폴백이 발동했는지 표시 (관리자 진단 가능) */
+                CASE
+                  WHEN e.name IS NOT NULL THEN 'active_employee'
+                  WHEN EXISTS (SELECT 1 FROM h_employees e2
+                                WHERE e2.id = lr.employee_id
+                                  AND e2.tenant_id = lr.tenant_id) THEN 'inactive_employee'
+                  WHEN EXISTS (SELECT 1 FROM users u2
+                                WHERE u2.id = lr.employee_id
+                                  AND u2.tenant_id = lr.tenant_id) THEN 'user_only'
+                  WHEN EXISTS (SELECT 1 FROM h_employees e3
+                                WHERE e3.user_id = lr.employee_id
+                                  AND e3.tenant_id = lr.tenant_id) THEN 'misstored_user_id'
+                  ELSE 'orphan'
+                END as employee_source,
                 a.name as approved_by_name
          FROM leave_requests lr
-         LEFT JOIN h_employees e ON lr.employee_id = e.id AND e.tenant_id = lr.tenant_id
+         LEFT JOIN h_employees e ON lr.employee_id = e.id
+                                AND e.tenant_id = lr.tenant_id
+                                AND e.is_active = 1
          LEFT JOIN users a ON lr.approved_by = a.id AND a.tenant_id = lr.tenant_id
          ${where}
          ORDER BY lr.created_at DESC`,
@@ -683,6 +735,7 @@ export const hrManagementRouter = router({
         id: r.id,
         employeeId: r.employee_id,
         employeeName: r.employee_name,
+        employeeSource: r.employee_source, // ★ PR-X: 'active_employee'|'inactive_employee'|'user_only'|'misstored_user_id'|'orphan'
         leaveType: r.leave_type,
         startDate: safeDateStr(r.start_date),
         endDate: safeDateStr(r.end_date),
@@ -761,5 +814,85 @@ export const hrManagementRouter = router({
         [ctx.tenantId, input.employeeId, input.year, input.annualTotal],
       );
       return { message: "연차 부여 완료" };
+    }),
+
+  // ═══════════════════════════════════════
+  //  PR-X (2026-05-21) 고아 연차/근태 진단 (관리자 전용)
+  //  - PR-V 격리 후 'ID:N' 으로 표시되던 미매칭 레코드의 원인을 분류.
+  //  - 분류 카테고리:
+  //    · active_employee   : 정상 (h_employees 활성)
+  //    · inactive_employee : 퇴직 직원 (h_employees.is_active=0) — 표시 OK
+  //    · user_only         : employee_id 가 users.id 로 잘못 저장된 케이스
+  //    · misstored_user_id : employee_id 가 h_employees.user_id 값으로 잘못 저장
+  //    · orphan            : 매칭 데이터 없음 (진짜 고아, 삭제 권장)
+  // ═══════════════════════════════════════
+  orphanLeaveDiagnostic: adminProcedure
+    .input(z.object({ year: z.number().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const pool = getPool();
+      const yearFilter = input?.year ? `AND YEAR(lr.start_date) = ?` : "";
+      const params: any[] = [ctx.tenantId];
+      if (input?.year) params.push(input.year);
+
+      const [rows]: any = await pool.execute(
+        `SELECT lr.id, lr.employee_id, lr.leave_type,
+                lr.start_date, lr.end_date, lr.days, lr.status, lr.created_at,
+                CASE
+                  WHEN EXISTS (SELECT 1 FROM h_employees e
+                                WHERE e.id = lr.employee_id
+                                  AND e.tenant_id = lr.tenant_id
+                                  AND e.is_active = 1) THEN 'active_employee'
+                  WHEN EXISTS (SELECT 1 FROM h_employees e
+                                WHERE e.id = lr.employee_id
+                                  AND e.tenant_id = lr.tenant_id) THEN 'inactive_employee'
+                  WHEN EXISTS (SELECT 1 FROM users u
+                                WHERE u.id = lr.employee_id
+                                  AND u.tenant_id = lr.tenant_id) THEN 'user_only'
+                  WHEN EXISTS (SELECT 1 FROM h_employees e
+                                WHERE e.user_id = lr.employee_id
+                                  AND e.tenant_id = lr.tenant_id) THEN 'misstored_user_id'
+                  ELSE 'orphan'
+                END as source,
+                (SELECT name FROM h_employees
+                   WHERE id = lr.employee_id AND tenant_id = lr.tenant_id LIMIT 1) as emp_name,
+                (SELECT name FROM users
+                   WHERE id = lr.employee_id AND tenant_id = lr.tenant_id LIMIT 1) as user_name,
+                (SELECT CONCAT(name, ' (id=', id, ')') FROM h_employees
+                   WHERE user_id = lr.employee_id AND tenant_id = lr.tenant_id LIMIT 1) as remap_hint
+         FROM leave_requests lr
+         WHERE lr.tenant_id = ? ${yearFilter}
+         ORDER BY lr.created_at DESC`,
+        params,
+      );
+
+      // 분류별 카운트
+      const summary: Record<string, number> = {
+        active_employee: 0, inactive_employee: 0,
+        user_only: 0, misstored_user_id: 0, orphan: 0,
+      };
+      for (const r of rows as any[]) {
+        summary[r.source] = (summary[r.source] || 0) + 1;
+      }
+
+      return {
+        summary,
+        total: (rows as any[]).length,
+        // 문제 있는 레코드만 반환 (active_employee 제외)
+        problematic: (rows as any[])
+          .filter((r: any) => r.source !== "active_employee")
+          .map((r: any) => ({
+            id: r.id,
+            employeeId: r.employee_id,
+            source: r.source,
+            empName: r.emp_name,
+            userName: r.user_name,
+            remapHint: r.remap_hint,
+            leaveType: r.leave_type,
+            startDate: safeDateStr(r.start_date),
+            endDate: safeDateStr(r.end_date),
+            days: Number(r.days),
+            status: r.status,
+          })),
+      };
     }),
 });
