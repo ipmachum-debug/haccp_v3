@@ -1926,6 +1926,59 @@ async function ensureCriticalSchemaInvariants(conn: any) {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // [7] health_certificates.file_url / file_key VARCHAR 길이 확대
+  //     2026-05-22: presigned S3 URL (~700자) 이 varchar(500) 초과 → INSERT 사고.
+  //     라우터에서 query string 을 제거하지만, 운영 DB 컬럼도 2048 로 확대.
+  // ─────────────────────────────────────────────────────────────────
+  total++;
+  try {
+    const [colRows] = await conn.query(
+      `SELECT COLUMN_NAME, CHARACTER_MAXIMUM_LENGTH
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'health_certificates'
+         AND COLUMN_NAME IN ('file_url', 'file_key')`,
+    );
+    const cols = (colRows as any[]) || [];
+    if (cols.length === 0) {
+      console.log("[CriticalSchema] health_certificates 테이블 없음 — skip");
+      okCount++;
+    } else {
+      let altered = 0;
+      for (const c of cols) {
+        const currentLen = Number(c.CHARACTER_MAXIMUM_LENGTH || 0);
+        if (currentLen < 2048) {
+          try {
+            await conn.query(
+              `ALTER TABLE health_certificates MODIFY COLUMN \`${c.COLUMN_NAME}\` VARCHAR(2048)`,
+            );
+            console.log(
+              `[CriticalSchema] health_certificates.${c.COLUMN_NAME} VARCHAR(${currentLen}) → VARCHAR(2048) 확대 완료`,
+            );
+            altered++;
+          } catch (alterErr: any) {
+            console.error(
+              `[CriticalSchema] ALTER COLUMN ${c.COLUMN_NAME} 실패:`,
+              alterErr?.message ?? alterErr,
+            );
+          }
+        }
+      }
+      if (altered === 0) {
+        console.log(
+          "[CriticalSchema] health_certificates.file_url/file_key 이미 ≥ 2048 — skip",
+        );
+      }
+      okCount++;
+    }
+  } catch (err: any) {
+    console.error(
+      "[CriticalSchema] health_certificates VARCHAR 확대 실패:",
+      err?.message ?? err,
+    );
+  }
+
   console.log(
     `[CriticalSchema] ${okCount}/${total} critical invariants verified`,
   );

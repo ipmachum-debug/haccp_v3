@@ -45,8 +45,10 @@ export const healthCertificates = mysqlTable("health_certificates", {
   expiryDate: timestamp("expiry_date").notNull(),
   
   // 파일 정보
-  fileUrl: varchar("file_url", { length: 500 }),
-  fileKey: varchar("file_key", { length: 500 }),
+  // ★ 2026-05-22: length 500 → 2048 — presigned S3 URL 이 500자 초과해서 INSERT 실패.
+  //   라우터에서 query string 을 제거하지만, 만약 통과해도 들어갈 수 있게 여유 확보.
+  fileUrl: varchar("file_url", { length: 2048 }),
+  fileKey: varchar("file_key", { length: 2048 }),
   fileName: varchar("file_name", { length: 255 }),
   
   // 상태 (자동 계산)
