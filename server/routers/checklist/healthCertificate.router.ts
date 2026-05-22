@@ -212,6 +212,12 @@ export const healthCertificateRouter = router({
 
       const [result] = await db.insert(healthCertificates).values({
         ...input,
+        // ★ 2026-05-22 hotfix: presigned URL (~700자) 이 varchar(500) 초과 →
+        //   "Data too long for column 'file_url'" 사고. 또 X-Amz-Expires=3600 라
+        //   1시간 후 죽은 링크가 되어 DB 저장 의미 없음.
+        //   해결: query string 제거하고 canonical URL 만 저장. 다운로드 시
+        //   fileKey 로 새 presigned URL 발급.
+        fileUrl: input.fileUrl ? input.fileUrl.split("?")[0] : input.fileUrl,
         tenantId,                  // ← 2026-04-29 hotfix: NOT NULL 누락 사고
         status,
         createdBy: ctx.user.id,
@@ -249,6 +255,11 @@ export const healthCertificateRouter = router({
 
       // 만료일이 변경된 경우 상태 재계산
       let updateData: any = { ...data };
+
+      // ★ 2026-05-22 hotfix: presigned URL query string 제거 (create 와 동일)
+      if (typeof updateData.fileUrl === "string") {
+        updateData.fileUrl = updateData.fileUrl.split("?")[0];
+      }
 
       if (data.expiryDate) {
         const now = new Date();
