@@ -34,7 +34,17 @@ import * as XLSX from "xlsx";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 
+// ★ PR-AC (2026-05-23): SW/브라우저 캐시 강제 무효화용 빌드 태그.
+//   이 값이 바뀌면 production 번들 해시도 바뀌어 사용자가 신규 코드를 받아갑니다.
+const BUILD_TAG = "PR-AC-2026-05-23";
+
 export default function EmployeeHealthChecklist() {
+  // 진단용: 마운트 시점 1회 빌드 태그 노출 (개발자 도구 콘솔로 확인).
+  if (typeof window !== "undefined" && !(window as any).__HACCP_HEALTH_CERT_BUILD_TAG__) {
+    (window as any).__HACCP_HEALTH_CERT_BUILD_TAG__ = BUILD_TAG;
+    // eslint-disable-next-line no-console
+    console.info(`[EmployeeHealthChecklist] BUILD_TAG=${BUILD_TAG}`);
+  }
   const [listModalOpen, setListModalOpen] = useState(false);
   const [formModalOpen, setFormModalOpen] = useState(false);
   const [editingCert, setEditingCert] = useState<any>(null);
@@ -122,52 +132,38 @@ export default function EmployeeHealthChecklist() {
   //   직접 GET 시 R2/S3 가 "InvalidArgument: Authorization" 거부.
   //   첨부 보기 클릭 시 서버에 fresh presigned URL 요청 후 새 창에 열기.
   //
-  // ★ 2026-05-23 PR-AB: 서버가 발급한 URL 도 S3 가 AccessDenied 거부하는 사고 발생.
-  //   원인 후보: (a) PR-AA2 이전 legacy row 의 fileKey NULL,
-  //              (b) IAM 권한 누락 (PutObject 만, GetObject 없음),
-  //              (c) CDN URL vs presigned URL mismatch.
-  //   대응: 새 창 열기 전에 URL 의 응답 코드를 미리 fetch 로 확인하여,
-  //   XML 페이지 (AccessDenied) 가 사용자 화면에 뜨는 것을 차단하고
-  //   원인이 명확히 드러나는 토스트를 표시.
+  // ★ 2026-05-23 PR-AB: AccessDenied 사고. 클라이언트 fetch probe 도입.
+  //
+  // ★ 2026-05-23 PR-AC: PR-AB 의 클라이언트 fetch probe 가 **S3/R2 CORS 미설정**
+  //   환경에서 동작 불가했음 (catch 블럭 fallthrough → 새 창에 XML 표시).
+  //   해결: **서버가 storageGet 직후 HEAD 요청으로 URL 의 유효성을 사전 검증**.
+  //   서버는 same-origin 이므로 CORS 무관. probe 실패 시 서버가 TRPCError 발생 →
+  //   여기 catch 로 도달 → 토스트 표시. 새 창은 검증 통과한 URL 에 대해서만 엶.
   const getDownloadUrlMutation = trpc.healthCertificate.getDownloadUrl.useMutation();
   const handleOpenFile = async (certId: number) => {
     try {
       const result = await getDownloadUrlMutation.mutateAsync({ id: certId });
+      // 서버가 HEAD 검증을 통과한 URL 만 여기까지 도달.
+      // urlVerified === false 인 경우는 서버가 이미 TRPCError 를 던졌어야 함 (defensive check).
       if (!result?.url) {
         toast.error("다운로드 URL 발급에 실패했습니다.");
         return;
       }
-
-      // ★ PR-AB: 새 창 열기 전 URL 유효성 사전 검증
-      //   AccessDenied XML 페이지가 새 창에 뜨는 것을 차단.
-      //   CORS 문제로 본문은 못 읽지만 status code 는 받을 수 있음 (presigned URL).
-      //   fetch 실패 시 (CORS 거부 등) 그래도 새 창 시도 — 진단 정보가 더 많은 게 나음.
-      try {
-        const probe = await fetch(result.url, { method: "GET", mode: "cors" });
-        if (!probe.ok) {
-          toast.error(
-            `파일 접근 거부 (${probe.status} ${probe.statusText}). ` +
-            `관리자에게 문의하세요. (cert id: ${certId}, source: ${result.keySource ?? "?"})`,
-            { duration: 7000 }
-          );
-          // 콘솔에 진단 정보 출력 — 운영자 디버깅용
-          console.error("[health-cert download] AccessDenied probe", {
-            certId,
-            keySource: result.keySource,
-            status: probe.status,
-            urlSample: result.url.slice(0, 120),
-          });
-          return;
-        }
-      } catch (probeErr) {
-        // CORS 차단으로 fetch 가 막힌 경우 — 정상 URL 이어도 발생 가능.
-        // 이 케이스에서는 그래도 새 창 열어보기.
-        console.warn("[health-cert download] probe failed (CORS?), opening anyway", probeErr);
+      if (result.urlVerified === false) {
+        toast.error("서버에서 URL 검증에 실패했습니다. 관리자에게 문의하세요.", { duration: 7000 });
+        return;
       }
-
+      // PR-AC: 서버가 HEAD 200 OK 를 확인한 URL — 안전하게 새 창에서 열기.
       window.open(result.url, "_blank", "noopener,noreferrer");
     } catch (err: any) {
-      toast.error(err?.message || "파일을 열 수 없습니다.");
+      // PR-AC: 서버가 던진 TRPCError 메시지에 cert id / keySource / S3 status code 등이 포함됨.
+      toast.error(err?.message || "파일을 열 수 없습니다.", { duration: 7000 });
+      // eslint-disable-next-line no-console
+      console.error("[health-cert download] server-side validation failed", {
+        certId,
+        message: err?.message,
+        data: err?.data,
+      });
     }
   };
 

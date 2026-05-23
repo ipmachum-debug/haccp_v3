@@ -317,7 +317,7 @@ export const healthCertificateRouter = router({
         const { url } = await storageGet(fileKey);
 
         // ★ PR-AB: 발급된 URL 의 형태 진단 로그 (1회당 cert id 별)
-        console.log(`[healthCert.getDownloadUrl] OK`, {
+        console.log(`[healthCert.getDownloadUrl] presigned OK`, {
           certId: input.id,
           tenantId,
           keySource,
@@ -327,8 +327,82 @@ export const healthCertificateRouter = router({
           urlIsSigned: url.includes("X-Amz-Signature") || url.includes("Signature="),
         });
 
-        return { url, fileName: cert.fileName ?? "", keySource };
+        // ★ PR-AC (2026-05-23) — 서버 사이드 URL 검증
+        //   PR-AB Layer 3 (클라이언트 fetch probe) 는 CORS 미설정 환경에서
+        //   브라우저가 차단 → catch 블럭 발동 → 그래도 새 창 열기 → XML 페이지
+        //   사고 재발. 사장님 2번째 보고:
+        //   > "This XML file does not appear to have any style information..."
+        //
+        //   해결: 서버에서 HEAD 요청으로 직접 검증 (CORS 무관, 같은 서버끼리).
+        //   - 200 OK  → url 그대로 반환 (정상)
+        //   - 403     → 가설 B (IAM s3:GetObject 누락) 확정
+        //   - 404     → 가설 D (fileKey 잘못됨, 객체 없음)
+        //   - timeout → 가설 C (CDN/엔드포인트 mismatch)
+        //
+        //   2-3초 타임아웃으로 정상 케이스 latency 영향 최소화.
+        //   실패해도 URL 은 반환하되 verified 플래그를 false 로 표시.
+        let urlVerified: boolean | null = null;
+        let urlVerifyError: string | undefined;
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const probe = await fetch(url, {
+            method: "HEAD",
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+
+          if (probe.ok) {
+            urlVerified = true;
+            console.log(`[healthCert.getDownloadUrl] HEAD verify OK`, {
+              certId: input.id,
+              status: probe.status,
+            });
+          } else {
+            urlVerified = false;
+            urlVerifyError = `S3 ${probe.status} ${probe.statusText}`;
+            console.error(`[healthCert.getDownloadUrl] HEAD verify FAILED`, {
+              certId: input.id,
+              tenantId,
+              keySource,
+              fileKey: fileKey.slice(0, 80),
+              status: probe.status,
+              statusText: probe.statusText,
+              hint:
+                probe.status === 403
+                  ? "IAM 권한 누락 의심 (s3:GetObject 없음)"
+                  : probe.status === 404
+                  ? "객체 없음 (fileKey 잘못됨 또는 hard-delete)"
+                  : "기타 storage 거부",
+            });
+          }
+        } catch (probeErr: any) {
+          urlVerified = false;
+          urlVerifyError = `network: ${probeErr?.name ?? "Error"}: ${probeErr?.message?.slice(0, 100) ?? "unknown"}`;
+          console.error(`[healthCert.getDownloadUrl] HEAD verify network error`, {
+            certId: input.id,
+            tenantId,
+            keySource,
+            errorName: probeErr?.name,
+            errorMessage: probeErr?.message?.slice(0, 200),
+            hint: "CDN/엔드포인트 mismatch 또는 timeout 의심",
+          });
+        }
+
+        // ★ PR-AC: 검증 실패 시 throw — 클라이언트가 새 창 절대 안 열도록 차단
+        if (urlVerified === false) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `다운로드 실패 (${urlVerifyError}). 운영자에게 문의하세요. (cert id: ${input.id}, key source: ${keySource})`,
+          });
+        }
+
+        return { url, fileName: cert.fileName ?? "", keySource, urlVerified };
       } catch (err: any) {
+        // ★ PR-AC: TRPCError 는 그대로 re-throw (메시지 보존)
+        if (err instanceof TRPCError) {
+          throw err;
+        }
         if (err instanceof StorageNotConfiguredError) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
