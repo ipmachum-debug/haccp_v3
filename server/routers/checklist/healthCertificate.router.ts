@@ -4,7 +4,7 @@ import { getDb } from "../../db";
 import { healthCertificates, hEmployees } from "../../../drizzle/schema";
 import { eq, desc, asc, and, lte, gte, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { storagePut, StorageNotConfiguredError } from "../../storage";
+import { storagePut, storageGet, StorageNotConfiguredError } from "../../storage";
 import * as XLSX from "xlsx";
 
 import { todayKST } from "../../utils/timezone";
@@ -224,6 +224,61 @@ export const healthCertificateRouter = router({
       } as any);
 
       return { success: true, id: result.insertId };
+    }),
+
+  /**
+   * 건강진단서 파일 다운로드 URL 발급 (PR-AA2, 2026-05-22)
+   *
+   * 배경:
+   *   PR-AA (#334) 가 INSERT 사고 해결을 위해 stored file_url 에서 query string
+   *   (X-Amz-Signature 등) 을 제거. 결과로 stored url 은 unsigned →
+   *   브라우저가 직접 GET 하면 R2/S3 가 "InvalidArgument: Authorization" 거부.
+   *
+   * 해결:
+   *   화면에서 "자세히 보기" 클릭 → 본 endpoint 호출 → storageGet 으로 fresh
+   *   presigned URL (1h) 발급 → 클라가 새 창으로 열어 다운로드/뷰.
+   *   file_url 은 더 이상 직접 사용 X (호환을 위해 컬럼은 유지).
+   *
+   * 권한: tenantRequiredProcedure + assertCertificateOwnership — 내 tenant
+   *   소속 직원의 인증서만 조회 가능.
+   */
+  getDownloadUrl: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("데이터베이스에 연결할 수 없습니다");
+
+      const tenantId = ctx.tenantId;
+      await assertCertificateOwnership(db, input.id, tenantId);
+
+      const [cert] = await db
+        .select({ fileKey: healthCertificates.fileKey, fileName: healthCertificates.fileName })
+        .from(healthCertificates)
+        .where(eq(healthCertificates.id, input.id));
+
+      if (!cert || !cert.fileKey) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "첨부 파일이 없습니다.",
+        });
+      }
+
+      try {
+        const { url } = await storageGet(cert.fileKey);
+        return { url, fileName: cert.fileName ?? "" };
+      } catch (err: any) {
+        if (err instanceof StorageNotConfiguredError) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "스토리지가 설정되지 않았습니다. 운영자에게 문의하세요.",
+          });
+        }
+        console.error(`[healthCert.getDownloadUrl] storageGet 실패: id=${input.id}`, err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "다운로드 URL 발급 실패.",
+        });
+      }
     }),
 
   /**
