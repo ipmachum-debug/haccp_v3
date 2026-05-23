@@ -265,4 +265,115 @@ export const tenantIsolationAuditRouter = router({
 
       return { summary, leaks, all: results };
     }),
+
+  /**
+   * ★ PR-AB (2026-05-23) — Storage backend 진단 endpoint
+   *
+   * 배경: 사장님이 건강진단서 다운로드 시 AccessDenied XML 페이지를 받음.
+   *       PR-AA2 가 presigned URL 을 새로 발급해 줘도 S3 가 거부.
+   *
+   * 진단 정보:
+   *   - backend: 활성 backend (s3 / forge / none)
+   *   - bucket, region: S3 환경변수
+   *   - cdnBase: PUBLIC_BASE_URL 설정 여부
+   *   - hasCredentials: AWS_ACCESS_KEY_ID 설정 여부 (값은 노출 X)
+   *   - putHealthCheck: 작은 test 객체를 PutObject 했다가 즉시 GetObject 시도
+   *     → IAM 권한 검증 (s3:PutObject + s3:GetObject 둘 다 있는지)
+   *
+   * 권한: super_admin 만 (운영 환경 정보 노출 위험)
+   */
+  storageHealthCheck: adminProcedure
+    .query(async ({ ctx }) => {
+      // super_admin 만 허용 (운영 진단)
+      const isSuperAdmin = ctx.user?.role === "super_admin";
+
+      const envInfo = {
+        hasAwsBucket: !!process.env.AWS_S3_BUCKET?.trim(),
+        bucketName: isSuperAdmin ? (process.env.AWS_S3_BUCKET?.trim() ?? null) : "[redacted]",
+        region: process.env.AWS_S3_REGION?.trim() || "ap-northeast-2",
+        hasEndpoint: !!process.env.AWS_S3_ENDPOINT?.trim(),
+        endpointHost: process.env.AWS_S3_ENDPOINT?.trim()
+          ? (() => { try { return new URL(process.env.AWS_S3_ENDPOINT!.trim()).host; } catch { return "invalid"; } })()
+          : null,
+        hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID?.trim(),
+        hasSecretKey: !!process.env.AWS_SECRET_ACCESS_KEY?.trim(),
+        hasCdnBase: !!process.env.AWS_S3_PUBLIC_BASE_URL?.trim(),
+        cdnBase: isSuperAdmin
+          ? (process.env.AWS_S3_PUBLIC_BASE_URL?.trim() ?? null)
+          : (process.env.AWS_S3_PUBLIC_BASE_URL?.trim() ? "[set]" : "[unset]"),
+      };
+
+      // IAM 권한 라이브 체크 (PutObject + GetObject)
+      let putGetCheck: {
+        ok: boolean;
+        putError?: string;
+        getError?: string;
+        urlSample?: string;
+        urlSigned?: boolean;
+      } = { ok: false };
+
+      try {
+        const { storagePut, storageGet, StorageNotConfiguredError } =
+          await import("../../storage");
+
+        const testKey = `_diagnostic/storage-health-${Date.now()}.txt`;
+        const testBody = Buffer.from(`storage-health-check ${new Date().toISOString()}`);
+
+        try {
+          await storagePut(testKey, testBody, "text/plain");
+        } catch (err: any) {
+          if (err instanceof StorageNotConfiguredError) {
+            putGetCheck = { ok: false, putError: "STORAGE_NOT_CONFIGURED" };
+          } else {
+            putGetCheck = {
+              ok: false,
+              putError: `${err?.name ?? "Error"}: ${err?.message?.slice(0, 200) ?? "unknown"}`,
+            };
+          }
+          return { env: envInfo, putGetCheck };
+        }
+
+        try {
+          const { url } = await storageGet(testKey);
+          putGetCheck = {
+            ok: true,
+            urlSample: url.slice(0, 120),
+            urlSigned: url.includes("X-Amz-Signature") || url.includes("Signature="),
+          };
+
+          // 실제로 URL 이 작동하는지도 GET 시도 (HEAD 가 더 좋지만 presigned 는 GET 제한)
+          try {
+            const resp = await fetch(url, { method: "GET" });
+            if (!resp.ok) {
+              putGetCheck = {
+                ...putGetCheck,
+                ok: false,
+                getError: `URL responded ${resp.status} ${resp.statusText}`,
+              };
+            }
+          } catch (fetchErr: any) {
+            putGetCheck = {
+              ...putGetCheck,
+              ok: false,
+              getError: `fetch failed: ${fetchErr?.message?.slice(0, 200)}`,
+            };
+          }
+        } catch (err: any) {
+          putGetCheck = {
+            ok: false,
+            getError: `${err?.name ?? "Error"}: ${err?.message?.slice(0, 200) ?? "unknown"}`,
+          };
+        }
+      } catch (err: any) {
+        return {
+          env: envInfo,
+          putGetCheck: {
+            ok: false,
+            putError: `module load failed: ${err?.message?.slice(0, 200)}`,
+          },
+        };
+      }
+
+      return { env: envInfo, putGetCheck };
+    }),
 });

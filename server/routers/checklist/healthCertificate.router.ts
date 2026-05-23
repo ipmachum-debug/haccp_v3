@@ -251,21 +251,83 @@ export const healthCertificateRouter = router({
       const tenantId = ctx.tenantId;
       await assertCertificateOwnership(db, input.id, tenantId);
 
+      // ★ PR-AB (2026-05-23) — fileUrl 도 같이 조회 (legacy row 대응)
+      //   PR-AA2 이전에 등록된 row 는 fileKey 가 NULL 이고 fileUrl 만 있음.
+      //   이 경우 unsigned canonical URL 이라 직접 GET 시 S3 AccessDenied 발생.
+      //   해결: 가능한 경우 fileUrl 에서 S3 key 를 역추출해 presigned 재발급.
       const [cert] = await db
-        .select({ fileKey: healthCertificates.fileKey, fileName: healthCertificates.fileName })
+        .select({
+          fileKey: healthCertificates.fileKey,
+          fileUrl: healthCertificates.fileUrl,
+          fileName: healthCertificates.fileName,
+        })
         .from(healthCertificates)
         .where(eq(healthCertificates.id, input.id));
 
-      if (!cert || !cert.fileKey) {
+      if (!cert) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "건강진단서를 찾을 수 없습니다." });
+      }
+
+      // ── Step 1. fileKey 확보 (3단 fallback)
+      //   1) cert.fileKey 가 있으면 그대로 사용 (PR-AA2 이후 등록 row)
+      //   2) 없으면 fileUrl 에서 S3 key 패턴 역추출 (legacy row)
+      //   3) 둘 다 실패하면 명확한 사용자 친화 에러
+      let fileKey: string | null = cert.fileKey ?? null;
+      let keySource: "stored" | "legacy_extract" | "missing" = "missing";
+
+      if (fileKey) {
+        keySource = "stored";
+      } else if (cert.fileUrl) {
+        // legacy: fileUrl 에서 S3 key 추출 시도
+        // 예: https://bucket.s3.amazonaws.com/tenant-2/health-certificates/123/abc.pdf
+        //  → tenant-2/health-certificates/123/abc.pdf
+        // 예: https://<account>.r2.cloudflarestorage.com/bucket/tenant-2/...
+        //  → tenant-2/...
+        try {
+          const url = new URL(cert.fileUrl.split("?")[0]);
+          const path = url.pathname.replace(/^\/+/, "");
+          // path 가 "tenant-N/..." 패턴이면 즉시 사용
+          // R2 path-style 처럼 "bucket-name/tenant-N/..." 인 경우 첫 segment 제거
+          const tenantMatch = path.match(/(tenant-\d+\/.*)/);
+          if (tenantMatch) {
+            fileKey = tenantMatch[1];
+            keySource = "legacy_extract";
+          }
+        } catch {
+          /* URL 파싱 실패 → fileKey 없음 처리 */
+        }
+      }
+
+      if (!fileKey) {
+        // ★ 진단 정보 server-side 로그 (운영 디버깅용)
+        console.warn(`[healthCert.getDownloadUrl] fileKey 없음`, {
+          certId: input.id,
+          tenantId,
+          hasFileUrl: !!cert.fileUrl,
+          fileUrlSample: cert.fileUrl?.slice(0, 100),
+        });
         throw new TRPCError({
           code: "NOT_FOUND",
-          message: "첨부 파일이 없습니다.",
+          message: "첨부 파일을 찾을 수 없습니다. 다시 업로드 후 시도하세요.",
         });
       }
 
+      // ── Step 2. presigned URL 발급
       try {
-        const { url } = await storageGet(cert.fileKey);
-        return { url, fileName: cert.fileName ?? "" };
+        const { url } = await storageGet(fileKey);
+
+        // ★ PR-AB: 발급된 URL 의 형태 진단 로그 (1회당 cert id 별)
+        console.log(`[healthCert.getDownloadUrl] OK`, {
+          certId: input.id,
+          tenantId,
+          keySource,
+          fileKey: fileKey.slice(0, 80),
+          urlScheme: url.startsWith("https://") ? "https" : url.slice(0, 8),
+          urlHost: (() => { try { return new URL(url).host; } catch { return "invalid"; } })(),
+          urlIsSigned: url.includes("X-Amz-Signature") || url.includes("Signature="),
+        });
+
+        return { url, fileName: cert.fileName ?? "", keySource };
       } catch (err: any) {
         if (err instanceof StorageNotConfiguredError) {
           throw new TRPCError({
@@ -273,10 +335,17 @@ export const healthCertificateRouter = router({
             message: "스토리지가 설정되지 않았습니다. 운영자에게 문의하세요.",
           });
         }
-        console.error(`[healthCert.getDownloadUrl] storageGet 실패: id=${input.id}`, err);
+        console.error(`[healthCert.getDownloadUrl] storageGet 실패`, {
+          certId: input.id,
+          tenantId,
+          fileKey: fileKey.slice(0, 80),
+          keySource,
+          errorName: err?.name,
+          errorMessage: err?.message?.slice(0, 200),
+        });
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "다운로드 URL 발급 실패.",
+          message: `다운로드 URL 발급 실패: ${err?.message?.slice(0, 100) ?? "unknown"}`,
         });
       }
     }),
