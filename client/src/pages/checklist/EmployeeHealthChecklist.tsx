@@ -119,6 +119,23 @@ export default function EmployeeHealthChecklist() {
   });
 
   // Excel 일괄 업로드 mutation
+  // ★ 2026-05-22 PR-AA2: stored fileUrl 은 unsigned canonical URL 이라
+  //   직접 GET 시 R2/S3 가 "InvalidArgument: Authorization" 거부.
+  //   첨부 보기 클릭 시 서버에 fresh presigned URL 요청 후 새 창에 열기.
+  const getDownloadUrlMutation = trpc.healthCertificate.getDownloadUrl.useMutation();
+  const handleOpenFile = async (certId: number) => {
+    try {
+      const result = await getDownloadUrlMutation.mutateAsync({ id: certId });
+      if (result?.url) {
+        window.open(result.url, "_blank", "noopener,noreferrer");
+      } else {
+        toast.error("다운로드 URL 발급에 실패했습니다.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "파일을 열 수 없습니다.");
+    }
+  };
+
   const bulkUploadMutation = trpc.healthCertificate.bulkUploadFromExcel.useMutation({
     onSuccess: (data: any) => {
       setExcelResult(data);
@@ -463,12 +480,16 @@ export default function EmployeeHealthChecklist() {
                       </div>
                     )}
                     {editingCert?.fileUrl && !uploadedFile && (
-                      <div className="flex items-center gap-2 text-sm text-blue-600">
+                      // ★ PR-AA2: stored URL 직접 사용 X — getDownloadUrl 로 fresh presigned 발급
+                      <button
+                        type="button"
+                        onClick={() => handleOpenFile(editingCert.id)}
+                        disabled={getDownloadUrlMutation.isPending}
+                        className="flex items-center gap-2 text-sm text-blue-600 hover:underline disabled:opacity-50"
+                      >
                         <Eye className="h-4 w-4" />
-                        <a href={editingCert.fileUrl} target="_blank" rel="noopener noreferrer">
-                          {editingCert.fileName || "기존 파일 보기"}
-                        </a>
-                      </div>
+                        {editingCert.fileName || "기존 파일 보기"}
+                      </button>
                     )}
                   </div>
 
@@ -640,14 +661,15 @@ export default function EmployeeHealthChecklist() {
                         <TableCell>{getStatusBadge(cert.expiryDate)}</TableCell>
                         <TableCell>
                           {cert.fileUrl ? (
+                            // ★ PR-AA2: stored URL 직접 사용 X — 서버에서 fresh presigned URL 발급
                             <Button
                               variant="ghost"
                               size="sm"
-                              asChild
+                              onClick={() => handleOpenFile(cert.id)}
+                              disabled={getDownloadUrlMutation.isPending}
+                              title="첨부 파일 보기"
                             >
-                              <a href={cert.fileUrl} target="_blank" rel="noopener noreferrer">
-                                <Eye className="h-4 w-4" />
-                              </a>
+                              <Eye className="h-4 w-4" />
                             </Button>
                           ) : (
                             <span className="text-muted-foreground text-sm">-</span>
