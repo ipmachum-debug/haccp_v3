@@ -376,4 +376,205 @@ export const tenantIsolationAuditRouter = router({
 
       return { env: envInfo, putGetCheck };
     }),
+
+  /**
+   * ★ PR-AD (2026-05-23) — Health Certificate fileKey 진단 endpoint
+   *
+   * 배경: PR-AC2/AC3 의 storageHealthCheck 가 PUT/GET 양방향 통과했음에도
+   *       cert id 15 다운로드는 여전히 S3 403 Forbidden 받음.
+   *       진단 fileKey 는 ASCII (`_diagnostic/storage-health-XXX.txt`) 라 통과했는데
+   *       실제 cert id 15 의 fileKey 는 다를 가능성:
+   *       - 한글/특수문자 포함 → SigV4 인코딩 mismatch
+   *       - 잘못된 prefix (절대경로 / bucket prefix 중복)
+   *       - 이전 환경(다른 account) 에서 업로드된 잔재
+   *
+   * 동작:
+   *   1) cert.fileKey, fileUrl, fileName 의 raw 형태 + 바이트 길이 + 비ASCII 문자 개수
+   *   2) 같은 fileKey 로 presigned URL 재발급 후 pathname 의 인코딩 형태
+   *   3) 그 URL 로 직접 HEAD 요청 시도 결과 (status, statusText, body 일부)
+   *   4) 위 정보를 super_admin 에게 노출 → 한 눈에 원인 식별
+   *
+   * 권한: adminProcedure (super_admin / admin) — 운영 진단
+   *       cert id 는 query param 으로 받아 자기 tenant 인지 검증
+   */
+  inspectHealthCertKey: adminProcedure
+    .input(z.object({ certId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const isSuperAdmin = ctx.user?.role === "super_admin";
+      const tenantId = ctx.tenantId;
+
+      // 1) DB 에서 cert row 조회 (raw SQL — drizzle 의존성 회피)
+      const pool = getPool();
+      if (!pool) {
+        throw new Error("DB 연결 실패");
+      }
+
+      // super_admin 은 전체, 일반 admin 은 자기 tenant 만
+      const [rows] = await pool.query(
+        isSuperAdmin
+          ? `SELECT id, tenant_id, file_key, file_url, file_name, created_at, updated_at
+             FROM health_certificates WHERE id = ?`
+          : `SELECT id, tenant_id, file_key, file_url, file_name, created_at, updated_at
+             FROM health_certificates WHERE id = ? AND tenant_id = ?`,
+        isSuperAdmin ? [input.certId] : [input.certId, tenantId]
+      );
+
+      const certRows = rows as Array<{
+        id: number;
+        tenant_id: number;
+        file_key: string | null;
+        file_url: string | null;
+        file_name: string | null;
+        created_at: Date;
+        updated_at: Date;
+      }>;
+
+      if (certRows.length === 0) {
+        return {
+          ok: false,
+          reason: "NOT_FOUND",
+          message: `cert id ${input.certId} 를 찾을 수 없거나 권한이 없습니다.`,
+        };
+      }
+
+      const cert = certRows[0];
+
+      // 2) fileKey 의 raw 형태 분석
+      const fileKey = cert.file_key;
+      const fileUrl = cert.file_url;
+      const fileName = cert.file_name;
+
+      const keyAnalysis = fileKey
+        ? {
+            raw: fileKey,
+            length: fileKey.length,
+            byteLength: Buffer.byteLength(fileKey, "utf8"),
+            nonAsciiCount: [...fileKey].filter((c) => c.charCodeAt(0) > 127).length,
+            hasSpaces: /\s/.test(fileKey),
+            hasLeadingSlash: fileKey.startsWith("/"),
+            hasBucketPrefix: /^(millioai|haccp|bucket)/.test(fileKey),
+            uriEncoded: encodeURIComponent(fileKey),
+            pathEncoded: fileKey
+              .split("/")
+              .map((seg) => encodeURIComponent(seg))
+              .join("/"),
+            hexSample: Buffer.from(fileKey.slice(0, 80), "utf8")
+              .toString("hex")
+              .match(/.{1,2}/g)
+              ?.join(" "),
+          }
+        : null;
+
+      // 3) presigned URL 재발급 시도
+      let presignedAttempt: any = { attempted: false };
+      if (fileKey) {
+        try {
+          const { storageGet } = await import("../../storage");
+          const { url } = await storageGet(fileKey);
+          let pathnameRaw = "";
+          let pathnameDecoded = "";
+          try {
+            const u = new URL(url);
+            pathnameRaw = u.pathname;
+            pathnameDecoded = decodeURIComponent(u.pathname);
+          } catch {
+            /* ignore */
+          }
+          presignedAttempt = {
+            attempted: true,
+            ok: true,
+            urlSample: url.slice(0, 200),
+            urlHost: (() => {
+              try { return new URL(url).host; } catch { return "invalid"; }
+            })(),
+            pathnameRaw,
+            pathnameDecoded,
+            urlIncludesSignature: url.includes("X-Amz-Signature"),
+            urlLength: url.length,
+          };
+        } catch (err: any) {
+          presignedAttempt = {
+            attempted: true,
+            ok: false,
+            error: `${err?.name ?? "Error"}: ${err?.message?.slice(0, 200) ?? "unknown"}`,
+          };
+        }
+      }
+
+      // 4) presigned URL 로 HEAD 요청 직접 시도 (raw 응답 캡처)
+      let headProbe: any = { attempted: false };
+      if (presignedAttempt.ok && presignedAttempt.urlSample) {
+        // 위 attempt 에서 자른 URL 이 아니라 full URL 이 필요하므로 다시 발급
+        try {
+          const { storageGet } = await import("../../storage");
+          const { url: fullUrl } = await storageGet(fileKey!);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const resp = await fetch(fullUrl, {
+            method: "HEAD",
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          // 403 이라도 body 의 일부를 받아보고 싶지만 HEAD 에는 body 없음.
+          // 대신 GET 으로 body 일부를 읽어 R2 의 XML 에러 코드까지 확인.
+          let bodySnippet: string | undefined;
+          if (!resp.ok) {
+            try {
+              const controller2 = new AbortController();
+              const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
+              const getResp = await fetch(fullUrl, {
+                method: "GET",
+                signal: controller2.signal,
+              });
+              clearTimeout(timeoutId2);
+              const text = await getResp.text();
+              bodySnippet = text.slice(0, 500);
+            } catch {
+              /* ignore */
+            }
+          }
+          headProbe = {
+            attempted: true,
+            ok: resp.ok,
+            status: resp.status,
+            statusText: resp.statusText,
+            contentType: resp.headers.get("content-type") ?? null,
+            contentLength: resp.headers.get("content-length") ?? null,
+            cfRay: resp.headers.get("cf-ray") ?? null,
+            bodySnippet,
+          };
+        } catch (err: any) {
+          headProbe = {
+            attempted: true,
+            ok: false,
+            error: `${err?.name ?? "Error"}: ${err?.message?.slice(0, 200) ?? "unknown"}`,
+          };
+        }
+      }
+
+      // 5) URL 에서 추출된 추가 정보
+      let urlAnalysis = null;
+      if (fileUrl) {
+        urlAnalysis = {
+          raw: fileUrl.slice(0, 300),
+          length: fileUrl.length,
+          nonAsciiCount: [...fileUrl].filter((c) => c.charCodeAt(0) > 127).length,
+        };
+      }
+
+      return {
+        ok: true,
+        cert: {
+          id: cert.id,
+          tenantId: cert.tenant_id,
+          fileName,
+          createdAt: cert.created_at,
+          updatedAt: cert.updated_at,
+        },
+        keyAnalysis,
+        urlAnalysis,
+        presignedAttempt,
+        headProbe,
+      };
+    }),
 });
