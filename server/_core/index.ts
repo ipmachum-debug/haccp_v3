@@ -278,6 +278,11 @@ async function startServer() {
   // 비용전표 첨부파일 업로드 REST API
   const expenseUploadRouter = (await import("../routers/accounting/expenseUpload.router")).default;
   app.use("/api/expense", expenseUploadRouter);
+  // ★ PR-AG (2026-05-23): 건강진단서 서버 프록시 다운로드
+  //   클라이언트가 R2 에 직접 접근하면 AccessDenied 발생 → 서버가 받아서 stream.
+  //   PR-AE 진단으로 서버측 GET 은 200 OK 확인됨 (PDF 정상).
+  const healthCertDownloadProxyRouter = (await import("../routers/checklist/healthCertDownloadProxy.router")).default;
+  app.use("/api/health-cert", healthCertDownloadProxyRouter);
   // 업로드 파일 정적 서빙
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
