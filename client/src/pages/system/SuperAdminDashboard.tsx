@@ -57,7 +57,12 @@ export default function SuperAdminDashboard() {
   const [, setLocation] = useLocation();
 
   // ★ PR-AC2: Storage 진단 (수동 실행 — enabled:false 로 자동 호출 막음)
-  const storageHealthQuery = trpc.system.tenantIsolationAudit.storageHealthCheck.useQuery(
+  // ★ PR-AC3 (2026-05-23) hot-fix: tRPC 경로를 systemRouterMap 의 spread 등록 사실에 맞춰 수정.
+  //   server/routers/_root.ts 에서 `...systemRouterMap` 으로 spread 되므로
+  //   `tenantIsolationAudit` 은 `system.tenantIsolationAudit` 이 아니라
+  //   **최상위 `tenantIsolationAudit`** 으로 등록됩니다.
+  //   사장님 보고: "No procedure found on path 'system.tenantIsolationAudit.storageHealthCheck'"
+  const storageHealthQuery = trpc.tenantIsolationAudit.storageHealthCheck.useQuery(
     undefined,
     {
       enabled: false,
