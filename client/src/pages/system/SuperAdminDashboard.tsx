@@ -1,8 +1,31 @@
 import { trpc } from "@/lib/trpc";
-import { Users, Building2, Activity, AlertCircle, TrendingUp, TrendingDown } from "lucide-react";
+import { Users, Building2, Activity, AlertCircle, TrendingUp, TrendingDown, HardDrive, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import SuperAdminLayout from "@/components/dashboard/SuperAdminLayout";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+
+// ★ PR-AC2 (2026-05-23): Storage 진단 결과 타입
+//   tenantIsolationAudit.storageHealthCheck 의 응답 구조와 일치.
+type StorageHealthResult = {
+  env: {
+    hasAwsBucket: boolean;
+    bucketName: string | null;
+    region: string;
+    hasEndpoint: boolean;
+    endpointHost: string | null;
+    hasAccessKey: boolean;
+    hasSecretKey: boolean;
+    hasCdnBase: boolean;
+    cdnBase: string | null;
+  };
+  putGetCheck: {
+    ok: boolean;
+    putError?: string;
+    getError?: string;
+    urlSample?: string;
+    urlSigned?: boolean;
+  };
+};
 
 export default function SuperAdminDashboard() {
   // 테넌트 선택 상태
@@ -32,6 +55,18 @@ export default function SuperAdminDashboard() {
   }, [actingTenant]);
 
   const [, setLocation] = useLocation();
+
+  // ★ PR-AC2: Storage 진단 (수동 실행 — enabled:false 로 자동 호출 막음)
+  const storageHealthQuery = trpc.system.tenantIsolationAudit.storageHealthCheck.useQuery(
+    undefined,
+    {
+      enabled: false,
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+    }
+  );
+  const storageHealth = storageHealthQuery.data as StorageHealthResult | undefined;
 
   // 테넌트 선택 핸들러
   const handleTenantChange = (tenantId: number | null) => {
@@ -229,6 +264,202 @@ export default function SuperAdminDashboard() {
               <h3 className="text-lg font-bold text-gray-900 mb-2">시스템 모니터링</h3>
               <p className="text-gray-600 text-sm">전역 시스템 모니터링</p>
             </a>
+          </div>
+        </div>
+
+        {/* ★ PR-AC2 (2026-05-23): Storage 백엔드 진단 카드
+            건강진단서 다운로드 AccessDenied 사고 (PR-AB / PR-AC) 의 root cause 를
+            확정하기 위한 super_admin 전용 진단 도구.
+            - PUT/GET 라이브 테스트로 IAM 권한 확인
+            - 환경 변수 (버킷, CDN, endpoint) 표시
+            - 실패 시 정확한 에러 메시지 노출 */}
+        <div className="mb-8">
+          <div className="bg-white rounded-2xl p-6 shadow-lg border-2 border-purple-100">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-5 h-5 text-purple-700" />
+                <h2 className="text-xl font-bold text-gray-900">Storage 백엔드 진단</h2>
+                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium">
+                  PR-AC2
+                </span>
+              </div>
+              <button
+                onClick={() => storageHealthQuery.refetch()}
+                disabled={storageHealthQuery.isFetching}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+              >
+                {storageHealthQuery.isFetching ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    진단 중...
+                  </>
+                ) : (
+                  <>
+                    <HardDrive className="w-4 h-4" />
+                    진단 실행
+                  </>
+                )}
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              S3/R2 버킷에 작은 테스트 파일을 PUT 한 뒤 즉시 presigned URL 로 GET 해서 IAM 권한과 CORS/CDN 설정을 확인합니다.
+              건강진단서 다운로드 사고 (AccessDenied 403) 의 정확한 원인을 진단합니다.
+            </p>
+
+            {storageHealthQuery.isError && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+                <div className="flex items-start gap-2">
+                  <XCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-red-900">진단 endpoint 호출 실패</p>
+                    <p className="text-sm text-red-700 mt-1 font-mono">
+                      {storageHealthQuery.error?.message ?? "unknown error"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {storageHealth && (
+              <div className="space-y-4">
+                {/* PUT/GET 라이브 테스트 결과 */}
+                <div
+                  className={`p-4 rounded-lg border-2 ${
+                    storageHealth.putGetCheck.ok
+                      ? "bg-green-50 border-green-200"
+                      : "bg-red-50 border-red-200"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {storageHealth.putGetCheck.ok ? (
+                      <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" />
+                    ) : (
+                      <XCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <p
+                        className={`font-bold ${
+                          storageHealth.putGetCheck.ok ? "text-green-900" : "text-red-900"
+                        }`}
+                      >
+                        {storageHealth.putGetCheck.ok
+                          ? "✅ PUT + GET 라이브 테스트 통과"
+                          : "❌ PUT/GET 라이브 테스트 실패"}
+                      </p>
+                      {storageHealth.putGetCheck.putError && (
+                        <p className="text-sm text-red-700 mt-2">
+                          <span className="font-semibold">PutObject 실패:</span>{" "}
+                          <span className="font-mono">{storageHealth.putGetCheck.putError}</span>
+                        </p>
+                      )}
+                      {storageHealth.putGetCheck.getError && (
+                        <p className="text-sm text-red-700 mt-2">
+                          <span className="font-semibold">GetObject 실패:</span>{" "}
+                          <span className="font-mono">{storageHealth.putGetCheck.getError}</span>
+                          {storageHealth.putGetCheck.getError.includes("403") && (
+                            <span className="block mt-1 text-red-800">
+                              💡 IAM 권한 누락 의심 (PutObject 만 있고 GetObject 없음)
+                            </span>
+                          )}
+                          {storageHealth.putGetCheck.getError.includes("404") && (
+                            <span className="block mt-1 text-red-800">
+                              💡 객체가 사라졌거나 버킷 이름 mismatch 의심
+                            </span>
+                          )}
+                        </p>
+                      )}
+                      {storageHealth.putGetCheck.urlSample && (
+                        <p className="text-xs text-gray-600 mt-2 break-all">
+                          <span className="font-semibold">URL 샘플:</span>{" "}
+                          <span className="font-mono">{storageHealth.putGetCheck.urlSample}…</span>
+                        </p>
+                      )}
+                      {typeof storageHealth.putGetCheck.urlSigned === "boolean" && (
+                        <p className="text-xs text-gray-600 mt-1">
+                          <span className="font-semibold">Presigned 여부:</span>{" "}
+                          <span className="font-mono">
+                            {storageHealth.putGetCheck.urlSigned ? "X-Amz-Signature 포함 ✅" : "서명 없음 (CDN URL?) ⚠️"}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 환경 변수 정보 */}
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="font-semibold text-gray-900 mb-3">환경 변수</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_S3_BUCKET:</span>
+                      <span className="font-mono text-gray-900">
+                        {storageHealth.env.hasAwsBucket
+                          ? storageHealth.env.bucketName ?? "[set]"
+                          : "❌ 미설정"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_S3_REGION:</span>
+                      <span className="font-mono text-gray-900">{storageHealth.env.region}</span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_S3_ENDPOINT:</span>
+                      <span className="font-mono text-gray-900">
+                        {storageHealth.env.hasEndpoint
+                          ? storageHealth.env.endpointHost ?? "[set]"
+                          : "[unset, default AWS S3]"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_ACCESS_KEY_ID:</span>
+                      <span className="font-mono text-gray-900">
+                        {storageHealth.env.hasAccessKey ? "✅ 설정됨" : "❌ 미설정"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_SECRET_ACCESS_KEY:</span>
+                      <span className="font-mono text-gray-900">
+                        {storageHealth.env.hasSecretKey ? "✅ 설정됨" : "❌ 미설정"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gray-600">AWS_S3_PUBLIC_BASE_URL:</span>
+                      <span className="font-mono text-gray-900 break-all">
+                        {storageHealth.env.hasCdnBase
+                          ? storageHealth.env.cdnBase ?? "[set]"
+                          : "[unset]"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 진단 가이드 */}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="font-semibold text-blue-900 mb-2">📋 진단 결과 해석</p>
+                  <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                    <li>
+                      <strong>PUT 실패:</strong> AccessKey/SecretKey 또는 `s3:PutObject` IAM 권한 누락
+                    </li>
+                    <li>
+                      <strong>GET 403:</strong> `s3:GetObject` IAM 권한 누락 (가장 흔한 사고)
+                    </li>
+                    <li>
+                      <strong>GET 404:</strong> 버킷 이름 mismatch 또는 객체 즉시 삭제 정책
+                    </li>
+                    <li>
+                      <strong>GET timeout:</strong> AWS_S3_ENDPOINT 또는 CDN URL 잘못 설정
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {!storageHealth && !storageHealthQuery.isFetching && !storageHealthQuery.isError && (
+              <div className="text-center py-8 text-gray-500 text-sm">
+                "진단 실행" 버튼을 클릭하여 storage 백엔드 상태를 확인하세요.
+              </div>
+            )}
           </div>
         </div>
 
