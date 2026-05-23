@@ -327,41 +327,63 @@ export const healthCertificateRouter = router({
           urlIsSigned: url.includes("X-Amz-Signature") || url.includes("Signature="),
         });
 
-        // ★ PR-AC (2026-05-23) — 서버 사이드 URL 검증
-        //   PR-AB Layer 3 (클라이언트 fetch probe) 는 CORS 미설정 환경에서
-        //   브라우저가 차단 → catch 블럭 발동 → 그래도 새 창 열기 → XML 페이지
-        //   사고 재발. 사장님 2번째 보고:
-        //   > "This XML file does not appear to have any style information..."
+        // ★ PR-AF (2026-05-23) — HEAD → GET Range:0-0 로 검증 방식 교체
         //
-        //   해결: 서버에서 HEAD 요청으로 직접 검증 (CORS 무관, 같은 서버끼리).
-        //   - 200 OK  → url 그대로 반환 (정상)
-        //   - 403     → 가설 B (IAM s3:GetObject 누락) 확정
-        //   - 404     → 가설 D (fileKey 잘못됨, 객체 없음)
-        //   - timeout → 가설 C (CDN/엔드포인트 mismatch)
+        //   ⚠️ PR-AC 의 HEAD 검증은 잘못된 설계였습니다.
+        //   storageGet() 은 `GetObjectCommand` 로 presigned URL 을 발급합니다.
+        //   S3/R2 의 SigV4 서명은 HTTP method 를 canonical request 에 포함하므로
+        //   GET-서명 URL 에 HEAD 로 호출하면 **SignatureDoesNotMatch → 403** 이
+        //   발생합니다. 객체가 정상이어도 무조건 실패.
         //
-        //   2-3초 타임아웃으로 정상 케이스 latency 영향 최소화.
-        //   실패해도 URL 은 반환하되 verified 플래그를 false 로 표시.
+        //   PR-AE 의 inspectHealthCertKey 진단에서 결정적 증거 확보:
+        //   - HEAD: 403 Forbidden
+        //   - GET:  200 OK (375,541 bytes, PDF magic bytes 정상)
+        //   같은 URL, 같은 시점, 차이는 HTTP method 뿐.
+        //
+        //   해결책: GET + Range: bytes=0-0 (1바이트만 받기)
+        //   - 200/206 → 정상 (R2 는 range 지원 시 206 Partial Content)
+        //   - 403/404 → 진짜 에러
+        //   - 5xx     → 일시적 오류 (정상으로 간주, 클라이언트가 retry 시도)
+        //   - timeout → 정상으로 간주 (verify 실패가 다운로드 자체를 막으면 안됨)
+        //
+        //   비용: 헤더 + 1바이트 (~수백 bytes). HEAD 대비 미미함.
+        //
+        //   3-layer fallback:
+        //   Layer 1: Range probe 통과 → ok
+        //   Layer 2: Range probe 가 명시적 403/404 → block (진짜 실패)
+        //   Layer 3: 기타 모든 경우 (5xx/timeout/network err) → pass through
+        //            (클라이언트가 실제 다운로드 시도하여 실패해도 새 창은
+        //             열리지 않음 — XML 페이지 노출은 클라이언트 가드로 차단)
         let urlVerified: boolean | null = null;
         let urlVerifyError: string | undefined;
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
           const probe = await fetch(url, {
-            method: "HEAD",
+            method: "GET",
+            headers: { Range: "bytes=0-0" },
             signal: controller.signal,
           });
           clearTimeout(timeoutId);
+          // body 를 소비하지 않으면 connection pool 이 hang 할 수 있음
+          try {
+            await probe.arrayBuffer();
+          } catch {
+            /* ignore */
+          }
 
-          if (probe.ok) {
+          if (probe.ok || probe.status === 206) {
             urlVerified = true;
-            console.log(`[healthCert.getDownloadUrl] HEAD verify OK`, {
+            console.log(`[healthCert.getDownloadUrl] Range probe OK`, {
               certId: input.id,
               status: probe.status,
+              contentLength: probe.headers.get("content-length"),
             });
-          } else {
+          } else if (probe.status === 403 || probe.status === 404) {
+            // 진짜 실패만 차단
             urlVerified = false;
             urlVerifyError = `S3 ${probe.status} ${probe.statusText}`;
-            console.error(`[healthCert.getDownloadUrl] HEAD verify FAILED`, {
+            console.error(`[healthCert.getDownloadUrl] Range probe FAILED (real)`, {
               certId: input.id,
               tenantId,
               keySource,
@@ -370,26 +392,31 @@ export const healthCertificateRouter = router({
               statusText: probe.statusText,
               hint:
                 probe.status === 403
-                  ? "IAM 권한 누락 의심 (s3:GetObject 없음)"
-                  : probe.status === 404
-                  ? "객체 없음 (fileKey 잘못됨 또는 hard-delete)"
-                  : "기타 storage 거부",
+                  ? "presigned URL 서명 무효 또는 IAM 권한 누락"
+                  : "객체 없음 (fileKey 잘못됨 또는 hard-delete)",
+            });
+          } else {
+            // 5xx / 기타 → 일시적이라 가정, 통과시킴
+            urlVerified = null; // null = 검증 skip 됨
+            console.warn(`[healthCert.getDownloadUrl] Range probe skipped (transient)`, {
+              certId: input.id,
+              status: probe.status,
+              statusText: probe.statusText,
             });
           }
         } catch (probeErr: any) {
-          urlVerified = false;
-          urlVerifyError = `network: ${probeErr?.name ?? "Error"}: ${probeErr?.message?.slice(0, 100) ?? "unknown"}`;
-          console.error(`[healthCert.getDownloadUrl] HEAD verify network error`, {
+          // network/timeout 은 verify 실패로 보지 않음 (PR-AC 의 과잉 보호 제거)
+          urlVerified = null;
+          console.warn(`[healthCert.getDownloadUrl] Range probe network skipped`, {
             certId: input.id,
             tenantId,
             keySource,
             errorName: probeErr?.name,
             errorMessage: probeErr?.message?.slice(0, 200),
-            hint: "CDN/엔드포인트 mismatch 또는 timeout 의심",
           });
         }
 
-        // ★ PR-AC: 검증 실패 시 throw — 클라이언트가 새 창 절대 안 열도록 차단
+        // ★ PR-AF: false 일 때만 block (null/true 는 통과)
         if (urlVerified === false) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",

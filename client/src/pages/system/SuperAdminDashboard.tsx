@@ -4,10 +4,10 @@ import SuperAdminLayout from "@/components/dashboard/SuperAdminLayout";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
-// ★ PR-AE (2026-05-23): SuperAdminDashboard 의 진단 UI 가 변경되어
+// ★ PR-AF (2026-05-23): HEAD → GET Range 검증 교체 root cause fix.
 //   사장님 브라우저에 캐시된 구버전과 신버전을 구분할 수 있어야 함.
-//   콘솔에서 [SuperAdminDashboard] BUILD_TAG=PR-AE-2026-05-23 확인 가능.
-const BUILD_TAG = "PR-AE-2026-05-23";
+//   콘솔에서 [SuperAdminDashboard] BUILD_TAG=PR-AF-2026-05-23 확인 가능.
+const BUILD_TAG = "PR-AF-2026-05-23";
 if (typeof window !== "undefined" && !(window as any).__HACCP_SUPER_ADMIN_BUILD_TAG__) {
   (window as any).__HACCP_SUPER_ADMIN_BUILD_TAG__ = BUILD_TAG;
   // eslint-disable-next-line no-console
@@ -506,7 +506,7 @@ export default function SuperAdminDashboard() {
                   건강진단서 fileKey 진단
                 </h2>
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                  PR-AE
+                  PR-AF
                 </span>
                 <span className="text-[10px] text-gray-400 font-mono">
                   build {BUILD_TAG}
@@ -733,17 +733,26 @@ export default function SuperAdminDashboard() {
                   </div>
                 )}
 
-                {/* HEAD/GET probe 결과 (R2 응답 raw) — PR-AE 강화 */}
+                {/* HEAD/GET probe 결과 (R2 응답 raw) — PR-AE/AF 강화 */}
                 {certInspect.headProbe?.attempted && (
                   <div
                     className={`p-4 rounded-lg border-2 ${
-                      certInspect.headProbe.ok
+                      certInspect.headProbe.downloadable
+                        ? "bg-green-50 border-green-200"
+                        : certInspect.headProbe.ok
                         ? "bg-green-50 border-green-200"
                         : "bg-red-50 border-red-200"
                     }`}
                   >
+                    {/* ★ PR-AF: 최종 판정 (GET 기준 = 다운로드 가능 여부) */}
                     <p className="font-semibold text-gray-900 mb-2">
-                      🌐 서버 → R2 HEAD probe:{" "}
+                      📦 다운로드 가능 여부:{" "}
+                      {certInspect.headProbe.downloadable
+                        ? "✅ 정상 다운로드 가능 (GET 200 OK)"
+                        : "❌ 다운로드 불가"}
+                    </p>
+                    <p className="text-xs text-gray-600 mb-2">
+                      🌐 HEAD probe (참고용 — 보통 GET-서명 URL 은 HEAD 가 403):{" "}
                       {certInspect.headProbe.ok ? "✅ 200 OK" : `❌ ${certInspect.headProbe.status} ${certInspect.headProbe.statusText}`}
                     </p>
                     {certInspect.headProbe.error && (
@@ -751,6 +760,23 @@ export default function SuperAdminDashboard() {
                         {certInspect.headProbe.error}
                       </p>
                     )}
+
+                    {/* ★ PR-AF: 정상 동작 라벨 (오해 방지) */}
+                    {Array.isArray(certInspect.headProbe.notes) &&
+                      certInspect.headProbe.notes.length > 0 && (
+                        <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                          <p className="text-xs font-bold text-blue-800 mb-1">
+                            ℹ️ 정상 동작 라벨 (PR-AF)
+                          </p>
+                          <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                            {certInspect.headProbe.notes.map(
+                              (msg: string, i: number) => (
+                                <li key={i}>{msg}</li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
 
                     {/* 모순 감지 (root cause 후보 자동 강조) */}
                     {Array.isArray(certInspect.headProbe.contradictions) &&
@@ -900,6 +926,13 @@ export default function SuperAdminDashboard() {
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="font-semibold text-blue-900 mb-2">🧐 자동 해석</p>
                   <ul className="text-sm text-blue-800 space-y-1 list-disc list-inside">
+                    {/* ★ PR-AF: 최종 판정 우선 표시 */}
+                    {certInspect.headProbe?.downloadable && (
+                      <li className="font-bold text-green-700">
+                        ✅ GET probe 200 OK → 객체는 정상이고 다운로드 가능. HEAD 의 403 은
+                        presigned URL 이 GetObject 로 서명된 결과(정상 동작).
+                      </li>
+                    )}
                     {certInspect.keyAnalysis?.nonAsciiCount > 0 && (
                       <li className="font-semibold text-red-700">
                         fileKey 에 비ASCII 문자 {certInspect.keyAnalysis.nonAsciiCount}개 발견 →

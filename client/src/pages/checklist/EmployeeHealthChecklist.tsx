@@ -34,9 +34,11 @@ import * as XLSX from "xlsx";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 
-// ★ PR-AC (2026-05-23): SW/브라우저 캐시 강제 무효화용 빌드 태그.
-//   이 값이 바뀌면 production 번들 해시도 바뀌어 사용자가 신규 코드를 받아갑니다.
-const BUILD_TAG = "PR-AC-2026-05-23";
+// ★ PR-AF (2026-05-23): SW/브라우저 캐시 강제 무효화용 빌드 태그.
+//   PR-AF 에서 server 측 getDownloadUrl 의 검증 방식이 HEAD → GET Range
+//   로 바뀜. 클라이언트 동작 자체는 변하지 않았지만 server 응답이 정상화되어
+//   사용자가 다시 다운로드 시도할 수 있도록 SW 캐시 무효화.
+const BUILD_TAG = "PR-AF-2026-05-23";
 
 export default function EmployeeHealthChecklist() {
   // 진단용: 마운트 시점 1회 빌드 태그 노출 (개발자 도구 콘솔로 확인).
