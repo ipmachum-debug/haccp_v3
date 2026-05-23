@@ -501,47 +501,181 @@ export const tenantIsolationAuditRouter = router({
         }
       }
 
-      // 4) presigned URL 로 HEAD 요청 직접 시도 (raw 응답 캡처)
+      // 4) presigned URL 로 HEAD/GET 요청 직접 시도 (raw 응답 캡처)
+      // PR-AE 강화: 응답 헤더 전체 dump + body 자동 판별 + GET probe 별도 캡처
       let headProbe: any = { attempted: false };
       if (presignedAttempt.ok && presignedAttempt.urlSample) {
-        // 위 attempt 에서 자른 URL 이 아니라 full URL 이 필요하므로 다시 발급
         try {
           const { storageGet } = await import("../../storage");
           const { url: fullUrl } = await storageGet(fileKey!);
+
+          // 헤더 전체를 plain object 로 변환하는 유틸
+          const dumpHeaders = (h: Headers): Record<string, string> => {
+            const out: Record<string, string> = {};
+            h.forEach((value, key) => {
+              out[key] = value;
+            });
+            return out;
+          };
+
+          // body 자동 판별 — 첫 8바이트 magic / 인쇄가능 비율 기반
+          const classifyBody = (
+            buf: Uint8Array
+          ): {
+            kind: string;
+            magicHex: string;
+            isPrintable: boolean;
+            looksLikeXml: boolean;
+            looksLikeHtml: boolean;
+            looksLikePdf: boolean;
+            looksLikeJpeg: boolean;
+            looksLikePng: boolean;
+          } => {
+            const sample = buf.slice(0, 16);
+            const magicHex = Array.from(sample)
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join(" ");
+            // 인쇄가능 ASCII 비율 (첫 200 바이트)
+            const head = buf.slice(0, 200);
+            let printable = 0;
+            for (const b of head) {
+              if ((b >= 0x20 && b <= 0x7e) || b === 0x09 || b === 0x0a || b === 0x0d) {
+                printable++;
+              }
+            }
+            const isPrintable = head.length > 0 && printable / head.length > 0.85;
+            // 텍스트 헤드 (XML/HTML 판별용)
+            const headText = new TextDecoder("utf-8", { fatal: false })
+              .decode(head)
+              .trim()
+              .toLowerCase();
+            const looksLikePdf = magicHex.startsWith("25 50 44 46"); // %PDF
+            const looksLikeJpeg = magicHex.startsWith("ff d8 ff");
+            const looksLikePng = magicHex.startsWith("89 50 4e 47");
+            const looksLikeXml =
+              headText.startsWith("<?xml") || headText.startsWith("<error");
+            const looksLikeHtml =
+              headText.startsWith("<!doctype html") || headText.startsWith("<html");
+            let kind = "unknown-binary";
+            if (looksLikePdf) kind = "pdf";
+            else if (looksLikeJpeg) kind = "jpeg";
+            else if (looksLikePng) kind = "png";
+            else if (looksLikeXml) kind = "xml";
+            else if (looksLikeHtml) kind = "html";
+            else if (isPrintable) kind = "text-like";
+            return {
+              kind,
+              magicHex,
+              isPrintable,
+              looksLikeXml,
+              looksLikeHtml,
+              looksLikePdf,
+              looksLikeJpeg,
+              looksLikePng,
+            };
+          };
+
+          // ── HEAD probe ──
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const resp = await fetch(fullUrl, {
+          const headResp = await fetch(fullUrl, {
             method: "HEAD",
             signal: controller.signal,
           });
           clearTimeout(timeoutId);
-          // 403 이라도 body 의 일부를 받아보고 싶지만 HEAD 에는 body 없음.
-          // 대신 GET 으로 body 일부를 읽어 R2 의 XML 에러 코드까지 확인.
-          let bodySnippet: string | undefined;
-          if (!resp.ok) {
-            try {
-              const controller2 = new AbortController();
-              const timeoutId2 = setTimeout(() => controller2.abort(), 5000);
-              const getResp = await fetch(fullUrl, {
-                method: "GET",
-                signal: controller2.signal,
-              });
-              clearTimeout(timeoutId2);
-              const text = await getResp.text();
-              bodySnippet = text.slice(0, 500);
-            } catch {
-              /* ignore */
-            }
+
+          const headHeaders = dumpHeaders(headResp.headers);
+
+          // ── GET probe (항상 실행 — 성공이든 실패든 body 형태가 root cause 단서) ──
+          let getProbe: any = null;
+          try {
+            const controller2 = new AbortController();
+            const timeoutId2 = setTimeout(() => controller2.abort(), 8000);
+            const getResp = await fetch(fullUrl, {
+              method: "GET",
+              signal: controller2.signal,
+            });
+            clearTimeout(timeoutId2);
+
+            const getHeaders = dumpHeaders(getResp.headers);
+            // body 를 ArrayBuffer 로 읽어 magic bytes 와 텍스트 둘 다 확보
+            const ab = await getResp.arrayBuffer();
+            const buf = new Uint8Array(ab);
+            const totalBytes = buf.byteLength;
+            const classification = classifyBody(buf);
+            // text 표현은 첫 500바이트만
+            const textSnippet = new TextDecoder("utf-8", { fatal: false })
+              .decode(buf.slice(0, 500));
+            // 첫 80바이트 hex
+            const headHex = Array.from(buf.slice(0, 80))
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join(" ");
+
+            getProbe = {
+              attempted: true,
+              ok: getResp.ok,
+              status: getResp.status,
+              statusText: getResp.statusText,
+              totalBytes,
+              headers: getHeaders,
+              classification,
+              headHex,
+              textSnippet,
+            };
+          } catch (err: any) {
+            getProbe = {
+              attempted: true,
+              ok: false,
+              error: `${err?.name ?? "Error"}: ${err?.message?.slice(0, 200) ?? "unknown"}`,
+            };
           }
+
+          // ── 모순 감지 (3-layer defense) ──
+          // status 가 4xx/5xx 인데 body 가 PDF/이미지/text-like 이면 매우 의심
+          const contradictions: string[] = [];
+          if (
+            getProbe?.attempted &&
+            !getProbe.ok &&
+            (getProbe.classification?.looksLikePdf ||
+              getProbe.classification?.looksLikeJpeg ||
+              getProbe.classification?.looksLikePng)
+          ) {
+            contradictions.push(
+              `status ${getProbe.status} 인데 body 가 ${getProbe.classification.kind} — Cloudflare 중간 가공 가능성`
+            );
+          }
+          if (
+            getProbe?.attempted &&
+            getProbe.headers?.["content-type"] &&
+            getProbe.classification?.looksLikePdf &&
+            !/pdf/i.test(getProbe.headers["content-type"])
+          ) {
+            contradictions.push(
+              `Content-Type "${getProbe.headers["content-type"]}" 이지만 body 는 PDF — origin 응답 아님`
+            );
+          }
+          if (
+            headResp.status !== (getProbe?.status ?? headResp.status)
+          ) {
+            contradictions.push(
+              `HEAD status ${headResp.status} ≠ GET status ${getProbe?.status} — proxy 불일치`
+            );
+          }
+
           headProbe = {
             attempted: true,
-            ok: resp.ok,
-            status: resp.status,
-            statusText: resp.statusText,
-            contentType: resp.headers.get("content-type") ?? null,
-            contentLength: resp.headers.get("content-length") ?? null,
-            cfRay: resp.headers.get("cf-ray") ?? null,
-            bodySnippet,
+            ok: headResp.ok,
+            status: headResp.status,
+            statusText: headResp.statusText,
+            contentType: headResp.headers.get("content-type") ?? null,
+            contentLength: headResp.headers.get("content-length") ?? null,
+            cfRay: headResp.headers.get("cf-ray") ?? null,
+            cfCacheStatus: headResp.headers.get("cf-cache-status") ?? null,
+            server: headResp.headers.get("server") ?? null,
+            via: headResp.headers.get("via") ?? null,
+            allHeaders: headHeaders,
+            getProbe,
+            contradictions,
           };
         } catch (err: any) {
           headProbe = {

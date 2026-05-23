@@ -4,6 +4,16 @@ import SuperAdminLayout from "@/components/dashboard/SuperAdminLayout";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
+// ★ PR-AE (2026-05-23): SuperAdminDashboard 의 진단 UI 가 변경되어
+//   사장님 브라우저에 캐시된 구버전과 신버전을 구분할 수 있어야 함.
+//   콘솔에서 [SuperAdminDashboard] BUILD_TAG=PR-AE-2026-05-23 확인 가능.
+const BUILD_TAG = "PR-AE-2026-05-23";
+if (typeof window !== "undefined" && !(window as any).__HACCP_SUPER_ADMIN_BUILD_TAG__) {
+  (window as any).__HACCP_SUPER_ADMIN_BUILD_TAG__ = BUILD_TAG;
+  // eslint-disable-next-line no-console
+  console.info(`[SuperAdminDashboard] BUILD_TAG=${BUILD_TAG}`);
+}
+
 // ★ PR-AC2 (2026-05-23): Storage 진단 결과 타입
 //   tenantIsolationAudit.storageHealthCheck 의 응답 구조와 일치.
 type StorageHealthResult = {
@@ -496,7 +506,10 @@ export default function SuperAdminDashboard() {
                   건강진단서 fileKey 진단
                 </h2>
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
-                  PR-AD
+                  PR-AE
+                </span>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  build {BUILD_TAG}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -720,7 +733,7 @@ export default function SuperAdminDashboard() {
                   </div>
                 )}
 
-                {/* HEAD/GET probe 결과 (R2 응답 raw) */}
+                {/* HEAD/GET probe 결과 (R2 응답 raw) — PR-AE 강화 */}
                 {certInspect.headProbe?.attempted && (
                   <div
                     className={`p-4 rounded-lg border-2 ${
@@ -730,7 +743,7 @@ export default function SuperAdminDashboard() {
                     }`}
                   >
                     <p className="font-semibold text-gray-900 mb-2">
-                      🌐 서버 → R2 HEAD/GET probe:{" "}
+                      🌐 서버 → R2 HEAD probe:{" "}
                       {certInspect.headProbe.ok ? "✅ 200 OK" : `❌ ${certInspect.headProbe.status} ${certInspect.headProbe.statusText}`}
                     </p>
                     {certInspect.headProbe.error && (
@@ -738,10 +751,28 @@ export default function SuperAdminDashboard() {
                         {certInspect.headProbe.error}
                       </p>
                     )}
+
+                    {/* 모순 감지 (root cause 후보 자동 강조) */}
+                    {Array.isArray(certInspect.headProbe.contradictions) &&
+                      certInspect.headProbe.contradictions.length > 0 && (
+                        <div className="mb-3 p-3 bg-red-100 border border-red-300 rounded">
+                          <p className="text-xs font-bold text-red-800 mb-1">
+                            ⚠️ 응답 모순 감지 (PR-AE)
+                          </p>
+                          <ul className="text-xs text-red-700 space-y-1 list-disc list-inside">
+                            {certInspect.headProbe.contradictions.map(
+                              (msg: string, i: number) => (
+                                <li key={i}>{msg}</li>
+                              )
+                            )}
+                          </ul>
+                        </div>
+                      )}
+
                     {certInspect.headProbe.status && (
                       <div className="text-sm space-y-1 font-mono">
                         <div>
-                          <span className="text-gray-600 text-xs">status:</span>{" "}
+                          <span className="text-gray-600 text-xs">HEAD status:</span>{" "}
                           <span>{certInspect.headProbe.status} {certInspect.headProbe.statusText}</span>
                         </div>
                         <div>
@@ -752,13 +783,113 @@ export default function SuperAdminDashboard() {
                           <span className="text-gray-600 text-xs">CF-Ray:</span>{" "}
                           <span>{certInspect.headProbe.cfRay ?? "(none)"}</span>
                         </div>
-                        {certInspect.headProbe.bodySnippet && (
+                        {certInspect.headProbe.cfCacheStatus && (
                           <div>
-                            <div className="text-gray-600 text-xs">R2 응답 body (처음 500자):</div>
-                            <pre className="bg-white p-2 rounded border break-all text-xs whitespace-pre-wrap">
-                              {certInspect.headProbe.bodySnippet}
+                            <span className="text-gray-600 text-xs">CF-Cache-Status:</span>{" "}
+                            <span>{certInspect.headProbe.cfCacheStatus}</span>
+                          </div>
+                        )}
+                        {certInspect.headProbe.server && (
+                          <div>
+                            <span className="text-gray-600 text-xs">Server:</span>{" "}
+                            <span>{certInspect.headProbe.server}</span>
+                          </div>
+                        )}
+                        {certInspect.headProbe.via && (
+                          <div>
+                            <span className="text-gray-600 text-xs">Via:</span>{" "}
+                            <span>{certInspect.headProbe.via}</span>
+                          </div>
+                        )}
+
+                        {/* HEAD 응답 헤더 전체 dump */}
+                        {certInspect.headProbe.allHeaders && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs text-gray-700 font-semibold">
+                              HEAD 응답 헤더 전체 ({Object.keys(certInspect.headProbe.allHeaders).length}개) — 펼치기
+                            </summary>
+                            <pre className="bg-white p-2 mt-1 rounded border text-xs whitespace-pre-wrap break-all">
+                              {Object.entries(certInspect.headProbe.allHeaders)
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join("\n")}
+                            </pre>
+                          </details>
+                        )}
+                      </div>
+                    )}
+
+                    {/* GET probe 결과 (별도 박스 — 핵심 root cause 단서) */}
+                    {certInspect.headProbe.getProbe?.attempted && (
+                      <div className="mt-3 p-3 bg-white border-2 border-amber-300 rounded">
+                        <p className="font-semibold text-amber-900 text-sm mb-2">
+                          📥 서버 → R2 GET probe:{" "}
+                          {certInspect.headProbe.getProbe.ok
+                            ? `✅ 200 OK`
+                            : `❌ ${certInspect.headProbe.getProbe.status} ${certInspect.headProbe.getProbe.statusText}`}
+                          {" "}
+                          ({certInspect.headProbe.getProbe.totalBytes ?? "?"} bytes)
+                        </p>
+                        {certInspect.headProbe.getProbe.error && (
+                          <p className="text-xs text-red-700 font-mono break-all">
+                            {certInspect.headProbe.getProbe.error}
+                          </p>
+                        )}
+
+                        {/* body 자동 분류 — 모순 감지의 핵심 입력 */}
+                        {certInspect.headProbe.getProbe.classification && (
+                          <div className="text-xs font-mono mb-2">
+                            <div>
+                              <span className="text-gray-600">body kind:</span>{" "}
+                              <span className="font-bold">
+                                {certInspect.headProbe.getProbe.classification.kind}
+                              </span>
+                              {certInspect.headProbe.getProbe.classification.looksLikePdf && (
+                                <span className="ml-2 px-1 bg-blue-100 text-blue-800 rounded">PDF</span>
+                              )}
+                              {certInspect.headProbe.getProbe.classification.looksLikeXml && (
+                                <span className="ml-2 px-1 bg-red-100 text-red-800 rounded">XML</span>
+                              )}
+                              {certInspect.headProbe.getProbe.classification.looksLikeHtml && (
+                                <span className="ml-2 px-1 bg-purple-100 text-purple-800 rounded">HTML</span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="text-gray-600">magic (첫 16바이트):</span>{" "}
+                              <span>{certInspect.headProbe.getProbe.classification.magicHex}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {certInspect.headProbe.getProbe.headHex && (
+                          <div className="text-xs font-mono">
+                            <div className="text-gray-600">hex (첫 80바이트):</div>
+                            <pre className="bg-gray-50 p-2 rounded border break-all whitespace-pre-wrap">
+                              {certInspect.headProbe.getProbe.headHex}
                             </pre>
                           </div>
+                        )}
+
+                        {certInspect.headProbe.getProbe.textSnippet && (
+                          <div className="text-xs font-mono mt-1">
+                            <div className="text-gray-600">body text (처음 500자):</div>
+                            <pre className="bg-gray-50 p-2 rounded border break-all whitespace-pre-wrap">
+                              {certInspect.headProbe.getProbe.textSnippet}
+                            </pre>
+                          </div>
+                        )}
+
+                        {/* GET 응답 헤더 전체 */}
+                        {certInspect.headProbe.getProbe.headers && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-xs text-gray-700 font-semibold">
+                              GET 응답 헤더 전체 ({Object.keys(certInspect.headProbe.getProbe.headers).length}개) — 펼치기
+                            </summary>
+                            <pre className="bg-white p-2 mt-1 rounded border text-xs whitespace-pre-wrap break-all">
+                              {Object.entries(certInspect.headProbe.getProbe.headers)
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join("\n")}
+                            </pre>
+                          </details>
                         )}
                       </div>
                     )}
@@ -790,17 +921,46 @@ export default function SuperAdminDashboard() {
                         fileKey 에 공백 포함 → 인코딩 차이 가능성 있음
                       </li>
                     )}
-                    {certInspect.headProbe?.status === 403 && (
-                      <li className="font-semibold">
-                        R2 가 403 응답 → bodySnippet 의 XML Code 필드를 확인하세요
-                        (AccessDenied / SignatureDoesNotMatch / InvalidArgument 등 구분)
-                      </li>
-                    )}
+                    {certInspect.headProbe?.status === 403 &&
+                      certInspect.headProbe?.getProbe?.classification?.looksLikeXml && (
+                        <li className="font-semibold">
+                          R2 가 403 응답 + body 가 XML → 진짜 R2 origin 에러 (XML Code 필드 확인:
+                          AccessDenied / SignatureDoesNotMatch / InvalidArgument 등)
+                        </li>
+                      )}
+                    {certInspect.headProbe?.status === 403 &&
+                      certInspect.headProbe?.getProbe?.classification?.looksLikePdf && (
+                        <li className="font-bold text-red-800">
+                          🚨 status 403 인데 body 는 PDF — R2 origin 응답이 아닙니다.
+                          중간 proxy (Cloudflare Worker / WAF / Page Rules / Custom Domain 설정 등) 가
+                          응답을 가공하고 있을 가능성이 매우 높습니다.
+                        </li>
+                      )}
+                    {certInspect.headProbe?.status === 403 &&
+                      certInspect.headProbe?.getProbe?.classification?.looksLikeHtml && (
+                        <li className="font-bold text-red-800">
+                          🚨 status 403 인데 body 는 HTML — Cloudflare WAF / Bot Fight Mode /
+                          Page Rule 의 차단 페이지 가능성. WAF 룰 확인 필요.
+                        </li>
+                      )}
                     {certInspect.headProbe?.status === 404 && (
                       <li className="font-semibold text-red-700">
                         R2 가 404 응답 → 객체가 실제로 존재하지 않습니다 (업로드 실패 또는 다른 bucket)
                       </li>
                     )}
+                    {certInspect.headProbe?.contradictions?.length > 0 && (
+                      <li className="font-bold text-red-800">
+                        ⚠️ 응답 모순 {certInspect.headProbe.contradictions.length}개 감지 →
+                        위쪽 빨간 박스 참고
+                      </li>
+                    )}
+                    {certInspect.headProbe?.server &&
+                      !/cloudflare|amazons3/i.test(certInspect.headProbe.server) && (
+                        <li className="font-semibold text-orange-700">
+                          Server 헤더가 "{certInspect.headProbe.server}" — Cloudflare/S3 가 아닌
+                          중간 proxy 가 있을 수 있습니다.
+                        </li>
+                      )}
                   </ul>
                 </div>
               </div>
