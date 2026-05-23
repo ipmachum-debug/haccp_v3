@@ -34,11 +34,10 @@ import * as XLSX from "xlsx";
 
 import { formatLocalDate } from "../../lib/dateUtils";
 
-// ★ PR-AF (2026-05-23): SW/브라우저 캐시 강제 무효화용 빌드 태그.
-//   PR-AF 에서 server 측 getDownloadUrl 의 검증 방식이 HEAD → GET Range
-//   로 바뀜. 클라이언트 동작 자체는 변하지 않았지만 server 응답이 정상화되어
-//   사용자가 다시 다운로드 시도할 수 있도록 SW 캐시 무효화.
-const BUILD_TAG = "PR-AF-2026-05-23";
+// ★ PR-AG (2026-05-23): 서버 프록시 다운로드로 전환.
+//   클라이언트가 R2 에 직접 접근하지 않고, 서버가 R2 에서 받아서 stream.
+//   PR-AE 진단으로 클라이언트→R2 직접 접근은 AccessDenied 가 확인됨.
+const BUILD_TAG = "PR-AG-2026-05-23";
 
 export default function EmployeeHealthChecklist() {
   // 진단용: 마운트 시점 1회 빌드 태그 노출 (개발자 도구 콘솔로 확인).
@@ -141,30 +140,46 @@ export default function EmployeeHealthChecklist() {
   //   해결: **서버가 storageGet 직후 HEAD 요청으로 URL 의 유효성을 사전 검증**.
   //   서버는 same-origin 이므로 CORS 무관. probe 실패 시 서버가 TRPCError 발생 →
   //   여기 catch 로 도달 → 토스트 표시. 새 창은 검증 통과한 URL 에 대해서만 엶.
-  const getDownloadUrlMutation = trpc.healthCertificate.getDownloadUrl.useMutation();
+  // ★ PR-AG (2026-05-23): 서버 프록시 다운로드로 전환
+  //
+  //   PR-AB ~ PR-AF 의 진단으로 확정된 사실:
+  //   • R2 storage 정상 (PUT/GET 라이브 통과)
+  //   • fileKey 정상, presigned URL 정상 발급
+  //   • 서버측 GET → 200 OK + 정상 PDF (375KB) 받음
+  //   • 그런데 클라이언트 새 창 navigate → R2 가 AccessDenied XML 반환
+  //
+  //   원인 후보 (브라우저 vs 서버 차이):
+  //   A) R2 의 Referer/Origin/Sec-Fetch-Site 기반 차단
+  //   B) Bucket CORS allowedOrigins 누락
+  //   C) Cloudflare 도메인의 hotlink protection
+  //   D) presigned URL header 가 브라우저에서만 다르게 전송됨
+  //
+  //   원인을 추적하는 것보다 **클라이언트가 R2 에 직접 접근하지 않는** 방식이
+  //   훨씬 안전하고 확실함. 서버는 이미 200 OK 를 받음을 확인.
+  //
+  //   동작: window.open(`/api/health-cert/download/${certId}`)
+  //   - same-origin 이라 JWT 쿠키 자동 전송
+  //   - 서버가 R2 에서 받아서 brower 로 stream
+  //   - PDF/이미지는 inline Content-Disposition 으로 새 창에서 직접 렌더
+  //
+  //   장점:
+  //   • R2 의 CORS/Referer/Origin 정책 완전 우회
+  //   • 진단 endpoint 와 동일 코드 경로 (서버 → R2)
+  //   • tenant 권한 재검증 한 번 더
+  //   • XML 페이지 노출 불가 (서버가 5xx 시 JSON 에러 반환)
+  //
+  //   비용: egress 한 번 더, 평균 500KB PDF → 무시 가능
   const handleOpenFile = async (certId: number) => {
     try {
-      const result = await getDownloadUrlMutation.mutateAsync({ id: certId });
-      // 서버가 HEAD 검증을 통과한 URL 만 여기까지 도달.
-      // urlVerified === false 인 경우는 서버가 이미 TRPCError 를 던졌어야 함 (defensive check).
-      if (!result?.url) {
-        toast.error("다운로드 URL 발급에 실패했습니다.");
-        return;
-      }
-      if (result.urlVerified === false) {
-        toast.error("서버에서 URL 검증에 실패했습니다. 관리자에게 문의하세요.", { duration: 7000 });
-        return;
-      }
-      // PR-AC: 서버가 HEAD 200 OK 를 확인한 URL — 안전하게 새 창에서 열기.
-      window.open(result.url, "_blank", "noopener,noreferrer");
+      // 서버 프록시 URL — same-origin 이라 쿠키 자동 전송
+      const proxyUrl = `/api/health-cert/download/${certId}`;
+      window.open(proxyUrl, "_blank", "noopener,noreferrer");
     } catch (err: any) {
-      // PR-AC: 서버가 던진 TRPCError 메시지에 cert id / keySource / S3 status code 등이 포함됨.
       toast.error(err?.message || "파일을 열 수 없습니다.", { duration: 7000 });
       // eslint-disable-next-line no-console
-      console.error("[health-cert download] server-side validation failed", {
+      console.error("[health-cert download] proxy open failed", {
         certId,
         message: err?.message,
-        data: err?.data,
       });
     }
   };
@@ -517,7 +532,6 @@ export default function EmployeeHealthChecklist() {
                       <button
                         type="button"
                         onClick={() => handleOpenFile(editingCert.id)}
-                        disabled={getDownloadUrlMutation.isPending}
                         className="flex items-center gap-2 text-sm text-blue-600 hover:underline disabled:opacity-50"
                       >
                         <Eye className="h-4 w-4" />
@@ -699,7 +713,6 @@ export default function EmployeeHealthChecklist() {
                               variant="ghost"
                               size="sm"
                               onClick={() => handleOpenFile(cert.id)}
-                              disabled={getDownloadUrlMutation.isPending}
                               title="첨부 파일 보기"
                             >
                               <Eye className="h-4 w-4" />
