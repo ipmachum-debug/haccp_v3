@@ -576,6 +576,12 @@ export const tenantIsolationAuditRouter = router({
           };
 
           // ── HEAD probe ──
+          // PR-AF (2026-05-23): GetObject-서명 URL 에 HEAD 를 보내면
+          // SigV4 SignatureDoesNotMatch → 403 이 발생. 이는 R2/S3 의 정상 동작.
+          // 진단에서는 그래도 HEAD 를 시도해서 GET 과의 차이를 비교하는 게
+          // 교육적 가치가 있음 (서명 mismatch 시 R2 가 어떻게 반응하는지 dump).
+          // 단, contradictions 에서 "HEAD≠GET 은 정상 동작 (GET-서명)" 라벨을
+          // 추가하여 오해를 방지.
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
           const headResp = await fetch(fullUrl, {
@@ -631,8 +637,22 @@ export const tenantIsolationAuditRouter = router({
           }
 
           // ── 모순 감지 (3-layer defense) ──
-          // status 가 4xx/5xx 인데 body 가 PDF/이미지/text-like 이면 매우 의심
+          // PR-AF (2026-05-23): HEAD≠GET 의 진짜 의미를 라벨링
           const contradictions: string[] = [];
+          const notes: string[] = [];
+
+          // ⭐ 가장 흔한 케이스: GetObject-서명 URL 에 HEAD 호출시 403 + GET 정상
+          //   이건 모순이 아니라 R2/S3 의 정상 SigV4 동작.
+          const headIs403 = headResp.status === 403;
+          const getIsOk = !!getProbe?.ok;
+          if (headIs403 && getIsOk) {
+            notes.push(
+              `HEAD 403 + GET 200 → 정상 동작 (presigned URL 이 GetObjectCommand 로 서명되어 HEAD 호출시 SignatureDoesNotMatch). 다운로드 자체에는 영향 없음.`
+            );
+          }
+
+          // status 가 4xx/5xx 인데 body 가 PDF/이미지/text-like 이면 매우 의심
+          // (단, HEAD 의 403 은 위에서 설명됐으므로 GET 기준으로만 판단)
           if (
             getProbe?.attempted &&
             !getProbe.ok &&
@@ -641,24 +661,27 @@ export const tenantIsolationAuditRouter = router({
               getProbe.classification?.looksLikePng)
           ) {
             contradictions.push(
-              `status ${getProbe.status} 인데 body 가 ${getProbe.classification.kind} — Cloudflare 중간 가공 가능성`
+              `GET status ${getProbe.status} 인데 body 가 ${getProbe.classification.kind} — Cloudflare 중간 가공 가능성`
             );
           }
           if (
             getProbe?.attempted &&
+            getProbe.ok &&
             getProbe.headers?.["content-type"] &&
             getProbe.classification?.looksLikePdf &&
-            !/pdf/i.test(getProbe.headers["content-type"])
+            !/pdf|octet-stream/i.test(getProbe.headers["content-type"])
           ) {
             contradictions.push(
-              `Content-Type "${getProbe.headers["content-type"]}" 이지만 body 는 PDF — origin 응답 아님`
+              `Content-Type "${getProbe.headers["content-type"]}" 이지만 body 는 PDF — Content-Type 미스매치`
             );
           }
+          // HEAD vs GET status 불일치는 위에서 라벨된 경우(403→200) 외에만 모순
           if (
-            headResp.status !== (getProbe?.status ?? headResp.status)
+            headResp.status !== (getProbe?.status ?? headResp.status) &&
+            !(headIs403 && getIsOk)
           ) {
             contradictions.push(
-              `HEAD status ${headResp.status} ≠ GET status ${getProbe?.status} — proxy 불일치`
+              `HEAD status ${headResp.status} ≠ GET status ${getProbe?.status} — proxy 불일치 의심`
             );
           }
 
@@ -676,6 +699,9 @@ export const tenantIsolationAuditRouter = router({
             allHeaders: headHeaders,
             getProbe,
             contradictions,
+            notes, // ★ PR-AF: 정상 동작 라벨 (오해 방지)
+            // ★ PR-AF: GET 기준의 최종 판정 (다운로드 가능 여부)
+            downloadable: !!getProbe?.ok,
           };
         } catch (err: any) {
           headProbe = {
