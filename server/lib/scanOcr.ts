@@ -672,17 +672,37 @@ export async function enhancedOcrAndStructure(
     };
   } catch (error: any) {
     // PR-AH: OpenAI 에러를 구체적으로 분류
+    // PR-AJ: 키 진단 정보를 메시지에 주입 (router의 try/catch는 도달 못함 — success=false 반환 경로)
     const errMsg = error?.message || "OCR 처리 중 오류가 발생했습니다.";
     const status = error?.status;
     const errType = error?.type;
+
+    // 키 진단 (401 / 키 누락 케이스용)
+    let keyDiagSuffix = "";
+    try {
+      const diag = findApiKeyWithDiagnostics();
+      const proxyUrl = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
+      const keyPreview = diag.key ? `${diag.key.slice(0, 7)}***(len=${diag.key.length})` : "(empty)";
+      keyDiagSuffix =
+        ` | 진단: source=${diag.source}, ` +
+        `keyPreview=${keyPreview}, ` +
+        `proxy=${proxyUrl ? proxyUrl.replace(/^https?:\/\//, "").slice(0, 40) : "(none)"}, ` +
+        `processEnv=[OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}]`;
+    } catch {
+      keyDiagSuffix = " | 진단 수집 실패";
+    }
 
     let userFacingError = errMsg;
     if (status === 400 && errMsg.toLowerCase().includes("image")) {
       userFacingError = `OpenAI Vision이 이미지를 거부했습니다. PDF가 손상되었거나 변환 결과가 비정상일 수 있습니다. (${errMsg.slice(0, 150)})`;
     } else if (status === 429) {
       userFacingError = `OpenAI API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (${errMsg.slice(0, 150)})`;
-    } else if (status === 401) {
-      userFacingError = `OpenAI API 키 인증 실패. 관리자에게 문의하세요. (${errMsg.slice(0, 150)})`;
+    } else if (status === 401 || errMsg.includes("Incorrect API key") || errMsg.toLowerCase().includes("invalid api key")) {
+      // PR-AJ: 401 시 키 진단 정보를 메시지에 포함
+      userFacingError = `OpenAI API 키 인증 실패 (401). 키가 만료/취소되었거나, 운영 환경에서 BUILT_IN_FORGE_API_URL 프록시와 매칭되지 않는 키일 수 있습니다.${keyDiagSuffix}`;
+    } else if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("API 키") || errMsg.includes("설정 누락")) {
+      // PR-AJ: 키 누락 시 진단 정보 포함
+      userFacingError = `OpenAI/Forge API 키 설정 누락.${keyDiagSuffix} 서버 .env 파일 또는 PM2 환경에 키를 설정해주세요.`;
     } else if (errType === "timeout" || errMsg.toLowerCase().includes("timeout")) {
       userFacingError = `OpenAI API 시간 초과 (90초). 페이지 수가 많거나 이미지가 매우 클 때 발생합니다.`;
     }
@@ -691,6 +711,7 @@ export async function enhancedOcrAndStructure(
       message: errMsg,
       status,
       type: errType,
+      keyDiagSuffix,
       stack: error?.stack?.split("\n").slice(0, 5).join("\n"),
     });
 

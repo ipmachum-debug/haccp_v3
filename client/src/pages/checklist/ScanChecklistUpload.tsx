@@ -20,8 +20,8 @@ import {
   Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw
 } from "lucide-react";
 
-// PR-AI-2026-05-27 BUILD_TAG — OpenAI 키 해결 로직 통합 (forge 프록시 지원)
-const BUILD_TAG = "PR-AI-2026-05-27";
+// PR-AJ-2026-05-27 BUILD_TAG — enhancedOcrAndStructure catch에 키 진단 주입
+const BUILD_TAG = "PR-AJ-2026-05-27";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -377,7 +377,7 @@ export default function ScanChecklistUpload() {
                 <dd className="font-mono text-gray-900">{errorInfo.stage}</dd>
 
                 <dt className="text-gray-500">에러 메시지</dt>
-                <dd className="font-mono text-red-700 break-all">{errorInfo.message}</dd>
+                <dd className="font-mono text-red-700 break-all whitespace-pre-wrap text-[11px] leading-relaxed">{errorInfo.message}</dd>
 
                 {errorInfo.httpStatus !== null && errorInfo.httpStatus !== undefined && (
                   <>
