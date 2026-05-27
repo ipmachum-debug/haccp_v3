@@ -53,6 +53,26 @@ import { findApiKeyWithDiagnostics, ENV } from "../_core/env";
 //   - 응답 헤더 openai-organization / openai-version 캡쳐 (어떤 OpenAI 계정으로 도달했는지)
 const OCR_MODEL = "gpt-4o-mini";
 
+// ─────────────────────────────────────────────────────────────
+// PR-AM-2026-05-27: PR-AL 회귀 버그 hotfix
+// ─────────────────────────────────────────────────────────────
+// PR-AL 에서 OpenAI SDK 제거하면서 import 블록 정리 중에
+// `getSharp()` 함수 정의가 실수로 삭제됨.
+// 호출 (callVisionOcr 라인 324: `const sharp = await getSharp()`) 은 남아있어
+// "getSharp is not defined" 런타임 ReferenceError 발생 → 500 → router 가
+// 401 로 잘못 라벨링 (PR-AJ 의 broad 401 매칭 로직).
+//
+// 교훈: 진짜 에러는 "getSharp is not defined" 였는데 진단 메시지가
+//   '401 키 인증 실패' 로 표시되고 있었음. PR-AL 의 진단 v2 가
+//   keyTail 매칭/callUrl=(call-not-reached) 노출 덕분에 root cause 식별 가능.
+let _sharp: any = null;
+async function getSharp() {
+  if (!_sharp) {
+    try { _sharp = (await import("sharp")).default; } catch { _sharp = null; }
+  }
+  return _sharp;
+}
+
 // llm.ts:213 의 resolveApiUrl 과 동일
 function resolveOcrApiUrl(): string {
   return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
