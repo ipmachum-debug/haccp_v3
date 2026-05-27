@@ -170,29 +170,113 @@ interface PromptConfig {
 const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   ccp_1b: {
     label: "CCP-1B 가열(증숙) 기록",
-    expectedRanges: { temp: [95, 100], time: [20, 40] },
-    systemPrompt: `HACCP CCP-1B 가열(증숙) 기록지 OCR 전문가입니다.
-이 문서는 식품의 증숙(찜) 공정에서 중심온도와 가열시간을 기록한 것입니다.
-기대값: 온도 95~100°C, 시간 20~40분.
-손글씨 숫자를 정확히 읽으세요. 97과 91, 98과 93을 구별하는 데 주의하세요.
-불확실한 값은 [?] 접두사를 붙이세요.`,
+    // ★ PR-AR (2026-05-27): 폼 필드명 기준 expectedRanges
+    expectedRanges: {
+      heatingTimeMin: [5, 60],         // 가열시간 (분)
+      pressureMpa: [0, 1.0],            // 압력 (Mpa, 소수점)
+      inputAmountKg: [0, 500],          // 투입량 (kg)
+      tempEdgeC: [60, 130],             // 모서리 품온 (℃)
+      tempCenterC: [60, 130],           // 중심부 품온 (℃)
+    },
+    // ★ PR-AR: 프롬프트를 CCP1BForm 의 Ccp1bFormData 필드와 1:1 매칭.
+    //   기존 (PR-AM) 의 generic items[{equipmentName, tempC, durationMin}] →
+    //   신규 폼 필드 직접 추출.
+    systemPrompt: `HACCP CCP-1B 가열(증숙)공정 모니터링 기록서 OCR 전문가입니다.
+이 기록지는 떡류/찹쌀떡류 의 증숙(찜) 공정에서 가열시간, 압력, 투입량, 품온(모서리/중심부) 을 측정하여 기록하는 양식입니다.
+
+추출해야 할 정보 (정확한 폼 필드명 사용):
+  - recordDate: 작성일자 (YYYY-MM-DD). 손글씨 "2026.03.28" → "2026-03-28"
+  - productName: 제품명 (예: "콩고물쑥떡(교반기1호기)"). "공고화촉" 같은 잘못 인식 X.
+  - measurementTime: 측정시각 (HH:MM). 양식에 여러 행이 있으면 마지막 행.
+  - heatingTimeMin: 가열시간 (분, 정수). 보통 10~15분.
+  - pressureMpa: 압력 (Mpa, 소수점). 보통 0.12~0.28.
+  - inputAmountKg: 투입량 (kg). 보통 30~80kg.
+  - tempEdgeC: 모서리 품온 (℃, 소수점 1자리). 90℃ 이상 적합.
+  - tempCenterC: 중심부 품온 (℃, 소수점 1자리). 90℃ 이상 적합.
+  - passFail: 판정 ("적합" 또는 "부적합"). "양호/정상/PASS" → "적합" 통일.
+  - deviationContent / correctiveAction: 부적합 시만
+  - inspector: 작성자
+
+손글씨 판독 주의:
+  - 97 ↔ 91, 98 ↔ 93 비슷한 숫자 구별
+  - 0.18 mPa 와 가열시간 분 단위 혼동 X
+  - 불확실한 값은 _confidence 0.5 이하
+
+한 PDF = 한 작성일 = 한 레코드 (다중 측정 행은 PR-AS 에서 처리).`,
     jsonSchema: `{
-  "formDate": "YYYY-MM-DD", "productName": "제품명", "batchNo": "배치번호",
-  "items": [{ "equipmentName": "설비명", "batchNo": "회차", "tempC": 숫자, "durationMin": 숫자, "result": "적합/부적합" }],
-  "inspector": "작성자", "remarks": "비고"
+  "recordDate": "YYYY-MM-DD",
+  "productName": "제품명",
+  "measurementTime": "HH:MM",
+  "heatingTimeMin": 숫자(정수),
+  "pressureMpa": 숫자(소수점),
+  "inputAmountKg": 숫자(소수점),
+  "tempEdgeC": 숫자(소수점),
+  "tempCenterC": 숫자(소수점),
+  "passFail": "적합 또는 부적합",
+  "deviationContent": "이탈 내용 (없으면 빈 문자열)",
+  "correctiveAction": "개선조치 (없으면 빈 문자열)",
+  "inspector": "작성자",
+  "_confidence": {
+    "recordDate": 0.0~1.0,
+    "productName": 0.0~1.0,
+    "measurementTime": 0.0~1.0,
+    "heatingTimeMin": 0.0~1.0,
+    "pressureMpa": 0.0~1.0,
+    "inputAmountKg": 0.0~1.0,
+    "tempEdgeC": 0.0~1.0,
+    "tempCenterC": 0.0~1.0,
+    "passFail": 0.0~1.0
+  }
 }`,
   },
   ccp_2b: {
     label: "CCP-2B 가열(굽기) 기록",
-    expectedRanges: { temp: [90, 120], time: [10, 30] },
-    systemPrompt: `HACCP CCP-2B 가열(굽기) 기록지 OCR 전문가입니다.
-이 문서는 식품 굽기 공정의 온도/시간 기록입니다.
-기대값: 온도 90~120°C, 시간 10~30분.
-손글씨 숫자 판독 시 97과 91, 0과 6을 주의 깊게 구별하세요.`,
+    // ★ PR-AR: 폼 필드명 기준 expectedRanges
+    expectedRanges: {
+      heatingTimeMin: [5, 60],
+      temperatureC: [100, 200],         // 가열 온도 (℃) — 굽기는 보통 150℃ 이상
+      inputAmountKg: [0, 500],
+    },
+    // ★ PR-AR: CCP2BForm 의 Ccp2bFormData 와 1:1 매칭
+    systemPrompt: `HACCP CCP-2B 가열(굽기)공정 모니터링 기록서 OCR 전문가입니다.
+이 기록지는 견과류 (마카다미아, 호두, 땅콩 등) 의 굽기 공정에서 가열시간, 가열온도, 투입량을 측정하여 기록하는 양식입니다.
+
+추출해야 할 정보 (정확한 폼 필드명 사용):
+  - recordDate: 작성일자 (YYYY-MM-DD)
+  - productName: 제품명 (예: "마카다미아", "호두")
+  - measurementTime: 측정시각 (HH:MM)
+  - heatingTimeMin: 가열시간 (분, 정수). 보통 10~15분.
+  - temperatureC: 가열온도 (℃, 소수점 1자리). 150℃ 이상이어야 적합.
+  - inputAmountKg: 투입량 (kg)
+  - passFail: 판정 ("적합" 또는 "부적합")
+  - deviationContent / correctiveAction / inspector
+
+손글씨 판독 주의:
+  - 155 와 165, 150 과 130 같은 비슷한 숫자 정확히 구별
+  - 가열시간 (분) 과 온도 (℃) 단위 혼동 X
+  - 양식에 측정 행이 여러 개면 마지막 행 우선
+
+한 PDF = 한 작성일 = 한 레코드 (다중 측정 행은 PR-AS).`,
     jsonSchema: `{
-  "formDate": "YYYY-MM-DD", "productName": "제품명",
-  "items": [{ "equipmentName": "설비명", "batchNo": "회차", "tempC": 숫자, "durationMin": 숫자, "result": "적합/부적합" }],
-  "inspector": "작성자", "remarks": "비고"
+  "recordDate": "YYYY-MM-DD",
+  "productName": "제품명",
+  "measurementTime": "HH:MM",
+  "heatingTimeMin": 숫자(정수),
+  "temperatureC": 숫자(소수점),
+  "inputAmountKg": 숫자(소수점),
+  "passFail": "적합 또는 부적합",
+  "deviationContent": "이탈 내용",
+  "correctiveAction": "개선조치",
+  "inspector": "작성자",
+  "_confidence": {
+    "recordDate": 0.0~1.0,
+    "productName": 0.0~1.0,
+    "measurementTime": 0.0~1.0,
+    "heatingTimeMin": 0.0~1.0,
+    "temperatureC": 0.0~1.0,
+    "inputAmountKg": 0.0~1.0,
+    "passFail": 0.0~1.0
+  }
 }`,
   },
   ccp_4p: {
