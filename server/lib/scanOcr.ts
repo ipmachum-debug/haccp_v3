@@ -15,6 +15,18 @@ import { execSync } from "child_process";
 import path from "path";
 import { findApiKeyWithDiagnostics } from "../_core/env";
 
+// ─────────────────────────────────────────────────────────────
+// PR-AK-2026-05-27: gpt-4o → gpt-4o-mini 통일
+// ─────────────────────────────────────────────────────────────
+// 배경:
+//   - 다른 모든 AI 기능(server/_core/llm.ts:283)은 gpt-4o-mini 사용 → 정상 동작
+//   - scanOcr만 gpt-4o 사용 → 401 Unauthorized 발생
+//   - 원인: sk-proj-*** (Project-scoped) 키는 모델별 권한이 분리됨
+//     gpt-4o-mini는 권한 있음, gpt-4o는 권한 없음 → OpenAI가 401 반환
+// 해결: gpt-4o-mini 로 통일 (Vision 입력 지원, OCR 품질 충분, 비용 ~1/15)
+// 추가: 진단 메시지에 model 정보 노출하여 향후 재발 시 즉시 식별 가능
+const OCR_MODEL = "gpt-4o-mini";
+
 let _sharp: any = null;
 async function getSharp() {
   if (!_sharp) {
@@ -360,7 +372,7 @@ ${extraContext || ""}`;
   try {
     response = await openai.chat.completions.create(
       {
-        model: "gpt-4o",
+        model: OCR_MODEL,
         max_tokens: 4096,
         messages: [
           { role: "system", content: systemContent },
@@ -491,7 +503,7 @@ async function secondPassVerification(
     // PR-AI: 동일한 키 해결 로직 사용
     const { client: openai } = getOpenAIClient();
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: OCR_MODEL,
       max_tokens: 2048,
       messages: [
         {
@@ -683,8 +695,10 @@ export async function enhancedOcrAndStructure(
       const diag = findApiKeyWithDiagnostics();
       const proxyUrl = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
       const keyPreview = diag.key ? `${diag.key.slice(0, 7)}***(len=${diag.key.length})` : "(empty)";
+      // PR-AK: model 정보 추가 (sk-proj-*** Project key 의 모델별 권한 차이 식별용)
       keyDiagSuffix =
-        ` | 진단: source=${diag.source}, ` +
+        ` | 진단: model=${OCR_MODEL}, ` +
+        `source=${diag.source}, ` +
         `keyPreview=${keyPreview}, ` +
         `proxy=${proxyUrl ? proxyUrl.replace(/^https?:\/\//, "").slice(0, 40) : "(none)"}, ` +
         `processEnv=[OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}]`;
@@ -699,7 +713,12 @@ export async function enhancedOcrAndStructure(
       userFacingError = `OpenAI API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (${errMsg.slice(0, 150)})`;
     } else if (status === 401 || errMsg.includes("Incorrect API key") || errMsg.toLowerCase().includes("invalid api key")) {
       // PR-AJ: 401 시 키 진단 정보를 메시지에 포함
-      userFacingError = `OpenAI API 키 인증 실패 (401). 키가 만료/취소되었거나, 운영 환경에서 BUILT_IN_FORGE_API_URL 프록시와 매칭되지 않는 키일 수 있습니다.${keyDiagSuffix}`;
+      // PR-AK: sk-proj-*** Project key 의 모델별 권한 차이 가능성 안내
+      userFacingError =
+        `OpenAI API 키 인증 실패 (401). ` +
+        `(1) 키가 만료/취소되었거나, ` +
+        `(2) Project key의 모델 권한에 ${OCR_MODEL}이 없거나, ` +
+        `(3) 운영 환경에서 BUILT_IN_FORGE_API_URL 프록시와 매칭되지 않는 키일 수 있습니다.${keyDiagSuffix}`;
     } else if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("API 키") || errMsg.includes("설정 누락")) {
       // PR-AJ: 키 누락 시 진단 정보 포함
       userFacingError = `OpenAI/Forge API 키 설정 누락.${keyDiagSuffix} 서버 .env 파일 또는 PM2 환경에 키를 설정해주세요.`;

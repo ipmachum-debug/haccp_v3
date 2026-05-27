@@ -20,8 +20,8 @@ import {
   Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw
 } from "lucide-react";
 
-// PR-AJ-2026-05-27 BUILD_TAG — enhancedOcrAndStructure catch에 키 진단 주입
-const BUILD_TAG = "PR-AJ-2026-05-27";
+// PR-AK-2026-05-27 BUILD_TAG — OCR 모델 gpt-4o → gpt-4o-mini 통일 (Project key 권한 일치)
+const BUILD_TAG = "PR-AK-2026-05-27";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
