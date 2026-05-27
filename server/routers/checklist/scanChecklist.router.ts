@@ -334,6 +334,31 @@ export const scanChecklistRouter = router({
       return { success: true };
     }),
 
+  // ── 빈 양식지 PDF 다운로드 (PR-AS-blank, 2026-05-28) ──
+  // 사용자가 시스템에서 빈 CCP 양식지를 다운받아 인쇄 → 현장 수기 기입 →
+  // 스캔 업로드 시 OCR 가 양식 레이아웃 인지하여 정확히 추출.
+  downloadBlankForm: tenantRequiredProcedure
+    .input(z.object({
+      ccpType: z.enum(["ccp_1b", "ccp_2b", "ccp_3b", "ccp_4p"]),
+    }))
+    .mutation(async ({ input }) => {
+      const { generateBlankFormPdf } = await import("../../lib/blankFormPdf");
+      try {
+        const buf = await generateBlankFormPdf(input.ccpType);
+        return {
+          success: true,
+          fileName: `${input.ccpType.toUpperCase()}_빈양식지.pdf`,
+          mimeType: "application/pdf",
+          base64: buf.toString("base64"),
+        };
+      } catch (err: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `빈 양식지 PDF 생성 실패: ${err?.message || String(err)}`,
+        });
+      }
+    }),
+
   // ── 저장소 현황 (관리자) ──
   getStorageInfo: tenantRequiredProcedure.query(async () => {
     return getScanStorageInfo();
