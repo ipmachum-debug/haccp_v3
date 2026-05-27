@@ -197,15 +197,73 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   },
   ccp_4p: {
     label: "CCP-4P 금속검출 기록",
-    expectedRanges: { feMm: [1.5, 2.5], susMm: [2.0, 3.5] },
-    systemPrompt: `HACCP CCP-4P 금속검출 기록지 OCR 전문가입니다.
-금속검출기의 Fe(철)/SUS(스테인리스) 테스트피스 감도 기록입니다.
-기대값: Fe 2.0mm, SUS 2.5~3.0mm. 감도는 보통 소수점 1자리(2.0, 3.0)입니다.
-"양호", "정상", "PASS" 등은 "적합"으로 통일하세요.`,
+    // ★ PR-AO (2026-05-27): expectedRanges 를 폼 필드명 기준으로 재정의.
+    //   기존 feMm/susMm (Fe/SUS 시편 mm) 대신 sensitivitySetting/passedQuantity 등
+    //   실제 폼 입력 필드 기준 휴리스틱 검증.
+    expectedRanges: {
+      sensitivitySetting: [50, 300],   // 감도 설정값 (정수)
+      passedQuantity: [0, 100000],     // 통과량 (개)
+      detectedQuantity: [0, 10000],    // 검출량 (개)
+    },
+    // ★ PR-AO: 프롬프트를 CCP4PForm 의 Ccp4pFormData 필드와 1:1 매칭.
+    //   이전 (PR-AM) 의 generic items[{testType, sensitivity}] → 신규 폼 필드 직접 추출.
+    systemPrompt: `HACCP CCP-4P 금속검출공정 모니터링 기록서 OCR 전문가입니다.
+이 기록지는 금속검출기의 Fe/SUS 시편 통과 시험 + 제품 검출 결과를 측정 시각별로 기록하는 양식입니다.
+
+추출해야 할 정보 (정확한 폼 필드명 사용):
+  - recordDate: 작성일자 (YYYY-MM-DD)
+  - productName: 제품명 (예: "마카다미아", "참쌀떡류" — "금속검출 통합" 같은 일반 라벨 X)
+  - measurementTime: 측정시각 (HH:MM, 시:분)
+  - sensitivitySetting: 감도 설정값 (정수, 예: 130) — Fe/SUS mm 값이 아닌 기기 설정 다이얼 값
+  - feTestPiecePass: Fe 시편 통과 (체크/감지되면 "O", 미감지면 "X")
+  - stsTestPiecePass: SUS 시편 통과 ("O" 또는 "X")
+  - productOnlyPass: 제품 단독 통과 ("O" 또는 "X")
+  - feProductPass: Fe + 제품 통과 ("O" 또는 "X")
+  - stsProductPass: SUS + 제품 통과 ("O" 또는 "X")
+  - passedQuantity: 통과량 (정수, 개수)
+  - detectedQuantity: 검출량 (정수, 개수)
+  - passFail: 판정 ("적합" 또는 "부적합" — "양호/정상/PASS" 는 "적합"으로 통일)
+  - deviationContent: 이탈 내용 (부적합 시만, 없으면 빈 문자열)
+  - correctiveAction: 개선조치 및 결과 (부적합 시만)
+  - inspector: 작성자
+
+검증 규칙:
+  - sensitivitySetting 은 보통 100~200 사이 정수 (감도 130 같은 값)
+  - O/X 가 명확히 보이지 않으면 "O" 기본값 (검출 정상)
+  - 손글씨가 불확실한 필드는 _confidence 객체에 0.5 이하로 신뢰도 보고
+
+여러 측정 시각이 한 페이지에 있으면 가장 최근 시각 (또는 마지막 행) 의 값으로 추출.
+한 PDF = 한 작성일 = 한 레코드.`,
     jsonSchema: `{
-  "formDate": "YYYY-MM-DD", "productName": "금속검출 통합",
-  "items": [{ "testType": "Fe/SUS", "sensitivity": 숫자(mm), "result": "적합/부적합", "productName": "제품명" }],
-  "inspector": "작성자", "remarks": "비고"
+  "recordDate": "YYYY-MM-DD",
+  "productName": "제품명 (예: 마카다미아)",
+  "measurementTime": "HH:MM",
+  "sensitivitySetting": 숫자(정수),
+  "feTestPiecePass": "O 또는 X",
+  "stsTestPiecePass": "O 또는 X",
+  "productOnlyPass": "O 또는 X",
+  "feProductPass": "O 또는 X",
+  "stsProductPass": "O 또는 X",
+  "passedQuantity": 숫자(정수),
+  "detectedQuantity": 숫자(정수),
+  "passFail": "적합 또는 부적합",
+  "deviationContent": "이탈 내용 (없으면 빈 문자열)",
+  "correctiveAction": "개선조치 (없으면 빈 문자열)",
+  "inspector": "작성자",
+  "_confidence": {
+    "recordDate": 0.0~1.0,
+    "productName": 0.0~1.0,
+    "measurementTime": 0.0~1.0,
+    "sensitivitySetting": 0.0~1.0,
+    "feTestPiecePass": 0.0~1.0,
+    "stsTestPiecePass": 0.0~1.0,
+    "productOnlyPass": 0.0~1.0,
+    "feProductPass": 0.0~1.0,
+    "stsProductPass": 0.0~1.0,
+    "passedQuantity": 0.0~1.0,
+    "detectedQuantity": 0.0~1.0,
+    "passFail": 0.0~1.0
+  }
 }`,
   },
   ccp_record: {
