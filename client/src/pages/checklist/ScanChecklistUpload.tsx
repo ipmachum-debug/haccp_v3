@@ -17,8 +17,11 @@ import {
 import { toast } from "sonner";
 import {
   Upload, Camera, FileText, Loader2, CheckCircle2, Edit3,
-  Trash2, Eye, AlertCircle, Scan, ArrowRight
+  Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw
 } from "lucide-react";
+
+// PR-AH-2026-05-27 BUILD_TAG — OCR 진단 강화
+const BUILD_TAG = "PR-AH-2026-05-27";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -41,7 +44,19 @@ const checklistTypes = [
   { value: "general", label: "일반 체크리스트" },
 ];
 
-type Step = "upload" | "processing" | "preview" | "done";
+type Step = "upload" | "processing" | "preview" | "done" | "error";
+
+interface OcrErrorInfo {
+  stage: "upload" | "process" | "unknown";
+  message: string;
+  httpStatus?: number | null;
+  trpcCode?: string | null;
+  rawError?: string;
+  hint?: string;
+  durationMs?: number;
+  fileName?: string;
+  fileSizeKB?: number;
+}
 
 export default function ScanChecklistUpload() {
   const [step, setStep] = useState<Step>("upload");
@@ -51,6 +66,8 @@ export default function ScanChecklistUpload() {
   const [uploadKey, setUploadKey] = useState<string>("");
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [editData, setEditData] = useState<any>(null);
+  const [errorInfo, setErrorInfo] = useState<OcrErrorInfo | null>(null);
+  const [processingStage, setProcessingStage] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const uploadMutation = trpc.scanChecklist.upload.useMutation();
@@ -73,7 +90,12 @@ export default function ScanChecklistUpload() {
   const handleUploadAndProcess = async () => {
     if (!selectedFile) return;
 
+    const startTime = Date.now();
     setStep("processing");
+    setErrorInfo(null);
+    setProcessingStage("파일을 Base64로 변환 중...");
+
+    let currentStage: "upload" | "process" = "upload";
 
     try {
       // 1. Base64 변환 + 업로드 (청크 방식 - 대용량 파일 지원)
@@ -85,7 +107,11 @@ export default function ScanChecklistUpload() {
         binary += String.fromCharCode(...bytes.slice(i, i + chunkSize));
       }
       const base64 = btoa(binary);
+      const base64SizeKB = Math.round(base64.length / 1024);
 
+      setProcessingStage(`서버에 파일 업로드 중... (${base64SizeKB}KB)`);
+
+      currentStage = "upload";
       const uploadResult = await uploadMutation.mutateAsync({
         fileName: selectedFile.name,
         fileBase64: base64,
@@ -93,8 +119,10 @@ export default function ScanChecklistUpload() {
       });
 
       setUploadKey(uploadResult.key);
+      setProcessingStage("AI가 체크리스트를 분석 중...");
 
       // 2. OCR 처리
+      currentStage = "process";
       const ocrRes = await processMutation.mutateAsync({
         key: uploadResult.key,
         checklistType,
@@ -105,8 +133,64 @@ export default function ScanChecklistUpload() {
       setStep("preview");
       toast.success(`OCR 완료! 신뢰도 ${Math.round(ocrRes.confidence * 100)}%`);
     } catch (e: any) {
-      toast.error("처리 실패: " + e.message);
-      setStep("upload");
+      // ─── PR-AH: 자동 리셋 제거. 에러 화면에 영구적으로 표시 ───
+      const durationMs = Date.now() - startTime;
+
+      // tRPC 에러 구조 파싱
+      const httpStatus: number | null =
+        e?.data?.httpStatus ?? e?.shape?.data?.httpStatus ?? null;
+      const trpcCode: string | null =
+        e?.data?.code ?? e?.shape?.data?.code ?? null;
+      const rawMessage: string = e?.message || String(e);
+
+      // 원인 추정 힌트
+      let hint = "";
+      if (rawMessage.includes("401") && rawMessage.includes("no body")) {
+        hint =
+          "⚠️ 서버에서 응답 본문 없이 에러가 반환되었습니다. " +
+          "OCR 처리 중 서버 측 예외(500) 또는 인프라(nginx/Cloudflare) 차단일 가능성이 높습니다. " +
+          "서버 로그를 확인하거나 더 작은 파일로 재시도해주세요.";
+      } else if (httpStatus === 413 || rawMessage.toLowerCase().includes("payload too large")) {
+        hint = "파일이 너무 큽니다. 20MB 이하로 줄여서 다시 시도해주세요.";
+      } else if (httpStatus === 504 || rawMessage.toLowerCase().includes("timeout")) {
+        hint =
+          "OCR 처리가 시간 제한을 초과했습니다. " +
+          "PDF 페이지 수가 많거나 이미지가 매우 크면 발생합니다. 더 작은 파일로 재시도해주세요.";
+      } else if (httpStatus === 500 || trpcCode === "INTERNAL_SERVER_ERROR") {
+        hint =
+          "서버에서 OCR 처리 중 오류가 발생했습니다. " +
+          "PDF 손상, OpenAI API 한도 초과, 또는 pdftoppm 변환 실패 등이 원인일 수 있습니다.";
+      } else if (httpStatus === 401 || httpStatus === 403 || trpcCode === "UNAUTHORIZED") {
+        hint = "인증이 만료되었습니다. 페이지를 새로고침 후 다시 로그인해주세요.";
+      }
+
+      const info: OcrErrorInfo = {
+        stage: currentStage,
+        message: rawMessage,
+        httpStatus,
+        trpcCode,
+        rawError: JSON.stringify({
+          message: e?.message,
+          data: e?.data,
+          shape: e?.shape,
+        }, null, 2).slice(0, 2000),
+        hint,
+        durationMs,
+        fileName: selectedFile?.name,
+        fileSizeKB: Math.round((selectedFile?.size || 0) / 1024),
+      };
+
+      setErrorInfo(info);
+      setStep("error");
+      toast.error("처리 실패 — 화면의 진단 정보를 확인해주세요.");
+      // 콘솔에도 전체 에러 객체 dump
+      // eslint-disable-next-line no-console
+      console.error(`[ScanChecklist ${BUILD_TAG}] ${currentStage} 단계 실패`, {
+        info,
+        rawError: e,
+      });
+    } finally {
+      setProcessingStage("");
     }
   };
 
@@ -140,7 +224,19 @@ export default function ScanChecklistUpload() {
     setUploadKey("");
     setOcrResult(null);
     setEditData(null);
+    setErrorInfo(null);
+    setProcessingStage("");
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // 에러 상태에서 동일 파일 재시도
+  const handleRetry = () => {
+    setErrorInfo(null);
+    if (selectedFile) {
+      handleUploadAndProcess();
+    } else {
+      setStep("upload");
+    }
   };
 
   return (
@@ -159,10 +255,14 @@ export default function ScanChecklistUpload() {
         <div className="flex items-center gap-2 text-xs">
           {["업로드", "OCR 처리", "확인/수정", "완료"].map((s, i) => {
             const stepMap: Step[] = ["upload", "processing", "preview", "done"];
-            const isActive = stepMap.indexOf(step) >= i;
+            const isActive = step !== "error" && stepMap.indexOf(step) >= i;
+            const isErrorStep = step === "error" && ((errorInfo?.stage === "upload" && i === 0) || (errorInfo?.stage === "process" && i === 1));
             return (
               <div key={s} className="flex items-center gap-2">
-                <span className={`px-2.5 py-1 rounded-full font-bold ${isActive ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-400"}`}>
+                <span className={`px-2.5 py-1 rounded-full font-bold ${
+                  isErrorStep ? "bg-red-100 text-red-700" :
+                  isActive ? "bg-violet-100 text-violet-700" : "bg-gray-100 text-gray-400"
+                }`}>
                   {i + 1}. {s}
                 </span>
                 {i < 3 && <ArrowRight className="h-3 w-3 text-gray-300" />}
@@ -240,6 +340,95 @@ export default function ScanChecklistUpload() {
             <Loader2 className="h-12 w-12 animate-spin text-violet-500 mx-auto mb-4" />
             <p className="text-lg font-bold text-gray-800">AI가 체크리스트를 분석하고 있습니다...</p>
             <p className="text-sm text-gray-500 mt-1">수기 내용을 인식하고 구조화하는 중입니다 (약 10~30초)</p>
+            {processingStage && (
+              <p className="text-xs text-violet-600 mt-3 font-medium">{processingStage}</p>
+            )}
+          </div>
+        )}
+
+        {/* ═══ STEP ERROR: 진단 정보 표시 (PR-AH) ═══ */}
+        {step === "error" && errorInfo && (
+          <div className="space-y-4">
+            {/* 메인 에러 카드 */}
+            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-5 shadow-sm">
+              <div className="flex items-start gap-3">
+                <XCircle className="h-7 w-7 text-red-500 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-red-900">OCR 처리 실패</h3>
+                  <p className="text-sm text-red-700 mt-1">
+                    <strong>{errorInfo.stage === "upload" ? "파일 업로드" : errorInfo.stage === "process" ? "AI OCR 처리" : "알 수 없는"}</strong> 단계에서 오류가 발생했습니다.
+                  </p>
+                  {errorInfo.hint && (
+                    <div className="mt-3 p-3 bg-amber-100 border border-amber-300 rounded-lg text-sm text-amber-900">
+                      <strong>💡 원인 추정:</strong> {errorInfo.hint}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 진단 정보 카드 */}
+            <div className="bg-white rounded-xl border p-5 shadow-sm">
+              <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" /> 진단 정보 ({BUILD_TAG})
+              </h4>
+              <dl className="grid grid-cols-[140px_1fr] gap-y-2 text-xs">
+                <dt className="text-gray-500">실패 단계</dt>
+                <dd className="font-mono text-gray-900">{errorInfo.stage}</dd>
+
+                <dt className="text-gray-500">에러 메시지</dt>
+                <dd className="font-mono text-red-700 break-all">{errorInfo.message}</dd>
+
+                {errorInfo.httpStatus !== null && errorInfo.httpStatus !== undefined && (
+                  <>
+                    <dt className="text-gray-500">HTTP 상태</dt>
+                    <dd className="font-mono">
+                      <span className={`px-2 py-0.5 rounded ${
+                        errorInfo.httpStatus >= 500 ? "bg-red-100 text-red-700" :
+                        errorInfo.httpStatus >= 400 ? "bg-amber-100 text-amber-700" :
+                        "bg-gray-100 text-gray-700"
+                      }`}>{errorInfo.httpStatus}</span>
+                    </dd>
+                  </>
+                )}
+
+                {errorInfo.trpcCode && (
+                  <>
+                    <dt className="text-gray-500">tRPC 코드</dt>
+                    <dd className="font-mono text-gray-900">{errorInfo.trpcCode}</dd>
+                  </>
+                )}
+
+                <dt className="text-gray-500">소요 시간</dt>
+                <dd className="font-mono text-gray-900">{errorInfo.durationMs}ms ({Math.round((errorInfo.durationMs || 0) / 1000)}초)</dd>
+
+                <dt className="text-gray-500">파일</dt>
+                <dd className="font-mono text-gray-900">{errorInfo.fileName} ({errorInfo.fileSizeKB}KB)</dd>
+
+                <dt className="text-gray-500">체크리스트 종류</dt>
+                <dd className="font-mono text-gray-900">{checklistType}</dd>
+              </dl>
+
+              <details className="mt-4">
+                <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                  🔍 전체 에러 객체 (개발자 지원용)
+                </summary>
+                <pre className="mt-2 p-3 bg-gray-50 rounded text-[10px] overflow-auto max-h-60 font-mono text-gray-700 whitespace-pre-wrap">
+                  {errorInfo.rawError}
+                </pre>
+              </details>
+            </div>
+
+            {/* 버튼 */}
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={handleReset} className="flex-1">
+                다른 파일 선택
+              </Button>
+              <Button onClick={handleRetry} className="flex-1 bg-violet-600 hover:bg-violet-700">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                동일 파일로 재시도
+              </Button>
+            </div>
           </div>
         )}
 

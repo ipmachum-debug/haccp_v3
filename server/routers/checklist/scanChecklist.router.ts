@@ -49,28 +49,104 @@ export const scanChecklistRouter = router({
     }),
 
   // ── 2. OCR 처리 (업로드된 파일 → JSON 변환) ──
+  // PR-AH-2026-05-27: 상세 로깅 + 에러 핸들링 강화
   process: tenantRequiredProcedure
     .input(z.object({
       key: z.string(),
       checklistType: z.string().default("general"),
     }))
     .mutation(async ({ ctx, input }) => {
+      const t0 = Date.now();
+      const requestId = `ocr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const SCAN_DIR = process.env.SCAN_DIR || "/home/root/haccp_v3/uploads/scans";
       const filePath = path.join(SCAN_DIR, input.key);
 
+      // ─── 1) 파일 존재 + 크기 확인 ───
       if (!fs.existsSync(filePath)) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "스캔 파일을 찾을 수 없습니다. 다시 업로드해주세요." });
+        console.error(`[scanChecklist.process] [${requestId}] 파일 없음: ${filePath}`);
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `스캔 파일을 찾을 수 없습니다. 다시 업로드해주세요. (key=${input.key})`,
+        });
       }
 
-      // 강화된 OCR 사용 (이미지 전처리 + CCP 전문 프롬프트 + 이중 검증)
-      const result = await enhancedOcrAndStructure(filePath, input.checklistType, {
-        enableTwoPass: true,
-        enablePreprocessing: true,
-      });
+      let fileSizeBytes = 0;
+      try {
+        fileSizeBytes = fs.statSync(filePath).size;
+      } catch {}
 
+      const fileExt = path.extname(filePath).toLowerCase();
+      console.log(
+        `[scanChecklist.process] [${requestId}] 시작 — tenant=${ctx.tenantId} type=${input.checklistType} ` +
+          `file=${input.key} ext=${fileExt} size=${Math.round(fileSizeBytes / 1024)}KB`,
+      );
+
+      // ─── 2) OCR 실행 ───
+      let result: Awaited<ReturnType<typeof enhancedOcrAndStructure>>;
+      try {
+        result = await enhancedOcrAndStructure(filePath, input.checklistType, {
+          enableTwoPass: true,
+          enablePreprocessing: true,
+        });
+      } catch (err: any) {
+        // OCR 함수 자체에서 throw된 경우 (보통은 잡지만 안전망)
+        const elapsedMs = Date.now() - t0;
+        const errMsg = err?.message || String(err);
+        console.error(
+          `[scanChecklist.process] [${requestId}] OCR 예외 (${elapsedMs}ms): ${errMsg}`,
+          err?.stack,
+        );
+
+        // OpenAI API 에러 구분
+        if (errMsg.includes("OPENAI_API_KEY")) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `[${requestId}] OpenAI API 키가 서버에 설정되지 않았습니다. 관리자에게 문의하세요.`,
+          });
+        }
+        if (errMsg.toLowerCase().includes("timeout") || err?.code === "ETIMEDOUT") {
+          throw new TRPCError({
+            code: "TIMEOUT",
+            message: `[${requestId}] OCR 처리 시간 초과 (${Math.round(elapsedMs / 1000)}초). PDF 페이지 수를 줄이거나 더 작은 파일로 시도해주세요.`,
+          });
+        }
+        if (err?.status === 429 || errMsg.includes("rate limit") || errMsg.includes("429")) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: `[${requestId}] OpenAI API 호출 한도 초과. 잠시 후 다시 시도해주세요.`,
+          });
+        }
+        if (err?.status === 400 && errMsg.toLowerCase().includes("image")) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `[${requestId}] OpenAI가 이미지를 인식할 수 없습니다. PDF가 손상되었거나 변환 실패일 수 있습니다. (${errMsg.slice(0, 200)})`,
+          });
+        }
+
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `[${requestId}] OCR 처리 중 예기치 못한 오류: ${errMsg.slice(0, 300)}`,
+        });
+      }
+
+      const elapsedMs = Date.now() - t0;
+
+      // ─── 3) OCR 결과 검증 ───
       if (!result.success) {
-        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: result.error || "OCR 처리 실패" });
+        console.error(
+          `[scanChecklist.process] [${requestId}] OCR 실패 (${elapsedMs}ms): ${result.error}`,
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `[${requestId}] ${result.error || "OCR 처리 실패"}`,
+        });
       }
+
+      console.log(
+        `[scanChecklist.process] [${requestId}] 성공 (${elapsedMs}ms) — ` +
+          `pages=${result.pages} confidence=${result.overallConfidence.toFixed(2)} ` +
+          `lowConf=${result.lowConfidenceFields.length}`,
+      );
 
       return {
         success: true,
@@ -83,6 +159,13 @@ export const scanChecklistRouter = router({
         pages: result.pages,
         fields: result.fields,
         lowConfidenceFields: result.lowConfidenceFields,
+        // PR-AH: 진단 정보
+        _diagnostic: {
+          requestId,
+          elapsedMs,
+          fileSizeBytes,
+          fileExt,
+        },
       };
     }),
 
