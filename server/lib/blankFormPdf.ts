@@ -300,26 +300,37 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
       });
 
       const lx = left + labelW;
-      doc.rect(lx, y, contentW, limitsBodyH).stroke();
       const limitsColCount = spec.limitsHeader.length;
       const limitsColW = contentW / limitsColCount;
 
+      // 1) 헤더 배경 fill 먼저
       doc.fillColor("#EEEEEE").rect(lx, y, contentW, limitsHeaderH).fill();
-      doc.fillColor("#000").lineWidth(0.4).rect(lx, y, contentW, limitsHeaderH).stroke();
-      doc.font("NGB").fontSize(9);
+
+      // 2) 텍스트
+      doc.fillColor("#000").font("NGB").fontSize(9);
       spec.limitsHeader.forEach((col, i) => {
         const cx = lx + limitsColW * i;
-        if (i > 0) doc.moveTo(cx, y).lineTo(cx, y + limitsBodyH).stroke();
         doc.text(col, cx, y + 5, { width: limitsColW, align: "center" });
       });
       doc.font("NG").fontSize(9);
       spec.limitsRows.forEach((row, ri) => {
         const ry = y + limitsHeaderH + ri * limitsRowH;
-        doc.lineWidth(0.3).moveTo(lx, ry).lineTo(lx + contentW, ry).stroke();
         row.forEach((cell, ci) => {
           doc.text(cell, lx + limitsColW * ci, ry + 5, { width: limitsColW, align: "center" });
         });
       });
+
+      // 3) 선 마지막에 일괄
+      doc.strokeColor("#000").lineWidth(0.8).rect(lx, y, contentW, limitsBodyH).stroke();
+      doc.lineWidth(0.4).moveTo(lx, y + limitsHeaderH).lineTo(lx + contentW, y + limitsHeaderH).stroke();
+      for (let i = 1; i < limitsColCount; i++) {
+        const cx = lx + limitsColW * i;
+        doc.lineWidth(0.3).moveTo(cx, y).lineTo(cx, y + limitsBodyH).stroke();
+      }
+      for (let ri = 1; ri < spec.limitsRows.length; ri++) {
+        const ry = y + limitsHeaderH + ri * limitsRowH;
+        doc.lineWidth(0.3).moveTo(lx, ry).lineTo(lx + contentW, ry).stroke();
+      }
       y += limitsBodyH;
 
       // ═══════════════════════════════════════════════
@@ -363,9 +374,15 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
       const dataRowH = 20;
       const dataBodyH = dataHeaderH + dataRowCount * dataRowH;
 
-      doc.lineWidth(0.8).rect(left, y, W, dataBodyH).stroke();
+      // 1) 그룹/컬럼 헤더 배경 (fill 먼저 — stroke 를 덮어쓰지 않도록)
+      const colHeaderY = y + (hasGroupHeader ? groupHeaderH : 0);
+      if (hasGroupHeader) {
+        doc.fillColor("#E8E8E8").rect(left, y, W, groupHeaderH).fill();
+      }
+      doc.fillColor("#F2F2F2").rect(left, colHeaderY, W, colHeaderH).fill();
 
-      // 그룹 헤더
+      // 2) 그룹 헤더 텍스트 + 그룹 사이 세로선
+      let groupBoundaries: number[] = [];
       if (hasGroupHeader) {
         let xCursor = left;
         const groups: Array<{ x: number; w: number; label: string | null }> = [];
@@ -380,41 +397,70 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
           }
           xCursor += cw;
         }
-        doc.fillColor("#E8E8E8").rect(left, y, W, groupHeaderH).fill();
-        doc.fillColor("#000").lineWidth(0.3)
-          .moveTo(left, y + groupHeaderH).lineTo(left + W, y + groupHeaderH).stroke();
-        doc.font("NGB").fontSize(8);
-        groups.forEach((g, gi) => {
+        doc.fillColor("#000").font("NGB").fontSize(8);
+        groups.forEach((g) => {
           if (g.label) {
             doc.text(g.label, g.x, y + 4, { width: g.w, align: "center" });
           }
-          if (gi > 0) {
-            doc.moveTo(g.x, y).lineTo(g.x, y + groupHeaderH).stroke();
-          }
+        });
+        // 그룹 경계 (서브헤더가 있는 그룹의 좌우만 세로선)
+        groupBoundaries = groups.slice(1).map(g => g.x);
+      }
+
+      // 3) 컬럼 헤더 텍스트
+      doc.fillColor("#000").font("NGB").fontSize(8);
+      {
+        let cx = left;
+        spec.dataColumns.forEach((col) => {
+          const cw = W * col.widthRatio;
+          const headerStartY = (hasGroupHeader && !col.parentLabel) ? y : colHeaderY;
+          const headerH2 = (hasGroupHeader && !col.parentLabel) ? dataHeaderH : colHeaderH;
+          doc.text(col.label, cx, headerStartY + headerH2 / 2 - 4, {
+            width: cw, align: "center",
+          });
+          cx += cw;
         });
       }
 
-      // 컬럼 헤더
-      const colHeaderY = y + (hasGroupHeader ? groupHeaderH : 0);
-      doc.fillColor("#F2F2F2").rect(left, colHeaderY, W, colHeaderH).fill();
-      doc.fillColor("#000").lineWidth(0.4)
-        .moveTo(left, colHeaderY + colHeaderH).lineTo(left + W, colHeaderY + colHeaderH).stroke();
-      doc.font("NGB").fontSize(8);
-      let cx = left;
-      spec.dataColumns.forEach((col, i) => {
-        const cw = W * col.widthRatio;
-        if (i > 0) {
-          doc.lineWidth(0.3).moveTo(cx, y).lineTo(cx, y + dataBodyH).stroke();
-        }
-        const headerStartY = (hasGroupHeader && !col.parentLabel) ? y : colHeaderY;
-        const headerH2 = (hasGroupHeader && !col.parentLabel) ? dataHeaderH : colHeaderH;
-        doc.text(col.label, cx, headerStartY + headerH2 / 2 - 4, {
-          width: cw, align: "center",
-        });
-        cx += cw;
-      });
+      // 4) 모든 선을 마지막에 그리기 (fill 위에 덮어쓰지 않도록)
+      doc.fillColor("#000").strokeColor("#000");
 
-      // 빈 데이터 행 구분선
+      // 외곽선 (전체 표)
+      doc.lineWidth(0.8).rect(left, y, W, dataBodyH).stroke();
+
+      // 그룹 헤더 ↔ 컬럼 헤더 경계 가로선 (그룹 헤더 있는 경우만)
+      if (hasGroupHeader) {
+        doc.lineWidth(0.4)
+          .moveTo(left, y + groupHeaderH).lineTo(left + W, y + groupHeaderH).stroke();
+        // 그룹 경계 세로선 (그룹 헤더 영역만)
+        groupBoundaries.forEach(bx => {
+          doc.lineWidth(0.3).moveTo(bx, y).lineTo(bx, y + groupHeaderH).stroke();
+        });
+      }
+
+      // 컬럼 헤더 ↔ 본문 경계 가로선
+      doc.lineWidth(0.4)
+        .moveTo(left, colHeaderY + colHeaderH)
+        .lineTo(left + W, colHeaderY + colHeaderH).stroke();
+
+      // 컬럼 세로선 (헤더 + 본문 전체 높이)
+      {
+        let cx = left;
+        spec.dataColumns.forEach((col, i) => {
+          const cw = W * col.widthRatio;
+          if (i > 0) {
+            // 그룹 헤더가 있고 같은 그룹 내 형제 컬럼이면, 세로선은 컬럼 헤더 시작부터만 (그룹헤더 영역은 통합)
+            const prevParent = spec.dataColumns[i - 1].parentLabel;
+            const curParent = col.parentLabel;
+            const sameGroup = hasGroupHeader && prevParent && prevParent === curParent;
+            const startY = sameGroup ? colHeaderY : y;
+            doc.lineWidth(0.3).moveTo(cx, startY).lineTo(cx, y + dataBodyH).stroke();
+          }
+          cx += cw;
+        });
+      }
+
+      // 빈 데이터 행 가로 구분선
       for (let r = 1; r <= dataRowCount; r++) {
         const ry = colHeaderY + colHeaderH + r * dataRowH - dataRowH;
         if (r > 0) {
@@ -458,19 +504,31 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
       const footerCols = ["한계기준 이탈내용", "개선조치 및 결과", "조치자", "확인"];
       const footerColWs = [W * 0.40, W * 0.40, W * 0.10, W * 0.10];
 
-      doc.lineWidth(0.8).rect(left, y, W, footerH).stroke();
+      // 1) 헤더 배경 fill 먼저
       doc.fillColor("#EEEEEE").rect(left, y, W, footerHeaderH).fill();
-      doc.fillColor("#000").lineWidth(0.4)
-        .moveTo(left, y + footerHeaderH).lineTo(left + W, y + footerHeaderH).stroke();
-      doc.font("NGB").fontSize(9);
-      let fx = left;
-      footerCols.forEach((col, i) => {
-        if (i > 0) {
-          doc.lineWidth(0.3).moveTo(fx, y).lineTo(fx, y + footerH).stroke();
-        }
-        doc.text(col, fx, y + 4, { width: footerColWs[i], align: "center" });
-        fx += footerColWs[i];
-      });
+
+      // 2) 텍스트
+      doc.fillColor("#000").font("NGB").fontSize(9);
+      {
+        let fx = left;
+        footerCols.forEach((col, i) => {
+          doc.text(col, fx, y + 4, { width: footerColWs[i], align: "center" });
+          fx += footerColWs[i];
+        });
+      }
+
+      // 3) 선 일괄
+      doc.strokeColor("#000").lineWidth(0.8).rect(left, y, W, footerH).stroke();
+      doc.lineWidth(0.4).moveTo(left, y + footerHeaderH).lineTo(left + W, y + footerHeaderH).stroke();
+      {
+        let fx = left;
+        footerCols.forEach((_, i) => {
+          if (i > 0) {
+            doc.lineWidth(0.3).moveTo(fx, y).lineTo(fx, y + footerH).stroke();
+          }
+          fx += footerColWs[i];
+        });
+      }
       for (let r = 1; r < footerRowCount; r++) {
         const ry = y + footerHeaderH + r * footerRowH;
         doc.lineWidth(0.3).moveTo(left, ry).lineTo(left + W, ry).stroke();
