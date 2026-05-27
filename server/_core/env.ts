@@ -47,23 +47,28 @@ export function findApiKeyWithDiagnostics(): {
   key: string;
   source: string;
   checked: Array<{ path: string; exists: boolean; hasKey: boolean }>;
-  processEnv: { OPENAI: boolean; BUILT_IN_FORGE: boolean; FORGE: boolean };
+  processEnv: { OPENAI: boolean; BUILT_IN_FORGE: boolean; FORGE: boolean; BUILT_IN_FORGE_URL: boolean };
+  forgeUrlValue: string;
 } {
   const processEnv = {
     OPENAI: !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim().length > 0),
     BUILT_IN_FORGE: !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim().length > 0),
     FORGE: !!(process.env.FORGE_API_KEY && process.env.FORGE_API_KEY.trim().length > 0),
+    // PR-AL: URL 별도 검사 (KEY 와 분리)
+    BUILT_IN_FORGE_URL: !!(process.env.BUILT_IN_FORGE_API_URL && process.env.BUILT_IN_FORGE_API_URL.trim().length > 0),
   };
+  // PR-AL: forge URL 실값 (호스트 부분만)
+  const forgeUrlValue = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
 
   // 1. process.env 에서 먼저 확인 (빈 문자열은 무시)
   if (processEnv.BUILT_IN_FORGE) {
-    return { key: process.env.BUILT_IN_FORGE_API_KEY!.trim(), source: "process.env.BUILT_IN_FORGE_API_KEY", checked: [], processEnv };
+    return { key: process.env.BUILT_IN_FORGE_API_KEY!.trim(), source: "process.env.BUILT_IN_FORGE_API_KEY", checked: [], processEnv, forgeUrlValue };
   }
   if (processEnv.OPENAI) {
-    return { key: process.env.OPENAI_API_KEY!.trim(), source: "process.env.OPENAI_API_KEY", checked: [], processEnv };
+    return { key: process.env.OPENAI_API_KEY!.trim(), source: "process.env.OPENAI_API_KEY", checked: [], processEnv, forgeUrlValue };
   }
   if (processEnv.FORGE) {
-    return { key: process.env.FORGE_API_KEY!.trim(), source: "process.env.FORGE_API_KEY", checked: [], processEnv };
+    return { key: process.env.FORGE_API_KEY!.trim(), source: "process.env.FORGE_API_KEY", checked: [], processEnv, forgeUrlValue };
   }
 
   // 2. .env 파일 직접 파싱 (여러 경로 시도)
@@ -90,7 +95,7 @@ export function findApiKeyWithDiagnostics(): {
           if (key && key.length > 0) {
             entry.hasKey = true;
             checked.push(entry);
-            return { key, source: envPath, checked, processEnv };
+            return { key, source: envPath, checked, processEnv, forgeUrlValue };
           }
         }
       } catch { /* ignore per-path */ }
@@ -98,7 +103,7 @@ export function findApiKeyWithDiagnostics(): {
     }
   } catch { /* ignore fs/path errors */ }
 
-  return { key: "", source: "none", checked, processEnv };
+  return { key: "", source: "none", checked, processEnv, forgeUrlValue };
 }
 
 /** 진단용 — 서버 시작 시 1회 호출하여 상태 출력 */

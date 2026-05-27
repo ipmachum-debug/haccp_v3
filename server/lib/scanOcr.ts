@@ -9,64 +9,108 @@
  * 5. 이중 패스 검증 (불확실 필드 재인식)
  * 6. 매입전표 인식 지원
  */
-import OpenAI from "openai";
 import fs from "fs";
 import { execSync } from "child_process";
 import path from "path";
-import { findApiKeyWithDiagnostics } from "../_core/env";
+import { findApiKeyWithDiagnostics, ENV } from "../_core/env";
 
 // ─────────────────────────────────────────────────────────────
-// PR-AK-2026-05-27: gpt-4o → gpt-4o-mini 통일
+// PR-AL-2026-05-27: OpenAI SDK 제거 → llm.ts 와 동일한 fetch 패턴
 // ─────────────────────────────────────────────────────────────
-// 배경:
-//   - 다른 모든 AI 기능(server/_core/llm.ts:283)은 gpt-4o-mini 사용 → 정상 동작
-//   - scanOcr만 gpt-4o 사용 → 401 Unauthorized 발생
-//   - 원인: sk-proj-*** (Project-scoped) 키는 모델별 권한이 분리됨
-//     gpt-4o-mini는 권한 있음, gpt-4o는 권한 없음 → OpenAI가 401 반환
-// 해결: gpt-4o-mini 로 통일 (Vision 입력 지원, OCR 품질 충분, 비용 ~1/15)
-// 추가: 진단 메시지에 model 정보 노출하여 향후 재발 시 즉시 식별 가능
+// 진단 체인 회고:
+//   PR-AH(#344): 진단 패널 — 500 / 45s timeout 가시화
+//   PR-AI(#345): findApiKeyWithDiagnostics 통합, fail-fast 5s
+//   PR-AJ(#346): catch 블록 진단 주입 — source/keyPreview/proxy 노출
+//   PR-AK(#347): gpt-4o → gpt-4o-mini 통일 (모델 권한 가설)
+//
+// 사용자가 OpenAI 키 (HACCP-ONE AI / sk-proj-...d_EA) 직접 제공.
+// CLI 검증 결과 (curl -H "Authorization: Bearer ..."):
+//   /v1/models                       → 200 ✅
+//   /v1/models/gpt-4o-mini           → 200 ✅  (PR-AK 가설 무효: 모델 권한 정상)
+//   /v1/models/gpt-4o                → 200 ✅  (gpt-4o 도 권한 있음)
+//   /v1/chat/completions (gpt-4o-mini text) → 200 "PONG" ✅
+//   /v1/chat/completions (Vision)    → 400 (1x1 이미지 거부, 인증 통과)
+//
+// 결론: 키 자체는 완전 정상. scanOcr 만 401.
+//
+// 유일한 차이: HTTP 호출 방식
+//   다른 AI (server/_core/llm.ts:312):
+//     fetch(resolveApiUrl(), { headers: { authorization: `Bearer ${ENV.forgeApiKey}` } })
+//   scanOcr (이전):
+//     new OpenAI({ apiKey }) → SDK 가 추가 헤더/인증 흐름 적용
+//     sk-proj-*** Project key 의 경우 SDK 가 Project ID 자동 추출 시
+//     운영 환경에서 잘못된 헤더를 보낼 가능성
+//
+// PR-AL 해결: scanOcr 도 100% 동일한 fetch 패턴 사용
+//   - OpenAI SDK 의존성 제거
+//   - ENV.forgeApiUrl + ENV.forgeApiKey (모듈 로드 시점 캐싱된 값 사용)
+//   - resolveOcrApiUrl() 은 llm.ts:resolveApiUrl 과 완전 동일
+//
+// 진단 강화:
+//   - 진단에 keyTail(끝 4자) 추가 → 운영 서버 실제 키 끝자리로 식별
+//     (예: 받은 키 ...d_EA 와 운영 서버 진단 keyTail 비교 → 키 일치/불일치 판단)
+//   - 실제 호출 URL 노출 (api.openai.com 직접 vs forge 프록시)
+//   - 응답 헤더 openai-organization / openai-version 캡쳐 (어떤 OpenAI 계정으로 도달했는지)
 const OCR_MODEL = "gpt-4o-mini";
 
-let _sharp: any = null;
-async function getSharp() {
-  if (!_sharp) {
-    try { _sharp = (await import("sharp")).default; } catch { _sharp = null; }
-  }
-  return _sharp;
+// llm.ts:213 의 resolveApiUrl 과 동일
+function resolveOcrApiUrl(): string {
+  return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
+    : "https://api.openai.com/v1/chat/completions";
 }
 
-// ─────────────────────────────────────────────────────────────
-// PR-AI-2026-05-27: 운영 환경 OPENAI_API_KEY 미설정 문제 근본 수정
-// ─────────────────────────────────────────────────────────────
-// 이전: `new OpenAI({ apiKey: process.env.OPENAI_API_KEY })` 모듈 로드 시점에 1회 평가
-//   → 운영 환경의 BUILT_IN_FORGE_API_KEY + BUILT_IN_FORGE_API_URL 프록시 구조 무시
-//   → 결과: 401 Incorrect API key provided
-//
-// 이후: findApiKeyWithDiagnostics() 로 BUILT_IN_FORGE_API_KEY → OPENAI_API_KEY → FORGE_API_KEY
-//   순으로 process.env + .env 파일 검색. BUILT_IN_FORGE_API_URL 있으면 baseURL 적용
-//   다른 AI 기능들(가격 매칭 등)이 이미 사용하는 server/_core/llm.ts 와 동일한 키 해결 로직
-//
-// 매 호출마다 새 클라이언트 생성 (캐싱 X) → 키 회전/리로드 시 즉시 반영
-function getOpenAIClient(): { client: OpenAI; source: string; usingProxy: boolean } {
-  const diag = findApiKeyWithDiagnostics();
-  const apiKey = diag.key;
+// llm.ts 의 invokeLLM 과 동일한 호출 형태 — fetch + Bearer + JSON
+async function callOpenAIChatCompletions(
+  payload: Record<string, any>,
+  timeoutMs: number = 90000,
+): Promise<{
+  data: any;
+  url: string;
+  organizationHeader: string;
+  versionHeader: string;
+  processingMsHeader: string;
+}> {
+  const url = resolveOcrApiUrl();
+  const apiKey = ENV.forgeApiKey;
   if (!apiKey) {
     throw new Error(
-      "OPENAI_API_KEY 설정 누락. " +
-        `process.env(OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, ` +
-        `BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}) 및 .env 파일 모두에서 키를 찾지 못했습니다.`,
+      "OPENAI_API_KEY/BUILT_IN_FORGE_API_KEY 모두 미설정 — ENV.forgeApiKey 가 빈 값입니다.",
     );
   }
-
-  // 운영: forge 프록시 사용 / 로컬: 기본 OpenAI 엔드포인트
-  const forgeUrl = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
-  const usingProxy = forgeUrl.length > 0;
-  const client = new OpenAI(
-    usingProxy
-      ? { apiKey, baseURL: forgeUrl.replace(/\/$/, "") + "/v1" }
-      : { apiKey },
-  );
-  return { client, source: diag.source, usingProxy };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    // 진단용 헤더 (PR-AL): OpenAI 가 어떤 계정으로 인증했는지 검증
+    const organizationHeader = response.headers.get("openai-organization") || "";
+    const versionHeader = response.headers.get("openai-version") || "";
+    const processingMsHeader = response.headers.get("openai-processing-ms") || "";
+    if (!response.ok) {
+      const errText = await response.text();
+      const err: any = new Error(
+        `OpenAI API ${response.status} ${response.statusText}: ${errText.slice(0, 500)}`,
+      );
+      err.status = response.status;
+      err.responseText = errText;
+      err.url = url;
+      err.organizationHeader = organizationHeader;
+      err.versionHeader = versionHeader;
+      throw err;
+    }
+    const data = await response.json();
+    return { data, url, organizationHeader, versionHeader, processingMsHeader };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ════════════════════════════════════════════
@@ -337,9 +381,6 @@ async function callVisionOcr(
   config: PromptConfig,
   extraContext?: string
 ): Promise<{ rawText: string; parsed: Record<string, any> | null }> {
-  // PR-AI: process.env 직접 접근 대신 견고한 키 해결 사용
-  const { client: openai, source: keySource, usingProxy } = getOpenAIClient();
-
   // PR-AH: GPT-4o Vision은 application/pdf MIME을 지원하지 않음 (image/* 만 가능)
   if (!mimeType.startsWith("image/")) {
     throw new Error(
@@ -359,60 +400,61 @@ ${config.jsonSchema}
 - 날짜가 없으면 null
 ${extraContext || ""}`;
 
-  // PR-AH/AI: 이미지 크기 + 키 source 로깅 (디버깅용)
+  // PR-AL: 이미지 크기 + 호출 URL 로깅 (디버깅용)
   const base64 = imageBuffer.toString("base64");
   const base64SizeMB = (base64.length / 1024 / 1024).toFixed(2);
+  const targetUrl = resolveOcrApiUrl();
   console.log(
-    `[scanOcr.callVisionOcr] OpenAI 호출 — mimeType=${mimeType} base64=${base64SizeMB}MB ` +
-      `keySource=${keySource} proxy=${usingProxy}`,
+    `[scanOcr.callVisionOcr] OpenAI 호출 — mimeType=${mimeType} base64=${base64SizeMB}MB url=${targetUrl}`,
   );
 
   const callT0 = Date.now();
-  let response;
   try {
-    response = await openai.chat.completions.create(
-      {
-        model: OCR_MODEL,
-        max_tokens: 4096,
-        messages: [
-          { role: "system", content: systemContent },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "이 문서를 분석하여 JSON으로 변환해주세요." },
-              {
-                type: "image_url",
-                image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
-              },
-            ],
-          },
-        ],
-      },
-      // PR-AH: 90초 타임아웃 — Cloudflare 100초 한계 이내
-      { timeout: 90000 },
+    const { data, url, organizationHeader, versionHeader, processingMsHeader } =
+      await callOpenAIChatCompletions(
+        {
+          model: OCR_MODEL,
+          max_tokens: 4096,
+          messages: [
+            { role: "system", content: systemContent },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "이 문서를 분석하여 JSON으로 변환해주세요." },
+                {
+                  type: "image_url",
+                  image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
+                },
+              ],
+            },
+          ],
+        },
+        90000,
+      );
+
+    const callElapsed = Date.now() - callT0;
+    console.log(
+      `[scanOcr.callVisionOcr] OpenAI 성공 (${callElapsed}ms) ` +
+        `url=${url} org=${organizationHeader} version=${versionHeader} processing=${processingMsHeader}ms`,
     );
+
+    const content = data?.choices?.[0]?.message?.content || "";
+    let parsed: Record<string, any> | null = null;
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try { parsed = JSON.parse(jsonMatch[0]); } catch { /* JSON 파싱 실패 */ }
+    }
+    return { rawText: content, parsed };
   } catch (err: any) {
     const callElapsed = Date.now() - callT0;
     console.error(
       `[scanOcr.callVisionOcr] OpenAI 실패 (${callElapsed}ms) — ` +
-        `status=${err?.status} type=${err?.type} message=${err?.message?.slice(0, 200)}`,
+        `status=${err?.status} url=${err?.url} org=${err?.organizationHeader} ` +
+        `message=${err?.message?.slice(0, 200)}`,
     );
-    // 상위로 throw — scanChecklist.router에서 분류 처리
+    // 상위로 throw — enhancedOcrAndStructure 의 catch 에서 진단 정보와 함께 메시지 구성
     throw err;
   }
-
-  const callElapsed = Date.now() - callT0;
-  console.log(`[scanOcr.callVisionOcr] OpenAI 성공 (${callElapsed}ms)`);
-
-  const content = response.choices[0]?.message?.content || "";
-  let parsed: Record<string, any> | null = null;
-
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try { parsed = JSON.parse(jsonMatch[0]); } catch { /* JSON 파싱 실패 */ }
-  }
-
-  return { rawText: content, parsed };
 }
 
 // ════════════════════════════════════════════
@@ -500,9 +542,8 @@ async function secondPassVerification(
   const fieldList = lowFields.map(f => `- ${f}: 현재값 "${getNestedValue(originalData, f)}"`).join("\n");
 
   try {
-    // PR-AI: 동일한 키 해결 로직 사용
-    const { client: openai } = getOpenAIClient();
-    const response = await openai.chat.completions.create({
+    // PR-AL: llm.ts 와 동일한 fetch 패턴
+    const { data } = await callOpenAIChatCompletions({
       model: OCR_MODEL,
       max_tokens: 2048,
       messages: [
@@ -523,9 +564,9 @@ ${fieldList}
           ],
         },
       ],
-    });
+    }, 60000);
 
-    const content = response.choices[0]?.message?.content || "";
+    const content = data?.choices?.[0]?.message?.content || "";
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const corrections = JSON.parse(jsonMatch[0]);
@@ -690,18 +731,32 @@ export async function enhancedOcrAndStructure(
     const errType = error?.type;
 
     // 키 진단 (401 / 키 누락 케이스용)
+    // PR-AL: keyTail(끝 4자) + URL + 응답 헤더(openai-organization) 추가
+    //        ENV.forgeApiUrl 캐시값 vs process.env 실시간값 둘 다 노출
     let keyDiagSuffix = "";
     try {
       const diag = findApiKeyWithDiagnostics();
-      const proxyUrl = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
-      const keyPreview = diag.key ? `${diag.key.slice(0, 7)}***(len=${diag.key.length})` : "(empty)";
-      // PR-AK: model 정보 추가 (sk-proj-*** Project key 의 모델별 권한 차이 식별용)
+      const envCachedForgeUrl = (ENV.forgeApiUrl || "").trim();
+      const keyHead = diag.key ? diag.key.slice(0, 10) : "(empty)";
+      const keyTail = diag.key && diag.key.length > 4 ? diag.key.slice(-4) : "";
+      const keyLen = diag.key ? diag.key.length : 0;
+      const keyPreview = diag.key ? `${keyHead}***${keyTail}(len=${keyLen})` : "(empty)";
+      const actualUrl = resolveOcrApiUrl();
+      // 호출 시점에 실제 사용된 URL/org/version 은 error 객체에서 추출 (callOpenAIChatCompletions 에서 부착)
+      const callUrl = error?.url || "(call-not-reached)";
+      const callOrg = error?.organizationHeader || "";
+      const callVer = error?.versionHeader || "";
       keyDiagSuffix =
-        ` | 진단: model=${OCR_MODEL}, ` +
+        ` | 진단(PR-AL): model=${OCR_MODEL}, ` +
         `source=${diag.source}, ` +
         `keyPreview=${keyPreview}, ` +
-        `proxy=${proxyUrl ? proxyUrl.replace(/^https?:\/\//, "").slice(0, 40) : "(none)"}, ` +
-        `processEnv=[OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}]`;
+        `targetUrl=${actualUrl.replace(/^https?:\/\//, "").slice(0, 60)}, ` +
+        `callUrl=${typeof callUrl === "string" ? callUrl.replace(/^https?:\/\//, "").slice(0, 60) : "(unknown)"}, ` +
+        `responseOrg=${callOrg || "(none)"}, ` +
+        `responseVersion=${callVer || "(none)"}, ` +
+        `forgeUrl(env)=${envCachedForgeUrl ? envCachedForgeUrl.replace(/^https?:\/\//, "").slice(0, 40) : "(none)"}, ` +
+        `forgeUrl(processEnv)=${diag.forgeUrlValue ? diag.forgeUrlValue.replace(/^https?:\/\//, "").slice(0, 40) : "(none)"}, ` +
+        `processEnv=[OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, BUILT_IN_FORGE_KEY=${diag.processEnv.BUILT_IN_FORGE}, BUILT_IN_FORGE_URL=${diag.processEnv.BUILT_IN_FORGE_URL}]`;
     } catch {
       keyDiagSuffix = " | 진단 수집 실패";
     }
@@ -712,18 +767,19 @@ export async function enhancedOcrAndStructure(
     } else if (status === 429) {
       userFacingError = `OpenAI API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (${errMsg.slice(0, 150)})`;
     } else if (status === 401 || errMsg.includes("Incorrect API key") || errMsg.toLowerCase().includes("invalid api key")) {
-      // PR-AJ: 401 시 키 진단 정보를 메시지에 포함
-      // PR-AK: sk-proj-*** Project key 의 모델별 권한 차이 가능성 안내
+      // PR-AL: 401 진단 — 키 자체 / SDK / 운영 환경 mismatch 모두 식별 가능
       userFacingError =
         `OpenAI API 키 인증 실패 (401). ` +
-        `(1) 키가 만료/취소되었거나, ` +
-        `(2) Project key의 모델 권한에 ${OCR_MODEL}이 없거나, ` +
-        `(3) 운영 환경에서 BUILT_IN_FORGE_API_URL 프록시와 매칭되지 않는 키일 수 있습니다.${keyDiagSuffix}`;
+        `이 키와 모델은 CLI curl 로 검증 완료(다른 AI 기능 정상). ` +
+        `운영 환경의 PM2 가 들고 있는 OPENAI_API_KEY 가 다른 값일 가능성이 가장 높습니다. ` +
+        `keyTail 을 평소 사용 중인 키 끝 4자와 비교하세요.${keyDiagSuffix}`;
     } else if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("API 키") || errMsg.includes("설정 누락")) {
-      // PR-AJ: 키 누락 시 진단 정보 포함
       userFacingError = `OpenAI/Forge API 키 설정 누락.${keyDiagSuffix} 서버 .env 파일 또는 PM2 환경에 키를 설정해주세요.`;
-    } else if (errType === "timeout" || errMsg.toLowerCase().includes("timeout")) {
-      userFacingError = `OpenAI API 시간 초과 (90초). 페이지 수가 많거나 이미지가 매우 클 때 발생합니다.`;
+    } else if (errType === "timeout" || errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("aborted")) {
+      userFacingError = `OpenAI API 시간 초과 (90초). 페이지 수가 많거나 이미지가 매우 클 때 발생합니다.${keyDiagSuffix}`;
+    } else {
+      // PR-AL: 그 외 모든 에러에도 진단 정보 노출 (fallback)
+      userFacingError = `${errMsg.slice(0, 200)}${keyDiagSuffix}`;
     }
 
     console.error(`[scanOcr.enhancedOcrAndStructure] 예외:`, {
