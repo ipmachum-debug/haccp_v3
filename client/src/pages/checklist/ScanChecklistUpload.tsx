@@ -20,8 +20,8 @@ import {
   Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw
 } from "lucide-react";
 
-// PR-AH-2026-05-27 BUILD_TAG — OCR 진단 강화
-const BUILD_TAG = "PR-AH-2026-05-27";
+// PR-AI-2026-05-27 BUILD_TAG — OpenAI 키 해결 로직 통합 (forge 프록시 지원)
+const BUILD_TAG = "PR-AI-2026-05-27";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },

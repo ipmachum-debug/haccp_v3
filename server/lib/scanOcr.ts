@@ -13,6 +13,7 @@ import OpenAI from "openai";
 import fs from "fs";
 import { execSync } from "child_process";
 import path from "path";
+import { findApiKeyWithDiagnostics } from "../_core/env";
 
 let _sharp: any = null;
 async function getSharp() {
@@ -22,7 +23,39 @@ async function getSharp() {
   return _sharp;
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ─────────────────────────────────────────────────────────────
+// PR-AI-2026-05-27: 운영 환경 OPENAI_API_KEY 미설정 문제 근본 수정
+// ─────────────────────────────────────────────────────────────
+// 이전: `new OpenAI({ apiKey: process.env.OPENAI_API_KEY })` 모듈 로드 시점에 1회 평가
+//   → 운영 환경의 BUILT_IN_FORGE_API_KEY + BUILT_IN_FORGE_API_URL 프록시 구조 무시
+//   → 결과: 401 Incorrect API key provided
+//
+// 이후: findApiKeyWithDiagnostics() 로 BUILT_IN_FORGE_API_KEY → OPENAI_API_KEY → FORGE_API_KEY
+//   순으로 process.env + .env 파일 검색. BUILT_IN_FORGE_API_URL 있으면 baseURL 적용
+//   다른 AI 기능들(가격 매칭 등)이 이미 사용하는 server/_core/llm.ts 와 동일한 키 해결 로직
+//
+// 매 호출마다 새 클라이언트 생성 (캐싱 X) → 키 회전/리로드 시 즉시 반영
+function getOpenAIClient(): { client: OpenAI; source: string; usingProxy: boolean } {
+  const diag = findApiKeyWithDiagnostics();
+  const apiKey = diag.key;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_API_KEY 설정 누락. " +
+        `process.env(OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, ` +
+        `BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}) 및 .env 파일 모두에서 키를 찾지 못했습니다.`,
+    );
+  }
+
+  // 운영: forge 프록시 사용 / 로컬: 기본 OpenAI 엔드포인트
+  const forgeUrl = (process.env.BUILT_IN_FORGE_API_URL || "").trim();
+  const usingProxy = forgeUrl.length > 0;
+  const client = new OpenAI(
+    usingProxy
+      ? { apiKey, baseURL: forgeUrl.replace(/\/$/, "") + "/v1" }
+      : { apiKey },
+  );
+  return { client, source: diag.source, usingProxy };
+}
 
 // ════════════════════════════════════════════
 // 타입 정의
@@ -292,9 +325,8 @@ async function callVisionOcr(
   config: PromptConfig,
   extraContext?: string
 ): Promise<{ rawText: string; parsed: Record<string, any> | null }> {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.");
-  }
+  // PR-AI: process.env 직접 접근 대신 견고한 키 해결 사용
+  const { client: openai, source: keySource, usingProxy } = getOpenAIClient();
 
   // PR-AH: GPT-4o Vision은 application/pdf MIME을 지원하지 않음 (image/* 만 가능)
   if (!mimeType.startsWith("image/")) {
@@ -315,10 +347,13 @@ ${config.jsonSchema}
 - 날짜가 없으면 null
 ${extraContext || ""}`;
 
-  // PR-AH: 이미지 크기 로깅 (디버깅용)
+  // PR-AH/AI: 이미지 크기 + 키 source 로깅 (디버깅용)
   const base64 = imageBuffer.toString("base64");
   const base64SizeMB = (base64.length / 1024 / 1024).toFixed(2);
-  console.log(`[scanOcr.callVisionOcr] OpenAI 호출 — mimeType=${mimeType} base64=${base64SizeMB}MB`);
+  console.log(
+    `[scanOcr.callVisionOcr] OpenAI 호출 — mimeType=${mimeType} base64=${base64SizeMB}MB ` +
+      `keySource=${keySource} proxy=${usingProxy}`,
+  );
 
   const callT0 = Date.now();
   let response;
@@ -453,6 +488,8 @@ async function secondPassVerification(
   const fieldList = lowFields.map(f => `- ${f}: 현재값 "${getNestedValue(originalData, f)}"`).join("\n");
 
   try {
+    // PR-AI: 동일한 키 해결 로직 사용
+    const { client: openai } = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       max_tokens: 2048,

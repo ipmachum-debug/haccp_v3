@@ -98,11 +98,26 @@ export const scanChecklistRouter = router({
         );
 
         // OpenAI API 에러 구분
-        if (errMsg.includes("OPENAI_API_KEY")) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: `[${requestId}] OpenAI API 키가 서버에 설정되지 않았습니다. 관리자에게 문의하세요.`,
-          });
+        if (errMsg.includes("OPENAI_API_KEY") || errMsg.includes("API 키")) {
+          // PR-AI: 진단 정보를 함께 반환
+          try {
+            const { findApiKeyWithDiagnostics } = await import("../../_core/env");
+            const diag = findApiKeyWithDiagnostics();
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message:
+                `[${requestId}] OpenAI/Forge API 키 설정 누락. ` +
+                `process.env(OPENAI=${diag.processEnv.OPENAI}, FORGE=${diag.processEnv.FORGE}, ` +
+                `BUILT_IN_FORGE=${diag.processEnv.BUILT_IN_FORGE}), source=${diag.source}. ` +
+                `서버 .env 파일 또는 PM2 환경에 키를 설정해주세요.`,
+            });
+          } catch (e: any) {
+            if (e instanceof TRPCError) throw e;
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `[${requestId}] OpenAI API 키가 서버에 설정되지 않았습니다. 관리자에게 문의하세요.`,
+            });
+          }
         }
         if (errMsg.toLowerCase().includes("timeout") || err?.code === "ETIMEDOUT") {
           throw new TRPCError({
@@ -115,6 +130,28 @@ export const scanChecklistRouter = router({
             code: "TOO_MANY_REQUESTS",
             message: `[${requestId}] OpenAI API 호출 한도 초과. 잠시 후 다시 시도해주세요.`,
           });
+        }
+        if (err?.status === 401 || errMsg.includes("Incorrect API key") || errMsg.toLowerCase().includes("invalid api key")) {
+          // PR-AI: 키는 있지만 잘못된 키인 경우 → 진단 정보 포함
+          try {
+            const { findApiKeyWithDiagnostics } = await import("../../_core/env");
+            const diag = findApiKeyWithDiagnostics();
+            const keyPreview = diag.key ? `${diag.key.slice(0, 7)}***(len=${diag.key.length})` : "(empty)";
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message:
+                `[${requestId}] OpenAI/Forge API 키 인증 실패. ` +
+                `사용된 키: ${keyPreview}, source=${diag.source}, ` +
+                `proxy=${!!(process.env.BUILT_IN_FORGE_API_URL || "").trim()}. ` +
+                `키가 만료/취소되었거나, 운영 환경에서 BUILT_IN_FORGE_API_URL과 매칭되지 않는 키일 수 있습니다.`,
+            });
+          } catch (e: any) {
+            if (e instanceof TRPCError) throw e;
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `[${requestId}] OpenAI API 키 인증 실패. 키가 만료되었거나 잘못된 키입니다.`,
+            });
+          }
         }
         if (err?.status === 400 && errMsg.toLowerCase().includes("image")) {
           throw new TRPCError({
