@@ -257,13 +257,15 @@ async function preprocessImage(inputPath: string): Promise<Buffer> {
 // 다중 페이지 PDF 처리
 // ════════════════════════════════════════════
 
-function pdfToImages(pdfPath: string): string[] {
+function pdfToImages(pdfPath: string): { files: string[]; error?: string } {
   const outputBase = pdfPath.replace(/\.pdf$/i, "_page");
   try {
     execSync(`pdftoppm -png -r 200 "${pdfPath}" "${outputBase}"`, { timeout: 60000 });
-  } catch {
-    console.warn("[scanOcr] pdftoppm 실행 실패 — 단일 이미지 모드로 폴백");
-    return [];
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    const stderr = err?.stderr?.toString?.() || "";
+    console.warn(`[scanOcr] pdftoppm 실행 실패 — ${errMsg} | stderr: ${stderr.slice(0, 200)}`);
+    return { files: [], error: `pdftoppm 변환 실패: ${stderr.slice(0, 200) || errMsg}` };
   }
 
   const dir = path.dirname(outputBase);
@@ -273,7 +275,11 @@ function pdfToImages(pdfPath: string): string[] {
     .sort()
     .map(f => path.join(dir, f));
 
-  return files;
+  if (files.length === 0) {
+    return { files: [], error: "pdftoppm은 성공했지만 PNG 파일이 생성되지 않았습니다." };
+  }
+
+  return { files };
 }
 
 // ════════════════════════════════════════════
@@ -290,6 +296,14 @@ async function callVisionOcr(
     throw new Error("OPENAI_API_KEY 환경변수가 설정되지 않았습니다.");
   }
 
+  // PR-AH: GPT-4o Vision은 application/pdf MIME을 지원하지 않음 (image/* 만 가능)
+  if (!mimeType.startsWith("image/")) {
+    throw new Error(
+      `Vision API에 지원되지 않는 MIME 타입: ${mimeType}. ` +
+        `이미지(image/png, image/jpeg)만 허용됩니다.`,
+    );
+  }
+
   const systemContent = `${config.systemPrompt}
 
 반드시 아래 JSON 형식으로 응답하세요:
@@ -301,20 +315,47 @@ ${config.jsonSchema}
 - 날짜가 없으면 null
 ${extraContext || ""}`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    max_tokens: 4096,
-    messages: [
-      { role: "system", content: systemContent },
+  // PR-AH: 이미지 크기 로깅 (디버깅용)
+  const base64 = imageBuffer.toString("base64");
+  const base64SizeMB = (base64.length / 1024 / 1024).toFixed(2);
+  console.log(`[scanOcr.callVisionOcr] OpenAI 호출 — mimeType=${mimeType} base64=${base64SizeMB}MB`);
+
+  const callT0 = Date.now();
+  let response;
+  try {
+    response = await openai.chat.completions.create(
       {
-        role: "user",
-        content: [
-          { type: "text", text: "이 문서를 분석하여 JSON으로 변환해주세요." },
-          { type: "image_url", image_url: { url: `data:${mimeType};base64,${imageBuffer.toString("base64")}`, detail: "high" } },
+        model: "gpt-4o",
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: systemContent },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "이 문서를 분석하여 JSON으로 변환해주세요." },
+              {
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${base64}`, detail: "high" },
+              },
+            ],
+          },
         ],
       },
-    ],
-  });
+      // PR-AH: 90초 타임아웃 — Cloudflare 100초 한계 이내
+      { timeout: 90000 },
+    );
+  } catch (err: any) {
+    const callElapsed = Date.now() - callT0;
+    console.error(
+      `[scanOcr.callVisionOcr] OpenAI 실패 (${callElapsed}ms) — ` +
+        `status=${err?.status} type=${err?.type} message=${err?.message?.slice(0, 200)}`,
+    );
+    // 상위로 throw — scanChecklist.router에서 분류 처리
+    throw err;
+  }
+
+  const callElapsed = Date.now() - callT0;
+  console.log(`[scanOcr.callVisionOcr] OpenAI 성공 (${callElapsed}ms)`);
 
   const content = response.choices[0]?.message?.content || "";
   let parsed: Record<string, any> | null = null;
@@ -498,17 +539,33 @@ export async function enhancedOcrAndStructure(
 
     // PDF → 다중 페이지 처리
     if (ext === ".pdf") {
-      const pageImages = pdfToImages(filePath);
-      if (pageImages.length > 0) {
-        for (const imgPath of pageImages) {
+      const pdfRes = pdfToImages(filePath);
+      if (pdfRes.files.length > 0) {
+        console.log(`[scanOcr] PDF → ${pdfRes.files.length} 페이지 PNG 변환 완료`);
+        for (const imgPath of pdfRes.files) {
           const buf = enablePreprocessing ? await preprocessImage(imgPath) : fs.readFileSync(imgPath);
           pageBuffers.push({ buffer: buf, mimeType: "image/png" });
         }
         // 임시 파일 정리
-        pageImages.forEach(p => { try { fs.unlinkSync(p); } catch {} });
+        pdfRes.files.forEach(p => { try { fs.unlinkSync(p); } catch {} });
       } else {
-        // pdftoppm 실패 → 원본 PDF를 이미지로 취급 (GPT-4o가 처리)
-        pageBuffers.push({ buffer: fs.readFileSync(filePath), mimeType: "application/pdf" });
+        // ─── PR-AH: pdftoppm 실패 시 명시적 에러 ───
+        // 이전 동작: 원본 PDF를 GPT-4o에 application/pdf MIME으로 전달 → OpenAI가 400 reject
+        // 변경: 명확한 에러로 빠르게 fail-fast
+        console.error(`[scanOcr] pdftoppm 실패 — PDF를 처리할 수 없습니다: ${pdfRes.error}`);
+        return {
+          success: false,
+          pages: 0,
+          structuredData: {},
+          fields: {},
+          overallConfidence: 0,
+          lowConfidenceFields: [],
+          rawText: "",
+          error:
+            `PDF 변환 실패: ${pdfRes.error || "pdftoppm 실행 실패"}. ` +
+            `PDF가 손상되었거나 서버에 poppler-utils가 설치되지 않았을 수 있습니다. ` +
+            `이미지(JPG/PNG)로 다시 시도해주세요.`,
+        };
       }
     } else {
       // 이미지 전처리
@@ -577,6 +634,29 @@ export async function enhancedOcrAndStructure(
       rawText: mergedRawText,
     };
   } catch (error: any) {
+    // PR-AH: OpenAI 에러를 구체적으로 분류
+    const errMsg = error?.message || "OCR 처리 중 오류가 발생했습니다.";
+    const status = error?.status;
+    const errType = error?.type;
+
+    let userFacingError = errMsg;
+    if (status === 400 && errMsg.toLowerCase().includes("image")) {
+      userFacingError = `OpenAI Vision이 이미지를 거부했습니다. PDF가 손상되었거나 변환 결과가 비정상일 수 있습니다. (${errMsg.slice(0, 150)})`;
+    } else if (status === 429) {
+      userFacingError = `OpenAI API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (${errMsg.slice(0, 150)})`;
+    } else if (status === 401) {
+      userFacingError = `OpenAI API 키 인증 실패. 관리자에게 문의하세요. (${errMsg.slice(0, 150)})`;
+    } else if (errType === "timeout" || errMsg.toLowerCase().includes("timeout")) {
+      userFacingError = `OpenAI API 시간 초과 (90초). 페이지 수가 많거나 이미지가 매우 클 때 발생합니다.`;
+    }
+
+    console.error(`[scanOcr.enhancedOcrAndStructure] 예외:`, {
+      message: errMsg,
+      status,
+      type: errType,
+      stack: error?.stack?.split("\n").slice(0, 5).join("\n"),
+    });
+
     return {
       success: false,
       pages: 0,
@@ -585,7 +665,7 @@ export async function enhancedOcrAndStructure(
       overallConfidence: 0,
       lowConfidenceFields: [],
       rawText: "",
-      error: error.message || "OCR 처리 중 오류가 발생했습니다.",
+      error: userFacingError,
     };
   }
 }
