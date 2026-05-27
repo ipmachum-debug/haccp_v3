@@ -7,43 +7,56 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { type CcpFormProps, confidenceClass } from "./ccpFormTypes";
 
-export function CCP1BForm() {
+// ★ PR-AN: 평면 데이터 구조 — items[] 배열 없음
+export interface Ccp1bFormData {
+  recordDate: string;
+  productName: string;
+  measurementTime: string;
+  heatingTimeMin: string;
+  pressureMpa: string;
+  inputAmountKg: string;
+  tempEdgeC: string;
+  tempCenterC: string;
+  passFail: "적합" | "부적합";
+  deviationContent: string;
+  correctiveAction: string;
+}
 
-  const [formData, setFormData] = useState({
+const DEFAULT_VALUES: Ccp1bFormData = {
+  recordDate: todayLocal(),
+  productName: "",
+  measurementTime: "",
+  heatingTimeMin: "",
+  pressureMpa: "",
+  inputAmountKg: "",
+  tempEdgeC: "",
+  tempCenterC: "",
+  passFail: "적합",
+  deviationContent: "",
+  correctiveAction: "",
+};
+
+export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
+  const { initialValues, fieldConfidence, mode = "manual", onSaved, title, description } = props;
+
+  const [formData, setFormData] = useState<Ccp1bFormData>(() => ({
+    ...DEFAULT_VALUES,
     recordDate: todayLocal(),
-    productName: "",
-    measurementTime: "",
-    heatingTimeMin: "",
-    pressureMpa: "",
-    inputAmountKg: "",
-    tempEdgeC: "",
-    tempCenterC: "",
-    passFail: "적합" as "적합" | "부적합",
-    deviationContent: "",
-    correctiveAction: "",
-  });
+    ...(initialValues ?? {}),
+  }));
 
   const createMutation = trpc.ccpMonitoring.createCcpMonitoringRecord.useMutation({
-    onSuccess: () => {
+    onSuccess: (record: any) => {
       toast.success("CCP-1B 모니터링 기록이 저장되었습니다.");
-      // Reset form
-      setFormData({
-        recordDate: todayLocal(),
-        productName: "",
-        measurementTime: "",
-        heatingTimeMin: "",
-        pressureMpa: "",
-        inputAmountKg: "",
-        tempEdgeC: "",
-        tempCenterC: "",
-        passFail: "적합",
-        deviationContent: "",
-        correctiveAction: "",
-      });
+      if (mode === "manual") {
+        setFormData({ ...DEFAULT_VALUES, recordDate: todayLocal() });
+      }
+      onSaved?.(record);
     },
     onError: (error: { message: string }) => {
       toast.error(`저장 실패: ${error.message}`);
@@ -68,17 +81,25 @@ export function CCP1BForm() {
     });
   };
 
+  const ccls = (field: keyof Ccp1bFormData) =>
+    confidenceClass(mode, fieldConfidence?.[field]);
+  const isOcrMode = mode === "ocr-review";
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>CCP-1B: 가열(증숙)공정 모니터링 기록서</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          {isOcrMode && <Sparkles className="h-4 w-4 text-amber-500" />}
+          {title ?? "CCP-1B: 가열(증숙)공정 모니터링 기록서"}
+        </CardTitle>
         <CardDescription>
-          참쌀떡류, 전통떡류, 약식 등의 가열(증숙)공정 모니터링
+          {description ?? (isOcrMode
+            ? "AI 자동 인식 결과 — 노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요."
+            : "참쌀떡류, 전통떡류, 약식 등의 가열(증숙)공정 모니터링")}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 기본 정보 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="recordDate">작성일자</Label>
@@ -87,6 +108,7 @@ export function CCP1BForm() {
                 type="date"
                 value={formData.recordDate}
                 onChange={(e) => setFormData({ ...formData, recordDate: e.target.value })}
+                className={ccls("recordDate")}
                 required
               />
             </div>
@@ -96,6 +118,7 @@ export function CCP1BForm() {
                 id="productName"
                 value={formData.productName}
                 onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
+                className={ccls("productName")}
                 placeholder="예: 참쌀떡류(교반기1)"
                 required
               />
@@ -107,11 +130,11 @@ export function CCP1BForm() {
                 type="time"
                 value={formData.measurementTime}
                 onChange={(e) => setFormData({ ...formData, measurementTime: e.target.value })}
+                className={ccls("measurementTime")}
               />
             </div>
           </div>
 
-          {/* 한계기준 정보 */}
           <div className="bg-muted p-4 rounded-lg space-y-2">
             <h3 className="font-semibold">한계기준 (참고)</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
@@ -134,7 +157,6 @@ export function CCP1BForm() {
             </div>
           </div>
 
-          {/* 측정 데이터 */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="heatingTimeMin">가열시간 (분)</Label>
@@ -143,6 +165,7 @@ export function CCP1BForm() {
                 type="number"
                 value={formData.heatingTimeMin}
                 onChange={(e) => setFormData({ ...formData, heatingTimeMin: e.target.value })}
+                className={ccls("heatingTimeMin")}
                 placeholder="예: 12"
               />
             </div>
@@ -154,6 +177,7 @@ export function CCP1BForm() {
                 step="0.01"
                 value={formData.pressureMpa}
                 onChange={(e) => setFormData({ ...formData, pressureMpa: e.target.value })}
+                className={ccls("pressureMpa")}
                 placeholder="예: 0.16"
               />
             </div>
@@ -165,6 +189,7 @@ export function CCP1BForm() {
                 step="0.1"
                 value={formData.inputAmountKg}
                 onChange={(e) => setFormData({ ...formData, inputAmountKg: e.target.value })}
+                className={ccls("inputAmountKg")}
                 placeholder="예: 50"
               />
             </div>
@@ -179,6 +204,7 @@ export function CCP1BForm() {
                 step="0.1"
                 value={formData.tempEdgeC}
                 onChange={(e) => setFormData({ ...formData, tempEdgeC: e.target.value })}
+                className={ccls("tempEdgeC")}
                 placeholder="예: 92"
               />
             </div>
@@ -190,13 +216,13 @@ export function CCP1BForm() {
                 step="0.1"
                 value={formData.tempCenterC}
                 onChange={(e) => setFormData({ ...formData, tempCenterC: e.target.value })}
+                className={ccls("tempCenterC")}
                 placeholder="예: 91"
               />
             </div>
           </div>
 
-          {/* 판정 */}
-          <div className="space-y-2">
+          <div className={`space-y-2 p-2 rounded ${ccls("passFail")}`}>
             <Label>판정</Label>
             <RadioGroup
               value={formData.passFail}
@@ -215,7 +241,6 @@ export function CCP1BForm() {
             </RadioGroup>
           </div>
 
-          {/* 이탈 및 개선조치 */}
           {formData.passFail === "부적합" && (
             <>
               <div className="space-y-2">
@@ -224,7 +249,7 @@ export function CCP1BForm() {
                   id="deviationContent"
                   value={formData.deviationContent}
                   onChange={(e) => setFormData({ ...formData, deviationContent: e.target.value })}
-                  placeholder="한계기준 이탈 내용을 입력하세요"
+                  className={ccls("deviationContent")}
                   rows={3}
                 />
               </div>
@@ -234,18 +259,17 @@ export function CCP1BForm() {
                   id="correctiveAction"
                   value={formData.correctiveAction}
                   onChange={(e) => setFormData({ ...formData, correctiveAction: e.target.value })}
-                  placeholder="개선조치 내용 및 결과를 입력하세요"
+                  className={ccls("correctiveAction")}
                   rows={3}
                 />
               </div>
             </>
           )}
 
-          {/* 제출 버튼 */}
           <div className="flex justify-end gap-2">
             <Button type="submit" disabled={createMutation.isPending}>
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              기록 저장
+              {isOcrMode ? "확정 저장" : "기록 저장"}
             </Button>
           </div>
         </form>

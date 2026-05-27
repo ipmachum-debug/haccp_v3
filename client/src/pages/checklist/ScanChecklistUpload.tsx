@@ -17,11 +17,16 @@ import {
 import { toast } from "sonner";
 import {
   Upload, Camera, FileText, Loader2, CheckCircle2, Edit3,
-  Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw
+  Trash2, Eye, AlertCircle, Scan, ArrowRight, XCircle, RefreshCw, Sparkles
 } from "lucide-react";
 
-// PR-AM-2026-05-27 BUILD_TAG — PR-AL hotfix: getSharp 함수 복구 (회귀 버그)
-const BUILD_TAG = "PR-AM-2026-05-27";
+// ★ PR-AN (2026-05-27): 양식지 레지스트리 기반 미리보기
+//   vertical list 대신 실제 프로덕트 CCP 폼을 OCR 미리채움 모드로 재사용.
+//   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
+import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
+
+// PR-AN-2026-05-27 BUILD_TAG — 양식지 템플릿 기반 미리보기 시스템
+const BUILD_TAG = "PR-AN-2026-05-27";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -433,8 +438,68 @@ export default function ScanChecklistUpload() {
         )}
 
         {/* ═══ STEP 3: 미리보기 + 수정 ═══ */}
-        {step === "preview" && editData && (
-          <div className="space-y-4">
+        {/* ★ PR-AN: 레지스트리 기반 분기 — 등록된 체크리스트 타입은 실제 프로덕트 양식지 사용 */}
+        {step === "preview" && editData && (() => {
+          // ─── 레지스트리 조회: ccp_4p 등록 → 실제 CCP4PForm 으로 렌더 ───
+          //   editData 에 ocrResult 의 fields/_confidence 가 포함되어 있어야 매퍼가
+          //   신뢰도를 추출 가능. ocrResult 객체 자체를 매퍼로 넘김.
+          const ocrWithFields = { ...editData, fields: ocrResult?.fields, _confidence: ocrResult?._confidence };
+          const formEntry = getChecklistFormEntry(checklistType, ocrWithFields);
+
+          if (formEntry) {
+            // ★ 양식지 템플릿 미리보기 모드 ★
+            const { values, confidence } = formEntry.schemaMapper(ocrWithFields);
+            const FormComp = formEntry.Form;
+
+            return (
+              <div className="space-y-4">
+                {/* 안내 배너 */}
+                <div className={`px-4 py-3 rounded-lg border ${
+                  ocrResult?.confidence >= 0.8 ? "bg-emerald-50 border-emerald-200" :
+                  ocrResult?.confidence >= 0.5 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"
+                }`}>
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="h-4 w-4 mt-0.5 text-amber-500" />
+                    <div className="flex-1 text-sm">
+                      <div className="font-semibold">
+                        {formEntry.label} — AI 자동 인식 결과
+                      </div>
+                      <div className="text-muted-foreground mt-1">
+                        평균 신뢰도: {Math.round((ocrResult?.confidence || 0) * 100)}%
+                        {ocrResult?.pages > 1 && ` · ${ocrResult.pages}페이지`}
+                        {" · "}노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요.
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleReset}>
+                      <RefreshCw className="h-3.5 w-3.5 mr-1" /> 다시 스캔
+                    </Button>
+                  </div>
+                </div>
+
+                {/* 프로덕트 양식지 — OCR 값 미리채움 + 신뢰도 시각화 */}
+                <FormComp
+                  initialValues={values}
+                  fieldConfidence={confidence}
+                  mode="ocr-review"
+                  onSaved={(record: any) => {
+                    // 양식지가 자체 createCcpMonitoringRecord mutation 으로 저장 완료.
+                    // 수기 입력과 100% 동일 경로 — 그대로 사용자에게 완료 표시.
+                    setMappingResult({
+                      message: "양식지 확정 저장 완료 — 수기 입력과 동일 경로로 처리됐습니다.",
+                      targetTable: `ccp_monitoring_records (id=${record?.id ?? "?"})`,
+                      mappedFields: Object.keys(values).filter((k) => (values as any)[k]),
+                    });
+                    setStep("done");
+                  }}
+                />
+              </div>
+            );
+          }
+
+          // ─── 폴백: 레지스트리 미등록 타입 (general, personal_hygiene 등) ───
+          //   기존 vertical list 미리보기 그대로 사용.
+          return (
+            <div className="space-y-4">
             {/* 전체 신뢰도 + 필드별 요약 */}
             <div className={`px-4 py-3 rounded-lg border ${
               ocrResult?.confidence >= 0.8 ? "bg-emerald-50 border-emerald-200" :
@@ -578,7 +643,8 @@ export default function ScanChecklistUpload() {
               </Button>
             </div>
           </div>
-        )}
+          );  // 폴백 vertical list 끝
+        })()}
 
         {/* ═══ STEP 4: 완료 ═══ */}
         {step === "done" && (
