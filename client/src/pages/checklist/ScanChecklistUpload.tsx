@@ -25,8 +25,8 @@ import {
 //   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
 import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
 
-// PR-AN-2026-05-27 BUILD_TAG — 양식지 템플릿 기반 미리보기 시스템
-const BUILD_TAG = "PR-AN-2026-05-27";
+// PR-AS-blank-2026-05-28 BUILD_TAG — 빈 양식지 PDF 다운로드 + 양식지 템플릿 기반 미리보기
+const BUILD_TAG = "PR-AS-blank-2026-05-28";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -78,6 +78,36 @@ export default function ScanChecklistUpload() {
   const uploadMutation = trpc.scanChecklist.upload.useMutation();
   const processMutation = trpc.scanChecklist.process.useMutation();
   const confirmMutation = trpc.scanChecklist.confirm.useMutation();
+  const downloadBlankFormMutation = trpc.scanChecklist.downloadBlankForm.useMutation();
+
+  // PR-AS-blank: 빈 양식지 PDF 다운로드
+  const handleDownloadBlankForm = async () => {
+    if (!["ccp_1b", "ccp_2b", "ccp_3b", "ccp_4p"].includes(checklistType)) {
+      toast.error("CCP-1B/2B/3B/4P 양식만 다운로드할 수 있습니다.");
+      return;
+    }
+    try {
+      const result = await downloadBlankFormMutation.mutateAsync({
+        ccpType: checklistType as "ccp_1b" | "ccp_2b" | "ccp_3b" | "ccp_4p",
+      });
+      // Base64 → Blob → 다운로드
+      const byteChars = atob(result.base64);
+      const byteArr = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) byteArr[i] = byteChars.charCodeAt(i);
+      const blob = new Blob([byteArr], { type: result.mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`${result.fileName} 다운로드 완료`);
+    } catch (err: any) {
+      toast.error(`다운로드 실패: ${err?.message || String(err)}`);
+    }
+  };
 
   // 파일 선택
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -293,6 +323,31 @@ export default function ScanChecklistUpload() {
                 </Select>
                 <p className="text-xs text-gray-400 mt-1">종류를 선택하면 AI가 해당 양식에 맞춰 더 정확하게 인식합니다</p>
               </div>
+
+              {/* PR-AS-blank: CCP 빈 양식지 다운로드 */}
+              {["ccp_1b", "ccp_2b", "ccp_3b", "ccp_4p"].includes(checklistType) && (
+                <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3 flex items-center justify-between gap-3">
+                  <div className="text-xs text-violet-900">
+                    <div className="font-bold">📄 빈 양식지 다운로드</div>
+                    <div className="text-violet-700">인쇄 → 수기 기입 → 스캔 업로드 흐름. 양식이 일치하면 OCR 인식률이 높아집니다.</div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownloadBlankForm}
+                    disabled={downloadBlankFormMutation.isPending}
+                    className="shrink-0 border-violet-300 text-violet-700 hover:bg-violet-100"
+                  >
+                    {downloadBlankFormMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <FileText className="h-4 w-4 mr-1" />
+                    )}
+                    PDF 다운로드
+                  </Button>
+                </div>
+              )}
 
               {/* 파일 업로드 영역 */}
               <div>
