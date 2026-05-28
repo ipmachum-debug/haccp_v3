@@ -25,8 +25,8 @@ import {
 //   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
 import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
 
-// PR-AS-2026-05-28 BUILD_TAG — 다중 측정행 처리 (1 PDF → N records) + 빈 양식지 + 양식지 템플릿
-const BUILD_TAG = "PR-AS-2026-05-28";
+// PR-AT-2026-05-28 BUILD_TAG — 양식 자동 분류 + 다중 측정행 + 빈 양식지 + 양식지 템플릿
+const BUILD_TAG = "PR-AT-2026-05-28";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -111,6 +111,8 @@ function MultiMeasurementCard({
 export default function ScanChecklistUpload() {
   const [step, setStep] = useState<Step>("upload");
   const [checklistType, setChecklistType] = useState("general");
+  // ★ PR-AT (2026-05-28): 자동 분류로 교체된 실효 타입 (양식지 레지스트리 조회용)
+  const [effectiveType, setEffectiveType] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploadKey, setUploadKey] = useState<string>("");
@@ -210,8 +212,17 @@ export default function ScanChecklistUpload() {
 
       setOcrResult(ocrRes);
       setEditData(ocrRes.structuredData);
+      // ★ PR-AT: 서버 자동 분류가 타입을 교체했으면 effectiveType 으로 양식지 조회
+      setEffectiveType((ocrRes as any).effectiveChecklistType || checklistType);
       setStep("preview");
-      toast.success(`OCR 완료! 신뢰도 ${Math.round(ocrRes.confidence * 100)}%`);
+      const cls = (ocrRes as any).classification;
+      if (cls?.overridden) {
+        toast.success(
+          `양식 자동 감지: ${cls.detectedType.toUpperCase()} (선택: ${checklistType.toUpperCase()}) — 자동 보정됨`,
+        );
+      } else {
+        toast.success(`OCR 완료! 신뢰도 ${Math.round(ocrRes.confidence * 100)}%`);
+      }
     } catch (e: any) {
       // ─── PR-AH: 자동 리셋 제거. 에러 화면에 영구적으로 표시 ───
       const durationMs = Date.now() - startTime;
@@ -304,6 +315,7 @@ export default function ScanChecklistUpload() {
     setUploadKey("");
     setOcrResult(null);
     setEditData(null);
+    setEffectiveType("");
     setErrorInfo(null);
     setProcessingStage("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -544,7 +556,10 @@ export default function ScanChecklistUpload() {
           //   editData 에 ocrResult 의 fields/_confidence 가 포함되어 있어야 매퍼가
           //   신뢰도를 추출 가능. ocrResult 객체 자체를 매퍼로 넘김.
           const ocrWithFields = { ...editData, fields: ocrResult?.fields, _confidence: ocrResult?._confidence };
-          const formEntry = getChecklistFormEntry(checklistType, ocrWithFields);
+          // ★ PR-AT: 자동 분류로 교체된 effectiveType 으로 양식지 조회 (없으면 사용자 선택)
+          const lookupType = effectiveType || checklistType;
+          const formEntry = getChecklistFormEntry(lookupType, ocrWithFields);
+          const classification = ocrResult?.classification;
 
           if (formEntry) {
             // ★ PR-AN/PR-AS: 양식지 템플릿 미리보기 모드 ★
@@ -559,6 +574,23 @@ export default function ScanChecklistUpload() {
 
             return (
               <div className="space-y-4">
+                {/* ★ PR-AT: 양식 자동 보정 알림 */}
+                {classification?.overridden && (
+                  <div className="px-4 py-3 rounded-lg border bg-blue-50 border-blue-200 text-sm">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4 mt-0.5 text-blue-500" />
+                      <div>
+                        <span className="font-semibold text-blue-900">양식 자동 보정됨</span>
+                        <span className="text-blue-700">
+                          {" "}— 선택하신 <strong>{classification.requestedType.toUpperCase()}</strong> 와 다른{" "}
+                          <strong>{classification.detectedType.toUpperCase()}</strong> 양식으로 감지되어
+                          올바른 양식지로 자동 전환했습니다. (분류 신뢰도 {Math.round((classification.confidence || 0) * 100)}%)
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* 안내 배너 */}
                 <div className={`px-4 py-3 rounded-lg border ${
                   ocrResult?.confidence >= 0.8 ? "bg-emerald-50 border-emerald-200" :

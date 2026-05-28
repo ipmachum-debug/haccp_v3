@@ -87,6 +87,7 @@ export const scanChecklistRouter = router({
         result = await enhancedOcrAndStructure(filePath, input.checklistType, {
           enableTwoPass: true,
           enablePreprocessing: true,
+          enableAutoClassify: true, // ★ PR-AT: 양식 자동 분류
         });
       } catch (err: any) {
         // OCR 함수 자체에서 throw된 경우 (보통은 잡지만 안전망)
@@ -185,10 +186,19 @@ export const scanChecklistRouter = router({
           `lowConf=${result.lowConfidenceFields.length}`,
       );
 
+      // ★ PR-AT: 자동 분류로 타입이 교체되면 effectiveChecklistType 을 감지값으로.
+      //   클라이언트는 effectiveChecklistType 으로 양식지 레지스트리를 조회.
+      const effectiveChecklistType =
+        result.classification?.overridden && result.classification.detectedType
+          ? result.classification.detectedType
+          : input.checklistType;
+
       return {
         success: true,
         key: input.key,
         checklistType: input.checklistType,
+        effectiveChecklistType,
+        classification: result.classification,
         structuredData: result.structuredData,
         confidence: result.overallConfidence,
         rawText: result.rawText,
