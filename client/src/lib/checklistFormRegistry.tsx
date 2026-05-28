@@ -24,8 +24,12 @@ import {
   mapOcrToCcp2b,
   mapOcrToCcp3b,
   mapOcrToCcp4p,
+  mapOcrToCcp1bMulti,
+  mapOcrToCcp2bMulti,
+  mapOcrToCcp3bMulti,
   type OcrResult,
   type MapResult,
+  type MultiMapResult,
 } from "./checklistFormMappers";
 
 export interface ChecklistFormEntry {
@@ -35,8 +39,15 @@ export interface ChecklistFormEntry {
   /** 양식지 컴포넌트 — 수기/OCR 공용 (props 통해 모드 전환) */
   Form: React.ComponentType<any>;
 
-  /** OCR JSON → 폼 데이터 변환 */
+  /** OCR JSON → 폼 데이터 변환 (단일 레코드) */
   schemaMapper: (ocrResult: OcrResult) => MapResult<any>;
+
+  /**
+   * ★ PR-AS (2026-05-28): 다중 측정행 매퍼 — measurements[] 처리.
+   *   설정되어 있으면 UI 가 N 개의 폼 인스턴스를 렌더링.
+   *   없으면 단일 schemaMapper 만 사용.
+   */
+  multiSchemaMapper?: (ocrResult: OcrResult) => MultiMapResult<any>;
 }
 
 /**
@@ -53,16 +64,19 @@ const REGISTRY: Record<string, ChecklistFormEntry> = {
     label: "CCP-1B 가열(증숙) 기록지",
     Form: CCP1BForm,
     schemaMapper: mapOcrToCcp1b,
+    multiSchemaMapper: mapOcrToCcp1bMulti,
   },
   ccp_2b: {
     label: "CCP-2B 가열(굽기) 기록지",
     Form: CCP2BForm,
     schemaMapper: mapOcrToCcp2b,
+    multiSchemaMapper: mapOcrToCcp2bMulti,
   },
   ccp_3b: {
     label: "CCP-3B 가열 기록지",
     Form: CCP3BForm,
     schemaMapper: mapOcrToCcp3b,
+    multiSchemaMapper: mapOcrToCcp3bMulti,
   },
   ccp_4p: {
     label: "CCP-4P 금속검출 기록지",

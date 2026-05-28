@@ -25,8 +25,8 @@ import {
 //   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
 import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
 
-// PR-AS-blank-2026-05-28 BUILD_TAG — 빈 양식지 PDF 다운로드 + 양식지 템플릿 기반 미리보기
-const BUILD_TAG = "PR-AS-blank-2026-05-28";
+// PR-AS-2026-05-28 BUILD_TAG — 다중 측정행 처리 (1 PDF → N records) + 빈 양식지 + 양식지 템플릿
+const BUILD_TAG = "PR-AS-2026-05-28";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -61,6 +61,51 @@ interface OcrErrorInfo {
   durationMs?: number;
   fileName?: string;
   fileSizeKB?: number;
+}
+
+/**
+ * ★ PR-AS (2026-05-28): 다중 측정행 카드 래퍼.
+ *   N 개의 폼 인스턴스를 렌더링할 때 각 폼 위에 "측정 X / N" 헤더를 표시.
+ *   각 카드는 자체 저장 상태를 가지므로, 저장된 카드는 시각적으로 비활성화.
+ */
+function MultiMeasurementCard({
+  index, total, FormComp, values, confidence, onSaved,
+}: {
+  index: number;
+  total: number;
+  FormComp: React.ComponentType<any>;
+  values: Partial<Record<string, any>>;
+  confidence: Partial<Record<string, number>>;
+  onSaved: (record: any) => void;
+}) {
+  const [saved, setSaved] = useState(false);
+  const isMulti = total > 1;
+
+  return (
+    <div className={`relative ${saved ? "opacity-60" : ""}`}>
+      {isMulti && (
+        <div className="mb-2 flex items-center gap-2">
+          <Badge variant="outline" className="bg-violet-100 text-violet-800 border-violet-300">
+            측정 {index + 1} / {total}
+          </Badge>
+          {saved && (
+            <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-300">
+              <CheckCircle2 className="h-3 w-3 mr-1" /> 저장됨
+            </Badge>
+          )}
+        </div>
+      )}
+      <FormComp
+        initialValues={values}
+        fieldConfidence={confidence}
+        mode="ocr-review"
+        onSaved={(record: any) => {
+          setSaved(true);
+          onSaved(record);
+        }}
+      />
+    </div>
+  );
 }
 
 export default function ScanChecklistUpload() {
@@ -502,9 +547,15 @@ export default function ScanChecklistUpload() {
           const formEntry = getChecklistFormEntry(checklistType, ocrWithFields);
 
           if (formEntry) {
-            // ★ 양식지 템플릿 미리보기 모드 ★
-            const { values, confidence } = formEntry.schemaMapper(ocrWithFields);
+            // ★ PR-AN/PR-AS: 양식지 템플릿 미리보기 모드 ★
+            //   multiSchemaMapper 있으면 measurements[] → N 폼 인스턴스, 없으면 단일.
             const FormComp = formEntry.Form;
+
+            const rows = formEntry.multiSchemaMapper
+              ? formEntry.multiSchemaMapper(ocrWithFields)
+              : [formEntry.schemaMapper(ocrWithFields)];
+
+            const isMulti = rows.length > 1;
 
             return (
               <div className="space-y-4">
@@ -518,11 +569,18 @@ export default function ScanChecklistUpload() {
                     <div className="flex-1 text-sm">
                       <div className="font-semibold">
                         {formEntry.label} — AI 자동 인식 결과
+                        {isMulti && (
+                          <span className="ml-2 inline-block bg-violet-600 text-white text-xs px-2 py-0.5 rounded-full">
+                            {rows.length}개 측정행
+                          </span>
+                        )}
                       </div>
                       <div className="text-muted-foreground mt-1">
                         평균 신뢰도: {Math.round((ocrResult?.confidence || 0) * 100)}%
                         {ocrResult?.pages > 1 && ` · ${ocrResult.pages}페이지`}
-                        {" · "}노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요.
+                        {isMulti
+                          ? " · 각 측정행을 개별 확인 후 행마다 [기록 저장] 으로 N 개의 레코드를 저장합니다."
+                          : " · 노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요."}
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={handleReset}>
@@ -531,22 +589,35 @@ export default function ScanChecklistUpload() {
                   </div>
                 </div>
 
-                {/* 프로덕트 양식지 — OCR 값 미리채움 + 신뢰도 시각화 */}
-                <FormComp
-                  initialValues={values}
-                  fieldConfidence={confidence}
-                  mode="ocr-review"
-                  onSaved={(record: any) => {
-                    // 양식지가 자체 createCcpMonitoringRecord mutation 으로 저장 완료.
-                    // 수기 입력과 100% 동일 경로 — 그대로 사용자에게 완료 표시.
-                    setMappingResult({
-                      message: "양식지 확정 저장 완료 — 수기 입력과 동일 경로로 처리됐습니다.",
-                      targetTable: `ccp_monitoring_records (id=${record?.id ?? "?"})`,
-                      mappedFields: Object.keys(values).filter((k) => (values as any)[k]),
-                    });
-                    setStep("done");
-                  }}
-                />
+                {/* 폼 인스턴스 (1개 또는 N개) */}
+                {rows.map((row, idx) => (
+                  <MultiMeasurementCard
+                    key={idx}
+                    index={idx}
+                    total={rows.length}
+                    FormComp={FormComp}
+                    values={row.values}
+                    confidence={row.confidence}
+                    onSaved={(record: any) => {
+                      setMappingResult({
+                        message: isMulti
+                          ? `측정 ${idx + 1}/${rows.length} 저장 완료. 나머지 행도 저장해 주세요.`
+                          : "양식지 확정 저장 완료 — 수기 입력과 동일 경로로 처리됐습니다.",
+                        targetTable: `ccp_monitoring_records (id=${record?.id ?? "?"})`,
+                        mappedFields: Object.keys(row.values).filter((k) => (row.values as any)[k]),
+                      });
+                      if (!isMulti) setStep("done");
+                    }}
+                  />
+                ))}
+
+                {isMulti && (
+                  <div className="flex justify-end">
+                    <Button variant="outline" onClick={() => setStep("done")}>
+                      모든 측정행 저장 완료 — 마침
+                    </Button>
+                  </div>
+                )}
               </div>
             );
           }
