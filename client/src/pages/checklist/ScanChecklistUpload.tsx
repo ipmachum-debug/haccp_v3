@@ -25,8 +25,8 @@ import {
 //   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
 import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
 
-// PR-AU-2026-05-28 BUILD_TAG — OCR 정확도 개선 (gpt-4o + temperature:0 + seed + 프롬프트 강화)
-const BUILD_TAG = "PR-AU-2026-05-28";
+// PR-AV-2026-05-28 BUILD_TAG — row별 productName + 연도 4자리 판독 강화 + 후처리 보정
+const BUILD_TAG = "PR-AV-2026-05-28";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },

@@ -84,6 +84,53 @@ function cleanPrefix(v: any): string {
   return str.replace(/^\[\?\]\s*/, "").replace(/^\[판독불가\]\s*/, "");
 }
 
+/**
+ * ★ PR-AV (2026-05-28): 손글씨 OCR 의 연도 4자리 판독 오류 보정.
+ *
+ * OCR 이 "2026" 을 "2023" 으로 잘못 읽는 사례 빈번 (손글씨 6 → 3 혼동).
+ * 운영 실측 데이터:
+ *   - PDF 가 업로드되는 시점 ≈ 작성 시점
+ *   - 작성일이 업로드 시점보다 1년 이상 과거이면 손글씨 오인식 가능성 높음
+ *
+ * 정책:
+ *   - 날짜가 오늘로부터 1년 이상 과거이면, 같은 월/일 + 현재 연도 후보를 신뢰도 낮춤으로 사용.
+ *   - 단, 신뢰도가 매우 높게 보고된 경우 (≥0.9) 는 OCR 판독 존중 (사용자가 직접 수정).
+ *   - 미래 날짜 (오늘보다 미래) 는 그대로 둠 — 예약 작성 가능성.
+ *
+ * 반환: { value: 보정된 YYYY-MM-DD, autocorrected: 보정 여부 }
+ */
+function correctYearIfStale(
+  rawDate: string,
+  reportedConfidence: number | undefined,
+): { value: string; autocorrected: boolean } {
+  if (!rawDate || !/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    return { value: rawDate, autocorrected: false };
+  }
+
+  // OCR 이 매우 높은 신뢰도로 보고하면 존중 (사용자 수동 수정 유도)
+  if (reportedConfidence !== undefined && reportedConfidence >= 0.9) {
+    return { value: rawDate, autocorrected: false };
+  }
+
+  const today = new Date();
+  const parsed = new Date(rawDate + "T00:00:00");
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: rawDate, autocorrected: false };
+  }
+
+  const oneYearAgo = new Date(today);
+  oneYearAgo.setFullYear(today.getFullYear() - 1);
+
+  if (parsed.getTime() < oneYearAgo.getTime()) {
+    // 1년 이상 과거 → 손글씨 연도 오인식 가능성. 현재 연도로 보정 시도.
+    const [, mm, dd] = rawDate.split("-");
+    const corrected = `${today.getFullYear()}-${mm}-${dd}`;
+    return { value: corrected, autocorrected: true };
+  }
+
+  return { value: rawDate, autocorrected: false };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // CCP-4P: 금속검출 (사용자 우선 테스트 케이스)
 // ═══════════════════════════════════════════════════════════════
@@ -233,6 +280,16 @@ function pickRowConfidence(
   return undefined;
 }
 
+/**
+ * ★ PR-AV (2026-05-28): row별 productName 사용 + 연도 후처리.
+ *
+ * 변경:
+ *   - 각 measurement 의 productName 이 있으면 우선 사용 (행마다 다른 제품 지원).
+ *   - 없으면 공통 productName 으로 fallback (legacy 응답 호환).
+ *   - equipment 정보는 더 이상 productName 에 (1)/(2)/(3) 처럼 합치지 않음
+ *     — UI 에서 행 인덱스로 별도 구분되고, 같은 품명이 여러 행에 와도 OK.
+ *   - 작성일자가 1년 이상 과거면 손글씨 연도 오인식 가능성으로 보정 시도.
+ */
 export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData> {
   const measurements = Array.isArray(ocr.measurements) ? ocr.measurements : [];
   // measurements 없으면 단일 행으로 fallback (legacy items[] 또는 flat 필드)
@@ -240,21 +297,26 @@ export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData
     return [mapOcrToCcp1b(ocr)];
   }
 
-  const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const rawRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const recordDateConf = pickConfidence(ocr, "recordDate", "formDate");
+  const correctedDate = correctYearIfStale(rawRecordDate, recordDateConf);
+  const sharedRecordDate = correctedDate.value;
+  // 보정한 경우 신뢰도를 낮춰 사용자가 확인하도록 표시
+  const sharedRecordDateConf = correctedDate.autocorrected
+    ? Math.min(recordDateConf ?? 0.5, 0.5)
+    : recordDateConf;
+
   const sharedProductName = cleanPrefix(ocr.productName);
+  const sharedProductNameConf = pickConfidence(ocr, "productName");
   const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
   const sharedCorrective = cleanPrefix(ocr.correctiveAction);
-  const sharedConf = {
-    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
-    productName: pickConfidence(ocr, "productName"),
-  };
 
   return measurements.map((row, idx) => {
-    // productName 에 equipment 정보 병합 (Ccp1bFormData 에 equipment 필드 없음)
-    const equipment = cleanPrefix(row.equipment);
-    const rowProductName = equipment
-      ? `${sharedProductName} (${equipment})`.trim()
-      : sharedProductName;
+    // ★ PR-AV: row.productName 우선, 없으면 공통값 fallback
+    const rowProductName =
+      cleanPrefix(row.productName) || sharedProductName;
+    const rowProductNameConf =
+      pickRowConfidence(ocr, idx, "productName") ?? sharedProductNameConf;
 
     return {
       values: {
@@ -271,8 +333,8 @@ export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData
         correctiveAction: sharedCorrective,
       },
       confidence: {
-        recordDate: sharedConf.recordDate,
-        productName: sharedConf.productName,
+        recordDate: sharedRecordDateConf,
+        productName: rowProductNameConf,
         measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
         heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
         pressureMpa: pickRowConfidence(ocr, idx, "pressureMpa"),
@@ -285,43 +347,58 @@ export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData
   });
 }
 
+/**
+ * ★ PR-AV (2026-05-28): CCP-2B 도 동일 패턴 — row별 productName + 연도 후처리.
+ */
 export function mapOcrToCcp2bMulti(ocr: OcrResult): MultiMapResult<Ccp2bFormData> {
   const measurements = Array.isArray(ocr.measurements) ? ocr.measurements : [];
   if (measurements.length === 0) {
     return [mapOcrToCcp2b(ocr)];
   }
 
-  const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const rawRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const recordDateConf = pickConfidence(ocr, "recordDate", "formDate");
+  const correctedDate = correctYearIfStale(rawRecordDate, recordDateConf);
+  const sharedRecordDate = correctedDate.value;
+  const sharedRecordDateConf = correctedDate.autocorrected
+    ? Math.min(recordDateConf ?? 0.5, 0.5)
+    : recordDateConf;
+
   const sharedProductName = cleanPrefix(ocr.productName);
+  const sharedProductNameConf = pickConfidence(ocr, "productName");
   const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
   const sharedCorrective = cleanPrefix(ocr.correctiveAction);
-  const sharedConf = {
-    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
-    productName: pickConfidence(ocr, "productName"),
-  };
 
-  return measurements.map((row, idx) => ({
-    values: {
-      recordDate: sharedRecordDate,
-      productName: sharedProductName,
-      measurementTime: cleanPrefix(row.measurementTime),
-      heatingTimeMin: s(row.heatingTimeMin ?? row.durationMin),
-      temperatureC: s(row.temperatureC ?? row.tempC),
-      inputAmountKg: s(row.inputAmountKg),
-      passFail: row.passFail === "부적합" ? "부적합" : "적합",
-      deviationContent: sharedDeviation,
-      correctiveAction: sharedCorrective,
-    },
-    confidence: {
-      recordDate: sharedConf.recordDate,
-      productName: sharedConf.productName,
-      measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
-      heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
-      temperatureC: pickRowConfidence(ocr, idx, "temperatureC", "tempC"),
-      inputAmountKg: pickRowConfidence(ocr, idx, "inputAmountKg"),
-      passFail: pickRowConfidence(ocr, idx, "passFail"),
-    },
-  }));
+  return measurements.map((row, idx) => {
+    // ★ PR-AV: row.productName 우선
+    const rowProductName =
+      cleanPrefix(row.productName) || sharedProductName;
+    const rowProductNameConf =
+      pickRowConfidence(ocr, idx, "productName") ?? sharedProductNameConf;
+
+    return {
+      values: {
+        recordDate: sharedRecordDate,
+        productName: rowProductName,
+        measurementTime: cleanPrefix(row.measurementTime),
+        heatingTimeMin: s(row.heatingTimeMin ?? row.durationMin),
+        temperatureC: s(row.temperatureC ?? row.tempC),
+        inputAmountKg: s(row.inputAmountKg),
+        passFail: row.passFail === "부적합" ? "부적합" : "적합",
+        deviationContent: sharedDeviation,
+        correctiveAction: sharedCorrective,
+      },
+      confidence: {
+        recordDate: sharedRecordDateConf,
+        productName: rowProductNameConf,
+        measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
+        heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
+        temperatureC: pickRowConfidence(ocr, idx, "temperatureC", "tempC"),
+        inputAmountKg: pickRowConfidence(ocr, idx, "inputAmountKg"),
+        passFail: pickRowConfidence(ocr, idx, "passFail"),
+      },
+    };
+  });
 }
 
 export const mapOcrToCcp3bMulti = mapOcrToCcp2bMulti;
