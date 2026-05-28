@@ -184,45 +184,51 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
     systemPrompt: `HACCP CCP-1B 가열(증숙)공정 모니터링 기록지 OCR 전문가입니다.
 이 양식은 떡류 증숙(찜) 공정의 측정 시각별 가열시간/압력/품온 기록입니다.
 
-추출해야 할 정보 (정확한 폼 필드명 사용):
-  공통 필드 (페이지 상단/한계기준 기준):
+⚠️ 가장 중요한 규칙 (반드시 준수):
+  이 양식에는 두 개의 표가 있습니다.
+    (A) 상단 "한계기준" 표 — 인쇄된 기준값 (참쌀떡류 10~15분, 0.16Mpa 등). 이것은 참고용 기준이며 절대 데이터로 추출하지 마세요.
+    (B) 하단 "측정 데이터" 표 — 작업자가 손으로 적은 실제 측정값. 반드시 이 표의 손글씨만 추출하세요.
+  압력/투입량/품온/품명 등 모든 값은 (B) 하단 손글씨 표에서만 읽습니다.
+  (A) 한계기준 표의 0.16Mpa, 90℃ 같은 값을 측정값으로 쓰면 오답입니다.
+
+추출해야 할 정보:
+  공통 필드:
     - recordDate: 작성일자 (YYYY-MM-DD)
-    - productName: 제품명 (예: "콩고물쑥떡", "참쌀떡류" — 한계기준 표가 아닌 측정 데이터 표의 품명 컬럼)
     - inspector: 작성자
 
-  measurements[] 배열 (측정 데이터 표의 각 행마다 1개 객체):
-    - measurementTime: 측정시각 (HH:MM 또는 HH:MM:SS)
-    - equipment: 교반기 정보 (예: "교반기1호기", "교반기2호기"). 컬럼이 없으면 빈 문자열.
+  measurements[] 배열 (하단 측정 데이터 표의 각 손글씨 행마다 1개 객체):
+    - productName: 품명 (각 행의 "품 명" 컬럼 손글씨 — 예: "인절미", "콩고물쑥떡", "참쌀떡". 행마다 다를 수 있음)
+    - measurementTime: 측정시각 (HH:MM)
+    - equipment: 교반기 번호 ("1", "2", "3" 또는 "교반기1호기" 등)
     - heatingTimeMin: 가열시간 (분, 정수)
-    - pressureMpa: 압력 (소수, 예: "0.160" — Mpa 단위)
-    - inputAmountKg: 투입량 (kg, 소수 또는 정수, 예: "100.00")
-    - tempEdgeC: 가열후 품온 - 모서리 (℃, 소수)
-    - tempCenterC: 가열후 품온 - 중심부 (℃, 소수)
-    - passFail: 판정 ("적합" 또는 "부적합" — 체크박스/V/O 는 "적합", X 는 "부적합")
+    - pressureMpa: 압력 (소수, 손글씨 그대로 — 예: "0.18")
+    - inputAmountKg: 투입량 (kg, 예: "56")
+    - tempEdgeC: 가열후 품온 - 모서리 (℃, 손글씨)
+    - tempCenterC: 가열후 품온 - 중심부 (℃, 손글씨)
+    - passFail: 판정 ("적합" 또는 "부적합")
 
-  - deviationContent: 한계기준 이탈내용 (페이지 하단 — 부적합 시만)
-  - correctiveAction: 개선조치 및 결과 (페이지 하단 — 부적합 시만)
+  - deviationContent: 한계기준 이탈내용 (부적합 시만)
+  - correctiveAction: 개선조치 및 결과 (부적합 시만)
 
 검증 규칙:
-  - 손글씨 숫자 판독 시 97과 91, 98과 93, 0과 6을 주의 깊게 구별하세요.
-  - 빈 측정 행은 무시 (모든 셀이 비어있으면 measurements 배열에 포함하지 않음).
-  - 불확실한 필드는 _confidence 객체에 0.5 이하로 신뢰도 보고.
+  - 손글씨 숫자 판독 시 8과 9, 0과 6, 97과 91 을 주의 깊게 구별하세요.
+  - 빈 측정 행은 무시 (모든 셀이 비어있으면 measurements 에 포함 안 함).
+  - 불확실한 필드는 _confidence 에 0.5 이하 신뢰도 보고.
 
-한 PDF = 한 작성일 = 여러 측정 (한 페이지에 여러 시각).
-실제 양식에는 보통 2~5 측정 행이 있고, 각 행은 독립된 DB 레코드가 됩니다.`,
+한 PDF = 한 작성일 = 여러 측정 (보통 2~5 행), 각 행은 독립 DB 레코드.`,
     jsonSchema: `{
   "recordDate": "YYYY-MM-DD",
-  "productName": "제품명",
   "inspector": "작성자",
   "measurements": [
     {
+      "productName": "품명 (행별 손글씨, 예: 인절미)",
       "measurementTime": "HH:MM",
-      "equipment": "교반기1호기 등",
+      "equipment": "교반기 번호 (1/2/3)",
       "heatingTimeMin": 숫자,
-      "pressureMpa": "0.160",
-      "inputAmountKg": "100.00",
-      "tempEdgeC": "98.8",
-      "tempCenterC": "98.8",
+      "pressureMpa": "0.18",
+      "inputAmountKg": "56",
+      "tempEdgeC": "89",
+      "tempCenterC": "99",
       "passFail": "적합 또는 부적합"
     }
   ],
@@ -230,10 +236,11 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   "correctiveAction": "개선조치 (없으면 빈 문자열)",
   "_confidence": {
     "recordDate": 0.0~1.0,
-    "productName": 0.0~1.0,
+    "measurements[0].productName": 0.0~1.0,
     "measurements[0].measurementTime": 0.0~1.0,
     "measurements[0].heatingTimeMin": 0.0~1.0,
     "measurements[0].pressureMpa": 0.0~1.0,
+    "measurements[0].inputAmountKg": 0.0~1.0,
     "measurements[0].tempEdgeC": 0.0~1.0,
     "measurements[0].tempCenterC": 0.0~1.0,
     "measurements[0].passFail": 0.0~1.0
@@ -247,16 +254,22 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
     systemPrompt: `HACCP CCP-2B 가열(굽기)공정 모니터링 기록지 OCR 전문가입니다.
 이 양식은 견과류 등 굽기 공정의 측정 시각별 가열시간/온도 기록입니다.
 
-추출해야 할 정보 (정확한 폼 필드명 사용):
+⚠️ 가장 중요한 규칙 (반드시 준수):
+  이 양식에는 두 개의 표가 있습니다.
+    (A) 상단 "한계기준" 표 — 인쇄된 기준값 (150℃ 이상 등). 참고용이며 절대 데이터로 추출 금지.
+    (B) 하단 "측정 데이터" 표 — 작업자가 손으로 적은 실제 측정값. 반드시 이 손글씨만 추출.
+  온도/시간/투입량/품명 모든 값은 (B) 하단 손글씨 표에서만 읽습니다.
+
+추출해야 할 정보:
   공통 필드:
     - recordDate: 작성일자 (YYYY-MM-DD)
-    - productName: 제품명 (예: "마카다미아", "호두")
     - inspector: 작성자
 
-  measurements[] 배열 (측정 데이터 표의 각 행마다 1개):
+  measurements[] 배열 (하단 측정 데이터 표의 각 손글씨 행마다 1개):
+    - productName: 품명 (각 행의 품명 컬럼 손글씨 — 예: "마카다미아", "호두". 행마다 다를 수 있음)
     - measurementTime: 측정시각 (HH:MM)
     - heatingTimeMin: 가열시간 (분, 정수)
-    - temperatureC: 가열온도 (℃, 소수)
+    - temperatureC: 가열온도 (℃, 손글씨 그대로)
     - inputAmountKg: 투입량 (kg)
     - passFail: 판정 ("적합" 또는 "부적합")
 
@@ -264,20 +277,20 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   - correctiveAction: 개선조치 및 결과 (부적합 시만)
 
 검증 규칙:
-  - 손글씨 숫자 97과 91, 0과 6 구별 주의.
+  - 손글씨 숫자 8과 9, 0과 6, 97과 91 구별 주의.
   - 빈 측정 행 무시.
 
 한 PDF = 한 작성일 = 여러 측정.`,
     jsonSchema: `{
   "recordDate": "YYYY-MM-DD",
-  "productName": "제품명",
   "inspector": "작성자",
   "measurements": [
     {
+      "productName": "품명 (행별 손글씨)",
       "measurementTime": "HH:MM",
       "heatingTimeMin": 숫자,
       "temperatureC": "150.0",
-      "inputAmountKg": "50.00",
+      "inputAmountKg": "50",
       "passFail": "적합 또는 부적합"
     }
   ],
@@ -285,10 +298,11 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   "correctiveAction": "개선조치 (없으면 빈 문자열)",
   "_confidence": {
     "recordDate": 0.0~1.0,
-    "productName": 0.0~1.0,
+    "measurements[0].productName": 0.0~1.0,
     "measurements[0].measurementTime": 0.0~1.0,
     "measurements[0].heatingTimeMin": 0.0~1.0,
     "measurements[0].temperatureC": 0.0~1.0,
+    "measurements[0].inputAmountKg": 0.0~1.0,
     "measurements[0].passFail": 0.0~1.0
   }
 }`,

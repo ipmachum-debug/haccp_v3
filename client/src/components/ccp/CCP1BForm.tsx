@@ -50,6 +50,9 @@ export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
     ...(initialValues ?? {}),
   }));
 
+  // ★ PR-AS2 (2026-05-28): 등록된 한계기준 (기존값) 조회 — 하드코딩 대신 테넌트 등록값 사용
+  const { data: registeredLimits } = trpc.ccpMonitoring.getCcpLimits.useQuery({ ccpType: "CCP-1B" });
+
   const createMutation = trpc.ccpMonitoring.createCcpMonitoringRecord.useMutation({
     onSuccess: (record: any) => {
       toast.success("CCP-1B 모니터링 기록이 저장되었습니다.");
@@ -137,24 +140,28 @@ export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
 
           <div className="bg-muted p-4 rounded-lg space-y-2">
             <h3 className="font-semibold">한계기준 (참고)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="font-medium">참쌀떡류(교반기1)</div>
-                <div className="text-muted-foreground">10-15분, 0.16Mpa 이상, 90℃ 이상</div>
+            {registeredLimits && registeredLimits.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                {registeredLimits.map((lim: any) => {
+                  const parts: string[] = [];
+                  if (lim.heatingTimeMinMin != null || lim.heatingTimeMinMax != null) {
+                    parts.push(`${lim.heatingTimeMinMin ?? "?"}-${lim.heatingTimeMinMax ?? "?"}분`);
+                  }
+                  if (lim.pressureMpaMin) parts.push(`${lim.pressureMpaMin}Mpa 이상`);
+                  if (lim.temperatureCMin) parts.push(`${lim.temperatureCMin}℃ 이상`);
+                  return (
+                    <div key={lim.id}>
+                      <div className="font-medium">{lim.productName}</div>
+                      <div className="text-muted-foreground">{parts.join(", ") || "기준 미설정"}</div>
+                    </div>
+                  );
+                })}
               </div>
-              <div>
-                <div className="font-medium">참쌀떡류(교반기2)</div>
-                <div className="text-muted-foreground">10-15분, 0.12Mpa 이상, 90℃ 이상</div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                등록된 한계기준이 없습니다. CCP 한계기준 관리에서 제품별 기준을 먼저 등록해 주세요.
               </div>
-              <div>
-                <div className="font-medium">전통떡류</div>
-                <div className="text-muted-foreground">10-15분, 0.28Mpa 이상, 90℃ 이상</div>
-              </div>
-              <div>
-                <div className="font-medium">약식</div>
-                <div className="text-muted-foreground">35-40분, 0.28Mpa 이상, 90℃ 이상</div>
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

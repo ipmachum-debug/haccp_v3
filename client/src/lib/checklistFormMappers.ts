@@ -241,20 +241,19 @@ export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData
   }
 
   const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
-  const sharedProductName = cleanPrefix(ocr.productName);
+  // 행에 품명이 없을 때만 상단 공통 productName 으로 fallback
+  const fallbackProductName = cleanPrefix(ocr.productName);
   const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
   const sharedCorrective = cleanPrefix(ocr.correctiveAction);
-  const sharedConf = {
-    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
-    productName: pickConfidence(ocr, "productName"),
-  };
+  const sharedRecordDateConf = pickConfidence(ocr, "recordDate", "formDate");
 
   return measurements.map((row, idx) => {
-    // productName 에 equipment 정보 병합 (Ccp1bFormData 에 equipment 필드 없음)
+    // ★ PR-AS2: 품명은 각 행의 품명 컬럼 우선. equipment(교반기) 가 있으면 병합.
+    const rowName = cleanPrefix(row.productName) || fallbackProductName;
     const equipment = cleanPrefix(row.equipment);
     const rowProductName = equipment
-      ? `${sharedProductName} (${equipment})`.trim()
-      : sharedProductName;
+      ? `${rowName} (교반기${equipment.replace(/[^0-9]/g, "") || equipment})`.trim()
+      : rowName;
 
     return {
       values: {
@@ -271,8 +270,8 @@ export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData
         correctiveAction: sharedCorrective,
       },
       confidence: {
-        recordDate: sharedConf.recordDate,
-        productName: sharedConf.productName,
+        recordDate: sharedRecordDateConf,
+        productName: pickRowConfidence(ocr, idx, "productName"),
         measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
         heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
         pressureMpa: pickRowConfidence(ocr, idx, "pressureMpa"),
@@ -292,18 +291,15 @@ export function mapOcrToCcp2bMulti(ocr: OcrResult): MultiMapResult<Ccp2bFormData
   }
 
   const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
-  const sharedProductName = cleanPrefix(ocr.productName);
+  const fallbackProductName = cleanPrefix(ocr.productName);
   const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
   const sharedCorrective = cleanPrefix(ocr.correctiveAction);
-  const sharedConf = {
-    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
-    productName: pickConfidence(ocr, "productName"),
-  };
+  const sharedRecordDateConf = pickConfidence(ocr, "recordDate", "formDate");
 
   return measurements.map((row, idx) => ({
     values: {
       recordDate: sharedRecordDate,
-      productName: sharedProductName,
+      productName: cleanPrefix(row.productName) || fallbackProductName,
       measurementTime: cleanPrefix(row.measurementTime),
       heatingTimeMin: s(row.heatingTimeMin ?? row.durationMin),
       temperatureC: s(row.temperatureC ?? row.tempC),
@@ -313,8 +309,8 @@ export function mapOcrToCcp2bMulti(ocr: OcrResult): MultiMapResult<Ccp2bFormData
       correctiveAction: sharedCorrective,
     },
     confidence: {
-      recordDate: sharedConf.recordDate,
-      productName: sharedConf.productName,
+      recordDate: sharedRecordDateConf,
+      productName: pickRowConfidence(ocr, idx, "productName"),
       measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
       heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
       temperatureC: pickRowConfidence(ocr, idx, "temperatureC", "tempC"),
