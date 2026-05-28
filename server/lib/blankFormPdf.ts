@@ -374,14 +374,25 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
       const dataRowH = 20;
       const dataBodyH = dataHeaderH + dataRowCount * dataRowH;
 
-      // 1) 그룹/컬럼 헤더 배경 (fill 먼저 — stroke 를 덮어쓰지 않도록)
+      // 1) 컬럼별 fill — 그룹 없는 컬럼은 전체 헤더 높이 단일색,
+      //    그룹 있는 컬럼은 상단(그룹) 짙은색 + 하단(서브) 옅은색.
       const colHeaderY = y + (hasGroupHeader ? groupHeaderH : 0);
-      if (hasGroupHeader) {
-        doc.fillColor("#E8E8E8").rect(left, y, W, groupHeaderH).fill();
+      {
+        let cx = left;
+        spec.dataColumns.forEach((col) => {
+          const cw = W * col.widthRatio;
+          if (hasGroupHeader && col.parentLabel) {
+            doc.fillColor("#E8E8E8").rect(cx, y, cw, groupHeaderH).fill();
+            doc.fillColor("#F2F2F2").rect(cx, colHeaderY, cw, colHeaderH).fill();
+          } else {
+            // 그룹 없는 컬럼은 전체 헤더 영역 단일색
+            doc.fillColor("#F2F2F2").rect(cx, y, cw, dataHeaderH).fill();
+          }
+          cx += cw;
+        });
       }
-      doc.fillColor("#F2F2F2").rect(left, colHeaderY, W, colHeaderH).fill();
 
-      // 2) 그룹 헤더 텍스트 + 그룹 사이 세로선
+      // 2) 그룹 헤더 텍스트 (병합된 그룹 셀 한 번씩) + 경계 수집
       let groupBoundaries: number[] = [];
       if (hasGroupHeader) {
         let xCursor = left;
@@ -400,10 +411,10 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
         doc.fillColor("#000").font("NGB").fontSize(8);
         groups.forEach((g) => {
           if (g.label) {
-            doc.text(g.label, g.x, y + 4, { width: g.w, align: "center" });
+            // 세로 가운데 정렬 (groupHeaderH = 14 → y+3 정도)
+            doc.text(g.label, g.x, y + 3, { width: g.w, align: "center" });
           }
         });
-        // 그룹 경계 (서브헤더가 있는 그룹의 좌우만 세로선)
         groupBoundaries = groups.slice(1).map(g => g.x);
       }
 
@@ -413,43 +424,57 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
         let cx = left;
         spec.dataColumns.forEach((col) => {
           const cw = W * col.widthRatio;
-          const headerStartY = (hasGroupHeader && !col.parentLabel) ? y : colHeaderY;
-          const headerH2 = (hasGroupHeader && !col.parentLabel) ? dataHeaderH : colHeaderH;
-          doc.text(col.label, cx, headerStartY + headerH2 / 2 - 4, {
-            width: cw, align: "center",
-          });
+          if (hasGroupHeader && !col.parentLabel) {
+            // 그룹 없는 컬럼: 전체 헤더 높이의 세로 가운데
+            doc.text(col.label, cx, y + dataHeaderH / 2 - 4, {
+              width: cw, align: "center",
+            });
+          } else {
+            // 그룹 있는 컬럼의 서브 헤더 또는 그룹 헤더 자체 없는 표
+            const baseY = hasGroupHeader ? colHeaderY : y;
+            doc.text(col.label, cx, baseY + colHeaderH / 2 - 4, {
+              width: cw, align: "center",
+            });
+          }
           cx += cw;
         });
       }
 
-      // 4) 모든 선을 마지막에 그리기 (fill 위에 덮어쓰지 않도록)
+      // 4) 모든 선을 마지막에 그리기
       doc.fillColor("#000").strokeColor("#000");
 
-      // 외곽선 (전체 표)
+      // 외곽선
       doc.lineWidth(0.8).rect(left, y, W, dataBodyH).stroke();
 
-      // 그룹 헤더 ↔ 컬럼 헤더 경계 가로선 (그룹 헤더 있는 경우만)
+      // 그룹 헤더 ↔ 컬럼 헤더 경계: 그룹 헤더 영역 안에서만 가로선
+      //   (그룹 없는 컬럼은 가로선 없이 단일 셀로)
       if (hasGroupHeader) {
-        doc.lineWidth(0.4)
-          .moveTo(left, y + groupHeaderH).lineTo(left + W, y + groupHeaderH).stroke();
-        // 그룹 경계 세로선 (그룹 헤더 영역만)
+        let cx = left;
+        spec.dataColumns.forEach((col) => {
+          const cw = W * col.widthRatio;
+          if (col.parentLabel) {
+            doc.lineWidth(0.4)
+              .moveTo(cx, y + groupHeaderH).lineTo(cx + cw, y + groupHeaderH).stroke();
+          }
+          cx += cw;
+        });
+        // 그룹 경계 세로선 (그룹 헤더 영역 안에서만)
         groupBoundaries.forEach(bx => {
           doc.lineWidth(0.3).moveTo(bx, y).lineTo(bx, y + groupHeaderH).stroke();
         });
       }
 
-      // 컬럼 헤더 ↔ 본문 경계 가로선
+      // 컬럼 헤더 ↔ 본문 경계
       doc.lineWidth(0.4)
         .moveTo(left, colHeaderY + colHeaderH)
         .lineTo(left + W, colHeaderY + colHeaderH).stroke();
 
-      // 컬럼 세로선 (헤더 + 본문 전체 높이)
+      // 컬럼 세로선 (헤더 + 본문)
       {
         let cx = left;
         spec.dataColumns.forEach((col, i) => {
           const cw = W * col.widthRatio;
           if (i > 0) {
-            // 그룹 헤더가 있고 같은 그룹 내 형제 컬럼이면, 세로선은 컬럼 헤더 시작부터만 (그룹헤더 영역은 통합)
             const prevParent = spec.dataColumns[i - 1].parentLabel;
             const curParent = col.parentLabel;
             const sameGroup = hasGroupHeader && prevParent && prevParent === curParent;
@@ -460,7 +485,7 @@ export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<B
         });
       }
 
-      // 빈 데이터 행 가로 구분선
+      // 빈 데이터 행 가로선
       for (let r = 1; r <= dataRowCount; r++) {
         const ry = colHeaderY + colHeaderH + r * dataRowH - dataRowH;
         if (r > 0) {
