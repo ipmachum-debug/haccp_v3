@@ -168,31 +168,122 @@ interface PromptConfig {
 }
 
 const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
+  // ★ PR-AS (2026-05-28): CCP-1B 다중 측정행 처리.
+  //   페이지에 N 개의 측정 시각이 있으면 measurements[] 배열로 반환.
+  //   공통 필드 (recordDate, productName) 는 상단/한계기준에서 추출.
   ccp_1b: {
     label: "CCP-1B 가열(증숙) 기록",
-    expectedRanges: { temp: [95, 100], time: [20, 40] },
-    systemPrompt: `HACCP CCP-1B 가열(증숙) 기록지 OCR 전문가입니다.
-이 문서는 식품의 증숙(찜) 공정에서 중심온도와 가열시간을 기록한 것입니다.
-기대값: 온도 95~100°C, 시간 20~40분.
-손글씨 숫자를 정확히 읽으세요. 97과 91, 98과 93을 구별하는 데 주의하세요.
-불확실한 값은 [?] 접두사를 붙이세요.`,
+    expectedRanges: { temp: [85, 105], time: [5, 60] },
+    systemPrompt: `HACCP CCP-1B 가열(증숙)공정 모니터링 기록지 OCR 전문가입니다.
+이 양식은 떡류 증숙(찜) 공정의 측정 시각별 가열시간/압력/품온 기록입니다.
+
+추출해야 할 정보 (정확한 폼 필드명 사용):
+  공통 필드 (페이지 상단/한계기준 기준):
+    - recordDate: 작성일자 (YYYY-MM-DD)
+    - productName: 제품명 (예: "콩고물쑥떡", "참쌀떡류" — 한계기준 표가 아닌 측정 데이터 표의 품명 컬럼)
+    - inspector: 작성자
+
+  measurements[] 배열 (측정 데이터 표의 각 행마다 1개 객체):
+    - measurementTime: 측정시각 (HH:MM 또는 HH:MM:SS)
+    - equipment: 교반기 정보 (예: "교반기1호기", "교반기2호기"). 컬럼이 없으면 빈 문자열.
+    - heatingTimeMin: 가열시간 (분, 정수)
+    - pressureMpa: 압력 (소수, 예: "0.160" — Mpa 단위)
+    - inputAmountKg: 투입량 (kg, 소수 또는 정수, 예: "100.00")
+    - tempEdgeC: 가열후 품온 - 모서리 (℃, 소수)
+    - tempCenterC: 가열후 품온 - 중심부 (℃, 소수)
+    - passFail: 판정 ("적합" 또는 "부적합" — 체크박스/V/O 는 "적합", X 는 "부적합")
+
+  - deviationContent: 한계기준 이탈내용 (페이지 하단 — 부적합 시만)
+  - correctiveAction: 개선조치 및 결과 (페이지 하단 — 부적합 시만)
+
+검증 규칙:
+  - 손글씨 숫자 판독 시 97과 91, 98과 93, 0과 6을 주의 깊게 구별하세요.
+  - 빈 측정 행은 무시 (모든 셀이 비어있으면 measurements 배열에 포함하지 않음).
+  - 불확실한 필드는 _confidence 객체에 0.5 이하로 신뢰도 보고.
+
+한 PDF = 한 작성일 = 여러 측정 (한 페이지에 여러 시각).
+실제 양식에는 보통 2~5 측정 행이 있고, 각 행은 독립된 DB 레코드가 됩니다.`,
     jsonSchema: `{
-  "formDate": "YYYY-MM-DD", "productName": "제품명", "batchNo": "배치번호",
-  "items": [{ "equipmentName": "설비명", "batchNo": "회차", "tempC": 숫자, "durationMin": 숫자, "result": "적합/부적합" }],
-  "inspector": "작성자", "remarks": "비고"
+  "recordDate": "YYYY-MM-DD",
+  "productName": "제품명",
+  "inspector": "작성자",
+  "measurements": [
+    {
+      "measurementTime": "HH:MM",
+      "equipment": "교반기1호기 등",
+      "heatingTimeMin": 숫자,
+      "pressureMpa": "0.160",
+      "inputAmountKg": "100.00",
+      "tempEdgeC": "98.8",
+      "tempCenterC": "98.8",
+      "passFail": "적합 또는 부적합"
+    }
+  ],
+  "deviationContent": "이탈 내용 (없으면 빈 문자열)",
+  "correctiveAction": "개선조치 (없으면 빈 문자열)",
+  "_confidence": {
+    "recordDate": 0.0~1.0,
+    "productName": 0.0~1.0,
+    "measurements[0].measurementTime": 0.0~1.0,
+    "measurements[0].heatingTimeMin": 0.0~1.0,
+    "measurements[0].pressureMpa": 0.0~1.0,
+    "measurements[0].tempEdgeC": 0.0~1.0,
+    "measurements[0].tempCenterC": 0.0~1.0,
+    "measurements[0].passFail": 0.0~1.0
+  }
 }`,
   },
+  // ★ PR-AS (2026-05-28): CCP-2B 도 동일 패턴 — measurements[] 배열.
   ccp_2b: {
     label: "CCP-2B 가열(굽기) 기록",
-    expectedRanges: { temp: [90, 120], time: [10, 30] },
-    systemPrompt: `HACCP CCP-2B 가열(굽기) 기록지 OCR 전문가입니다.
-이 문서는 식품 굽기 공정의 온도/시간 기록입니다.
-기대값: 온도 90~120°C, 시간 10~30분.
-손글씨 숫자 판독 시 97과 91, 0과 6을 주의 깊게 구별하세요.`,
+    expectedRanges: { temp: [90, 200], time: [5, 60] },
+    systemPrompt: `HACCP CCP-2B 가열(굽기)공정 모니터링 기록지 OCR 전문가입니다.
+이 양식은 견과류 등 굽기 공정의 측정 시각별 가열시간/온도 기록입니다.
+
+추출해야 할 정보 (정확한 폼 필드명 사용):
+  공통 필드:
+    - recordDate: 작성일자 (YYYY-MM-DD)
+    - productName: 제품명 (예: "마카다미아", "호두")
+    - inspector: 작성자
+
+  measurements[] 배열 (측정 데이터 표의 각 행마다 1개):
+    - measurementTime: 측정시각 (HH:MM)
+    - heatingTimeMin: 가열시간 (분, 정수)
+    - temperatureC: 가열온도 (℃, 소수)
+    - inputAmountKg: 투입량 (kg)
+    - passFail: 판정 ("적합" 또는 "부적합")
+
+  - deviationContent: 한계기준 이탈내용 (부적합 시만)
+  - correctiveAction: 개선조치 및 결과 (부적합 시만)
+
+검증 규칙:
+  - 손글씨 숫자 97과 91, 0과 6 구별 주의.
+  - 빈 측정 행 무시.
+
+한 PDF = 한 작성일 = 여러 측정.`,
     jsonSchema: `{
-  "formDate": "YYYY-MM-DD", "productName": "제품명",
-  "items": [{ "equipmentName": "설비명", "batchNo": "회차", "tempC": 숫자, "durationMin": 숫자, "result": "적합/부적합" }],
-  "inspector": "작성자", "remarks": "비고"
+  "recordDate": "YYYY-MM-DD",
+  "productName": "제품명",
+  "inspector": "작성자",
+  "measurements": [
+    {
+      "measurementTime": "HH:MM",
+      "heatingTimeMin": 숫자,
+      "temperatureC": "150.0",
+      "inputAmountKg": "50.00",
+      "passFail": "적합 또는 부적합"
+    }
+  ],
+  "deviationContent": "이탈 내용 (없으면 빈 문자열)",
+  "correctiveAction": "개선조치 (없으면 빈 문자열)",
+  "_confidence": {
+    "recordDate": 0.0~1.0,
+    "productName": 0.0~1.0,
+    "measurements[0].measurementTime": 0.0~1.0,
+    "measurements[0].heatingTimeMin": 0.0~1.0,
+    "measurements[0].temperatureC": 0.0~1.0,
+    "measurements[0].passFail": 0.0~1.0
+  }
 }`,
   },
   ccp_4p: {
@@ -597,6 +688,13 @@ function calculateFieldConfidence(
           processValue(`items[${idx}].${subKey}`, subVal);
         }
       });
+    } else if (key === "measurements" && Array.isArray(val)) {
+      // ★ PR-AS (2026-05-28): measurements[] 배열 — 측정 시각별 행
+      val.forEach((m: any, idx: number) => {
+        for (const [subKey, subVal] of Object.entries(m)) {
+          processValue(`measurements[${idx}].${subKey}`, subVal);
+        }
+      });
     } else {
       processValue(key, val);
     }
@@ -661,17 +759,22 @@ ${fieldList}
 }
 
 function getNestedValue(obj: any, path: string): any {
-  const match = path.match(/^items\[(\d+)\]\.(.+)$/);
-  if (match && obj.items) {
-    return obj.items[parseInt(match[1])]?.[match[2]];
+  // ★ PR-AS: items[] 와 measurements[] 양쪽 모두 지원
+  const arrMatch = path.match(/^(items|measurements)\[(\d+)\]\.(.+)$/);
+  if (arrMatch) {
+    const [, arrKey, idx, sub] = arrMatch;
+    return obj[arrKey]?.[parseInt(idx)]?.[sub];
   }
   return obj[path];
 }
 
 function setNestedValue(obj: any, path: string, val: any): void {
-  const match = path.match(/^items\[(\d+)\]\.(.+)$/);
-  if (match && obj.items && obj.items[parseInt(match[1])]) {
-    obj.items[parseInt(match[1])][match[2]] = val;
+  const arrMatch = path.match(/^(items|measurements)\[(\d+)\]\.(.+)$/);
+  if (arrMatch) {
+    const [, arrKey, idx, sub] = arrMatch;
+    if (obj[arrKey] && obj[arrKey][parseInt(idx)]) {
+      obj[arrKey][parseInt(idx)][sub] = val;
+    }
   } else {
     obj[path] = val;
   }

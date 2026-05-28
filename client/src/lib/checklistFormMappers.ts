@@ -36,6 +36,9 @@ export interface OcrResult {
   // OpenAI 가 보고한 신뢰도 (PR-AO 프롬프트 재작성 후)
   _confidence?: Record<string, number>;
 
+  // ★ PR-AS (2026-05-28): 다중 측정행 (CCP-1B/2B/3B)
+  measurements?: Array<Record<string, any>>;
+
   // 추가 raw 필드 (인덱스 시그니처 대신 명시)
   [key: string]: any;
 }
@@ -44,6 +47,13 @@ export interface MapResult<T> {
   values: Partial<T>;
   confidence: Partial<Record<keyof T, number>>;
 }
+
+/**
+ * ★ PR-AS (2026-05-28): 다중 측정행 매퍼 결과.
+ *   1 PDF 에 N 개의 측정 시각이 있을 때 N 개의 폼 인스턴스를 만들기 위한 형식.
+ *   공통 필드 (recordDate, productName 등) 는 각 row 에 이미 병합되어 있음.
+ */
+export type MultiMapResult<T> = MapResult<T>[];
 
 /**
  * 신뢰도 단일값 추출 헬퍼
@@ -202,3 +212,116 @@ export function mapOcrToCcp2b(ocr: OcrResult): MapResult<Ccp2bFormData> {
 
 // CCP-3B 는 CCP-2B 와 동일 구조이므로 동일 매퍼 재사용
 export const mapOcrToCcp3b = mapOcrToCcp2b;
+
+// ═══════════════════════════════════════════════════════════════
+// ★ PR-AS (2026-05-28): 다중 측정행 매퍼
+//   1 PDF → N 측정행 → N 폼 인스턴스.
+//   각 측정행에 공통 필드(recordDate/productName/correctiveAction 등)를
+//   병합하여 N 개의 독립된 MapResult 를 반환.
+// ═══════════════════════════════════════════════════════════════
+
+function pickRowConfidence(
+  ocr: OcrResult,
+  rowIdx: number,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const dotted = `measurements[${rowIdx}].${key}`;
+    if (ocr._confidence?.[dotted] !== undefined) return ocr._confidence[dotted];
+    if (ocr.fields?.[dotted]?.confidence !== undefined) return ocr.fields[dotted].confidence;
+  }
+  return undefined;
+}
+
+export function mapOcrToCcp1bMulti(ocr: OcrResult): MultiMapResult<Ccp1bFormData> {
+  const measurements = Array.isArray(ocr.measurements) ? ocr.measurements : [];
+  // measurements 없으면 단일 행으로 fallback (legacy items[] 또는 flat 필드)
+  if (measurements.length === 0) {
+    return [mapOcrToCcp1b(ocr)];
+  }
+
+  const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const sharedProductName = cleanPrefix(ocr.productName);
+  const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
+  const sharedCorrective = cleanPrefix(ocr.correctiveAction);
+  const sharedConf = {
+    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
+    productName: pickConfidence(ocr, "productName"),
+  };
+
+  return measurements.map((row, idx) => {
+    // productName 에 equipment 정보 병합 (Ccp1bFormData 에 equipment 필드 없음)
+    const equipment = cleanPrefix(row.equipment);
+    const rowProductName = equipment
+      ? `${sharedProductName} (${equipment})`.trim()
+      : sharedProductName;
+
+    return {
+      values: {
+        recordDate: sharedRecordDate,
+        productName: rowProductName,
+        measurementTime: cleanPrefix(row.measurementTime),
+        heatingTimeMin: s(row.heatingTimeMin ?? row.durationMin),
+        pressureMpa: s(row.pressureMpa),
+        inputAmountKg: s(row.inputAmountKg),
+        tempEdgeC: s(row.tempEdgeC),
+        tempCenterC: s(row.tempCenterC ?? row.tempC),
+        passFail: row.passFail === "부적합" ? "부적합" : "적합",
+        deviationContent: sharedDeviation,
+        correctiveAction: sharedCorrective,
+      },
+      confidence: {
+        recordDate: sharedConf.recordDate,
+        productName: sharedConf.productName,
+        measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
+        heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
+        pressureMpa: pickRowConfidence(ocr, idx, "pressureMpa"),
+        inputAmountKg: pickRowConfidence(ocr, idx, "inputAmountKg"),
+        tempEdgeC: pickRowConfidence(ocr, idx, "tempEdgeC"),
+        tempCenterC: pickRowConfidence(ocr, idx, "tempCenterC", "tempC"),
+        passFail: pickRowConfidence(ocr, idx, "passFail"),
+      },
+    };
+  });
+}
+
+export function mapOcrToCcp2bMulti(ocr: OcrResult): MultiMapResult<Ccp2bFormData> {
+  const measurements = Array.isArray(ocr.measurements) ? ocr.measurements : [];
+  if (measurements.length === 0) {
+    return [mapOcrToCcp2b(ocr)];
+  }
+
+  const sharedRecordDate = cleanPrefix(ocr.recordDate ?? ocr.formDate);
+  const sharedProductName = cleanPrefix(ocr.productName);
+  const sharedDeviation = cleanPrefix(ocr.deviationContent ?? ocr.remarks);
+  const sharedCorrective = cleanPrefix(ocr.correctiveAction);
+  const sharedConf = {
+    recordDate: pickConfidence(ocr, "recordDate", "formDate"),
+    productName: pickConfidence(ocr, "productName"),
+  };
+
+  return measurements.map((row, idx) => ({
+    values: {
+      recordDate: sharedRecordDate,
+      productName: sharedProductName,
+      measurementTime: cleanPrefix(row.measurementTime),
+      heatingTimeMin: s(row.heatingTimeMin ?? row.durationMin),
+      temperatureC: s(row.temperatureC ?? row.tempC),
+      inputAmountKg: s(row.inputAmountKg),
+      passFail: row.passFail === "부적합" ? "부적합" : "적합",
+      deviationContent: sharedDeviation,
+      correctiveAction: sharedCorrective,
+    },
+    confidence: {
+      recordDate: sharedConf.recordDate,
+      productName: sharedConf.productName,
+      measurementTime: pickRowConfidence(ocr, idx, "measurementTime"),
+      heatingTimeMin: pickRowConfidence(ocr, idx, "heatingTimeMin", "durationMin"),
+      temperatureC: pickRowConfidence(ocr, idx, "temperatureC", "tempC"),
+      inputAmountKg: pickRowConfidence(ocr, idx, "inputAmountKg"),
+      passFail: pickRowConfidence(ocr, idx, "passFail"),
+    },
+  }));
+}
+
+export const mapOcrToCcp3bMulti = mapOcrToCcp2bMulti;
