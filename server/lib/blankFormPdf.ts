@@ -103,8 +103,8 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
       { label: "가열시간",         widthRatio: 0.09 },
       { label: "압력(Mpa)",       widthRatio: 0.10 },
       { label: "투입량(kg)",      widthRatio: 0.10 },
-      { parentLabel: "가열후 품온", label: "모서리(℃)", widthRatio: 0.10 },
-      { parentLabel: "가열후 품온", label: "중심부(℃)", widthRatio: 0.10 },
+      { parentLabel: "가열후 품온", label: "모서리", widthRatio: 0.10 },
+      { parentLabel: "가열후 품온", label: "중심부", widthRatio: 0.10 },
       { label: "판 정",            widthRatio: 0.18 },
     ],
     correctiveMethod: [
