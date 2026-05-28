@@ -25,8 +25,8 @@ import {
 //   최종 확정은 양식지의 정식 mutation 으로 처리되어 수기 입력과 100% 동일한 DB 레코드 생성.
 import { getChecklistFormEntry } from "@/lib/checklistFormRegistry";
 
-// PR-AT-2026-05-28 BUILD_TAG — 양식 자동 분류 + 다중 측정행 + 빈 양식지 + 양식지 템플릿
-const BUILD_TAG = "PR-AT-2026-05-28";
+// PR-AU-2026-05-28 BUILD_TAG — OCR 정확도 개선 (gpt-4o + temperature:0 + seed + 프롬프트 강화)
+const BUILD_TAG = "PR-AU-2026-05-28";
 
 const checklistTypes = [
   { value: "purchase_invoice", label: "💰 매입전표/세금계산서" },
@@ -613,6 +613,11 @@ export default function ScanChecklistUpload() {
                         {isMulti
                           ? " · 각 측정행을 개별 확인 후 행마다 [기록 저장] 으로 N 개의 레코드를 저장합니다."
                           : " · 노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요."}
+                      </div>
+                      {/* ★ PR-AU (2026-05-28): 손글씨 OCR 정확도 한계 안내 */}
+                      <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                        ⚠️ 손글씨 OCR 은 숫자 (0/6, 5/6, 1/7, 8/0) 와 날짜 판독에 오류가 있을 수 있습니다.
+                        <strong> 저장 전 모든 값을 원본과 대조해 주세요.</strong>
                       </div>
                     </div>
                     <Button variant="outline" size="sm" onClick={handleReset}>

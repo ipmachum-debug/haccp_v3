@@ -51,7 +51,20 @@ import { findApiKeyWithDiagnostics, ENV } from "../_core/env";
 //     (예: 받은 키 ...d_EA 와 운영 서버 진단 keyTail 비교 → 키 일치/불일치 판단)
 //   - 실제 호출 URL 노출 (api.openai.com 직접 vs forge 프록시)
 //   - 응답 헤더 openai-organization / openai-version 캡쳐 (어떤 OpenAI 계정으로 도달했는지)
-const OCR_MODEL = "gpt-4o-mini";
+//
+// ★ PR-AU (2026-05-28): OCR 정확도 개선
+//   - OCR_MODEL 을 환경변수 OCR_MODEL 로 끌어옴 → 운영에서 .env 만 바꾸면 모델 교체 가능
+//   - 기본값을 gpt-4o-mini → gpt-4o 로 업그레이드 (손글씨 판독 정확도 큰 폭 향상)
+//   - 챗봇용 OPENAI_MODEL 과 분리 (OCR 은 손글씨 양식 특수 도메인이라 별도 튜닝 필요)
+const OCR_MODEL = process.env.OCR_MODEL || "gpt-4o";
+
+// ★ PR-AU (2026-05-28): OCR 호출 결정론성 파라미터
+//   - temperature: 0   → 같은 입력 = 같은 출력 (비결정성 제거)
+//   - seed: 42         → 추가 재현성 보장 (gpt-4o 계열 지원)
+//   주의: 분류(classifyFormType) 와 2차 검증(secondPassVerification) 도 동일 적용해야
+//        디버깅 시 같은 결과 재현 가능.
+const OCR_TEMPERATURE = 0;
+const OCR_SEED = 42;
 
 // ─────────────────────────────────────────────────────────────
 // PR-AM-2026-05-27: PR-AL 회귀 버그 hotfix
@@ -178,38 +191,69 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
   // ★ PR-AS (2026-05-28): CCP-1B 다중 측정행 처리.
   //   페이지에 N 개의 측정 시각이 있으면 measurements[] 배열로 반환.
   //   공통 필드 (recordDate, productName) 는 상단/한계기준에서 추출.
+  // ★ PR-AU (2026-05-28): 양식 영역 명확 구분 + 핵심 오류 패턴 경고 강화.
   ccp_1b: {
     label: "CCP-1B 가열(증숙) 기록",
     expectedRanges: { temp: [85, 105], time: [5, 60] },
     systemPrompt: `HACCP CCP-1B 가열(증숙)공정 모니터링 기록지 OCR 전문가입니다.
 이 양식은 떡류 증숙(찜) 공정의 측정 시각별 가열시간/압력/품온 기록입니다.
 
-추출해야 할 정보 (정확한 폼 필드명 사용):
-  공통 필드 (페이지 상단/한계기준 기준):
-    - recordDate: 작성일자 (YYYY-MM-DD)
-    - productName: 제품명 (예: "콩고물쑥떡", "참쌀떡류" — 한계기준 표가 아닌 측정 데이터 표의 품명 컬럼)
-    - inspector: 작성자
+═══ 양식 영역 구조 (매우 중요) ═══
+이 양식은 위에서 아래로 3개의 명확한 영역으로 나뉩니다:
 
-  measurements[] 배열 (측정 데이터 표의 각 행마다 1개 객체):
-    - measurementTime: 측정시각 (HH:MM 또는 HH:MM:SS)
-    - equipment: 교반기 정보 (예: "교반기1호기", "교반기2호기"). 컬럼이 없으면 빈 문자열.
-    - heatingTimeMin: 가열시간 (분, 정수)
-    - pressureMpa: 압력 (소수, 예: "0.160" — Mpa 단위)
-    - inputAmountKg: 투입량 (kg, 소수 또는 정수, 예: "100.00")
-    - tempEdgeC: 가열후 품온 - 모서리 (℃, 소수)
-    - tempCenterC: 가열후 품온 - 중심부 (℃, 소수)
-    - passFail: 판정 ("적합" 또는 "부적합" — 체크박스/V/O 는 "적합", X 는 "부적합")
+[영역 A] 상단: 제목, 작성일자(손글씨 "년 월 일"), 작성/검토/승인 박스
+[영역 B] 중간 상부: "한계기준" 표 (인쇄된 제품별 기준)
+  - 이 표는 인쇄 텍스트로 "찹쌀떡류(교반기1호기) 10-15분 0.16Mpa이상 90.0이상" 같은 기준을 보여줌
+  - ⚠️ 절대 이 영역의 텍스트를 측정 데이터로 추출하지 말 것 ⚠️
+[영역 C] 중간 하부: "측정 데이터 표" (손글씨로 채워진 행들)
+  - 헤더: 품명 | 측정시각 | 교반기 | 가열시간 | 압력(Mpa) | 투입량(kg) | 가열후 품온(모서리/중심부) | 판정
+  - 이 영역의 손글씨만 measurements[] 배열로 추출
+  - 비어있는 행은 절대 포함하지 말 것
 
-  - deviationContent: 한계기준 이탈내용 (페이지 하단 — 부적합 시만)
-  - correctiveAction: 개선조치 및 결과 (페이지 하단 — 부적합 시만)
+═══ 추출 규칙 ═══
+공통 필드 (영역 A 에서):
+  - recordDate: 작성일자 (YYYY-MM-DD).
+    ⚠️ 손글씨 연도가 흐릿하면 "2026", "2025", "2024" 중 현재 시점에 가까운 것 우선.
+    예: "2026년 5월 28일" → "2026-05-28"
+  - inspector: 작성자 (영역 A 우측 박스 또는 영역 C 의 작성자 컬럼)
 
-검증 규칙:
-  - 손글씨 숫자 판독 시 97과 91, 98과 93, 0과 6을 주의 깊게 구별하세요.
-  - 빈 측정 행은 무시 (모든 셀이 비어있으면 measurements 배열에 포함하지 않음).
-  - 불확실한 필드는 _confidence 객체에 0.5 이하로 신뢰도 보고.
+공통 필드 (영역 C 의 측정 데이터 표 헤더에서):
+  - productName: 첫 번째 측정 행의 손글씨 품명 (예: "인절미", "콩고물쑥떡", "찹쌀떡").
+    ⚠️ 영역 B (한계기준 표) 의 "찹쌀떡류(교반기1호기)" 같은 인쇄 텍스트는 절대 사용 금지.
+    ⚠️ 측정 데이터 표의 손글씨 품명 컬럼만 사용.
 
-한 PDF = 한 작성일 = 여러 측정 (한 페이지에 여러 시각).
-실제 양식에는 보통 2~5 측정 행이 있고, 각 행은 독립된 DB 레코드가 됩니다.`,
+measurements[] 배열 (영역 C 의 손글씨 데이터 표의 각 행):
+  - measurementTime: 측정시각 (HH:MM). 손글씨 손에 익은 글씨 — "06:00", "06:15" 같은 형식 다수.
+    ⚠️ "06:10" 과 "06:00", "06:15" 와 "06:11" 을 신중히 구별. 분 단위 두 자리 정확히.
+  - equipment: 교반기 컬럼의 손글씨 (보통 "1", "2", "3" 같은 숫자 또는 "교반기1호기" 등).
+    숫자만 적힌 경우 그대로 추출 (예: "1" → "1"). 빈 칸이면 빈 문자열.
+  - heatingTimeMin: 가열시간 (분, 보통 "10" 또는 "15"). 정수.
+  - pressureMpa: 압력 (소수 2자리, 예: "0.18", "0.16", "0.12", "0.10", "0.28").
+    ⚠️ 0.18 과 0.10 을 신중히 구별 — 8 과 0 손글씨 혼동 빈번.
+    ⚠️ 영역 B (한계기준) 의 "0.16Mpa이상" 텍스트를 추출하지 말 것. 손글씨 값만.
+  - inputAmountKg: 투입량 (kg, 정수 또는 소수).
+    ⚠️ 손글씨 56 과 66, 38 과 28 등 1자리 숫자 혼동 빈번 — 매우 신중히 판독.
+  - tempEdgeC: 가열후 품온 - 모서리 (℃, 정수 또는 소수). 보통 89~99.
+  - tempCenterC: 가열후 품온 - 중심부 (℃, 정수 또는 소수). 보통 89~99.
+    ⚠️ 89 와 99, 98 과 93 손글씨 혼동 빈번.
+  - passFail: 판정 손글씨 — "적합" 또는 "부적합". 한자/약자/체크표시는 "적합" 으로 정규화.
+
+이탈/조치 (영역 C 아래 부적합 박스):
+  - deviationContent: 한계기준 이탈내용 (비어있으면 빈 문자열)
+  - correctiveAction: 개선조치 및 결과 (비어있으면 빈 문자열)
+
+═══ 손글씨 판독 일반 가이드 ═══
+  - 손글씨 숫자 0 과 6, 5 와 6, 1 과 7, 8 과 0 을 매우 신중히 구별.
+  - 한국 손글씨 "참쌀" 과 "찹쌀" 은 모두 가능 — 보이는 그대로.
+  - 빈 행은 measurements 에 포함 금지. 빈 칸이 있어도 행 전체가 비어있지 않으면 포함.
+  - 행 수는 통상 1~5 행. 같은 시각/같은 품명 행이 여러 개 있어도 모두 별개 행으로 추출.
+
+═══ 신뢰도 보고 (_confidence) ═══
+  - 손글씨가 또렷하고 다른 후보가 없으면 0.9 이상.
+  - 비슷한 후보가 있어 모호하면 0.6~0.8.
+  - 정말 판독 불가하면 0.3 이하 — 다른 곳에서 값 추론 금지.
+
+한 PDF = 한 작성일 = 여러 측정. 각 측정 행은 독립된 DB 레코드가 됩니다.`,
     jsonSchema: `{
   "recordDate": "YYYY-MM-DD",
   "productName": "제품명",
@@ -241,33 +285,52 @@ const CHECKLIST_PROMPTS: Record<string, PromptConfig> = {
 }`,
   },
   // ★ PR-AS (2026-05-28): CCP-2B 도 동일 패턴 — measurements[] 배열.
+  // ★ PR-AU (2026-05-28): 양식 영역 명확 구분 + 핵심 오류 패턴 경고 강화.
   ccp_2b: {
     label: "CCP-2B 가열(굽기) 기록",
     expectedRanges: { temp: [90, 200], time: [5, 60] },
     systemPrompt: `HACCP CCP-2B 가열(굽기)공정 모니터링 기록지 OCR 전문가입니다.
-이 양식은 견과류 등 굽기 공정의 측정 시각별 가열시간/온도 기록입니다.
+이 양식은 견과류/구이류 등 굽기 공정의 측정 시각별 가열시간/온도 기록입니다.
 
-추출해야 할 정보 (정확한 폼 필드명 사용):
-  공통 필드:
-    - recordDate: 작성일자 (YYYY-MM-DD)
-    - productName: 제품명 (예: "마카다미아", "호두")
-    - inspector: 작성자
+═══ 양식 영역 구조 (매우 중요) ═══
+[영역 A] 상단: 제목, 작성일자(손글씨), 작성/검토/승인 박스
+[영역 B] 중간 상부: "한계기준" 표 (인쇄된 제품별 기준 — 추출 금지)
+[영역 C] 중간 하부: "측정 데이터 표" (손글씨로 채워진 행들 — 이 영역만 추출)
+  - 헤더: 품명 | 측정시각 | 가열시간 | 가열온도(℃) | 투입량(kg) | 판정
+  - 비어있는 행은 measurements 에 포함 금지
 
-  measurements[] 배열 (측정 데이터 표의 각 행마다 1개):
-    - measurementTime: 측정시각 (HH:MM)
-    - heatingTimeMin: 가열시간 (분, 정수)
-    - temperatureC: 가열온도 (℃, 소수)
-    - inputAmountKg: 투입량 (kg)
-    - passFail: 판정 ("적합" 또는 "부적합")
+═══ 추출 규칙 ═══
+공통 필드 (영역 A):
+  - recordDate: 작성일자 (YYYY-MM-DD)
+    ⚠️ 손글씨 연도가 흐릿하면 "2026", "2025", "2024" 중 현재 시점 우선.
+  - inspector: 작성자
 
-  - deviationContent: 한계기준 이탈내용 (부적합 시만)
-  - correctiveAction: 개선조치 및 결과 (부적합 시만)
+공통 필드 (영역 C 첫 행의 손글씨):
+  - productName: 첫 측정 행의 손글씨 품명 (예: "마카다미아", "호두", "아몬드").
+    ⚠️ 영역 B (한계기준 표) 의 인쇄 텍스트 절대 사용 금지.
 
-검증 규칙:
-  - 손글씨 숫자 97과 91, 0과 6 구별 주의.
-  - 빈 측정 행 무시.
+measurements[] 배열 (영역 C 손글씨 데이터 표의 각 행):
+  - measurementTime: 측정시각 (HH:MM). 손글씨 시:분 두 자리 정확히.
+  - heatingTimeMin: 가열시간 (분, 정수).
+  - temperatureC: 가열온도 (℃, 소수). 보통 100~200.
+    ⚠️ 손글씨 자릿수 (3자리 vs 2자리) 신중히 판독.
+  - inputAmountKg: 투입량 (kg, 정수 또는 소수).
+    ⚠️ 5↔6, 8↔0, 1↔7 손글씨 혼동 빈번.
+  - passFail: 판정 — "적합" 또는 "부적합" (체크표시는 적합).
 
-한 PDF = 한 작성일 = 여러 측정.`,
+이탈/조치 (영역 C 아래 부적합 박스):
+  - deviationContent: 비어있으면 빈 문자열
+  - correctiveAction: 비어있으면 빈 문자열
+
+═══ 손글씨 판독 가이드 ═══
+  - 0/6, 5/6, 1/7, 8/0, 9/4 신중히 구별.
+  - 빈 행은 추출 금지. 행 수는 통상 1~5 행.
+
+═══ 신뢰도 보고 (_confidence) ═══
+  - 또렷하면 0.9+, 모호하면 0.6~0.8, 판독 불가는 0.3 이하.
+  - 절대 다른 영역의 값으로 채워서 신뢰도 높게 주지 말 것.
+
+한 PDF = 한 작성일 = 여러 측정. 각 행은 독립 DB 레코드.`,
     jsonSchema: `{
   "recordDate": "YYYY-MM-DD",
   "productName": "제품명",
@@ -591,6 +654,9 @@ ${extraContext || ""}`;
         {
           model: OCR_MODEL,
           max_tokens: 4096,
+          // ★ PR-AU: 결정론적 출력 (비결정성 제거)
+          temperature: OCR_TEMPERATURE,
+          seed: OCR_SEED,
           messages: [
             { role: "system", content: systemContent },
             {
@@ -672,6 +738,9 @@ async function classifyFormType(
       {
         model: OCR_MODEL,
         max_tokens: 100,
+        // ★ PR-AU: 분류도 결정론적
+        temperature: OCR_TEMPERATURE,
+        seed: OCR_SEED,
         messages: [
           { role: "system", content: systemContent },
           {
@@ -802,6 +871,9 @@ async function secondPassVerification(
     const { data } = await callOpenAIChatCompletions({
       model: OCR_MODEL,
       max_tokens: 2048,
+      // ★ PR-AU: 2차 검증도 결정론적
+      temperature: OCR_TEMPERATURE,
+      seed: OCR_SEED,
       messages: [
         {
           role: "system",
