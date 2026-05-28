@@ -154,6 +154,13 @@ export interface EnhancedOcrResult {
   lowConfidenceFields: string[];
   rawText: string;
   error?: string;
+  // ★ PR-AT (2026-05-28): 양식 자동 분류 결과
+  classification?: {
+    requestedType: string;   // 사용자가 선택한 타입
+    detectedType: string;    // OCR 이 감지한 타입
+    overridden: boolean;     // 감지값으로 프롬프트를 교체했는지
+    confidence: number;      // 분류 신뢰도 0~1
+  };
 }
 
 // ════════════════════════════════════════════
@@ -627,6 +634,79 @@ ${extraContext || ""}`;
 }
 
 // ════════════════════════════════════════════
+// ★ PR-AT (2026-05-28): 양식 자동 분류
+// ════════════════════════════════════════════
+
+/** 자동 분류 대상 CCP 타입 (잘못된 프롬프트 적용 시 추출값이 완전히 어긋남) */
+const CLASSIFIABLE_CCP_TYPES = ["ccp_1b", "ccp_2b", "ccp_3b", "ccp_4p"] as const;
+
+/**
+ * 양식 첫 페이지 이미지를 보고 CCP 타입을 분류.
+ *   제목/구조만 보는 경량 호출 (low detail, 작은 max_tokens) → 비용/지연 최소화.
+ *   반환: { detectedType, confidence } — 분류 불가 시 detectedType="unknown".
+ */
+async function classifyFormType(
+  imageBuffer: Buffer,
+  mimeType: string,
+): Promise<{ detectedType: string; confidence: number }> {
+  if (!mimeType.startsWith("image/")) {
+    return { detectedType: "unknown", confidence: 0 };
+  }
+
+  const base64 = imageBuffer.toString("base64");
+  const systemContent = `HACCP CCP 모니터링 양식 분류 전문가입니다.
+이미지의 제목과 표 구조를 보고 어떤 CCP 양식인지 판별하세요.
+
+분류 기준 (제목 문구 우선):
+  - "CCP-1B" 또는 "가열(증숙)" / "증숙" / 떡류 압력·품온 표 → ccp_1b
+  - "CCP-2B" 또는 "가열(굽기)" / "굽기" / 견과류 가열온도 표 → ccp_2b
+  - "CCP-3B" 또는 기타 가열공정 → ccp_3b
+  - "CCP-4P" 또는 "금속검출" / Fe·SUS 시편 표 → ccp_4p
+  - 위 어디에도 명확히 속하지 않으면 → unknown
+
+반드시 아래 JSON 으로만 응답:
+{ "detectedType": "ccp_1b|ccp_2b|ccp_3b|ccp_4p|unknown", "confidence": 0.0~1.0 }`;
+
+  try {
+    const { data } = await callOpenAIChatCompletions(
+      {
+        model: OCR_MODEL,
+        max_tokens: 100,
+        messages: [
+          { role: "system", content: systemContent },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "이 양식의 CCP 타입을 분류하세요." },
+              {
+                type: "image_url",
+                // low detail — 제목/구조만 보면 되므로 고해상도 불필요
+                image_url: { url: `data:${mimeType};base64,${base64}`, detail: "low" },
+              },
+            ],
+          },
+        ],
+      },
+      30000,
+    );
+
+    const content = data?.choices?.[0]?.message?.content || "";
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const detectedType = String(parsed.detectedType || "unknown").toLowerCase();
+      const confidence = Math.max(0, Math.min(1, Number(parsed.confidence) || 0));
+      if ((CLASSIFIABLE_CCP_TYPES as readonly string[]).includes(detectedType)) {
+        return { detectedType, confidence };
+      }
+    }
+  } catch (err) {
+    console.warn("[scanOcr.classifyFormType] 분류 실패 (무시하고 사용자 선택 사용):", err);
+  }
+  return { detectedType: "unknown", confidence: 0 };
+}
+
+// ════════════════════════════════════════════
 // 필드별 신뢰도 계산
 // ════════════════════════════════════════════
 
@@ -791,11 +871,16 @@ export async function enhancedOcrAndStructure(
     templateFields?: { fieldName: string; fieldLabel: string; type: string }[];
     enableTwoPass?: boolean;
     enablePreprocessing?: boolean;
+    // ★ PR-AT (2026-05-28): 양식 자동 분류 활성화 (CCP 타입 잘못 선택 보정)
+    enableAutoClassify?: boolean;
   }
 ): Promise<EnhancedOcrResult> {
   const enableTwoPass = options?.enableTwoPass !== false;
   const enablePreprocessing = options?.enablePreprocessing !== false;
-  const config = CHECKLIST_PROMPTS[checklistType] || DEFAULT_PROMPT;
+  const enableAutoClassify = options?.enableAutoClassify !== false;
+  // effectiveType 은 자동 분류 후 교체될 수 있음 (let)
+  let effectiveType = checklistType;
+  let config = CHECKLIST_PROMPTS[checklistType] || DEFAULT_PROMPT;
 
   // 양식 필드 정보 추가 컨텍스트
   let extraContext = "";
@@ -845,6 +930,36 @@ export async function enhancedOcrAndStructure(
       pageBuffers.push({ buffer: buf, mimeType });
     }
 
+    // ★ PR-AT: 양식 자동 분류 — CCP 타입(또는 범용 ccp_record) 선택 시 첫 페이지로 타입 감지.
+    //   감지 신뢰도가 충분하고 사용자 선택과 다르면 프롬프트를 감지값으로 교체.
+    let classification: EnhancedOcrResult["classification"];
+    const isClassifiableSelection =
+      (CLASSIFIABLE_CCP_TYPES as readonly string[]).includes(checklistType) ||
+      checklistType === "ccp_record";
+    if (enableAutoClassify && isClassifiableSelection && pageBuffers.length > 0) {
+      const first = pageBuffers[0];
+      const { detectedType, confidence } = await classifyFormType(first.buffer, first.mimeType);
+      // 신뢰도 0.7 이상 + 사용자 선택과 다를 때만 교체 (ccp_record 는 항상 교체 시도)
+      const shouldOverride =
+        detectedType !== "unknown" &&
+        confidence >= 0.7 &&
+        detectedType !== checklistType;
+      if (shouldOverride) {
+        console.log(
+          `[scanOcr] 양식 자동 분류 — 선택=${checklistType} 감지=${detectedType} ` +
+            `신뢰도=${confidence.toFixed(2)} → 프롬프트 교체`,
+        );
+        effectiveType = detectedType;
+        config = CHECKLIST_PROMPTS[detectedType] || config;
+      }
+      classification = {
+        requestedType: checklistType,
+        detectedType,
+        overridden: shouldOverride,
+        confidence,
+      };
+    }
+
     // 각 페이지 OCR 실행
     let mergedData: Record<string, any> = {};
     let mergedRawText = "";
@@ -859,9 +974,12 @@ export async function enhancedOcrAndStructure(
         if (i === 0) {
           mergedData = parsed;
         } else {
-          // 다중 페이지: items 배열 병합
+          // 다중 페이지: items / measurements 배열 병합
           if (parsed.items && Array.isArray(parsed.items)) {
             mergedData.items = [...(mergedData.items || []), ...parsed.items];
+          }
+          if (parsed.measurements && Array.isArray(parsed.measurements)) {
+            mergedData.measurements = [...(mergedData.measurements || []), ...parsed.measurements];
           }
         }
       }
@@ -903,6 +1021,7 @@ export async function enhancedOcrAndStructure(
       overallConfidence,
       lowConfidenceFields,
       rawText: mergedRawText,
+      classification,
     };
   } catch (error: any) {
     // PR-AH: OpenAI 에러를 구체적으로 분류
