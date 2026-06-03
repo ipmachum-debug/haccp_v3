@@ -341,15 +341,21 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hBatchInputs } = await import("../../../drizzle/schema.js");
+  const { hMaterials } = await import("../../../drizzle/schema/schema_main_products.js");
   const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
   const { eq, sql } = await import("drizzle-orm");
 
+  // ★ 2026-06-03 FIX: 배치 상세 페이지에서 원재료명이 "원재료 #ID"로 표시되던 버그 수정
+  // - h_batch_inputs.material_id 는 h_materials.id 를 가리키는 외래키
+  // - 기존 코드는 item_master 와 JOIN 했으나 ID 체계가 달라 매칭 실패 → fallback 발동
+  // - 1차 JOIN: h_materials (정본), 2차 JOIN: item_master (통합 마스터 호환)
+  // - COALESCE 우선순위: h_materials.material_name → item_master.item_name → 'h_materials.id에 대한 fallback'
   return await db.select({
     id: hBatchInputs.id,
     batchId: hBatchInputs.batchId,
     materialId: hBatchInputs.materialId,
-    materialName: sql`COALESCE(${itemMaster.itemName}, CONCAT('원재료 #', ${hBatchInputs.materialId}))`.as("materialName"),
-    materialCode: itemMaster.itemCode,
+    materialName: sql`COALESCE(${hMaterials.materialName}, ${itemMaster.itemName}, CONCAT('원재료 #', ${hBatchInputs.materialId}))`.as("materialName"),
+    materialCode: sql`COALESCE(${hMaterials.materialCode}, ${itemMaster.itemCode})`.as("materialCode"),
     lotId: hBatchInputs.lotId,
     plannedQuantity: hBatchInputs.plannedQuantity,
     actualQuantity: hBatchInputs.actualQuantity,
@@ -359,6 +365,7 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
     createdAt: hBatchInputs.createdAt
   })
   .from(hBatchInputs)
+  .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
   .leftJoin(itemMaster, eq(hBatchInputs.materialId, itemMaster.id))
   .where(eq(hBatchInputs.batchId, batchId));
 }
