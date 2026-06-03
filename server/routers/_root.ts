@@ -57,6 +57,7 @@ import { systemRouter } from "../_core/systemRouter";
 
 // ── domain plugin (Phase Plugin-1: 근본 도메인 분리) ──
 import { domainRouter } from "./domain.router";
+import { productionPlanRouter } from "./productionPlan.router";
 
 // ══════════════════════════════════════════
 // appRouter 조립
@@ -112,6 +113,9 @@ export const appRouter = router({
   // ── ai (LLM 연동) ──
   ai: aiRouter,
   opscoreSync: opscoreSyncRouter,
+
+  // ── 주간 생산계획표 (PR-PP, 2026-05-28) ──
+  productionPlan: productionPlanRouter,
 
   // ── domain plugin (Phase Plugin-1: 근본 도메인 분리 아키텍처) ──
   // 클라이언트는 trpc.domain.currentPlugin 으로 자기 산업 plugin 조회.

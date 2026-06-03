@@ -11,6 +11,7 @@ import { ROUTES } from "@/lib/routePaths";
 // Lazy load pages
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const OnboardingPage = lazy(() => import("@/pages/landing/OnboardingPage"));
+const ProductionPlan = lazy(() => import("@/pages/plan/ProductionPlan"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const Dashboard = lazy(() => import("./pages/system/Dashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/system/SuperAdminDashboard"));
@@ -354,6 +355,8 @@ function Router() {
       <Route path="/legal/:section" component={LegalPage} />
       <Route path="/legal" component={LegalPage} />
       <Route path="/signup" component={OnboardingPage} />
+      {/* ★ PR-PP (2026-05-28): 주간 생산계획표 — 독립 URL (DashboardLayout 없음) */}
+      <Route path="/plan" component={ProductionPlan} />
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/dashboard/super-admin" component={SuperAdminDashboard} />
         <Route path="/dashboard/support-manage" component={SupportManagePage} />
