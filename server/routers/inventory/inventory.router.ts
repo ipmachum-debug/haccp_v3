@@ -119,15 +119,20 @@ export const inventoryRouter = router({
         return await getInventoryLotsByMaterialId(input.materialId);
       }),
     
-    // 원재료 투입
+    // 원재료 투입 → h_batch_inputs INSERT
+    // ※ materialId 는 반드시 h_materials.id (원재료 마스터). 중간재/완제품 ID 사용 금지.
     addMaterialInput: workerProcedure
       .input(
         z.object({
-          batchId: z.number(),
-          materialId: z.number(),
-          lotId: z.number(),
-          quantity: z.string(),
-          unit: z.string()
+          batchId: z.number().describe("h_batches.id — 투입 대상 배치 ID"),
+          materialId: z.number().describe(
+            "h_materials.id (원재료 마스터). " +
+            "h_intermediates.id 또는 h_products_v2.id 를 사용하면 안 됩니다. " +
+            "h_batch_inputs.material_id 는 raw_material 전용입니다."
+          ),
+          lotId: z.number().describe("h_inventory_lots.id — 차감 대상 LOT ID"),
+          quantity: z.string().describe("투입 수량 (decimal string)"),
+          unit: z.string().describe("단위 (kg/g/L 등)")
         })
       )
       .mutation(async ({ input, ctx }) => {
