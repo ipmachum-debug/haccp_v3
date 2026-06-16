@@ -457,10 +457,24 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       if (eqType === "sensitivity") return "sensitivity";
       if (eqType === "passage") return "passage";
       // equipment_type이 NULL인 경우 데이터 패턴으로 분류
-      const hasPassageData = r.passTimeStart || r.pass_time_start || r.passTimeEnd || r.pass_time_end;
-      const hasSensitivityData = r.metalPassTime || r.metal_pass_time || r.metalFeMid || r.metal_fe_mid;
+      const hasPassageData = r.passTimeStart || r.pass_time_start || r.passTimeEnd || r.pass_time_end
+        || r.passQty != null || r.pass_qty != null
+        || r.detectedQty != null || r.detected_qty != null;
+      // ★ 2026-05-09: metal_fe_product / metal_sus_product / metal_product_only / result 만
+      //    채워진 row 도 감도 모니터링 row 로 인식 (4/17 빈 PDF 사고 재발 방지)
+      //    원인: DB 에는 metal_fe_product='O', metal_sus_product='O' 만 채워진 row 가
+      //          'unknown' 으로 분류되어 상단 감도 테이블이 빈 채로 출력됨
+      const hasSensitivityData = r.metalPassTime || r.metal_pass_time
+        || r.metalFeMid || r.metal_fe_mid
+        || r.metalSusMid || r.metal_sus_mid
+        || r.metalProductOnly || r.metal_product_only
+        || r.metalFeProduct || r.metal_fe_product
+        || r.metalSusProduct || r.metal_sus_product;
       if (hasPassageData) return "passage";
       if (hasSensitivityData) return "sensitivity";
+      // ★ 어느 측정 데이터도 없지만 결과(result)는 있는 row 는 sensitivity 로 폴백
+      //    (감도 테이블이 일반적으로 더 데이터가 적게 채워지므로 안전한 기본값)
+      if (r.result) return "sensitivity";
       return "unknown";
     };
     const sensitivityRows = hasFormRows
