@@ -282,7 +282,8 @@ export const SealGenerator: React.FC<SealGeneratorProps> = ({
     }
   }
 
-  // 승인 직인 (승인/검토/확인 + 날짜)
+  // 승인 직인 (승인/검토/확인 + 이름)
+  // 도장 안에는 라벨 + 이름만 표시 (날짜는 표시하지 않음 — 별도 행에 출력됨)
   function drawApprovalSeal(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, s: number) {
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
@@ -292,16 +293,12 @@ export const SealGenerator: React.FC<SealGeneratorProps> = ({
     const pad = 3;
     ctx.strokeRect(pad, pad, s - pad * 2, s - pad * 2);
 
-    // 내부 구분선 (3단 분할)
-    const section = (s - pad * 2) / 3;
+    // 내부 구분선 (2단 분할: 라벨 / 이름)
+    const section = (s - pad * 2) / 2;
     ctx.lineWidth = Math.max(1, s / 50);
     ctx.beginPath();
     ctx.moveTo(pad, pad + section);
     ctx.lineTo(s - pad, pad + section);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(pad, pad + section * 2);
-    ctx.lineTo(s - pad, pad + section * 2);
     ctx.stroke();
 
     ctx.textAlign = "center";
@@ -309,18 +306,12 @@ export const SealGenerator: React.FC<SealGeneratorProps> = ({
 
     // 상단: 승인/검토/확인 라벨
     const label = title || "승인";
-    ctx.font = `bold ${s / 4.5}px "Noto Serif KR", "Batang", serif`;
+    ctx.font = `bold ${s / 4}px "Noto Serif KR", "Batang", serif`;
     ctx.fillText(label, cx, pad + section / 2);
 
-    // 중앙: 이름
-    ctx.font = `bold ${s / 4}px "Noto Serif KR", "Batang", serif`;
+    // 하단: 이름
+    ctx.font = `bold ${s / 3.5}px "Noto Serif KR", "Batang", serif`;
     ctx.fillText(name, cx, pad + section + section / 2);
-
-    // 하단: 날짜
-    if (date) {
-      ctx.font = `${s / 6.5}px "Noto Sans KR", sans-serif`;
-      ctx.fillText(date, cx, pad + section * 2 + section / 2);
-    }
   }
 
   return (
@@ -457,22 +448,21 @@ function drawPersonalSealStatic(ctx: CanvasRenderingContext2D, cx: number, cy: n
 }
 
 function drawApprovalSealStatic(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, s: number, opts: any) {
+  // 도장 안에는 라벨 + 이름만 표시 (날짜는 표시하지 않음 — 별도 행에 출력됨)
   ctx.lineWidth = Math.max(2, s / 35);
   const pad = 3;
   ctx.strokeRect(pad, pad, s - pad * 2, s - pad * 2);
-  const section = (s - pad * 2) / 3;
+  // 2단 분할: 라벨 / 이름
+  const section = (s - pad * 2) / 2;
   ctx.lineWidth = Math.max(1, s / 50);
   ctx.beginPath(); ctx.moveTo(pad, pad + section); ctx.lineTo(s - pad, pad + section); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(pad, pad + section * 2); ctx.lineTo(s - pad, pad + section * 2); ctx.stroke();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = `bold ${s / 4.5}px "Noto Serif KR", "Batang", serif`;
-  ctx.fillText(opts.title || "승인", cx, pad + section / 2);
+  // 상단: 라벨
   ctx.font = `bold ${s / 4}px "Noto Serif KR", "Batang", serif`;
+  ctx.fillText(opts.title || "승인", cx, pad + section / 2);
+  // 하단: 이름
+  ctx.font = `bold ${s / 3.5}px "Noto Serif KR", "Batang", serif`;
   ctx.fillText(opts.name, cx, pad + section + section / 2);
-  if (opts.date) {
-    ctx.font = `${s / 6.5}px "Noto Sans KR", sans-serif`;
-    ctx.fillText(opts.date, cx, pad + section * 2 + section / 2);
-  }
 }
 
 function drawOfficialSealStatic(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, s: number, opts: any) {
