@@ -98,22 +98,18 @@ const ROWS_PER_PAGE = 20;
 
 function generatePrintHTML(items: InspectionItem[], year: number, month: number, approvalInfo: any) {
   const ai = approvalInfo || {};
-  const sealSVG = (name: string, date: string, type: string) => {
-    let dateStr = "";
-    try { const d = safeDate(date); if (d) dateStr = format(d, "yy.MM.dd"); } catch {}
+  // 인쇄용 직인 SVG: 라벨 + 이름 2단 구조 (날짜는 표시하지 않음)
+  const sealSVG = (name: string, _date: string, type: string) => {
     const displayName = name.length === 2 ? name[0] + " " + name[1] : name.length === 3 ? name : name.slice(0, 3);
     return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto;">
       <rect x="1" y="1" width="32" height="32" rx="1" ry="1" fill="none" stroke="#D42020" stroke-width="1.6" opacity="0.85"/>
-      <line x1="1" y1="12.3" x2="33" y2="12.3" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
-      <line x1="1" y1="23.3" x2="33" y2="23.3" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
-      <text x="17" y="8" text-anchor="middle" dominant-baseline="central" font-size="6.5" fill="#D42020" font-weight="700" opacity="0.85">${type}</text>
-      <text x="17" y="18" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#D42020" font-weight="700" opacity="0.85">${displayName}</text>
-      <text x="17" y="28.5" text-anchor="middle" dominant-baseline="central" font-size="5.5" fill="#D42020" font-weight="400" opacity="0.7">${dateStr}</text>
+      <line x1="1" y1="13" x2="33" y2="13" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
+      <text x="17" y="8" text-anchor="middle" dominant-baseline="central" font-size="7" fill="#D42020" font-weight="700" opacity="0.85">${type}</text>
+      <text x="17" y="23" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#D42020" font-weight="700" opacity="0.85">${displayName}</text>
     </svg>`;
   };
-  const sealCell = (name?: string, date?: string, type?: string) => {
-    if (name && date) return sealSVG(name, date, type || "");
-    if (name) return `<div style="font-size:9px;font-weight:700;color:#D42020;">${name}</div>`;
+  const sealCell = (name?: string, _date?: string, type?: string) => {
+    if (name) return sealSVG(name, "", type || "");
     return `<span style="color:#d1d5db;font-size:8px;">\uBBF8${type === "\uC791\uC131" ? "\uC791\uC131" : type === "\uAC80\uD1A0" ? "\uAC80\uD1A0" : "\uC2B9\uC778"}</span>`;
   };
   const markClass = (v: string) => v === '\u25CB' ? 'mark-pass' : v === '\u00D7' ? 'mark-fail' : '';
@@ -181,7 +177,7 @@ function generatePrintHTML(items: InspectionItem[], year: number, month: number,
           <th style="width:30px;">\uCC28\uB7C9<br/>\uC628\uB3C4</th>
           <th style="width:30px;">\uCC28\uB7C9<br/>\uC0C1\uD0DC</th>
           <th style="width:30px;">\uD30C\uB808\uD2B8<br/>\uC0C1\uD0DC</th>
-          <th style="width:30px;">\uC815\uC0C1<br/>\uACB0\uC7AC</th>
+          <th style="width:30px;">\uC815\uC0C1</th>
           <th style="width:30px;">\uC774\uBB3C<br/>\uD63C\uC785</th>
           <th style="width:30px;">\uD45C\uC2DC<br/>\uC54C\uB808\uB974\uAE30</th>
           <th style="width:40px;">\uC801\uD569<br/>\uC5EC\uBD80</th>
