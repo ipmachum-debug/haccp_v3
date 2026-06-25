@@ -103,8 +103,8 @@ export async function createPurchase(params: {
   //   HACCP 통합이 실패해도 로그만 남기고 계속 진행.
   if (resolvedMaterialId) {
     try {
-      const { hInventoryLots, hMaterialInspections, hMaterials, hInventoryTransactions, hInventory } = await import("../../../drizzle/schema");
-      const { eq, and, sql } = await import("drizzle-orm");
+      const { hInventoryLots, hMaterialInspections, hMaterials } = await import("../../../drizzle/schema");
+      const { eq } = await import("drizzle-orm");
 
       // 원재료 정보 조회 (unit 필드 필요)
       const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, resolvedMaterialId));
@@ -136,60 +136,60 @@ export async function createPurchase(params: {
         status: "available", // enum: available, reserved, used, expired, disposed
       } as any);
 
-      // ─── 재고 정합성 보정 (PR #365 재구현) ─────────────────────────────
-      //   과거: LOT 만 INSERT 되고 receipt 트랜잭션 + h_inventory 집계가 누락되어
-      //         트랜잭션 기반 입고합계 ≠ LOT 합계 (tenant2 약 76톤 불일치 사고).
-      //   수정: inboundManagement.createInboundReceipt 와 동일 패턴으로
-      //         (B) h_inventory_transactions(receipt) INSERT + (C) h_inventory UPSERT 추가.
-      //   best-effort try/catch — 실패해도 매입전표/LOT 는 이미 기록됨.
+      // ★ 2026-06-25: 입고 트랜잭션(receipt) 및 h_inventory 합계 갱신
+      //   이전에는 h_inventory_lots만 INSERT하고 h_inventory_transactions 누락 → 트랜잭션
+      //   기준 보고서/재고 화면이 LOT 합계와 불일치하는 문제 발생 (MAT- orphan LOT 이슈).
+      //   inboundManagement.ts (직접 입고 경로)의 (B), (C) 패턴과 동일하게 보완.
       try {
-        // (B) 입고 거래 내역 (양수, type='receipt') — 트랜잭션 기반 보고서/입출고대장 정합
+        const { hInventoryTransactions, hInventory } = await import("../../../drizzle/schema");
+        // (B) receipt 트랜잭션 기록
         await db.insert(hInventoryTransactions).values({
           tenantId: tenantId,
-          lotId: (lot.insertId as number) ?? null,
+          lotId: lot.insertId as number,
           materialId: resolvedMaterialId,
           transactionType: "receipt",
-          quantity: totalInventoryQuantity.toString(),
+          quantity: totalInventoryQuantity,
           unit: material.unit,
-          unitCost: params.unitPrice != null ? String(params.unitPrice) : null,
-          amount: params.amount != null ? String(params.amount) : null,
+          unitCost: params.unitPrice ? String(params.unitPrice) : null,
+          amount: params.amount ? String(params.amount) : null,
           transactionDate: params.transactionDate,
           referenceType: "accounting_purchase",
           referenceId: purchase.insertId as number,
-          sourceType: "accounting_purchase",
-          sourceId: purchase.insertId as number,
           notes: params.memo || null,
           createdBy: params.createdBy,
         } as any);
 
-        // (C) h_inventory 총량/가용량 누계 (없으면 INSERT)
-        const existingInv = await db
-          .select({ id: hInventory.id })
+        // (C) h_inventory 합계 누계 (UPSERT)
+        const [existingInv] = await db
+          .select()
           .from(hInventory)
-          .where(and(eq(hInventory.materialId, resolvedMaterialId), eq(hInventory.tenantId, tenantId as number)))
-          .limit(1);
-        if (existingInv.length > 0) {
+          .where(and(
+            eq(hInventory.tenantId, tenantId as number),
+            eq(hInventory.materialId, resolvedMaterialId)
+          ));
+        if (existingInv) {
           await db
             .update(hInventory)
             .set({
-              totalQuantity: sql`GREATEST(0, ${hInventory.totalQuantity} + ${totalInventoryQuantity})`,
-              availableQuantity: sql`GREATEST(0, ${hInventory.availableQuantity} + ${totalInventoryQuantity})`,
-              lastUpdated: new Date(),
-            })
-            .where(eq(hInventory.id, existingInv[0].id));
+              totalQuantity: String(Number(existingInv.totalQuantity) + totalInventoryQuantity),
+              availableQuantity: String(Number(existingInv.availableQuantity) + totalInventoryQuantity),
+            } as any)
+            .where(eq(hInventory.id, existingInv.id));
         } else {
           await db.insert(hInventory).values({
             tenantId: tenantId,
             materialId: resolvedMaterialId,
-            totalQuantity: totalInventoryQuantity.toString(),
-            availableQuantity: totalInventoryQuantity.toString(),
-            reservedQuantity: "0.000",
+            itemName: material.materialName,
+            totalQuantity: String(totalInventoryQuantity),
+            availableQuantity: String(totalInventoryQuantity),
+            reservedQuantity: "0",
             unit: material.unit,
-            lastUpdated: new Date(),
           } as any);
         }
-      } catch (invErr: any) {
-        console.warn(`[createPurchase] 재고 트랜잭션/집계 보정 실패 (비치명):`, invErr?.message || invErr);
+      } catch (txnErr: any) {
+        // 트랜잭션/재고 합계 INSERT 실패는 비치명 (LOT/매입은 이미 기록됨)
+        console.error(`[createPurchase] h_inventory_transactions/h_inventory 기록 실패 (비치명):`,
+          txnErr?.message || txnErr);
       }
 
       // h_material_inspections에 육안검사일지 자동 생성
