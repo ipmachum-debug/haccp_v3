@@ -211,29 +211,21 @@ function generatePrintHTML(batches: ReportBatch[], summary: ReportSummary, dateS
   const achievementRate = totalPlanned > 0 ? Math.round((totalActual / totalPlanned) * 100) : 0;
   const ai = approvalInfo || {};
 
-  // SVG 직인(도장) 생성 함수 - 인쇄 시 빨간 직인 표시 (승인도장 3단 분할 스타일)
-  const sealSVG = (name: string, date: string | Date, type: string) => {
-    let dateStr = "";
-    try {
-      const d = safeDate(date);
-      if (d) dateStr = format(d, "yy.MM.dd");
-    } catch {}
+  // SVG 직인(도장) 생성 함수 - 인쇄 시 빨간 직인 표시 (라벨 + 이름 2단 구조, 날짜 미표시)
+  const sealSVG = (name: string, _date: string | Date, type: string) => {
     const displayName = name.length === 2 ? name[0] + " " + name[1] : name.length === 3 ? name : name.slice(0, 3);
     return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto;">
       <rect x="1" y="1" width="32" height="32" rx="1" ry="1" fill="none" stroke="#D42020" stroke-width="1.6" opacity="0.85"/>
-      <line x1="1" y1="12.3" x2="33" y2="12.3" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
-      <line x1="1" y1="23.3" x2="33" y2="23.3" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
-      <text x="17" y="8" text-anchor="middle" dominant-baseline="central" font-size="6.5" fill="#D42020" font-weight="700" opacity="0.85" font-family="'Noto Serif KR','Batang',serif">${type}</text>
-      <text x="17" y="18" text-anchor="middle" dominant-baseline="central" font-size="9.5" fill="#D42020" font-weight="700" opacity="0.85" font-family="'Noto Serif KR','Batang',serif">${displayName}</text>
-      <text x="17" y="28.5" text-anchor="middle" dominant-baseline="central" font-size="5.5" fill="#D42020" font-weight="400" opacity="0.7" font-family="'Noto Sans KR',sans-serif">${dateStr}</text>
+      <line x1="1" y1="13" x2="33" y2="13" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
+      <text x="17" y="8" text-anchor="middle" dominant-baseline="central" font-size="7" fill="#D42020" font-weight="700" opacity="0.85" font-family="'Noto Serif KR','Batang',serif">${type}</text>
+      <text x="17" y="23" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#D42020" font-weight="700" opacity="0.85" font-family="'Noto Serif KR','Batang',serif">${displayName}</text>
     </svg>`;
   };
 
-  const sealCell = (name?: string, date?: string | Date, type?: string) => {
-    if (name && date) {
-      return sealSVG(name, String(date), type || "");
+  const sealCell = (name?: string, _date?: string | Date, type?: string) => {
+    if (name) {
+      return sealSVG(name, "", type || "");
     }
-    if (name) return `<div style="font-size:9px;font-weight:700;color:#D42020;">${name}</div>`;
     return `<span style="color:#d1d5db;font-size:8px;">미${type === "작성" ? "작성" : type === "검토" ? "검토" : "승인"}</span>`;
   };
 
