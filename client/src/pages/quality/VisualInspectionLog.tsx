@@ -318,7 +318,7 @@ function VisualInspectionDocument({
             <th className={thCls} style={{width:'32px'}}>차량<br/>온도</th>
             <th className={thCls} style={{width:'32px'}}>차량<br/>상태</th>
             <th className={thCls} style={{width:'32px'}}>파레트<br/>상태</th>
-            <th className={thCls} style={{width:'32px'}}>정상<br/>결재</th>
+            <th className={thCls} style={{width:'32px'}}>정상</th>
             <th className={thCls} style={{width:'32px'}}>이물<br/>혼입</th>
             <th className={thCls} style={{width:'32px'}}>표시<br/>알레르기</th>
             <th className={thCls} style={{width:'42px'}}>적합<br/>여부</th>
