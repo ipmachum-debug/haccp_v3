@@ -774,7 +774,7 @@ export const batchCrudRouter = router({
 // 배치 CRUD (조회, 수정, 삭제)
 // ═══════════════════════════════════════════════════════════════
 
-    /** 배치 목록 조회 (tenantId 필터, 페이지네이션) */
+    /** 배치 목록 조회 (tenantId 필터, 페이지네이션, planned_date 범위) */
     list: tenantRequiredProcedure
       .input(
         z.object({
@@ -782,7 +782,11 @@ export const batchCrudRouter = router({
           status: z.string().optional(),
           productId: z.number().optional(),
           page: z.number().optional(),
-          limit: z.number().optional()
+          limit: z.number().optional(),
+          /** planned_date >= fromDate (YYYY-MM-DD). 캘린더 월 범위 조회용 */
+          fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          /** planned_date <= toDate (YYYY-MM-DD). 캘린더 월 범위 조회용 */
+          toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         }).optional()
       )
       .query(async ({ input, ctx }) => {
