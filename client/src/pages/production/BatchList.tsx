@@ -101,7 +101,29 @@ export default function BatchList() {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
-  const { data: batchData, isLoading, isError, error, refetch } = trpc.batch.list.useQuery({ page, limit });
+
+  // 캘린더 뷰일 때는 표시 중인 월의 planned_date 범위로 조회 (페이지네이션 우회)
+  // - 표시 셀에는 이전/다음 달의 일부도 포함되므로 앞뒤 7일 여유를 둔다
+  // - limit=2000 으로 사실상 페이지 제한 무력화
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+  const calendarRange = useMemo(() => {
+    const from = new Date(calMonth.year, calMonth.month, 1);
+    from.setDate(from.getDate() - 7);
+    const to = new Date(calMonth.year, calMonth.month + 1, 0);
+    to.setDate(to.getDate() + 7);
+    return { fromDate: fmt(from), toDate: fmt(to) };
+  }, [calMonth]);
+
+  const queryInput =
+    viewMode === "calendar"
+      ? { page: 1, limit: 2000, fromDate: calendarRange.fromDate, toDate: calendarRange.toDate }
+      : { page, limit };
+  const { data: batchData, isLoading, isError, error, refetch } = trpc.batch.list.useQuery(queryInput);
   const batches = batchData?.items || [];
   const totalPages = batchData?.totalPages || 1;
 

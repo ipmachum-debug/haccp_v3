@@ -384,6 +384,10 @@ export async function getAllBatches(filters?: {
   tenantId: number;
   page?: number;
   limit?: number;
+  /** planned_date >= fromDate (YYYY-MM-DD). 캘린더 뷰에서 월 범위 조회용 */
+  fromDate?: string;
+  /** planned_date <= toDate (YYYY-MM-DD). 캘린더 뷰에서 월 범위 조회용 */
+  toDate?: string;
 }) {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, limit: 50 };
@@ -412,6 +416,15 @@ export async function getAllBatches(filters?: {
   if (filters?.productId) {
     whereParts.push("b.product_id = ?");
     params.push(filters.productId);
+  }
+  // planned_date 범위 필터 (캘린더 뷰의 월 범위 조회 지원)
+  if (filters?.fromDate) {
+    whereParts.push("b.planned_date >= ?");
+    params.push(filters.fromDate);
+  }
+  if (filters?.toDate) {
+    whereParts.push("b.planned_date <= ?");
+    params.push(filters.toDate);
   }
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(" AND ")}` : "";
