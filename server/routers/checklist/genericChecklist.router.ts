@@ -92,8 +92,12 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
+      // site_id 는 NOT NULL 이지만 기본값이 없다. site 미배정 사용자(관리자 등)는
+      // input.siteId / ctx.user.siteId 가 모두 undefined 라 Drizzle 이 DEFAULT 를 넣어
+      // "Field 'site_id' doesn't have a default value" 로 INSERT 가 실패한다.
+      // → 최종 폴백으로 tenantId 사용 (submitForReview 의 site_id 폴백과 동일 패턴).
       const result = await db.insert(hGenericChecklistRecords).values({
-        siteId: input.siteId || ctx.user.siteId,
+        siteId: input.siteId || ctx.user.siteId || tenantId,
         tenantId: tenantId,
         formType: input.formType,
         formDate: input.formDate,
