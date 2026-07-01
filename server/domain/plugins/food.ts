@@ -105,7 +105,8 @@ export const foodPlugin: IndustryPlugin = {
         items: [
           { icon: "Building2", label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "ClipboardCheck", label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "Shield", label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"] },
+          // 감사 리포트는 감사관리 페이지의 '감사 리포트' 탭으로 통합 (사이드바 메뉴 제거).
+          //   라우트 /dashboard/audit-report 는 App.tsx 에 유지 (직접 URL 호환).
         ],
       },
     ],
