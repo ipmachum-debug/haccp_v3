@@ -383,16 +383,57 @@ export default function EmployeeHealthCheckForm() {
   };
 
   // ============================================================================
-  // 승인 요청
+  // 승인 요청 (저장 안 되어있으면 자동 저장 후 승인 요청)
   // ============================================================================
   const handleApprovalRequest = async () => {
-    if (!savedRecordId) {
-      toast({ title: "저장 필요", description: "먼저 점검표를 저장해주세요.", variant: "destructive" });
-      return;
+    // 아직 저장되지 않았다면 먼저 저장하고 그 id로 승인 요청
+    let recordId = savedRecordId;
+    if (!recordId) {
+      try {
+        const today = todayLocal();
+        const formData = {
+          checkDate,
+          questions,
+          employeeRows,
+          specialNotes,
+          actionBy,
+          approval: {
+            writerId: approval.writerId,
+            writerName: approval.writerName,
+            reviewerId: approval.reviewerId,
+            reviewerName: approval.reviewerName,
+            approverId: approval.approverId,
+            approverName: approval.approverName,
+            writerApproved: true,
+            reviewerApproved: approval.reviewerApproved,
+            approverApproved: approval.approverApproved,
+            writerDate: new Date().toLocaleDateString("ko-KR"),
+            reviewerDate: approval.reviewerDate,
+            approverDate: approval.approverDate,
+          },
+        };
+        const r = await gcSaveMutation.mutateAsync({
+          formType: "employee_health_check",
+          formDate: checkDate,
+          title: `종사자 건강상태 확인 일지 - ${checkDate}`,
+          formData,
+          status: "draft",
+        });
+        if (r?.id) {
+          setSavedRecordId(r.id);
+          recordId = r.id;
+        } else {
+          toast({ title: "저장 실패", description: "저장 후 승인 요청을 다시 시도해주세요.", variant: "destructive" });
+          return;
+        }
+      } catch (err: any) {
+        toast({ title: "저장 실패", description: err?.message || "저장 중 오류가 발생했습니다.", variant: "destructive" });
+        return;
+      }
     }
     try {
       await submitForReviewMutation.mutateAsync({
-        id: savedRecordId,
+        id: recordId,
         requestType: "employee_health_check",
         title: `종사자 건강상태 확인 일지 - ${checkDate}`,
         description: `작성일: ${checkDate}, 작성자: ${approval.writerName}, 점검인원: ${employeeRows.filter(r => r.name.trim()).length}명`,
@@ -529,7 +570,7 @@ export default function EmployeeHealthCheckForm() {
               <Printer className="h-4 w-4 mr-1" />
               인쇄
             </Button>
-            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={!savedRecordId || approvalStatus === "submitted" || approvalStatus === "approved"}>
+            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={submitForReviewMutation.isPending || approvalStatus === "submitted" || approvalStatus === "approved"}>
               {submitForReviewMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
               승인 요청
             </Button>
@@ -660,8 +701,8 @@ export default function EmployeeHealthCheckForm() {
           </div>
 
           {/* 메인 테이블 */}
-          <div className="px-4 py-2 overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
+          <div className="px-4 py-2 overflow-x-auto print:overflow-visible print:px-2">
+            <table className="w-full border-collapse text-xs employee-health-table" style={{ tableLayout: "fixed" }}>
               <thead>
                 <tr>
                   <th className="border border-gray-300 bg-gray-50 px-2 py-1 text-center font-semibold w-20" rowSpan={2}>
@@ -763,6 +804,11 @@ export default function EmployeeHealthCheckForm() {
       {/* 인쇄 전용 스타일 */}
       <style>{`
         @media print {
+          /* A4 가로 방향 + 여백 최소화 (오버플로우 해결) */
+          @page {
+            size: A4 landscape;
+            margin: 8mm;
+          }
           nav, aside, header, footer,
           [data-sidebar], [role="navigation"],
           .sidebar, .dashboard-sidebar {
@@ -793,6 +839,31 @@ export default function EmployeeHealthCheckForm() {
           }
           .bg-gray-50 {
             background-color: #f9fafb !important;
+          }
+          /* 메인 표 인쇄 최적화 — 오버플로우 방지 */
+          .employee-health-table {
+            width: 100% !important;
+            table-layout: fixed !important;
+            font-size: 9px !important;
+          }
+          .employee-health-table th,
+          .employee-health-table td {
+            padding: 1px 2px !important;
+            min-width: 0 !important;
+            word-break: keep-all !important;
+            overflow: hidden !important;
+          }
+          .employee-health-table th div {
+            font-size: 8.5px !important;
+            line-height: 1.15 !important;
+            white-space: normal !important;
+          }
+          /* 표 컨테이너 스크롤 제거 */
+          .employee-health-table {
+            page-break-inside: auto !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
           }
         }
       `}</style>
