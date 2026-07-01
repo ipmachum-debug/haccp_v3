@@ -9,11 +9,15 @@ import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { Plus, FileText, ArrowLeft, HeartPulse, Calendar, Trash2, Edit, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function EmployeeHealthCheckList() {
   const [, setLocation] = useLocation();
   const navigate = (path: string) => setLocation(path);
   const { toast } = useToast();
+  const { user } = useAuth();
+  // 관리자(admin/super_admin)는 모든 상태 삭제 가능. 그 외 사용자는 draft(임시저장)만 삭제.
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const [searchDate, setSearchDate] = useState("");
   const [submittingId, setSubmittingId] = useState<number | null>(null);
 
@@ -45,9 +49,14 @@ export default function EmployeeHealthCheckList() {
     },
   });
 
-  const handleDelete = (id: number, e: React.MouseEvent) => {
+  const handleDelete = (id: number, status: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("정말 삭제하시겠습니까?")) {
+    // 승인완료 기록은 3년 보존 대상 — 삭제 시 강한 경고
+    const msg =
+      status === "approved"
+        ? "⚠️ 승인완료된 기록입니다. 삭제하면 복구할 수 없으며 기록 보존 의무에 영향을 줄 수 있습니다.\n\n정말 삭제하시겠습니까?"
+        : "정말 삭제하시겠습니까?";
+    if (confirm(msg)) {
       deleteMutation.mutate({ id });
     }
   };
@@ -220,12 +229,12 @@ export default function EmployeeHealthCheckList() {
                                 <Edit className="h-3 w-3 mr-1" />
                                 수정
                               </Button>
-                              {record.status === "draft" && (
+                              {(record.status === "draft" || isAdmin) && (
                                 <Button
                                   variant="destructive"
                                   size="sm"
                                   className="h-7 text-xs"
-                                  onClick={(e) => handleDelete(record.id, e)}
+                                  onClick={(e) => handleDelete(record.id, record.status, e)}
                                 >
                                   <Trash2 className="h-3 w-3 mr-1" />
                                   삭제
