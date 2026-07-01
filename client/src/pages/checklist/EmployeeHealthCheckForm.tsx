@@ -161,10 +161,20 @@ export default function EmployeeHealthCheckForm() {
   const submitForReviewMutation = trpc.genericChecklist.submitForReview.useMutation({
     onSuccess: () => {
       setApprovalStatus("submitted");
-      toast({ title: "승인 요청 완료", description: "검토자에게 승인 요청이 전송되었습니다." });
+      toast({
+        title: "승인 요청 완료",
+        description: "검토자에게 승인 요청이 전송되었습니다. 승인관리 페이지로 이동합니다.",
+      });
+      // 다른 체크리스트와 동일한 UX: 1.5초 후 승인관리 페이지로 이동
+      setTimeout(() => navigate("/dashboard/approval"), 1500);
     },
-    onError: (error: { message: string }) => {
-      toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
+    onError: (error: any) => {
+      console.error("[submitForReview] error:", error);
+      toast({
+        title: "승인 요청 실패",
+        description: error?.message || "알 수 없는 오류가 발생했습니다.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -436,9 +446,20 @@ export default function EmployeeHealthCheckForm() {
         id: recordId,
         requestType: "employee_health_check",
         title: `종사자 건강상태 확인 일지 - ${checkDate}`,
-        description: `작성일: ${checkDate}, 작성자: ${approval.writerName}, 점검인원: ${employeeRows.filter(r => r.name.trim()).length}명`,
+        description: `작성일: ${checkDate}, 작성자: ${approval.writerName || "미지정"}, 점검인원: ${employeeRows.filter(r => r.name.trim()).length}명`,
       });
-    } catch {}
+    } catch (err: any) {
+      // onError 훅에서 이미 토스트를 띄우지만, mutateAsync는 여기서도 예외를 던지므로
+      // 추가 로깅만 해두고 삼키지 않도록 보강 (onError가 안 뜰 경우 대비)
+      console.error("[handleApprovalRequest] submitForReview error:", err);
+      if (!submitForReviewMutation.isError) {
+        toast({
+          title: "승인 요청 실패",
+          description: err?.message || "네트워크 오류로 승인 요청이 완료되지 않았습니다.",
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   // 인쇄
@@ -582,7 +603,7 @@ export default function EmployeeHealthCheckForm() {
         </div>
 
         {/* 인쇄 영역 */}
-        <div ref={printRef} className="bg-white border rounded-lg shadow-sm print:border-none print:shadow-none print:rounded-none">
+        <div ref={printRef} className="print-container bg-white border rounded-lg shadow-sm print:border-none print:shadow-none print:rounded-none">
           {/* 결재란 */}
           <div className="flex justify-between items-start px-4 pt-4">
             <div className="flex-1"></div>
@@ -801,13 +822,18 @@ export default function EmployeeHealthCheckForm() {
         </div>
       </div>
 
-      {/* 인쇄 전용 스타일 */}
+      {/* 인쇄 전용 스타일 — A4 세로 1페이지 fit */}
       <style>{`
         @media print {
-          /* A4 가로 방향 + 여백 최소화 (오버플로우 해결) */
+          /* A4 세로 방향 + 여백 최소화 → 1페이지 안에 딱 맞춤 */
           @page {
-            size: A4 landscape;
-            margin: 8mm;
+            size: A4 portrait;
+            margin: 6mm 6mm 6mm 6mm;
+          }
+          html, body {
+            width: 210mm !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           nav, aside, header, footer,
           [data-sidebar], [role="navigation"],
@@ -825,10 +851,6 @@ export default function EmployeeHealthCheckForm() {
             padding: 0 !important;
             max-width: 100% !important;
           }
-          body {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
           input::placeholder, textarea::placeholder {
             color: transparent !important;
           }
@@ -840,27 +862,66 @@ export default function EmployeeHealthCheckForm() {
           .bg-gray-50 {
             background-color: #f9fafb !important;
           }
-          /* 메인 표 인쇄 최적화 — 오버플로우 방지 */
+          /* 전체 폼을 1페이지에 억지로 맞추기 위한 스케일링 */
+          .space-y-6 { gap: 4px !important; }
+          .space-y-6 > * { margin-top: 2px !important; margin-bottom: 2px !important; }
+          .px-4 { padding-left: 4px !important; padding-right: 4px !important; }
+          .py-2 { padding-top: 2px !important; padding-bottom: 2px !important; }
+          .pt-4 { padding-top: 2px !important; }
+          .pb-6 { padding-bottom: 2px !important; }
+          .mb-4 { margin-bottom: 2px !important; }
+          .mt-2 { margin-top: 1px !important; }
+          .mt-4 { margin-top: 2px !important; }
+          /* 제목 축소 */
+          h1, h2, h3 { margin: 0 !important; }
+          /* 메인 표 인쇄 최적화 — A4 세로 폭(198mm)에 딱 맞춤 */
           .employee-health-table {
             width: 100% !important;
             table-layout: fixed !important;
-            font-size: 9px !important;
+            font-size: 8px !important;
+            page-break-inside: avoid !important;
           }
           .employee-health-table th,
           .employee-health-table td {
-            padding: 1px 2px !important;
+            padding: 1px 1px !important;
             min-width: 0 !important;
             word-break: keep-all !important;
             overflow: hidden !important;
-          }
-          .employee-health-table th div {
-            font-size: 8.5px !important;
             line-height: 1.15 !important;
-            white-space: normal !important;
           }
-          /* 표 컨테이너 스크롤 제거 */
-          .employee-health-table {
-            page-break-inside: auto !important;
+          .employee-health-table th[colspan="2"] div {
+            font-size: 7.5px !important;
+            line-height: 1.1 !important;
+            white-space: normal !important;
+            word-break: keep-all !important;
+          }
+          .employee-health-table td input {
+            font-size: 8px !important;
+            padding: 0 !important;
+            height: auto !important;
+          }
+          /* 체크박스 셀 크기 축소 */
+          .employee-health-table td[class*="cursor-pointer"] {
+            padding: 0 !important;
+            height: 12px !important;
+          }
+          .employee-health-table td[class*="cursor-pointer"] > div {
+            width: 8px !important;
+            height: 8px !important;
+          }
+          /* 결재란 축소 */
+          .print-approval-cell {
+            height: 32px !important;
+            width: 40px !important;
+          }
+          /* 특이사항 축소 */
+          textarea {
+            min-height: 24px !important;
+            font-size: 9px !important;
+          }
+          /* 페이지 분리 방지 */
+          .print-container, .print-container * {
+            page-break-inside: avoid !important;
           }
           tr {
             page-break-inside: avoid !important;
