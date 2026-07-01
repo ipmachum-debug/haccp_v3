@@ -1,10 +1,11 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, Search, CalendarCheck, Info } from "lucide-react";
+import { Building2, Search, CalendarCheck, Info, Shield } from "lucide-react";
 import SupplierAudit from "@/pages/haccp/SupplierAudit";
 import InternalAudit from "@/pages/haccp/InternalAudit";
 import InternalAuditPlan from "@/pages/haccp/InternalAuditPlan";
+import AuditReportDashboard from "@/pages/system/AuditReportDashboard";
 
 export default function AuditManagement() {
   const [activeTab, setActiveTab] = useState("supplier-audit");
@@ -24,13 +25,13 @@ export default function AuditManagement() {
         <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-amber-800 dark:text-amber-300">
-            <strong>사용 가이드:</strong> 「거래처 감사」에서 공급업체 위생·품질 감사를, 「내부 감사」에서 자체 HACCP 이행 점검을, 「내부 감사 계획」에서 연간 감사 일정을 관리할 수 있습니다.
+            <strong>사용 가이드:</strong> 「거래처 감사」에서 공급업체 위생·품질 감사를, 「내부 감사」에서 자체 HACCP 이행 점검을, 「내부 감사 계획」에서 연간 감사 일정을, 「감사 리포트」에서 교육·체크리스트·CCP·시정조치·위생검사 종합 준수율을 확인할 수 있습니다.
           </div>
         </div>
 
         {/* 탭 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3 h-12">
+          <TabsList className="grid w-full grid-cols-4 h-12">
             <TabsTrigger value="supplier-audit" className="flex items-center gap-2 text-sm">
               <Building2 className="h-4 w-4" />
               거래처 감사
@@ -42,6 +43,10 @@ export default function AuditManagement() {
             <TabsTrigger value="audit-plan" className="flex items-center gap-2 text-sm">
               <CalendarCheck className="h-4 w-4" />
               내부 감사 계획
+            </TabsTrigger>
+            <TabsTrigger value="report" className="flex items-center gap-2 text-sm">
+              <Shield className="h-4 w-4" />
+              감사 리포트
             </TabsTrigger>
           </TabsList>
 
@@ -55,6 +60,10 @@ export default function AuditManagement() {
 
           <TabsContent value="audit-plan" className="mt-4">
             <InternalAuditPlan embedded />
+          </TabsContent>
+
+          <TabsContent value="report" className="mt-4">
+            <AuditReportDashboard embedded />
           </TabsContent>
         </Tabs>
       </div>

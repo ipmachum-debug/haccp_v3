@@ -2,7 +2,7 @@
  * HACCP 감사 리포트 대시보드
  * 교육 + 체크리스트 + CCP + 시정조치 + 위생검사 통합 종합 점수
  */
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,7 @@ function ScoreGauge({ label, score, icon }: { label: string; score: number; icon
   );
 }
 
-export default function AuditReportDashboard() {
+export default function AuditReportDashboard({ embedded = false }: { embedded?: boolean }) {
   const now = new Date();
   const [startDate, setStartDate] = useState(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-01`);
   const [endDate, setEndDate] = useState(now.toISOString().slice(0, 10));
@@ -85,8 +85,10 @@ export default function AuditReportDashboard() {
     pw.document.close();
   };
 
+  // embedded=true 이면 감사관리 페이지의 탭 안에서 렌더 (DashboardLayout 래핑 생략)
+  const Wrapper: any = embedded ? Fragment : DashboardLayout;
   return (
-    <DashboardLayout>
+    <Wrapper>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -183,6 +185,6 @@ export default function AuditReportDashboard() {
           </>
         ) : null}
       </div>
-    </DashboardLayout>
+    </Wrapper>
   );
 }
