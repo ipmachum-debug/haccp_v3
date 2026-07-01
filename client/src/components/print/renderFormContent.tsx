@@ -238,7 +238,7 @@ export function renderFormContent(data: any, formType: string, doc?: any) {
   if (!data) return <p className="text-gray-500">데이터 없음</p>;
   switch (formType) {
     case "production_daily": return renderProductionDaily(data, doc);
-    case "employee_health_check": return renderEmployeeHealthCheck(data);
+    case "employee_health_check": return renderEmployeeHealthCheck(data, doc);
     case "air_compressor_maintenance": return renderAirCompressorMaintenance(data);
     case "equipment_inspection": return renderEquipmentInspection(data);
     case "temperature_humidity_check": return renderTemperatureHumidityCheck(data);
