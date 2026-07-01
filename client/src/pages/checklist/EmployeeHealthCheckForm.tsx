@@ -942,17 +942,16 @@ export default function EmployeeHealthCheckForm() {
             box-shadow: none !important;
           }
 
-          /* ★ 결재란을 오른쪽 상단에 절대 위치로 붙여 상단 공백 제거
-             폭 약 60mm, 높이 약 30mm 확보 */
+          /* ★ 결재란: 정상 흐름의 우측 상단에 배치 (제목 위, 오른쪽).
+             이전 position:absolute 방식은 인쇄 시 결재란이 클리핑·누락되는 회귀를
+             유발하여(8ea66f8) 정상 flex 흐름으로 복원. */
           .print-approval-row {
-            position: absolute !important;
-            top: 0 !important;
-            right: 0 !important;
+            position: static !important;
+            display: flex !important;
+            justify-content: flex-end !important;
             margin: 0 !important;
             padding: 0 !important;
-            z-index: 10 !important;
-            display: block !important;
-            width: auto !important;
+            width: 100% !important;
           }
           .print-approval-row .flex-1 {
             display: none !important;
@@ -984,16 +983,13 @@ export default function EmployeeHealthCheckForm() {
             line-height: 1 !important;
           }
 
-          /* ★ 제목 영역 — 결재란 왼쪽 공간을 채우도록 왼쪽 정렬로 배치
-             결재란 폭(약 130px)만큼 오른쪽 padding 확보 */
+          /* ★ 제목 영역 — 결재란이 정상 흐름으로 위에 오므로 전체 폭 가운데 정렬 */
           .print-title {
-            padding: 0 130px 2px 4px !important;
+            padding: 0 4px 2px 4px !important;
             margin: 0 !important;
             text-align: center !important;
-            min-height: 32px !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
+            min-height: 0 !important;
+            display: block !important;
           }
           .print-title h2 {
             font-size: 15px !important;
