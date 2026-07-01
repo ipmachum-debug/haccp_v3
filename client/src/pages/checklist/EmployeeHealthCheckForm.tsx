@@ -269,6 +269,37 @@ export default function EmployeeHealthCheckForm() {
   }, [existingRecord, dataLoaded]);
 
   // ============================================================================
+  // 신규 작성 모드: 구성원관리에 등록된 활성 직원을 자동으로 종사자 행에 채우기
+  //  - 편집 모드(isEdit) 나 기존 데이터가 로드된 경우엔 채우지 않음
+  //  - 이미 사용자가 이름 하나라도 입력했다면 덮어쓰지 않음
+  //  - 자동 채우기는 한 번만 (employeesAutofilled 플래그)
+  // ============================================================================
+  const [employeesAutofilled, setEmployeesAutofilled] = useState(false);
+  useEffect(() => {
+    if (isEdit) return;                     // 편집 모드에서는 스킵
+    if (dataLoaded) return;                 // 기존 데이터가 이미 로드됨
+    if (employeesAutofilled) return;        // 이미 한 번 채웠음
+    if (!activeEmployees || activeEmployees.length === 0) return;
+
+    // 현재 employeeRows에 사용자가 입력한 이름이 하나라도 있으면 건드리지 않음
+    const hasUserInput = employeeRows.some(r => r.name && r.name.trim().length > 0);
+    if (hasUserInput) return;
+
+    // 구성원 이름을 각 행에 채워 넣기 (구성원 수 + 여분 2행 정도)
+    const autoRows: EmployeeRow[] = activeEmployees.map((emp: any) => ({
+      name: emp.name,
+      answers: {},
+    }));
+    // 최소 13행은 유지하고, 여분 2행 추가
+    const targetLength = Math.max(13, autoRows.length + 2);
+    while (autoRows.length < targetLength) {
+      autoRows.push({ name: "", answers: {} });
+    }
+    setEmployeeRows(autoRows);
+    setEmployeesAutofilled(true);
+  }, [isEdit, dataLoaded, employeesAutofilled, activeEmployees, employeeRows]);
+
+  // ============================================================================
   // 이벤트 핸들러
   // ============================================================================
 
@@ -291,17 +322,25 @@ export default function EmployeeHealthCheckForm() {
     setEmployeeRows(prev => prev.filter((_, i) => i !== index));
   }, []);
 
-  // 일괄 X 처리 (전원 정상)
+  // 일괄 X 처리 (전원 이상 없음 = 증상 없음)
+  //  질문이 모두 "~증상이 있습니까?" 형태이므로, "이상 없음"은 X(아니오/해당없음) 체크가 정답
+  //  다만 이름이 비어있는 행은 건드리지 않음 (실제 근무자만 처리)
   const setAllNormal = useCallback(() => {
     setEmployeeRows(prev =>
       prev.map(row => {
+        // 이름이 없는 행은 스킵 (근무하지 않는 자리)
+        if (!row.name || !row.name.trim()) return row;
         const answers: Record<string, "O" | "X" | ""> = {};
         questions.forEach(q => { answers[q.id] = "X"; });
         return { ...row, answers };
       })
     );
-    toast({ title: "일괄 정상 처리", description: "모든 종사자의 건강 질문이 X(해당없음)로 처리되었습니다." });
-  }, [questions, toast]);
+    const filledCount = employeeRows.filter(r => r.name && r.name.trim()).length;
+    toast({
+      title: "전원 이상없음 처리 완료",
+      description: `근무 종사자 ${filledCount}명 전원, 모든 건강 질문에 "아니오(X)" 로 체크되었습니다.`,
+    });
+  }, [questions, toast, employeeRows]);
 
   // 질문 추가
   const addQuestion = useCallback(() => {
@@ -520,9 +559,14 @@ export default function EmployeeHealthCheckForm() {
             {approvalStatus === "rejected" && <Badge variant="destructive">반려</Badge>}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={setAllNormal}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={setAllNormal}
+              title='근무 종사자 전원의 모든 건강 질문(설사·발열·구토·감염 등)에 "아니오(X)" 로 일괄 체크합니다'
+            >
               <CheckCircle2 className="h-4 w-4 mr-1" />
-              일괄 정상(X)
+              전원 이상없음
             </Button>
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
               <DialogTrigger asChild>
@@ -679,6 +723,10 @@ export default function EmployeeHealthCheckForm() {
                   </td>
                   <td className="border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-semibold w-24 text-center">작성자</td>
                   <td className="border border-gray-300 px-3 py-2">
+                    {/* 인쇄 전용: 작성자 이름을 확실히 보이도록 별도 텍스트로 표시 */}
+                    <span className="hidden print:inline text-sm font-medium">
+                      {approval.writerName || "-"}
+                    </span>
                     <Select
                       value={approval.writerName || undefined}
                       onValueChange={(val) => {
@@ -686,7 +734,7 @@ export default function EmployeeHealthCheckForm() {
                         handleWriterChange(val, emp?.id);
                       }}
                     >
-                      <SelectTrigger className="h-8 border-none shadow-none p-0 text-sm">
+                      <SelectTrigger className="h-8 border-none shadow-none p-0 text-sm print:hidden">
                         <SelectValue placeholder="작성자 선택">
                           {approval.writerName ? (
                             <div className="flex items-center gap-1.5">
@@ -813,10 +861,11 @@ export default function EmployeeHealthCheckForm() {
         <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm text-blue-700 print:hidden">
           <p className="font-medium mb-1">사용 안내</p>
           <ul className="list-disc list-inside space-y-0.5 text-xs">
-            <li>각 질문의 O/X 체크박스를 <strong>클릭</strong>하여 해당 여부를 선택합니다.</li>
-            <li><strong>일괄 정상(X)</strong> 버튼을 누르면 모든 종사자의 질문이 X(해당없음)로 처리됩니다.</li>
+            <li>종사자 이름은 <strong>구성원관리</strong>에 등록된 활성 직원이 <strong>자동 노출</strong>됩니다. (필요시 삭제·수정 가능)</li>
+            <li>각 질문은 <strong>"~증상이 있습니까?"</strong> 형태입니다. → <strong>이상 없으면 X(아니오)</strong>, 증상이 있으면 O(예)에 체크합니다.</li>
+            <li><strong>전원 이상없음</strong> 버튼: 이름이 입력된 근무 종사자 전원의 모든 질문에 <strong>X(아니오)</strong> 로 일괄 체크합니다.</li>
             <li><strong>설정</strong> 버튼에서 건강 질문을 회사에 맞게 추가/수정/삭제할 수 있습니다.</li>
-            <li><strong>인쇄</strong> 버튼으로 양식 그대로 PDF 출력이 가능합니다.</li>
+            <li><strong>인쇄</strong> 버튼으로 A4 세로 한 페이지 양식 그대로 출력이 가능합니다.</li>
             <li>작성자/검토자/승인자는 <strong>시스템관리 → 조직/책임관리</strong>에서 설정된 담당자로 자동 지정됩니다.</li>
           </ul>
         </div>
